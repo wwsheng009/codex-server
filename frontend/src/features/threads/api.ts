@@ -1,0 +1,36 @@
+import { apiRequest } from '../../lib/api-client'
+import type { Thread, ThreadDetail } from '../../types/api'
+
+export function listThreads(workspaceId: string) {
+  return apiRequest<Thread[]>(`/api/workspaces/${workspaceId}/threads`)
+}
+
+export function getThread(workspaceId: string, threadId: string) {
+  return apiRequest<ThreadDetail>(`/api/workspaces/${workspaceId}/threads/${threadId}`)
+}
+
+export function createThread(workspaceId: string, input: { name: string }) {
+  return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function renameThread(workspaceId: string, threadId: string, input: { name: string }) {
+  return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads/${threadId}/name`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function archiveThread(workspaceId: string, threadId: string) {
+  return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads/${threadId}/archive`, {
+    method: 'POST',
+  })
+}
+
+export function unarchiveThread(workspaceId: string, threadId: string) {
+  return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads/${threadId}/unarchive`, {
+    method: 'POST',
+  })
+}
