@@ -32,6 +32,27 @@ type PluginInstallResult struct {
 	AuthPolicy      string           `json:"authPolicy"`
 }
 
+type RemoteSkillResult struct {
+	Data []map[string]any `json:"data"`
+}
+
+type RemoteSkillWriteResult struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+type ExperimentalFeatureResult struct {
+	Data []map[string]any `json:"data"`
+}
+
+type McpServerStatusResult struct {
+	Data []map[string]any `json:"data"`
+}
+
+type SkillConfigWriteResult struct {
+	EffectiveEnabled bool `json:"effectiveEnabled"`
+}
+
 func NewService(runtimeManager *runtime.Manager) *Service {
 	return &Service{
 		runtimes: runtimeManager,
@@ -165,6 +186,70 @@ func (s *Service) CollaborationModes() []CollaborationMode {
 		{ID: "default", Name: "Default", Description: "Single-agent execution with proactive progress updates"},
 		{ID: "plan", Name: "Plan", Description: "Task planning mode with explicit user checkpoints"},
 	}
+}
+
+func (s *Service) ListRemoteSkills(ctx context.Context, workspaceID string, enabled bool, hazelnutScope string, productSurface string) (RemoteSkillResult, error) {
+	params := map[string]any{
+		"enabled": enabled,
+	}
+	if hazelnutScope != "" {
+		params["hazelnutScope"] = hazelnutScope
+	}
+	if productSurface != "" {
+		params["productSurface"] = productSurface
+	}
+
+	var response RemoteSkillResult
+	if err := s.runtimes.Call(ctx, workspaceID, "skills/remote/list", params, &response); err != nil {
+		return RemoteSkillResult{}, err
+	}
+
+	return response, nil
+}
+
+func (s *Service) ExportRemoteSkill(ctx context.Context, workspaceID string, hazelnutID string) (RemoteSkillWriteResult, error) {
+	var response RemoteSkillWriteResult
+	if err := s.runtimes.Call(ctx, workspaceID, "skills/remote/export", map[string]any{
+		"hazelnutId": hazelnutID,
+	}, &response); err != nil {
+		return RemoteSkillWriteResult{}, err
+	}
+
+	return response, nil
+}
+
+func (s *Service) ListExperimentalFeatures(ctx context.Context, workspaceID string) (ExperimentalFeatureResult, error) {
+	var response ExperimentalFeatureResult
+	if err := s.runtimes.Call(ctx, workspaceID, "experimentalFeature/list", map[string]any{
+		"limit": 200,
+	}, &response); err != nil {
+		return ExperimentalFeatureResult{}, err
+	}
+
+	return response, nil
+}
+
+func (s *Service) ListMcpServerStatus(ctx context.Context, workspaceID string) (McpServerStatusResult, error) {
+	var response McpServerStatusResult
+	if err := s.runtimes.Call(ctx, workspaceID, "mcpServerStatus/list", map[string]any{
+		"limit": 200,
+	}, &response); err != nil {
+		return McpServerStatusResult{}, err
+	}
+
+	return response, nil
+}
+
+func (s *Service) WriteSkillConfig(ctx context.Context, workspaceID string, path string, enabled bool) (SkillConfigWriteResult, error) {
+	var response SkillConfigWriteResult
+	if err := s.runtimes.Call(ctx, workspaceID, "skills/config/write", map[string]any{
+		"enabled": enabled,
+		"path":    path,
+	}, &response); err != nil {
+		return SkillConfigWriteResult{}, err
+	}
+
+	return response, nil
 }
 
 func stringValue(value any) string {

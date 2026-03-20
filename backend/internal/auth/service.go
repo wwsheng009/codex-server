@@ -31,6 +31,14 @@ type LoginResult struct {
 	Message string `json:"message,omitempty"`
 }
 
+type CancelLoginResult struct {
+	Status string `json:"status"`
+}
+
+type McpOauthLoginResult struct {
+	AuthorizationURL string `json:"authorizationUrl"`
+}
+
 func NewService(dataStore *store.MemoryStore, runtimeManager *runtime.Manager) *Service {
 	return &Service{
 		store:    dataStore,
@@ -169,6 +177,49 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (LoginResult, err
 	default:
 		return LoginResult{}, fmt.Errorf("%w: unsupported login type", ErrInvalidLoginInput)
 	}
+}
+
+func (s *Service) CancelLogin(ctx context.Context, loginID string) (CancelLoginResult, error) {
+	if strings.TrimSpace(loginID) == "" {
+		return CancelLoginResult{}, fmt.Errorf("%w: loginId is required", ErrInvalidLoginInput)
+	}
+
+	workspaceID := s.primaryWorkspaceID()
+	if workspaceID == "" {
+		return CancelLoginResult{}, runtime.ErrRuntimeNotConfigured
+	}
+
+	var response CancelLoginResult
+	if err := s.runtimes.Call(ctx, workspaceID, "account/login/cancel", map[string]any{
+		"loginId": loginID,
+	}, &response); err != nil {
+		return CancelLoginResult{}, err
+	}
+
+	return response, nil
+}
+
+func (s *Service) McpOauthLogin(ctx context.Context, workspaceID string, name string, scopes []string, timeoutSecs *int) (McpOauthLoginResult, error) {
+	if strings.TrimSpace(name) == "" {
+		return McpOauthLoginResult{}, fmt.Errorf("%w: name is required", ErrInvalidLoginInput)
+	}
+
+	params := map[string]any{
+		"name": name,
+	}
+	if len(scopes) > 0 {
+		params["scopes"] = scopes
+	}
+	if timeoutSecs != nil {
+		params["timeoutSecs"] = *timeoutSecs
+	}
+
+	var response McpOauthLoginResult
+	if err := s.runtimes.Call(ctx, workspaceID, "mcpServer/oauth/login", params, &response); err != nil {
+		return McpOauthLoginResult{}, err
+	}
+
+	return response, nil
 }
 
 func (s *Service) primaryWorkspaceID() string {

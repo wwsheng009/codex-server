@@ -211,6 +211,19 @@ func (s *MemoryStore) UpsertThread(thread Thread) {
 	s.persistLocked()
 }
 
+func (s *MemoryStore) DeleteThread(workspaceID string, threadID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	thread, ok := s.threads[threadID]
+	if !ok || thread.WorkspaceID != workspaceID {
+		return
+	}
+
+	delete(s.threads, threadID)
+	s.persistLocked()
+}
+
 func (s *MemoryStore) CreatePendingApproval(workspaceID string, threadID string, kind string, summary string) PendingApproval {
 	s.mu.Lock()
 	defer s.mu.Unlock()

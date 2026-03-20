@@ -10,8 +10,10 @@ import (
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/catalog"
+	"codex-server/backend/internal/configfs"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
+	"codex-server/backend/internal/feedback"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
@@ -32,33 +34,41 @@ type Dependencies struct {
 	Turns          *turns.Service
 	Approvals      *approvals.Service
 	Catalog        *catalog.Service
+	ConfigFS       *configfs.Service
 	ExecFS         *execfs.Service
+	Feedback       *feedback.Service
 	Events         *events.Hub
 }
 
 type Server struct {
-	frontendOrigin string
-	auth           *auth.Service
-	workspaces     *workspace.Service
-	threads        *threads.Service
-	turns          *turns.Service
-	approvals      *approvals.Service
-	catalog        *catalog.Service
-	execfs         *execfs.Service
-	events         *events.Hub
+	originMatcher *originMatcher
+	auth          *auth.Service
+	workspaces    *workspace.Service
+	threads       *threads.Service
+	turns         *turns.Service
+	approvals     *approvals.Service
+	catalog       *catalog.Service
+	configfs      *configfs.Service
+	execfs        *execfs.Service
+	feedback      *feedback.Service
+	events        *events.Hub
 }
 
 func NewRouter(deps Dependencies) http.Handler {
+	originMatcher := newOriginMatcher(deps.FrontendOrigin)
+
 	server := &Server{
-		frontendOrigin: deps.FrontendOrigin,
-		auth:           deps.Auth,
-		workspaces:     deps.Workspaces,
-		threads:        deps.Threads,
-		turns:          deps.Turns,
-		approvals:      deps.Approvals,
-		catalog:        deps.Catalog,
-		execfs:         deps.ExecFS,
-		events:         deps.Events,
+		originMatcher: originMatcher,
+		auth:          deps.Auth,
+		workspaces:    deps.Workspaces,
+		threads:       deps.Threads,
+		turns:         deps.Turns,
+		approvals:     deps.Approvals,
+		catalog:       deps.Catalog,
+		configfs:      deps.ConfigFS,
+		execfs:        deps.ExecFS,
+		feedback:      deps.Feedback,
+		events:        deps.Events,
 	}
 
 	router := chi.NewRouter()
@@ -67,7 +77,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
 	router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{deps.FrontendOrigin},
+		AllowOriginFunc:  originMatcher.AllowRequest,
 		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
@@ -78,6 +88,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	router.Route("/api", func(r chi.Router) {
 		r.Get("/account", server.handleGetAccount)
 		r.Post("/account/login", server.handleLogin)
+		r.Post("/account/login/cancel", server.handleCancelLogin)
 		r.Post("/account/logout", server.handleLogout)
 		r.Get("/account/rate-limits", server.handleGetRateLimits)
 
@@ -88,16 +99,33 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/{workspaceId}/pending-approvals", server.handleListPendingApprovals)
 			r.Get("/{workspaceId}/models", server.handleListModels)
 			r.Get("/{workspaceId}/skills", server.handleListSkills)
+			r.Post("/{workspaceId}/skills/remote/list", server.handleListRemoteSkills)
+			r.Post("/{workspaceId}/skills/remote/export", server.handleExportRemoteSkill)
+			r.Post("/{workspaceId}/skills/config/write", server.handleWriteSkillConfig)
 			r.Get("/{workspaceId}/apps", server.handleListApps)
 			r.Get("/{workspaceId}/plugins", server.handleListPlugins)
 			r.Post("/{workspaceId}/plugins/read", server.handleReadPlugin)
 			r.Post("/{workspaceId}/plugins/install", server.handleInstallPlugin)
 			r.Post("/{workspaceId}/plugins/uninstall", server.handleUninstallPlugin)
+			r.Post("/{workspaceId}/config/read", server.handleConfigRead)
+			r.Post("/{workspaceId}/config/write", server.handleConfigWrite)
+			r.Post("/{workspaceId}/config/batch-write", server.handleConfigBatchWrite)
+			r.Get("/{workspaceId}/config/requirements", server.handleConfigRequirementsRead)
+			r.Post("/{workspaceId}/config/mcp-server/reload", server.handleConfigMcpServerReload)
+			r.Post("/{workspaceId}/external-agent/detect", server.handleExternalAgentConfigDetect)
+			r.Post("/{workspaceId}/external-agent/import", server.handleExternalAgentConfigImport)
+			r.Post("/{workspaceId}/search/files", server.handleFuzzyFileSearch)
+			r.Post("/{workspaceId}/feedback/upload", server.handleFeedbackUpload)
+			r.Post("/{workspaceId}/mcp/oauth/login", server.handleMcpOauthLogin)
+			r.Get("/{workspaceId}/experimental-features", server.handleListExperimentalFeatures)
+			r.Get("/{workspaceId}/mcp-server-status", server.handleListMcpServerStatus)
+			r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
 			r.Get("/{workspaceId}/collaboration-modes", server.handleListCollaborationModes)
 			r.Get("/{workspaceId}/stream", server.handleWorkspaceStream)
 
 			r.Route("/{workspaceId}/threads", func(r chi.Router) {
 				r.Get("/", server.handleListThreads)
+				r.Get("/loaded", server.handleListLoadedThreads)
 				r.Post("/", server.handleCreateThread)
 				r.Get("/{threadId}", server.handleGetThread)
 				r.Post("/{threadId}/resume", server.handleResumeThread)
@@ -105,7 +133,9 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/{threadId}/archive", server.handleArchiveThread)
 				r.Post("/{threadId}/unarchive", server.handleUnarchiveThread)
 				r.Post("/{threadId}/name", server.handleRenameThread)
+				r.Post("/{threadId}/metadata", server.handleUpdateThreadMetadata)
 				r.Post("/{threadId}/rollback", server.handleRollbackThread)
+				r.Post("/{threadId}/compact", server.handleCompactThread)
 				r.Post("/{threadId}/turns", server.handleStartTurn)
 				r.Post("/{threadId}/turns/steer", server.handleSteerTurn)
 				r.Post("/{threadId}/turns/interrupt", server.handleInterruptTurn)
@@ -156,6 +186,25 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.auth.Login(r.Context(), request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleCancelLogin(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		LoginID string `json:"loginId"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.auth.CancelLogin(r.Context(), request.LoginID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -229,11 +278,24 @@ func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, threads)
 }
 
+func (s *Server) handleListLoadedThreads(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threads, err := s.threads.ListLoaded(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"data": threads})
+}
+
 func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 
 	var request struct {
-		Name string `json:"name"`
+		Name             string `json:"name"`
+		Model            string `json:"model"`
+		PermissionPreset string `json:"permissionPreset"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -241,7 +303,11 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thread, err := s.threads.Create(r.Context(), workspaceID, request.Name)
+	thread, err := s.threads.Create(r.Context(), workspaceID, threads.CreateInput{
+		Name:             request.Name,
+		Model:            request.Model,
+		PermissionPreset: request.PermissionPreset,
+	})
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -313,12 +379,12 @@ func (s *Server) handleRollbackThread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
-func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateThreadMetadata(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	threadID := chi.URLParam(r, "threadId")
 
 	var request struct {
-		Input string `json:"input"`
+		GitInfo map[string]any `json:"gitInfo"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -326,7 +392,48 @@ func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.turns.Start(r.Context(), workspaceID, threadID, request.Input)
+	thread, err := s.threads.UpdateMetadata(r.Context(), workspaceID, threadID, request.GitInfo)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, thread)
+}
+
+func (s *Server) handleCompactThread(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+
+	if err := s.threads.Compact(r.Context(), workspaceID, threadID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+
+	var request struct {
+		Input            string `json:"input"`
+		Model            string `json:"model"`
+		ReasoningEffort  string `json:"reasoningEffort"`
+		PermissionPreset string `json:"permissionPreset"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.turns.Start(r.Context(), workspaceID, threadID, request.Input, turns.StartOptions{
+		Model:            request.Model,
+		ReasoningEffort:  request.ReasoningEffort,
+		PermissionPreset: request.PermissionPreset,
+	})
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -660,6 +767,72 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+func (s *Server) handleListRemoteSkills(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		Enabled        bool   `json:"enabled"`
+		HazelnutScope  string `json:"hazelnutScope"`
+		ProductSurface string `json:"productSurface"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.catalog.ListRemoteSkills(r.Context(), workspaceID, request.Enabled, request.HazelnutScope, request.ProductSurface)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWriteSkillConfig(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		Path    string `json:"path"`
+		Enabled bool   `json:"enabled"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.catalog.WriteSkillConfig(r.Context(), workspaceID, request.Path, request.Enabled)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleExportRemoteSkill(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		HazelnutID string `json:"hazelnutId"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.catalog.ExportRemoteSkill(r.Context(), workspaceID, request.HazelnutID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
 func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	items, err := s.catalog.Apps(r.Context(), chi.URLParam(r, "workspaceId"))
 	if err != nil {
@@ -678,6 +851,252 @@ func (s *Server) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) handleConfigRead(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		IncludeLayers bool `json:"includeLayers"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.configfs.ReadConfig(r.Context(), workspaceID, request.IncludeLayers)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleConfigWrite(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		FilePath      string `json:"filePath"`
+		KeyPath       string `json:"keyPath"`
+		MergeStrategy string `json:"mergeStrategy"`
+		Value         any    `json:"value"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.configfs.WriteConfigValue(r.Context(), workspaceID, request.FilePath, request.KeyPath, request.MergeStrategy, request.Value)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleConfigBatchWrite(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		FilePath         string           `json:"filePath"`
+		Edits            []map[string]any `json:"edits"`
+		ReloadUserConfig bool             `json:"reloadUserConfig"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.configfs.BatchWriteConfig(r.Context(), workspaceID, request.FilePath, request.Edits, request.ReloadUserConfig)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleFuzzyFileSearch(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		Query string `json:"query"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.configfs.FuzzyFileSearch(r.Context(), workspaceID, request.Query)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFeedbackUpload(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		Classification string   `json:"classification"`
+		IncludeLogs    bool     `json:"includeLogs"`
+		Reason         string   `json:"reason"`
+		ThreadID       string   `json:"threadId"`
+		ExtraLogFiles  []string `json:"extraLogFiles"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.feedback.Upload(r.Context(), workspaceID, request.Classification, request.IncludeLogs, request.Reason, request.ThreadID, request.ExtraLogFiles)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleMcpOauthLogin(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		Name        string   `json:"name"`
+		Scopes      []string `json:"scopes"`
+		TimeoutSecs *int     `json:"timeoutSecs"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.auth.McpOauthLogin(r.Context(), workspaceID, request.Name, request.Scopes, request.TimeoutSecs)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleConfigRequirementsRead(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	result, err := s.configfs.ReadConfigRequirements(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleConfigMcpServerReload(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	if err := s.configfs.ReloadMcpServers(r.Context(), workspaceID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleListExperimentalFeatures(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	result, err := s.catalog.ListExperimentalFeatures(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleListMcpServerStatus(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	result, err := s.catalog.ListMcpServerStatus(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWindowsSandboxSetupStart(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		Mode string `json:"mode"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.configfs.StartWindowsSandboxSetup(r.Context(), workspaceID, request.Mode)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleExternalAgentConfigDetect(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		IncludeHome bool `json:"includeHome"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.configfs.DetectExternalAgentConfig(r.Context(), workspaceID, request.IncludeHome)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleExternalAgentConfigImport(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		MigrationItems []map[string]any `json:"migrationItems"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if err := s.configfs.ImportExternalAgentConfig(r.Context(), workspaceID, request.MigrationItems); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (s *Server) handleReadPlugin(w http.ResponseWriter, r *http.Request) {
@@ -758,7 +1177,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			return origin == "" || strings.EqualFold(origin, s.frontendOrigin)
+			return origin == "" || s.originMatcher.Allow(origin)
 		},
 	}
 
@@ -833,7 +1252,27 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "server_request_not_found", err.Error())
 	case errors.Is(err, appRuntime.ErrNoActiveTurn):
 		writeError(w, http.StatusConflict, "no_active_turn", err.Error())
+	case isRequiresOpenAIAuthError(err):
+		writeError(w, http.StatusUnauthorized, "requires_openai_auth", "OpenAI authentication is required. Reconnect the account or update the API key.")
 	default:
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 	}
+}
+
+func isRequiresOpenAIAuthError(err error) bool {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	if message == "" {
+		return false
+	}
+
+	if strings.Contains(message, "invalid_api_key") {
+		return true
+	}
+
+	if strings.Contains(message, "authentication required") || strings.Contains(message, "requires openai auth") {
+		return true
+	}
+
+	return strings.Contains(message, "401 unauthorized") &&
+		(strings.Contains(message, "api key") || strings.Contains(message, "openai") || strings.Contains(message, "auth"))
 }

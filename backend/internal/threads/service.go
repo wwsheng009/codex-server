@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"codex-server/backend/internal/bridge"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 )
@@ -15,6 +16,12 @@ import (
 type Service struct {
 	store    *store.MemoryStore
 	runtimes *runtime.Manager
+}
+
+type CreateInput struct {
+	Name             string
+	Model            string
+	PermissionPreset string
 }
 
 func NewService(dataStore *store.MemoryStore, runtimeManager *runtime.Manager) *Service {
@@ -25,6 +32,7 @@ func NewService(dataStore *store.MemoryStore, runtimeManager *runtime.Manager) *
 }
 
 func (s *Service) List(ctx context.Context, workspaceID string) ([]store.Thread, error) {
+	rootPath := normalizePath(s.runtimes.RootPath(workspaceID))
 	activeThreads, err := s.listByArchived(ctx, workspaceID, false)
 	if err != nil {
 		return nil, err
@@ -36,7 +44,7 @@ func (s *Service) List(ctx context.Context, workspaceID string) ([]store.Thread,
 	}
 
 	items := append(activeThreads, archivedThreads...)
-	items = mergeThreads(items, s.store.ListThreads(workspaceID))
+	items = mergeThreads(items, filterStoredThreads(s.store.ListThreads(workspaceID), rootPath))
 	sort.Slice(items, func(i int, j int) bool {
 		return items[i].UpdatedAt.After(items[j].UpdatedAt)
 	})
@@ -44,8 +52,8 @@ func (s *Service) List(ctx context.Context, workspaceID string) ([]store.Thread,
 	return items, nil
 }
 
-func (s *Service) Create(ctx context.Context, workspaceID string, name string) (store.Thread, error) {
-	if strings.TrimSpace(name) == "" {
+func (s *Service) Create(ctx context.Context, workspaceID string, input CreateInput) (store.Thread, error) {
+	if strings.TrimSpace(input.Name) == "" {
 		return store.Thread{}, errors.New("thread name is required")
 	}
 
@@ -53,11 +61,7 @@ func (s *Service) Create(ctx context.Context, workspaceID string, name string) (
 		Thread map[string]any `json:"thread"`
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/start", map[string]any{
-		"approvalPolicy": "on-request",
-		"cwd":            s.runtimes.RootPath(workspaceID),
-		"sandbox":        "workspace-write",
-	}, &response); err != nil {
+	if err := s.runtimes.Call(ctx, workspaceID, "thread/start", buildThreadStartPayload(s.runtimes.RootPath(workspaceID), input), &response); err != nil {
 		return store.Thread{}, err
 	}
 
@@ -66,7 +70,7 @@ func (s *Service) Create(ctx context.Context, workspaceID string, name string) (
 		return store.Thread{}, errors.New("thread/start returned empty thread id")
 	}
 
-	if _, err := s.Rename(ctx, workspaceID, threadID, name); err != nil {
+	if _, err := s.Rename(ctx, workspaceID, threadID, input.Name); err != nil {
 		return store.Thread{}, err
 	}
 
@@ -75,50 +79,140 @@ func (s *Service) Create(ctx context.Context, workspaceID string, name string) (
 		return store.Thread{}, err
 	}
 
-	s.store.UpsertThread(thread)
 	return thread, nil
 }
 
-func (s *Service) Get(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
-	var response struct {
-		Thread map[string]any `json:"thread"`
+func buildThreadStartPayload(rootPath string, input CreateInput) map[string]any {
+	payload := map[string]any{
+		"approvalPolicy": "on-request",
+		"cwd":            rootPath,
+		"sandbox":        "workspace-write",
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/read", map[string]any{
-		"includeTurns": false,
-		"threadId":     threadID,
-	}, &response); err != nil {
+	if model := strings.TrimSpace(input.Model); model != "" {
+		payload["model"] = model
+	}
+
+	switch normalizePermissionPreset(input.PermissionPreset) {
+	case "full-access":
+		payload["approvalPolicy"] = "never"
+		payload["sandbox"] = "danger-full-access"
+	}
+
+	return payload
+}
+
+func normalizePermissionPreset(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "full-access":
+		return "full-access"
+	default:
+		return "default"
+	}
+}
+
+func (s *Service) Get(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
+	threadData, err := s.readThread(ctx, workspaceID, threadID, false)
+	if err != nil {
 		return store.Thread{}, err
 	}
+	if !threadBelongsToWorkspace(threadData, normalizePath(s.runtimes.RootPath(workspaceID))) {
+		return store.Thread{}, store.ErrThreadNotFound
+	}
 
-	thread := mapThread(workspaceID, response.Thread, isArchived(response.Thread))
-	s.store.UpsertThread(thread)
+	thread := mapThread(workspaceID, threadData, isArchived(threadData))
+	s.cacheThread(thread)
 	return thread, nil
 }
 
 func (s *Service) GetDetail(ctx context.Context, workspaceID string, threadID string) (store.ThreadDetail, error) {
+	threadData, err := s.readThread(ctx, workspaceID, threadID, true)
+	if err != nil {
+		if !isThreadTurnsUnavailableBeforeFirstUserMessage(err) {
+			return store.ThreadDetail{}, err
+		}
+
+		threadData, err = s.readThread(ctx, workspaceID, threadID, false)
+		if err != nil {
+			return store.ThreadDetail{}, err
+		}
+	}
+	if !threadBelongsToWorkspace(threadData, normalizePath(s.runtimes.RootPath(workspaceID))) {
+		return store.ThreadDetail{}, store.ErrThreadNotFound
+	}
+
+	thread := mapThread(workspaceID, threadData, isArchived(threadData))
+	s.cacheThread(thread)
+
+	turns := mapTurns(threadData["turns"])
+	if turns == nil {
+		turns = []store.ThreadTurn{}
+	}
+
+	return store.ThreadDetail{
+		Thread:  thread,
+		Cwd:     stringValue(threadData["cwd"]),
+		Preview: stringValue(threadData["preview"]),
+		Path:    stringValue(threadData["path"]),
+		Source:  stringValue(threadData["source"]),
+		Turns:   turns,
+	}, nil
+}
+
+func (s *Service) readThread(ctx context.Context, workspaceID string, threadID string, includeTurns bool) (map[string]any, error) {
 	var response struct {
 		Thread map[string]any `json:"thread"`
 	}
 
 	if err := s.runtimes.Call(ctx, workspaceID, "thread/read", map[string]any{
-		"includeTurns": true,
+		"includeTurns": includeTurns,
 		"threadId":     threadID,
 	}, &response); err != nil {
-		return store.ThreadDetail{}, err
+		return nil, err
+	}
+
+	return response.Thread, nil
+}
+
+func (s *Service) ListLoaded(ctx context.Context, workspaceID string) ([]string, error) {
+	var response struct {
+		Data []string `json:"data"`
+	}
+
+	if err := s.runtimes.Call(ctx, workspaceID, "thread/loaded/list", map[string]any{
+		"limit": 200,
+	}, &response); err != nil {
+		return nil, err
+	}
+
+	return response.Data, nil
+}
+
+func (s *Service) UpdateMetadata(ctx context.Context, workspaceID string, threadID string, gitInfo map[string]any) (store.Thread, error) {
+	var response struct {
+		Thread map[string]any `json:"thread"`
+	}
+
+	params := map[string]any{
+		"threadId": threadID,
+	}
+	if len(gitInfo) > 0 {
+		params["gitInfo"] = gitInfo
+	}
+
+	if err := s.runtimes.Call(ctx, workspaceID, "thread/metadata/update", params, &response); err != nil {
+		return store.Thread{}, err
 	}
 
 	thread := mapThread(workspaceID, response.Thread, isArchived(response.Thread))
-	s.store.UpsertThread(thread)
+	s.cacheThread(thread)
+	return thread, nil
+}
 
-	return store.ThreadDetail{
-		Thread:  thread,
-		Cwd:     stringValue(response.Thread["cwd"]),
-		Preview: stringValue(response.Thread["preview"]),
-		Path:    stringValue(response.Thread["path"]),
-		Source:  stringValue(response.Thread["source"]),
-		Turns:   mapTurns(response.Thread["turns"]),
-	}, nil
+func (s *Service) Compact(ctx context.Context, workspaceID string, threadID string) error {
+	return s.runtimes.Call(ctx, workspaceID, "thread/compact/start", map[string]any{
+		"threadId": threadID,
+	}, nil)
 }
 
 func (s *Service) Resume(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
@@ -134,7 +228,7 @@ func (s *Service) Resume(ctx context.Context, workspaceID string, threadID strin
 	}
 
 	thread := mapThread(workspaceID, response.Thread, isArchived(response.Thread))
-	s.store.UpsertThread(thread)
+	s.cacheThread(thread)
 	return thread, nil
 }
 
@@ -151,7 +245,7 @@ func (s *Service) Fork(ctx context.Context, workspaceID string, threadID string)
 	}
 
 	thread := mapThread(workspaceID, response.Thread, false)
-	s.store.UpsertThread(thread)
+	s.cacheThread(thread)
 	return thread, nil
 }
 
@@ -168,7 +262,7 @@ func (s *Service) Archive(ctx context.Context, workspaceID string, threadID stri
 	}
 
 	thread.Archived = true
-	s.store.UpsertThread(thread)
+	s.cacheThread(thread)
 	return thread, nil
 }
 
@@ -185,7 +279,7 @@ func (s *Service) Unarchive(ctx context.Context, workspaceID string, threadID st
 	}
 
 	thread.Archived = false
-	s.store.UpsertThread(thread)
+	s.cacheThread(thread)
 	return thread, nil
 }
 
@@ -206,7 +300,6 @@ func (s *Service) Rename(ctx context.Context, workspaceID string, threadID strin
 		return store.Thread{}, err
 	}
 
-	s.store.UpsertThread(thread)
 	return thread, nil
 }
 
@@ -246,7 +339,7 @@ func (s *Service) listByArchived(ctx context.Context, workspaceID string, archiv
 			}
 
 			mapped := mapThread(workspaceID, thread, archived)
-			s.store.UpsertThread(mapped)
+			s.cacheThread(mapped)
 			items = append(items, mapped)
 		}
 
@@ -275,6 +368,17 @@ func mergeThreads(primary []store.Thread, secondary []store.Thread) []store.Thre
 	}
 
 	return items
+}
+
+func filterStoredThreads(items []store.Thread, workspaceRoot string) []store.Thread {
+	filtered := make([]store.Thread, 0, len(items))
+	for _, thread := range items {
+		if storedThreadBelongsToWorkspace(thread, workspaceRoot) && thread.Materialized {
+			filtered = append(filtered, thread)
+		}
+	}
+
+	return filtered
 }
 
 func mapTurns(value any) []store.ThreadTurn {
@@ -312,14 +416,48 @@ func mapTurns(value any) []store.ThreadTurn {
 
 func mapThread(workspaceID string, raw map[string]any, archived bool) store.Thread {
 	return store.Thread{
-		ID:          stringValue(raw["id"]),
-		WorkspaceID: workspaceID,
-		Name:        fallbackString(stringValue(raw["name"]), "Untitled Thread"),
-		Status:      nestedType(raw["status"]),
-		Archived:    archived,
-		CreatedAt:   unixSeconds(raw["createdAt"]),
-		UpdatedAt:   unixSeconds(raw["updatedAt"]),
+		ID:           stringValue(raw["id"]),
+		WorkspaceID:  workspaceID,
+		Cwd:          stringValue(raw["cwd"]),
+		Materialized: threadIsMaterialized(raw),
+		Name:         threadDisplayName(raw),
+		Status:       nestedType(raw["status"]),
+		Archived:     archived,
+		CreatedAt:    unixSeconds(raw["createdAt"]),
+		UpdatedAt:    unixSeconds(raw["updatedAt"]),
 	}
+}
+
+func threadDisplayName(raw map[string]any) string {
+	if name := strings.TrimSpace(stringValue(raw["name"])); name != "" {
+		return name
+	}
+
+	preview := strings.TrimSpace(stringValue(raw["preview"]))
+	if preview == "" {
+		return "Untitled Thread"
+	}
+
+	preview = strings.ReplaceAll(preview, "\r\n", "\n")
+	preview = strings.ReplaceAll(preview, "\r", "\n")
+
+	firstLine := preview
+	if newline := strings.Index(firstLine, "\n"); newline >= 0 {
+		firstLine = firstLine[:newline]
+	}
+
+	firstLine = strings.TrimSpace(firstLine)
+	if firstLine == "" {
+		return "Untitled Thread"
+	}
+
+	const maxRunes = 80
+	runes := []rune(firstLine)
+	if len(runes) <= maxRunes {
+		return firstLine
+	}
+
+	return strings.TrimSpace(string(runes[:maxRunes])) + "..."
 }
 
 func isArchived(raw map[string]any) bool {
@@ -383,6 +521,15 @@ func threadBelongsToWorkspace(raw map[string]any, workspaceRoot string) bool {
 	return threadCwd == workspaceRoot || strings.HasPrefix(threadCwd, workspaceRoot+string(filepath.Separator))
 }
 
+func storedThreadBelongsToWorkspace(thread store.Thread, workspaceRoot string) bool {
+	threadCwd := normalizePath(thread.Cwd)
+	if workspaceRoot == "" || threadCwd == "" {
+		return false
+	}
+
+	return threadCwd == workspaceRoot || strings.HasPrefix(threadCwd, workspaceRoot+string(filepath.Separator))
+}
+
 func normalizePath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -393,4 +540,41 @@ func normalizePath(path string) string {
 	path = filepath.Clean(path)
 
 	return strings.ToLower(path)
+}
+
+func (s *Service) cacheThread(thread store.Thread) {
+	if !thread.Materialized {
+		s.store.DeleteThread(thread.WorkspaceID, thread.ID)
+		return
+	}
+
+	s.store.UpsertThread(thread)
+}
+
+func threadIsMaterialized(raw map[string]any) bool {
+	if strings.TrimSpace(stringValue(raw["path"])) != "" {
+		return true
+	}
+
+	if strings.TrimSpace(stringValue(raw["preview"])) != "" {
+		return true
+	}
+
+	rawTurns, ok := raw["turns"].([]any)
+	return ok && len(rawTurns) > 0
+}
+
+func isThreadTurnsUnavailableBeforeFirstUserMessage(err error) bool {
+	var rpcErr *bridge.RPCError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+
+	if rpcErr.Code != -32600 {
+		return false
+	}
+
+	message := strings.ToLower(strings.TrimSpace(rpcErr.Message))
+	return strings.Contains(message, "not materialized yet") &&
+		strings.Contains(message, "before first user message")
 }

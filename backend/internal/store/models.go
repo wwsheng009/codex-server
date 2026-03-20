@@ -18,13 +18,15 @@ type Workspace struct {
 }
 
 type Thread struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspaceId"`
-	Name        string    `json:"name"`
-	Status      string    `json:"status"`
-	Archived    bool      `json:"archived"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID           string    `json:"id"`
+	WorkspaceID  string    `json:"workspaceId"`
+	Cwd          string    `json:"cwd,omitempty"`
+	Materialized bool      `json:"materialized,omitempty"`
+	Name         string    `json:"name"`
+	Status       string    `json:"status"`
+	Archived     bool      `json:"archived"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type ThreadTurn struct {

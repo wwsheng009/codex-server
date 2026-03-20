@@ -2,6 +2,7 @@ package approvals
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -111,6 +112,15 @@ func summarizeRequest(method string, params any) string {
 		if serverName := stringValue(object["serverName"]); serverName != "" {
 			return "MCP input requested by " + serverName
 		}
+	case "item/tool/call":
+		if tool := stringValue(object["tool"]); tool != "" {
+			return "Dynamic tool call: " + tool
+		}
+	case "account/chatgptAuthTokens/refresh":
+		if reason := stringValue(object["reason"]); reason != "" {
+			return "Refresh ChatGPT auth tokens: " + reason
+		}
+		return "Refresh ChatGPT auth tokens"
 	}
 
 	if reason := stringValue(object["reason"]); reason != "" {
@@ -156,6 +166,36 @@ func approvalResponse(method string, input ResponseInput, params any) (any, erro
 			"action":  input.Action,
 			"content": input.Content,
 		}, nil
+	case "item/tool/call":
+		return map[string]any{
+			"contentItems": dynamicToolContentItems(input.Action, input.Content),
+			"success":      input.Action == "accept",
+		}, nil
+	case "account/chatgptAuthTokens/refresh":
+		if input.Action != "accept" {
+			return nil, errors.New("chatgpt auth token refresh requires accept")
+		}
+
+		content, ok := input.Content.(map[string]any)
+		if !ok {
+			return nil, errors.New("token refresh content is required")
+		}
+
+		accessToken := stringValue(content["accessToken"])
+		accountID := stringValue(content["chatgptAccountId"])
+		if accessToken == "" || accountID == "" {
+			return nil, errors.New("accessToken and chatgptAccountId are required")
+		}
+
+		response := map[string]any{
+			"accessToken":      accessToken,
+			"chatgptAccountId": accountID,
+		}
+		if planType := stringValue(content["chatgptPlanType"]); planType != "" {
+			response["chatgptPlanType"] = planType
+		}
+
+		return response, nil
 	default:
 		return nil, fmt.Errorf("unsupported approval method: %s", method)
 	}
@@ -163,6 +203,8 @@ func approvalResponse(method string, input ResponseInput, params any) (any, erro
 
 func approvalActions(method string) []string {
 	switch method {
+	case "account/chatgptAuthTokens/refresh":
+		return []string{"accept"}
 	case "item/tool/requestUserInput", "mcpServer/elicitation/request":
 		return []string{"accept", "decline", "cancel"}
 	case "item/permissions/requestApproval":
@@ -181,6 +223,73 @@ func questionAnswers(input map[string][]string) map[string]any {
 	}
 
 	return answers
+}
+
+func dynamicToolContentItems(action string, content any) []map[string]any {
+	if action != "accept" {
+		return []map[string]any{}
+	}
+
+	switch typed := content.(type) {
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return []map[string]any{}
+		}
+		return []map[string]any{{
+			"type": "inputText",
+			"text": typed,
+		}}
+	case map[string]any:
+		items := make([]map[string]any, 0, 2)
+		if text := stringValue(typed["text"]); text != "" {
+			items = append(items, map[string]any{
+				"type": "inputText",
+				"text": text,
+			})
+		}
+		if imageURL := stringValue(typed["imageUrl"]); imageURL != "" {
+			items = append(items, map[string]any{
+				"type":     "inputImage",
+				"imageUrl": imageURL,
+			})
+		}
+		if len(items) > 0 {
+			return items
+		}
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, entry := range typed {
+			switch item := entry.(type) {
+			case string:
+				if strings.TrimSpace(item) == "" {
+					continue
+				}
+				items = append(items, map[string]any{
+					"type": "inputText",
+					"text": item,
+				})
+			case map[string]any:
+				items = append(items, dynamicToolContentItems("accept", item)...)
+			}
+		}
+		if len(items) > 0 {
+			return items
+		}
+	}
+
+	if content == nil {
+		return []map[string]any{}
+	}
+
+	data, err := json.Marshal(content)
+	if err != nil {
+		return []map[string]any{}
+	}
+
+	return []map[string]any{{
+		"type": "inputText",
+		"text": string(data),
+	}}
 }
 
 func approvalDecision(action string, accept string, acceptForSession string, decline string, cancel string) string {

@@ -15,8 +15,10 @@ import (
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/config"
+	"codex-server/backend/internal/configfs"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
+	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
@@ -39,6 +41,8 @@ func main() {
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager)
+	configFSService := configfs.NewService(runtimeManager)
+	feedbackService := feedback.NewService(runtimeManager)
 	turnService := turns.NewService(runtimeManager)
 	execfsService := execfs.NewService(runtimeManager, eventHub)
 
@@ -54,7 +58,9 @@ func main() {
 		Turns:          turnService,
 		Approvals:      approvalsService,
 		Catalog:        catalogService,
+		ConfigFS:       configFSService,
 		ExecFS:         execfsService,
+		Feedback:       feedbackService,
 		Events:         eventHub,
 	})
 

@@ -11,8 +11,8 @@ type Config struct {
 
 func FromEnv() Config {
 	return Config{
-		Addr:           getEnv("CODEX_SERVER_ADDR", ":8080"),
-		FrontendOrigin: getEnv("CODEX_FRONTEND_ORIGIN", "http://localhost:5173"),
+		Addr:           getEnv("CODEX_SERVER_ADDR", ":18080"),
+		FrontendOrigin: getEnv("CODEX_FRONTEND_ORIGIN", "http://localhost:15173"),
 		CodexCommand:   getEnv("CODEX_APP_SERVER_COMMAND", "codex app-server --listen stdio://"),
 		StorePath:      getEnv("CODEX_SERVER_STORE_PATH", "data/metadata.json"),
 	}
