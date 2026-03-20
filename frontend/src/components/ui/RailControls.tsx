@@ -108,6 +108,49 @@ export function TerminalIcon() {
   )
 }
 
+export function FolderClosedIcon() {
+  return (
+    <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M4 7.5A2.5 2.5 0 0 1 6.5 5h3.3c.7 0 1.3.3 1.8.8l.8.9c.3.3.8.5 1.2.5h3.9A2.5 2.5 0 0 1 20 9.7v6.8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  )
+}
+
+export function FolderOpenIcon() {
+  return (
+    <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M4 8.5A2.5 2.5 0 0 1 6.5 6h3.1c.7 0 1.3.3 1.8.8l.7.7c.3.3.8.5 1.2.5h4.2A2.5 2.5 0 0 1 20 10.5V11"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M5.7 10.5h13.8a1.3 1.3 0 0 1 1.2 1.7l-1.7 5a1.9 1.9 0 0 1-1.8 1.3H6.9a1.9 1.9 0 0 1-1.8-1.3l-1-3A2.7 2.7 0 0 1 5.7 10.5Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  )
+}
+
+export function MoreActionsIcon() {
+  return (
+    <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <circle cx="6.5" cy="12" fill="currentColor" r="1.5" />
+      <circle cx="12" cy="12" fill="currentColor" r="1.5" />
+      <circle cx="17.5" cy="12" fill="currentColor" r="1.5" />
+    </svg>
+  )
+}
+
 export function SettingsIcon() {
   return (
     <svg fill="none" height="18" viewBox="0 0 24 24" width="18">
@@ -183,6 +226,20 @@ export function StopIcon() {
   return (
     <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
       <rect height="11" rx="2.2" stroke="currentColor" strokeWidth="1.7" width="11" x="6.5" y="6.5" />
+    </svg>
+  )
+}
+
+export function CopyIcon() {
+  return (
+    <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <rect height="11" rx="2.2" stroke="currentColor" strokeWidth="1.7" width="10.5" x="9" y="7" />
+      <path
+        d="M7 15H6.2A2.2 2.2 0 0 1 4 12.8V6.2A2.2 2.2 0 0 1 6.2 4h6.6A2.2 2.2 0 0 1 15 6.2V7"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.7"
+      />
     </svg>
   )
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"codex-server/backend/internal/bridge"
+	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 )
 
@@ -201,4 +202,127 @@ func TestBuildThreadStartPayloadUsesFullAccessPreset(t *testing.T) {
 	if payload["model"] != "gpt-5.4" {
 		t.Fatalf("expected model override, got %#v", payload["model"])
 	}
+}
+
+func TestMapThreadTokenUsageMapsTokenUsagePayload(t *testing.T) {
+	t.Parallel()
+
+	usage := mapThreadTokenUsage(map[string]any{
+		"last": map[string]any{
+			"cachedInputTokens":     10,
+			"inputTokens":           120,
+			"outputTokens":          30,
+			"reasoningOutputTokens": 5,
+			"totalTokens":           165,
+		},
+		"total": map[string]any{
+			"cachedInputTokens":     20,
+			"inputTokens":           2000,
+			"outputTokens":          400,
+			"reasoningOutputTokens": 50,
+			"totalTokens":           2470,
+		},
+		"modelContextWindow": 8000,
+	})
+
+	if usage == nil {
+		t.Fatal("expected token usage to be mapped")
+	}
+	if usage.Total.TotalTokens != 2470 {
+		t.Fatalf("expected total tokens to be mapped, got %d", usage.Total.TotalTokens)
+	}
+	if usage.ModelContextWindow == nil || *usage.ModelContextWindow != 8000 {
+		t.Fatalf("expected model context window to be mapped, got %#v", usage.ModelContextWindow)
+	}
+}
+
+func TestMapThreadTokenUsageRejectsInvalidPayload(t *testing.T) {
+	t.Parallel()
+
+	if usage := mapThreadTokenUsage("invalid"); usage != nil {
+		t.Fatalf("expected invalid payload to be ignored, got %#v", usage)
+	}
+}
+
+func TestApplyStoredProjectionOverlaysProjectedToolCalls(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/started",
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"item": map[string]any{
+				"id":        "tool-1",
+				"type":      "dynamicToolCall",
+				"tool":      "search_query",
+				"status":    "inProgress",
+				"arguments": map[string]any{"q": "codex"},
+			},
+		},
+	})
+
+	detail := applyStoredProjection(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "idle",
+		},
+		Turns: []store.ThreadTurn{},
+	}, dataStore, runtime.NewManager("codex app-server --listen stdio://", nil), workspace.ID, "thread-1")
+
+	if len(detail.Turns) != 1 {
+		t.Fatalf("expected projected turn to be restored, got %d turns", len(detail.Turns))
+	}
+	if len(detail.Turns[0].Items) != 1 {
+		t.Fatalf("expected projected tool call item to be restored, got %d items", len(detail.Turns[0].Items))
+	}
+	if got := detail.Turns[0].Items[0]["tool"]; got != "search_query" {
+		t.Fatalf("expected projected tool call details to survive refresh, got %#v", got)
+	}
+}
+
+func TestApplyStoredProjectionExpiresUnavailableServerRequests(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/commandExecution/requestApproval",
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"command":  "rm -rf build",
+		},
+		ServerRequestID: stringPtr("req-1"),
+	})
+
+	detail := applyStoredProjection(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "idle",
+		},
+		Turns: []store.ThreadTurn{},
+	}, dataStore, runtime.NewManager("codex app-server --listen stdio://", nil), workspace.ID, "thread-1")
+
+	if got := detail.Turns[0].Items[0]["status"]; got != "expired" {
+		t.Fatalf("expected unavailable request to be marked expired, got %#v", got)
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

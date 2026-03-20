@@ -78,7 +78,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	router.Use(middleware.Recoverer)
 	router.Use(cors.Handler(cors.Options{
 		AllowOriginFunc:  originMatcher.AllowRequest,
-		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -96,6 +96,8 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/", server.handleListWorkspaces)
 			r.Post("/", server.handleCreateWorkspace)
 			r.Get("/{workspaceId}", server.handleGetWorkspace)
+			r.Post("/{workspaceId}/name", server.handleRenameWorkspace)
+			r.Delete("/{workspaceId}", server.handleDeleteWorkspace)
 			r.Get("/{workspaceId}/pending-approvals", server.handleListPendingApprovals)
 			r.Get("/{workspaceId}/models", server.handleListModels)
 			r.Get("/{workspaceId}/skills", server.handleListSkills)
@@ -128,6 +130,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/loaded", server.handleListLoadedThreads)
 				r.Post("/", server.handleCreateThread)
 				r.Get("/{threadId}", server.handleGetThread)
+				r.Delete("/{threadId}", server.handleDeleteThread)
 				r.Post("/{threadId}/resume", server.handleResumeThread)
 				r.Post("/{threadId}/fork", server.handleForkThread)
 				r.Post("/{threadId}/archive", server.handleArchiveThread)
@@ -267,6 +270,37 @@ func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workspace)
 }
 
+func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request struct {
+		Name string `json:"name"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	workspace, err := s.workspaces.Rename(workspaceID, request.Name)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if err := s.workspaces.Delete(r.Context(), workspaceID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
 func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	threads, err := s.threads.List(r.Context(), workspaceID)
@@ -327,6 +361,18 @@ func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, thread)
+}
+
+func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+
+	if err := s.threads.Delete(r.Context(), workspaceID, threadID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (s *Server) handleResumeThread(w http.ResponseWriter, r *http.Request) {

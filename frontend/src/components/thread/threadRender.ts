@@ -7,3 +7,17 @@ export function decodeBase64(value: string) {
     return value
   }
 }
+
+const ANSI_ESCAPE_PATTERN = /(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/
+
+export function containsAnsiEscapeCode(value: string) {
+  return ANSI_ESCAPE_PATTERN.test(value)
+}
+
+export function safeJson(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2) ?? '—'
+  } catch {
+    return String(value)
+  }
+}

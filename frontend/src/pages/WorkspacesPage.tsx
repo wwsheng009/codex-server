@@ -4,15 +4,20 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
 import { InlineNotice } from '../components/ui/InlineNotice'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { StatusPill } from '../components/ui/StatusPill'
+import { formatRelativeTimeShort } from '../components/workspace/timeline-utils'
 import { getErrorMessage } from '../lib/error-utils'
-import { formatRelativeTimeShort } from '../components/workspace/renderers'
-import { createWorkspace, listWorkspaces } from '../features/workspaces/api'
+import { createWorkspace, deleteWorkspace, listWorkspaces } from '../features/workspaces/api'
+import { useSessionStore } from '../stores/session-store'
+import type { Workspace } from '../types/api'
 
 export function WorkspacesPage() {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [rootPath, setRootPath] = useState('')
+  const [confirmingWorkspaceDelete, setConfirmingWorkspaceDelete] = useState<Workspace | null>(null)
+  const removeWorkspaceFromSession = useSessionStore((state) => state.removeWorkspace)
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
@@ -33,9 +38,33 @@ export function WorkspacesPage() {
 
   const createWorkspaceMutation = useMutation({
     mutationFn: createWorkspace,
-    onSuccess: () => {
+    onSuccess: async () => {
       setName('')
-      void queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+      setRootPath('')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-threads'] }),
+      ])
+    },
+  })
+  const deleteWorkspaceMutation = useMutation({
+    mutationFn: (workspaceId: string) => deleteWorkspace(workspaceId),
+    onSuccess: async (_, workspaceId) => {
+      removeWorkspaceFromSession(workspaceId)
+      setConfirmingWorkspaceDelete(null)
+      deleteWorkspaceMutation.reset()
+      queryClient.removeQueries({ queryKey: ['workspace', workspaceId] })
+      queryClient.removeQueries({ queryKey: ['threads', workspaceId] })
+      queryClient.removeQueries({ queryKey: ['thread-detail', workspaceId] })
+      queryClient.removeQueries({ queryKey: ['approvals', workspaceId] })
+      queryClient.removeQueries({ queryKey: ['models', workspaceId] })
+      queryClient.removeQueries({ queryKey: ['shell-threads', workspaceId] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-threads'] }),
+      ])
     },
   })
 
@@ -49,6 +78,32 @@ export function WorkspacesPage() {
       name: name.trim(),
       rootPath: rootPath.trim(),
     })
+  }
+
+  function handleDeleteWorkspace(workspace: Workspace) {
+    if (deleteWorkspaceMutation.isPending) {
+      return
+    }
+
+    deleteWorkspaceMutation.reset()
+    setConfirmingWorkspaceDelete(workspace)
+  }
+
+  function handleCloseDeleteWorkspaceDialog() {
+    if (deleteWorkspaceMutation.isPending) {
+      return
+    }
+
+    setConfirmingWorkspaceDelete(null)
+    deleteWorkspaceMutation.reset()
+  }
+
+  function handleConfirmDeleteWorkspaceDialog() {
+    if (!confirmingWorkspaceDelete || deleteWorkspaceMutation.isPending) {
+      return
+    }
+
+    deleteWorkspaceMutation.mutate(confirmingWorkspaceDelete.id)
   }
 
   return (
@@ -185,32 +240,59 @@ export function WorkspacesPage() {
             {!workspacesQuery.isLoading && !workspaces.length ? (
               <div className="empty-state">No workspaces yet. Create the first one from the rail.</div>
             ) : null}
-
             <div className="workspace-registry">
               {workspaces.map((workspace) => (
-                <Link className="workspace-registry__row" key={workspace.id} to={`/workspaces/${workspace.id}`}>
-                  <div className="workspace-registry__main">
-                    <div className="workspace-registry__title-row">
-                      <strong>{workspace.name}</strong>
-                      <StatusPill status={workspace.runtimeStatus} />
+                <div className="workspace-registry__row" key={workspace.id}>
+                  <Link className="workspace-registry__row-link" to={`/workspaces/${workspace.id}`}>
+                    <div className="workspace-registry__main">
+                      <div className="workspace-registry__title-row">
+                        <strong>{workspace.name}</strong>
+                        <StatusPill status={workspace.runtimeStatus} />
+                      </div>
+                      <p>{workspace.rootPath}</p>
                     </div>
-                    <p>{workspace.rootPath}</p>
+                    <div className="workspace-registry__meta">
+                      <span>ID</span>
+                      <strong>{workspace.id.slice(0, 8)}</strong>
+                    </div>
+                    <div className="workspace-registry__meta">
+                      <span>Updated</span>
+                      <strong>{formatRelativeTimeShort(workspace.updatedAt)}</strong>
+                    </div>
+                  </Link>
+                  <div className="workspace-registry__actions">
+                    <Link className="workspace-registry__action-link" to={`/workspaces/${workspace.id}`}>
+                      Open Surface
+                    </Link>
+                    <button
+                      className="workspace-registry__remove"
+                      disabled={deleteWorkspaceMutation.isPending}
+                      onClick={() => handleDeleteWorkspace(workspace)}
+                      type="button"
+                    >
+                      {deleteWorkspaceMutation.isPending && deleteWorkspaceMutation.variables === workspace.id
+                        ? 'Removing…'
+                        : 'Remove'}
+                    </button>
                   </div>
-                  <div className="workspace-registry__meta">
-                    <span>ID</span>
-                    <strong>{workspace.id.slice(0, 8)}</strong>
-                  </div>
-                  <div className="workspace-registry__meta">
-                    <span>Updated</span>
-                    <strong>{formatRelativeTimeShort(workspace.updatedAt)}</strong>
-                  </div>
-                  <div className="workspace-registry__action">Open Surface</div>
-                </Link>
+                </div>
               ))}
             </div>
           </section>
         </section>
       </div>
+      {confirmingWorkspaceDelete ? (
+        <ConfirmDialog
+          confirmLabel="Remove Workspace"
+          description="This removes the workspace from the registry and clears its loaded thread list from the UI."
+          error={deleteWorkspaceMutation.error ? getErrorMessage(deleteWorkspaceMutation.error) : null}
+          isPending={deleteWorkspaceMutation.isPending}
+          onClose={handleCloseDeleteWorkspaceDialog}
+          onConfirm={handleConfirmDeleteWorkspaceDialog}
+          subject={confirmingWorkspaceDelete.name}
+          title="Remove Workspace?"
+        />
+      ) : null}
     </section>
   )
 }

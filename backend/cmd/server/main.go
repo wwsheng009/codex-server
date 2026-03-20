@@ -34,6 +34,7 @@ func main() {
 		panic(err)
 	}
 	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
 	runtimeManager := runtime.NewManager(cfg.CodexCommand, eventHub)
 
 	authService := auth.NewService(dataStore, runtimeManager)

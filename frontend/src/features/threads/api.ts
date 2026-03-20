@@ -43,3 +43,9 @@ export function unarchiveThread(workspaceId: string, threadId: string) {
     method: 'POST',
   })
 }
+
+export function deleteThread(workspaceId: string, threadId: string) {
+  return apiRequest<{ status: string }>(`/api/workspaces/${workspaceId}/threads/${threadId}`, {
+    method: 'DELETE',
+  })
+}

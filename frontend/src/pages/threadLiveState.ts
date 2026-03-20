@@ -1,5 +1,15 @@
 import type { ServerEvent, ThreadDetail, ThreadTurn } from '../types/api'
 
+export function applyThreadEventsToDetail(
+  detail: ThreadDetail | undefined,
+  events: ServerEvent[],
+): ThreadDetail | undefined {
+  return events.reduce<ThreadDetail | undefined>(
+    (current, event) => applyThreadEventToDetail(current, event),
+    detail,
+  )
+}
+
 export function applyThreadEventToDetail(
   detail: ThreadDetail | undefined,
   event: ServerEvent,
@@ -9,6 +19,81 @@ export function applyThreadEventToDetail(
   }
 
   const payload = asObject(event.payload)
+
+  if (event.serverRequestId) {
+    const requestId = event.serverRequestId
+
+    switch (event.method) {
+      case 'server/request/resolved': {
+        const turnId = stringField(payload.turnId) || event.turnId
+        if (!turnId) {
+          return withDetailUpdatedAt(detail, event.ts)
+        }
+
+        return updateTurnItem(
+          detail,
+          turnId,
+          requestItemId(requestId),
+          (current) => ({
+            ...current,
+            id: requestItemId(requestId),
+            type: 'serverRequest',
+            requestId,
+            requestKind: stringField(payload.method) || stringField(current?.requestKind),
+            status: 'resolved',
+            resolvedAt: event.ts,
+          }),
+          event.ts,
+        )
+      }
+      case 'server/request/expired': {
+        const turnId = stringField(payload.turnId) || event.turnId
+        if (!turnId) {
+          return withDetailUpdatedAt(detail, event.ts)
+        }
+
+        return updateTurnItem(
+          detail,
+          turnId,
+          requestItemId(requestId),
+          (current) => ({
+            ...current,
+            id: requestItemId(requestId),
+            type: 'serverRequest',
+            requestId,
+            requestKind: stringField(payload.method) || stringField(current?.requestKind),
+            status: 'expired',
+            expiredAt: event.ts,
+            expireReason: stringField(payload.reason),
+          }),
+          event.ts,
+        )
+      }
+      default:
+        if (isServerRequestMethod(event.method)) {
+          const turnId = stringField(payload.turnId) || event.turnId
+          if (!turnId) {
+            return withDetailUpdatedAt(detail, event.ts)
+          }
+
+          return updateTurnItem(
+            detail,
+            turnId,
+            requestItemId(requestId),
+            () => ({
+              id: requestItemId(requestId),
+              type: 'serverRequest',
+              requestId,
+              requestKind: event.method,
+              status: 'pending',
+              details: payload,
+              requestedAt: event.ts,
+            }),
+            event.ts,
+          )
+        }
+    }
+  }
 
   switch (event.method) {
     case 'thread/status/changed': {
@@ -329,4 +414,22 @@ function asObject(value: unknown): Record<string, unknown> {
 
 function hasOwn(value: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function isServerRequestMethod(method: string) {
+  return [
+    'item/commandExecution/requestApproval',
+    'execCommandApproval',
+    'item/fileChange/requestApproval',
+    'applyPatchApproval',
+    'item/tool/requestUserInput',
+    'item/permissions/requestApproval',
+    'mcpServer/elicitation/request',
+    'item/tool/call',
+    'account/chatgptAuthTokens/refresh',
+  ].includes(method)
+}
+
+function requestItemId(requestId: string) {
+  return `server-request-${requestId}`
 }

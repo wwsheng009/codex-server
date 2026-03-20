@@ -278,6 +278,27 @@ func (m *Manager) FirstWorkspaceID() string {
 	return keys[0]
 }
 
+func (m *Manager) Remove(workspaceID string) {
+	m.mu.Lock()
+	runtime := m.runtimes[workspaceID]
+	delete(m.runtimes, workspaceID)
+	m.mu.Unlock()
+
+	m.expireRequestsForWorkspace(workspaceID, "runtime_removed")
+
+	if runtime == nil {
+		return
+	}
+
+	runtime.mu.RLock()
+	client := runtime.client
+	runtime.mu.RUnlock()
+
+	if client != nil {
+		client.Close()
+	}
+}
+
 func (m *Manager) getOrCreateLocked(workspaceID string) *instance {
 	if runtime, ok := m.runtimes[workspaceID]; ok {
 		return runtime
@@ -412,13 +433,7 @@ func (r *instance) HandleStderr(line string) {
 }
 
 func (r *instance) HandleClosed(err error) {
-	r.manager.mu.Lock()
-	for requestID, request := range r.manager.requests {
-		if request.WorkspaceID == r.workspaceID {
-			delete(r.manager.requests, requestID)
-		}
-	}
-	r.manager.mu.Unlock()
+	r.manager.expireRequestsForWorkspace(r.workspaceID, "runtime_closed")
 
 	r.mu.Lock()
 	r.client = nil
@@ -501,5 +516,35 @@ func stringValue(value any) string {
 		return typed
 	default:
 		return ""
+	}
+}
+
+func (m *Manager) expireRequestsForWorkspace(workspaceID string, reason string) {
+	m.mu.Lock()
+	expired := make([]PendingServerRequest, 0)
+	for requestID, request := range m.requests {
+		if request.WorkspaceID != workspaceID {
+			continue
+		}
+
+		expired = append(expired, *request)
+		delete(m.requests, requestID)
+	}
+	m.mu.Unlock()
+
+	for _, request := range expired {
+		if m.events == nil {
+			continue
+		}
+		requestID := request.RequestID
+		m.events.Publish(store.EventEnvelope{
+			WorkspaceID:     request.WorkspaceID,
+			ThreadID:        request.ThreadID,
+			TurnID:          request.TurnID,
+			Method:          "server/request/expired",
+			Payload:         map[string]any{"method": request.Method, "reason": reason},
+			ServerRequestID: &requestID,
+			TS:              time.Now().UTC(),
+		})
 	}
 }

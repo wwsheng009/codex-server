@@ -29,6 +29,12 @@ type Thread struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
+type DeletedThread struct {
+	WorkspaceID string    `json:"workspaceId"`
+	ThreadID    string    `json:"threadId"`
+	DeletedAt   time.Time `json:"deletedAt"`
+}
+
 type ThreadTurn struct {
 	ID     string           `json:"id"`
 	Status string           `json:"status"`
@@ -36,13 +42,37 @@ type ThreadTurn struct {
 	Error  any              `json:"error,omitempty"`
 }
 
+type TokenUsageBreakdown struct {
+	CachedInputTokens     int64 `json:"cachedInputTokens"`
+	InputTokens           int64 `json:"inputTokens"`
+	OutputTokens          int64 `json:"outputTokens"`
+	ReasoningOutputTokens int64 `json:"reasoningOutputTokens"`
+	TotalTokens           int64 `json:"totalTokens"`
+}
+
+type ThreadTokenUsage struct {
+	Last               TokenUsageBreakdown `json:"last"`
+	Total              TokenUsageBreakdown `json:"total"`
+	ModelContextWindow *int64              `json:"modelContextWindow,omitempty"`
+}
+
 type ThreadDetail struct {
 	Thread
-	Cwd     string       `json:"cwd,omitempty"`
-	Preview string       `json:"preview,omitempty"`
-	Path    string       `json:"path,omitempty"`
-	Source  string       `json:"source,omitempty"`
-	Turns   []ThreadTurn `json:"turns"`
+	Cwd        string            `json:"cwd,omitempty"`
+	Preview    string            `json:"preview,omitempty"`
+	Path       string            `json:"path,omitempty"`
+	Source     string            `json:"source,omitempty"`
+	TokenUsage *ThreadTokenUsage `json:"tokenUsage,omitempty"`
+	Turns      []ThreadTurn      `json:"turns"`
+}
+
+type ThreadProjection struct {
+	WorkspaceID string            `json:"workspaceId"`
+	ThreadID    string            `json:"threadId"`
+	Status      string            `json:"status,omitempty"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	TokenUsage  *ThreadTokenUsage `json:"tokenUsage,omitempty"`
+	Turns       []ThreadTurn      `json:"turns"`
 }
 
 type PendingApproval struct {

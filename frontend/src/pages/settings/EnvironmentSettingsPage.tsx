@@ -8,7 +8,7 @@ import {
 } from '../../components/settings/SettingsPrimitives'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { StatusPill } from '../../components/ui/StatusPill'
-import { formatRelativeTimeShort } from '../../components/workspace/renderers'
+import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 
 export function EnvironmentSettingsPage() {

@@ -75,3 +75,26 @@ func (s *Service) EnsureRuntime(ctx context.Context, workspaceID string) (store.
 	workspace.RuntimeStatus = s.runtimes.State(workspaceID).Status
 	return workspace, nil
 }
+
+func (s *Service) Rename(workspaceID string, name string) (store.Workspace, error) {
+	if strings.TrimSpace(name) == "" {
+		return store.Workspace{}, errors.New("workspace name is required")
+	}
+
+	workspace, err := s.store.SetWorkspaceName(workspaceID, strings.TrimSpace(name))
+	if err != nil {
+		return store.Workspace{}, err
+	}
+
+	workspace.RuntimeStatus = s.runtimes.State(workspaceID).Status
+	return workspace, nil
+}
+
+func (s *Service) Delete(_ context.Context, workspaceID string) error {
+	if _, ok := s.store.GetWorkspace(workspaceID); !ok {
+		return store.ErrWorkspaceNotFound
+	}
+
+	s.runtimes.Remove(workspaceID)
+	return s.store.DeleteWorkspace(workspaceID)
+}

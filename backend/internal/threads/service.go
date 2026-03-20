@@ -45,6 +45,7 @@ func (s *Service) List(ctx context.Context, workspaceID string) ([]store.Thread,
 
 	items := append(activeThreads, archivedThreads...)
 	items = mergeThreads(items, filterStoredThreads(s.store.ListThreads(workspaceID), rootPath))
+	items = filterDeletedThreads(items, workspaceID, s.store)
 	sort.Slice(items, func(i int, j int) bool {
 		return items[i].UpdatedAt.After(items[j].UpdatedAt)
 	})
@@ -112,6 +113,10 @@ func normalizePermissionPreset(value string) string {
 }
 
 func (s *Service) Get(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.Thread{}, err
+	}
+
 	threadData, err := s.readThread(ctx, workspaceID, threadID, false)
 	if err != nil {
 		return store.Thread{}, err
@@ -126,6 +131,10 @@ func (s *Service) Get(ctx context.Context, workspaceID string, threadID string) 
 }
 
 func (s *Service) GetDetail(ctx context.Context, workspaceID string, threadID string) (store.ThreadDetail, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.ThreadDetail{}, err
+	}
+
 	threadData, err := s.readThread(ctx, workspaceID, threadID, true)
 	if err != nil {
 		if !isThreadTurnsUnavailableBeforeFirstUserMessage(err) {
@@ -149,14 +158,17 @@ func (s *Service) GetDetail(ctx context.Context, workspaceID string, threadID st
 		turns = []store.ThreadTurn{}
 	}
 
-	return store.ThreadDetail{
-		Thread:  thread,
-		Cwd:     stringValue(threadData["cwd"]),
-		Preview: stringValue(threadData["preview"]),
-		Path:    stringValue(threadData["path"]),
-		Source:  stringValue(threadData["source"]),
-		Turns:   turns,
-	}, nil
+	detail := store.ThreadDetail{
+		Thread:     thread,
+		Cwd:        stringValue(threadData["cwd"]),
+		Preview:    stringValue(threadData["preview"]),
+		Path:       stringValue(threadData["path"]),
+		Source:     stringValue(threadData["source"]),
+		TokenUsage: mapThreadTokenUsage(threadData["tokenUsage"]),
+		Turns:      turns,
+	}
+
+	return applyStoredProjection(detail, s.store, s.runtimes, workspaceID, threadID), nil
 }
 
 func (s *Service) readThread(ctx context.Context, workspaceID string, threadID string, includeTurns bool) (map[string]any, error) {
@@ -189,6 +201,10 @@ func (s *Service) ListLoaded(ctx context.Context, workspaceID string) ([]string,
 }
 
 func (s *Service) UpdateMetadata(ctx context.Context, workspaceID string, threadID string, gitInfo map[string]any) (store.Thread, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.Thread{}, err
+	}
+
 	var response struct {
 		Thread map[string]any `json:"thread"`
 	}
@@ -210,12 +226,20 @@ func (s *Service) UpdateMetadata(ctx context.Context, workspaceID string, thread
 }
 
 func (s *Service) Compact(ctx context.Context, workspaceID string, threadID string) error {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return err
+	}
+
 	return s.runtimes.Call(ctx, workspaceID, "thread/compact/start", map[string]any{
 		"threadId": threadID,
 	}, nil)
 }
 
 func (s *Service) Resume(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.Thread{}, err
+	}
+
 	var response struct {
 		Thread map[string]any `json:"thread"`
 	}
@@ -233,6 +257,10 @@ func (s *Service) Resume(ctx context.Context, workspaceID string, threadID strin
 }
 
 func (s *Service) Fork(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.Thread{}, err
+	}
+
 	var response struct {
 		Thread map[string]any `json:"thread"`
 	}
@@ -250,6 +278,10 @@ func (s *Service) Fork(ctx context.Context, workspaceID string, threadID string)
 }
 
 func (s *Service) Archive(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.Thread{}, err
+	}
+
 	if err := s.runtimes.Call(ctx, workspaceID, "thread/archive", map[string]any{
 		"threadId": threadID,
 	}, nil); err != nil {
@@ -267,6 +299,10 @@ func (s *Service) Archive(ctx context.Context, workspaceID string, threadID stri
 }
 
 func (s *Service) Unarchive(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.Thread{}, err
+	}
+
 	if err := s.runtimes.Call(ctx, workspaceID, "thread/unarchive", map[string]any{
 		"threadId": threadID,
 	}, nil); err != nil {
@@ -284,6 +320,10 @@ func (s *Service) Unarchive(ctx context.Context, workspaceID string, threadID st
 }
 
 func (s *Service) Rename(ctx context.Context, workspaceID string, threadID string, name string) (store.Thread, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.Thread{}, err
+	}
+
 	if strings.TrimSpace(name) == "" {
 		return store.Thread{}, errors.New("thread name is required")
 	}
@@ -304,10 +344,42 @@ func (s *Service) Rename(ctx context.Context, workspaceID string, threadID strin
 }
 
 func (s *Service) Rollback(ctx context.Context, workspaceID string, threadID string) error {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return err
+	}
+
 	return s.runtimes.Call(ctx, workspaceID, "thread/rollback", map[string]any{
 		"numTurns": 1,
 		"threadId": threadID,
 	}, nil)
+}
+
+func (s *Service) Delete(ctx context.Context, workspaceID string, threadID string) error {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return err
+	}
+
+	if _, ok := s.store.GetWorkspace(workspaceID); !ok {
+		return store.ErrWorkspaceNotFound
+	}
+
+	if _, ok := s.store.GetThread(workspaceID, threadID); !ok {
+		if _, err := s.Get(ctx, workspaceID, threadID); err != nil {
+			return err
+		}
+	}
+
+	state := s.runtimes.State(workspaceID).Status
+	if state == "ready" || state == "active" || state == "connected" {
+		var response struct {
+			Status string `json:"status"`
+		}
+		_ = s.runtimes.Call(ctx, workspaceID, "thread/unsubscribe", map[string]any{
+			"threadId": threadID,
+		}, &response)
+	}
+
+	return s.store.DeleteThread(workspaceID, threadID)
 }
 
 func (s *Service) listByArchived(ctx context.Context, workspaceID string, archived bool) ([]store.Thread, error) {
@@ -339,6 +411,9 @@ func (s *Service) listByArchived(ctx context.Context, workspaceID string, archiv
 			}
 
 			mapped := mapThread(workspaceID, thread, archived)
+			if s.store.IsThreadDeleted(workspaceID, mapped.ID) {
+				continue
+			}
 			s.cacheThread(mapped)
 			items = append(items, mapped)
 		}
@@ -381,6 +456,18 @@ func filterStoredThreads(items []store.Thread, workspaceRoot string) []store.Thr
 	return filtered
 }
 
+func filterDeletedThreads(items []store.Thread, workspaceID string, dataStore *store.MemoryStore) []store.Thread {
+	filtered := make([]store.Thread, 0, len(items))
+	for _, thread := range items {
+		if dataStore.IsThreadDeleted(workspaceID, thread.ID) {
+			continue
+		}
+		filtered = append(filtered, thread)
+	}
+
+	return filtered
+}
+
 func mapTurns(value any) []store.ThreadTurn {
 	rawTurns, ok := value.([]any)
 	if !ok {
@@ -412,6 +499,241 @@ func mapTurns(value any) []store.ThreadTurn {
 	}
 
 	return turns
+}
+
+func mapThreadTokenUsage(value any) *store.ThreadTokenUsage {
+	rawUsage, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	total, ok := rawUsage["total"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	last, _ := rawUsage["last"].(map[string]any)
+	if last == nil {
+		last = map[string]any{}
+	}
+
+	usage := &store.ThreadTokenUsage{
+		Last: store.TokenUsageBreakdown{
+			CachedInputTokens:     int64Value(last["cachedInputTokens"]),
+			InputTokens:           int64Value(last["inputTokens"]),
+			OutputTokens:          int64Value(last["outputTokens"]),
+			ReasoningOutputTokens: int64Value(last["reasoningOutputTokens"]),
+			TotalTokens:           int64Value(last["totalTokens"]),
+		},
+		Total: store.TokenUsageBreakdown{
+			CachedInputTokens:     int64Value(total["cachedInputTokens"]),
+			InputTokens:           int64Value(total["inputTokens"]),
+			OutputTokens:          int64Value(total["outputTokens"]),
+			ReasoningOutputTokens: int64Value(total["reasoningOutputTokens"]),
+			TotalTokens:           int64Value(total["totalTokens"]),
+		},
+	}
+
+	if modelContextWindow := int64Value(rawUsage["modelContextWindow"]); modelContextWindow > 0 {
+		usage.ModelContextWindow = &modelContextWindow
+	}
+
+	return usage
+}
+
+func applyStoredProjection(
+	detail store.ThreadDetail,
+	dataStore *store.MemoryStore,
+	runtimes *runtime.Manager,
+	workspaceID string,
+	threadID string,
+) store.ThreadDetail {
+	projection, ok := dataStore.GetThreadProjection(workspaceID, threadID)
+	if !ok {
+		return detail
+	}
+
+	if projection.Status != "" {
+		detail.Status = projection.Status
+	}
+	if projection.TokenUsage != nil {
+		detail.TokenUsage = projection.TokenUsage
+	}
+	if projection.UpdatedAt.After(detail.UpdatedAt) {
+		detail.UpdatedAt = projection.UpdatedAt
+	}
+	detail.Turns = mergeProjectedTurns(detail.Turns, projection.Turns)
+	detail.Turns = reconcileServerRequestStatuses(detail.Turns, runtimes)
+
+	return detail
+}
+
+func mergeProjectedTurns(base []store.ThreadTurn, overlay []store.ThreadTurn) []store.ThreadTurn {
+	if len(overlay) == 0 {
+		return base
+	}
+
+	nextTurns := append([]store.ThreadTurn{}, base...)
+	for _, projectedTurn := range overlay {
+		index := -1
+		for turnIndex, turn := range nextTurns {
+			if turn.ID == projectedTurn.ID {
+				index = turnIndex
+				break
+			}
+		}
+
+		if index < 0 {
+			nextTurns = append(nextTurns, cloneThreadTurn(projectedTurn))
+			continue
+		}
+
+		nextTurns[index] = mergeProjectedTurn(nextTurns[index], projectedTurn)
+	}
+
+	return nextTurns
+}
+
+func mergeProjectedTurn(base store.ThreadTurn, overlay store.ThreadTurn) store.ThreadTurn {
+	next := cloneThreadTurn(base)
+	if overlay.Status != "" {
+		next.Status = overlay.Status
+	}
+	if overlay.Error != nil {
+		next.Error = overlay.Error
+	}
+	next.Items = mergeProjectedItems(next.Items, overlay.Items)
+	return next
+}
+
+func mergeProjectedItems(base []map[string]any, overlay []map[string]any) []map[string]any {
+	if len(overlay) == 0 {
+		return cloneItems(base)
+	}
+
+	nextItems := cloneItems(base)
+	for _, projectedItem := range overlay {
+		itemID := stringValue(projectedItem["id"])
+		if itemID == "" {
+			nextItems = append(nextItems, cloneItem(projectedItem))
+			continue
+		}
+
+		index := -1
+		for itemIndex, item := range nextItems {
+			if stringValue(item["id"]) == itemID {
+				index = itemIndex
+				break
+			}
+		}
+
+		if index < 0 {
+			nextItems = append(nextItems, cloneItem(projectedItem))
+			continue
+		}
+
+		nextItems[index] = mergeProjectedItem(nextItems[index], projectedItem)
+	}
+
+	return nextItems
+}
+
+func mergeProjectedItem(base map[string]any, overlay map[string]any) map[string]any {
+	next := cloneItem(base)
+	for key, value := range overlay {
+		next[key] = value
+	}
+
+	if stringValue(overlay["type"]) == "agentMessage" && stringValue(overlay["text"]) == "" && stringValue(base["text"]) != "" {
+		next["text"] = base["text"]
+	}
+	if stringValue(overlay["type"]) == "plan" && stringValue(overlay["text"]) == "" && stringValue(base["text"]) != "" {
+		next["text"] = base["text"]
+	}
+	if stringValue(overlay["type"]) == "commandExecution" &&
+		stringValue(overlay["aggregatedOutput"]) == "" &&
+		stringValue(base["aggregatedOutput"]) != "" {
+		next["aggregatedOutput"] = base["aggregatedOutput"]
+	}
+
+	return next
+}
+
+func reconcileServerRequestStatuses(
+	turns []store.ThreadTurn,
+	runtimes *runtime.Manager,
+) []store.ThreadTurn {
+	if len(turns) == 0 {
+		return turns
+	}
+
+	nextTurns := append([]store.ThreadTurn{}, turns...)
+	for turnIndex, turn := range nextTurns {
+		nextItems := cloneItems(turn.Items)
+		changed := false
+
+		for itemIndex, item := range nextItems {
+			if stringValue(item["type"]) != "serverRequest" {
+				continue
+			}
+			if stringValue(item["status"]) != "pending" {
+				continue
+			}
+
+			requestID := stringValue(item["requestId"])
+			if requestID == "" {
+				continue
+			}
+			if _, ok := runtimes.GetPendingRequest(requestID); ok {
+				continue
+			}
+
+			nextItems[itemIndex]["status"] = "expired"
+			if stringValue(nextItems[itemIndex]["expireReason"]) == "" {
+				nextItems[itemIndex]["expireReason"] = "request_unavailable"
+			}
+			changed = true
+		}
+
+		if changed {
+			nextTurns[turnIndex].Items = nextItems
+		}
+	}
+
+	return nextTurns
+}
+
+func cloneThreadTurn(turn store.ThreadTurn) store.ThreadTurn {
+	return store.ThreadTurn{
+		ID:     turn.ID,
+		Status: turn.Status,
+		Items:  cloneItems(turn.Items),
+		Error:  turn.Error,
+	}
+}
+
+func cloneItems(items []map[string]any) []map[string]any {
+	if len(items) == 0 {
+		return []map[string]any{}
+	}
+
+	cloned := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		cloned = append(cloned, cloneItem(item))
+	}
+	return cloned
+}
+
+func cloneItem(item map[string]any) map[string]any {
+	if item == nil {
+		return map[string]any{}
+	}
+
+	cloned := make(map[string]any, len(item))
+	for key, value := range item {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func mapThread(workspaceID string, raw map[string]any, archived bool) store.Thread {
@@ -504,6 +826,19 @@ func stringValue(value any) string {
 	}
 }
 
+func int64Value(value any) int64 {
+	switch typed := value.(type) {
+	case float64:
+		return int64(typed)
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	default:
+		return 0
+	}
+}
+
 func fallbackString(value string, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -543,12 +878,25 @@ func normalizePath(path string) string {
 }
 
 func (s *Service) cacheThread(thread store.Thread) {
+	if s.store.IsThreadDeleted(thread.WorkspaceID, thread.ID) {
+		s.store.RemoveThread(thread.WorkspaceID, thread.ID)
+		return
+	}
+
 	if !thread.Materialized {
-		s.store.DeleteThread(thread.WorkspaceID, thread.ID)
+		s.store.RemoveThread(thread.WorkspaceID, thread.ID)
 		return
 	}
 
 	s.store.UpsertThread(thread)
+}
+
+func (s *Service) ensureThreadNotDeleted(workspaceID string, threadID string) error {
+	if s.store.IsThreadDeleted(workspaceID, threadID) {
+		return store.ErrThreadNotFound
+	}
+
+	return nil
 }
 
 func threadIsMaterialized(raw map[string]any) bool {

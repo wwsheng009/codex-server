@@ -22,9 +22,12 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.91.0",
+    "ansi_up": "^6.0.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.1",
+    "remark-gfm": "^4.0.1",
     "zustand": "^5.0.12"
   }
 }

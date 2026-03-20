@@ -14,6 +14,7 @@ import {
   StopIcon,
   ToolsIcon,
 } from '../components/ui/RailControls'
+import { ThreadTerminalBlock } from '../components/thread/ThreadContent'
 import {
   readRightRailExpanded,
   readRightRailWidth,
@@ -34,12 +35,23 @@ import { computeContextUsage } from '../lib/thread-token-usage'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { isApiClientErrorCode } from '../lib/api-client'
 import { StatusPill } from '../components/ui/StatusPill'
-import { ApprovalDialog, ApprovalStack, buildLiveTimelineEntries, formatRelativeTimeShort, LiveFeed, TurnTimeline } from '../components/workspace/renderers'
+import { ApprovalDialog, ApprovalStack, LiveFeed, TurnTimeline } from '../components/workspace/renderers'
+import { buildLiveTimelineEntries, formatRelativeTimeShort } from '../components/workspace/timeline-utils'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { getAccount } from '../features/account/api'
 import { listPendingApprovals, respondServerRequestWithDetails } from '../features/approvals/api'
 import { listModels } from '../features/catalog/api'
 import { startCommand, terminateCommand, writeCommand } from '../features/commands/api'
-import { archiveThread, createThread, getThread, listThreads, renameThread, resumeThread, unarchiveThread } from '../features/threads/api'
+import {
+  archiveThread,
+  createThread,
+  deleteThread,
+  getThread,
+  listThreads,
+  renameThread,
+  resumeThread,
+  unarchiveThread,
+} from '../features/threads/api'
 import { interruptTurn, startTurn } from '../features/turns/api'
 import { getWorkspace } from '../features/workspaces/api'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -54,8 +66,8 @@ import {
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
 } from './threadPageUtils'
-import { applyThreadEventToDetail, upsertPendingUserMessage } from './threadLiveState'
-import type { ServerEvent, Thread, ThreadDetail, ThreadTurn, TurnResult } from '../types/api'
+import { applyThreadEventsToDetail, upsertPendingUserMessage } from './threadLiveState'
+import type { ServerEvent, Thread, ThreadDetail, ThreadTokenUsage, ThreadTurn, TurnResult } from '../types/api'
 
 const EMPTY_EVENTS: ServerEvent[] = []
 const EMPTY_COMMAND_SESSIONS = {}
@@ -85,6 +97,60 @@ const DEFAULT_COMPOSER_PREFERENCES: ComposerPreferences = {
   permissionPreset: 'default',
   model: '',
   reasoningEffort: 'medium',
+}
+
+function buildRetryPromptFromServerRequest(item: Record<string, unknown>) {
+  const requestKind = typeof item.requestKind === 'string' ? item.requestKind : ''
+  const details =
+    typeof item.details === 'object' && item.details !== null
+      ? (item.details as Record<string, unknown>)
+      : {}
+
+  switch (requestKind) {
+    case 'item/commandExecution/requestApproval':
+    case 'execCommandApproval': {
+      const command = typeof details.command === 'string' ? details.command : ''
+      return command
+        ? `Please retry the command request for \`${command}\` so I can review it again.`
+        : 'Please retry the previous command request so I can review it again.'
+    }
+    case 'item/fileChange/requestApproval':
+    case 'applyPatchApproval': {
+      const path = typeof details.path === 'string' ? details.path : ''
+      if (path) {
+        return `Please regenerate the proposed changes for \`${path}\` so I can review them again.`
+      }
+
+      const changes = Array.isArray(details.changes) ? details.changes.length : 0
+      return changes
+        ? `Please regenerate the previous ${changes} file change${changes === 1 ? '' : 's'} so I can review them again.`
+        : 'Please regenerate the previous file changes so I can review them again.'
+    }
+    case 'item/tool/requestUserInput':
+      return 'Please ask for the required user input again so I can answer it.'
+    case 'item/permissions/requestApproval': {
+      const reason = typeof details.reason === 'string' ? details.reason : ''
+      return reason
+        ? `Please retry the action that requested additional permissions. Reason: ${reason}`
+        : 'Please retry the action that requested additional permissions and explain why they are needed.'
+    }
+    case 'mcpServer/elicitation/request': {
+      const serverName = typeof details.serverName === 'string' ? details.serverName : ''
+      return serverName
+        ? `Please retry the MCP request for ${serverName} and ask me for the required input again.`
+        : 'Please retry the MCP request and ask me for the required input again.'
+    }
+    case 'item/tool/call': {
+      const tool = typeof details.tool === 'string' ? details.tool : ''
+      return tool
+        ? `Please retry the tool call \`${tool}\` and ask me for the required response again.`
+        : 'Please retry the previous tool call and ask me for the required response again.'
+    }
+    case 'account/chatgptAuthTokens/refresh':
+      return 'Please retry the authentication refresh flow and ask me for anything required.'
+    default:
+      return 'Please retry the previous request so I can complete it again.'
+  }
 }
 
 function upsertThreadList(current: Thread[] | undefined, thread: Thread) {
@@ -230,14 +296,18 @@ function compactStatusLabel(value?: string) {
 }
 
 function ContextUsageIndicator({
+  usage,
   percent,
   totalTokens,
   contextWindow,
 }: {
+  usage: ThreadTokenUsage | null | undefined
   percent: number | null
   totalTokens: number
   contextWindow: number
 }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const usagePercent = percent ?? 0
   const tone =
     percent === null
@@ -253,16 +323,102 @@ function ContextUsageIndicator({
     percent === null
       ? 'Context usage is not available until the runtime reports token usage.'
       : `Context usage ${usagePercent}% (${totalTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens)`
+  const totalBreakdown = usage?.total
+  const lastBreakdown = usage?.last
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen])
 
   return (
     <div
-      aria-label={title}
-      className={`composer-context-usage composer-context-usage--${tone}`}
+      ref={containerRef}
+      className={
+        isOpen
+          ? `composer-context-usage composer-context-usage--${tone} composer-context-usage--open`
+          : `composer-context-usage composer-context-usage--${tone}`
+      }
       style={{ ['--context-usage-percent' as string]: `${usagePercent}%` }}
-      title={title}
     >
-      <span aria-hidden="true" className="composer-context-usage__ring" />
-      <span className="composer-context-usage__value">{label}</span>
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-label={title}
+        className="composer-context-usage__summary"
+        onClick={() => setIsOpen((current) => !current)}
+        title={title}
+        type="button"
+      >
+        <span aria-hidden="true" className="composer-context-usage__ring" />
+        <span className="composer-context-usage__value">{label}</span>
+      </button>
+      {isOpen ? (
+        <div className="composer-context-usage__popover" role="dialog">
+          <div className="composer-context-usage__header">
+            <strong>Context Usage</strong>
+            <span>{label}</span>
+          </div>
+          {percent === null ? (
+            <p className="composer-context-usage__empty">
+              Token usage is not available yet for this thread.
+            </p>
+          ) : (
+            <>
+              <div className="composer-context-usage__metric-grid">
+                <div className="composer-context-usage__metric">
+                  <span>Total</span>
+                  <strong>{totalTokens.toLocaleString()}</strong>
+                </div>
+                <div className="composer-context-usage__metric">
+                  <span>Window</span>
+                  <strong>{contextWindow.toLocaleString()}</strong>
+                </div>
+                <div className="composer-context-usage__metric">
+                  <span>Input</span>
+                  <strong>{(totalBreakdown?.inputTokens ?? 0).toLocaleString()}</strong>
+                </div>
+                <div className="composer-context-usage__metric">
+                  <span>Output</span>
+                  <strong>{(totalBreakdown?.outputTokens ?? 0).toLocaleString()}</strong>
+                </div>
+                <div className="composer-context-usage__metric">
+                  <span>Reasoning</span>
+                  <strong>{(totalBreakdown?.reasoningOutputTokens ?? 0).toLocaleString()}</strong>
+                </div>
+                <div className="composer-context-usage__metric">
+                  <span>Last Turn</span>
+                  <strong>{(lastBreakdown?.totalTokens ?? 0).toLocaleString()}</strong>
+                </div>
+              </div>
+              <div className="composer-context-usage__caption">
+                Context usage is based on cumulative thread tokens reported by the runtime.
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -297,17 +453,20 @@ export function ThreadPage() {
   const [composerPreferences, setComposerPreferences] = useState<ComposerPreferences>(DEFAULT_COMPOSER_PREFERENCES)
   const [hasUnreadThreadUpdates, setHasUnreadThreadUpdates] = useState(false)
   const [isThreadPinnedToLatest, setIsThreadPinnedToLatest] = useState(true)
+  const [confirmingThreadDelete, setConfirmingThreadDelete] = useState<Thread | null>(null)
   const inspectorResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const surfacePanelResizeRef = useRef<{ side: SurfacePanelSide; startX: number; startWidth: number; view: SurfacePanelView } | null>(null)
   const terminalDockResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const threadDetailRefreshTimerRef = useRef<number | null>(null)
   const threadViewportRef = useRef<HTMLDivElement | null>(null)
   const threadBottomRef = useRef<HTMLDivElement | null>(null)
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const threadAutoScrollKeyRef = useRef('')
   const shouldFollowThreadRef = useRef(true)
 
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
   const setSelectedThread = useSessionStore((state) => state.setSelectedThread)
+  const removeThreadFromSession = useSessionStore((state) => state.removeThread)
   const removeCommandSession = useSessionStore((state) => state.removeCommandSession)
   const clearCompletedCommandSessions = useSessionStore((state) => state.clearCompletedCommandSessions)
   const mobileThreadToolsOpen = useUIStore((state) => state.mobileThreadToolsOpen)
@@ -401,6 +560,40 @@ export function ThreadPage() {
       await invalidateThreadQueries()
     },
   })
+  const deleteThreadMutation = useMutation({
+    mutationFn: (threadId: string) => deleteThread(workspaceId, threadId),
+    onSuccess: async (_, threadId) => {
+      queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
+        (current ?? []).filter((thread) => thread.id !== threadId),
+      )
+      queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
+        (current ?? []).filter((thread) => thread.id !== threadId),
+      )
+      queryClient.removeQueries({ queryKey: ['thread-detail', workspaceId, threadId] })
+
+      const remainingThreads =
+        (queryClient.getQueryData<Thread[]>(['threads', workspaceId]) ?? []).filter(
+          (thread) => thread.id !== threadId,
+        )
+
+      setEditingThreadId((current) => (current === threadId ? undefined : current))
+      setEditingThreadName('')
+      setPendingTurn((current) => (current?.threadId === threadId ? null : current))
+      setSendError(null)
+      setConfirmingThreadDelete(null)
+      deleteThreadMutation.reset()
+      removeThreadFromSession(workspaceId, threadId)
+
+      if (selectedThreadId === threadId) {
+        setSelectedThread(workspaceId, remainingThreads[0]?.id)
+      }
+
+      await Promise.all([
+        invalidateThreadQueries(),
+        queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+      ])
+    },
+  })
   const startTurnMutation = useMutation<
     TurnResult,
     Error,
@@ -490,6 +683,10 @@ export function ThreadPage() {
     workspaceId
       ? state.commandSessionsByWorkspace[workspaceId] ?? (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string])
       : (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string]),
+  )
+  const liveThreadDetail = useMemo(
+    () => applyThreadEventsToDetail(threadDetailQuery.data, selectedThreadEvents),
+    [selectedThreadEvents, threadDetailQuery.data],
   )
 
   const commandSessions = useMemo(
@@ -587,7 +784,7 @@ export function ThreadPage() {
     }, remainingMs)
 
     return () => window.clearTimeout(timeoutId)
-  }, [pendingTurn, selectedThreadId, threadDetailQuery.data?.turns])
+  }, [liveThreadDetail?.turns, pendingTurn, selectedThreadId])
 
   useEffect(() => {
     if (!selectedThreadId || !selectedThreadEvents.length) {
@@ -595,11 +792,6 @@ export function ThreadPage() {
     }
 
     const latestEvent = selectedThreadEvents[selectedThreadEvents.length - 1]
-    queryClient.setQueryData<ThreadDetail>(
-      ['thread-detail', workspaceId, selectedThreadId],
-      (current) => applyThreadEventToDetail(current, latestEvent),
-    )
-
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
       void queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] })
     }
@@ -824,7 +1016,7 @@ export function ThreadPage() {
     [selectedThreadId, threadsQuery.data],
   )
   const displayedTurns = useMemo(() => {
-    const turns = threadDetailQuery.data?.turns ?? []
+    const turns = liveThreadDetail?.turns ?? []
 
     if (!pendingTurn || pendingTurn.threadId !== selectedThreadId) {
       return turns
@@ -835,7 +1027,7 @@ export function ThreadPage() {
     }
 
     return [...turns, buildPendingThreadTurn(pendingTurn)]
-  }, [pendingTurn, selectedThreadId, threadDetailQuery.data?.turns])
+  }, [liveThreadDetail?.turns, pendingTurn, selectedThreadId])
   const liveTimelineEntries = useMemo(
     () =>
       buildLiveTimelineEntries(
@@ -849,9 +1041,10 @@ export function ThreadPage() {
     () => commandSessions.find((session) => session.id === selectedProcessId) ?? commandSessions[0],
     [commandSessions, selectedProcessId],
   )
+  const resolvedThreadTokenUsage = liveThreadDetail?.tokenUsage ?? selectedThreadTokenUsage
   const contextUsage = useMemo(
-    () => computeContextUsage(selectedThreadTokenUsage),
-    [selectedThreadTokenUsage],
+    () => computeContextUsage(resolvedThreadTokenUsage),
+    [resolvedThreadTokenUsage],
   )
   const availableModels = useMemo(
     () =>
@@ -887,14 +1080,14 @@ export function ThreadPage() {
     latestThreadEventTs,
     pendingTurn?.phase ?? '',
     pendingTurn?.turnId ?? '',
-    threadDetailQuery.data?.updatedAt ?? '',
+    liveThreadDetail?.updatedAt ?? '',
     selectedThread?.updatedAt ?? '',
   ].join('|')
   const isWaitingForThreadData = Boolean(pendingTurn && pendingTurn.threadId === selectedThreadId)
   const isApprovalDialogOpen = Boolean(activeComposerApproval)
   const requiresOpenAIAuth =
     accountQuery.data?.status === 'requires_openai_auth' || isAuthenticationError(accountQuery.error)
-  const isThreadSystemError = (threadDetailQuery.data?.status ?? selectedThread?.status) === 'systemError'
+  const isThreadSystemError = (liveThreadDetail?.status ?? selectedThread?.status) === 'systemError'
   const isThreadInterruptible = Boolean(
     selectedThreadId &&
       (isWaitingForThreadData ||
@@ -1109,6 +1302,32 @@ export function ThreadPage() {
     scrollThreadToLatest('smooth')
   }
 
+  function handleRetryServerRequest(item: Record<string, unknown>) {
+    const nextPrompt = buildRetryPromptFromServerRequest(item)
+
+    setMessage((current) => {
+      const trimmed = current.trim()
+      if (!trimmed) {
+        return nextPrompt
+      }
+
+      if (trimmed.includes(nextPrompt)) {
+        return current
+      }
+
+      return `${current.trimEnd()}\n\n${nextPrompt}`
+    })
+    setSendError(null)
+
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus()
+      composerInputRef.current?.setSelectionRange(
+        composerInputRef.current.value.length,
+        composerInputRef.current.value.length,
+      )
+    })
+  }
+
   function handleCreateThread(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!newThreadName.trim()) {
@@ -1127,6 +1346,32 @@ export function ThreadPage() {
       model: composerPreferences.model || undefined,
       permissionPreset: composerPreferences.permissionPreset,
     })
+  }
+
+  function handleDeleteSelectedThread() {
+    if (!selectedThread || deleteThreadMutation.isPending) {
+      return
+    }
+
+    deleteThreadMutation.reset()
+    setConfirmingThreadDelete(selectedThread)
+  }
+
+  function handleCloseDeleteThreadDialog() {
+    if (deleteThreadMutation.isPending) {
+      return
+    }
+
+    setConfirmingThreadDelete(null)
+    deleteThreadMutation.reset()
+  }
+
+  function handleConfirmDeleteThreadDialog() {
+    if (!confirmingThreadDelete || deleteThreadMutation.isPending) {
+      return
+    }
+
+    deleteThreadMutation.mutate(confirmingThreadDelete.id)
   }
 
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
@@ -1417,7 +1662,7 @@ export function ThreadPage() {
                           <InlineNotice
                             details={requiresOpenAIAuth ? 'requires_openai_auth' : 'systemError'}
                             dismissible
-                            noticeKey={`thread-runtime-${selectedThreadId}-${threadDetailQuery.data?.status ?? selectedThread?.status ?? 'unknown'}`}
+                            noticeKey={`thread-runtime-${selectedThreadId}-${liveThreadDetail?.status ?? selectedThread?.status ?? 'unknown'}`}
                             onRetry={() => void queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })}
                             title="Thread Runtime Error"
                             tone="error"
@@ -1425,7 +1670,10 @@ export function ThreadPage() {
                             {'Thread status is systemError. The runtime did not return a more specific error message for this turn.'}
                           </InlineNotice>
                         ) : null}
-                        <TurnTimeline turns={displayedTurns} />
+                        <TurnTimeline
+                          onRetryServerRequest={handleRetryServerRequest}
+                          turns={displayedTurns}
+                        />
                         {isWaitingForThreadData ? (
                           <div
                             aria-live="polite"
@@ -1628,6 +1876,7 @@ export function ThreadPage() {
                         : 'Select a thread to activate the workspace composer.'
                     }
                     rows={isMobileViewport ? 2 : 3}
+                    ref={composerInputRef}
                     value={message}
                   />
                   {composerActivityTitle && composerActivityDetail ? (
@@ -1707,6 +1956,7 @@ export function ThreadPage() {
                           contextWindow={contextUsage.contextWindow}
                           percent={contextUsage.percent}
                           totalTokens={contextUsage.totalTokens}
+                          usage={resolvedThreadTokenUsage}
                         />
                         <button
                           aria-label={sendButtonLabel}
@@ -1870,6 +2120,7 @@ export function ThreadPage() {
                           contextWindow={contextUsage.contextWindow}
                           percent={contextUsage.percent}
                           totalTokens={contextUsage.totalTokens}
+                          usage={resolvedThreadTokenUsage}
                         />
                         <button
                           className={
@@ -2001,9 +2252,10 @@ export function ThreadPage() {
                             {typeof selectedCommandSession?.exitCode === 'number' ? <span>exit {selectedCommandSession.exitCode}</span> : null}
                             {selectedCommandSession?.id ? <code>{selectedCommandSession.id}</code> : null}
                           </div>
-                          <pre className="code-block code-block--terminal">
-                            {selectedCommandSession?.combinedOutput || 'Run a command to see output.'}
-                          </pre>
+                          <ThreadTerminalBlock
+                            className="terminal-dock__output"
+                            content={selectedCommandSession?.combinedOutput || 'Run a command to see output.'}
+                          />
                           <form className="terminal-dock__input" onSubmit={handleSendStdin}>
                             <input
                               disabled={!selectedCommandSession?.id}
@@ -2165,8 +2417,18 @@ export function ThreadPage() {
                         >
                           {selectedThread.archived ? 'Unarchive' : 'Archive'}
                         </button>
+                        <button
+                          className="ide-button ide-button--danger"
+                          disabled={deleteThreadMutation.isPending}
+                          onClick={handleDeleteSelectedThread}
+                          type="button"
+                        >
+                          {deleteThreadMutation.isPending &&
+                          deleteThreadMutation.variables === selectedThread.id
+                            ? 'Deleting…'
+                            : 'Delete'}
+                        </button>
                       </div>
-
                       {editingThreadId === selectedThread.id ? (
                         <form className="form-stack" onSubmit={(event) => {
                           event.preventDefault()
@@ -2228,7 +2490,7 @@ export function ThreadPage() {
                 </div>
                 <div className="detail-row">
                   <span>CWD</span>
-                  <strong>{threadDetailQuery.data?.cwd ?? '—'}</strong>
+                  <strong>{liveThreadDetail?.cwd ?? '—'}</strong>
                 </div>
                 <div className="detail-row">
                   <span>Turns</span>
@@ -2346,6 +2608,18 @@ export function ThreadPage() {
           </aside>
         ) : null}
       </div>
+      {confirmingThreadDelete ? (
+        <ConfirmDialog
+          confirmLabel="Delete Thread"
+          description="This removes the thread from this workspace list and clears its active UI state."
+          error={deleteThreadMutation.error ? getErrorMessage(deleteThreadMutation.error) : null}
+          isPending={deleteThreadMutation.isPending}
+          onClose={handleCloseDeleteThreadDialog}
+          onConfirm={handleConfirmDeleteThreadDialog}
+          subject={confirmingThreadDelete.name}
+          title="Delete Thread?"
+        />
+      ) : null}
     </section>
   )
 }

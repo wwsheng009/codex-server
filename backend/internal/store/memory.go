@@ -17,23 +17,29 @@ var (
 )
 
 type MemoryStore struct {
-	mu         sync.RWMutex
-	path       string
-	workspaces map[string]Workspace
-	threads    map[string]Thread
-	approvals  map[string]PendingApproval
+	mu          sync.RWMutex
+	path        string
+	workspaces  map[string]Workspace
+	threads     map[string]Thread
+	projections map[string]ThreadProjection
+	deleted     map[string]DeletedThread
+	approvals   map[string]PendingApproval
 }
 
 type storeSnapshot struct {
-	Workspaces []Workspace `json:"workspaces"`
-	Threads    []Thread    `json:"threads"`
+	Workspaces        []Workspace        `json:"workspaces"`
+	Threads           []Thread           `json:"threads"`
+	ThreadProjections []ThreadProjection `json:"threadProjections,omitempty"`
+	DeletedThreads    []DeletedThread    `json:"deletedThreads,omitempty"`
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		workspaces: make(map[string]Workspace),
-		threads:    make(map[string]Thread),
-		approvals:  make(map[string]PendingApproval),
+		workspaces:  make(map[string]Workspace),
+		threads:     make(map[string]Thread),
+		projections: make(map[string]ThreadProjection),
+		deleted:     make(map[string]DeletedThread),
+		approvals:   make(map[string]PendingApproval),
 	}
 }
 
@@ -91,6 +97,23 @@ func (s *MemoryStore) GetWorkspace(id string) (Workspace, bool) {
 	return workspace, ok
 }
 
+func (s *MemoryStore) SetWorkspaceName(workspaceID string, name string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[workspaceID]
+	if !ok {
+		return Workspace{}, ErrWorkspaceNotFound
+	}
+
+	workspace.Name = name
+	workspace.UpdatedAt = time.Now().UTC()
+	s.workspaces[workspaceID] = workspace
+	s.persistLocked()
+
+	return workspace, nil
+}
+
 func (s *MemoryStore) ListThreads(workspaceID string) []Thread {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -139,6 +162,10 @@ func (s *MemoryStore) CreateThread(workspaceID string, name string) (Thread, err
 func (s *MemoryStore) GetThread(workspaceID string, threadID string) (Thread, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	if _, deleted := s.deleted[deletedThreadKey(workspaceID, threadID)]; deleted {
+		return Thread{}, false
+	}
 
 	thread, ok := s.threads[threadID]
 	if !ok || thread.WorkspaceID != workspaceID {
@@ -203,6 +230,13 @@ func (s *MemoryStore) UpsertThread(thread Thread) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, deleted := s.deleted[deletedThreadKey(thread.WorkspaceID, thread.ID)]; deleted {
+		delete(s.threads, thread.ID)
+		delete(s.projections, threadProjectionKey(thread.WorkspaceID, thread.ID))
+		s.persistLocked()
+		return
+	}
+
 	s.threads[thread.ID] = thread
 	if workspace, ok := s.workspaces[thread.WorkspaceID]; ok && thread.UpdatedAt.After(workspace.UpdatedAt) {
 		workspace.UpdatedAt = thread.UpdatedAt
@@ -211,7 +245,41 @@ func (s *MemoryStore) UpsertThread(thread Thread) {
 	s.persistLocked()
 }
 
-func (s *MemoryStore) DeleteThread(workspaceID string, threadID string) {
+func (s *MemoryStore) GetThreadProjection(workspaceID string, threadID string) (ThreadProjection, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	projection, ok := s.projections[threadProjectionKey(workspaceID, threadID)]
+	return projection, ok
+}
+
+func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
+	if event.ThreadID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := threadProjectionKey(event.WorkspaceID, event.ThreadID)
+	projection := s.projections[key]
+	if projection.ThreadID == "" {
+		projection = ThreadProjection{
+			WorkspaceID: event.WorkspaceID,
+			ThreadID:    event.ThreadID,
+			Turns:       []ThreadTurn{},
+		}
+	}
+
+	if !applyThreadEventToProjection(&projection, event) {
+		return
+	}
+
+	s.projections[key] = projection
+	s.persistLocked()
+}
+
+func (s *MemoryStore) RemoveThread(workspaceID string, threadID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -221,7 +289,86 @@ func (s *MemoryStore) DeleteThread(workspaceID string, threadID string) {
 	}
 
 	delete(s.threads, threadID)
+	delete(s.projections, threadProjectionKey(workspaceID, threadID))
 	s.persistLocked()
+}
+
+func (s *MemoryStore) DeleteThread(workspaceID string, threadID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[workspaceID]
+	if !ok {
+		return ErrWorkspaceNotFound
+	}
+
+	key := deletedThreadKey(workspaceID, threadID)
+	if _, deleted := s.deleted[key]; deleted {
+		return ErrThreadNotFound
+	}
+
+	if thread, ok := s.threads[threadID]; ok && thread.WorkspaceID != workspaceID {
+		return ErrThreadNotFound
+	}
+
+	now := time.Now().UTC()
+	s.deleted[key] = DeletedThread{
+		WorkspaceID: workspaceID,
+		ThreadID:    threadID,
+		DeletedAt:   now,
+	}
+	delete(s.threads, threadID)
+	delete(s.projections, threadProjectionKey(workspaceID, threadID))
+	workspace.UpdatedAt = now
+	s.workspaces[workspaceID] = workspace
+	s.persistLocked()
+
+	return nil
+}
+
+func (s *MemoryStore) IsThreadDeleted(workspaceID string, threadID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, ok := s.deleted[deletedThreadKey(workspaceID, threadID)]
+	return ok
+}
+
+func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[workspaceID]; !ok {
+		return ErrWorkspaceNotFound
+	}
+
+	delete(s.workspaces, workspaceID)
+
+	for threadID, thread := range s.threads {
+		if thread.WorkspaceID == workspaceID {
+			delete(s.threads, threadID)
+		}
+	}
+	for key, projection := range s.projections {
+		if projection.WorkspaceID == workspaceID {
+			delete(s.projections, key)
+		}
+	}
+
+	for key, deletedThread := range s.deleted {
+		if deletedThread.WorkspaceID == workspaceID {
+			delete(s.deleted, key)
+		}
+	}
+
+	for approvalID, approval := range s.approvals {
+		if approval.WorkspaceID == workspaceID {
+			delete(s.approvals, approvalID)
+		}
+	}
+
+	s.persistLocked()
+	return nil
 }
 
 func (s *MemoryStore) CreatePendingApproval(workspaceID string, threadID string, kind string, summary string) PendingApproval {
@@ -317,6 +464,16 @@ func (s *MemoryStore) load() error {
 
 	for _, thread := range snapshot.Threads {
 		s.threads[thread.ID] = thread
+		if value := NumericIDSuffix(thread.ID); value > maxID {
+			maxID = value
+		}
+	}
+	for _, projection := range snapshot.ThreadProjections {
+		s.projections[threadProjectionKey(projection.WorkspaceID, projection.ThreadID)] = projection
+	}
+
+	for _, deletedThread := range snapshot.DeletedThreads {
+		s.deleted[deletedThreadKey(deletedThread.WorkspaceID, deletedThread.ThreadID)] = deletedThread
 	}
 
 	SeedIDCounter(maxID)
@@ -329,8 +486,10 @@ func (s *MemoryStore) persistLocked() {
 	}
 
 	snapshot := storeSnapshot{
-		Workspaces: make([]Workspace, 0, len(s.workspaces)),
-		Threads:    make([]Thread, 0, len(s.threads)),
+		Workspaces:        make([]Workspace, 0, len(s.workspaces)),
+		Threads:           make([]Thread, 0, len(s.threads)),
+		ThreadProjections: make([]ThreadProjection, 0, len(s.projections)),
+		DeletedThreads:    make([]DeletedThread, 0, len(s.deleted)),
 	}
 
 	for _, workspace := range s.workspaces {
@@ -339,12 +498,31 @@ func (s *MemoryStore) persistLocked() {
 	for _, thread := range s.threads {
 		snapshot.Threads = append(snapshot.Threads, thread)
 	}
+	for _, projection := range s.projections {
+		snapshot.ThreadProjections = append(snapshot.ThreadProjections, projection)
+	}
+	for _, deletedThread := range s.deleted {
+		snapshot.DeletedThreads = append(snapshot.DeletedThreads, deletedThread)
+	}
 
 	sort.Slice(snapshot.Workspaces, func(i int, j int) bool {
 		return snapshot.Workspaces[i].ID < snapshot.Workspaces[j].ID
 	})
 	sort.Slice(snapshot.Threads, func(i int, j int) bool {
 		return snapshot.Threads[i].ID < snapshot.Threads[j].ID
+	})
+	sort.Slice(snapshot.ThreadProjections, func(i int, j int) bool {
+		if snapshot.ThreadProjections[i].WorkspaceID == snapshot.ThreadProjections[j].WorkspaceID {
+			return snapshot.ThreadProjections[i].ThreadID < snapshot.ThreadProjections[j].ThreadID
+		}
+
+		return snapshot.ThreadProjections[i].WorkspaceID < snapshot.ThreadProjections[j].WorkspaceID
+	})
+	sort.Slice(snapshot.DeletedThreads, func(i int, j int) bool {
+		if snapshot.DeletedThreads[i].WorkspaceID == snapshot.DeletedThreads[j].WorkspaceID {
+			return snapshot.DeletedThreads[i].ThreadID < snapshot.DeletedThreads[j].ThreadID
+		}
+		return snapshot.DeletedThreads[i].WorkspaceID < snapshot.DeletedThreads[j].WorkspaceID
 	})
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
@@ -357,4 +535,12 @@ func (s *MemoryStore) persistLocked() {
 	}
 
 	_ = os.WriteFile(s.path, data, 0o644)
+}
+
+func deletedThreadKey(workspaceID string, threadID string) string {
+	return workspaceID + "\x00" + threadID
+}
+
+func threadProjectionKey(workspaceID string, threadID string) string {
+	return workspaceID + "\x00" + threadID
 }

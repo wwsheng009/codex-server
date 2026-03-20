@@ -9,12 +9,24 @@ import (
 type Hub struct {
 	mu          sync.RWMutex
 	subscribers map[string]map[chan store.EventEnvelope]struct{}
+	dataStore   interface {
+		ApplyThreadEvent(store.EventEnvelope)
+	}
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		subscribers: make(map[string]map[chan store.EventEnvelope]struct{}),
 	}
+}
+
+func (h *Hub) AttachStore(dataStore interface {
+	ApplyThreadEvent(store.EventEnvelope)
+}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.dataStore = dataStore
 }
 
 func (h *Hub) Subscribe(workspaceID string) (<-chan store.EventEnvelope, func()) {
@@ -51,6 +63,7 @@ func (h *Hub) Subscribe(workspaceID string) (<-chan store.EventEnvelope, func())
 
 func (h *Hub) Publish(event store.EventEnvelope) {
 	h.mu.RLock()
+	dataStore := h.dataStore
 	defer h.mu.RUnlock()
 
 	for subscriber := range h.subscribers[event.WorkspaceID] {
@@ -58,5 +71,9 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 		case subscriber <- event:
 		default:
 		}
+	}
+
+	if dataStore != nil {
+		dataStore.ApplyThreadEvent(event)
 	}
 }

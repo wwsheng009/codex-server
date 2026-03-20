@@ -32,6 +32,8 @@ type SessionState = {
   upsertCommandSession: (session: CommandSession) => void
   removeCommandSession: (workspaceId: string, processId: string) => void
   clearCompletedCommandSessions: (workspaceId: string) => void
+  removeWorkspace: (workspaceId: string) => void
+  removeThread: (workspaceId: string, threadId: string) => void
 }
 
 export const useSessionStore = create<SessionState>()(
@@ -99,6 +101,71 @@ export const useSessionStore = create<SessionState>()(
             workspaceId,
           ),
         })),
+      removeWorkspace: (workspaceId) =>
+        set((current) => {
+          const nextSelectedThreadIdByWorkspace = { ...current.selectedThreadIdByWorkspace }
+          const removedSelectedThreadId = nextSelectedThreadIdByWorkspace[workspaceId]
+          delete nextSelectedThreadIdByWorkspace[workspaceId]
+
+          const nextWorkspaceEvents = { ...current.workspaceEventsByWorkspace }
+          delete nextWorkspaceEvents[workspaceId]
+
+          const nextActivityEvents = { ...current.activityEventsByWorkspace }
+          delete nextActivityEvents[workspaceId]
+
+          const nextConnectionByWorkspace = { ...current.connectionByWorkspace }
+          delete nextConnectionByWorkspace[workspaceId]
+
+          const nextCommandSessionsByWorkspace = { ...current.commandSessionsByWorkspace }
+          delete nextCommandSessionsByWorkspace[workspaceId]
+
+          const nextEventsByThread = { ...current.eventsByThread }
+          if (removedSelectedThreadId) {
+            delete nextEventsByThread[removedSelectedThreadId]
+          }
+
+          const nextTokenUsageByThread = { ...current.tokenUsageByThread }
+          if (removedSelectedThreadId) {
+            delete nextTokenUsageByThread[removedSelectedThreadId]
+          }
+
+          return {
+            selectedWorkspaceId:
+              current.selectedWorkspaceId === workspaceId ? undefined : current.selectedWorkspaceId,
+            selectedThreadId:
+              current.selectedWorkspaceId === workspaceId ? undefined : current.selectedThreadId,
+            selectedThreadIdByWorkspace: nextSelectedThreadIdByWorkspace,
+            workspaceEventsByWorkspace: nextWorkspaceEvents,
+            activityEventsByWorkspace: nextActivityEvents,
+            connectionByWorkspace: nextConnectionByWorkspace,
+            commandSessionsByWorkspace: nextCommandSessionsByWorkspace,
+            eventsByThread: nextEventsByThread,
+            tokenUsageByThread: nextTokenUsageByThread,
+          }
+        }),
+      removeThread: (workspaceId, threadId) =>
+        set((current) => {
+          const nextSelectedThreadIdByWorkspace = { ...current.selectedThreadIdByWorkspace }
+          if (nextSelectedThreadIdByWorkspace[workspaceId] === threadId) {
+            delete nextSelectedThreadIdByWorkspace[workspaceId]
+          }
+
+          const nextEventsByThread = { ...current.eventsByThread }
+          delete nextEventsByThread[threadId]
+
+          const nextTokenUsageByThread = { ...current.tokenUsageByThread }
+          delete nextTokenUsageByThread[threadId]
+
+          return {
+            selectedThreadId:
+              current.selectedWorkspaceId === workspaceId && current.selectedThreadId === threadId
+                ? undefined
+                : current.selectedThreadId,
+            selectedThreadIdByWorkspace: nextSelectedThreadIdByWorkspace,
+            eventsByThread: nextEventsByThread,
+            tokenUsageByThread: nextTokenUsageByThread,
+          }
+        }),
       ingestEvent: (event) =>
         set((current) => {
           const nextCommandSessions = applyCommandEvent(current.commandSessionsByWorkspace, event)

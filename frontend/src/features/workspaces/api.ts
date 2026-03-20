@@ -15,3 +15,16 @@ export function createWorkspace(input: { name: string; rootPath: string }) {
     body: JSON.stringify(input),
   })
 }
+
+export function renameWorkspace(workspaceId: string, input: { name: string }) {
+  return apiRequest<Workspace>(`/api/workspaces/${workspaceId}/name`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteWorkspace(workspaceId: string) {
+  return apiRequest<{ status: string }>(`/api/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+  })
+}

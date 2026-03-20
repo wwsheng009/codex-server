@@ -255,6 +255,16 @@
   border-color: var(--border-subtle);
 }
 
+.ide-button--danger {
+  background: linear-gradient(135deg, var(--danger), var(--danger-strong));
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-button-danger);
+}
+
+.ide-button--danger:hover:not(:disabled) {
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
 .rail-icon {
   display: inline-flex;
   align-items: center;
@@ -866,6 +876,107 @@
   color: var(--text-muted);
 }
 
+.confirm-dialog {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+}
+
+.confirm-dialog__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.confirm-dialog__eyebrow {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--surface-danger-soft);
+  color: var(--danger);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.confirm-dialog__header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.08rem;
+}
+
+.confirm-dialog__header p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.confirm-dialog__subject {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-card);
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rename-dialog {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.rename-dialog__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rename-dialog__header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.08rem;
+}
+
+.rename-dialog__header p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.rename-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .modal-card__context,
 .detail-layout {
   display: grid;
@@ -1410,10 +1521,27 @@
 
 .workspace-registry__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px 116px auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   padding: 16px 20px;
+}
+
+.workspace-registry__row-link {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 116px;
+  gap: 16px;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+
+.workspace-registry__row-link:focus-visible,
+.workspace-registry__action-link:focus-visible,
+.workspace-registry__remove:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .workspace-registry__main,
@@ -1449,8 +1577,17 @@
   gap: 4px;
 }
 
+.workspace-registry__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .workspace-registry__meta span,
-.workspace-registry__action {
+.workspace-registry__action-link,
+.workspace-registry__remove {
   color: var(--text-faint);
   font-size: 0.76rem;
 }
@@ -1460,12 +1597,31 @@
   font-size: 0.92rem;
 }
 
-.workspace-registry__action {
-  justify-self: end;
+.workspace-registry__action-link,
+.workspace-registry__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-card);
+  text-decoration: none;
+}
+
+.workspace-registry__action-link {
   color: var(--accent);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.workspace-registry__remove {
+  border-color: var(--border-danger);
+  background: var(--surface-danger-soft);
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .directory-item {

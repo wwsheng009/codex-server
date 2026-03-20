@@ -1,8 +1,8 @@
 package api
 
 import (
-	"errors"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -118,6 +118,164 @@ func TestExtendedFSRoutesValidateRequestBody(t *testing.T) {
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for invalid body on %s, got %d", path, response.Code)
 		}
+	}
+}
+
+func TestDeleteWorkspaceRouteRemovesWorkspaceMetadata(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces",
+		`{"name":"Workspace A","rootPath":"E:/projects/ai/codex-server"}`,
+	)
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+
+	dataStore.UpsertThread(store.Thread{
+		ID:           "thr_test_delete_workspace",
+		WorkspaceID:  created.Data.ID,
+		Cwd:          "E:/projects/ai/codex-server",
+		Materialized: true,
+		Name:         "Delete Me",
+		Status:       "idle",
+	})
+
+	deleteResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodDelete,
+		"/api/workspaces/"+created.Data.ID,
+		"",
+	)
+
+	if deleteResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from delete workspace, got %d", deleteResponse.Code)
+	}
+
+	if _, ok := dataStore.GetWorkspace(created.Data.ID); ok {
+		t.Fatal("expected workspace to be removed from store")
+	}
+
+	if threads := dataStore.ListThreads(created.Data.ID); len(threads) != 0 {
+		t.Fatalf("expected workspace threads to be removed, got %d", len(threads))
+	}
+}
+
+func TestRenameWorkspaceRouteUpdatesWorkspaceName(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces",
+		`{"name":"Workspace A","rootPath":"E:/projects/ai/codex-server"}`,
+	)
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+
+	renameResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+created.Data.ID+"/name",
+		`{"name":"Renamed Workspace"}`,
+	)
+
+	if renameResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from rename workspace, got %d", renameResponse.Code)
+	}
+
+	workspace, ok := dataStore.GetWorkspace(created.Data.ID)
+	if !ok {
+		t.Fatal("expected workspace to remain in store")
+	}
+
+	if workspace.Name != "Renamed Workspace" {
+		t.Fatalf("expected workspace name to be updated, got %q", workspace.Name)
+	}
+}
+
+func TestDeleteThreadRouteMarksThreadDeleted(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces",
+		`{"name":"Workspace A","rootPath":"E:/projects/ai/codex-server"}`,
+	)
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+
+	threadID := "thr_test_delete_thread"
+	dataStore.UpsertThread(store.Thread{
+		ID:           threadID,
+		WorkspaceID:  created.Data.ID,
+		Cwd:          "E:/projects/ai/codex-server",
+		Materialized: true,
+		Name:         "Delete Thread",
+		Status:       "idle",
+	})
+
+	deleteResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodDelete,
+		"/api/workspaces/"+created.Data.ID+"/threads/"+threadID,
+		"",
+	)
+
+	if deleteResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from delete thread, got %d", deleteResponse.Code)
+	}
+
+	if _, ok := dataStore.GetThread(created.Data.ID, threadID); ok {
+		t.Fatal("expected thread cache entry to be removed")
+	}
+
+	if !dataStore.IsThreadDeleted(created.Data.ID, threadID) {
+		t.Fatal("expected thread to be marked deleted")
 	}
 }
 
@@ -294,6 +452,7 @@ func TestWriteStoreErrorMapsAuthenticationFailures(t *testing.T) {
 
 func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
 	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
 
 	authService := auth.NewService(dataStore, runtimeManager)

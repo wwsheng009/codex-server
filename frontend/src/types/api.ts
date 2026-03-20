@@ -37,6 +37,7 @@ export type ThreadDetail = Thread & {
   preview?: string
   path?: string
   source?: string
+  tokenUsage?: ThreadTokenUsage | null
   turns: ThreadTurn[]
 }
 
