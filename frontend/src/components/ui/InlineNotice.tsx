@@ -8,6 +8,9 @@ type InlineNoticeProps = {
   className?: string
   dismissible?: boolean
   noticeKey?: string
+  details?: string
+  onRetry?: () => void
+  retryLabel?: string
 }
 
 export function InlineNotice({
@@ -18,11 +21,16 @@ export function InlineNotice({
   className,
   dismissible = false,
   noticeKey,
+  details,
+  onRetry,
+  retryLabel = 'Retry',
 }: InlineNoticeProps) {
   const [dismissed, setDismissed] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     setDismissed(false)
+    setCopied(false)
   }, [noticeKey])
 
   if (dismissed) {
@@ -33,12 +41,26 @@ export function InlineNotice({
     'notice',
     tone === 'error' ? 'notice--error' : '',
     title ? 'notice--detailed' : '',
-    action ? 'notice--actionable' : '',
+    action || onRetry || details ? 'notice--actionable' : '',
     dismissible ? 'notice--dismissible' : '',
     className ?? '',
   ]
     .filter(Boolean)
     .join(' ')
+
+  async function handleCopyDetails() {
+    if (!details || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(details)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1200)
+    } catch {
+      setCopied(false)
+    }
+  }
 
   return (
     <div className={classes}>
@@ -47,6 +69,20 @@ export function InlineNotice({
         <div className="notice__description">{children}</div>
       </div>
       <div className="notice__aside">
+        {onRetry || details ? (
+          <div className="notice__tools">
+            {onRetry ? (
+              <button className="notice__tool" onClick={onRetry} type="button">
+                {retryLabel}
+              </button>
+            ) : null}
+            {details ? (
+              <button className="notice__tool" onClick={() => void handleCopyDetails()} type="button">
+                {copied ? 'Copied' : 'Copy details'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {action ? <div className="notice__action">{action}</div> : null}
         {dismissible ? (
           <button

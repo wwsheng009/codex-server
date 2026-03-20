@@ -7,6 +7,7 @@ import {
   SettingsPageHeader,
   SettingsRecord,
 } from '../../components/settings/SettingsPrimitives'
+import { InlineNotice } from '../../components/ui/InlineNotice'
 import { listThreads, unarchiveThread } from '../../features/threads/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { getErrorMessage } from '../../lib/error-utils'
@@ -72,7 +73,16 @@ export function ArchivedThreadsSettingsPage() {
             title="Archived Items"
           >
             {isLoading ? <div className="notice">Loading archived threads…</div> : null}
-            {firstError ? <div className="notice notice--error">{firstError}</div> : null}
+            {firstError ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`archived-load-${firstError}`}
+                title="Failed To Load Archived Threads"
+                tone="error"
+              >
+                {firstError}
+              </InlineNotice>
+            ) : null}
             {!isLoading && !archivedThreads.length ? (
               <div className="empty-state">No archived threads found.</div>
             ) : null}
@@ -96,7 +106,16 @@ export function ArchivedThreadsSettingsPage() {
                 />
               ))}
             </div>
-            {unarchiveMutation.error ? <p className="error-text">{getErrorMessage(unarchiveMutation.error)}</p> : null}
+            {unarchiveMutation.error ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`archived-unarchive-${unarchiveMutation.error instanceof Error ? unarchiveMutation.error.message : 'unknown'}`}
+                title="Unarchive Failed"
+                tone="error"
+              >
+                {getErrorMessage(unarchiveMutation.error)}
+              </InlineNotice>
+            ) : null}
           </SettingRow>
         </SettingsGroup>
       </div>

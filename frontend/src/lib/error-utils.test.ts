@@ -4,16 +4,17 @@ import { ApiClientError } from './api-client'
 import { describeError, getErrorMessage } from './error-utils'
 
 describe('error-utils', () => {
-  it('maps requires_openai_auth to a user-facing message', () => {
+  it('keeps backend error titles generic instead of remapping them', () => {
     const error = new ApiClientError('OpenAI authentication is required.', {
       code: 'requires_openai_auth',
       status: 401,
     })
 
-    expect(describeError(error).title).toBe('Authentication Required')
+    expect(describeError(error).title).toBe('Error')
+    expect(describeError(error).message).toBe('OpenAI authentication is required.')
   })
 
-  it('maps network failures even when they are generic errors', () => {
+  it('returns the raw error message when one exists', () => {
     expect(getErrorMessage(new Error('Failed to fetch'))).toBe('Failed to fetch')
   })
 

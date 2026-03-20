@@ -30,6 +30,7 @@ import {
   type SurfacePanelView,
 } from '../lib/layout-config'
 import { getErrorMessage, isAuthenticationError } from '../lib/error-utils'
+import { computeContextUsage } from '../lib/thread-token-usage'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { isApiClientErrorCode } from '../lib/api-client'
 import { StatusPill } from '../components/ui/StatusPill'
@@ -53,12 +54,12 @@ import {
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
 } from './threadPageUtils'
+import { applyThreadEventToDetail, upsertPendingUserMessage } from './threadLiveState'
 import type { ServerEvent, Thread, ThreadDetail, ThreadTurn, TurnResult } from '../types/api'
 
 const EMPTY_EVENTS: ServerEvent[] = []
 const EMPTY_COMMAND_SESSIONS = {}
 const MIN_SEND_FEEDBACK_MS = 700
-const STREAMING_DETAIL_REFRESH_DELAY_MS = 180
 const COMPOSER_PREFERENCES_STORAGE_PREFIX = 'codex-server:composer-preferences:'
 const FALLBACK_MODEL_OPTIONS = ['gpt-5.4', 'gpt-5.3-codex']
 
@@ -226,6 +227,44 @@ function compactStatusLabel(value?: string) {
     default:
       return '空闲'
   }
+}
+
+function ContextUsageIndicator({
+  percent,
+  totalTokens,
+  contextWindow,
+}: {
+  percent: number | null
+  totalTokens: number
+  contextWindow: number
+}) {
+  const usagePercent = percent ?? 0
+  const tone =
+    percent === null
+      ? 'idle'
+      : usagePercent >= 85
+        ? 'critical'
+        : usagePercent >= 65
+          ? 'warning'
+          : 'healthy'
+
+  const label = percent === null ? '--' : `${usagePercent}%`
+  const title =
+    percent === null
+      ? 'Context usage is not available until the runtime reports token usage.'
+      : `Context usage ${usagePercent}% (${totalTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens)`
+
+  return (
+    <div
+      aria-label={title}
+      className={`composer-context-usage composer-context-usage--${tone}`}
+      style={{ ['--context-usage-percent' as string]: `${usagePercent}%` }}
+      title={title}
+    >
+      <span aria-hidden="true" className="composer-context-usage__ring" />
+      <span className="composer-context-usage__value">{label}</span>
+    </div>
+  )
 }
 
 export function ThreadPage() {
@@ -438,6 +477,9 @@ export function ThreadPage() {
   const selectedThreadEvents = useSessionStore((state) =>
     selectedThreadId ? state.eventsByThread[selectedThreadId] ?? EMPTY_EVENTS : EMPTY_EVENTS,
   )
+  const selectedThreadTokenUsage = useSessionStore((state) =>
+    selectedThreadId ? state.tokenUsageByThread[selectedThreadId] ?? null : null,
+  )
   const workspaceEvents = useSessionStore((state) =>
     workspaceId ? state.workspaceEventsByWorkspace[workspaceId] ?? EMPTY_EVENTS : EMPTY_EVENTS,
   )
@@ -553,6 +595,11 @@ export function ThreadPage() {
     }
 
     const latestEvent = selectedThreadEvents[selectedThreadEvents.length - 1]
+    queryClient.setQueryData<ThreadDetail>(
+      ['thread-detail', workspaceId, selectedThreadId],
+      (current) => applyThreadEventToDetail(current, latestEvent),
+    )
+
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
       void queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] })
     }
@@ -571,15 +618,11 @@ export function ThreadPage() {
       threadDetailRefreshTimerRef.current = null
     }
 
-    if (!shouldThrottleThreadDetailRefreshForEvent(latestEvent.method)) {
-      runRefresh()
+    if (shouldThrottleThreadDetailRefreshForEvent(latestEvent.method)) {
       return
     }
 
-    threadDetailRefreshTimerRef.current = window.setTimeout(
-      runRefresh,
-      STREAMING_DETAIL_REFRESH_DELAY_MS,
-    )
+    runRefresh()
   }, [queryClient, selectedThreadEvents, selectedThreadId, workspaceId])
 
   useEffect(() => {
@@ -788,7 +831,7 @@ export function ThreadPage() {
     }
 
     if (pendingTurn.turnId && turns.some((turn) => turn.id === pendingTurn.turnId)) {
-      return turns
+      return upsertPendingUserMessage(turns, pendingTurn)
     }
 
     return [...turns, buildPendingThreadTurn(pendingTurn)]
@@ -805,6 +848,10 @@ export function ThreadPage() {
   const selectedCommandSession = useMemo(
     () => commandSessions.find((session) => session.id === selectedProcessId) ?? commandSessions[0],
     [commandSessions, selectedProcessId],
+  )
+  const contextUsage = useMemo(
+    () => computeContextUsage(selectedThreadTokenUsage),
+    [selectedThreadTokenUsage],
   )
   const availableModels = useMemo(
     () =>
@@ -874,8 +921,6 @@ export function ThreadPage() {
       ? 'Sending…'
       : isInterruptMode
         ? 'Stop'
-        : requiresOpenAIAuth
-          ? 'Reconnect Required'
         : 'Send'
   const shouldShowComposerSpinner =
     startTurnMutation.isPending || interruptTurnMutation.isPending || isInterruptMode
@@ -900,13 +945,7 @@ export function ThreadPage() {
   const mobileStatus = isWaitingForThreadData
     ? 'running'
     : selectedThread?.status ?? streamState
-  const composerStatusMessage = accountQuery.error
-    ? `Unable to verify account status right now. You can keep drafting, but sending may fail: ${getErrorMessage(accountQuery.error)}`
-    : requiresOpenAIAuth
-      ? 'Codex cannot reply until authentication is fixed. You can keep drafting below, then reconnect the account in Settings → General before sending.'
-      : sendError
-        ? sendError
-        : null
+  const composerStatusMessage = sendError
   const activeCommandCount = commandSessions.filter((session) => session.status === 'running').length
   const lastTimelineEventTs =
     selectedThreadEvents[selectedThreadEvents.length - 1]?.ts ?? workspaceEvents[workspaceEvents.length - 1]?.ts
@@ -1095,12 +1134,6 @@ export function ThreadPage() {
     if (!selectedThreadId || !selectedThread || !message.trim()) {
       return
     }
-    if (requiresOpenAIAuth) {
-      setSendError(
-        'Authentication is required before Codex can reply. Reconnect the account in Settings → General, then try again.',
-      )
-      return
-    }
 
     const input = message.trim()
     const optimisticTurn = createPendingTurn(selectedThreadId, input)
@@ -1153,9 +1186,6 @@ export function ThreadPage() {
     } catch (error) {
       setPendingTurn((current) => (current?.localId === optimisticTurn.localId ? null : current))
       setMessage(input)
-      if (isApiClientErrorCode(error, 'requires_openai_auth')) {
-        void queryClient.invalidateQueries({ queryKey: ['account'] })
-      }
       setSendError(getErrorMessage(error, 'Failed to send message.'))
     }
   }
@@ -1372,8 +1402,10 @@ export function ThreadPage() {
                       <div className="notice">Loading thread surface…</div>
                     ) : threadDetailQuery.error && !displayedTurns.length ? (
                       <InlineNotice
+                        details={getErrorMessage(threadDetailQuery.error)}
                         dismissible
                         noticeKey={`thread-load-${threadDetailQuery.error instanceof Error ? threadDetailQuery.error.message : 'unknown'}`}
+                        onRetry={() => void queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })}
                         title="Failed To Load Thread"
                         tone="error"
                       >
@@ -1383,14 +1415,14 @@ export function ThreadPage() {
                       <div className="workbench-log__thread">
                         {isThreadSystemError ? (
                           <InlineNotice
+                            details={requiresOpenAIAuth ? 'requires_openai_auth' : 'systemError'}
                             dismissible
                             noticeKey={`thread-runtime-${selectedThreadId}-${threadDetailQuery.data?.status ?? selectedThread?.status ?? 'unknown'}`}
+                            onRetry={() => void queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })}
                             title="Thread Runtime Error"
                             tone="error"
                           >
-                            {requiresOpenAIAuth
-                              ? 'OpenAI authentication is required. Reconnect the account in Settings → General before sending again.'
-                              : 'Thread status is systemError. The runtime did not return a more specific error message for this turn.'}
+                            {'Thread status is systemError. The runtime did not return a more specific error message for this turn.'}
                           </InlineNotice>
                         ) : null}
                         <TurnTimeline turns={displayedTurns} />
@@ -1551,18 +1583,22 @@ export function ThreadPage() {
                 ) : null}
                 {composerStatusMessage ? (
                   <InlineNotice
-                    action={
-                      requiresOpenAIAuth ? (
-                        <Link className="ide-button ide-button--secondary" to="/settings/general">
-                          Open Settings
-                        </Link>
-                      ) : null
-                    }
                     className="composer-dock__status-banner"
+                    details={composerStatusMessage ?? undefined}
                     dismissible
                     noticeKey={composerStatusMessage ?? 'composer-status'}
-                    title={requiresOpenAIAuth ? 'Authentication Required' : accountQuery.error ? 'Account Status Unavailable' : 'Send Failed'}
-                    tone={requiresOpenAIAuth || accountQuery.error ? 'error' : 'info'}
+                    onRetry={
+                      accountQuery.error
+                        ? () => void queryClient.invalidateQueries({ queryKey: ['account'] })
+                        : !requiresOpenAIAuth && sendError
+                          ? () => {
+                              setSendError(null)
+                            }
+                          : undefined
+                    }
+                    retryLabel={accountQuery.error ? 'Refresh Status' : 'Dismiss Error'}
+                    title="Send Failed"
+                    tone="error"
                   >
                     {composerStatusMessage}
                   </InlineNotice>
@@ -1667,6 +1703,11 @@ export function ThreadPage() {
                         </select>
                       </div>
                       <div className="composer-dock__actions">
+                        <ContextUsageIndicator
+                          contextWindow={contextUsage.contextWindow}
+                          percent={contextUsage.percent}
+                          totalTokens={contextUsage.totalTokens}
+                        />
                         <button
                           aria-label={sendButtonLabel}
                           className={
@@ -1679,7 +1720,7 @@ export function ThreadPage() {
                           disabled={
                             isInterruptMode
                               ? !selectedThreadId || interruptTurnMutation.isPending
-                              : !selectedThread || isComposerLocked || requiresOpenAIAuth || !message.trim()
+                              : !selectedThread || isComposerLocked || !message.trim()
                           }
                           onClick={isInterruptMode ? handlePrimaryComposerAction : undefined}
                           title={sendButtonLabel}
@@ -1825,6 +1866,11 @@ export function ThreadPage() {
                         </div>
                       </div>
                       <div className="composer-dock__actions">
+                        <ContextUsageIndicator
+                          contextWindow={contextUsage.contextWindow}
+                          percent={contextUsage.percent}
+                          totalTokens={contextUsage.totalTokens}
+                        />
                         <button
                           className={
                             isInterruptMode
@@ -1836,7 +1882,7 @@ export function ThreadPage() {
                           disabled={
                             isInterruptMode
                               ? !selectedThreadId || interruptTurnMutation.isPending
-                              : !selectedThread || isComposerLocked || requiresOpenAIAuth || !message.trim()
+                              : !selectedThread || isComposerLocked || !message.trim()
                           }
                           onClick={isInterruptMode ? handlePrimaryComposerAction : undefined}
                           type={isInterruptMode ? 'button' : 'submit'}

@@ -482,12 +482,12 @@
     grid-template-columns: 1fr;
   }
 
-  .composer-dock__footer {
+  .composer-dock__footer:not(.composer-dock__footer--mobile) {
     align-items: stretch;
     flex-wrap: wrap;
   }
 
-  .composer-dock__footer-main {
+  .composer-dock__footer:not(.composer-dock__footer--mobile) .composer-dock__footer-main {
     width: 100%;
     flex-direction: column;
     align-items: stretch;
@@ -498,13 +498,23 @@
     padding-right: 10px;
   }
 
-  .composer-dock__actions {
+  .composer-dock__footer:not(.composer-dock__footer--mobile) .composer-dock__actions {
     width: 100%;
     justify-content: stretch;
   }
 
-  .composer-dock__action {
+  .composer-dock__footer:not(.composer-dock__footer--mobile) .composer-dock__action {
     width: 100%;
+  }
+
+  .composer-dock__footer--mobile {
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .composer-dock__footer--mobile .composer-dock__footer-main,
+  .composer-dock__footer--mobile .composer-dock__actions {
+    width: auto;
   }
 
   .composer-dock__footer--mobile .composer-dock__action--mobile {

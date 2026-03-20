@@ -713,6 +713,13 @@
   background: var(--surface-nav-active);
 }
 
+.conversation-bubble--streaming {
+  border-color: var(--border-accent);
+  box-shadow:
+    var(--shadow-bubble),
+    0 0 0 1px rgba(47, 128, 255, 0.12);
+}
+
 .conversation-bubble__content,
 .conversation-card__content,
 .conversation-card__output {
@@ -726,8 +733,32 @@
   font-size: 0.94rem;
 }
 
+.conversation-bubble__cursor {
+  display: inline-block;
+  width: 0.62ch;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.82;
+  animation: conversation-cursor-blink 1s steps(1, end) infinite;
+}
+
 .conversation-bubble--user .conversation-bubble__content {
   color: var(--text-on-accent);
+}
+
+@keyframes conversation-cursor-blink {
+  0%,
+  49% {
+    opacity: 0.82;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .conversation-card {
@@ -1350,6 +1381,7 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  gap: 8px;
 }
 
 .composer-dock__action {
@@ -1361,6 +1393,52 @@
     transform 180ms ease,
     box-shadow 180ms ease,
     background-color 180ms ease;
+}
+
+.composer-context-usage {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--surface-control-strong);
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+
+.composer-context-usage__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(var(--accent) var(--context-usage-percent), var(--surface-muted) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+}
+
+.composer-context-usage__value {
+  position: relative;
+  z-index: 1;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.composer-context-usage--warning {
+  color: var(--warning);
+}
+
+.composer-context-usage--warning .composer-context-usage__ring {
+  background: conic-gradient(var(--warning) var(--context-usage-percent), var(--surface-muted) 0);
+}
+
+.composer-context-usage--critical {
+  color: var(--danger);
+}
+
+.composer-context-usage--critical .composer-context-usage__ring {
+  background: conic-gradient(var(--danger) var(--context-usage-percent), var(--surface-muted) 0);
 }
 
 .composer-dock__action--mobile {
@@ -1455,6 +1533,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .conversation-bubble__cursor,
   .thread-pending-state__spinner,
   .workbench-log__jump-indicator::after,
   .composer-dock__surface--live,

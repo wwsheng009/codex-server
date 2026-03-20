@@ -17,6 +17,7 @@ import {
 import { fuzzyFileSearch, uploadFeedback } from '../features/settings/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { getErrorMessage } from '../lib/error-utils'
+import { InlineNotice } from '../components/ui/InlineNotice'
 
 type CatalogSectionItem = {
   id: string
@@ -175,7 +176,11 @@ export function CatalogPage() {
         </div>
       </header>
 
-      {!workspaceId ? <div className="notice">Create a workspace first to inspect runtime data.</div> : null}
+      {!workspaceId ? (
+        <InlineNotice title="Workspace Required">
+          Create a workspace first to inspect runtime data.
+        </InlineNotice>
+      ) : null}
 
       <div className="mode-layout">
         <aside className="mode-rail">
@@ -243,7 +248,18 @@ export function CatalogPage() {
         </aside>
 
         <div className="mode-stage stack-screen">
-          {catalogQuery.error ? <div className="notice notice--error">{getErrorMessage(catalogQuery.error)}</div> : null}
+          {catalogQuery.error ? (
+            <InlineNotice
+              details={getErrorMessage(catalogQuery.error)}
+              dismissible
+              noticeKey={`catalog-${catalogQuery.error instanceof Error ? catalogQuery.error.message : 'unknown'}`}
+              onRetry={() => void catalogQuery.refetch()}
+              title="Failed To Load Runtime Inventory"
+              tone="error"
+            >
+              {getErrorMessage(catalogQuery.error)}
+            </InlineNotice>
+          ) : null}
 
           <div className="runtime-board">
             {catalogSections.map((section) => (
@@ -385,7 +401,18 @@ export function CatalogPage() {
                   {searchMutation.data ? (
                     <pre className="code-block mode-console__output">{JSON.stringify(searchMutation.data.files, null, 2)}</pre>
                   ) : null}
-                  {searchMutation.error ? <p className="error-text">{getErrorMessage(searchMutation.error)}</p> : null}
+                  {searchMutation.error ? (
+                    <InlineNotice
+                      details={getErrorMessage(searchMutation.error)}
+                      dismissible
+                      noticeKey={`catalog-search-${searchMutation.error instanceof Error ? searchMutation.error.message : 'unknown'}`}
+                      onRetry={() => searchMutation.mutate()}
+                      title="Search Failed"
+                      tone="error"
+                    >
+                      {getErrorMessage(searchMutation.error)}
+                    </InlineNotice>
+                  ) : null}
                 </form>
 
                 <form
@@ -420,7 +447,18 @@ export function CatalogPage() {
                   {feedbackMutation.data ? (
                     <pre className="code-block mode-console__output">{JSON.stringify(feedbackMutation.data, null, 2)}</pre>
                   ) : null}
-                  {feedbackMutation.error ? <p className="error-text">{getErrorMessage(feedbackMutation.error)}</p> : null}
+                  {feedbackMutation.error ? (
+                    <InlineNotice
+                      details={getErrorMessage(feedbackMutation.error)}
+                      dismissible
+                      noticeKey={`catalog-feedback-${feedbackMutation.error instanceof Error ? feedbackMutation.error.message : 'unknown'}`}
+                      onRetry={() => feedbackMutation.mutate()}
+                      title="Feedback Upload Failed"
+                      tone="error"
+                    >
+                      {getErrorMessage(feedbackMutation.error)}
+                    </InlineNotice>
+                  ) : null}
                 </form>
               </div>
             </section>

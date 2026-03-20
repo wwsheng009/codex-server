@@ -8,6 +8,7 @@ import {
   SettingsJsonPreview,
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
+import { InlineNotice } from '../../components/ui/InlineNotice'
 import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import { mcpOauthLogin } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
@@ -86,7 +87,16 @@ export function McpSettingsPage() {
                 value={mcpOauthMutation.data}
               />
             ) : null}
-            {mcpOauthMutation.error ? <p className="error-text">{getErrorMessage(mcpOauthMutation.error)}</p> : null}
+            {mcpOauthMutation.error ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`mcp-oauth-${mcpOauthMutation.error instanceof Error ? mcpOauthMutation.error.message : 'unknown'}`}
+                title="MCP OAuth Failed"
+                tone="error"
+              >
+                {getErrorMessage(mcpOauthMutation.error)}
+              </InlineNotice>
+            ) : null}
           </SettingRow>
         </SettingsGroup>
       </div>

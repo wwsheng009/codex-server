@@ -8,6 +8,7 @@ import {
   SettingsJsonPreview,
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
+import { InlineNotice } from '../../components/ui/InlineNotice'
 import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import {
   detectExternalAgentConfig,
@@ -113,7 +114,17 @@ export function ConfigSettingsPage() {
                 </button>
               </div>
             </form>
-            {writeConfigMutation.error ? <p className="error-text">{getErrorMessage(writeConfigMutation.error)}</p> : null}
+            {writeConfigMutation.error ? (
+              <InlineNotice
+                details={getErrorMessage(writeConfigMutation.error)}
+                dismissible
+                noticeKey={`write-config-${writeConfigMutation.error instanceof Error ? writeConfigMutation.error.message : 'unknown'}`}
+                title="Write Config Failed"
+                tone="error"
+              >
+                {getErrorMessage(writeConfigMutation.error)}
+              </InlineNotice>
+            ) : null}
           </SettingRow>
 
           <SettingRow
@@ -123,8 +134,30 @@ export function ConfigSettingsPage() {
             {configQuery.isLoading || requirementsQuery.isLoading ? (
               <div className="notice">Loading workspace config…</div>
             ) : null}
-            {configQuery.error ? <p className="error-text">{getErrorMessage(configQuery.error)}</p> : null}
-            {requirementsQuery.error ? <p className="error-text">{getErrorMessage(requirementsQuery.error)}</p> : null}
+            {configQuery.error ? (
+              <InlineNotice
+                details={getErrorMessage(configQuery.error)}
+                dismissible
+                noticeKey={`config-read-${configQuery.error instanceof Error ? configQuery.error.message : 'unknown'}`}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] })}
+                title="Failed To Read Config"
+                tone="error"
+              >
+                {getErrorMessage(configQuery.error)}
+              </InlineNotice>
+            ) : null}
+            {requirementsQuery.error ? (
+              <InlineNotice
+                details={getErrorMessage(requirementsQuery.error)}
+                dismissible
+                noticeKey={`config-requirements-${requirementsQuery.error instanceof Error ? requirementsQuery.error.message : 'unknown'}`}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-requirements', workspaceId] })}
+                title="Failed To Read Requirements"
+                tone="error"
+              >
+                {getErrorMessage(requirementsQuery.error)}
+              </InlineNotice>
+            ) : null}
             {configQuery.data || requirementsQuery.data ? (
               <div className="settings-grid">
                 {configQuery.data ? (
@@ -180,8 +213,30 @@ export function ConfigSettingsPage() {
                 value={detectExternalMutation.data.items}
               />
             ) : null}
-            {detectExternalMutation.error ? <p className="error-text">{getErrorMessage(detectExternalMutation.error)}</p> : null}
-            {importExternalMutation.error ? <p className="error-text">{getErrorMessage(importExternalMutation.error)}</p> : null}
+            {detectExternalMutation.error ? (
+              <InlineNotice
+                details={getErrorMessage(detectExternalMutation.error)}
+                dismissible
+                noticeKey={`detect-external-${detectExternalMutation.error instanceof Error ? detectExternalMutation.error.message : 'unknown'}`}
+                onRetry={() => detectExternalMutation.mutate()}
+                title="External Scan Failed"
+                tone="error"
+              >
+                {getErrorMessage(detectExternalMutation.error)}
+              </InlineNotice>
+            ) : null}
+            {importExternalMutation.error ? (
+              <InlineNotice
+                details={getErrorMessage(importExternalMutation.error)}
+                dismissible
+                noticeKey={`import-external-${importExternalMutation.error instanceof Error ? importExternalMutation.error.message : 'unknown'}`}
+                onRetry={() => importExternalMutation.mutate()}
+                title="Import Failed"
+                tone="error"
+              >
+                {getErrorMessage(importExternalMutation.error)}
+              </InlineNotice>
+            ) : null}
           </SettingRow>
         </SettingsGroup>
       </div>

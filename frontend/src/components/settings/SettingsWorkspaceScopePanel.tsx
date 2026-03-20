@@ -1,4 +1,5 @@
 import { useSettingsShellContext } from '../../features/settings/shell-context'
+import { InlineNotice } from '../ui/InlineNotice'
 
 type SettingsWorkspaceScopePanelProps = {
   title?: string
@@ -37,7 +38,16 @@ export function SettingsWorkspaceScopePanel({
         </select>
       </label>
       {workspacesLoading ? <div className="notice">Loading workspaces…</div> : null}
-      {workspacesError ? <p className="error-text">{workspacesError}</p> : null}
+      {workspacesError ? (
+        <InlineNotice
+          dismissible
+          noticeKey={`settings-scope-${workspacesError}`}
+          title="Workspace Scope Unavailable"
+          tone="error"
+        >
+          {workspacesError}
+        </InlineNotice>
+      ) : null}
       <div className="settings-scope-panel__summary">
         <div className="settings-scope-panel__summary-item">
           <span>Active</span>

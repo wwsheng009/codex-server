@@ -6,6 +6,7 @@ import {
   SettingsPageHeader,
   SettingsRecord,
 } from '../../components/settings/SettingsPrimitives'
+import { InlineNotice } from '../../components/ui/InlineNotice'
 import { StatusPill } from '../../components/ui/StatusPill'
 import { formatRelativeTimeShort } from '../../components/workspace/renderers'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
@@ -62,7 +63,16 @@ export function EnvironmentSettingsPage() {
             title="Registered Roots"
           >
             {workspacesLoading ? <div className="notice">Loading workspaces…</div> : null}
-            {workspacesError ? <div className="notice notice--error">{workspacesError}</div> : null}
+            {workspacesError ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`environment-workspaces-${workspacesError}`}
+                title="Failed To Load Workspaces"
+                tone="error"
+              >
+                {workspacesError}
+              </InlineNotice>
+            ) : null}
             {!workspacesLoading && !workspaces.length ? (
               <div className="empty-state">No workspaces registered yet.</div>
             ) : null}

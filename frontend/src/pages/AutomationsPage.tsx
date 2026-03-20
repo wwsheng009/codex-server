@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
+import { InlineNotice } from '../components/ui/InlineNotice'
 import {
   AUTOMATION_TEMPLATES,
   createAutomationRecord,
@@ -268,7 +269,16 @@ export function AutomationsPage() {
                     </select>
                   </label>
                 </div>
-                {error ? <p className="error-text">{error}</p> : null}
+                {error ? (
+                  <InlineNotice
+                    dismissible
+                    noticeKey={`automation-create-${error}`}
+                    title="Automation Setup Incomplete"
+                    tone="error"
+                  >
+                    {error}
+                  </InlineNotice>
+                ) : null}
                 <div className="header-actions">
                   <button className="ide-button" type="submit">
                     Create Automation

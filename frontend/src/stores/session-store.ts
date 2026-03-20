@@ -2,8 +2,9 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { decodeBase64 } from '../components/thread/threadRender'
+import { readThreadTokenUsageFromEvent } from '../lib/thread-token-usage'
 import { getSelectedThreadIdForWorkspace } from './session-store-utils'
-import type { CommandSession, ServerEvent } from '../types/api'
+import type { CommandSession, ServerEvent, ThreadTokenUsage } from '../types/api'
 
 export type CommandRuntimeSession = CommandSession & {
   combinedOutput: string
@@ -23,6 +24,7 @@ type SessionState = {
   activityEventsByWorkspace: Record<string, ServerEvent[]>
   connectionByWorkspace: Record<string, string>
   commandSessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>
+  tokenUsageByThread: Record<string, ThreadTokenUsage>
   setSelectedWorkspace: (workspaceId?: string) => void
   setSelectedThread: (workspaceId?: string, threadId?: string) => void
   setConnectionState: (workspaceId: string, state: string) => void
@@ -43,6 +45,7 @@ export const useSessionStore = create<SessionState>()(
       activityEventsByWorkspace: {},
       connectionByWorkspace: {},
       commandSessionsByWorkspace: {},
+      tokenUsageByThread: {},
       setSelectedWorkspace: (workspaceId) =>
         set((current) => ({
           selectedWorkspaceId: workspaceId,
@@ -99,6 +102,7 @@ export const useSessionStore = create<SessionState>()(
       ingestEvent: (event) =>
         set((current) => {
           const nextCommandSessions = applyCommandEvent(current.commandSessionsByWorkspace, event)
+          const nextTokenUsage = applyTokenUsageEvent(current.tokenUsageByThread, event)
           const nextActivityEvents = {
             ...current.activityEventsByWorkspace,
             [event.workspaceId]: [
@@ -110,6 +114,7 @@ export const useSessionStore = create<SessionState>()(
             return {
               activityEventsByWorkspace: nextActivityEvents,
               commandSessionsByWorkspace: nextCommandSessions,
+              tokenUsageByThread: nextTokenUsage,
               workspaceEventsByWorkspace: {
                 ...current.workspaceEventsByWorkspace,
                 [event.workspaceId]: [
@@ -125,6 +130,7 @@ export const useSessionStore = create<SessionState>()(
           return {
             activityEventsByWorkspace: nextActivityEvents,
             commandSessionsByWorkspace: nextCommandSessions,
+            tokenUsageByThread: nextTokenUsage,
             eventsByThread: {
               ...current.eventsByThread,
               [event.threadId]: [...currentEvents, event].slice(-100),
@@ -139,6 +145,7 @@ export const useSessionStore = create<SessionState>()(
         selectedWorkspaceId: state.selectedWorkspaceId,
         selectedThreadId: state.selectedThreadId,
         selectedThreadIdByWorkspace: state.selectedThreadIdByWorkspace,
+        tokenUsageByThread: state.tokenUsageByThread,
       }),
     },
   ),
@@ -166,6 +173,21 @@ function applyCommandEvent(
       return completeCommandSession(sessionsByWorkspace, event)
     default:
       return sessionsByWorkspace
+  }
+}
+
+function applyTokenUsageEvent(
+  tokenUsageByThread: Record<string, ThreadTokenUsage>,
+  event: ServerEvent,
+) {
+  const parsed = readThreadTokenUsageFromEvent(event)
+  if (!parsed) {
+    return tokenUsageByThread
+  }
+
+  return {
+    ...tokenUsageByThread,
+    [parsed.threadId]: parsed.usage,
   }
 }
 

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 
+import { InlineNotice } from '../ui/InlineNotice'
 import type { PendingApproval, ServerEvent, ThreadTurn } from '../../types/api'
 
 export type LiveTimelineEntry =
@@ -356,7 +357,16 @@ export function ApprovalDialog({
             value={approvalAnswers[approval.id]?.[stringField(activeQuestion.id)] ?? ''}
           />
         ) : null}
-        {approvalErrors[approval.id] ? <p className="error-text">{approvalErrors[approval.id]}</p> : null}
+        {approvalErrors[approval.id] ? (
+          <InlineNotice
+            dismissible
+            noticeKey={`approval-dialog-${approval.id}-${approvalErrors[approval.id]}`}
+            title="Approval Response Failed"
+            tone="error"
+          >
+            {approvalErrors[approval.id]}
+          </InlineNotice>
+        ) : null}
         <div className="composer-approval-dialog__footer">
           <div className="composer-approval-dialog__shortcuts">
             {activeQuestion && approvalQuestionOptions(activeQuestion).length ? (
@@ -604,7 +614,16 @@ function ApprovalCard({
           focusFirst={index === 0}
         />
       ))}
-      {approvalErrors[approval.id] ? <p className="error-text">{approvalErrors[approval.id]}</p> : null}
+      {approvalErrors[approval.id] ? (
+        <InlineNotice
+          dismissible
+          noticeKey={`approval-stack-${approval.id}-${approvalErrors[approval.id]}`}
+          title="Approval Response Failed"
+          tone="error"
+        >
+          {approvalErrors[approval.id]}
+        </InlineNotice>
+      ) : null}
       <div className="approval-panel__actions">
         {approval.actions.map((action) => (
           <button
@@ -708,15 +727,26 @@ function TimelineItem({ item }: { item: Record<string, unknown> }) {
     }
     case 'agentMessage': {
       const text = stringField(item.text)
+      const phase = stringField(item.phase)
+      const isStreaming = phase === 'streaming'
 
-      if (!text) {
+      if (!text && !isStreaming) {
         return null
       }
 
       return (
         <article className="conversation-row conversation-row--assistant">
-          <div className="conversation-bubble conversation-bubble--assistant">
-            <div className="conversation-bubble__content">{text}</div>
+          <div
+            className={
+              isStreaming
+                ? 'conversation-bubble conversation-bubble--assistant conversation-bubble--streaming'
+                : 'conversation-bubble conversation-bubble--assistant'
+            }
+          >
+            <div className="conversation-bubble__content">
+              {text}
+              {isStreaming ? <span aria-hidden="true" className="conversation-bubble__cursor" /> : null}
+            </div>
           </div>
         </article>
       )

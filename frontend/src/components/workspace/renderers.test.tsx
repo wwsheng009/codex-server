@@ -81,4 +81,27 @@ describe('TurnTimeline', () => {
     expect(html).toContain('frontend/src/components/workspace/renderers.tsx')
     expect(html).toContain('Update')
   })
+
+  it('renders a live cursor for streaming agent messages', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-3',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: 'Streaming reply',
+            phase: 'streaming',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('conversation-bubble--streaming')
+    expect(html).toContain('conversation-bubble__cursor')
+    expect(html).toContain('Streaming reply')
+  })
 })

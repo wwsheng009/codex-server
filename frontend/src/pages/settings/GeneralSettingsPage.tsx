@@ -125,8 +125,10 @@ export function GeneralSettingsPage() {
             </div>
             {accountQuery.error ? (
               <InlineNotice
+                details={getErrorMessage(accountQuery.error)}
                 dismissible
                 noticeKey={`account-read-${accountQuery.error instanceof Error ? accountQuery.error.message : 'unknown'}`}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['account'] })}
                 title="Failed To Read Account"
                 tone="error"
               >
@@ -171,6 +173,7 @@ export function GeneralSettingsPage() {
             </form>
             {loginMutation.error ? (
               <InlineNotice
+                details={getErrorMessage(loginMutation.error)}
                 dismissible
                 noticeKey={`login-${loginMutation.error instanceof Error ? loginMutation.error.message : 'unknown'}`}
                 title="Login Failed"
@@ -218,6 +221,7 @@ export function GeneralSettingsPage() {
             {loginMutation.data?.message ? <div className="notice">{loginMutation.data.message}</div> : null}
             {cancelLoginMutation.error ? (
               <InlineNotice
+                details={getErrorMessage(cancelLoginMutation.error)}
                 dismissible
                 noticeKey={`cancel-login-${cancelLoginMutation.error instanceof Error ? cancelLoginMutation.error.message : 'unknown'}`}
                 title="Cancel Login Failed"
@@ -241,8 +245,10 @@ export function GeneralSettingsPage() {
             {rateLimitsQuery.isLoading ? <div className="notice">Loading rate limits…</div> : null}
             {rateLimitsQuery.error ? (
               <InlineNotice
+                details={getErrorMessage(rateLimitsQuery.error)}
                 dismissible
                 noticeKey={`rate-limits-${rateLimitsQuery.error instanceof Error ? rateLimitsQuery.error.message : 'unknown'}`}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['rate-limits'] })}
                 title="Failed To Read Rate Limits"
                 tone="error"
               >

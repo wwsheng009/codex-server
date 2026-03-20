@@ -97,6 +97,7 @@ export function WorkspacesPage() {
               </button>
               {createWorkspaceMutation.error ? (
                 <InlineNotice
+                  details={getErrorMessage(createWorkspaceMutation.error)}
                   dismissible
                   noticeKey={`create-workspace-${createWorkspaceMutation.error instanceof Error ? createWorkspaceMutation.error.message : 'unknown'}`}
                   title="Failed To Create Workspace"
@@ -171,8 +172,10 @@ export function WorkspacesPage() {
             {workspacesQuery.isLoading ? <div className="notice">Loading workspaces…</div> : null}
             {workspacesQuery.error ? (
               <InlineNotice
+                details={getErrorMessage(workspacesQuery.error)}
                 dismissible
                 noticeKey={`load-workspaces-${workspacesQuery.error instanceof Error ? workspacesQuery.error.message : 'unknown'}`}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['workspaces'] })}
                 title="Failed To Load Workspaces"
                 tone="error"
               >

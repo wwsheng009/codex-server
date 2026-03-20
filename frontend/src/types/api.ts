@@ -171,6 +171,20 @@ export type CollaborationMode = {
   description: string
 }
 
+export type TokenUsageBreakdown = {
+  cachedInputTokens: number
+  inputTokens: number
+  outputTokens: number
+  reasoningOutputTokens: number
+  totalTokens: number
+}
+
+export type ThreadTokenUsage = {
+  last: TokenUsageBreakdown
+  total: TokenUsageBreakdown
+  modelContextWindow?: number | null
+}
+
 export type ServerEvent = {
   workspaceId: string
   threadId?: string
