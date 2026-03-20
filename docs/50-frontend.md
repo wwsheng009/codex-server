@@ -1,0 +1,748 @@
+# Frontend Task Log
+
+## 2026-03-20
+
+- Task: remove the now-obsolete split layout config files after confirming the unified config path was active.
+- Scope:
+  - verified there were no remaining references to `shell-layout-config` or `workbench-layout-config`
+  - deleted both obsolete config files
+  - re-ran build verification to confirm the unified `layout-config` path is the only active source
+- Files:
+  - `frontend/src/lib/shell-layout-config.ts`
+  - `frontend/src/lib/workbench-layout-config.ts`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - layout config is now single-sourced, but the next cleanup would be pruning any obsolete comments or docs references that still mention the old split config structure.
+
+- Task: unify shell and workbench layout defaults under one config namespace instead of separate config files.
+- Scope:
+  - added a single `layout-config` module covering shell sidebar defaults plus workbench rail/panel/dock defaults
+  - switched `layout-state`, `AppShell`, and `ThreadPage` to the unified config namespace
+  - removed the remaining direct dependence on separate shell/workbench config modules inside active code paths
+- Files:
+  - `frontend/src/lib/layout-config.ts`
+  - `frontend/src/lib/layout-state.ts`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - layout defaults are now centralized, but the old `shell-layout-config` and `workbench-layout-config` files can be removed completely once no stale references remain.
+
+- Task: move from generic persistence helpers to a layout-specific shared state layer for shell and workspace geometry.
+- Scope:
+  - added `layout-state` wrappers for left sidebar collapse/width, right rail expand/width, and surface panel width/side preferences
+  - switched `AppShell` and `ThreadPage` from generic storage helpers to the layout-specific API
+  - kept centralized persistence behavior while removing layout-key knowledge from the components themselves
+- Files:
+  - `frontend/src/lib/layout-state.ts`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - layout state is now shared at the domain level, but the next cleanup would be merging shell and workbench defaults into a single higher-level layout namespace if this keeps expanding.
+
+- Task: extend the shared resize-handle system to the left shell sidebar and remove the last fixed shell width path.
+- Scope:
+  - added persisted left sidebar width with shared limits from `shell-layout-config`
+  - switched `AppShell` to drive sidebar width through `--shell-sidebar-width`
+  - applied the shared `ResizeHandle` to the left sidebar and removed the last hard-coded shell width path
+  - added responsive fallback so the sidebar resize affordance is hidden on narrow screens
+- Files:
+  - `frontend/src/lib/shell-layout-config.ts`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the shell and workbench rails are now both resizable with shared controls, but the next cleanup would be consolidating their reset/default actions into the same shared layout state layer.
+
+- Task: align shared workbench layout config with CSS by routing runtime panel sizes through CSS variables.
+- Scope:
+  - changed `ThreadPage` to expose rail width, surface panel width, and terminal dock height through one layout-style object
+  - updated `workbench.css` to consume `--workbench-rail-width`, `--surface-panel-width`, and `--terminal-dock-height`
+  - removed the remaining inline width/height styles for the in-surface panel and terminal workspace
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - runtime layout values now flow through CSS variables, but the next step would be applying the same pattern to more of the shell chrome so responsive variants can share those values too.
+
+- Task: centralize the remaining workbench layout defaults and min/max constraints instead of keeping raw values inside `ThreadPage`.
+- Scope:
+  - added shared `workbench-layout-config` with surface panel defaults, dock defaults, and rail/panel size limits
+  - switched `ThreadPage` to use the shared config for right-rail width, terminal dock height, and surface panel sizing
+  - removed the remaining hard-coded layout numbers from the page component
+- Files:
+  - `frontend/src/lib/workbench-layout-config.ts`
+  - `frontend/src/pages/ThreadPage.tsx`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - layout constraints are now centralized, but the next cleanup would be wiring those shared config values into more of the CSS via variables so JS and CSS stay aligned by construction.
+
+- Task: centralize layout preference persistence instead of leaving `localStorage` keys spread across shell and workspace files.
+- Scope:
+  - added shared `layout-preferences` helpers for boolean, number, and JSON-backed layout state
+  - switched `AppShell` left-sidebar persistence to the shared helper
+  - switched `ThreadPage` right-rail expanded state, right-rail width, surface-panel widths, and surface-panel dock sides to the shared helper
+  - kept current persisted behavior intact while removing direct storage calls from the components
+- Files:
+  - `frontend/src/lib/layout-preferences.ts`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - layout persistence is now centralized, but the next cleanup would be unifying the remaining ad-hoc defaults and min/max constraints into a single layout config module instead of keeping those constants inside `ThreadPage`.
+
+- Task: consolidate resize handle behavior into a shared UI primitive.
+- Scope:
+  - added shared `ResizeHandle` primitive to the rail control layer
+  - switched the terminal dock and right rail resizing affordances to the shared handle
+  - removed duplicated base handle styling from `workbench.css`, leaving only local layout differences
+- Files:
+  - `frontend/src/components/ui/RailControls.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - icon rails and resize handles are now shared, but the next cleanup would be centralizing the remaining panel state persistence helpers instead of leaving those `localStorage` keys distributed across shell and page files.
+
+- Task: finish consolidating rail controls by switching both sides to one shared icon/button layer.
+- Scope:
+  - added shared `RailControls` primitives and the current rail SVG icon set
+  - switched both `AppShell` and `ThreadPage` collapsed rails to the shared controls
+  - removed duplicated per-file rail icon/button base styling so only layout-specific rules remain
+  - aligned hover and focus behavior for the two rails through the shared control styling
+- Files:
+  - `frontend/src/components/ui/RailControls.tsx`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - rail controls are now shared, but resize handles still remain one-off UI and should be folded into the same shared layer if that interaction keeps expanding.
+
+- Task: remove duplicated rail icon/button implementations by extracting shared UI primitives.
+- Scope:
+  - added shared `RailIcon` and `RailIconButton` primitives plus the current rail SVG icon set
+  - switched both `AppShell` and `ThreadPage` collapsed rails to those shared controls
+  - removed duplicated base icon/button styling from shell and workbench styles so only layout-specific rules remain
+- Files:
+  - `frontend/src/components/ui/RailControls.tsx`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the rail controls are now shared, but the next cleanup would be moving the remaining inline one-off controls like resize handles into the same shared UI layer if they continue to spread.
+
+- Task: unify left/right collapsed rail geometry and add an explicit reset for the right rail width.
+- Scope:
+  - introduced shared collapsed-rail tokens for width, padding, and icon button size
+  - switched both left and right compact rails to those shared tokens
+  - added a `Reset Width` action to the expanded right rail so it can return to the default 300px width
+- Files:
+  - `frontend/src/styles/tokens.css`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/pages/ThreadPage.tsx`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the rail geometry is now consistent, but the next cleanup would be extracting the repeated rail-button visuals and SVG sizing into one shared icon-button primitive.
+
+- Task: fix the collapsed right rail clipping issue after confirming it was self-clipping rather than being covered by another layer.
+- Scope:
+  - confirmed the collapsed rail was still inheriting `.workbench-pane` padding and overflow, which clipped its own icon buttons inside a too-narrow column
+  - increased the collapsed rail width slightly and added dedicated collapsed-state padding rules
+  - removed inherited background/shadow/padding behavior from the collapsed rail container so the icon strip is fully visible
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the collapsed rail is visible now, but the next cleanup would be unifying the collapsed rail sizing tokens so left and right icon rails use the same compact geometry.
+
+- Task: remove the right rail overlay behavior after confirming its fixed-width cover came from CSS layout, not only runtime state.
+- Scope:
+  - confirmed the main cause was `.workbench-pane` being absolute-positioned with a fixed base width in `workbench.css`
+  - changed the thread workspace layout so the right rail is again a real grid column driven by `--workbench-rail-width`
+  - kept the rail resizable and collapsible, but stopped it from overlaying the thread surface
+  - removed now-obsolete overlay scrim behavior
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the right rail no longer covers the thread area, but the next refinement would be exposing a clear width reset affordance and tightening the visual transition between collapsed and expanded states.
+
+- Task: remove the remaining fixed-width behavior from the right workbench rail and restore build verification.
+- Scope:
+  - confirmed the CSS lock came from `.workbench-pane { width: 300px; }`
+  - changed the right rail to use a persisted runtime width controlled by `ThreadPage` instead of a purely fixed CSS width
+  - added a resize handle for the right rail so it can shrink or expand on demand
+  - added a minimal `AccountPage` placeholder because the route existed but the file was missing, which was blocking build verification
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/pages/AccountPage.tsx`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the right rail is no longer effectively fixed, but the next refinement would be exposing a visible reset-to-default width action and aligning the resize affordance styling with the in-surface panel handle.
+
+- Task: make both side rails retract properly and persist their collapsed state while replacing symbol text with actual icons.
+- Scope:
+  - added persisted left sidebar collapse state in `AppShell`
+  - added persisted right workbench rail expanded/collapsed state in `ThreadPage`
+  - replaced the temporary symbol-based collapsed controls with inline SVG icons on both sides
+  - updated frame and button styling so collapsed rails behave like true icon rails instead of text buttons with clipping
+- Files:
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - both rails now collapse correctly and come back in the previous state, but the next improvement would be normalizing the icon set and sizes into a shared icon helper instead of keeping local inline SVGs.
+
+- Task: fix the collapsed side controls so both sides can truly retract and the right edge strip uses icons instead of clipped text.
+- Scope:
+  - added a collapsible left application sidebar in `AppShell`
+  - converted left primary navigation and settings entry to icon-capable collapsed state
+  - changed the right collapsed workbench edge strip from truncated text buttons to compact icon buttons with labels via tooltip/aria text
+  - updated frame sizing so the left sidebar actually narrows when collapsed
+- Files:
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - both sides now retract properly, but the next improvement would be persisting left/right collapsed state so the layout comes back exactly as last used.
+
+- Task: make the in-surface panel more flexible by supporting left/right docking and per-view width memory.
+- Scope:
+  - added left/right docking for the `Feed / Approvals` in-surface panel
+  - changed panel resizing to persist width separately for `feed` and `approvals`
+  - updated the resize handle so it follows the active dock side
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the panel is now materially more usable, but the next real step would be persisting these layout choices across reloads or allowing the panel to dock simultaneously with the terminal in more complex workspace states.
+
+- Task: make the in-surface feed and approval panel adjustable instead of fixed width.
+- Scope:
+  - added pointer-driven width resizing for the `Feed / Approvals` panel inside `ThreadPage`
+  - constrained panel width to a practical min/max range so it can shrink for timeline-heavy work or expand for denser inspection
+  - kept mobile fallback behavior unchanged by leaving the responsive stacked panel path intact
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the in-surface panel is now width-adjustable, but the next step would be making it dock left/right or persist per-view preferences instead of using one shared width state.
+
+- Task: reduce full-rail switching by moving feed and approvals into smaller in-surface panels.
+- Scope:
+  - added top-strip `Feed` and `Approvals` peek actions in `ThreadPage`
+  - rendered feed and approval content as a smaller panel inside the main work surface instead of using the full overlay rail
+  - simplified the overlay rail to persistent context plus tool controls only
+  - updated the collapsed edge strip so `Feed` and `Appr` open the in-surface panel directly
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - feed and approvals now interrupt the main workspace less, but the next step would be making that in-surface panel resizable or draggable rather than fixed-width.
+
+- Task: reduce dependence on the overlay rail by moving feed and approvals into lighter in-surface panels.
+- Scope:
+  - added `Feed` and `Approvals` peek actions in the thread top strip
+  - rendered live feed and pending approvals inside a smaller panel over the main work surface instead of forcing the full overlay rail
+  - reduced the overlay rail to persistent context and tool controls only
+  - updated the collapsed edge strip so `Feed` and `Appr` open the in-surface panel directly
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the sidecar burden is lower now, but the next step would be making the in-surface panel resizable or dockable so it can coexist with long timelines more gracefully.
+
+- Task: stop the inspector rail from permanently stealing workspace width by turning it into an overlay sidecar.
+- Scope:
+  - changed the expanded `ThreadPage` side rail from a second layout column into an absolute-positioned overlay panel
+  - kept the collapsed narrow edge strip as the default entry point for `context`, `feed`, `approvals`, and tools
+  - added a dismiss scrim on desktop and mobile fallback rules so the panel returns to stacked behavior on narrow screens
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the workspace center now keeps its width even when the side rail is opened, but the next meaningful improvement would be making approvals or feed open as smaller in-surface panels instead of always using the full overlay rail.
+
+- Task: reduce terminal dock clutter by making command sessions removable instead of permanently accumulating.
+- Scope:
+  - added per-session close actions to terminal tabs
+  - added a `Clear Finished` action for completed or failed sessions
+  - updated the command session store with explicit remove and clear-completed operations
+  - preserved current selection behavior when sessions are removed
+- Files:
+  - `frontend/src/stores/session-store.ts`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - terminal clutter is reduced now, but the next step for the dock would be optional grouping or pinning so long-running sessions remain easy to distinguish from transient ones.
+
+- Task: upgrade the terminal dock from simple collapse/expand to user-controlled height.
+- Scope:
+  - added pointer-driven terminal dock resizing to `ThreadPage`
+  - constrained the dock internals so tabs, output, and stdin controls resize cleanly inside the chosen dock height
+  - kept collapse/expand behavior intact while making the expanded dock materially more IDE-like
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the dock now behaves more like a real IDE panel, but the next substantial improvement would be per-session close actions or true split-panel diff/approval sidecars inside the workspace.
+
+- Task: compress timeline and composer density so the center work surface shows more actual thread content at once.
+- Scope:
+  - reduced turn rail width, turn spacing, item padding, plan chip sizes, and timeline block gaps
+  - simplified turn header copy so repeated turn labeling consumes less space
+  - reduced composer padding and input chrome while keeping the composer permanently visible
+- Files:
+  - `frontend/src/components/workspace/renderers.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the workspace is noticeably denser now, but the next meaningful improvement would be a truly resizable terminal height or optional compact mode for individual timeline block types.
+
+- Task: make the thread workspace side rail center-first by collapsing the inspector column behind a narrow edge strip.
+- Scope:
+  - added a default-collapsed right rail state for `ThreadPage`
+  - reduced the collapsed rail to a narrow side strip with small actions for `context`, `feed`, `approvals`, and full rail expansion
+  - kept the full inspector/tools rail available on demand without letting it permanently consume workspace width
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the workspace is now much more center-first, but the next meaningful step would be reducing vertical chrome inside the timeline itself or making the dock resizable rather than only collapsed/expanded.
+
+- Task: reduce right-rail prominence so the thread workspace center keeps priority.
+- Scope:
+  - narrowed the thread page right rail from the previous wider pane width
+  - made `Thread Tools` and `Workbench Tools` collapsible and default-collapsed
+  - added lightweight rail toggle styling so low-frequency controls stay available without dominating the page
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the right rail is now quieter, but the inspector itself is still a full-height always-open column and could be reduced further if the target is an even more IDE-like center-first workspace.
+
+- Task: continue shrinking thread workspace chrome so the center is dominated by timeline and main input.
+- Scope:
+  - removed the remaining outer workspace header from the thread page
+  - reduced the center top strip to thread title plus minimal connection state only
+  - moved activity and status details into the right-side context inspector
+  - further reduced composer chrome and made the collapsed terminal dock behave like a thin utility bar
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the center surface is materially cleaner now, but the right rail is carrying a lot of secondary controls and likely needs its own prioritization pass so rarely used actions can collapse further.
+
+- Task: reduce thread workspace header and dock footprint so the center stays focused on timeline and main user input.
+- Scope:
+  - compacted the outer workspace header and inner stage header to remove duplicated large meta blocks
+  - moved quick navigation and command launch back into the right rail so the center work surface keeps more space for timeline and composer
+  - defaulted the terminal dock to collapsed and reduced expanded dock height so it behaves as an auxiliary output area instead of a large primary region
+  - moved workspace metrics into the inspector/context rail instead of keeping them in the center header
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the center work surface now preserves more space for timeline and input, but the thread workspace still carries two visible horizontal control bands and should probably be pushed one step further toward a single ultra-compact top strip.
+
+- Task: continue the thread workspace rewrite by turning the central timeline into richer execution blocks and tightening the docked terminal organization.
+- Scope:
+  - rewrote `TurnTimeline` and `TimelineItem` into stronger execution-surface blocks with turn rails, status chips, command panels, plan steps, and reasoning chips
+  - changed the terminal dock from a side-list console split into a tab-strip plus focused console surface
+  - tightened shell height constraints so the workbench page can reliably occupy the full shell viewport on desktop
+  - preserved the persistent composer and collapsible terminal behavior introduced in the previous slice
+- Files:
+  - `frontend/src/components/workspace/renderers.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the thread surface now reads more like an execution workspace, but it still lacks richer inline approval/timeline fusion, diff-sidecar states, and truly resizable dock behavior.
+
+- Task: continue the thread workspace rewrite by enforcing a full-height IDE surface with a persistent composer and collapsible terminal dock.
+- Scope:
+  - constrained `ThreadPage` to a full-height workbench surface inside the shell content area
+  - moved the thread timeline into an internal scroll viewport so thread content scrolls without pushing the composer away
+  - kept the main composer permanently visible at the bottom of the central work surface
+  - added terminal dock collapse/expand state so the bottom dock can be stored away when not in use
+  - split scroll ownership between the central timeline viewport and the right inspector rail
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the workspace now behaves much more like a fixed-height IDE surface, but the terminal dock still uses a simple two-column session/output layout and has not yet been evolved into richer tabbed or resizable dock behavior.
+
+- Task: continue the full frontend rewrite by pushing the thread workspace into a stronger IDE work surface and tightening the remaining mode pages.
+- Scope:
+  - rebuilt `ThreadPage` main canvas into a continuous work surface with a top work-surface bar, log viewport, docked composer, and a true bottom terminal dock
+  - moved command launch into the terminal dock so the dock behaves like part of the workspace instead of a detached section
+  - tightened `WorkspacesPage` into a workspace registry surface with posture metrics and denser open-surface rows
+  - tightened `SkillsPage` into a scoped directory surface with rail controls plus installed/remote explorer panels
+  - tightened `CatalogPage` into a runtime control surface with inventory board panels and console-style action areas
+  - added shared `mode-layout`, `mode-panel`, registry, directory, runtime-board, and console styling primitives
+- Files:
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/pages/WorkspacesPage.tsx`
+  - `frontend/src/pages/SkillsPage.tsx`
+  - `frontend/src/pages/CatalogPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - `ThreadPage` now reads much more like a work surface, but the central timeline is still fundamentally a turn log and has not yet been reworked into richer mixed execution blocks or diff-aware workspace states.
+
+- Task: replace `codex-server` frontend layout styling with the layout shell style used by `E:\projects\ai\CodexMonitor`.
+- Scope:
+  - `frontend/src/components/layout/AppShell.tsx`
+  - `frontend/src/components/layout/PageTopbar.tsx`
+  - `frontend/src/styles/base.css`
+  - `frontend/src/styles/shell.css`
+  - `frontend/src/styles/ui.css`
+  - `frontend/src/styles/workspace.css`
+  - `frontend/src/styles/thread.css`
+  - `frontend/src/styles/responsive.css`
+- Routes covered:
+  - `/workspaces`
+  - `/workspaces/:workspaceId`
+  - `/catalog`
+  - `/account`
+- States covered:
+  - desktop shell with left navigation and content area
+  - page topbar with breadcrumb, title, stats, and actions
+  - thread workspace three-column layout
+  - responsive collapse for tablet and phone widths
+- Verification:
+  - `npm run build`
+
+- Task: continue the Web IDE correction by restructuring main mode pages and pane relationships.
+- Scope:
+  - removed `PageHeader` from `AutomationsPage`
+  - moved `AccountPage` fully into dedicated settings content layout
+  - tightened `ThreadPage` right rail into a single `workbench-pane` with pane sections
+  - added `mode-strip`, `settings-screen`, `settings-center`, `workspace-strip`, and stronger pane styling
+- Files:
+  - `frontend/src/pages/AutomationsPage.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/settings-shell.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Task: continue correcting the rebuilt frontend toward a real Web IDE structure.
+- Scope:
+  - removed the remaining page-style header from `AutomationsPage`
+  - rewrote `AccountPage` to behave as settings content inside `SettingsShell`
+  - restructured the right side of `ThreadPage` into a single workbench pane with internal pane sections
+  - added supporting `mode-strip`, `settings-screen`, `settings-center`, and `workbench-pane` styling
+- Files:
+  - `frontend/src/pages/AutomationsPage.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/settings-shell.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+
+- Task: continue the Web IDE correction by removing remaining page-style headers and separating settings from the workbench shell.
+- Scope:
+  - moved `/settings` onto `SettingsShell`
+  - replaced `ThreadPage` large page header with compact `workspace-strip`
+  - replaced `AutomationsPage` page header with compact `mode-strip`
+  - strengthened the dedicated settings shell styling
+  - reduced timeline, approval, and terminal session boxiness toward stream/pane visual structure
+- Files:
+  - `frontend/src/app/router.tsx`
+  - `frontend/src/components/shell/AppMenuBar.tsx`
+  - `frontend/src/components/shell/SettingsShell.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/pages/AutomationsPage.tsx`
+  - `frontend/src/styles/settings-shell.css`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+
+- Task: correct the architecture drift by splitting settings out of the workbench shell and replacing the thread page hero header with a compact workspace strip.
+- Scope:
+  - introduced `SettingsShell`
+  - moved `/settings` to its own shell in the router
+  - removed the large page-style header from `ThreadPage`
+  - compacted the workbench header into `workspace-strip`
+  - weakened the boxed/card feel of timeline, approval, and terminal rows
+- Files:
+  - `frontend/src/app/router.tsx`
+  - `frontend/src/components/shell/AppMenuBar.tsx`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/components/shell/SettingsShell.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles.css`
+  - `frontend/src/styles/settings-shell.css`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+
+- Task: remove the remaining card wrapper abstractions from the rebuilt main pages.
+- Scope:
+  - deleted `frontend/src/components/ui/SurfaceCard.tsx`
+  - removed `SurfaceCard`, `screen-grid`, `workspace-grid`, and `directory-grid` usage from main pages
+  - rewired main pages to `layout-split`, `layout-rail`, `layout-stage`, `content-section`, `settings-section`, `workbench-surface`, and row/list based composition
+- Files:
+  - `frontend/src/pages/AutomationsPage.tsx`
+  - `frontend/src/pages/CatalogPage.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/pages/AutomationDetailPage.tsx`
+  - `frontend/src/pages/NotFoundPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Task: remove card-based composition from the rebuilt main pages and move them to pane/section/list structure.
+- Scope:
+  - replaced `SurfaceCard` usage in main pages with `layout-rail`, `layout-stage`, `content-section`, `settings-section`, `workbench-surface`, and list-based structures
+  - removed main-page card wrappers from workspaces, skills, runtime, settings, thread workspace, automation detail, and not-found pages
+  - kept only content-level tiles where they directly map to codx-app template browsing behavior
+- Files:
+  - `frontend/src/pages/WorkspacesPage.tsx`
+  - `frontend/src/pages/SkillsPage.tsx`
+  - `frontend/src/pages/CatalogPage.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/pages/AutomationDetailPage.tsx`
+  - `frontend/src/pages/NotFoundPage.tsx`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+- Verification:
+  - `npm run build`
+
+- Task: switch from incremental UI changes to a full codx-app-aligned UI rewrite plan.
+- Scope:
+  - created a dedicated rewrite plan document
+  - documented replacement boundaries, file strategy, phases, acceptance criteria, and recommended first execution slice
+  - explicitly set the rule to preserve business logic while replacing the entire UI design system
+- Output:
+  - `docs/codx-app-ui-rewrite-plan.md`
+
+- Task: rename the old frontend directory as backup and start a brand-new frontend implementation from scratch.
+- Scope:
+  - moved the previous frontend to `frontend_backup_20260320`
+  - created a new `frontend` directory
+  - reused only build config and business logic modules
+  - rebuilt the app shell, workspaces page, thread workbench page, skills page, automations pages, runtime page, settings page, and styling system from scratch
+- Files:
+  - `frontend/src/main.tsx`
+  - `frontend/src/app/App.tsx`
+  - `frontend/src/app/providers.tsx`
+  - `frontend/src/app/router.tsx`
+  - `frontend/src/components/shell/AppShell.tsx`
+  - `frontend/src/components/ui/PageHeader.tsx`
+  - `frontend/src/components/ui/SurfaceCard.tsx`
+  - `frontend/src/components/ui/StatusPill.tsx`
+  - `frontend/src/components/workspace/renderers.tsx`
+  - `frontend/src/components/thread/threadRender.ts`
+  - `frontend/src/pages/WorkspacesPage.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/pages/SkillsPage.tsx`
+  - `frontend/src/pages/AutomationsPage.tsx`
+  - `frontend/src/pages/AutomationDetailPage.tsx`
+  - `frontend/src/pages/CatalogPage.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+  - `frontend/src/pages/NotFoundPage.tsx`
+  - `frontend/src/features/automations/store.ts`
+  - `frontend/src/styles.css`
+  - `frontend/src/styles/tokens.css`
+  - `frontend/src/styles/app-shell.css`
+  - `frontend/src/styles/common.css`
+  - `frontend/src/styles/workbench.css`
+  - `frontend/src/styles/responsive.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - the new UI shell is fully separated from the old frontend, but some advanced feature states still need further parity work, especially richer diff review workflows and deeper automation/server integration.
+
+- Task: remove the obvious card-grid composition from the rebuilt main pages and shift to flatter section-first layout.
+- Scope:
+  - flattened `SurfaceCard` into a section-style container
+  - converted the workspace listing from a card grid to row-based layout
+  - reduced the page-level card composition so the rebuilt UI moves closer to the codx-app shell structure
+- Files:
+  - `frontend/src/pages/WorkspacesPage.tsx`
+  - `frontend/src/styles/common.css`
+- Verification:
+  - `npm run build`
+  - `npx vite --host 127.0.0.1 --port 4173`
+  - `Invoke-WebRequest http://127.0.0.1:4173/` returned `200`
+- Remaining gap:
+  - visual verification is limited to build/dev startup evidence in this environment; no screenshot-based browser proof was captured.
+
+- Task: analyze the UI layout of `C:\Users\vince\Documents\codx-app` and save the understanding as a design document.
+- Scope:
+  - screenshot-based analysis only
+  - source directory contained screenshots and no frontend source code
+  - output document saved to `docs/codx-app-ui-layout-analysis.md`
+- Output:
+  - workbench shell analysis
+  - settings shell analysis
+  - navigation and thread tree understanding
+  - visual language and layout primitive summary
+- Verification:
+  - inspected all screenshot files under `C:\Users\vince\Documents\codx-app`
+- Remaining gap:
+  - analysis is inferred from screenshots, not validated against implementation code.
+
+- Task: continue inspecting `C:\Users\vince\Pictures\codex-app` screenshots and extend the UI layout analysis.
+- Scope:
+  - added screenshot-derived understanding for thread main state, diff panel, git action menu, language selector, and multiple settings subpages
+  - updated `docs/codx-app-ui-layout-analysis.md`
+- Verification:
+  - inspected all screenshot files under `C:\Users\vince\Pictures\codex-app`
+- Remaining gap:
+  - terminal-open layout, automation page, skills page, and approval UI are still not covered by screenshots.
+
+- Task: continue inspecting `C:\Users\vince\Pictures\codex-app2` screenshots and extend the UI layout analysis.
+- Scope:
+  - added screenshot-derived understanding for skills page, automation page, automation creation modal, execution timeline, approval card, bottom terminal panel, and external open menu
+  - updated `docs/codx-app-ui-layout-analysis.md`
+- Verification:
+  - inspected all screenshot files under `C:\Users\vince\Pictures\codex-app2`
+- Remaining gap:
+  - some edge states still missing, mainly thread loading states, richer diff review actions, and complex approval variants.
+
+- Task: inspect `C:\Users\vince\Pictures\codex-app3` screenshots and merge newly discovered UI states into the design doc.
+- Scope:
+  - added screenshot-derived understanding for thread context menus, automation current list, automation detail view, automation-linked thread execution, and richer automation creation controls
+  - updated `docs/codx-app-ui-layout-analysis.md`
+- Verification:
+  - inspected all screenshot files under `C:\Users\vince\Pictures\codex-app3`
+- Remaining gap:
+  - loading transitions, richer diff review actions, more complex approval variants, and automation edit view are still not covered.
+
+- Task: continue the `codx-app` analysis by expanding the document into implementation-oriented layout specs.
+- Scope:
+  - added page-level wireframe descriptions
+  - added recommended component trees for app shell, thread workspace, settings, automation, and skills
+  - updated `docs/codx-app-ui-layout-analysis.md`
+- Output:
+  - stronger bridge from screenshot observation to implementable UI structure
+
+- Task: continue the `codx-app` analysis by adding a page-state matrix and screenshot-to-state traceability map.
+- Scope:
+  - extended `docs/codx-app-ui-layout-analysis.md`
+  - added state matrix for workspace, automation, skills, settings, and menu systems
+  - added screenshot mapping for all three screenshot directories
+
+- Task: implement the first codx-app-inspired directory-page slice in the current frontend.
+- Scope:
+  - added `/automations`, `/automations/:automationId`, `/skills`, `/runtime`, `/settings`
+  - kept `CatalogPage` as the runtime tools page
+  - implemented `AutomationsPage` with localStorage-backed prototype data
+  - implemented `AutomationDetailPage`
+  - implemented `SkillsPage` backed by existing skills APIs
+  - updated shell navigation and added directory-page styles
+- Files:
+  - `frontend/src/app/router.tsx`
+  - `frontend/src/components/layout/AppShell.tsx`
+  - `frontend/src/pages/AutomationsPage.tsx`
+  - `frontend/src/pages/AutomationDetailPage.tsx`
+  - `frontend/src/pages/SkillsPage.tsx`
+  - `frontend/src/features/automations/store.ts`
+  - `frontend/src/styles/directory.css`
+  - `frontend/src/styles/shell.css`
+  - `frontend/src/styles.css`
+- Verification:
+  - `npm run build`
+- Remaining gap:
+  - automations are currently frontend-local and not backed by server APIs.
+
+- Task: continue the codx-app-inspired workbench implementation inside the thread workspace.
+- Scope:
+  - added thread row context menu actions
+  - added top-level quick links from thread workspace to automations, skills, and runtime
+  - updated thread workspace interaction styling
+- Files:
+  - `frontend/src/components/thread/ThreadSidebar.tsx`
+  - `frontend/src/pages/ThreadPage.tsx`
+  - `frontend/src/styles/thread.css`
+- Verification:
+  - `npm run build`

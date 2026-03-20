@@ -367,6 +367,7 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 ### 9.2 Thread 接口
 
 - `GET /api/workspaces/:workspaceId/threads`
+- `GET /api/workspaces/:workspaceId/threads/loaded`
 - `POST /api/workspaces/:workspaceId/threads`
 - `GET /api/workspaces/:workspaceId/threads/:threadId`
 - `POST /api/workspaces/:workspaceId/threads/:threadId/resume`
@@ -374,7 +375,9 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 - `POST /api/workspaces/:workspaceId/threads/:threadId/archive`
 - `POST /api/workspaces/:workspaceId/threads/:threadId/unarchive`
 - `POST /api/workspaces/:workspaceId/threads/:threadId/name`
+- `POST /api/workspaces/:workspaceId/threads/:threadId/metadata`
 - `POST /api/workspaces/:workspaceId/threads/:threadId/rollback`
+- `POST /api/workspaces/:workspaceId/threads/:threadId/compact`
 
 ### 9.3 Turn 接口
 
@@ -406,19 +409,39 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 
 - `GET /api/workspaces/:workspaceId/models`
 - `GET /api/workspaces/:workspaceId/skills`
+- `POST /api/workspaces/:workspaceId/skills/remote/list`
+- `POST /api/workspaces/:workspaceId/skills/remote/export`
+- `POST /api/workspaces/:workspaceId/skills/config/write`
 - `GET /api/workspaces/:workspaceId/apps`
 - `GET /api/workspaces/:workspaceId/plugins`
 - `POST /api/workspaces/:workspaceId/plugins/read`
 - `POST /api/workspaces/:workspaceId/plugins/install`
 - `POST /api/workspaces/:workspaceId/plugins/uninstall`
+- `POST /api/workspaces/:workspaceId/config/read`
+- `POST /api/workspaces/:workspaceId/config/write`
+- `POST /api/workspaces/:workspaceId/config/batch-write`
+- `GET /api/workspaces/:workspaceId/config/requirements`
+- `POST /api/workspaces/:workspaceId/config/mcp-server/reload`
+- `POST /api/workspaces/:workspaceId/external-agent/detect`
+- `POST /api/workspaces/:workspaceId/external-agent/import`
+- `POST /api/workspaces/:workspaceId/search/files`
+- `POST /api/workspaces/:workspaceId/feedback/upload`
+- `GET /api/workspaces/:workspaceId/experimental-features`
+- `GET /api/workspaces/:workspaceId/mcp-server-status`
+- `POST /api/workspaces/:workspaceId/windows-sandbox/setup-start`
 - `GET /api/workspaces/:workspaceId/collaboration-modes`
 
 ### 9.7 账号接口
 
 - `GET /api/account`
 - `POST /api/account/login`
+- `POST /api/account/login/cancel`
 - `POST /api/account/logout`
 - `GET /api/account/rate-limits`
+
+与 workspace 相关的授权入口：
+
+- `POST /api/workspaces/:workspaceId/mcp/oauth/login`
 
 ### 9.8 事件流接口
 
@@ -522,6 +545,13 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 - decline
 - cancel
 - 可能的 session 级放行
+
+并应为以下 server request 预留前端表单与后端响应映射：
+
+- `item/tool/requestUserInput`
+- `mcpServer/elicitation/request`
+- `item/tool/call`
+- `account/chatgptAuthTokens/refresh`
 
 ## 13. 安全设计
 
