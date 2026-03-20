@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 type InlineNoticeProps = {
   tone?: 'info' | 'error'
@@ -6,6 +6,8 @@ type InlineNoticeProps = {
   children: ReactNode
   action?: ReactNode
   className?: string
+  dismissible?: boolean
+  noticeKey?: string
 }
 
 export function InlineNotice({
@@ -14,12 +16,25 @@ export function InlineNotice({
   children,
   action,
   className,
+  dismissible = false,
+  noticeKey,
 }: InlineNoticeProps) {
+  const [dismissed, setDismissed] = useState(false)
+
+  useEffect(() => {
+    setDismissed(false)
+  }, [noticeKey])
+
+  if (dismissed) {
+    return null
+  }
+
   const classes = [
     'notice',
     tone === 'error' ? 'notice--error' : '',
     title ? 'notice--detailed' : '',
     action ? 'notice--actionable' : '',
+    dismissible ? 'notice--dismissible' : '',
     className ?? '',
   ]
     .filter(Boolean)
@@ -31,7 +46,19 @@ export function InlineNotice({
         {title ? <strong className="notice__title">{title}</strong> : null}
         <div className="notice__description">{children}</div>
       </div>
-      {action ? <div className="notice__action">{action}</div> : null}
+      <div className="notice__aside">
+        {action ? <div className="notice__action">{action}</div> : null}
+        {dismissible ? (
+          <button
+            aria-label="Dismiss notice"
+            className="notice__close"
+            onClick={() => setDismissed(true)}
+            type="button"
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }

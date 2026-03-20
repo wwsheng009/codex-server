@@ -96,7 +96,12 @@ export function WorkspacesPage() {
                 {createWorkspaceMutation.isPending ? 'Creating…' : 'Create Workspace'}
               </button>
               {createWorkspaceMutation.error ? (
-                <InlineNotice title="Failed To Create Workspace" tone="error">
+                <InlineNotice
+                  dismissible
+                  noticeKey={`create-workspace-${createWorkspaceMutation.error instanceof Error ? createWorkspaceMutation.error.message : 'unknown'}`}
+                  title="Failed To Create Workspace"
+                  tone="error"
+                >
                   {getErrorMessage(createWorkspaceMutation.error)}
                 </InlineNotice>
               ) : null}
@@ -165,7 +170,12 @@ export function WorkspacesPage() {
 
             {workspacesQuery.isLoading ? <div className="notice">Loading workspaces…</div> : null}
             {workspacesQuery.error ? (
-              <InlineNotice title="Failed To Load Workspaces" tone="error">
+              <InlineNotice
+                dismissible
+                noticeKey={`load-workspaces-${workspacesQuery.error instanceof Error ? workspacesQuery.error.message : 'unknown'}`}
+                title="Failed To Load Workspaces"
+                tone="error"
+              >
                 {getErrorMessage(workspacesQuery.error)}
               </InlineNotice>
             ) : null}

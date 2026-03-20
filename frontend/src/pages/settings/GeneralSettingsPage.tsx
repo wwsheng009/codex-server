@@ -124,7 +124,12 @@ export function GeneralSettingsPage() {
               ) : null}
             </div>
             {accountQuery.error ? (
-              <InlineNotice title="Failed To Read Account" tone="error">
+              <InlineNotice
+                dismissible
+                noticeKey={`account-read-${accountQuery.error instanceof Error ? accountQuery.error.message : 'unknown'}`}
+                title="Failed To Read Account"
+                tone="error"
+              >
                 {getErrorMessage(accountQuery.error)}
               </InlineNotice>
             ) : null}
@@ -165,7 +170,12 @@ export function GeneralSettingsPage() {
               </div>
             </form>
             {loginMutation.error ? (
-              <InlineNotice title="Login Failed" tone="error">
+              <InlineNotice
+                dismissible
+                noticeKey={`login-${loginMutation.error instanceof Error ? loginMutation.error.message : 'unknown'}`}
+                title="Login Failed"
+                tone="error"
+              >
                 {getErrorMessage(loginMutation.error)}
               </InlineNotice>
             ) : null}
@@ -207,7 +217,12 @@ export function GeneralSettingsPage() {
             )}
             {loginMutation.data?.message ? <div className="notice">{loginMutation.data.message}</div> : null}
             {cancelLoginMutation.error ? (
-              <InlineNotice title="Cancel Login Failed" tone="error">
+              <InlineNotice
+                dismissible
+                noticeKey={`cancel-login-${cancelLoginMutation.error instanceof Error ? cancelLoginMutation.error.message : 'unknown'}`}
+                title="Cancel Login Failed"
+                tone="error"
+              >
                 {getErrorMessage(cancelLoginMutation.error)}
               </InlineNotice>
             ) : null}
@@ -225,7 +240,12 @@ export function GeneralSettingsPage() {
           >
             {rateLimitsQuery.isLoading ? <div className="notice">Loading rate limits…</div> : null}
             {rateLimitsQuery.error ? (
-              <InlineNotice title="Failed To Read Rate Limits" tone="error">
+              <InlineNotice
+                dismissible
+                noticeKey={`rate-limits-${rateLimitsQuery.error instanceof Error ? rateLimitsQuery.error.message : 'unknown'}`}
+                title="Failed To Read Rate Limits"
+                tone="error"
+              >
                 {getErrorMessage(rateLimitsQuery.error)}
               </InlineNotice>
             ) : null}

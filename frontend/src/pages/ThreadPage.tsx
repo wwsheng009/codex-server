@@ -45,6 +45,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useWorkspaceStream } from '../hooks/useWorkspaceStream'
 import { useSessionStore } from '../stores/session-store'
 import { getSelectedThreadIdForWorkspace } from '../stores/session-store-utils'
+import { useUIStore } from '../stores/ui-store'
 import {
   isViewportNearBottom,
   shouldRefreshApprovalsForEvent,
@@ -270,6 +271,10 @@ export function ThreadPage() {
   const setSelectedThread = useSessionStore((state) => state.setSelectedThread)
   const removeCommandSession = useSessionStore((state) => state.removeCommandSession)
   const clearCompletedCommandSessions = useSessionStore((state) => state.clearCompletedCommandSessions)
+  const mobileThreadToolsOpen = useUIStore((state) => state.mobileThreadToolsOpen)
+  const setMobileThreadChrome = useUIStore((state) => state.setMobileThreadChrome)
+  const setMobileThreadToolsOpen = useUIStore((state) => state.setMobileThreadToolsOpen)
+  const resetMobileThreadChrome = useUIStore((state) => state.resetMobileThreadChrome)
   const selectedThreadId = useSessionStore((state) => getSelectedThreadIdForWorkspace(state, workspaceId))
   const isMobileViewport = useMediaQuery('(max-width: 900px)')
   const streamState = useWorkspaceStream(workspaceId)
@@ -635,6 +640,22 @@ export function ThreadPage() {
   }, [pendingTurn, selectedThreadEvents, selectedThreadId])
 
   useEffect(() => {
+    if (!isMobileViewport) {
+      return
+    }
+
+    if (mobileThreadToolsOpen && !isInspectorExpanded) {
+      setSurfacePanelView(null)
+      setIsInspectorExpanded(true)
+      return
+    }
+
+    if (!mobileThreadToolsOpen && isInspectorExpanded && !surfacePanelView) {
+      setIsInspectorExpanded(false)
+    }
+  }, [isInspectorExpanded, isMobileViewport, mobileThreadToolsOpen, surfacePanelView])
+
+  useEffect(() => {
     if (!isTerminalDockResizing) {
       return
     }
@@ -919,6 +940,53 @@ export function ThreadPage() {
   }
 
   useEffect(() => {
+    if (!isMobileViewport) {
+      setMobileThreadToolsOpen(false)
+      resetMobileThreadChrome()
+      return
+    }
+
+    setMobileThreadChrome({
+      visible: true,
+      statusLabel: compactStatusLabel(mobileStatus),
+      statusTone: compactStatusTone(mobileStatus),
+    })
+
+    return () => {
+      setMobileThreadToolsOpen(false)
+      resetMobileThreadChrome()
+    }
+  }, [
+    isMobileViewport,
+    mobileStatus,
+    resetMobileThreadChrome,
+    setMobileThreadChrome,
+    setMobileThreadToolsOpen,
+  ])
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      return
+    }
+
+    if (mobileThreadToolsOpen && !isMobileWorkbenchOverlayOpen) {
+      setSurfacePanelView(null)
+      setIsInspectorExpanded(true)
+      return
+    }
+
+    if (!mobileThreadToolsOpen && isMobileWorkbenchOverlayOpen) {
+      setSurfacePanelView(null)
+      setIsInspectorExpanded(false)
+    }
+  }, [
+    isMobileViewport,
+    isMobileWorkbenchOverlayOpen,
+    mobileThreadToolsOpen,
+    setMobileThreadToolsOpen,
+  ])
+
+  useEffect(() => {
     if (!selectedThreadId) {
       threadAutoScrollKeyRef.current = ''
       return
@@ -1175,16 +1243,25 @@ export function ThreadPage() {
   function handleOpenInspector() {
     setSurfacePanelView(null)
     setIsInspectorExpanded(true)
+    if (isMobileViewport) {
+      setMobileThreadToolsOpen(true)
+    }
   }
 
   function handleOpenSurfacePanel(view: SurfacePanelView) {
     setIsInspectorExpanded(false)
     setSurfacePanelView(view)
+    if (isMobileViewport) {
+      setMobileThreadToolsOpen(true)
+    }
   }
 
   function handleCloseWorkbenchOverlay() {
     setSurfacePanelView(null)
     setIsInspectorExpanded(false)
+    if (isMobileViewport) {
+      setMobileThreadToolsOpen(false)
+    }
   }
 
   function handleSurfacePanelResizeStart(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -1233,28 +1310,8 @@ export function ThreadPage() {
                   <strong>{selectedThread?.name ?? 'No thread selected'}</strong>
                 </div>
               </div>
-              <div className="workbench-stage__meta-bar">
-                {isMobileViewport ? (
-                  <>
-                    <span className={`status-pill status-pill--${compactStatusTone(mobileStatus)} workbench-stage__status-pill--mobile`}>
-                      {compactStatusLabel(mobileStatus)}
-                    </span>
-                    <RailIconButton
-                      aria-label={isMobileWorkbenchOverlayOpen ? 'Close thread tools' : 'Open thread tools'}
-                      className={isMobileWorkbenchOverlayOpen ? 'workbench-stage__mobile-menu workbench-stage__mobile-menu--active' : 'workbench-stage__mobile-menu'}
-                      onClick={() => {
-                        if (isMobileWorkbenchOverlayOpen) {
-                          handleCloseWorkbenchOverlay()
-                          return
-                        }
-                        handleOpenInspector()
-                      }}
-                      title="Thread tools"
-                    >
-                      <ToolsIcon />
-                    </RailIconButton>
-                  </>
-                ) : (
+              {!isMobileViewport ? (
+                <div className="workbench-stage__meta-bar">
                   <>
                     <button
                       className="ide-button"
@@ -1298,8 +1355,8 @@ export function ThreadPage() {
                     </button>
                     <StatusPill status={streamState} />
                   </>
-                )}
-              </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="workbench-stage__canvas">
@@ -1314,13 +1371,23 @@ export function ThreadPage() {
                     threadDetailQuery.isLoading && !displayedTurns.length ? (
                       <div className="notice">Loading thread surface…</div>
                     ) : threadDetailQuery.error && !displayedTurns.length ? (
-                      <InlineNotice title="Failed To Load Thread" tone="error">
+                      <InlineNotice
+                        dismissible
+                        noticeKey={`thread-load-${threadDetailQuery.error instanceof Error ? threadDetailQuery.error.message : 'unknown'}`}
+                        title="Failed To Load Thread"
+                        tone="error"
+                      >
                         {getErrorMessage(threadDetailQuery.error)}
                       </InlineNotice>
                     ) : displayedTurns.length ? (
                       <div className="workbench-log__thread">
                         {isThreadSystemError ? (
-                          <InlineNotice title="Thread Runtime Error" tone="error">
+                          <InlineNotice
+                            dismissible
+                            noticeKey={`thread-runtime-${selectedThreadId}-${threadDetailQuery.data?.status ?? selectedThread?.status ?? 'unknown'}`}
+                            title="Thread Runtime Error"
+                            tone="error"
+                          >
                             {requiresOpenAIAuth
                               ? 'OpenAI authentication is required. Reconnect the account in Settings → General before sending again.'
                               : 'Thread status is systemError. The runtime did not return a more specific error message for this turn.'}
@@ -1492,6 +1559,8 @@ export function ThreadPage() {
                       ) : null
                     }
                     className="composer-dock__status-banner"
+                    dismissible
+                    noticeKey={composerStatusMessage ?? 'composer-status'}
                     title={requiresOpenAIAuth ? 'Authentication Required' : accountQuery.error ? 'Account Status Unavailable' : 'Send Failed'}
                     tone={requiresOpenAIAuth || accountQuery.error ? 'error' : 'info'}
                   >
