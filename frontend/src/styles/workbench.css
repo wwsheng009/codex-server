@@ -1379,8 +1379,22 @@
   height: 16px;
 }
 
+.composer-dock__action-icon--spinning {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.32);
+  border-top-color: currentColor;
+  border-radius: 999px;
+  animation: thread-pending-spin 0.8s linear infinite;
+}
+
 .composer-dock__action-icon svg {
   display: block;
+}
+
+.composer-dock__action-icon--spinning svg {
+  width: 8px;
+  height: 8px;
 }
 
 .composer-dock .meta-pill {
@@ -1446,6 +1460,7 @@
   .composer-dock__surface--live,
   .composer-dock__live-status-dot::after,
   .composer-dock__action--interrupt,
+  .composer-dock__action-icon--spinning,
   .composer-dock__spinner {
     animation: none;
   }

@@ -103,6 +103,30 @@
   align-items: center;
 }
 
+.web-ide__thread-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.web-ide__thread-status-pill {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 0.68rem;
+}
+
+.web-ide__thread-tools-button {
+  width: 28px;
+  min-height: 28px;
+  border-radius: 9px;
+}
+
+.web-ide__thread-tools-button--active {
+  border-color: var(--border-accent);
+  background: var(--surface-selected);
+  color: var(--accent);
+}
+
 .web-ide__theme-toggle {
   position: relative;
   display: inline-flex;

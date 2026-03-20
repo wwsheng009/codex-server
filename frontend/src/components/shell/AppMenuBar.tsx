@@ -5,6 +5,9 @@ import {
 } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
+import { useUIStore } from '../../stores/ui-store'
+import { RailIconButton, ToolsIcon } from '../ui/RailControls'
+import { useLocation } from 'react-router-dom'
 
 const menuItems = ['File', 'Edit', 'View', 'Window', 'Help']
 
@@ -59,8 +62,14 @@ export function AppMenuBar({
   onOpenSidebar,
   showMobileNavButton = false,
 }: AppMenuBarProps) {
+  const location = useLocation()
   const theme = useSettingsLocalStore((state) => state.theme)
   const setTheme = useSettingsLocalStore((state) => state.setTheme)
+  const mobileThreadChromeVisible = useUIStore((state) => state.mobileThreadChromeVisible)
+  const mobileThreadStatusLabel = useUIStore((state) => state.mobileThreadStatusLabel)
+  const mobileThreadStatusTone = useUIStore((state) => state.mobileThreadStatusTone)
+  const mobileThreadToolsOpen = useUIStore((state) => state.mobileThreadToolsOpen)
+  const setMobileThreadToolsOpen = useUIStore((state) => state.setMobileThreadToolsOpen)
   const { prefersDark } = useSystemAppearancePreferences()
 
   const resolvedTheme = resolveAppearanceTheme(theme, prefersDark)
@@ -70,6 +79,7 @@ export function AppMenuBar({
       ? `System (${resolvedTheme === 'dark' ? 'Dark' : 'Light'})`
       : getAppearanceThemeLabel(theme)
   const nextThemeLabel = getAppearanceThemeLabel(nextTheme)
+  const isThreadRoute = /^\/workspaces\/[^/]+$/.test(location.pathname)
 
   return (
     <header className="web-ide__menubar">
@@ -95,6 +105,21 @@ export function AppMenuBar({
       </div>
 
       <div className="web-ide__status">
+        {showMobileNavButton && isThreadRoute && mobileThreadChromeVisible ? (
+          <div className="web-ide__thread-tools">
+            <span className={`status-pill status-pill--${mobileThreadStatusTone} web-ide__thread-status-pill`}>
+              {mobileThreadStatusLabel}
+            </span>
+            <RailIconButton
+              aria-label={mobileThreadToolsOpen ? 'Close thread tools' : 'Open thread tools'}
+              className={mobileThreadToolsOpen ? 'web-ide__thread-tools-button web-ide__thread-tools-button--active' : 'web-ide__thread-tools-button'}
+              onClick={() => setMobileThreadToolsOpen(!mobileThreadToolsOpen)}
+              title="Thread tools"
+            >
+              <ToolsIcon />
+            </RailIconButton>
+          </div>
+        ) : null}
         <div className="web-ide__usage">
           <span className="web-ide__usage-positive">+2,959</span>
           <span className="web-ide__usage-negative">-529</span>

@@ -46,6 +46,7 @@ import { useWorkspaceStream } from '../hooks/useWorkspaceStream'
 import { useSessionStore } from '../stores/session-store'
 import { getSelectedThreadIdForWorkspace } from '../stores/session-store-utils'
 import {
+  isViewportNearBottom,
   shouldRefreshApprovalsForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
@@ -260,6 +261,7 @@ export function ThreadPage() {
   const surfacePanelResizeRef = useRef<{ side: SurfacePanelSide; startX: number; startWidth: number; view: SurfacePanelView } | null>(null)
   const terminalDockResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const threadDetailRefreshTimerRef = useRef<number | null>(null)
+  const threadViewportRef = useRef<HTMLDivElement | null>(null)
   const threadBottomRef = useRef<HTMLDivElement | null>(null)
   const threadAutoScrollKeyRef = useRef('')
   const shouldFollowThreadRef = useRef(true)
@@ -987,7 +989,9 @@ export function ThreadPage() {
     shouldFollowThreadRef.current = true
     setHasUnreadThreadUpdates(false)
     setIsThreadPinnedToLatest(true)
-    threadBottomRef.current?.scrollIntoView({ behavior, block: 'end' })
+    window.requestAnimationFrame(() => {
+      threadBottomRef.current?.scrollIntoView({ behavior, block: 'end' })
+    })
   }
 
   function handleThreadViewportScroll() {
@@ -1612,11 +1616,22 @@ export function ThreadPage() {
                           title={sendButtonLabel}
                           type={isInterruptMode ? 'button' : 'submit'}
                         >
-                          {shouldShowComposerSpinner ? (
+                          {isInterruptMode ? (
+                            <span
+                              aria-hidden="true"
+                              className={
+                                shouldShowComposerSpinner
+                                  ? 'composer-dock__action-icon composer-dock__action-icon--spinning'
+                                  : 'composer-dock__action-icon'
+                              }
+                            >
+                              <StopIcon />
+                            </span>
+                          ) : shouldShowComposerSpinner ? (
                             <span aria-hidden="true" className="composer-dock__spinner" />
                           ) : (
                             <span aria-hidden="true" className="composer-dock__action-icon">
-                              {isInterruptMode ? <StopIcon /> : <SendIcon />}
+                              <SendIcon />
                             </span>
                           )}
                         </button>
@@ -1757,7 +1772,18 @@ export function ThreadPage() {
                           onClick={isInterruptMode ? handlePrimaryComposerAction : undefined}
                           type={isInterruptMode ? 'button' : 'submit'}
                         >
-                          {shouldShowComposerSpinner ? (
+                          {isInterruptMode ? (
+                            <span
+                              aria-hidden="true"
+                              className={
+                                shouldShowComposerSpinner
+                                  ? 'composer-dock__action-icon composer-dock__action-icon--spinning'
+                                  : 'composer-dock__action-icon'
+                              }
+                            >
+                              <StopIcon />
+                            </span>
+                          ) : shouldShowComposerSpinner ? (
                             <span aria-hidden="true" className="composer-dock__spinner" />
                           ) : null}
                           <span>{sendButtonLabel}</span>
