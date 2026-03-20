@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { decodeBase64 } from '../components/thread/threadRender'
+import { getSelectedThreadIdForWorkspace } from './session-store-utils'
 import type { CommandSession, ServerEvent } from '../types/api'
 
 export type CommandRuntimeSession = CommandSession & {
@@ -19,6 +20,7 @@ type SessionState = {
   selectedThreadIdByWorkspace: Record<string, string>
   eventsByThread: Record<string, ServerEvent[]>
   workspaceEventsByWorkspace: Record<string, ServerEvent[]>
+  activityEventsByWorkspace: Record<string, ServerEvent[]>
   connectionByWorkspace: Record<string, string>
   commandSessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>
   setSelectedWorkspace: (workspaceId?: string) => void
@@ -26,6 +28,8 @@ type SessionState = {
   setConnectionState: (workspaceId: string, state: string) => void
   ingestEvent: (event: ServerEvent) => void
   upsertCommandSession: (session: CommandSession) => void
+  removeCommandSession: (workspaceId: string, processId: string) => void
+  clearCompletedCommandSessions: (workspaceId: string) => void
 }
 
 export const useSessionStore = create<SessionState>()(
@@ -36,12 +40,13 @@ export const useSessionStore = create<SessionState>()(
       selectedThreadIdByWorkspace: {},
       eventsByThread: {},
       workspaceEventsByWorkspace: {},
+      activityEventsByWorkspace: {},
       connectionByWorkspace: {},
       commandSessionsByWorkspace: {},
       setSelectedWorkspace: (workspaceId) =>
         set((current) => ({
           selectedWorkspaceId: workspaceId,
-          selectedThreadId: workspaceId ? current.selectedThreadIdByWorkspace[workspaceId] : undefined,
+          selectedThreadId: getSelectedThreadIdForWorkspace(current, workspaceId),
         })),
       setSelectedThread: (workspaceId, threadId) =>
         set((current) => {
@@ -49,10 +54,13 @@ export const useSessionStore = create<SessionState>()(
 
           if (workspaceId && threadId) {
             nextByWorkspace[workspaceId] = threadId
+          } else if (workspaceId && !threadId) {
+            delete nextByWorkspace[workspaceId]
           }
 
           return {
-            selectedThreadId: threadId,
+            selectedThreadId:
+              current.selectedWorkspaceId === workspaceId ? threadId : current.selectedThreadId,
             selectedThreadIdByWorkspace: nextByWorkspace,
           }
         }),
@@ -73,11 +81,34 @@ export const useSessionStore = create<SessionState>()(
             updatedAt: new Date().toISOString(),
           }),
         })),
+      removeCommandSession: (workspaceId, processId) =>
+        set((current) => ({
+          commandSessionsByWorkspace: removeCommandSession(
+            current.commandSessionsByWorkspace,
+            workspaceId,
+            processId,
+          ),
+        })),
+      clearCompletedCommandSessions: (workspaceId) =>
+        set((current) => ({
+          commandSessionsByWorkspace: clearCompletedCommandSessions(
+            current.commandSessionsByWorkspace,
+            workspaceId,
+          ),
+        })),
       ingestEvent: (event) =>
         set((current) => {
           const nextCommandSessions = applyCommandEvent(current.commandSessionsByWorkspace, event)
+          const nextActivityEvents = {
+            ...current.activityEventsByWorkspace,
+            [event.workspaceId]: [
+              ...(current.activityEventsByWorkspace[event.workspaceId] ?? []),
+              event,
+            ].slice(-150),
+          }
           if (!event.threadId) {
             return {
+              activityEventsByWorkspace: nextActivityEvents,
               commandSessionsByWorkspace: nextCommandSessions,
               workspaceEventsByWorkspace: {
                 ...current.workspaceEventsByWorkspace,
@@ -92,6 +123,7 @@ export const useSessionStore = create<SessionState>()(
           const currentEvents = current.eventsByThread[event.threadId] ?? []
 
           return {
+            activityEventsByWorkspace: nextActivityEvents,
             commandSessionsByWorkspace: nextCommandSessions,
             eventsByThread: {
               ...current.eventsByThread,
@@ -153,6 +185,58 @@ function mergeCommandSession(
         ...session,
       },
     },
+  }
+}
+
+function removeCommandSession(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  workspaceId: string,
+  processId: string,
+) {
+  const workspaceSessions = sessionsByWorkspace[workspaceId]
+  if (!workspaceSessions?.[processId]) {
+    return sessionsByWorkspace
+  }
+
+  const nextWorkspaceSessions = { ...workspaceSessions }
+  delete nextWorkspaceSessions[processId]
+
+  if (!Object.keys(nextWorkspaceSessions).length) {
+    const nextSessionsByWorkspace = { ...sessionsByWorkspace }
+    delete nextSessionsByWorkspace[workspaceId]
+    return nextSessionsByWorkspace
+  }
+
+  return {
+    ...sessionsByWorkspace,
+    [workspaceId]: nextWorkspaceSessions,
+  }
+}
+
+function clearCompletedCommandSessions(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  workspaceId: string,
+) {
+  const workspaceSessions = sessionsByWorkspace[workspaceId]
+  if (!workspaceSessions) {
+    return sessionsByWorkspace
+  }
+
+  const nextWorkspaceSessions = Object.fromEntries(
+    Object.entries(workspaceSessions).filter(([, session]) =>
+      ['running', 'starting'].includes(session.status),
+    ),
+  )
+
+  if (!Object.keys(nextWorkspaceSessions).length) {
+    const nextSessionsByWorkspace = { ...sessionsByWorkspace }
+    delete nextSessionsByWorkspace[workspaceId]
+    return nextSessionsByWorkspace
+  }
+
+  return {
+    ...sessionsByWorkspace,
+    [workspaceId]: nextWorkspaceSessions,
   }
 }
 

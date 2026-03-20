@@ -1,0 +1,219 @@
+import { useQuery } from '@tanstack/react-query'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+
+import { listRemoteSkills, listSkills } from '../features/catalog/api'
+import { listWorkspaces } from '../features/workspaces/api'
+
+type SkillCardItem = {
+  id: string
+  name: string
+  description: string
+}
+
+export function SkillsPage() {
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+
+  const workspacesQuery = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: listWorkspaces,
+  })
+
+  useEffect(() => {
+    if (!selectedWorkspaceId && workspacesQuery.data?.length) {
+      setSelectedWorkspaceId(workspacesQuery.data[0].id)
+    }
+  }, [selectedWorkspaceId, workspacesQuery.data])
+
+  const workspaceId = selectedWorkspaceId || workspacesQuery.data?.[0]?.id
+
+  const localSkillsQuery = useQuery({
+    queryKey: ['skills-page-local', workspaceId],
+    enabled: Boolean(workspaceId),
+    queryFn: () => listSkills(workspaceId!),
+  })
+
+  const remoteSkillsQuery = useQuery({
+    queryKey: ['skills-page-remote', workspaceId],
+    enabled: Boolean(workspaceId),
+    queryFn: async () => {
+      const result = await listRemoteSkills(workspaceId!, {
+        enabled: false,
+        hazelnutScope: 'example',
+        productSurface: 'codex',
+      })
+      return result.data
+    },
+  })
+
+  const normalizedQuery = deferredQuery.trim().toLowerCase()
+  const localSkills = useMemo(
+    () => filterByQuery(localSkillsQuery.data ?? [], normalizedQuery),
+    [localSkillsQuery.data, normalizedQuery],
+  )
+  const remoteSkills = useMemo(
+    () => filterByQuery(remoteSkillsQuery.data ?? [], normalizedQuery),
+    [normalizedQuery, remoteSkillsQuery.data],
+  )
+  const workspaceName = useMemo(
+    () => workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ?? 'No workspace',
+    [workspaceId, workspacesQuery.data],
+  )
+  const filteredCount = localSkills.length + remoteSkills.length
+
+  return (
+    <section className="screen">
+      <header className="mode-strip">
+        <div className="mode-strip__copy">
+          <div className="mode-strip__eyebrow">Skills</div>
+          <div className="mode-strip__title-row">
+            <strong>Skill Catalog</strong>
+          </div>
+          <div className="mode-strip__description">
+            Browse installed and remote skills for the active workspace from one tighter directory surface.
+          </div>
+        </div>
+        <div className="mode-strip__actions">
+          <span className="meta-pill">{localSkillsQuery.data?.length ?? 0} installed</span>
+          <span className="meta-pill">{remoteSkillsQuery.data?.length ?? 0} remote</span>
+          <span className="meta-pill">{filteredCount} visible</span>
+        </div>
+      </header>
+
+      <div className="mode-layout">
+        <aside className="mode-rail">
+          <section className="mode-panel">
+            <div className="section-header">
+              <div>
+                <h2>Workspace Scope</h2>
+                <p>Skill discovery stays bound to the active runtime root.</p>
+              </div>
+            </div>
+            <label className="field">
+              <span>Workspace</span>
+              <select value={workspaceId ?? ''} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
+                {workspacesQuery.data?.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Search</span>
+              <input onChange={(event) => setQuery(event.target.value)} placeholder="Search skills" value={query} />
+            </label>
+            <div className="detail-list">
+              <div className="detail-row">
+                <span>Current Scope</span>
+                <strong>{workspaceName}</strong>
+              </div>
+              <div className="detail-row">
+                <span>Query</span>
+                <strong>{normalizedQuery || 'all skills'}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section className="mode-panel">
+            <div className="section-header">
+              <div>
+                <h2>Directory Posture</h2>
+                <p>Installed and remote entries are kept in the same explorer-style scan path.</p>
+              </div>
+            </div>
+            <div className="mode-metrics">
+              <div className="mode-metric">
+                <span>Installed</span>
+                <strong>{localSkillsQuery.data?.length ?? 0}</strong>
+              </div>
+              <div className="mode-metric">
+                <span>Remote</span>
+                <strong>{remoteSkillsQuery.data?.length ?? 0}</strong>
+              </div>
+              <div className="mode-metric">
+                <span>Visible</span>
+                <strong>{filteredCount}</strong>
+              </div>
+            </div>
+          </section>
+        </aside>
+
+        <div className="mode-stage stack-screen">
+          <DirectorySection
+            description="Installed skills already available in the selected workspace runtime."
+            emptyMessage="No installed skills available."
+            items={localSkills}
+            loading={localSkillsQuery.isLoading}
+            marker="IN"
+            sourceLabel="Installed"
+            title="Installed Skills"
+          />
+          <DirectorySection
+            description="Remote skills that can be inspected or brought into the current workspace later."
+            emptyMessage="No remote skills available."
+            items={remoteSkills}
+            loading={remoteSkillsQuery.isLoading}
+            marker="RM"
+            sourceLabel="Remote"
+            title="Remote Skills"
+          />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function DirectorySection({
+  title,
+  description,
+  items,
+  loading,
+  marker,
+  sourceLabel,
+  emptyMessage,
+}: {
+  title: string
+  description: string
+  items: SkillCardItem[]
+  loading: boolean
+  marker: string
+  sourceLabel: string
+  emptyMessage: string
+}) {
+  return (
+    <section className="mode-panel mode-panel--flush">
+      <div className="mode-panel__body">
+        <div className="section-header section-header--inline">
+          <div>
+            <h2>{title}</h2>
+          </div>
+          <div className="section-header__meta">{items.length}</div>
+        </div>
+        <p className="mode-panel__description">{description}</p>
+      </div>
+      {loading ? <div className="notice">Loading…</div> : null}
+      {!loading && !items.length ? <div className="empty-state">{emptyMessage}</div> : null}
+      <div className="directory-list">
+        {items.map((item) => (
+          <article className="directory-item" key={item.id}>
+            <div className="directory-item__icon">{marker}</div>
+            <div className="directory-item__body">
+              <strong>{item.name}</strong>
+              <p>{item.description || 'No description provided.'}</p>
+            </div>
+            <div className="directory-item__meta">
+              <span className="meta-pill">{sourceLabel}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function filterByQuery<T extends SkillCardItem>(items: T[], query: string) {
+  if (!query) return items
+  return items.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query))
+}

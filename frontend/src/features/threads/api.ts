@@ -9,10 +9,19 @@ export function getThread(workspaceId: string, threadId: string) {
   return apiRequest<ThreadDetail>(`/api/workspaces/${workspaceId}/threads/${threadId}`)
 }
 
-export function createThread(workspaceId: string, input: { name: string }) {
+export function createThread(
+  workspaceId: string,
+  input: { name: string; model?: string; permissionPreset?: string },
+) {
   return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads`, {
     method: 'POST',
     body: JSON.stringify(input),
+  })
+}
+
+export function resumeThread(workspaceId: string, threadId: string) {
+  return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads/${threadId}/resume`, {
+    method: 'POST',
   })
 }
 

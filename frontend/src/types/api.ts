@@ -70,6 +70,10 @@ export type ApprovalDetails = {
   itemId?: string
   threadId?: string
   turnId?: string
+  callId?: string
+  tool?: string
+  arguments?: unknown
+  previousAccountId?: string
   serverName?: string
   reason?: string
   message?: string
@@ -95,6 +99,14 @@ export type AccountLoginResult = {
   message?: string
 }
 
+export type AccountCancelLoginResult = {
+  status: string
+}
+
+export type McpOauthLoginResult = {
+  authorizationUrl: string
+}
+
 export type RateLimit = {
   name: string
   limit: number
@@ -106,6 +118,51 @@ export type CatalogItem = {
   id: string
   name: string
   description: string
+}
+
+export type RemoteSkillSummary = {
+  id: string
+  name: string
+  description: string
+}
+
+export type RemoteSkillWriteResult = {
+  id: string
+  path: string
+}
+
+export type PluginDetailResult = {
+  plugin: Record<string, unknown>
+}
+
+export type PluginInstallResult = {
+  appsNeedingAuth: Array<Record<string, unknown>>
+  authPolicy: string
+}
+
+export type ConfigReadResult = {
+  config: Record<string, unknown>
+  origins: Record<string, unknown>
+  layers?: unknown[] | null
+}
+
+export type ConfigWriteResult = {
+  filePath: string
+  status: string
+  version: string
+  overriddenMetadata?: Record<string, unknown> | null
+}
+
+export type ConfigRequirementsResult = {
+  requirements?: Record<string, unknown> | null
+}
+
+export type ExternalAgentConfigDetectResult = {
+  items: Array<Record<string, unknown>>
+}
+
+export type FeedbackUploadResult = {
+  threadId: string
 }
 
 export type CollaborationMode = {

@@ -1,5 +1,10 @@
 import { apiRequest } from '../../lib/api-client'
-import type { Account, AccountLoginResult, RateLimit } from '../../types/api'
+import type {
+  Account,
+  AccountCancelLoginResult,
+  AccountLoginResult,
+  RateLimit,
+} from '../../types/api'
 
 export function getAccount() {
   return apiRequest<Account>('/api/account')
@@ -19,5 +24,12 @@ export function loginAccount(input: { type: 'apiKey'; apiKey: string } | { type:
 export function logoutAccount() {
   return apiRequest<{ status: string }>('/api/account/logout', {
     method: 'POST',
+  })
+}
+
+export function cancelLoginAccount(input: { loginId: string }) {
+  return apiRequest<AccountCancelLoginResult>('/api/account/login/cancel', {
+    method: 'POST',
+    body: JSON.stringify(input),
   })
 }

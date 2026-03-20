@@ -1,0 +1,77 @@
+import {
+  readBooleanPreference,
+  readJsonPreference,
+  readNumberPreference,
+  writeBooleanPreference,
+  writeJsonPreference,
+  writeNumberPreference,
+} from './layout-preferences'
+import {
+  layoutConfig,
+  type SurfacePanelSide,
+  type SurfacePanelView,
+} from './layout-config'
+
+export function readLeftSidebarCollapsed() {
+  return readBooleanPreference('leftSidebarCollapsed', false)
+}
+
+export function writeLeftSidebarCollapsed(value: boolean) {
+  writeBooleanPreference('leftSidebarCollapsed', value)
+}
+
+export function readLeftSidebarWidth() {
+  return readNumberPreference(
+    'leftSidebarWidth',
+    layoutConfig.shell.leftSidebar.defaultWidth,
+    layoutConfig.shell.leftSidebar.limits,
+  )
+}
+
+export function writeLeftSidebarWidth(value: number) {
+  writeNumberPreference('leftSidebarWidth', value)
+}
+
+export function readWorkspaceThreadGroupsCollapsed() {
+  return readJsonPreference<Record<string, boolean>>('workspaceThreadGroupsCollapsed', {})
+}
+
+export function writeWorkspaceThreadGroupsCollapsed(value: Record<string, boolean>) {
+  writeJsonPreference('workspaceThreadGroupsCollapsed', value)
+}
+
+export function readRightRailExpanded() {
+  return readBooleanPreference('rightRailExpanded', false)
+}
+
+export function writeRightRailExpanded(value: boolean) {
+  writeBooleanPreference('rightRailExpanded', value)
+}
+
+export function readRightRailWidth() {
+  return readNumberPreference(
+    'rightRailWidth',
+    layoutConfig.workbench.rightRail.defaultWidth,
+    layoutConfig.workbench.rightRail.limits,
+  )
+}
+
+export function writeRightRailWidth(value: number) {
+  writeNumberPreference('rightRailWidth', value)
+}
+
+export function readSurfacePanelWidths() {
+  return readJsonPreference('surfacePanelWidths', layoutConfig.workbench.surfacePanel.defaultWidths)
+}
+
+export function writeSurfacePanelWidths(value: Record<SurfacePanelView, number>) {
+  writeJsonPreference('surfacePanelWidths', value)
+}
+
+export function readSurfacePanelSides() {
+  return readJsonPreference('surfacePanelSides', layoutConfig.workbench.surfacePanel.defaultSides)
+}
+
+export function writeSurfacePanelSides(value: Record<SurfacePanelView, SurfacePanelSide>) {
+  writeJsonPreference('surfacePanelSides', value)
+}
