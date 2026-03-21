@@ -11,15 +11,17 @@ import (
 )
 
 var (
-	ErrWorkspaceNotFound = errors.New("workspace not found")
-	ErrThreadNotFound    = errors.New("thread not found")
-	ErrApprovalNotFound  = errors.New("approval not found")
+	ErrWorkspaceNotFound  = errors.New("workspace not found")
+	ErrThreadNotFound     = errors.New("thread not found")
+	ErrApprovalNotFound   = errors.New("approval not found")
+	ErrAutomationNotFound = errors.New("automation not found")
 )
 
 type MemoryStore struct {
 	mu          sync.RWMutex
 	path        string
 	workspaces  map[string]Workspace
+	automations map[string]Automation
 	threads     map[string]Thread
 	projections map[string]ThreadProjection
 	deleted     map[string]DeletedThread
@@ -28,6 +30,7 @@ type MemoryStore struct {
 
 type storeSnapshot struct {
 	Workspaces        []Workspace        `json:"workspaces"`
+	Automations       []Automation       `json:"automations,omitempty"`
 	Threads           []Thread           `json:"threads"`
 	ThreadProjections []ThreadProjection `json:"threadProjections,omitempty"`
 	DeletedThreads    []DeletedThread    `json:"deletedThreads,omitempty"`
@@ -36,6 +39,7 @@ type storeSnapshot struct {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		workspaces:  make(map[string]Workspace),
+		automations: make(map[string]Automation),
 		threads:     make(map[string]Thread),
 		projections: make(map[string]ThreadProjection),
 		deleted:     make(map[string]DeletedThread),
@@ -112,6 +116,84 @@ func (s *MemoryStore) SetWorkspaceName(workspaceID string, name string) (Workspa
 	s.persistLocked()
 
 	return workspace, nil
+}
+
+func (s *MemoryStore) ListAutomations() []Automation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]Automation, 0, len(s.automations))
+	for _, automation := range s.automations {
+		items = append(items, automation)
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) CreateAutomation(automation Automation) (Automation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[automation.WorkspaceID]; !ok {
+		return Automation{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	automation.ID = NewID("aut")
+	automation.CreatedAt = now
+	automation.UpdatedAt = now
+
+	s.automations[automation.ID] = automation
+	s.persistLocked()
+
+	return automation, nil
+}
+
+func (s *MemoryStore) GetAutomation(automationID string) (Automation, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	automation, ok := s.automations[automationID]
+	return automation, ok
+}
+
+func (s *MemoryStore) UpdateAutomation(
+	automationID string,
+	updater func(Automation) Automation,
+) (Automation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	automation, ok := s.automations[automationID]
+	if !ok {
+		return Automation{}, ErrAutomationNotFound
+	}
+
+	next := updater(automation)
+	next.ID = automation.ID
+	next.CreatedAt = automation.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	s.automations[automationID] = next
+	s.persistLocked()
+
+	return next, nil
+}
+
+func (s *MemoryStore) DeleteAutomation(automationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.automations[automationID]; !ok {
+		return ErrAutomationNotFound
+	}
+
+	delete(s.automations, automationID)
+	s.persistLocked()
+	return nil
 }
 
 func (s *MemoryStore) ListThreads(workspaceID string) []Thread {
@@ -344,6 +426,12 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 
 	delete(s.workspaces, workspaceID)
 
+	for automationID, automation := range s.automations {
+		if automation.WorkspaceID == workspaceID {
+			delete(s.automations, automationID)
+		}
+	}
+
 	for threadID, thread := range s.threads {
 		if thread.WorkspaceID == workspaceID {
 			delete(s.threads, threadID)
@@ -462,6 +550,13 @@ func (s *MemoryStore) load() error {
 		}
 	}
 
+	for _, automation := range snapshot.Automations {
+		s.automations[automation.ID] = automation
+		if value := NumericIDSuffix(automation.ID); value > maxID {
+			maxID = value
+		}
+	}
+
 	for _, thread := range snapshot.Threads {
 		s.threads[thread.ID] = thread
 		if value := NumericIDSuffix(thread.ID); value > maxID {
@@ -487,6 +582,7 @@ func (s *MemoryStore) persistLocked() {
 
 	snapshot := storeSnapshot{
 		Workspaces:        make([]Workspace, 0, len(s.workspaces)),
+		Automations:       make([]Automation, 0, len(s.automations)),
 		Threads:           make([]Thread, 0, len(s.threads)),
 		ThreadProjections: make([]ThreadProjection, 0, len(s.projections)),
 		DeletedThreads:    make([]DeletedThread, 0, len(s.deleted)),
@@ -494,6 +590,9 @@ func (s *MemoryStore) persistLocked() {
 
 	for _, workspace := range s.workspaces {
 		snapshot.Workspaces = append(snapshot.Workspaces, workspace)
+	}
+	for _, automation := range s.automations {
+		snapshot.Automations = append(snapshot.Automations, automation)
 	}
 	for _, thread := range s.threads {
 		snapshot.Threads = append(snapshot.Threads, thread)
@@ -507,6 +606,9 @@ func (s *MemoryStore) persistLocked() {
 
 	sort.Slice(snapshot.Workspaces, func(i int, j int) bool {
 		return snapshot.Workspaces[i].ID < snapshot.Workspaces[j].ID
+	})
+	sort.Slice(snapshot.Automations, func(i int, j int) bool {
+		return snapshot.Automations[i].ID < snapshot.Automations[j].ID
 	})
 	sort.Slice(snapshot.Threads, func(i int, j int) bool {
 		return snapshot.Threads[i].ID < snapshot.Threads[j].ID

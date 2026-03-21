@@ -15,6 +15,24 @@ export type Workspace = {
   updatedAt: string
 }
 
+export type Automation = {
+  id: string
+  title: string
+  description: string
+  prompt: string
+  workspaceId: string
+  workspaceName: string
+  schedule: string
+  scheduleLabel: string
+  model: string
+  reasoning: string
+  status: string
+  nextRun: string
+  lastRun: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type Thread = {
   id: string
   workspaceId: string

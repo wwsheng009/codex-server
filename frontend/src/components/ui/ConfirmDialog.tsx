@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
+import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
 
 type ConfirmDialogProps = {
@@ -25,72 +26,55 @@ export function ConfirmDialog({
   onClose,
   onConfirm,
 }: ConfirmDialogProps) {
-  const titleId = useId()
-  const descriptionId = useId()
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
       cancelButtonRef.current?.focus()
     })
+    return () => window.cancelAnimationFrame(frameId)
+  }, [])
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [onClose])
+  const footer = (
+    <>
+      <button
+        className="ide-button ide-button--secondary"
+        onClick={onClose}
+        ref={cancelButtonRef}
+        type="button"
+      >
+        {cancelLabel}
+      </button>
+      <button className="ide-button ide-button--danger" onClick={onConfirm} type="button">
+        {isPending ? 'Working…' : confirmLabel}
+      </button>
+    </>
+  )
 
   return (
-    <>
-      <button aria-label="Close confirmation dialog" className="modal-backdrop" onClick={onClose} type="button" />
-      <div className="modal-shell">
-        <div
-          aria-describedby={descriptionId}
-          aria-labelledby={titleId}
-          className="modal-card confirm-dialog"
-          role="dialog"
-        >
-          <div className="confirm-dialog__header">
-            <span className="confirm-dialog__eyebrow">Confirm</span>
-            <h2 id={titleId}>{title}</h2>
-            <p id={descriptionId}>{description}</p>
-            {subject ? <div className="confirm-dialog__subject">{subject}</div> : null}
-          </div>
-
-          {error ? (
-            <InlineNotice
-              dismissible
-              noticeKey={`confirm-dialog-${title}-${subject ?? 'default'}-${error}`}
-              title="Action Failed"
-              tone="error"
-            >
-              {error}
-            </InlineNotice>
-          ) : null}
-
-          <div className="confirm-dialog__actions">
-            <button
-              className="ide-button ide-button--secondary"
-              onClick={onClose}
-              ref={cancelButtonRef}
-              type="button"
-            >
-              {cancelLabel}
-            </button>
-            <button className="ide-button ide-button--danger" onClick={onConfirm} type="button">
-              {isPending ? 'Working…' : confirmLabel}
-            </button>
-          </div>
-        </div>
+    <Modal
+      className="confirm-dialog"
+      description={description}
+      footer={footer}
+      maxWidth="min(420px, 100%)"
+      onClose={onClose}
+      title={title}
+    >
+      <div className="confirm-dialog__header">
+        <span className="confirm-dialog__eyebrow">Confirm</span>
+        {subject ? <div className="confirm-dialog__subject">{subject}</div> : null}
       </div>
-    </>
+
+      {error ? (
+        <InlineNotice
+          dismissible
+          noticeKey={`confirm-dialog-${title}-${subject ?? 'default'}-${error}`}
+          title="Action Failed"
+          tone="error"
+        >
+          {error}
+        </InlineNotice>
+      ) : null}
+    </Modal>
   )
 }

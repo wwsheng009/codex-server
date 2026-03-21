@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react'
 
+import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
 
 type RenameDialogProps = {
@@ -31,8 +32,6 @@ export function RenameDialog({
   onClose,
   onSubmit,
 }: RenameDialogProps) {
-  const titleId = useId()
-  const descriptionId = useId()
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -41,76 +40,58 @@ export function RenameDialog({
       inputRef.current?.focus()
       inputRef.current?.select()
     })
+    return () => window.cancelAnimationFrame(frameId)
+  }, [])
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [onClose])
+  const footer = (
+    <>
+      <button className="ide-button ide-button--secondary" onClick={onClose} type="button">
+        Cancel
+      </button>
+      <button className="ide-button" disabled={isSubmitDisabled} type="submit">
+        {isPending ? 'Saving…' : submitLabel}
+      </button>
+    </>
+  )
 
   return (
-    <>
-      <button aria-label="Close rename dialog" className="modal-backdrop" onClick={onClose} type="button" />
-      <div className="modal-shell">
-        <div
-          aria-describedby={descriptionId}
-          aria-labelledby={titleId}
-          className="modal-card rename-dialog"
-          role="dialog"
-        >
-          <div className="rename-dialog__header">
-            <h2 id={titleId}>{title}</h2>
-            <p id={descriptionId}>{description}</p>
-          </div>
+    <Modal
+      className="rename-dialog"
+      description={description}
+      footer={footer}
+      maxWidth="min(420px, 100%)"
+      onClose={onClose}
+      title={title}
+    >
+      <form
+        className="form-stack"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSubmit()
+        }}
+      >
+        <label className="field" htmlFor={inputId}>
+          <span>{fieldLabel}</span>
+          <input
+            id={inputId}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={placeholder}
+            ref={inputRef}
+            value={value}
+          />
+        </label>
 
-          <form
-            className="form-stack"
-            onSubmit={(event) => {
-              event.preventDefault()
-              onSubmit()
-            }}
+        {error ? (
+          <InlineNotice
+            dismissible
+            noticeKey={`rename-dialog-${title}-${error}`}
+            title="Rename Failed"
+            tone="error"
           >
-            <label className="field" htmlFor={inputId}>
-              <span>{fieldLabel}</span>
-              <input
-                id={inputId}
-                onChange={(event) => onChange(event.target.value)}
-                placeholder={placeholder}
-                ref={inputRef}
-                value={value}
-              />
-            </label>
-
-            {error ? (
-              <InlineNotice
-                dismissible
-                noticeKey={`rename-dialog-${title}-${error}`}
-                title="Rename Failed"
-                tone="error"
-              >
-                {error}
-              </InlineNotice>
-            ) : null}
-
-            <div className="rename-dialog__actions">
-              <button className="ide-button ide-button--secondary" onClick={onClose} type="button">
-                Cancel
-              </button>
-              <button className="ide-button" disabled={isSubmitDisabled} type="submit">
-                {isPending ? 'Saving…' : submitLabel}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </>
+            {error}
+          </InlineNotice>
+        ) : null}
+      </form>
+    </Modal>
   )
 }

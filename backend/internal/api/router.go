@@ -9,6 +9,7 @@ import (
 
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
+	"codex-server/backend/internal/automations"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/configfs"
 	"codex-server/backend/internal/events"
@@ -30,6 +31,7 @@ type Dependencies struct {
 	FrontendOrigin string
 	Auth           *auth.Service
 	Workspaces     *workspace.Service
+	Automations    *automations.Service
 	Threads        *threads.Service
 	Turns          *turns.Service
 	Approvals      *approvals.Service
@@ -44,6 +46,7 @@ type Server struct {
 	originMatcher *originMatcher
 	auth          *auth.Service
 	workspaces    *workspace.Service
+	automations   *automations.Service
 	threads       *threads.Service
 	turns         *turns.Service
 	approvals     *approvals.Service
@@ -61,6 +64,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		originMatcher: originMatcher,
 		auth:          deps.Auth,
 		workspaces:    deps.Workspaces,
+		automations:   deps.Automations,
 		threads:       deps.Threads,
 		turns:         deps.Turns,
 		approvals:     deps.Approvals,
@@ -91,6 +95,16 @@ func NewRouter(deps Dependencies) http.Handler {
 		r.Post("/account/login/cancel", server.handleCancelLogin)
 		r.Post("/account/logout", server.handleLogout)
 		r.Get("/account/rate-limits", server.handleGetRateLimits)
+
+		r.Route("/automations", func(r chi.Router) {
+			r.Get("/", server.handleListAutomations)
+			r.Post("/", server.handleCreateAutomation)
+			r.Get("/{automationId}", server.handleGetAutomation)
+			r.Post("/{automationId}/pause", server.handlePauseAutomation)
+			r.Post("/{automationId}/resume", server.handleResumeAutomation)
+			r.Post("/{automationId}/fix", server.handleFixAutomation)
+			r.Delete("/{automationId}", server.handleDeleteAutomation)
+		})
 
 		r.Route("/workspaces", func(r chi.Router) {
 			r.Get("/", server.handleListWorkspaces)
@@ -307,6 +321,61 @@ func (s *Server) handleRestartWorkspace(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	if err := s.workspaces.Delete(r.Context(), workspaceID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleListAutomations(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.automations.List())
+}
+
+func (s *Server) handleCreateAutomation(w http.ResponseWriter, r *http.Request) {
+	var request automations.CreateInput
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	automation, err := s.automations.Create(request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, automation)
+}
+
+func (s *Server) handleGetAutomation(w http.ResponseWriter, r *http.Request) {
+	automationID := chi.URLParam(r, "automationId")
+
+	automation, err := s.automations.Get(automationID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, automation)
+}
+
+func (s *Server) handlePauseAutomation(w http.ResponseWriter, r *http.Request) {
+	s.handleAutomationMutation(w, r, s.automations.Pause)
+}
+
+func (s *Server) handleResumeAutomation(w http.ResponseWriter, r *http.Request) {
+	s.handleAutomationMutation(w, r, s.automations.Resume)
+}
+
+func (s *Server) handleFixAutomation(w http.ResponseWriter, r *http.Request) {
+	s.handleAutomationMutation(w, r, s.automations.Fix)
+}
+
+func (s *Server) handleDeleteAutomation(w http.ResponseWriter, r *http.Request) {
+	automationID := chi.URLParam(r, "automationId")
+	if err := s.automations.Delete(automationID); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
@@ -1300,6 +1369,18 @@ func (s *Server) handleThreadMutation(w http.ResponseWriter, r *http.Request, mu
 	writeJSON(w, http.StatusAccepted, thread)
 }
 
+func (s *Server) handleAutomationMutation(w http.ResponseWriter, r *http.Request, mutate func(string) (store.Automation, error)) {
+	automationID := chi.URLParam(r, "automationId")
+
+	automation, err := mutate(automationID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, automation)
+}
+
 func (s *Server) workspaceExists(workspaceID string) bool {
 	_, ok := s.workspaces.Get(workspaceID)
 	return ok
@@ -1313,6 +1394,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "thread_not_found", err.Error())
 	case errors.Is(err, store.ErrApprovalNotFound):
 		writeError(w, http.StatusNotFound, "approval_not_found", err.Error())
+	case errors.Is(err, store.ErrAutomationNotFound):
+		writeError(w, http.StatusNotFound, "automation_not_found", err.Error())
+	case errors.Is(err, automations.ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, auth.ErrInvalidLoginInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, appRuntime.ErrRuntimeNotConfigured):

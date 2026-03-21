@@ -75,7 +75,7 @@
 .workbench-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--workbench-rail-width, 44px);
-  gap: 12px;
+  gap: var(--space-3);
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -106,7 +106,7 @@
 }
 
 .workbench-pane--collapsed {
-  gap: 8px;
+  gap: var(--space-2);
   overflow: hidden;
   padding: var(--rail-collapsed-padding);
   border-left: 0;
@@ -132,7 +132,7 @@
 
 .workbench-pane__topbar-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 
@@ -195,7 +195,7 @@
 .workbench-mobile-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .workbench-mobile-actions__button {
@@ -645,7 +645,7 @@
 .workbench-log__panel-header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: flex-start;
   padding: 12px 12px 10px;
   border-bottom: 1px solid var(--border-subtle);
@@ -666,7 +666,7 @@
 
 .workbench-log__panel-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
 }
@@ -689,7 +689,7 @@
   position: relative;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   width: min(72%, 720px);
   padding: calc(var(--thread-message-padding-y, 6px) + 2px) calc(var(--thread-message-padding-x, 8px) + 2px);
@@ -1160,7 +1160,7 @@
 .conversation-card__summary-copy {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -1253,7 +1253,7 @@
 .conversation-card__details {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   padding: 0 9px 9px;
   border-top: 1px solid var(--border-subtle);
@@ -1400,7 +1400,7 @@
 .conversation-tool-call__actions {
   display: flex;
   justify-content: flex-start;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
@@ -1543,12 +1543,13 @@
   background: transparent;
   line-height: 1.5;
   resize: vertical;
+  outline: none;
 }
 
 .composer-dock__footer {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   flex-wrap: nowrap;
   min-width: 0;
@@ -1557,7 +1558,7 @@
 .composer-dock__meta {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   flex-wrap: nowrap;
   min-width: 0;
@@ -1568,12 +1569,12 @@
   flex-direction: column;
   gap: 0;
   container: composer-toolbar / inline-size;
-  border: 0;
+  border: 1px solid var(--border-strong);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--bg-main) 96%, transparent);
+  background: var(--bg-main);
   overflow: visible;
   isolation: isolate;
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--shadow-float);
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
@@ -1581,7 +1582,7 @@
 }
 
 .composer-dock__surface--live {
-  border-color: transparent;
+  border-color: var(--border-accent);
   box-shadow: var(--shadow-float);
   animation: none;
 }
@@ -1604,7 +1605,7 @@
 .composer-dock__status-banner {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   margin: 0 auto 8px;
   width: min(100%, var(--conversation-stage-width, 980px));
@@ -1635,7 +1636,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 12px 16px 10px;
 }
 
@@ -1707,7 +1708,7 @@
 .composer-autocomplete__item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   min-width: 0;
   padding: 11px 12px;
@@ -1757,7 +1758,7 @@
 .composer-assist-card__facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .composer-assist-card__fact {
@@ -1859,8 +1860,9 @@
 }
 
 .composer-dock__surface:focus-within {
-  border-color: transparent;
+  border-color: var(--accent);
   box-shadow: var(--shadow-float);
+  background: var(--bg-main);
 }
 
 .composer-dock__surface .composer-dock__footer {
@@ -2011,7 +2013,7 @@
 
 .composer-dock__footer-main {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   flex-wrap: nowrap;
   min-width: 0;
@@ -2121,11 +2123,7 @@
   min-width: 0;
   flex: 0 1 auto;
   flex-shrink: 0;
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    background-color 180ms ease,
-    transform 180ms ease;
+  transition: all 180ms ease;
 }
 
 .composer-control-group__label {
@@ -2133,12 +2131,11 @@
 }
 
 .composer-control-group__segmented {
-  padding: 1px;
-  border-radius: 10px;
-  background: var(--surface-control);
-  transition:
-    background-color 180ms ease,
-    box-shadow 180ms ease;
+  padding: 2px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-main) 94%, var(--text-faint) 6%);
+  border: 1px solid var(--border-subtle);
+  transition: all 180ms ease;
 }
 
 .composer-control-group__item {
@@ -2201,8 +2198,9 @@
 .composer-control-select {
   padding: 1px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--surface-control);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-card) 40%, transparent);
+  transition: all 180ms ease;
 }
 
 .composer-control-select:hover {
@@ -2238,14 +2236,11 @@
   min-height: 28px;
   padding: 0 24px 0 8px;
   border: 0;
-  border-radius: 9px;
-  background: var(--surface-control-strong);
-  color: var(--text-primary);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-secondary);
   box-shadow: none;
-  transition:
-    background-color 180ms ease,
-    color 180ms ease,
-    border-color 180ms ease;
+  transition: all 180ms ease;
 }
 
 .composer-control-select__control .custom-select__value {
@@ -2256,6 +2251,8 @@
 .composer-control-select__control .custom-select__caret {
   width: 14px;
   height: 14px;
+  color: var(--text-faint);
+  transition: color 180ms ease;
 }
 
 .composer-control-select__menu {
@@ -2266,8 +2263,17 @@
   min-height: 34px;
 }
 
+.composer-control-select:hover .custom-select__trigger {
+  color: var(--text-primary);
+}
+
+.composer-control-select:hover .custom-select__caret {
+  color: var(--text-secondary);
+}
+
 .composer-control-select--active .composer-control-select__control .custom-select__trigger {
   border-color: transparent;
+  color: var(--text-primary);
 }
 
 .composer-control-select--active .composer-control-select__control .custom-select__caret {
@@ -2311,12 +2317,31 @@
   min-width: 34px;
   min-height: 34px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   flex-shrink: 0;
-  transition:
-    transform 180ms ease,
-    box-shadow 180ms ease,
-    background-color 180ms ease;
+  background: color-mix(in srgb, var(--bg-main) 94%, var(--text-faint) 6%);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  transition: all 180ms ease;
+}
+
+.composer-dock__action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bg-main) 90%, var(--text-faint) 10%);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.composer-dock__action--primary {
+  background: var(--bg-main);
+  border-color: var(--border-accent);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.composer-dock__action--primary:hover:not(:disabled) {
+  background: var(--surface-selected);
+  box-shadow: var(--shadow-accent-soft);
 }
 
 .composer-context-usage {
@@ -2449,7 +2474,7 @@
 .composer-context-usage__header {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 
@@ -2525,7 +2550,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
@@ -2739,7 +2764,7 @@
 
 .composer-thread-status__popover-grid {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 12px;
 }
 
@@ -2822,7 +2847,7 @@
 .ide-button--busy {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   color: var(--text-on-accent);
   box-shadow: var(--shadow-button-accent);
@@ -2888,7 +2913,7 @@
 
 .composer-approval-dialog__card {
   width: min(560px, calc(100vw - 56px));
-  padding: 16px;
+  padding: var(--space-4);
   border: 1px solid var(--border-accent);
   border-radius: 18px;
   background: var(--surface-pane-strong);
@@ -2913,7 +2938,7 @@
 
 .composer-approval-dialog__meta-strip {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
@@ -2961,7 +2986,7 @@
 
 .composer-approval-dialog__progress {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   overflow-x: auto;
   padding-bottom: 4px;
   margin: 14px 0 12px;
@@ -2970,7 +2995,7 @@
 .composer-approval-dialog__progress-step {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   min-width: 160px;
   padding: 10px 12px;
@@ -3034,7 +3059,7 @@
 .composer-approval-dialog__question {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 14px;
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
@@ -3062,7 +3087,7 @@
 .composer-approval-dialog__footer {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   flex-wrap: wrap;
   margin-top: 14px;
@@ -3070,7 +3095,7 @@
 
 .composer-approval-dialog__shortcuts {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   align-items: center;
 }
@@ -3092,7 +3117,7 @@
 .approval-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .live-feed__card,
@@ -3103,7 +3128,7 @@
 
 .composer-approval-dialog__card.approval-panel {
   border-left: 0;
-  padding: 16px;
+  padding: var(--space-4);
 }
 
 .live-feed__header,
@@ -3111,7 +3136,7 @@
 .terminal-dock__meta {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
 }
 
@@ -3214,7 +3239,7 @@
 
 .approval-panel__actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   margin-top: 12px;
 }
@@ -3235,7 +3260,7 @@
 .terminal-dock__bar {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: flex-start;
   padding: 7px 12px 6px;
 }
@@ -3256,7 +3281,7 @@
 
 .terminal-dock__bar-meta {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -3334,7 +3359,7 @@
 
 .terminal-dock__tabs {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   overflow: auto;
   padding-bottom: 2px;
   flex-shrink: 0;
@@ -3342,7 +3367,7 @@
 
 .terminal-dock__tab {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
   min-width: 180px;
   padding: 8px 8px 8px 12px;

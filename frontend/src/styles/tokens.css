@@ -7,8 +7,32 @@
     'Microsoft YaHei',
     system-ui,
     sans-serif;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-10: 40px;
+  --text-h1-size: 1.82rem;
+  --text-h1-weight: 700;
+  --text-h1-line-height: 1.2;
+  --text-h1-spacing: -0.04em;
+  --text-h2-size: 1.12rem;
+  --text-h2-weight: 600;
+  --text-h2-line-height: 1.4;
+  --text-h2-spacing: -0.01em;
+  --text-body-size: 0.94rem;
+  --text-body-weight: 400;
+  --text-body-line-height: 1.55;
+  --text-code-size: 0.86rem;
+  --text-code-weight: 500;
+  --text-code-line-height: 1.5;
+  --text-code-spacing: -0.02em;
+  --text-meta-size: 0.76rem;
+  --text-meta-weight: 600;
+  --text-meta-line-height: 1.4;
+  --text-meta-spacing: 0.08em;
   --bg-glow: rgba(255, 255, 255, 0.76);
-  --bg-glow-secondary: rgba(126, 166, 255, 0.1);
+  --bg-glow-secondary: rgba(82, 113, 255, 0.1);
   --bg-app: #f8f4ef;
   --bg-main: #fcfbfa;
   --bg-sidebar: linear-gradient(180deg, #f2ece7 0%, #f8f3ef 100%);
@@ -41,12 +65,12 @@
   --surface-control-strong: rgba(245, 247, 250, 0.92);
   --surface-composer-footer: rgba(248, 250, 252, 0.7);
   --surface-select-popup: #ffffff;
-  --surface-danger-tint: rgba(235, 87, 87, 0.12);
-  --surface-control-active: rgba(47, 128, 255, 0.1);
-  --surface-control-danger-active: rgba(235, 87, 87, 0.12);
-  --surface-selected: rgba(47, 128, 255, 0.08);
+  --surface-danger-tint: rgba(239, 68, 68, 0.12);
+  --surface-control-active: rgba(82, 113, 255, 0.1);
+  --surface-control-danger-active: rgba(239, 68, 68, 0.12);
+  --surface-selected: rgba(82, 113, 255, 0.08);
   --surface-accent-soft:
-    linear-gradient(135deg, rgba(47, 128, 255, 0.08), rgba(47, 128, 255, 0.02)),
+    linear-gradient(135deg, rgba(82, 113, 255, 0.08), rgba(82, 113, 255, 0.02)),
     rgba(255, 255, 255, 0.88);
   --surface-success-soft: rgba(247, 251, 248, 0.98);
   --surface-warning-soft: rgba(255, 249, 242, 0.98);
@@ -59,14 +83,14 @@
   --surface-terminal-strong: #0c1117;
   --surface-terminal-shell: rgba(10, 14, 20, 0.52);
   --surface-terminal-tab: rgba(255, 255, 255, 0.04);
-  --surface-terminal-selected: rgba(47, 128, 255, 0.16);
+  --surface-terminal-selected: rgba(82, 113, 255, 0.16);
   --border-subtle: rgba(24, 28, 36, 0.08);
   --border-strong: rgba(24, 28, 36, 0.14);
-  --border-accent: rgba(47, 128, 255, 0.24);
-  --border-success: rgba(39, 174, 96, 0.22);
-  --border-warning: rgba(242, 153, 74, 0.24);
+  --border-accent: rgba(82, 113, 255, 0.24);
+  --border-success: rgba(34, 197, 94, 0.22);
+  --border-warning: rgba(245, 158, 11, 0.24);
   --border-file: rgba(214, 143, 66, 0.22);
-  --border-danger: rgba(235, 87, 87, 0.22);
+  --border-danger: rgba(239, 68, 68, 0.22);
   --border-terminal: rgba(255, 255, 255, 0.12);
   --border-terminal-subtle: rgba(255, 255, 255, 0.08);
   --text-strong: #20242b;
@@ -82,25 +106,25 @@
   --text-terminal-faint: rgba(218, 225, 234, 0.62);
   --text-terminal-placeholder: rgba(218, 225, 234, 0.48);
   --text-terminal-empty: rgba(218, 225, 234, 0.68);
-  --accent: #2f80ff;
-  --accent-strong: #1d5fd1;
-  --success: #27ae60;
-  --warning: #f2994a;
+  --accent: #5271FF;
+  --accent-strong: #3A5BFF;
+  --success: #22C55E;
+  --warning: #F59E0B;
   --file: #d68f42;
-  --danger: #eb5757;
-  --danger-strong: #c53030;
+  --danger: #EF4444;
+  --danger-strong: #DC2626;
   --shadow-soft: 0 18px 40px rgba(28, 32, 40, 0.08);
   --shadow-float: 0 20px 50px rgba(28, 32, 40, 0.16);
   --shadow-pane-side: -14px 0 34px rgba(28, 32, 40, 0.1);
   --shadow-bubble: 0 10px 24px rgba(24, 28, 36, 0.06);
   --shadow-composer-dock: 0 -10px 24px rgba(28, 32, 40, 0.04);
-  --shadow-button-accent: 0 10px 24px rgba(47, 128, 255, 0.22);
-  --shadow-button-danger: 0 10px 24px rgba(235, 87, 87, 0.2);
-  --shadow-accent-soft: 0 10px 22px rgba(47, 128, 255, 0.1);
-  --shadow-accent-strong: 0 12px 24px rgba(47, 128, 255, 0.12);
-  --shadow-control-active: 0 6px 16px rgba(47, 128, 255, 0.12);
-  --shadow-control-danger: 0 6px 16px rgba(235, 87, 87, 0.12);
-  --focus-ring: rgba(47, 128, 255, 0.35);
+  --shadow-button-accent: 0 10px 24px rgba(82, 113, 255, 0.22);
+  --shadow-button-danger: 0 10px 24px rgba(239, 68, 68, 0.2);
+  --shadow-accent-soft: 0 10px 22px rgba(82, 113, 255, 0.1);
+  --shadow-accent-strong: 0 12px 24px rgba(82, 113, 255, 0.12);
+  --shadow-control-active: 0 6px 16px rgba(82, 113, 255, 0.12);
+  --shadow-control-danger: 0 6px 16px rgba(239, 68, 68, 0.12);
+  --focus-ring: rgba(82, 113, 255, 0.35);
   --spinner-track-on-accent: rgba(255, 255, 255, 0.3);
   --scrollbar-track: rgba(24, 28, 36, 0.05);
   --scrollbar-thumb: rgba(93, 104, 120, 0.28);
@@ -112,7 +136,7 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg-glow: rgba(72, 108, 170, 0.22);
+  --bg-glow: rgba(108, 135, 255, 0.22);
   --bg-glow-secondary: rgba(11, 18, 31, 0.32);
   --bg-app: #0e141d;
   --bg-main: #121a24;
@@ -147,11 +171,11 @@
   --surface-composer-footer: rgba(12, 18, 27, 0.74);
   --surface-select-popup: #111a25;
   --surface-danger-tint: rgba(248, 113, 113, 0.14);
-  --surface-control-active: rgba(110, 168, 255, 0.14);
+  --surface-control-active: rgba(108, 135, 255, 0.14);
   --surface-control-danger-active: rgba(248, 113, 113, 0.14);
-  --surface-selected: rgba(110, 168, 255, 0.16);
+  --surface-selected: rgba(108, 135, 255, 0.16);
   --surface-accent-soft:
-    linear-gradient(135deg, rgba(110, 168, 255, 0.22), rgba(110, 168, 255, 0.08)),
+    linear-gradient(135deg, rgba(108, 135, 255, 0.22), rgba(108, 135, 255, 0.08)),
     rgba(12, 18, 28, 0.82);
   --surface-success-soft: rgba(19, 39, 31, 0.82);
   --surface-warning-soft: rgba(53, 34, 18, 0.82);
@@ -164,10 +188,10 @@
   --surface-terminal-strong: #0c1117;
   --surface-terminal-shell: rgba(10, 14, 20, 0.6);
   --surface-terminal-tab: rgba(255, 255, 255, 0.05);
-  --surface-terminal-selected: rgba(110, 168, 255, 0.18);
+  --surface-terminal-selected: rgba(108, 135, 255, 0.18);
   --border-subtle: rgba(225, 232, 242, 0.1);
   --border-strong: rgba(225, 232, 242, 0.18);
-  --border-accent: rgba(110, 168, 255, 0.32);
+  --border-accent: rgba(108, 135, 255, 0.32);
   --border-success: rgba(74, 222, 128, 0.28);
   --border-warning: rgba(251, 191, 36, 0.28);
   --border-file: rgba(245, 158, 11, 0.28);
@@ -187,8 +211,8 @@
   --text-terminal-faint: rgba(218, 225, 234, 0.62);
   --text-terminal-placeholder: rgba(218, 225, 234, 0.5);
   --text-terminal-empty: rgba(218, 225, 234, 0.68);
-  --accent: #6ea8ff;
-  --accent-strong: #4f8dff;
+  --accent: #6C87FF;
+  --accent-strong: #8AA0FF;
   --success: #4ade80;
   --warning: #fbbf24;
   --file: #f59e0b;
@@ -199,13 +223,13 @@
   --shadow-pane-side: -14px 0 34px rgba(2, 8, 20, 0.32);
   --shadow-bubble: 0 10px 24px rgba(2, 8, 20, 0.22);
   --shadow-composer-dock: 0 -10px 24px rgba(2, 8, 20, 0.26);
-  --shadow-button-accent: 0 10px 24px rgba(110, 168, 255, 0.28);
+  --shadow-button-accent: 0 10px 24px rgba(108, 135, 255, 0.28);
   --shadow-button-danger: 0 10px 24px rgba(248, 113, 113, 0.24);
-  --shadow-accent-soft: 0 10px 22px rgba(110, 168, 255, 0.18);
-  --shadow-accent-strong: 0 12px 24px rgba(110, 168, 255, 0.22);
-  --shadow-control-active: 0 6px 16px rgba(110, 168, 255, 0.16);
+  --shadow-accent-soft: 0 10px 22px rgba(108, 135, 255, 0.18);
+  --shadow-accent-strong: 0 12px 24px rgba(108, 135, 255, 0.22);
+  --shadow-control-active: 0 6px 16px rgba(108, 135, 255, 0.16);
   --shadow-control-danger: 0 6px 16px rgba(248, 113, 113, 0.16);
-  --focus-ring: rgba(110, 168, 255, 0.42);
+  --focus-ring: rgba(108, 135, 255, 0.42);
   --spinner-track-on-accent: rgba(248, 250, 252, 0.34);
   --scrollbar-track: rgba(255, 255, 255, 0.04);
   --scrollbar-thumb: rgba(145, 160, 179, 0.24);
@@ -427,13 +451,15 @@ body,
 }
 
 body {
-  min-width: 1280px;
   min-height: 100vh;
   background:
     radial-gradient(circle at top left, var(--bg-glow), transparent 30%),
     radial-gradient(circle at bottom right, var(--bg-glow-secondary), transparent 34%),
     var(--bg-app);
   color: var(--text-primary);
+  font-size: var(--text-body-size);
+  font-weight: var(--text-body-weight);
+  line-height: var(--text-body-line-height);
   transition:
     background-color 220ms ease,
     color 220ms ease;

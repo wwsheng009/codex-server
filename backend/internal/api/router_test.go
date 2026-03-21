@@ -11,6 +11,7 @@ import (
 
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
+	"codex-server/backend/internal/automations"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/configfs"
 	"codex-server/backend/internal/events"
@@ -220,6 +221,121 @@ func TestRenameWorkspaceRouteUpdatesWorkspaceName(t *testing.T) {
 
 	if workspace.Name != "Renamed Workspace" {
 		t.Fatalf("expected workspace name to be updated, got %q", workspace.Name)
+	}
+}
+
+func TestAutomationRoutesPersistRecords(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	workspaceResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces",
+		`{"name":"Workspace A","rootPath":"E:/projects/ai/codex-server"}`,
+	)
+
+	var workspace struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, workspaceResponse, &workspace)
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/automations",
+		`{"title":"Daily Sync","description":"Summarize changes","prompt":"Summarize yesterday's git activity.","workspaceId":"`+workspace.Data.ID+`","schedule":"hourly","model":"gpt-5.4","reasoning":"medium"}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create automation, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data struct {
+			ID            string `json:"id"`
+			WorkspaceID   string `json:"workspaceId"`
+			WorkspaceName string `json:"workspaceName"`
+			Status        string `json:"status"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+
+	if created.Data.WorkspaceID != workspace.Data.ID {
+		t.Fatalf("expected automation workspaceId %q, got %q", workspace.Data.ID, created.Data.WorkspaceID)
+	}
+	if created.Data.WorkspaceName != "Workspace A" {
+		t.Fatalf("expected automation workspaceName to be hydrated, got %q", created.Data.WorkspaceName)
+	}
+	if created.Data.Status != "active" {
+		t.Fatalf("expected automation to start active, got %q", created.Data.Status)
+	}
+
+	listResponse := performJSONRequest(t, router, http.MethodGet, "/api/automations", "")
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list automations, got %d", listResponse.Code)
+	}
+
+	var listed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, listResponse, &listed)
+	if len(listed.Data) != 1 || listed.Data[0].ID != created.Data.ID {
+		t.Fatalf("expected listed automation id %q, got %#v", created.Data.ID, listed.Data)
+	}
+
+	pauseResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/automations/"+created.Data.ID+"/pause",
+		"",
+	)
+	if pauseResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from pause automation, got %d", pauseResponse.Code)
+	}
+
+	var paused struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, pauseResponse, &paused)
+	if paused.Data.Status != "paused" {
+		t.Fatalf("expected paused automation status, got %q", paused.Data.Status)
+	}
+
+	deleteResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodDelete,
+		"/api/automations/"+created.Data.ID,
+		"",
+	)
+	if deleteResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from delete automation, got %d", deleteResponse.Code)
+	}
+
+	getResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/automations/"+created.Data.ID,
+		"",
+	)
+	if getResponse.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after deleting automation, got %d", getResponse.Code)
 	}
 }
 
@@ -478,6 +594,7 @@ func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
 		FrontendOrigin: "http://0.0.0.0:15173",
 		Auth:           auth.NewService(dataStore, runtimeManager),
 		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Automations:    automations.NewService(dataStore),
 		Threads:        threads.NewService(dataStore, runtimeManager),
 		Turns:          turns.NewService(runtimeManager),
 		Approvals:      approvals.NewService(runtimeManager),
@@ -535,6 +652,7 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
+	automationService := automations.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager)
@@ -547,6 +665,7 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 		FrontendOrigin: "http://localhost:15173",
 		Auth:           authService,
 		Workspaces:     workspaceService,
+		Automations:    automationService,
 		Threads:        threadService,
 		Turns:          turnService,
 		Approvals:      approvalsService,

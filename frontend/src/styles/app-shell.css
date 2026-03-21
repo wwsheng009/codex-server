@@ -1203,3 +1203,17 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+
+@media (max-width: 900px) {
+  .web-ide__main {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  .web-ide__main > .screen:not(.workbench-screen) {
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+}

@@ -118,6 +118,48 @@ func TestPersistentStorePersistsThreadProjections(t *testing.T) {
 	}
 }
 
+func TestPersistentStorePersistsAutomations(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	_, err = firstStore.CreateAutomation(Automation{
+		Title:         "Daily Sync",
+		Description:   "Summarize changes",
+		Prompt:        "Summarize changes",
+		WorkspaceID:   workspace.ID,
+		WorkspaceName: workspace.Name,
+		Schedule:      "hourly",
+		ScheduleLabel: "Every hour",
+		Model:         "gpt-5.4",
+		Reasoning:     "medium",
+		Status:        "active",
+		NextRun:       "Today at next hour",
+	})
+	if err != nil {
+		t.Fatalf("CreateAutomation() error = %v", err)
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	automations := secondStore.ListAutomations()
+	if len(automations) != 1 {
+		t.Fatalf("expected 1 automation after reload, got %d", len(automations))
+	}
+	if automations[0].Title != "Daily Sync" {
+		t.Fatalf("expected persisted automation title, got %q", automations[0].Title)
+	}
+}
+
 func TestThreadProjectionPersistsServerRequests(t *testing.T) {
 	t.Parallel()
 

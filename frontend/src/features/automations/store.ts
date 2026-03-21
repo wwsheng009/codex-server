@@ -1,3 +1,7 @@
+import type { Automation } from '../../types/api'
+
+export type AutomationRecord = Automation
+
 export type AutomationTemplate = {
   id: string
   category: string
@@ -5,37 +9,7 @@ export type AutomationTemplate = {
   description: string
   prompt: string
 }
-
-export type AutomationRecord = {
-  id: string
-  title: string
-  description: string
-  prompt: string
-  workspaceId: string
-  workspaceName: string
-  schedule: string
-  scheduleLabel: string
-  model: string
-  reasoning: string
-  status: 'active' | 'paused'
-  nextRun: string
-  lastRun: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-type AutomationDraft = {
-  title: string
-  description: string
-  prompt: string
-  workspaceId: string
-  workspaceName: string
-  schedule: string
-  model: string
-  reasoning: string
-}
-
-const STORAGE_KEY = 'codex-server:automations:v2'
+const TEMPLATES_STORAGE_KEY = 'codex-server:templates:v2'
 
 export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   {
@@ -75,115 +49,44 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   },
 ]
 
-export function listAutomations(): AutomationRecord[] {
+export function listTemplates(): AutomationTemplate[] {
   if (typeof window === 'undefined') {
-    return []
+    return AUTOMATION_TEMPLATES
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      return []
-    }
-
-    const parsed = JSON.parse(raw) as unknown
-    return Array.isArray(parsed) ? parsed.filter(isAutomationRecord) : []
+    const raw = window.localStorage.getItem(TEMPLATES_STORAGE_KEY)
+    const custom = raw ? (JSON.parse(raw) as AutomationTemplate[]) : []
+    return [...AUTOMATION_TEMPLATES, ...custom]
   } catch {
-    return []
+    return AUTOMATION_TEMPLATES
   }
 }
 
-export function getAutomationRecord(automationId: string) {
-  return listAutomations().find((item) => item.id === automationId)
-}
-
-export function createAutomationRecord(draft: AutomationDraft) {
-  const now = new Date().toISOString()
-  const record: AutomationRecord = {
-    id: crypto.randomUUID(),
-    title: draft.title,
-    description: draft.description,
-    prompt: draft.prompt,
-    workspaceId: draft.workspaceId,
-    workspaceName: draft.workspaceName,
-    schedule: draft.schedule,
-    scheduleLabel: scheduleLabel(draft.schedule),
-    model: draft.model,
-    reasoning: draft.reasoning,
-    status: 'active',
-    nextRun: nextRunLabel(draft.schedule),
-    lastRun: null,
-    createdAt: now,
-    updatedAt: now,
+export function createCustomTemplate(draft: Omit<AutomationTemplate, 'id'>) {
+  const templates = listTemplates().filter(t => !AUTOMATION_TEMPLATES.some(staticT => staticT.id === t.id))
+  const newTemplate: AutomationTemplate = {
+    ...draft,
+    id: `custom-${crypto.randomUUID()}`,
   }
-
-  const next = [record, ...listAutomations()]
-  saveAutomations(next)
-  return record
+  const next = [...templates, newTemplate]
+  window.localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(next))
+  return newTemplate
 }
 
-export function updateAutomationRecord(
-  automationId: string,
-  updater: (record: AutomationRecord) => AutomationRecord,
-) {
-  const next = listAutomations().map((record) => {
-    if (record.id !== automationId) {
-      return record
+export function updateCustomTemplate(id: string, draft: Omit<AutomationTemplate, 'id'>) {
+  const templates = listTemplates().filter(t => !AUTOMATION_TEMPLATES.some(staticT => staticT.id === t.id))
+  const next = templates.map(t => {
+    if (t.id === id) {
+      return { ...draft, id }
     }
-
-    return {
-      ...updater(record),
-      updatedAt: new Date().toISOString(),
-    }
+    return t
   })
-
-  saveAutomations(next)
-  return next.find((record) => record.id === automationId) ?? null
+  window.localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(next))
 }
 
-export function deleteAutomationRecord(automationId: string) {
-  saveAutomations(listAutomations().filter((record) => record.id !== automationId))
-}
-
-function saveAutomations(records: AutomationRecord[]) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
-}
-
-function scheduleLabel(schedule: string) {
-  switch (schedule) {
-    case 'hourly':
-      return 'Every hour'
-    case 'daily-0800':
-      return 'Daily at 08:00'
-    case 'daily-1800':
-      return 'Daily at 18:00'
-    default:
-      return schedule
-  }
-}
-
-function nextRunLabel(schedule: string) {
-  switch (schedule) {
-    case 'hourly':
-      return 'Today at next hour'
-    case 'daily-0800':
-      return 'Tomorrow at 08:00'
-    case 'daily-1800':
-      return 'Today at 18:00'
-    default:
-      return 'Scheduled'
-  }
-}
-
-function isAutomationRecord(value: unknown): value is AutomationRecord {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-
-  const candidate = value as Record<string, unknown>
-  return typeof candidate.id === 'string' && typeof candidate.title === 'string'
+export function deleteCustomTemplate(id: string) {
+  const templates = listTemplates().filter(t => !AUTOMATION_TEMPLATES.some(staticT => staticT.id === t.id))
+  const next = templates.filter(t => t.id !== id)
+  window.localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(next))
 }

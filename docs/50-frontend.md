@@ -733,7 +733,7 @@
 - Verification:
   - `npm run build`
 - Remaining gap:
-  - automations are currently frontend-local and not backed by server APIs.
+  - automations are backed by server APIs for persistence and management, but scheduled execution is still not implemented.
 
 - Task: continue the codx-app-inspired workbench implementation inside the thread workspace.
 - Scope:

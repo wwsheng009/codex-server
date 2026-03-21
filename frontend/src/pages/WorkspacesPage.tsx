@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
-import { InlineNotice } from '../components/ui/InlineNotice'
+import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { StatusPill } from '../components/ui/StatusPill'
+import { CreateWorkspaceDialog } from '../components/workspace/CreateWorkspaceDialog'
 import { formatRelativeTimeShort } from '../components/workspace/timeline-utils'
 import { getErrorMessage } from '../lib/error-utils'
 import { createWorkspace, deleteWorkspace, listWorkspaces, restartWorkspace } from '../features/workspaces/api'
@@ -17,6 +17,7 @@ export function WorkspacesPage() {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [rootPath, setRootPath] = useState('')
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false)
   const [confirmingWorkspaceDelete, setConfirmingWorkspaceDelete] = useState<Workspace | null>(null)
   const removeWorkspaceFromSession = useSessionStore((state) => state.removeWorkspace)
   const workspaceRestartStateById = useUIStore((state) => state.workspaceRestartStateById)
@@ -45,6 +46,7 @@ export function WorkspacesPage() {
     onSuccess: async () => {
       setName('')
       setRootPath('')
+      setIsCreatingWorkspace(false)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
         queryClient.invalidateQueries({ queryKey: ['shell-workspaces'] }),
@@ -95,8 +97,7 @@ export function WorkspacesPage() {
     },
   })
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  function handleCreateWorkspace() {
     if (!name.trim() || !rootPath.trim()) {
       return
     }
@@ -155,166 +156,87 @@ export function WorkspacesPage() {
               <span>Healthy</span>
               <strong>{healthyWorkspaces}</strong>
             </div>
+            <div className="mode-metric">
+              <span>Roots</span>
+              <strong>{distinctRoots}</strong>
+            </div>
+            <div className="mode-metric">
+              <span>Activity</span>
+              <strong>{workspaces[0]?.updatedAt ? formatRelativeTimeShort(workspaces[0].updatedAt) : '—'}</strong>
+            </div>
           </div>
-          <button className="ide-button" onClick={() => (document.getElementById('workspace-name-input') as HTMLInputElement)?.focus()} type="button">
+          <Button onClick={() => setIsCreatingWorkspace(true)}>
             New Workspace
-          </button>
+          </Button>
         </div>
       </header>
 
-      <div className="mode-layout mode-layout--wide">
-        <aside className="mode-rail">
-          <section className="mode-panel">
-            <div className="section-header">
-              <div>
-                <h2>Create Workspace</h2>
-                <p>Register a runtime root to start building threads and automations.</p>
-              </div>
+      <div className="stack-screen">
+        <section className="content-section">
+          <div className="section-header">
+            <div>
+              <h2>Workspace Registry</h2>
             </div>
-            <form className="form-stack" onSubmit={handleSubmit}>
-              <label className="field">
-                <span>Name</span>
-                <input id="workspace-name-input" onChange={(event) => setName(event.target.value)} placeholder="ai-gateway" value={name} />
-              </label>
-              <label className="field">
-                <span>Root Path</span>
-                <input
-                  onChange={(event) => setRootPath(event.target.value)}
-                  placeholder="E:/projects/my-app"
-                  value={rootPath}
-                />
-              </label>
-              <button className="ide-button" disabled={!name.trim() || !rootPath.trim() || createWorkspaceMutation.isPending} type="submit">
-                {createWorkspaceMutation.isPending ? 'Creating…' : 'Register Workspace'}
-              </button>
-              {createWorkspaceMutation.error ? (
-                <InlineNotice
-                  details={getErrorMessage(createWorkspaceMutation.error)}
-                  dismissible
-                  noticeKey={`create-workspace-${createWorkspaceMutation.error instanceof Error ? createWorkspaceMutation.error.message : 'unknown'}`}
-                  title="Setup Failed"
-                  tone="error"
-                >
-                  {getErrorMessage(createWorkspaceMutation.error)}
-                </InlineNotice>
-              ) : null}
-            </form>
-          </section>
+            <div className="section-header__meta">{workspaces.length}</div>
+          </div>
 
-          <section className="mode-panel">
-            <div className="section-header">
-              <div>
-                <h2>Workbench Posture</h2>
-                <p>Status summary of your registered development roots.</p>
-              </div>
-            </div>
-            <div className="detail-list">
-              <div className="detail-row">
-                <span>Distinct Roots</span>
-                <strong>{distinctRoots}</strong>
-              </div>
-              <div className="detail-row">
-                <span>Last Activity</span>
-                <strong>{workspaces[0]?.updatedAt ? formatRelativeTimeShort(workspaces[0].updatedAt) : '—'}</strong>
-              </div>
-            </div>
-          </section>
-        </aside>
+          {workspacesQuery.isLoading ? <div className="notice">Loading registry…</div> : null}
+          
+          <div className="workspace-compact-list">
+            {workspaces.map((workspace) => {
+              const restartPhase = workspaceRestartStateById[workspace.id]
+              const visualStatus = restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
 
-        <section className="mode-stage">
-          <div className="stack-screen">
-            {workspaces.filter(w => ['ready', 'active', 'connected'].includes(w.runtimeStatus)).length > 0 && (
-              <section className="content-section">
-                <div className="section-header">
-                  <div>
-                    <h2>Running Workspaces</h2>
-                    <p>Active runtimes available for immediate interaction.</p>
+              return (
+                <div className="workspace-compact-row" key={workspace.id}>
+                  <Link className="workspace-compact-row__main" to={`/workspaces/${workspace.id}`}>
+                    <div className="workspace-compact-row__title">
+                      <strong>{workspace.name}</strong>
+                      <span className="meta-label">ID: {workspace.id.slice(0, 8)}</span>
+                    </div>
+                    <p>{workspace.rootPath}</p>
+                  </Link>
+                  <div className="workspace-compact-row__actions">
+                    <StatusPill status={visualStatus} />
+                    <div className="divider-v" />
+                    <Button
+                      intent="ghost"
+                      isLoading={restartPhase === 'restarting'}
+                      onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
+                    >
+                      Restart
+                    </Button>
+                    <Button
+                      intent="ghost"
+                      className="ide-button--ghost-danger"
+                      onClick={() => handleDeleteWorkspace(workspace)}
+                    >
+                      Remove
+                    </Button>
                   </div>
                 </div>
-                <div className="workspace-grid">
-                  {workspaces
-                    .filter(w => ['ready', 'active', 'connected'].includes(w.runtimeStatus))
-                    .slice(0, 4)
-                    .map((workspace) => (
-                      <div className="workspace-card" key={workspace.id}>
-                        <div className="workspace-card__header">
-                          <StatusPill status={workspace.runtimeStatus} />
-                          <span className="meta-label">{formatRelativeTimeShort(workspace.updatedAt)}</span>
-                        </div>
-                        <div className="workspace-card__body">
-                          <strong>{workspace.name}</strong>
-                          <p>{workspace.rootPath}</p>
-                        </div>
-                        <div className="workspace-card__footer">
-                          <Link className="ide-button ide-button--secondary" to={`/workspaces/${workspace.id}`}>
-                            Open
-                          </Link>
-                          <button
-                            className="ide-button ide-button--secondary"
-                            onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
-                            type="button"
-                          >
-                            Restart
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </section>
-            )}
-
-            <section className="content-section">
-              <div className="section-header">
-                <div>
-                  <h2>All Workspaces</h2>
-                  <p>Comprehensive registry of all configured development environments.</p>
-                </div>
-                <div className="section-header__meta">{workspaces.length}</div>
-              </div>
-
-              {workspacesQuery.isLoading ? <div className="notice">Loading registry…</div> : null}
-              
-              <div className="workspace-compact-list">
-                {workspaces.map((workspace) => {
-                  const restartPhase = workspaceRestartStateById[workspace.id]
-                  const visualStatus = restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
-
-                  return (
-                    <div className="workspace-compact-row" key={workspace.id}>
-                      <Link className="workspace-compact-row__main" to={`/workspaces/${workspace.id}`}>
-                        <div className="workspace-compact-row__title">
-                          <strong>{workspace.name}</strong>
-                          <span className="meta-label">ID: {workspace.id.slice(0, 8)}</span>
-                        </div>
-                        <p>{workspace.rootPath}</p>
-                      </Link>
-                      <div className="workspace-compact-row__actions">
-                        <StatusPill status={visualStatus} />
-                        <div className="divider-v" />
-                        <button
-                          className="icon-button-text"
-                          disabled={restartPhase === 'restarting'}
-                          onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
-                          type="button"
-                        >
-                          {restartPhase === 'restarting' ? '...' : 'Restart'}
-                        </button>
-                        <button
-                          className="icon-button-text icon-button-text--danger"
-                          onClick={() => handleDeleteWorkspace(workspace)}
-                          type="button"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
+              )
+            })}
           </div>
         </section>
       </div>
+
+      {isCreatingWorkspace && (
+        <CreateWorkspaceDialog
+          error={createWorkspaceMutation.error ? getErrorMessage(createWorkspaceMutation.error) : null}
+          isPending={createWorkspaceMutation.isPending}
+          name={name}
+          onClose={() => {
+            setIsCreatingWorkspace(false)
+            createWorkspaceMutation.reset()
+          }}
+          onNameChange={setName}
+          onRootPathChange={setRootPath}
+          onSubmit={handleCreateWorkspace}
+          rootPath={rootPath}
+        />
+      )}
+
       {confirmingWorkspaceDelete ? (
         <ConfirmDialog
           confirmLabel="Remove Workspace"

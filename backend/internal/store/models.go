@@ -17,6 +17,24 @@ type Workspace struct {
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
+type Automation struct {
+	ID            string     `json:"id"`
+	Title         string     `json:"title"`
+	Description   string     `json:"description"`
+	Prompt        string     `json:"prompt"`
+	WorkspaceID   string     `json:"workspaceId"`
+	WorkspaceName string     `json:"workspaceName"`
+	Schedule      string     `json:"schedule"`
+	ScheduleLabel string     `json:"scheduleLabel"`
+	Model         string     `json:"model"`
+	Reasoning     string     `json:"reasoning"`
+	Status        string     `json:"status"`
+	NextRun       string     `json:"nextRun"`
+	LastRun       *time.Time `json:"lastRun"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+}
+
 type Thread struct {
 	ID           string    `json:"id"`
 	WorkspaceID  string    `json:"workspaceId"`

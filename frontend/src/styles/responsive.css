@@ -92,6 +92,11 @@
     display: flex;
   }
 
+  .mode-strip__description,
+  .page-header__description {
+    display: none;
+  }
+
   .web-ide__menu-dot,
   .web-ide__menuitem,
   .web-ide__usage {
@@ -252,7 +257,8 @@
   }
 
   .web-ide__main {
-    padding: 8px 10px 10px;
+    padding: 12px 12px 24px;
+    scroll-padding-top: calc(var(--app-menubar-height, 44px) + 12px);
   }
 
   .settings-shell__frame {
@@ -411,6 +417,54 @@
   .terminal-dock__input {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .mode-strip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding-bottom: 16px;
+  }
+
+  .mode-strip__title-row strong {
+    font-size: 1.25rem;
+  }
+
+  .mode-strip__actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .mode-metrics {
+    width: 100%;
+    overflow-x: auto;
+    padding: 4px;
+    gap: 4px;
+    background: var(--surface-muted);
+    scrollbar-width: none;
+  }
+
+  .mode-metrics::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mode-metric {
+    flex: 1 0 auto;
+    min-width: 80px;
+    padding: 6px 10px;
+  }
+
+  .mode-metric strong {
+    font-size: 0.94rem;
+  }
+
+  .mode-metric span {
+    font-size: 0.62rem;
+  }
+
+  .stack-screen {
+    gap: var(--space-4);
   }
 
   .composer-dock__footer-main {
@@ -598,16 +652,32 @@
     flex: 0 0 auto;
   }
 
-  .workspace-registry__row {
-    grid-template-columns: 1fr;
+  .workspace-compact-row,
+  .automation-compact-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
   }
 
-  .workspace-registry__row-link {
-    grid-template-columns: 1fr;
+  .workspace-compact-row__main,
+  .automation-compact-row__main {
+    width: 100%;
   }
 
-  .workspace-registry__actions {
+  .workspace-compact-row__actions,
+  .automation-compact-row__actions {
+    display: flex;
     justify-content: flex-start;
+    align-items: center;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .workspace-compact-row__actions .divider-v,
+  .automation-compact-row__actions .divider-v {
+    display: none;
   }
 
   .directory-item {

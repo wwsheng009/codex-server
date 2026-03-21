@@ -13,6 +13,7 @@ import (
 	"codex-server/backend/internal/api"
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
+	"codex-server/backend/internal/automations"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/config"
 	"codex-server/backend/internal/configfs"
@@ -39,6 +40,7 @@ func main() {
 
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
+	automationService := automations.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager)
@@ -55,6 +57,7 @@ func main() {
 		FrontendOrigin: cfg.FrontendOrigin,
 		Auth:           authService,
 		Workspaces:     workspaceService,
+		Automations:    automationService,
 		Threads:        threadService,
 		Turns:          turnService,
 		Approvals:      approvalsService,

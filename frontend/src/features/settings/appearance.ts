@@ -21,7 +21,7 @@ export const colorThemeOptions = [
     value: 'blue',
     label: 'Cobalt',
     description: 'Neutral shell with a crisp blue accent.',
-    swatches: ['#2f80ff', '#6fa9ff', '#f6f2ee', '#fcfbfa'],
+    swatches: ['#5271FF', '#8AA0FF', '#f6f2ee', '#fcfbfa'],
   },
   {
     value: 'slate',
