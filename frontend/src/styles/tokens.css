@@ -131,9 +131,9 @@
   --shadow-control-danger: 0 6px 16px rgba(239, 68, 68, 0.12);
   --focus-ring: color-mix(in srgb, var(--accent), transparent 65%);
   --spinner-track-on-accent: rgba(255, 255, 255, 0.3);
-  --scrollbar-track: color-mix(in srgb, var(--text-primary), transparent 95%);
-  --scrollbar-thumb: color-mix(in srgb, var(--text-primary), transparent 72%);
-  --scrollbar-thumb-hover: color-mix(in srgb, var(--text-primary), transparent 58%);
+  --scrollbar-track: color-mix(in srgb, var(--accent), transparent 96%);
+  --scrollbar-thumb: color-mix(in srgb, var(--accent), transparent 74%);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--accent), transparent 52%);
   --rail-collapsed-width: 56px;
   --rail-collapsed-padding: 8px;
   --rail-icon-button-size: 28px;
@@ -252,9 +252,9 @@
   --shadow-control-danger: 0 6px 16px rgba(248, 113, 113, 0.16);
   --focus-ring: color-mix(in srgb, var(--accent), transparent 58%);
   --spinner-track-on-accent: rgba(248, 250, 252, 0.34);
-  --scrollbar-track: rgba(255, 255, 255, 0.04);
-  --scrollbar-thumb: rgba(145, 160, 179, 0.24);
-  --scrollbar-thumb-hover: rgba(145, 160, 179, 0.38);
+  --scrollbar-track: color-mix(in srgb, var(--accent), transparent 96%);
+  --scrollbar-thumb: color-mix(in srgb, var(--accent), transparent 72%);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--accent), transparent 50%);
 }
 
 :root[data-thread-spacing='tight'] {

@@ -59,6 +59,14 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   return payload.data
 }
 
+export function buildApiWebSocketUrl(path: string) {
+  if (API_BASE_URL) {
+    return `${API_BASE_URL.replace(/^http/, 'ws')}${path}`
+  }
+
+  return `${defaultApiWebSocketBaseUrl()}${path}`
+}
+
 async function readApiResponse<T>(response: Response) {
   const contentType = response.headers.get('Content-Type') ?? ''
   if (!contentType.includes('application/json')) {
@@ -78,5 +86,18 @@ function defaultApiBaseUrl() {
     return 'http://localhost:18080'
   }
 
+  if (import.meta.env.DEV) {
+    return ''
+  }
+
   return `${window.location.protocol}//${window.location.hostname}:18080`
+}
+
+function defaultApiWebSocketBaseUrl() {
+  if (typeof window === 'undefined') {
+    return 'ws://localhost:18080'
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.hostname}:18080`
 }

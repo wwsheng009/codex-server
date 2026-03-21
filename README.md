@@ -52,6 +52,18 @@ go mod tidy
 go run ./cmd/server
 ```
 
+或直接在 PowerShell 中运行：
+
+```powershell
+pwsh -File .\scripts\start-backend.ps1
+```
+
+如果模型意外全部变成 `LocalShell`，可以清理服务级 shell override：
+
+```powershell
+pwsh -File .\scripts\reset-runtime-shell-overrides.ps1
+```
+
 默认监听：`http://localhost:18080`
 
 可通过环境变量覆盖：
@@ -80,16 +92,25 @@ npm test
 
 默认地址：`http://localhost:15173`
 
-如需指定后端地址，可设置：
+开发环境下，Vite 现在会把同源的 `/api` 请求代理到后端，默认目标是 `http://localhost:18080`。
+
+如需修改代理目标，可设置：
+
+```bash
+VITE_API_PROXY_TARGET=http://localhost:18080
+```
+
+如需让前端直接请求某个后端地址、绕过 Vite 代理，可设置：
 
 ```bash
 VITE_API_BASE_URL=http://localhost:18080
 ```
 
-如果未设置 `VITE_API_BASE_URL`，前端默认会按当前访问主机拼接 `:18080`，例如：
+如果未设置 `VITE_API_BASE_URL`：
 
-- `http://localhost:15173` 会请求 `http://localhost:18080`
-- `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
+- 开发环境会优先走 Vite 同源代理
+- workspace stream 的 WebSocket 会继续直连当前主机的 `:18080`，避免 Vite 开发期的代理断连噪声
+- 非开发环境会按当前访问主机拼接 `:18080`，例如 `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
 
 ## 启用 LocalShell
 
@@ -144,11 +165,17 @@ codex app-server --listen stdio:// --config "model_catalog_json=E:/generated/cat
 - `Default Shell Type`
 - `Model Shell Type Overrides (JSON)`
 - `Import Model Catalog Template` 按钮会把 `config/model-catalog.json` 复制到受管文件 `config/runtime-model-catalog.json`，自动绑定 `Model Catalog Path`
+- `Reset Shell Overrides` 会保留 `Model Catalog Path`，但清空服务级 `Default Shell Type` 和模型级 override，回退到目录文件自身的 `shell_type`
 - 配置页右侧的 inspection panels 已切成带图标 tabs，并会记住上次激活项
 - 成功 toast 支持动作按钮，可直接打开 `Effective` / `Configured` / `Detected` 对应页签
 - JSON 预览支持复制与折叠，字段帮助提示可通过键盘聚焦查看
 
 如果该页面留空，后端会继续回退到环境变量或 Codex 自身配置中的默认值。
+
+排查这类问题时要区分两层：
+
+- `backend/data/metadata.json` 持久化的是 `codex-server` 自己的 runtime preferences
+- `%LOCALAPPDATA%\\Temp\\codex-server\\model-catalog-shell-overrides-*.json` 只是根据当前 preferences 派生出来的临时目录，不是根配置
 
 ## 下一步建议
 

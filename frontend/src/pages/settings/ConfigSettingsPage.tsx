@@ -51,6 +51,20 @@ export function ConfigSettingsPage() {
     queryFn: readRuntimePreferences,
   })
 
+  function buildRuntimePreferencesPayload(input?: {
+    modelCatalogPath?: string
+    defaultShellType?: string
+    modelShellTypeOverrides?: Record<string, string>
+  }) {
+    return {
+      modelCatalogPath: (input?.modelCatalogPath ?? modelCatalogPath).trim(),
+      defaultShellType: input?.defaultShellType ?? defaultShellType,
+      modelShellTypeOverrides:
+        input?.modelShellTypeOverrides ??
+        parseShellOverridesInput(modelShellTypeOverridesInput),
+    }
+  }
+
   const writeConfigMutation = useMutation({
     mutationFn: () =>
       writeConfigValue(workspaceId!, {
@@ -63,14 +77,11 @@ export function ConfigSettingsPage() {
     },
   })
   const writeRuntimePreferencesMutation = useMutation({
-    mutationFn: async () => {
-      const overrides = parseShellOverridesInput(modelShellTypeOverridesInput)
-      return writeRuntimePreferences({
-        modelCatalogPath: modelCatalogPath.trim(),
-        defaultShellType,
-        modelShellTypeOverrides: overrides,
-      })
-    },
+    mutationFn: async (input?: {
+      modelCatalogPath?: string
+      defaultShellType?: string
+      modelShellTypeOverrides?: Record<string, string>
+    }) => writeRuntimePreferences(buildRuntimePreferencesPayload(input)),
     onSuccess: async (result) => {
       setModelCatalogPath(result.configuredModelCatalogPath)
       setDefaultShellType(result.configuredDefaultShellType)
@@ -194,14 +205,29 @@ export function ConfigSettingsPage() {
                 className="config-card"
                 onSubmit={(event: FormEvent<HTMLFormElement>) => {
                   event.preventDefault()
-                  writeRuntimePreferencesMutation.mutate()
+                  writeRuntimePreferencesMutation.mutate(undefined)
                 }}
               >
                 <div className="config-card__header">
                   <strong>Shell Configuration</strong>
-                  <button className="ide-button ide-button--primary ide-button--sm" type="submit">
-                    {writeRuntimePreferencesMutation.isPending ? 'Applying…' : 'Apply Changes'}
-                  </button>
+                  <div className="setting-row__actions">
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={writeRuntimePreferencesMutation.isPending}
+                      onClick={() =>
+                        writeRuntimePreferencesMutation.mutate({
+                          defaultShellType: '',
+                          modelShellTypeOverrides: {},
+                        })
+                      }
+                      type="button"
+                    >
+                      Reset Shell Overrides
+                    </button>
+                    <button className="ide-button ide-button--primary ide-button--sm" type="submit">
+                      {writeRuntimePreferencesMutation.isPending ? 'Applying…' : 'Apply Changes'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="form-stack">
@@ -249,6 +275,11 @@ export function ConfigSettingsPage() {
                       />
                     </label>
                   </div>
+
+                  <p className="config-inline-note">
+                    Reset Shell Overrides clears the service-level shell override while keeping the
+                    configured catalog path.
+                  </p>
 
                   <label className="field">
                     <span>

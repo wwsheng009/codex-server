@@ -194,6 +194,7 @@ export function AppShell() {
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
   const [visibleThreadCountByWorkspace, setVisibleThreadCountByWorkspace] = useState<Record<string, number>>({})
+  const [refreshingWorkspaceIds, setRefreshingWorkspaceIds] = useState<Set<string>>(new Set())
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
@@ -568,6 +569,29 @@ export function AppShell() {
     restartWorkspaceMutation.mutate(workspace.id)
   }
 
+  async function handleRefreshWorkspace(workspaceId: string) {
+    setOpenMenu(null)
+    setRefreshingWorkspaceIds((current) => new Set([...current, workspaceId]))
+    try {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.refetchQueries({ queryKey: ['shell-threads', workspaceId] }),
+        queryClient.refetchQueries({ queryKey: ['workspace-detail', workspaceId] }),
+        queryClient.refetchQueries({ queryKey: ['workspaces'] }),
+        queryClient.refetchQueries({ queryKey: ['shell-workspaces'] }),
+        queryClient.refetchQueries({ queryKey: ['approvals', workspaceId] }),
+      ])
+    } finally {
+      setTimeout(() => {
+        setRefreshingWorkspaceIds((current) => {
+          const next = new Set(current)
+          next.delete(workspaceId)
+          return next
+        })
+      }, 1000) // Keep the visual feedback for at least 1s
+    }
+  }
+
   function handleDeleteWorkspace(workspace: Workspace) {
     if (
       createThreadMutation.isPending ||
@@ -912,18 +936,20 @@ export function AppShell() {
                             <span className="workspace-tree__workspace-meta">
                               {threads.length} threads · {visualRuntimeStatus}
                             </span>
-                            {restartPhase ? (
+                            {restartPhase || refreshingWorkspaceIds.has(workspace.id) ? (
                               <span
                                 className={[
                                   'workspace-tree__workspace-runtime',
-                                  restartPhase === 'restarting'
+                                  restartPhase === 'restarting' || refreshingWorkspaceIds.has(workspace.id)
                                     ? 'workspace-tree__workspace-runtime--restarting'
                                     : 'workspace-tree__workspace-runtime--restarted',
                                 ].join(' ')}
                               >
-                                {restartPhase === 'restarting'
-                                  ? 'Restarting runtime'
-                                  : 'Runtime refreshed'}
+                                {refreshingWorkspaceIds.has(workspace.id)
+                                  ? 'Refreshing...'
+                                  : restartPhase === 'restarting'
+                                    ? 'Restarting runtime'
+                                    : 'Runtime refreshed'}
                               </span>
                             ) : null}
                           </span>
@@ -964,6 +990,13 @@ export function AppShell() {
                           </button>
                           {isWorkspaceMenuOpen(workspace.id) ? (
                             <div className="workspace-tree__menu" role="menu">
+                              <button
+                                className="workspace-tree__menu-item"
+                                onClick={() => void handleRefreshWorkspace(workspace.id)}
+                                type="button"
+                              >
+                                Refresh
+                              </button>
                               <button
                                 className="workspace-tree__menu-item"
                                 disabled={

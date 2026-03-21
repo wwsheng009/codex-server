@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-import { API_BASE_URL } from '../lib/api-client'
+import { buildApiWebSocketUrl } from '../lib/api-client'
 import { useSessionStore } from '../stores/session-store'
 import type { ServerEvent } from '../types/api'
 
@@ -102,8 +102,7 @@ function openWorkspaceStream(
     stream.reconnectTimer = undefined
   }
 
-  const wsBase = API_BASE_URL.replace(/^http/, 'ws')
-  const socket = new WebSocket(`${wsBase}/api/workspaces/${workspaceId}/stream`)
+  const socket = new WebSocket(buildApiWebSocketUrl(`/api/workspaces/${workspaceId}/stream`))
   stream.socket = socket
 
   setConnectionState(workspaceId, 'connecting')
