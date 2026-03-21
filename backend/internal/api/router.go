@@ -97,6 +97,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Post("/", server.handleCreateWorkspace)
 			r.Get("/{workspaceId}", server.handleGetWorkspace)
 			r.Post("/{workspaceId}/name", server.handleRenameWorkspace)
+			r.Post("/{workspaceId}/restart", server.handleRestartWorkspace)
 			r.Delete("/{workspaceId}", server.handleDeleteWorkspace)
 			r.Get("/{workspaceId}/pending-approvals", server.handleListPendingApprovals)
 			r.Get("/{workspaceId}/models", server.handleListModels)
@@ -291,6 +292,18 @@ func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workspace)
 }
 
+func (s *Server) handleRestartWorkspace(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	workspace, err := s.workspaces.RestartRuntime(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, workspace)
+}
+
 func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	if err := s.workspaces.Delete(r.Context(), workspaceID); err != nil {
@@ -320,7 +333,7 @@ func (s *Server) handleListLoadedThreads(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"data": threads})
+	writeJSON(w, http.StatusOK, threads)
 }
 
 func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
@@ -464,10 +477,11 @@ func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "threadId")
 
 	var request struct {
-		Input            string `json:"input"`
-		Model            string `json:"model"`
-		ReasoningEffort  string `json:"reasoningEffort"`
-		PermissionPreset string `json:"permissionPreset"`
+		Input             string `json:"input"`
+		Model             string `json:"model"`
+		ReasoningEffort   string `json:"reasoningEffort"`
+		PermissionPreset  string `json:"permissionPreset"`
+		CollaborationMode string `json:"collaborationMode"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -476,9 +490,10 @@ func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.turns.Start(r.Context(), workspaceID, threadID, request.Input, turns.StartOptions{
-		Model:            request.Model,
-		ReasoningEffort:  request.ReasoningEffort,
-		PermissionPreset: request.PermissionPreset,
+		Model:             request.Model,
+		ReasoningEffort:   request.ReasoningEffort,
+		PermissionPreset:  request.PermissionPreset,
+		CollaborationMode: request.CollaborationMode,
 	})
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -1209,8 +1224,16 @@ func (s *Server) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
-func (s *Server) handleListCollaborationModes(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.catalog.CollaborationModes())
+func (s *Server) handleListCollaborationModes(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	result, err := s.catalog.CollaborationModes(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {

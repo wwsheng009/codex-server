@@ -1,9 +1,8 @@
 import type { ApiResponse } from '../types/api'
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:18080').replace(
-  /\/$/,
-  '',
-)
+export const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ?? defaultApiBaseUrl()
+).replace(/\/$/, '')
 
 export class ApiClientError extends Error {
   code?: string
@@ -72,4 +71,12 @@ async function readApiResponse<T>(response: Response) {
 
 function isApiResponse<T>(value: unknown): value is ApiResponse<T> {
   return typeof value === 'object' && value !== null && ('data' in value || 'error' in value)
+}
+
+function defaultApiBaseUrl() {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:18080'
+  }
+
+  return `${window.location.protocol}//${window.location.hostname}:18080`
 }

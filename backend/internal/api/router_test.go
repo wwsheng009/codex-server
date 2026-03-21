@@ -223,6 +223,44 @@ func TestRenameWorkspaceRouteUpdatesWorkspaceName(t *testing.T) {
 	}
 }
 
+func TestRestartWorkspaceRouteIsWired(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces",
+		`{"name":"Workspace A","rootPath":"E:/projects/ai/codex-server"}`,
+	)
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+
+	restartResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+created.Data.ID+"/restart",
+		"",
+	)
+
+	if restartResponse.Code != http.StatusAccepted && restartResponse.Code != http.StatusBadGateway {
+		t.Fatalf("expected restart workspace route to be wired, got %d", restartResponse.Code)
+	}
+}
+
 func TestDeleteThreadRouteMarksThreadDeleted(t *testing.T) {
 	t.Parallel()
 
@@ -420,6 +458,46 @@ func TestCORSAllowsLoopbackFrontendPortFallback(t *testing.T) {
 
 	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Fatalf("expected Access-Control-Allow-Credentials=true, got %q", got)
+	}
+}
+
+func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+
+	router := NewRouter(Dependencies{
+		FrontendOrigin: "http://0.0.0.0:15173",
+		Auth:           auth.NewService(dataStore, runtimeManager),
+		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Threads:        threads.NewService(dataStore, runtimeManager),
+		Turns:          turns.NewService(runtimeManager),
+		Approvals:      approvals.NewService(runtimeManager),
+		Catalog:        catalog.NewService(runtimeManager),
+		ConfigFS:       configfs.NewService(runtimeManager),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub),
+		Feedback:       feedback.NewService(runtimeManager),
+		Events:         eventHub,
+	})
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/workspaces", nil)
+	request.Header.Set("Origin", "http://192.168.1.20:15173")
+	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	request.Header.Set("Access-Control-Request-Headers", "Content-Type")
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "http://192.168.1.20:15173" {
+		t.Fatalf("expected Access-Control-Allow-Origin header to echo LAN origin, got %q", got)
 	}
 }
 

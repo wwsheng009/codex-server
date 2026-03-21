@@ -23,6 +23,12 @@ export function renameWorkspace(workspaceId: string, input: { name: string }) {
   })
 }
 
+export function restartWorkspace(workspaceId: string) {
+  return apiRequest<Workspace>(`/api/workspaces/${workspaceId}/restart`, {
+    method: 'POST',
+  })
+}
+
 export function deleteWorkspace(workspaceId: string) {
   return apiRequest<{ status: string }>(`/api/workspaces/${workspaceId}`, {
     method: 'DELETE',

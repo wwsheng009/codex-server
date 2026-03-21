@@ -10,12 +10,14 @@ import (
 type originMatcher struct {
 	allowAll        bool
 	exactOrigins    map[string]struct{}
+	anyHostOrigins  map[string]struct{}
 	loopbackSchemes map[string]struct{}
 }
 
 func newOriginMatcher(configuredOrigins string) *originMatcher {
 	matcher := &originMatcher{
 		exactOrigins:    make(map[string]struct{}),
+		anyHostOrigins:  make(map[string]struct{}),
 		loopbackSchemes: make(map[string]struct{}),
 	}
 
@@ -49,6 +51,10 @@ func (m *originMatcher) Allow(origin string) bool {
 		return false
 	}
 
+	if _, ok := m.anyHostOrigins[anyHostOriginKey(parsed)]; ok {
+		return true
+	}
+
 	if _, ok := m.loopbackSchemes[strings.ToLower(parsed.Scheme)]; !ok {
 		return false
 	}
@@ -74,6 +80,10 @@ func (m *originMatcher) add(origin string) {
 		return
 	}
 
+	if isBindAllHost(parsed.Hostname()) {
+		m.anyHostOrigins[anyHostOriginKey(parsed)] = struct{}{}
+	}
+
 	if isLoopbackHost(parsed.Hostname()) {
 		m.loopbackSchemes[strings.ToLower(parsed.Scheme)] = struct{}{}
 	}
@@ -90,4 +100,26 @@ func isLoopbackHost(host string) bool {
 
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
+}
+
+func isBindAllHost(host string) bool {
+	trimmed := strings.Trim(host, "[]")
+	return trimmed == "0.0.0.0" || trimmed == "::"
+}
+
+func anyHostOriginKey(parsed *url.URL) string {
+	return strings.ToLower(parsed.Scheme) + "://" + effectiveOriginPort(parsed)
+}
+
+func effectiveOriginPort(parsed *url.URL) string {
+	if port := parsed.Port(); port != "" {
+		return port
+	}
+
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		return "443"
+	default:
+		return "80"
+	}
 }

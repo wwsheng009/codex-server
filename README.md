@@ -57,12 +57,14 @@ go run ./cmd/server
 
 ```bash
 CODEX_SERVER_ADDR=:18080
-CODEX_FRONTEND_ORIGIN=http://localhost:15173
+CODEX_FRONTEND_ORIGIN=http://0.0.0.0:15173
 CODEX_APP_SERVER_COMMAND="codex app-server --listen stdio://"
 CODEX_SERVER_STORE_PATH=data/metadata.json
 ```
 
-当 `CODEX_FRONTEND_ORIGIN` 指向本机回环地址（如 `localhost` / `127.0.0.1`）时，后端也会放行同协议下其他本机端口，避免 Vite 自动切到 `15174`、`15175` 时触发开发期 CORS 问题。
+当 `CODEX_FRONTEND_ORIGIN` 指向本机回环地址（如 `localhost` / `127.0.0.1`）时，后端会放行同协议下其他本机端口，避免 Vite 自动切到 `15174`、`15175` 时触发开发期 CORS 问题。
+
+当 `CODEX_FRONTEND_ORIGIN=http://0.0.0.0:15173` 时，后端会放行同协议、同端口下的局域网来源，适合手机或其他局域网设备直接访问前端。
 
 ### 前端
 
@@ -80,6 +82,11 @@ npm test
 ```bash
 VITE_API_BASE_URL=http://localhost:18080
 ```
+
+如果未设置 `VITE_API_BASE_URL`，前端默认会按当前访问主机拼接 `:18080`，例如：
+
+- `http://localhost:15173` 会请求 `http://localhost:18080`
+- `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
 
 ## 下一步建议
 

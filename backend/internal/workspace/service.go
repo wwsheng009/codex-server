@@ -90,6 +90,23 @@ func (s *Service) Rename(workspaceID string, name string) (store.Workspace, erro
 	return workspace, nil
 }
 
+func (s *Service) RestartRuntime(ctx context.Context, workspaceID string) (store.Workspace, error) {
+	workspace, ok := s.store.GetWorkspace(workspaceID)
+	if !ok {
+		return store.Workspace{}, store.ErrWorkspaceNotFound
+	}
+
+	s.runtimes.Remove(workspaceID)
+	s.runtimes.Configure(workspaceID, workspace.RootPath)
+
+	if _, err := s.runtimes.EnsureStarted(ctx, workspaceID); err != nil {
+		return store.Workspace{}, err
+	}
+
+	workspace.RuntimeStatus = s.runtimes.State(workspaceID).Status
+	return workspace, nil
+}
+
 func (s *Service) Delete(_ context.Context, workspaceID string) error {
 	if _, ok := s.store.GetWorkspace(workspaceID); !ok {
 		return store.ErrWorkspaceNotFound
