@@ -19,6 +19,7 @@ type UIState = {
   utilityPanelOpen: boolean
   workspaceRestartStateById: Record<string, WorkspaceRestartPhase>
   mobileThreadChromeVisible: boolean
+  mobileThreadTitle: string
   mobileThreadStatusLabel: string
   mobileThreadStatusTone: string
   mobileThreadSyncLabel: string
@@ -33,6 +34,7 @@ type UIState = {
   clearWorkspaceRestartState: (workspaceId: string) => void
   setMobileThreadChrome: (input: {
     visible: boolean
+    title: string
     statusLabel: string
     statusTone: string
     syncLabel: string
@@ -51,6 +53,7 @@ export const useUIStore = create<UIState>()(
       utilityPanelOpen: false,
       workspaceRestartStateById: {},
       mobileThreadChromeVisible: false,
+      mobileThreadTitle: '',
       mobileThreadStatusLabel: '',
       mobileThreadStatusTone: 'idle',
       mobileThreadSyncLabel: '',
@@ -113,6 +116,7 @@ export const useUIStore = create<UIState>()(
       },
       setMobileThreadChrome: ({
         visible,
+        title,
         statusLabel,
         statusTone,
         syncLabel,
@@ -123,6 +127,7 @@ export const useUIStore = create<UIState>()(
       }) =>
         set({
           mobileThreadChromeVisible: visible,
+          mobileThreadTitle: title,
           mobileThreadStatusLabel: statusLabel,
           mobileThreadStatusTone: statusTone,
           mobileThreadSyncLabel: syncLabel,
@@ -135,6 +140,7 @@ export const useUIStore = create<UIState>()(
       resetMobileThreadChrome: () =>
         set({
           mobileThreadChromeVisible: false,
+          mobileThreadTitle: '',
           mobileThreadStatusLabel: '',
           mobileThreadStatusTone: 'idle',
           mobileThreadSyncLabel: '',

@@ -14,8 +14,6 @@ import {
 } from '../features/automations/store'
 import { listWorkspaces } from '../features/workspaces/api'
 
-type ViewMode = 'templates' | 'current'
-
 type Draft = {
   title: string
   description: string
@@ -38,7 +36,6 @@ const EMPTY_DRAFT: Draft = {
 
 export function AutomationsPage() {
   const navigate = useNavigate()
-  const [viewMode, setViewMode] = useState<ViewMode>('templates')
   const [automations, setAutomations] = useState<AutomationRecord[]>([])
   const [activeTemplate, setActiveTemplate] = useState<AutomationTemplate | null>(null)
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
@@ -51,11 +48,7 @@ export function AutomationsPage() {
   })
 
   useEffect(() => {
-    const current = listAutomations()
-    setAutomations(current)
-    if (current.length) {
-      setViewMode('current')
-    }
+    setAutomations(listAutomations())
   }, [])
 
   const groupedTemplates = useMemo(() => {
@@ -113,7 +106,6 @@ export function AutomationsPage() {
     })
 
     setAutomations(listAutomations())
-    setViewMode('current')
     closeModal()
     navigate(`/automations/${automation.id}`)
   }
@@ -131,77 +123,68 @@ export function AutomationsPage() {
           </div>
         </div>
         <div className="mode-strip__actions">
-          <span className="meta-pill">{AUTOMATION_TEMPLATES.length} templates</span>
-          <span className="meta-pill">{automations.length} current</span>
-          <div className="segmented-control">
-            <button
-              className={viewMode === 'templates' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'}
-              onClick={() => setViewMode('templates')}
-              type="button"
-            >
-              Templates
-            </button>
-            <button
-              className={viewMode === 'current' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'}
-              onClick={() => setViewMode('current')}
-              type="button"
-            >
-              Current
-            </button>
-          </div>
+          <span className="meta-pill">{automations.length} Active</span>
           <button className="ide-button" onClick={() => openCreateModal()} type="button">
             New Automation
           </button>
         </div>
       </header>
 
-      {viewMode === 'templates' ? (
-        <div className="stack-screen">
-          {Object.entries(groupedTemplates).map(([category, templates]) => (
-            <section className="content-section" key={category}>
-              <div className="section-header">
-                <div>
-                  <h2>{category}</h2>
-                  <p>Choose a template and adapt it in the modal editor.</p>
-                </div>
+      <div className="stack-screen">
+        {automations.length > 0 && (
+          <section className="content-section">
+            <div className="section-header">
+              <div>
+                <h2>Active Automations</h2>
+                <p>Manage your running schedules and monitor performance.</p>
               </div>
-              <div className="template-list">
-                {templates.map((template) => (
-                  <button className="template-tile" key={template.id} onClick={() => openCreateModal(template)} type="button">
-                    <div className="template-tile__icon">{category.slice(0, 2).toUpperCase()}</div>
-                    <div className="template-tile__body">
-                      <strong>{template.title}</strong>
-                      <p>{template.description}</p>
-                    </div>
-                    <div className="template-tile__meta">Use template</div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      ) : (
+            </div>
+            <div className="automation-compact-list">
+              {automations.map((automation) => (
+                <Link className="automation-compact-row" key={automation.id} to={`/automations/${automation.id}`}>
+                  <div className="automation-compact-row__main">
+                    <strong>{automation.title}</strong>
+                    <span>{automation.workspaceName}</span>
+                  </div>
+                  <div className="automation-compact-row__meta">
+                    <span className="status-pill status-pill--active">{automation.scheduleLabel}</span>
+                    <span className="meta-label">Next: {automation.nextRun}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="content-section">
           <div className="section-header">
             <div>
-              <h2>Current</h2>
-              <p>Locally stored automations for this first full-rewrite slice.</p>
+              <h2>Templates</h2>
+              <p>Quick-start with pre-configured patterns for common tasks.</p>
             </div>
           </div>
-          {!automations.length ? <div className="empty-state">No current automations yet.</div> : null}
-          <div className="automation-list">
-            {automations.map((automation) => (
-              <Link className="automation-list__row" key={automation.id} to={`/automations/${automation.id}`}>
-                <div>
-                  <strong>{automation.title}</strong>
-                  <p>{automation.workspaceName}</p>
+          <div className="automation-grid">
+            {Object.entries(groupedTemplates).map(([category, templates]) => (
+              <div className="automation-category-group" key={category}>
+                <div className="automation-category-label">{category}</div>
+                <div className="automation-category-items">
+                  {templates.map((template) => (
+                    <button className="automation-card" key={template.id} onClick={() => openCreateModal(template)} type="button">
+                      <div className="automation-card__body">
+                        <strong>{template.title}</strong>
+                        <p>{template.description}</p>
+                      </div>
+                      <div className="automation-card__footer">
+                        <span>Use Template</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-                <span>{automation.scheduleLabel}</span>
-              </Link>
+              </div>
             ))}
           </div>
         </section>
-      )}
+      </div>
 
       {modalOpen ? (
         <>

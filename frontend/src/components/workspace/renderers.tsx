@@ -25,6 +25,8 @@ type ConversationEntry =
       error: unknown
     }
 
+type CompactSystemStatusTone = 'running' | 'success' | 'error'
+
 const selectionChangeSubscribers = new Set<() => void>()
 
 function emitSelectionChange() {
@@ -77,7 +79,13 @@ export function TurnTimeline({
     <div aria-live="polite" className="conversation-stream" role="log">
       {entries.map((entry) =>
         entry.kind === 'error' ? (
-          <SystemTimelineCard className="conversation-card--error" key={entry.key} title="Error">
+          <SystemTimelineCard
+            className="conversation-card--error"
+            key={entry.key}
+            statusTone="error"
+            summary={summarizeCompactError(entry.error)}
+            title="Error"
+          >
             <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
           </SystemTimelineCard>
         ) : (
@@ -826,6 +834,38 @@ function CopyErrorIcon() {
   )
 }
 
+function CompactSystemStatusIcon({ tone }: { tone: CompactSystemStatusTone }) {
+  if (tone === 'success') {
+    return (
+      <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+        <path
+          d="m6.5 12.5 3.3 3.3 7.7-8.3"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+        />
+      </svg>
+    )
+  }
+
+  if (tone === 'error') {
+    return (
+      <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+        <path d="m8 8 8 8" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+        <path d="m16 8-8 8" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg aria-hidden="true" className="conversation-card__status-spinner" fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <circle cx="12" cy="12" opacity="0.28" r="8" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 4a8 8 0 0 1 8 8" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+    </svg>
+  )
+}
+
 function TimelineItem({
   item,
   onRetryServerRequest,
@@ -891,42 +931,20 @@ function TimelineItem({
       return (
         <SystemTimelineCard
           className="conversation-card--command"
-          meta={status || undefined}
+          meta={outputLineLabel(output) ?? undefined}
+          statusTone={statusToneFromValue(status)}
+          summary={truncateMiddle(command || 'Command execution', 88)}
           title="Command"
         >
-          <details className="conversation-tool-call conversation-tool-call--command">
-            <summary className="conversation-tool-call__summary">
-              <div className="conversation-tool-call__summary-copy">
-                <strong>{truncateMiddle(command || 'Command execution', 80)}</strong>
-                <span>{commandExecutionSummary(command, output, status)}</span>
-              </div>
-              <div className="conversation-tool-call__summary-meta">
-                {status ? (
-                  <span className="conversation-tool-call__pill">
-                    {humanizeToolStatus(status)}
-                  </span>
-                ) : null}
-                {output ? (
-                  <span className="conversation-tool-call__pill">
-                    {countOutputLines(output)} line{countOutputLines(output) === 1 ? '' : 's'}
-                  </span>
-                ) : null}
-                <span className="conversation-tool-call__toggle-label">Details</span>
-                <span className="conversation-tool-call__toggle" />
-              </div>
-            </summary>
-            <div className="conversation-tool-call__details">
-              {command ? <code className="conversation-card__command-line">{command}</code> : null}
-              {output ? (
-                <ThreadTerminalBlock
-                  className="conversation-card__output conversation-card__output--terminal"
-                  content={output}
-                />
-              ) : (
-                <div className="conversation-card__placeholder">Waiting for output.</div>
-              )}
-            </div>
-          </details>
+          {command ? <code className="conversation-card__command-line">{command}</code> : null}
+          {output ? (
+            <ThreadTerminalBlock
+              className="conversation-card__output conversation-card__output--terminal"
+              content={output}
+            />
+          ) : (
+            <div className="conversation-card__placeholder">Waiting for output.</div>
+          )}
         </SystemTimelineCard>
       )
     }
@@ -941,6 +959,7 @@ function TimelineItem({
         <SystemTimelineCard
           className="conversation-card--plan"
           meta={`${steps.length} step${steps.length === 1 ? '' : 's'}`}
+          summary={planCardSummary(steps)}
           title="Plan"
         >
           <ol className="conversation-plan">
@@ -965,7 +984,8 @@ function TimelineItem({
         <SystemTimelineCard
           className="conversation-card--file"
           meta={`${changes.length} file${changes.length === 1 ? '' : 's'}`}
-          title="Changed Files"
+          summary={fileChangeCardSummary(changes)}
+          title="Files"
         >
           <ul className="conversation-file-list">
             {changes.map((change, index) => (
@@ -994,7 +1014,10 @@ function TimelineItem({
       }
 
       return (
-        <SystemTimelineCard title={humanizeItemType(type || 'message')}>
+        <SystemTimelineCard
+          summary={truncateSingleLine(text, 104)}
+          title={humanizeItemType(type || 'message')}
+        >
           <CopyableMessageBody className="conversation-card__content" source={text} tone="system">
             <ThreadMarkdown content={text} />
           </CopyableMessageBody>
@@ -1007,23 +1030,38 @@ function TimelineItem({
 function SystemTimelineCard({
   className,
   title,
+  summary,
   meta,
+  statusTone,
   children,
 }: {
   className?: string
   title: string
+  summary: string
   meta?: string
+  statusTone?: CompactSystemStatusTone
   children: ReactNode
 }) {
   return (
     <article className="conversation-row conversation-row--system">
-      <div className={className ? `conversation-card ${className}` : 'conversation-card'}>
-        <div className="conversation-card__header">
-          <strong>{title}</strong>
-          {meta ? <span>{meta}</span> : null}
-        </div>
-        <div className="conversation-card__body">{children}</div>
-      </div>
+      <details className={className ? `conversation-card conversation-card--compact ${className}` : 'conversation-card conversation-card--compact'}>
+        <summary className="conversation-card__summary">
+          <div className="conversation-card__summary-copy">
+            <strong>{title}</strong>
+            <span>{summary}</span>
+          </div>
+          <div className="conversation-card__summary-meta">
+            {meta ? <span className="conversation-card__meta-pill">{meta}</span> : null}
+            {statusTone ? (
+              <span className={`conversation-card__status conversation-card__status--${statusTone}`}>
+                <CompactSystemStatusIcon tone={statusTone} />
+              </span>
+            ) : null}
+            <span aria-hidden="true" className="conversation-card__toggle" />
+          </div>
+        </summary>
+        <div className="conversation-card__details">{children}</div>
+      </details>
     </article>
   )
 }
@@ -1045,7 +1083,13 @@ function ToolCallTimelineCard({ item }: { item: Record<string, unknown> }) {
       ? 'MCP Tool Call'
       : type === 'collabAgentToolCall'
         ? 'Agent Tool Call'
-        : 'Tool Call'
+      : 'Tool Call'
+  const statusTone =
+    success === true ? 'success' : success === false ? 'error' : statusToneFromValue(status)
+  const meta = compactMetaLabel(
+    [server, model, durationMs !== null ? `${durationMs} ms` : '', reasoningEffort].filter(Boolean),
+    2,
+  )
 
   const detailSections: ToolCallSection[] = [
     {
@@ -1094,85 +1138,54 @@ function ToolCallTimelineCard({ item }: { item: Record<string, unknown> }) {
   return (
     <SystemTimelineCard
       className="conversation-card--tool"
-      meta={status ? humanizeToolStatus(status) : undefined}
+      meta={meta || undefined}
+      statusTone={statusTone}
+      summary={truncateSingleLine([tool, toolCallSummary(item)].filter(Boolean).join(' · '), 112)}
       title={title}
     >
-      <details className="conversation-tool-call">
-        <summary className="conversation-tool-call__summary">
-          <div className="conversation-tool-call__summary-copy">
-            <strong>{tool}</strong>
-            <span>{toolCallSummary(item)}</span>
-          </div>
-          <div className="conversation-tool-call__summary-meta">
-            {server ? <span className="conversation-tool-call__pill">{server}</span> : null}
-            {model ? <span className="conversation-tool-call__pill">{model}</span> : null}
-            {durationMs !== null ? (
-              <span className="conversation-tool-call__pill">{durationMs} ms</span>
-            ) : null}
-            {reasoningEffort ? (
-              <span className="conversation-tool-call__pill">{reasoningEffort}</span>
-            ) : null}
-            {success !== null ? (
-              <span
-                className={
-                  success
-                    ? 'conversation-tool-call__pill conversation-tool-call__pill--success'
-                    : 'conversation-tool-call__pill conversation-tool-call__pill--danger'
-                }
-              >
-                {success ? 'success' : 'failed'}
-              </span>
-            ) : null}
-            <span className="conversation-tool-call__toggle-label">Details</span>
-            <span className="conversation-tool-call__toggle" />
-          </div>
-        </summary>
-        <div className="conversation-tool-call__details">
-          {senderThreadId || receiverThreadIds.length ? (
-            <div className="conversation-tool-call__meta-grid">
-              {senderThreadId ? (
-                <div className="conversation-tool-call__meta-row">
-                  <span>Sender</span>
-                  <strong>{senderThreadId}</strong>
-                </div>
-              ) : null}
-              {receiverThreadIds.length ? (
-                <div className="conversation-tool-call__meta-row">
-                  <span>Receivers</span>
-                  <strong>{receiverThreadIds.join(', ')}</strong>
-                </div>
-              ) : null}
+      {senderThreadId || receiverThreadIds.length ? (
+        <div className="conversation-tool-call__meta-grid">
+          {senderThreadId ? (
+            <div className="conversation-tool-call__meta-row">
+              <span>Sender</span>
+              <strong>{senderThreadId}</strong>
             </div>
           ) : null}
-          {detailSections.map((section) => (
-            <div className="conversation-tool-call__section" key={section.label}>
-              <div className="conversation-tool-call__section-header">
-                <strong>{section.label}</strong>
-              </div>
-              {section.kind === 'text' ? (
-                <ThreadMarkdown
-                  className={
-                    section.tone === 'danger'
-                      ? 'conversation-card__content conversation-tool-call__text conversation-tool-call__text--danger'
-                      : 'conversation-card__content conversation-tool-call__text'
-                  }
-                  content={section.value}
-                />
-              ) : (
-                <ToolCallSectionValue
-                  className={
-                    section.tone === 'danger'
-                      ? 'conversation-tool-call__output conversation-tool-call__output--danger'
-                      : 'conversation-tool-call__output'
-                  }
-                  tone={section.tone}
-                  value={section.value}
-                />
-              )}
+          {receiverThreadIds.length ? (
+            <div className="conversation-tool-call__meta-row">
+              <span>Receivers</span>
+              <strong>{receiverThreadIds.join(', ')}</strong>
             </div>
-          ))}
+          ) : null}
         </div>
-      </details>
+      ) : null}
+      {detailSections.map((section) => (
+        <div className="conversation-tool-call__section" key={section.label}>
+          <div className="conversation-tool-call__section-header">
+            <strong>{section.label}</strong>
+          </div>
+          {section.kind === 'text' ? (
+            <ThreadMarkdown
+              className={
+                section.tone === 'danger'
+                  ? 'conversation-card__content conversation-tool-call__text conversation-tool-call__text--danger'
+                  : 'conversation-card__content conversation-tool-call__text'
+              }
+              content={section.value}
+            />
+          ) : (
+            <ToolCallSectionValue
+              className={
+                section.tone === 'danger'
+                  ? 'conversation-tool-call__output conversation-tool-call__output--danger'
+                  : 'conversation-tool-call__output'
+              }
+              tone={section.tone}
+              value={section.value}
+            />
+          )}
+        </div>
+      ))}
     </SystemTimelineCard>
   )
 }
@@ -1191,94 +1204,65 @@ function ServerRequestTimelineCard({
   const expireReason = stringField(item.expireReason)
   const summary = summarizeServerRequest(requestKind, details)
   const metaPills = serverRequestMetaPills(requestKind, details)
-  const statusLabel =
-    status === 'resolved' ? 'Resolved' : status === 'expired' ? 'Expired' : 'Pending'
+  const statusTone = status === 'resolved' ? 'success' : status === 'expired' ? 'error' : 'running'
 
   return (
     <SystemTimelineCard
       className="conversation-card--request"
-      meta={statusLabel}
+      meta={compactMetaLabel(metaPills, 1) || undefined}
+      statusTone={statusTone}
+      summary={summary}
       title={serverRequestTitle(requestKind)}
     >
-      <details className="conversation-tool-call conversation-tool-call--request">
-        <summary className="conversation-tool-call__summary">
-          <div className="conversation-tool-call__summary-copy">
-            <strong>{serverRequestLabel(requestKind)}</strong>
-            <span>{summary}</span>
-          </div>
-          <div className="conversation-tool-call__summary-meta">
-            {metaPills.map((pill) => (
-              <span className="conversation-tool-call__pill" key={pill}>
-                {pill}
-              </span>
-            ))}
-            <span
-              className={
-                status === 'resolved'
-                  ? 'conversation-tool-call__pill conversation-tool-call__pill--success'
-                  : status === 'expired'
-                    ? 'conversation-tool-call__pill conversation-tool-call__pill--danger'
-                    : 'conversation-tool-call__pill conversation-tool-call__pill--warning'
-              }
-            >
-              {statusLabel.toLowerCase()}
-            </span>
-            <span className="conversation-tool-call__toggle-label">Details</span>
-            <span className="conversation-tool-call__toggle" />
-          </div>
-        </summary>
-        <div className="conversation-tool-call__details">
-          {requestId ? (
-            <div className="conversation-tool-call__meta-grid">
-              <div className="conversation-tool-call__meta-row">
-                <span>Request</span>
-                <strong>{requestId}</strong>
-              </div>
-            </div>
-          ) : null}
-          {status === 'expired' ? (
-            <div className="conversation-tool-call__section">
-              <div className="conversation-tool-call__section-header">
-                <strong>Status</strong>
-              </div>
-              <div className="conversation-card__content conversation-tool-call__text conversation-tool-call__text--danger">
-                {serverRequestExpiredMessage(expireReason)}
-              </div>
-              {onRetry ? (
-                <div className="conversation-tool-call__actions">
-                  <button
-                    className="ide-button ide-button--secondary"
-                    onClick={() => onRetry(item)}
-                    type="button"
-                  >
-                    Retry In Composer
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {details.message ? (
-            <div className="conversation-tool-call__section">
-              <div className="conversation-tool-call__section-header">
-                <strong>Message</strong>
-              </div>
-              <ThreadMarkdown
-                className="conversation-card__content conversation-tool-call__text"
-                content={stringField(details.message)}
-              />
-            </div>
-          ) : null}
-          <div className="conversation-tool-call__section">
-            <div className="conversation-tool-call__section-header">
-              <strong>Payload</strong>
-            </div>
-            <ThreadCodeBlock
-              className="conversation-card__output conversation-tool-call__output"
-              content={safeJson(details)}
-            />
+      {requestId ? (
+        <div className="conversation-tool-call__meta-grid">
+          <div className="conversation-tool-call__meta-row">
+            <span>Request</span>
+            <strong>{requestId}</strong>
           </div>
         </div>
-      </details>
+      ) : null}
+      {status === 'expired' ? (
+        <div className="conversation-tool-call__section">
+          <div className="conversation-tool-call__section-header">
+            <strong>Status</strong>
+          </div>
+          <div className="conversation-card__content conversation-tool-call__text conversation-tool-call__text--danger">
+            {serverRequestExpiredMessage(expireReason)}
+          </div>
+          {onRetry ? (
+            <div className="conversation-tool-call__actions">
+              <button
+                className="ide-button ide-button--secondary"
+                onClick={() => onRetry(item)}
+                type="button"
+              >
+                Retry In Composer
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {details.message ? (
+        <div className="conversation-tool-call__section">
+          <div className="conversation-tool-call__section-header">
+            <strong>Message</strong>
+          </div>
+          <ThreadMarkdown
+            className="conversation-card__content conversation-tool-call__text"
+            content={stringField(details.message)}
+          />
+        </div>
+      ) : null}
+      <div className="conversation-tool-call__section">
+        <div className="conversation-tool-call__section-header">
+          <strong>Payload</strong>
+        </div>
+        <ThreadCodeBlock
+          className="conversation-card__output conversation-tool-call__output"
+          content={safeJson(details)}
+        />
+      </div>
     </SystemTimelineCard>
   )
 }
@@ -1738,29 +1722,6 @@ function serverRequestTitle(kind: string) {
   }
 }
 
-function serverRequestLabel(kind: string) {
-  switch (kind) {
-    case 'item/commandExecution/requestApproval':
-    case 'execCommandApproval':
-      return 'Command requires approval'
-    case 'item/fileChange/requestApproval':
-    case 'applyPatchApproval':
-      return 'File changes require approval'
-    case 'item/tool/requestUserInput':
-      return 'Tool requires user input'
-    case 'item/permissions/requestApproval':
-      return 'Permission escalation requested'
-    case 'mcpServer/elicitation/request':
-      return 'MCP server needs input'
-    case 'item/tool/call':
-      return 'Tool call needs response'
-    case 'account/chatgptAuthTokens/refresh':
-      return 'Authentication refresh required'
-    default:
-      return humanizeItemType(kind || 'serverRequest')
-  }
-}
-
 function summarizeServerRequest(kind: string, details: Record<string, unknown>) {
   switch (kind) {
     case 'item/commandExecution/requestApproval':
@@ -1823,24 +1784,76 @@ function summarizeChangeCount(details: Record<string, unknown>) {
   return changeCount ? `${changeCount} file change${changeCount === 1 ? '' : 's'}` : 'Review the requested file changes'
 }
 
-function commandExecutionSummary(command: string, output: string, status: string) {
-  const parts: string[] = []
+function compactMetaLabel(values: string[], limit = 2) {
+  return values
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, limit)
+    .join(' · ')
+}
 
-  if (status) {
-    parts.push(humanizeToolStatus(status))
+function outputLineLabel(output: string) {
+  const lineCount = countOutputLines(output)
+  if (!lineCount) {
+    return null
   }
 
-  if (output) {
-    parts.push(`${countOutputLines(output)} line${countOutputLines(output) === 1 ? '' : 's'} of output`)
-  } else {
-    parts.push('No output yet')
+  return `${lineCount} line${lineCount === 1 ? '' : 's'}`
+}
+
+function planCardSummary(steps: string[]) {
+  if (!steps.length) {
+    return 'No steps'
   }
 
-  if (command) {
-    parts.unshift(truncateMiddle(command, 72))
+  return steps.length === 1
+    ? truncateSingleLine(steps[0], 100)
+    : `${truncateSingleLine(steps[0], 84)} +${steps.length - 1}`
+}
+
+function fileChangeCardSummary(changes: Array<{ kind: string; path: string }>) {
+  if (!changes.length) {
+    return 'No files'
   }
 
-  return parts.join(' · ')
+  return changes.length === 1
+    ? truncateMiddle(changes[0].path || 'Unknown file', 96)
+    : `${truncateMiddle(changes[0].path || 'Unknown file', 80)} +${changes.length - 1}`
+}
+
+function summarizeCompactError(error: unknown) {
+  const value = typeof error === 'string' ? error : safeJson(error)
+  return truncateSingleLine(value, 112) || 'Runtime error'
+}
+
+function truncateSingleLine(value: string, maxLength: number) {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (compact.length <= maxLength) {
+    return compact
+  }
+
+  return `${compact.slice(0, Math.max(0, maxLength - 1))}…`
+}
+
+function statusToneFromValue(value: string): CompactSystemStatusTone | undefined {
+  const normalized = value.toLowerCase().replace(/[\s_-]+/g, '')
+  if (!normalized) {
+    return undefined
+  }
+
+  if (['completed', 'complete', 'resolved', 'success', 'succeeded', 'done', 'finished'].includes(normalized)) {
+    return 'success'
+  }
+
+  if (['failed', 'error', 'errored', 'expired', 'cancelled', 'canceled', 'denied', 'rejected'].includes(normalized)) {
+    return 'error'
+  }
+
+  if (['inprogress', 'running', 'pending', 'started', 'waiting', 'streaming'].includes(normalized)) {
+    return 'running'
+  }
+
+  return undefined
 }
 
 function countOutputLines(value: string) {

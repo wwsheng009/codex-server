@@ -47,7 +47,6 @@ import { computeContextUsage } from '../lib/thread-token-usage'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { isApiClientErrorCode } from '../lib/api-client'
 import { SelectControl } from '../components/ui/SelectControl'
-import { StatusPill } from '../components/ui/StatusPill'
 import { ApprovalDialog, ApprovalStack, LiveFeed, TurnTimeline } from '../components/workspace/renderers'
 import { buildLiveTimelineEntries, formatRelativeTimeShort } from '../components/workspace/timeline-utils'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -2470,14 +2469,9 @@ export function ThreadPage() {
   }
 
   useEffect(() => {
-    if (!isMobileViewport) {
-      setMobileThreadToolsOpen(false)
-      resetMobileThreadChrome()
-      return
-    }
-
     setMobileThreadChrome({
-      visible: true,
+      visible: Boolean(selectedThread),
+      title: selectedThread?.name ?? '',
       statusLabel: compactStatusLabel(mobileStatus),
       statusTone: compactStatusTone(mobileStatus),
       syncLabel: compactSyncLabel(syncCountdownLabel, streamState),
@@ -2488,21 +2482,24 @@ export function ThreadPage() {
     })
 
     return () => {
-      setMobileThreadToolsOpen(false)
       resetMobileThreadChrome()
     }
   }, [
-    isMobileViewport,
     isHeaderSyncBusy,
     isThreadProcessing,
     mobileStatus,
     resetMobileThreadChrome,
     selectedThread,
     setMobileThreadChrome,
-    setMobileThreadToolsOpen,
     streamState,
     syncCountdownLabel,
   ])
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setMobileThreadToolsOpen(false)
+    }
+  }, [isMobileViewport, setMobileThreadToolsOpen])
 
   useEffect(() => {
     if (!isMobileViewport) {
@@ -2631,16 +2628,6 @@ export function ThreadPage() {
 
   function handleJumpToLatest() {
     scrollThreadToLatest('smooth')
-  }
-
-  async function handleManualSync() {
-    await Promise.all([
-      invalidateThreadQueries(),
-      selectedThreadId
-        ? queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })
-        : Promise.resolve(),
-      queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
-    ])
   }
 
   function handleRetryServerRequest(item: Record<string, unknown>) {
@@ -3085,48 +3072,6 @@ export function ThreadPage() {
       <div className="workbench-layout" style={workbenchLayoutStyle}>
         <section className="workbench-main">
           <section className="workbench-surface workbench-surface--ide">
-            <div className="workbench-stage__topbar workbench-stage__topbar--compact">
-              <div className="workbench-stage__copy">
-                <div className="workbench-stage__title-row">
-                  <strong>{selectedThread?.name ?? 'No thread selected'}</strong>
-                </div>
-              </div>
-              {!isMobileViewport ? (
-                <div className="workbench-stage__meta-bar">
-                  <>
-                    {selectedThread ? (
-                      <span className="workbench-stage__activity-status" title={isThreadProcessing ? 'Thread running' : 'Thread idle'}>
-                        <span
-                          aria-hidden="true"
-                          className={
-                            isThreadProcessing
-                              ? 'workbench-stage__activity-dot workbench-stage__activity-dot--running'
-                              : 'workbench-stage__activity-dot workbench-stage__activity-dot--idle'
-                          }
-                        />
-                      </span>
-                    ) : null}
-                    <span className="meta-pill workbench-stage__sync-pill">{syncCountdownLabel}</span>
-                    <button
-                      aria-label="Sync thread now"
-                      className={
-                        isHeaderSyncBusy
-                          ? 'workbench-stage__sync-button workbench-stage__sync-button--spinning'
-                          : 'workbench-stage__sync-button'
-                      }
-                      disabled={isHeaderSyncBusy}
-                      onClick={() => void handleManualSync()}
-                      title="Sync thread now"
-                      type="button"
-                    >
-                      <RefreshIcon />
-                    </button>
-                    <StatusPill status={streamState} />
-                  </>
-                </div>
-              ) : null}
-            </div>
-
             <div className="workbench-stage__canvas">
               <div className="workbench-log">
                 <div

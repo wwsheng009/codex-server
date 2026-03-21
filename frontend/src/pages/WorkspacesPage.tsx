@@ -38,7 +38,6 @@ export function WorkspacesPage() {
   const healthyWorkspaces = workspaces.filter((workspace) =>
     ['ready', 'active', 'connected'].includes(workspace.runtimeStatus),
   ).length
-  const attentionWorkspaces = workspaces.length - healthyWorkspaces
   const distinctRoots = new Set(workspaces.map((workspace) => workspace.rootPath)).size
 
   const createWorkspaceMutation = useMutation({
@@ -143,13 +142,23 @@ export function WorkspacesPage() {
             <strong>Workbench</strong>
           </div>
           <div className="mode-strip__description">
-            Register runtime roots, inspect workspace health, and jump straight into the rebuilt thread work surface.
+            Register runtime roots, inspect workspace health, and manage your local development environments.
           </div>
         </div>
         <div className="mode-strip__actions">
-          <span className="meta-pill">{workspaces.length} workspaces</span>
-          <span className="meta-pill">{healthyWorkspaces} healthy</span>
-          <span className="meta-pill">{attentionWorkspaces} attention</span>
+          <div className="mode-metrics">
+            <div className="mode-metric">
+              <span>Total</span>
+              <strong>{workspaces.length}</strong>
+            </div>
+            <div className="mode-metric">
+              <span>Healthy</span>
+              <strong>{healthyWorkspaces}</strong>
+            </div>
+          </div>
+          <button className="ide-button" onClick={() => (document.getElementById('workspace-name-input') as HTMLInputElement)?.focus()} type="button">
+            New Workspace
+          </button>
         </div>
       </header>
 
@@ -159,31 +168,31 @@ export function WorkspacesPage() {
             <div className="section-header">
               <div>
                 <h2>Create Workspace</h2>
-                <p>Register a runtime root and drop it directly into the web IDE shell.</p>
+                <p>Register a runtime root to start building threads and automations.</p>
               </div>
             </div>
             <form className="form-stack" onSubmit={handleSubmit}>
               <label className="field">
                 <span>Name</span>
-                <input onChange={(event) => setName(event.target.value)} placeholder="ai-gateway" value={name} />
+                <input id="workspace-name-input" onChange={(event) => setName(event.target.value)} placeholder="ai-gateway" value={name} />
               </label>
               <label className="field">
                 <span>Root Path</span>
                 <input
                   onChange={(event) => setRootPath(event.target.value)}
-                  placeholder="E:/projects or /Users/you/projects"
+                  placeholder="E:/projects/my-app"
                   value={rootPath}
                 />
               </label>
-              <button className="ide-button" disabled={!name.trim() || !rootPath.trim()} type="submit">
-                {createWorkspaceMutation.isPending ? 'Creating…' : 'Create Workspace'}
+              <button className="ide-button" disabled={!name.trim() || !rootPath.trim() || createWorkspaceMutation.isPending} type="submit">
+                {createWorkspaceMutation.isPending ? 'Creating…' : 'Register Workspace'}
               </button>
               {createWorkspaceMutation.error ? (
                 <InlineNotice
                   details={getErrorMessage(createWorkspaceMutation.error)}
                   dismissible
                   noticeKey={`create-workspace-${createWorkspaceMutation.error instanceof Error ? createWorkspaceMutation.error.message : 'unknown'}`}
-                  title="Failed To Create Workspace"
+                  title="Setup Failed"
                   tone="error"
                 >
                   {getErrorMessage(createWorkspaceMutation.error)}
@@ -196,188 +205,114 @@ export function WorkspacesPage() {
             <div className="section-header">
               <div>
                 <h2>Workbench Posture</h2>
-                <p>Keep the registry tight and watch for roots that need runtime attention.</p>
-              </div>
-            </div>
-            <div className="mode-metrics">
-              <div className="mode-metric">
-                <span>Total</span>
-                <strong>{workspaces.length}</strong>
-              </div>
-              <div className="mode-metric">
-                <span>Healthy</span>
-                <strong>{healthyWorkspaces}</strong>
-              </div>
-              <div className="mode-metric">
-                <span>Roots</span>
-                <strong>{distinctRoots}</strong>
+                <p>Status summary of your registered development roots.</p>
               </div>
             </div>
             <div className="detail-list">
               <div className="detail-row">
-                <span>Newest Activity</span>
-                <strong>{workspaces[0]?.updatedAt ? formatRelativeTimeShort(workspaces[0].updatedAt) : '—'}</strong>
+                <span>Distinct Roots</span>
+                <strong>{distinctRoots}</strong>
               </div>
               <div className="detail-row">
-                <span>Registry Mode</span>
-                <strong>Workspace explorer</strong>
+                <span>Last Activity</span>
+                <strong>{workspaces[0]?.updatedAt ? formatRelativeTimeShort(workspaces[0].updatedAt) : '—'}</strong>
               </div>
             </div>
           </section>
         </aside>
 
         <section className="mode-stage">
-          <section className="mode-panel mode-panel--flush">
-            <div className="mode-panel__body">
-              <div className="section-header section-header--inline">
+          <div className="stack-screen">
+            {workspaces.filter(w => ['ready', 'active', 'connected'].includes(w.runtimeStatus)).length > 0 && (
+              <section className="content-section">
+                <div className="section-header">
+                  <div>
+                    <h2>Running Workspaces</h2>
+                    <p>Active runtimes available for immediate interaction.</p>
+                  </div>
+                </div>
+                <div className="workspace-grid">
+                  {workspaces
+                    .filter(w => ['ready', 'active', 'connected'].includes(w.runtimeStatus))
+                    .slice(0, 4)
+                    .map((workspace) => (
+                      <div className="workspace-card" key={workspace.id}>
+                        <div className="workspace-card__header">
+                          <StatusPill status={workspace.runtimeStatus} />
+                          <span className="meta-label">{formatRelativeTimeShort(workspace.updatedAt)}</span>
+                        </div>
+                        <div className="workspace-card__body">
+                          <strong>{workspace.name}</strong>
+                          <p>{workspace.rootPath}</p>
+                        </div>
+                        <div className="workspace-card__footer">
+                          <Link className="ide-button ide-button--secondary" to={`/workspaces/${workspace.id}`}>
+                            Open
+                          </Link>
+                          <button
+                            className="ide-button ide-button--secondary"
+                            onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
+                            type="button"
+                          >
+                            Restart
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
+
+            <section className="content-section">
+              <div className="section-header">
                 <div>
-                  <h2>Workspace Registry</h2>
-                  <p>Each workspace becomes the context root for threads, runtime tools, and automations.</p>
+                  <h2>All Workspaces</h2>
+                  <p>Comprehensive registry of all configured development environments.</p>
                 </div>
                 <div className="section-header__meta">{workspaces.length}</div>
               </div>
-              <div className="mode-metrics">
-                <div className="mode-metric">
-                  <span>Healthy</span>
-                  <strong>{healthyWorkspaces}</strong>
-                </div>
-                <div className="mode-metric">
-                  <span>Attention</span>
-                  <strong>{attentionWorkspaces}</strong>
-                </div>
-                <div className="mode-metric">
-                  <span>Distinct Roots</span>
-                  <strong>{distinctRoots}</strong>
-                </div>
-              </div>
-            </div>
 
-            {workspacesQuery.isLoading ? <div className="notice">Loading workspaces…</div> : null}
-            {workspacesQuery.error ? (
-              <InlineNotice
-                details={getErrorMessage(workspacesQuery.error)}
-                dismissible
-                noticeKey={`load-workspaces-${workspacesQuery.error instanceof Error ? workspacesQuery.error.message : 'unknown'}`}
-                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['workspaces'] })}
-                title="Failed To Load Workspaces"
-                tone="error"
-              >
-                {getErrorMessage(workspacesQuery.error)}
-              </InlineNotice>
-            ) : null}
-            {restartWorkspaceMutation.error ? (
-              <InlineNotice
-                details={getErrorMessage(restartWorkspaceMutation.error)}
-                dismissible
-                noticeKey={`restart-workspace-${restartWorkspaceMutation.error instanceof Error ? restartWorkspaceMutation.error.message : 'unknown'}`}
-                onRetry={() => {
-                  if (restartWorkspaceMutation.variables) {
-                    restartWorkspaceMutation.mutate(restartWorkspaceMutation.variables)
-                  }
-                }}
-                title="Failed To Restart Workspace"
-                tone="error"
-              >
-                {getErrorMessage(restartWorkspaceMutation.error)}
-              </InlineNotice>
-            ) : null}
-            {!workspacesQuery.isLoading && !workspaces.length ? (
-              <div className="empty-state">No workspaces yet. Create the first one from the rail.</div>
-            ) : null}
-            <div className="workspace-registry">
-              {workspaces.map((workspace) => {
-                const restartPhase = workspaceRestartStateById[workspace.id]
-                const visualRuntimeStatus =
-                  restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
+              {workspacesQuery.isLoading ? <div className="notice">Loading registry…</div> : null}
+              
+              <div className="workspace-compact-list">
+                {workspaces.map((workspace) => {
+                  const restartPhase = workspaceRestartStateById[workspace.id]
+                  const visualStatus = restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
 
-                return (
-                  <div
-                    aria-busy={restartPhase === 'restarting'}
-                    className={[
-                      'workspace-registry__row',
-                      restartPhase === 'restarting' ? 'workspace-registry__row--restarting' : '',
-                      restartPhase === 'restarted' ? 'workspace-registry__row--restarted' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    key={workspace.id}
-                  >
-                    <Link className="workspace-registry__row-link" to={`/workspaces/${workspace.id}`}>
-                      <div className="workspace-registry__main">
-                        <div className="workspace-registry__title-row">
+                  return (
+                    <div className="workspace-compact-row" key={workspace.id}>
+                      <Link className="workspace-compact-row__main" to={`/workspaces/${workspace.id}`}>
+                        <div className="workspace-compact-row__title">
                           <strong>{workspace.name}</strong>
-                          <StatusPill status={visualRuntimeStatus} />
+                          <span className="meta-label">ID: {workspace.id.slice(0, 8)}</span>
                         </div>
                         <p>{workspace.rootPath}</p>
-                        {restartPhase ? (
-                          <span
-                            className={[
-                              'workspace-registry__runtime-signal',
-                              restartPhase === 'restarting'
-                                ? 'workspace-registry__runtime-signal--restarting'
-                                : 'workspace-registry__runtime-signal--restarted',
-                            ].join(' ')}
-                          >
-                            {restartPhase === 'restarting'
-                              ? 'Restarting runtime'
-                              : 'Runtime refreshed'}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="workspace-registry__meta">
-                        <span>ID</span>
-                        <strong>{workspace.id.slice(0, 8)}</strong>
-                      </div>
-                      <div className="workspace-registry__meta">
-                        <span>Updated</span>
-                        <strong>{formatRelativeTimeShort(workspace.updatedAt)}</strong>
-                      </div>
-                    </Link>
-                    <div className="workspace-registry__actions">
-                      <Link className="workspace-registry__action-link" to={`/workspaces/${workspace.id}`}>
-                        Open Surface
                       </Link>
-                      <button
-                        className={[
-                          'workspace-registry__action-link',
-                          restartPhase === 'restarting'
-                            ? 'workspace-registry__action-link--restarting'
-                            : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        disabled={
-                          deleteWorkspaceMutation.isPending ||
-                          restartWorkspaceMutation.isPending ||
-                          restartPhase === 'restarting'
-                        }
-                        onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
-                        type="button"
-                      >
-                        {restartWorkspaceMutation.isPending && restartWorkspaceMutation.variables === workspace.id
-                          ? 'Restarting…'
-                          : 'Restart'}
-                      </button>
-                      <button
-                        className="workspace-registry__remove"
-                        disabled={
-                          deleteWorkspaceMutation.isPending ||
-                          restartWorkspaceMutation.isPending ||
-                          restartPhase === 'restarting'
-                        }
-                        onClick={() => handleDeleteWorkspace(workspace)}
-                        type="button"
-                      >
-                        {deleteWorkspaceMutation.isPending && deleteWorkspaceMutation.variables === workspace.id
-                          ? 'Removing…'
-                          : 'Remove'}
-                      </button>
+                      <div className="workspace-compact-row__actions">
+                        <StatusPill status={visualStatus} />
+                        <div className="divider-v" />
+                        <button
+                          className="icon-button-text"
+                          disabled={restartPhase === 'restarting'}
+                          onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
+                          type="button"
+                        >
+                          {restartPhase === 'restarting' ? '...' : 'Restart'}
+                        </button>
+                        <button
+                          className="icon-button-text icon-button-text--danger"
+                          onClick={() => handleDeleteWorkspace(workspace)}
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
+                  )
+                })}
+              </div>
+            </section>
+          </div>
         </section>
       </div>
       {confirmingWorkspaceDelete ? (

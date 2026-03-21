@@ -79,7 +79,7 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Flatten turns')
     expect(html).toContain('Command')
     expect(html).toContain('git status')
-    expect(html).toContain('Changed Files')
+    expect(html).toContain('Files')
     expect(html).toContain('frontend/src/components/workspace/renderers.tsx')
     expect(html).toContain('Update')
   })
@@ -157,7 +157,7 @@ describe('TurnTimeline', () => {
     expect(html).toContain('thread-code-block--terminal')
     expect(html).toContain('working tree clean')
     expect(html).toContain('style="color:')
-    expect(html).toContain('line of output')
+    expect(html).toContain('1 line')
   })
 
   it('renders tool calls as collapsed detail cards in the chat timeline', () => {
@@ -257,8 +257,8 @@ describe('TurnTimeline', () => {
 
     expect(html).toContain('conversation-card--request')
     expect(html).toContain('Command Approval')
-    expect(html).toContain('Command requires approval')
     expect(html).toContain('rm -rf build')
+    expect(html).toContain('conversation-card__status--running')
     expect(html).not.toContain('<details open')
   })
 
@@ -285,8 +285,7 @@ describe('TurnTimeline', () => {
 
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
-    expect(html).toContain('Expired')
-    expect(html).toContain('expired')
+    expect(html).toContain('conversation-card__status--error')
     expect(html).toContain('runtime connection was closed')
   })
 

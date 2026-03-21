@@ -17,6 +17,18 @@
   }
 }
 
+@media (max-width: 560px) {
+  .web-ide__thread-sync-pill {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .web-ide__thread-status-pill {
+    display: none;
+  }
+}
+
 @media (max-width: 1180px) {
   .workbench-layout {
     grid-template-columns: minmax(0, 1fr) min(300px, var(--workbench-rail-width, 44px));
@@ -88,21 +100,55 @@
 
   .web-ide__menuitems {
     gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .web-ide__thread-titlebar {
+    display: none;
+  }
+
+  .web-ide__mobile-title--thread {
+    flex: 1 1 0;
   }
 
   .web-ide__status {
     min-width: 0;
     gap: 6px;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     justify-content: flex-end;
     margin-left: auto;
   }
 
+  .web-ide__appearance-trigger--mobile {
+    min-width: 102px;
+    max-width: 124px;
+  }
+
+  .web-ide__appearance-trigger--mobile .web-ide__appearance-trigger-label {
+    font-size: 0.51rem;
+  }
+
+  .web-ide__appearance-trigger--mobile .web-ide__appearance-trigger-value {
+    font-size: 0.68rem;
+  }
+
+  .web-ide__appearance-popover {
+    gap: 10px;
+    padding: 11px;
+  }
+
   .web-ide__thread-tools {
     min-width: 0;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     justify-content: flex-end;
     gap: 4px;
+  }
+
+  .web-ide__mobile-title {
+    min-width: 0;
+    max-width: min(42vw, 220px);
+    flex: 1 1 auto;
   }
 
   .web-ide__thread-sync-pill,
@@ -206,7 +252,7 @@
   }
 
   .web-ide__main {
-    padding: 12px;
+    padding: 8px 10px 10px;
   }
 
   .settings-shell__frame {
@@ -390,13 +436,25 @@
     margin-left: auto;
   }
 
-  .conversation-tool-call__summary {
-    align-items: flex-start;
+  .conversation-card__summary {
+    gap: 8px;
+    padding: 6px 8px;
   }
 
-  .conversation-tool-call__summary-meta {
-    width: 100%;
-    justify-content: flex-start;
+  .conversation-card__summary-copy {
+    gap: 6px;
+  }
+
+  .conversation-card__summary-copy strong {
+    font-size: 0.7rem;
+  }
+
+  .conversation-card__summary-copy span {
+    font-size: 0.76rem;
+  }
+
+  .conversation-card__meta-pill {
+    display: none;
   }
 
   .workbench-log__jump-shell {
