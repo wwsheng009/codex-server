@@ -6,12 +6,34 @@ import type {
   ExternalAgentConfigDetectResult,
   FeedbackUploadResult,
   McpOauthLoginResult,
+  RuntimePreferencesResult,
 } from '../../types/api'
 
 export function readConfig(workspaceId: string, input: { includeLayers?: boolean }) {
   return apiRequest<ConfigReadResult>(`/api/workspaces/${workspaceId}/config/read`, {
     method: 'POST',
     body: JSON.stringify(input),
+  })
+}
+
+export function readRuntimePreferences() {
+  return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences`)
+}
+
+export function writeRuntimePreferences(input: {
+  modelCatalogPath: string
+  defaultShellType: string
+  modelShellTypeOverrides: Record<string, string>
+}) {
+  return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function importRuntimeModelCatalogTemplate() {
+  return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences/import-model-catalog`, {
+    method: 'POST',
   })
 }
 

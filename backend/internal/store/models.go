@@ -17,6 +17,14 @@ type Workspace struct {
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
+type RuntimePreferences struct {
+	ModelCatalogPath        string            `json:"modelCatalogPath"`
+	LocalShellModels        []string          `json:"localShellModels,omitempty"`
+	DefaultShellType        string            `json:"defaultShellType,omitempty"`
+	ModelShellTypeOverrides map[string]string `json:"modelShellTypeOverrides,omitempty"`
+	UpdatedAt               time.Time         `json:"updatedAt,omitempty"`
+}
+
 type Automation struct {
 	ID            string     `json:"id"`
 	Title         string     `json:"title"`

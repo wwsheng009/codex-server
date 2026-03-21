@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import {
@@ -13,18 +13,25 @@ import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsW
 import {
   detectExternalAgentConfig,
   importExternalAgentConfig,
+  importRuntimeModelCatalogTemplate,
   readConfig,
   readConfigRequirements,
+  readRuntimePreferences,
   writeConfigValue,
+  writeRuntimePreferences,
 } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { getErrorMessage } from '../../lib/error-utils'
+import { SelectControl } from '../../components/ui/SelectControl'
 
 export function ConfigSettingsPage() {
   const queryClient = useQueryClient()
   const { workspaceId, workspaceName } = useSettingsShellContext()
   const [configKeyPath, setConfigKeyPath] = useState('model')
   const [configValue, setConfigValue] = useState('"gpt-5.4"')
+  const [modelCatalogPath, setModelCatalogPath] = useState('')
+  const [defaultShellType, setDefaultShellType] = useState('')
+  const [modelShellTypeOverridesInput, setModelShellTypeOverridesInput] = useState('{}')
 
   const configQuery = useQuery({
     queryKey: ['settings-config', workspaceId],
@@ -35,6 +42,10 @@ export function ConfigSettingsPage() {
     queryKey: ['settings-requirements', workspaceId],
     enabled: Boolean(workspaceId),
     queryFn: () => readConfigRequirements(workspaceId!),
+  })
+  const runtimePreferencesQuery = useQuery({
+    queryKey: ['settings-runtime-preferences'],
+    queryFn: readRuntimePreferences,
   })
 
   const writeConfigMutation = useMutation({
@@ -48,6 +59,28 @@ export function ConfigSettingsPage() {
       await queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] })
     },
   })
+  const writeRuntimePreferencesMutation = useMutation({
+    mutationFn: async () => {
+      const overrides = parseShellOverridesInput(modelShellTypeOverridesInput)
+      return writeRuntimePreferences({
+        modelCatalogPath: modelCatalogPath.trim(),
+        defaultShellType,
+        modelShellTypeOverrides: overrides,
+      })
+    },
+    onSuccess: async (result) => {
+      setModelCatalogPath(result.configuredModelCatalogPath)
+      setDefaultShellType(result.configuredDefaultShellType)
+      setModelShellTypeOverridesInput(
+        JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['settings-runtime-preferences'] }),
+        queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
+        queryClient.invalidateQueries({ queryKey: ['models'] }),
+      ])
+    },
+  })
 
   const detectExternalMutation = useMutation({
     mutationFn: () => detectExternalAgentConfig(workspaceId!, { includeHome: true }),
@@ -58,6 +91,33 @@ export function ConfigSettingsPage() {
         migrationItems: detectExternalMutation.data?.items ?? [],
       }),
   })
+  const importModelCatalogMutation = useMutation({
+    mutationFn: importRuntimeModelCatalogTemplate,
+    onSuccess: async (result) => {
+      setModelCatalogPath(result.configuredModelCatalogPath)
+      setDefaultShellType(result.configuredDefaultShellType)
+      setModelShellTypeOverridesInput(
+        JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['settings-runtime-preferences'] }),
+        queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
+        queryClient.invalidateQueries({ queryKey: ['models'] }),
+      ])
+    },
+  })
+
+  useEffect(() => {
+    if (!runtimePreferencesQuery.data) {
+      return
+    }
+
+    setModelCatalogPath(runtimePreferencesQuery.data.configuredModelCatalogPath)
+    setDefaultShellType(runtimePreferencesQuery.data.configuredDefaultShellType)
+    setModelShellTypeOverridesInput(
+      JSON.stringify(runtimePreferencesQuery.data.configuredModelShellTypeOverrides ?? {}, null, 2),
+    )
+  }, [runtimePreferencesQuery.data])
 
   const configLayerCount = Array.isArray(configQuery.data?.layers) ? configQuery.data.layers.length : 0
 
@@ -82,6 +142,143 @@ export function ConfigSettingsPage() {
           meta={workspaceId ? 'Workspace scoped' : 'Workspace required'}
           title="Runtime Config"
         >
+          <SettingRow
+            description="Configure service-level shell type overrides. `Default Shell Type` can be used alone; `Model Shell Type Overrides` is optional and only needed when some models should differ from the default."
+            title="Runtime Shell Overrides"
+          >
+            <form
+              className="form-stack"
+              onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                event.preventDefault()
+                writeRuntimePreferencesMutation.mutate()
+              }}
+            >
+              <label className="field">
+                <span>Model Catalog Path</span>
+                <input
+                  onChange={(event) => setModelCatalogPath(event.target.value)}
+                  placeholder={runtimePreferencesQuery.data?.defaultModelCatalogPath || 'E:/path/to/models.json'}
+                  value={modelCatalogPath}
+                />
+              </label>
+              <label className="field">
+                <span>Default Shell Type</span>
+                <SelectControl
+                  ariaLabel="Default shell type"
+                  fullWidth
+                  onChange={setDefaultShellType}
+                  options={shellTypeOptions}
+                  value={defaultShellType}
+                />
+              </label>
+              <label className="field">
+                <span>Model Shell Type Overrides (JSON)</span>
+                <textarea
+                  className="ide-textarea"
+                  onChange={(event) => setModelShellTypeOverridesInput(event.target.value)}
+                  placeholder={JSON.stringify(runtimePreferencesQuery.data?.defaultModelShellTypeOverrides ?? {}, null, 2)}
+                  rows={8}
+                  value={modelShellTypeOverridesInput}
+                />
+              </label>
+              <div className="setting-row__actions">
+                <button
+                  className="ide-button ide-button--secondary"
+                  onClick={() => importModelCatalogMutation.mutate()}
+                  type="button"
+                >
+                  {importModelCatalogMutation.isPending
+                    ? 'Importing template…'
+                    : 'Import Model Catalog Template'}
+                </button>
+                <button className="ide-button" type="submit">
+                  {writeRuntimePreferencesMutation.isPending ? 'Applying…' : 'Apply Runtime Overrides'}
+                </button>
+              </div>
+            </form>
+            <div className="notice">
+              Saving this section updates the backend launch command and resets managed runtimes so the next runtime request starts with the new shell behavior. If you only want one shell type everywhere, set `Default Shell Type` and leave the overrides JSON as `{}`. You can also import the bundled template first so you do not need to type a catalog path manually.
+            </div>
+            {runtimePreferencesQuery.data ? (
+              <div className="settings-grid">
+                <SettingsJsonPreview
+                  description="Configured values stored by codex-server. Empty values fall back to environment defaults."
+                  title="Configured Runtime Preferences"
+                  value={{
+                    modelCatalogPath: runtimePreferencesQuery.data.configuredModelCatalogPath,
+                    defaultShellType: runtimePreferencesQuery.data.configuredDefaultShellType,
+                    modelShellTypeOverrides: runtimePreferencesQuery.data.configuredModelShellTypeOverrides,
+                  }}
+                />
+                <SettingsJsonPreview
+                  description="Current effective runtime command and resolved shell type overrides."
+                  title="Effective Runtime State"
+                  value={{
+                    modelCatalogPath: runtimePreferencesQuery.data.effectiveModelCatalogPath,
+                    defaultShellType: runtimePreferencesQuery.data.effectiveDefaultShellType,
+                    modelShellTypeOverrides: runtimePreferencesQuery.data.effectiveModelShellTypeOverrides,
+                    command: runtimePreferencesQuery.data.effectiveCommand,
+                  }}
+                />
+              </div>
+            ) : null}
+            {runtimePreferencesQuery.error ? (
+              <InlineNotice
+                details={getErrorMessage(runtimePreferencesQuery.error)}
+                dismissible
+                noticeKey={`runtime-preferences-read-${runtimePreferencesQuery.error instanceof Error ? runtimePreferencesQuery.error.message : 'unknown'}`}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-runtime-preferences'] })}
+                title="Failed To Read Runtime Preferences"
+                tone="error"
+              >
+                {getErrorMessage(runtimePreferencesQuery.error)}
+              </InlineNotice>
+            ) : null}
+            {writeRuntimePreferencesMutation.error ? (
+              <InlineNotice
+                details={getErrorMessage(writeRuntimePreferencesMutation.error)}
+                dismissible
+                noticeKey={`runtime-preferences-write-${writeRuntimePreferencesMutation.error instanceof Error ? writeRuntimePreferencesMutation.error.message : 'unknown'}`}
+                title="Runtime Override Update Failed"
+                tone="error"
+              >
+                {getErrorMessage(writeRuntimePreferencesMutation.error)}
+              </InlineNotice>
+            ) : null}
+            {importModelCatalogMutation.error ? (
+              <InlineNotice
+                details={getErrorMessage(importModelCatalogMutation.error)}
+                dismissible
+                noticeKey={`runtime-preferences-import-${importModelCatalogMutation.error instanceof Error ? importModelCatalogMutation.error.message : 'unknown'}`}
+                title="Model Catalog Import Failed"
+                tone="error"
+              >
+                {getErrorMessage(importModelCatalogMutation.error)}
+              </InlineNotice>
+            ) : null}
+            {importModelCatalogMutation.isSuccess && importModelCatalogMutation.data ? (
+              <InlineNotice
+                details={JSON.stringify(
+                  {
+                    modelCatalogPath: importModelCatalogMutation.data.configuredModelCatalogPath,
+                    effectiveModelCatalogPath: importModelCatalogMutation.data.effectiveModelCatalogPath,
+                    effectiveCommand: importModelCatalogMutation.data.effectiveCommand,
+                  },
+                  null,
+                  2,
+                )}
+                dismissible
+                noticeKey={`runtime-preferences-import-success-${importModelCatalogMutation.data.effectiveModelCatalogPath}`}
+                title="Model Catalog Imported"
+              >
+                Bundled template copied and bound to
+                {' '}
+                <code>{importModelCatalogMutation.data.configuredModelCatalogPath}</code>
+                . Managed runtimes will restart with the imported catalog on the next request.
+              </InlineNotice>
+            ) : null}
+          </SettingRow>
+
           <SettingRow
             description="Write a JSON value into the selected key path for the active workspace."
             title="Write Config Value"
@@ -237,6 +434,23 @@ export function ConfigSettingsPage() {
                 {getErrorMessage(importExternalMutation.error)}
               </InlineNotice>
             ) : null}
+            {importExternalMutation.isSuccess ? (
+              <InlineNotice
+                details={JSON.stringify(importExternalMutation.data, null, 2)}
+                dismissible
+                noticeKey={`import-external-success-${detectExternalMutation.data?.items?.length ?? 0}`}
+                title="External Agent State Imported"
+              >
+                Imported
+                {' '}
+                <strong>{detectExternalMutation.data?.items?.length ?? 0}</strong>
+                {' '}
+                detected item(s) into the selected workspace. The backend returned
+                {' '}
+                <code>{importExternalMutation.data?.status ?? 'accepted'}</code>
+                .
+              </InlineNotice>
+            ) : null}
           </SettingRow>
         </SettingsGroup>
       </div>
@@ -250,4 +464,35 @@ function parseJsonInput(value: string) {
   } catch {
     return value
   }
+}
+
+const shellTypeOptions = [
+  { value: '', label: 'Follow catalog defaults', triggerLabel: '默认' },
+  { value: 'default', label: 'Default', triggerLabel: 'Default' },
+  { value: 'local', label: 'LocalShell', triggerLabel: 'Local' },
+  { value: 'shell_command', label: 'ShellCommand', triggerLabel: 'ShellCmd' },
+  { value: 'unified_exec', label: 'UnifiedExec', triggerLabel: 'Unified' },
+  { value: 'disabled', label: 'Disabled', triggerLabel: 'Off' },
+]
+
+function parseShellOverridesInput(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return {}
+  }
+
+  const parsed = JSON.parse(trimmed)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Model Shell Type Overrides must be a JSON object')
+  }
+
+  const normalized: Record<string, string> = {}
+  for (const [key, rawValue] of Object.entries(parsed)) {
+    if (typeof rawValue !== 'string') {
+      throw new Error(`Model shell override for "${key}" must be a string`)
+    }
+    normalized[key] = rawValue
+  }
+
+  return normalized
 }

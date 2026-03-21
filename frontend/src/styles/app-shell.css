@@ -2,6 +2,8 @@
   --app-menubar-height: 34px;
   height: 100vh;
   min-height: 100vh;
+  min-width: 0;
+  max-width: 100%;
   display: grid;
   grid-template-rows: var(--app-menubar-height) 1fr;
 }
@@ -10,6 +12,9 @@
   display: flex;
   gap: 14px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 0 16px;
   border-bottom: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--bg-main) 94%, transparent);
@@ -20,8 +25,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
 .web-ide__mobile-nav-button,
@@ -111,8 +117,9 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
   margin-left: auto;
 }
 
@@ -120,7 +127,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .web-ide__thread-titlebar {
@@ -129,7 +138,8 @@
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
-  flex: 1 1 180px;
+  flex: 1 1 0;
+  overflow: hidden;
 }
 
 .web-ide__thread-titlebar-copy {
@@ -157,11 +167,14 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .web-ide__appearance {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .web-ide__appearance-trigger {
@@ -170,6 +183,7 @@
   align-items: center;
   gap: 8px;
   min-width: 138px;
+  max-width: 164px;
   min-height: 28px;
   padding: 0 9px 0 8px;
   border: 1px solid var(--border-subtle);
@@ -610,9 +624,38 @@
 .web-ide__frame {
   display: grid;
   grid-template-columns: var(--shell-sidebar-width, 224px) minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   height: 100%;
   overflow: hidden;
+}
+
+@media (max-width: 1280px) {
+  .web-ide__menubar {
+    gap: 10px;
+    padding-inline: 12px;
+  }
+
+  .web-ide__menuitems {
+    gap: 6px;
+  }
+
+  .web-ide__menuitem {
+    padding-inline: 6px;
+    font-size: 0.8rem;
+  }
+
+  .web-ide__status {
+    gap: 8px;
+  }
+
+  .web-ide__appearance-trigger {
+    min-width: 112px;
+    max-width: 132px;
+    gap: 6px;
+    padding-right: 8px;
+  }
 }
 
 .web-ide__sidebar {

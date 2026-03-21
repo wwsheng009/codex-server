@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -23,6 +24,7 @@ var (
 type MemoryStore struct {
 	mu            sync.RWMutex
 	path          string
+	runtimePrefs  RuntimePreferences
 	workspaces    map[string]Workspace
 	automations   map[string]Automation
 	templates     map[string]AutomationTemplate
@@ -35,6 +37,7 @@ type MemoryStore struct {
 }
 
 type storeSnapshot struct {
+	RuntimePreferences  *RuntimePreferences  `json:"runtimePreferences,omitempty"`
 	Workspaces          []Workspace          `json:"workspaces"`
 	Automations         []Automation         `json:"automations,omitempty"`
 	AutomationTemplates []AutomationTemplate `json:"automationTemplates,omitempty"`
@@ -57,6 +60,42 @@ func NewMemoryStore() *MemoryStore {
 		deleted:       make(map[string]DeletedThread),
 		approvals:     make(map[string]PendingApproval),
 	}
+}
+
+func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	prefs := s.runtimePrefs
+	if len(prefs.LocalShellModels) > 0 {
+		prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
+	}
+	if len(prefs.ModelShellTypeOverrides) > 0 {
+		prefs.ModelShellTypeOverrides = cloneStringMap(prefs.ModelShellTypeOverrides)
+	}
+	return prefs
+}
+
+func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePreferences {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prefs.ModelCatalogPath = strings.TrimSpace(prefs.ModelCatalogPath)
+	if len(prefs.LocalShellModels) > 0 {
+		prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
+	} else {
+		prefs.LocalShellModels = nil
+	}
+	if len(prefs.ModelShellTypeOverrides) > 0 {
+		prefs.ModelShellTypeOverrides = cloneStringMap(prefs.ModelShellTypeOverrides)
+	} else {
+		prefs.ModelShellTypeOverrides = nil
+	}
+	prefs.UpdatedAt = time.Now().UTC()
+	s.runtimePrefs = prefs
+	s.persistLocked()
+
+	return s.runtimePrefs
 }
 
 func NewPersistentStore(path string) (*MemoryStore, error) {
@@ -854,6 +893,16 @@ func (s *MemoryStore) load() error {
 		return err
 	}
 
+	if snapshot.RuntimePreferences != nil {
+		s.runtimePrefs = *snapshot.RuntimePreferences
+		if len(s.runtimePrefs.LocalShellModels) > 0 {
+			s.runtimePrefs.LocalShellModels = append([]string(nil), s.runtimePrefs.LocalShellModels...)
+		}
+		if len(s.runtimePrefs.ModelShellTypeOverrides) > 0 {
+			s.runtimePrefs.ModelShellTypeOverrides = cloneStringMap(s.runtimePrefs.ModelShellTypeOverrides)
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -927,6 +976,20 @@ func (s *MemoryStore) persistLocked() {
 		Threads:             make([]Thread, 0, len(s.threads)),
 		ThreadProjections:   make([]ThreadProjection, 0, len(s.projections)),
 		DeletedThreads:      make([]DeletedThread, 0, len(s.deleted)),
+	}
+
+	if s.runtimePrefs.ModelCatalogPath != "" ||
+		len(s.runtimePrefs.LocalShellModels) > 0 ||
+		s.runtimePrefs.DefaultShellType != "" ||
+		len(s.runtimePrefs.ModelShellTypeOverrides) > 0 {
+		prefs := s.runtimePrefs
+		if len(prefs.LocalShellModels) > 0 {
+			prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
+		}
+		if len(prefs.ModelShellTypeOverrides) > 0 {
+			prefs.ModelShellTypeOverrides = cloneStringMap(prefs.ModelShellTypeOverrides)
+		}
+		snapshot.RuntimePreferences = &prefs
 	}
 
 	for _, workspace := range s.workspaces {
@@ -1014,4 +1077,16 @@ func cloneAutomationRun(run AutomationRun) AutomationRun {
 		next.Logs = []AutomationRunLogEntry{}
 	}
 	return next
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }

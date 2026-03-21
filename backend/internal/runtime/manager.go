@@ -55,6 +55,7 @@ type instance struct {
 	workspaceID string
 	rootPath    string
 	client      *bridge.Client
+	expectClose bool
 	state       State
 	activeTurns map[string]string
 }
@@ -65,6 +66,36 @@ func NewManager(command string, eventHub *events.Hub) *Manager {
 		events:   eventHub,
 		runtimes: make(map[string]*instance),
 		requests: make(map[string]*PendingServerRequest),
+	}
+}
+
+func (m *Manager) ApplyCommand(command string) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return
+	}
+
+	m.mu.Lock()
+	m.command = command
+	clients := make([]*bridge.Client, 0, len(m.runtimes))
+	for _, runtime := range m.runtimes {
+		runtime.mu.Lock()
+		runtime.state.Command = command
+		runtime.state.Status = "stopped"
+		runtime.state.LastError = ""
+		runtime.state.UpdatedAt = time.Now().UTC()
+		runtime.activeTurns = make(map[string]string)
+		if runtime.client != nil {
+			runtime.expectClose = true
+			clients = append(clients, runtime.client)
+			runtime.client = nil
+		}
+		runtime.mu.Unlock()
+	}
+	m.mu.Unlock()
+
+	for _, client := range clients {
+		client.Close()
 	}
 }
 
@@ -436,12 +467,16 @@ func (r *instance) HandleClosed(err error) {
 	r.manager.expireRequestsForWorkspace(r.workspaceID, "runtime_closed")
 
 	r.mu.Lock()
+	expectClose := r.expectClose
+	r.expectClose = false
 	r.client = nil
 	r.state.Status = "stopped"
 	r.state.UpdatedAt = time.Now().UTC()
-	if err != nil && !errors.Is(err, context.Canceled) {
+	if err != nil && !expectClose && !errors.Is(err, context.Canceled) {
 		r.state.Status = "error"
 		r.state.LastError = err.Error()
+	} else if expectClose {
+		r.state.LastError = ""
 	}
 	r.mu.Unlock()
 }

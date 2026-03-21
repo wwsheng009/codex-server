@@ -24,6 +24,8 @@ type CatalogSectionItem = {
   id: string
   name: string
   description: string
+  value?: string
+  shellType?: string
 }
 
 type CatalogQueryData = {
@@ -37,6 +39,7 @@ type CatalogQueryData = {
 
 export function CatalogPage() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const [modelShellTypeFilter, setModelShellTypeFilter] = useState('all')
   const [hazelnutId, setHazelnutId] = useState('')
   const [marketplacePath, setMarketplacePath] = useState('')
   const [pluginName, setPluginName] = useState('')
@@ -115,13 +118,34 @@ export function CatalogPage() {
     () => workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ?? 'No workspace',
     [workspaceId, workspacesQuery.data],
   )
+  const filteredModels = useMemo(() => {
+    const models = catalogQuery.data?.models ?? []
+    if (modelShellTypeFilter === 'all') {
+      return models
+    }
+    return models.filter((item) => item.shellType === modelShellTypeFilter)
+  }, [catalogQuery.data?.models, modelShellTypeFilter])
+  const modelShellTypeOptions = useMemo(() => {
+    const shellTypes = Array.from(
+      new Set((catalogQuery.data?.models ?? []).map((item) => item.shellType).filter(Boolean)),
+    ) as string[]
+
+    return [
+      { value: 'all', label: '全部模型', triggerLabel: '全部' },
+      ...shellTypes.map((shellType) => ({
+        value: shellType,
+        label: formatShellTypeLabel(shellType),
+        triggerLabel: formatShellTypeLabel(shellType),
+      })),
+    ]
+  }, [catalogQuery.data?.models])
   const catalogSections = useMemo(
     () => [
       {
         title: 'Models',
         description: 'Execution models currently discoverable in the active runtime.',
         marker: 'MO',
-        items: catalogQuery.data?.models ?? [],
+        items: filteredModels,
       },
       {
         title: 'Installed Skills',
@@ -154,7 +178,7 @@ export function CatalogPage() {
         items: catalogQuery.data?.modes ?? [],
       },
     ],
-    [catalogQuery.data],
+    [catalogQuery.data, filteredModels],
   )
   const totalInventoryCount = catalogSections.reduce((count, section) => count + section.items.length, 0)
 
@@ -214,6 +238,10 @@ export function CatalogPage() {
                 <span>Inventory Entries</span>
                 <strong>{totalInventoryCount}</strong>
               </div>
+              <div className="detail-row">
+                <span>模型筛选</span>
+                <strong>{modelShellTypeFilter === 'all' ? '全部' : formatShellTypeLabel(modelShellTypeFilter)}</strong>
+              </div>
             </div>
           </section>
 
@@ -248,6 +276,16 @@ export function CatalogPage() {
                 <strong>{catalogQuery.data?.remoteSkills.length ?? 0}</strong>
               </div>
             </div>
+            <label className="field">
+              <span>Model Shell Type</span>
+              <SelectControl
+                ariaLabel="Model shell type filter"
+                fullWidth
+                onChange={setModelShellTypeFilter}
+                options={modelShellTypeOptions}
+                value={modelShellTypeFilter}
+              />
+            </label>
           </section>
         </aside>
 
@@ -473,6 +511,23 @@ export function CatalogPage() {
   )
 }
 
+function formatShellTypeLabel(value: string) {
+  switch (value) {
+    case 'local':
+      return 'LocalShell'
+    case 'shell_command':
+      return 'ShellCommand'
+    case 'unified_exec':
+      return 'UnifiedExec'
+    case 'default':
+      return 'Default'
+    case 'disabled':
+      return 'Disabled'
+    default:
+      return value
+  }
+}
+
 function RuntimeSection({
   title,
   description,
@@ -505,6 +560,8 @@ function RuntimeSection({
             <div className="runtime-item__icon">{marker}</div>
             <div className="runtime-item__body">
               <strong>{item.name}</strong>
+              {item.value && item.value !== item.name ? <p><code>{item.value}</code></p> : null}
+              {item.shellType ? <p><code>shellType: {item.shellType}</code></p> : null}
               <p>{item.description || 'No description provided.'}</p>
             </div>
           </article>

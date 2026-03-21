@@ -2,29 +2,35 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"codex-server/backend/internal/runtime"
+	"codex-server/backend/internal/runtimeprefs"
 )
 
 type Item struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Value       string `json:"value,omitempty"`
+	ShellType   string `json:"shellType,omitempty"`
 }
 
 type CollaborationMode struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Mode        string `json:"mode,omitempty"`
-	Model       string `json:"model,omitempty"`
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	Description     string  `json:"description"`
+	Mode            string  `json:"mode,omitempty"`
+	Model           string  `json:"model,omitempty"`
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 }
 
 type Service struct {
-	runtimes *runtime.Manager
+	runtimes     *runtime.Manager
+	runtimePrefs *runtimeprefs.Service
 }
 
 type PluginDetailResult struct {
@@ -57,9 +63,15 @@ type SkillConfigWriteResult struct {
 	EffectiveEnabled bool `json:"effectiveEnabled"`
 }
 
-func NewService(runtimeManager *runtime.Manager) *Service {
+func NewService(runtimeManager *runtime.Manager, runtimePrefs ...*runtimeprefs.Service) *Service {
+	var prefsService *runtimeprefs.Service
+	if len(runtimePrefs) > 0 {
+		prefsService = runtimePrefs[0]
+	}
+
 	return &Service{
-		runtimes: runtimeManager,
+		runtimes:     runtimeManager,
+		runtimePrefs: prefsService,
 	}
 }
 
@@ -71,13 +83,18 @@ func (s *Service) Models(ctx context.Context, workspaceID string) ([]Item, error
 	if err := s.runtimes.Call(ctx, workspaceID, "model/list", map[string]any{}, &response); err != nil {
 		return nil, err
 	}
+	shellTypes := s.modelShellTypes()
 
 	items := make([]Item, 0, len(response.Data))
 	for _, entry := range response.Data {
+		modelValue := fallbackString(stringValue(entry["model"]), stringValue(entry["id"]))
+		displayName := fallbackString(stringValue(entry["displayName"]), stringValue(entry["model"]))
 		items = append(items, Item{
 			ID:          stringValue(entry["id"]),
-			Name:        fallbackString(stringValue(entry["displayName"]), stringValue(entry["model"])),
+			Name:        displayName,
 			Description: stringValue(entry["description"]),
+			Value:       modelValue,
+			ShellType:   resolveModelShellType(shellTypes, modelValue, stringValue(entry["id"]), displayName),
 		})
 	}
 
@@ -352,4 +369,62 @@ func fallbackString(value string, fallback string) string {
 	}
 
 	return value
+}
+
+func (s *Service) modelShellTypes() map[string]string {
+	if s.runtimePrefs == nil {
+		return nil
+	}
+
+	prefs, err := s.runtimePrefs.Read()
+	if err != nil || strings.TrimSpace(prefs.EffectiveModelCatalogPath) == "" {
+		return nil
+	}
+
+	content, err := os.ReadFile(prefs.EffectiveModelCatalogPath)
+	if err != nil {
+		return nil
+	}
+
+	var catalog struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(content, &catalog); err != nil {
+		return nil
+	}
+
+	shellTypes := make(map[string]string, len(catalog.Models)*4)
+	for _, model := range catalog.Models {
+		shellType := strings.TrimSpace(stringValue(model["shell_type"]))
+		if shellType == "" {
+			continue
+		}
+		for _, key := range []string{"slug", "display_name", "displayName", "model", "id"} {
+			value := strings.TrimSpace(stringValue(model[key]))
+			if value == "" {
+				continue
+			}
+			shellTypes[strings.ToLower(value)] = shellType
+		}
+	}
+
+	return shellTypes
+}
+
+func resolveModelShellType(shellTypes map[string]string, candidates ...string) string {
+	if len(shellTypes) == 0 {
+		return ""
+	}
+
+	for _, candidate := range candidates {
+		key := strings.ToLower(strings.TrimSpace(candidate))
+		if key == "" {
+			continue
+		}
+		if shellType, ok := shellTypes[key]; ok {
+			return shellType
+		}
+	}
+
+	return ""
 }

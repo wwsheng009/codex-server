@@ -20,7 +20,6 @@ import {
   TerminalIcon,
   ToolsIcon,
 } from '../components/ui/RailControls'
-import { ThreadTerminalBlock } from '../components/thread/ThreadContent'
 import {
   buildComposerAutocompleteKey,
   getComposerAutocompleteMatch,
@@ -47,7 +46,7 @@ import { computeContextUsage } from '../lib/thread-token-usage'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { isApiClientErrorCode } from '../lib/api-client'
 import { SelectControl } from '../components/ui/SelectControl'
-import { ApprovalDialog, ApprovalStack, LiveFeed, TurnTimeline } from '../components/workspace/renderers'
+import { ApprovalDialog } from '../components/workspace/renderers'
 import { buildLiveTimelineEntries, formatRelativeTimeShort } from '../components/workspace/timeline-utils'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { getAccount, getRateLimits } from '../features/account/api'
@@ -83,6 +82,8 @@ import {
   shouldThrottleThreadDetailRefreshForEvent,
 } from './threadPageUtils'
 import { applyLiveThreadEvents, upsertPendingUserMessage } from './threadLiveState'
+import { ThreadTerminalDock } from './thread-page/ThreadTerminalDock'
+import { ThreadWorkbenchSurface } from './thread-page/ThreadWorkbenchSurface'
 import type { CatalogItem, RateLimit, ServerEvent, Thread, ThreadTokenUsage, ThreadTurn, TurnResult } from '../types/api'
 
 const EMPTY_EVENTS: ServerEvent[] = []
@@ -93,6 +94,12 @@ const DEFAULT_THREAD_BOTTOM_CLEARANCE_PX = 180
 const THREAD_BOTTOM_CLEARANCE_GAP_PX = 16
 const COMPOSER_PREFERENCES_STORAGE_PREFIX = 'codex-server:composer-preferences:'
 const FALLBACK_MODEL_OPTIONS = ['gpt-5.4', 'gpt-5.3-codex']
+
+type ModelOption = {
+  value: string
+  label: string
+  triggerLabel?: string
+}
 
 type ComposerPermissionPreset = 'default' | 'full-access'
 type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
@@ -1344,6 +1351,7 @@ export function ThreadPage() {
   const threadContentKeyRef = useRef('')
   const threadSettledMessageKeyRef = useRef('')
   const shouldFollowThreadRef = useRef(true)
+  const pendingThreadOpenScrollRef = useRef<string | null>(null)
 
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
   const setSelectedThread = useSessionStore((state) => state.setSelectedThread)
@@ -1919,6 +1927,7 @@ export function ThreadPage() {
   }, [])
 
   useEffect(() => {
+    pendingThreadOpenScrollRef.current = selectedThreadId ?? null
     shouldFollowThreadRef.current = true
     threadContentKeyRef.current = ''
     threadSettledMessageKeyRef.current = ''
@@ -2264,15 +2273,35 @@ export function ThreadPage() {
   )
   const activeContextCompactionFeedback =
     contextCompactionFeedback?.threadId === selectedThreadId ? contextCompactionFeedback : null
-  const availableModels = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          [composerPreferences.model, ...(modelsQuery.data ?? []).map((item) => item.name), ...FALLBACK_MODEL_OPTIONS].filter(Boolean),
-        ),
-      ),
-    [composerPreferences.model, modelsQuery.data],
-  )
+  const availableModels = useMemo<ModelOption[]>(() => {
+    const options = new Map<string, ModelOption>()
+
+    const registerModel = (value: string, label?: string) => {
+      const trimmedValue = value.trim()
+      if (!trimmedValue || options.has(trimmedValue)) {
+        return
+      }
+
+      const trimmedLabel = label?.trim() || trimmedValue
+      options.set(trimmedValue, {
+        value: trimmedValue,
+        label: trimmedLabel,
+        triggerLabel: trimmedLabel,
+      })
+    }
+
+    registerModel(composerPreferences.model)
+
+    for (const item of modelsQuery.data ?? []) {
+      registerModel(item.value ?? item.id ?? item.name, item.name)
+    }
+
+    for (const fallbackModel of FALLBACK_MODEL_OPTIONS) {
+      registerModel(fallbackModel)
+    }
+
+    return Array.from(options.values())
+  }, [composerPreferences.model, modelsQuery.data])
   const mobileCollaborationModeOptions = useMemo(
     () => [
       { value: 'default', label: '默认模式', triggerLabel: '模式' },
@@ -2291,8 +2320,9 @@ export function ThreadPage() {
     () => [
       { value: '', label: '默认模型', triggerLabel: '模型' },
       ...availableModels.map((model) => ({
-        value: model,
-        label: model,
+        value: model.value,
+        label: model.label,
+        triggerLabel: model.triggerLabel,
       })),
     ],
     [availableModels],
@@ -2301,8 +2331,9 @@ export function ThreadPage() {
     () => [
       { value: '', label: '跟随默认模型', triggerLabel: '默认' },
       ...availableModels.map((model) => ({
-        value: model,
-        label: model,
+        value: model.value,
+        label: model.label,
+        triggerLabel: model.triggerLabel,
       })),
     ],
     [availableModels],
@@ -2606,6 +2637,9 @@ export function ThreadPage() {
     const previousSettledMessageKey = threadSettledMessageKeyRef.current
     const isInitialPaintForThread =
       !previousContentKey || !previousContentKey.startsWith(`${selectedThreadId}|`)
+    const shouldAutoScrollForThreadOpen =
+      pendingThreadOpenScrollRef.current === selectedThreadId &&
+      (!threadDetailQuery.isLoading || displayedTurns.length > 0)
     const shouldAutoScrollForMessage =
       Boolean(settledMessageAutoScrollKey) &&
       previousSettledMessageKey !== settledMessageAutoScrollKey
@@ -2623,20 +2657,29 @@ export function ThreadPage() {
       setIsThreadPinnedToLatest(true)
     }
 
-    if (isInitialPaintForThread || (shouldAutoScrollForMessage && (shouldFollowThreadRef.current || pinnedToLatest))) {
+    if (
+      shouldAutoScrollForThreadOpen ||
+      isInitialPaintForThread ||
+      (shouldAutoScrollForMessage && (shouldFollowThreadRef.current || pinnedToLatest))
+    ) {
       shouldFollowThreadRef.current = true
       setHasUnreadThreadUpdates(false)
       setIsThreadPinnedToLatest(true)
 
       const frameId = window.requestAnimationFrame(() => {
-        scrollThreadViewportToBottom(isInitialPaintForThread ? 'auto' : 'smooth')
+        if (pendingThreadOpenScrollRef.current === selectedThreadId) {
+          pendingThreadOpenScrollRef.current = null
+        }
+        scrollThreadViewportToBottom(
+          shouldAutoScrollForThreadOpen || isInitialPaintForThread ? 'auto' : 'smooth',
+        )
       })
 
       return () => window.cancelAnimationFrame(frameId)
     }
 
     setHasUnreadThreadUpdates(true)
-  }, [selectedThreadId, settledMessageAutoScrollKey, threadContentKey])
+  }, [displayedTurns.length, selectedThreadId, settledMessageAutoScrollKey, threadContentKey, threadDetailQuery.isLoading])
 
   useEffect(() => {
     if (!selectedThreadId || !shouldFollowThreadRef.current) {
@@ -3122,6 +3165,15 @@ export function ThreadPage() {
   }
 
   const showJumpToLatestButton = Boolean(selectedThread && displayedTurns.length > 0 && !isThreadPinnedToLatest)
+  const threadRuntimeNotice =
+    composerStatusInfo?.noticeTitle && composerStatusInfo.noticeMessage
+      ? {
+          title: composerStatusInfo.noticeTitle,
+          message: composerStatusInfo.noticeMessage,
+          summary: composerStatusInfo.summary,
+          noticeKey: `thread-runtime-${selectedThreadId}-${composerStatusInfo.label}`,
+        }
+      : undefined
 
   return (
     <section className={isMobileViewport ? 'screen workbench-screen workbench-screen--mobile' : 'screen workbench-screen'}>
@@ -3136,159 +3188,46 @@ export function ThreadPage() {
       <div className="workbench-layout" style={workbenchLayoutStyle}>
         <section className="workbench-main">
           <section className="workbench-surface workbench-surface--ide">
-            <div className="workbench-stage__canvas">
-              <div className="workbench-log" style={threadLogStyle}>
-                <div
-                  aria-busy={isThreadProcessing}
-                  className="workbench-log__viewport"
-                  onScroll={handleThreadViewportScroll}
-                  ref={threadViewportRef}
-                >
-                  {selectedThread ? (
-                    threadDetailQuery.isLoading && !displayedTurns.length ? (
-                      <div className="notice">Loading thread surface…</div>
-                    ) : threadDetailQuery.error && !displayedTurns.length ? (
-                      <InlineNotice
-                        details={getErrorMessage(threadDetailQuery.error)}
-                        dismissible
-                        noticeKey={`thread-load-${threadDetailQuery.error instanceof Error ? threadDetailQuery.error.message : 'unknown'}`}
-                        onRetry={() => void queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })}
-                        title="Failed To Load Thread"
-                        tone="error"
-                      >
-                        {getErrorMessage(threadDetailQuery.error)}
-                      </InlineNotice>
-                    ) : displayedTurns.length ? (
-                      <div className="workbench-log__thread">
-                        {composerStatusInfo?.noticeTitle && composerStatusInfo.noticeMessage ? (
-                          <InlineNotice
-                            details={composerStatusInfo.summary}
-                            dismissible
-                            noticeKey={`thread-runtime-${selectedThreadId}-${composerStatusInfo.label}`}
-                            onRetry={() => void queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })}
-                            title={composerStatusInfo.noticeTitle}
-                            tone="error"
-                          >
-                            {composerStatusInfo.noticeMessage}
-                          </InlineNotice>
-                        ) : null}
-                        <TurnTimeline
-                          onRetryServerRequest={handleRetryServerRequest}
-                          turns={displayedTurns}
-                        />
-                        {isWaitingForThreadData ? (
-                          <div
-                            aria-live="polite"
-                            className={
-                              activePendingTurn?.phase === 'sending'
-                                ? 'thread-pending-state thread-pending-state--sending'
-                                : 'thread-pending-state thread-pending-state--waiting'
-                            }
-                            role="status"
-                          >
-                            <span aria-hidden="true" className="thread-pending-state__spinner" />
-                            <div className="thread-pending-state__copy">
-                              <strong>
-                                {activePendingTurn?.phase === 'sending'
-                                  ? 'Sending message…'
-                                  : 'Generating reply…'}
-                              </strong>
-                              <span>
-                                {activePendingTurn?.phase === 'sending'
-                                  ? 'Your message is staged and the thread is preparing a response.'
-                                  : isThreadPinnedToLatest
-                                    ? 'Auto-follow is keeping the newest output in view.'
-                                    : 'New output is arriving. Jump to latest to keep following it.'}
-                              </span>
-                            </div>
-                          </div>
-                        ) : null}
-                        <div aria-hidden="true" className="workbench-log__bottom-anchor" />
-                      </div>
-                    ) : (
-                      <div className="empty-state workbench-log__empty">Send the first message to start this thread.</div>
-                    )
-                  ) : (
-                    <div className="empty-state workbench-log__empty">
-                      <div className="form-stack">
-                        <p>Select a thread from the left sidebar to start working in this workspace.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {surfacePanelView ? (
-                  <section
-                    className={
-                      isMobileViewport
-                        ? 'workbench-log__panel workbench-log__panel--mobile'
-                        : isSurfacePanelResizing
-                          ? `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide} workbench-log__panel--resizing`
-                          : `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide}`
-                    }
-                  >
-                    {!isMobileViewport ? (
-                      <button
-                        aria-label="Resize surface panel"
-                        className="workbench-log__panel-resize"
-                        onPointerDown={handleSurfacePanelResizeStart}
-                        type="button"
-                      />
-                    ) : null}
-                    <div className="workbench-log__panel-header">
-                      <div>
-                        <h2>{surfacePanelView === 'feed' ? 'Live Feed' : 'Approvals'}</h2>
-                        <p>
-                          {surfacePanelView === 'feed'
-                            ? 'Inspect recent live activity without opening the full side rail.'
-                            : 'Review pending approvals as a smaller in-surface panel.'}
-                        </p>
-                      </div>
-                      <div className="workbench-log__panel-actions">
-                        {!isMobileViewport ? (
-                          <button
-                            className="pane-section__toggle"
-                            onClick={() =>
-                              surfacePanelView &&
-                              setSurfacePanelSides((current) => ({
-                                ...current,
-                                [surfacePanelView]:
-                                  current[surfacePanelView] === 'right' ? 'left' : 'right',
-                              }))
-                            }
-                            type="button"
-                          >
-                            {activeSurfacePanelSide === 'right' ? 'Dock Left' : 'Dock Right'}
-                          </button>
-                        ) : null}
-                        <button
-                          className="pane-section__toggle"
-                          onClick={handleCloseWorkbenchOverlay}
-                          type="button"
-                        >
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                    <div className="workbench-log__panel-body">
-                      {surfacePanelView === 'feed' ? (
-                        liveTimelineEntries.length ? <LiveFeed entries={liveTimelineEntries} /> : <div className="empty-state">No live feed entries yet.</div>
-                      ) : approvalsQuery.data?.length ? (
-                        <ApprovalStack
-                          approvalAnswers={approvalAnswers}
-                          approvalErrors={approvalErrors}
-                          approvals={approvalsQuery.data}
-                          responding={respondApprovalMutation.isPending}
-                          onChangeAnswer={handleApprovalAnswerChange}
-                          onRespond={handleRespondApproval}
-                        />
-                      ) : (
-                        <div className="empty-state">No pending approvals in this workspace.</div>
-                      )}
-                    </div>
-                  </section>
-                ) : null}
-              </div>
-
+            <ThreadWorkbenchSurface
+              activePendingTurnPhase={activePendingTurn?.phase}
+              activeSurfacePanelSide={activeSurfacePanelSide}
+              approvalAnswers={approvalAnswers}
+              approvalErrors={approvalErrors}
+              approvals={approvalsQuery.data}
+              displayedTurns={displayedTurns}
+              isMobileViewport={isMobileViewport}
+              isSurfacePanelResizing={isSurfacePanelResizing}
+              isThreadPinnedToLatest={isThreadPinnedToLatest}
+              isThreadProcessing={isThreadProcessing}
+              isWaitingForThreadData={isWaitingForThreadData}
+              liveTimelineEntries={liveTimelineEntries}
+              onChangeApprovalAnswer={handleApprovalAnswerChange}
+              onCloseWorkbenchOverlay={handleCloseWorkbenchOverlay}
+              onRespondApproval={handleRespondApproval}
+              onRetryServerRequest={handleRetryServerRequest}
+              onRetryThreadLoad={() =>
+                void queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })
+              }
+              onSurfacePanelResizeStart={handleSurfacePanelResizeStart}
+              onThreadViewportScroll={handleThreadViewportScroll}
+              onToggleSurfacePanelSide={() =>
+                surfacePanelView &&
+                setSurfacePanelSides((current) => ({
+                  ...current,
+                  [surfacePanelView]:
+                    current[surfacePanelView] === 'right' ? 'left' : 'right',
+                }))
+              }
+              respondingToApproval={respondApprovalMutation.isPending}
+              selectedThread={selectedThread}
+              surfacePanelView={surfacePanelView}
+              threadDetailError={threadDetailQuery.error}
+              threadDetailIsLoading={threadDetailQuery.isLoading}
+              threadLoadErrorMessage={getErrorMessage(threadDetailQuery.error)}
+              threadLogStyle={threadLogStyle}
+              threadRuntimeNotice={threadRuntimeNotice}
+              threadViewportRef={threadViewportRef}
+            >
               <form
                 className={isApprovalDialogOpen ? 'composer-dock composer-dock--workbench composer-dock--with-approval' : 'composer-dock composer-dock--workbench'}
                 onSubmit={handleSendMessage}
@@ -3945,133 +3884,28 @@ export function ThreadPage() {
                   </div>
                 </div>
               </form>
-            </div>
+            </ThreadWorkbenchSurface>
 
             {!isMobileViewport ? (
-            <section className={terminalDockClassName}>
-              <div className="terminal-dock__bar">
-                <div className="terminal-dock__bar-copy">
-                  <h2>Terminal</h2>
-                </div>
-                <div className="terminal-dock__bar-meta">
-                  {isTerminalDockExpanded ? (
-                    <>
-                      <span className="meta-pill">{commandSessions.length} sessions</span>
-                      <span className="meta-pill">{activeCommandCount} running</span>
-                      <span className="meta-pill">
-                        {selectedCommandSession?.updatedAt
-                          ? `updated ${formatRelativeTimeShort(selectedCommandSession.updatedAt)}`
-                          : 'idle'}
-                      </span>
-                      {commandSessions.some((session) => !['running', 'starting'].includes(session.status)) ? (
-                        <button
-                          className="terminal-dock__toggle"
-                          onClick={handleClearCompletedCommandSessions}
-                          type="button"
-                        >
-                          Clear Finished
-                        </button>
-                      ) : null}
-                    </>
-                  ) : commandSessions.length ? (
-                    <span className="meta-pill">
-                      {activeCommandCount ? `${activeCommandCount} active` : `${commandSessions.length} stored`}
-                    </span>
-                  ) : null}
-                  <button
-                    aria-expanded={isTerminalDockExpanded}
-                    className="terminal-dock__toggle"
-                    onClick={() => setIsTerminalDockExpanded((current) => !current)}
-                    type="button"
-                  >
-                    {isTerminalDockExpanded ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-              </div>
-
-              {isTerminalDockExpanded ? (
-                <>
-                  <ResizeHandle
-                    aria-label="Resize terminal dock"
-                    axis="vertical"
-                    className="terminal-dock__resize-handle"
-                    onPointerDown={handleTerminalResizeStart}
-                  />
-                  {commandSessions.length ? (
-                    <div className="terminal-dock__workspace">
-                      <div className="terminal-dock__tabs">
-                        {commandSessions.map((session) => (
-                          <div
-                            className={
-                              session.id === selectedCommandSession?.id
-                                ? 'terminal-dock__tab terminal-dock__tab--active'
-                                : 'terminal-dock__tab'
-                            }
-                            key={session.id}
-                          >
-                            <button
-                              className="terminal-dock__tab-select"
-                              onClick={() => setSelectedProcessId(session.id)}
-                              type="button"
-                            >
-                              <strong>{session.command}</strong>
-                              <span>
-                                {session.status}
-                                {session.updatedAt ? ` · ${formatRelativeTimeShort(session.updatedAt)}` : ''}
-                              </span>
-                            </button>
-                            <button
-                              aria-label={`Close ${session.command}`}
-                              className="terminal-dock__tab-close"
-                              onClick={() => handleRemoveCommandSession(session.id)}
-                              type="button"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="terminal-dock__console-shell">
-                        <div className="terminal-dock__console">
-                          <div className="terminal-dock__meta">
-                            <span>{selectedCommandSession?.status ?? 'idle'}</span>
-                            {typeof selectedCommandSession?.exitCode === 'number' ? <span>exit {selectedCommandSession.exitCode}</span> : null}
-                            {selectedCommandSession?.id ? <code>{selectedCommandSession.id}</code> : null}
-                          </div>
-                          <ThreadTerminalBlock
-                            className="terminal-dock__output"
-                            content={selectedCommandSession?.combinedOutput || 'Run a command to see output.'}
-                          />
-                          <form className="terminal-dock__input" onSubmit={handleSendStdin}>
-                            <input
-                              disabled={!selectedCommandSession?.id}
-                              onChange={(event) => setStdinValue(event.target.value)}
-                              placeholder="Send stdin to selected process"
-                              value={stdinValue}
-                            />
-                            <button className="ide-button ide-button--secondary" disabled={!selectedCommandSession?.id || !stdinValue.trim()} type="submit">
-                              Send
-                            </button>
-                            <button
-                              className="ide-button ide-button--secondary"
-                              disabled={!selectedCommandSession?.id}
-                              onClick={() => selectedCommandSession?.id && terminateCommandMutation.mutate(selectedCommandSession.id)}
-                              type="button"
-                            >
-                              Stop
-                            </button>
-                          </form>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="terminal-dock__empty">
-                      Run a command to mount the dock. Sessions stay attached to the workspace and can be revisited from this bottom panel.
-                    </div>
-                  )}
-                </>
-              ) : null}
-            </section>
+              <ThreadTerminalDock
+                activeCommandCount={activeCommandCount}
+                className={terminalDockClassName}
+                commandSessions={commandSessions}
+                isExpanded={isTerminalDockExpanded}
+                onChangeStdinValue={setStdinValue}
+                onClearCompletedSessions={handleClearCompletedCommandSessions}
+                onRemoveSession={handleRemoveCommandSession}
+                onResizeStart={handleTerminalResizeStart}
+                onSelectSession={setSelectedProcessId}
+                onSubmitStdin={handleSendStdin}
+                onTerminateSelectedSession={() =>
+                  selectedCommandSession?.id && terminateCommandMutation.mutate(selectedCommandSession.id)
+                }
+                onToggleExpanded={() => setIsTerminalDockExpanded((current) => !current)}
+                selectedCommandSession={selectedCommandSession}
+                stdinValue={stdinValue}
+                terminateDisabled={!selectedCommandSession?.id}
+              />
             ) : null}
           </section>
         </section>
@@ -4429,3 +4263,4 @@ export function ThreadPage() {
     </section>
   )
 }
+

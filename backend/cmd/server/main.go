@@ -22,6 +22,7 @@ import (
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
+	"codex-server/backend/internal/runtimeprefs"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turns"
@@ -29,7 +30,10 @@ import (
 )
 
 func main() {
-	cfg := config.FromEnv()
+	cfg, err := config.FromEnv()
+	if err != nil {
+		panic(err)
+	}
 
 	dataStore, err := store.NewPersistentStore(cfg.StorePath)
 	if err != nil {
@@ -37,7 +41,28 @@ func main() {
 	}
 	eventHub := events.NewHub()
 	eventHub.AttachStore(dataStore)
-	runtimeManager := runtime.NewManager(cfg.CodexCommand, eventHub)
+	runtimePrefsStore := dataStore.GetRuntimePreferences()
+	resolvedRuntime, err := config.ResolveCodexRuntime(cfg.BaseCodexCommand, config.RuntimePreferences{
+		ModelCatalogPath: fallbackRuntimePreference(
+			runtimePrefsStore.ModelCatalogPath,
+			cfg.CodexModelCatalogJSON,
+		),
+		LocalShellModels: fallbackRuntimePreferenceSlice(
+			runtimePrefsStore.LocalShellModels,
+			cfg.CodexLocalShellModels,
+		),
+	})
+	if err != nil {
+		panic(err)
+	}
+	runtimeManager := runtime.NewManager(resolvedRuntime.Command, eventHub)
+	runtimePrefsService := runtimeprefs.NewService(
+		dataStore,
+		runtimeManager,
+		cfg.BaseCodexCommand,
+		cfg.CodexModelCatalogJSON,
+		cfg.CodexLocalShellModels,
+	)
 
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
@@ -46,7 +71,7 @@ func main() {
 	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
 	notificationsService := notifications.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
-	catalogService := catalog.NewService(runtimeManager)
+	catalogService := catalog.NewService(runtimeManager, runtimePrefsService)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
 	execfsService := execfs.NewService(runtimeManager, eventHub)
@@ -73,6 +98,7 @@ func main() {
 		ExecFS:         execfsService,
 		Feedback:       feedbackService,
 		Events:         eventHub,
+		RuntimePrefs:   runtimePrefsService,
 	})
 
 	server := &http.Server{
@@ -111,4 +137,18 @@ func main() {
 		logger.Error("backend shutdown failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+func fallbackRuntimePreference(value string, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func fallbackRuntimePreferenceSlice(value []string, fallback []string) []string {
+	if len(value) > 0 {
+		return append([]string(nil), value...)
+	}
+	return append([]string(nil), fallback...)
 }

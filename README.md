@@ -35,6 +35,7 @@
 - 后端已补 `config/mcp-server/reload`、`windows-sandbox/setup-start`
 - 前端 `Catalog` / `Settings` 页面已接入 remote skills、plugin actions、config、external agent detect、fuzzy file search、feedback upload
 - 前端 `Settings` 页面已接入 `account/login/cancel` 和 `mcp/oauth/login`
+- 前端 `Settings > Config` 页面已接入服务级 runtime shell override 配置，可持久化 `model_catalog_json` 与 `LocalShell` 模型列表
 - 审批抽屉已支持 `item/tool/call` 与 `account/chatgptAuthTokens/refresh` 的响应表单
 - 线程侧栏支持搜索、状态筛选与最近更新时间展示
 - 线程侧栏支持最近访问排序、归档分组与内联重命名
@@ -59,6 +60,8 @@ go run ./cmd/server
 CODEX_SERVER_ADDR=:18080
 CODEX_FRONTEND_ORIGIN=http://0.0.0.0:15173
 CODEX_APP_SERVER_COMMAND="codex app-server --listen stdio://"
+CODEX_MODEL_CATALOG_JSON=E:/path/to/full-model-catalog.json
+CODEX_LOCAL_SHELL_MODELS=gpt-5.3-codex
 CODEX_SERVER_STORE_PATH=data/metadata.json
 ```
 
@@ -87,6 +90,62 @@ VITE_API_BASE_URL=http://localhost:18080
 
 - `http://localhost:15173` 会请求 `http://localhost:18080`
 - `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
+
+## 启用 LocalShell
+
+`codex-server` 本身不直接决定是否暴露 `local_shell`。这个能力来自 Codex 模型元数据里的 `shell_type`，也就是 `ModelInfo.shell_type = "local"`。
+
+当前项目支持两种方式：
+
+1. 直接指定最终模型目录：
+
+```bash
+CODEX_MODEL_CATALOG_JSON=E:/path/to/full-model-catalog.json
+```
+
+2. 让后端根据配置自动生成 shell type 覆盖目录：
+
+```bash
+CODEX_MODEL_CATALOG_JSON=E:/path/to/full-model-catalog.json
+CODEX_LOCAL_SHELL_MODELS=gpt-5.3-codex,gpt-5.4
+```
+
+当设置了 `CODEX_LOCAL_SHELL_MODELS` 后，后端会：
+
+1. 读取 `CODEX_MODEL_CATALOG_JSON` 指向的完整模型目录
+2. 把匹配模型的 `shell_type` 改成 `"local"`（兼容旧环境变量）
+3. 在临时目录生成一份派生 catalog
+4. 自动把派生 catalog 追加到 `codex app-server` 启动命令
+
+等价于：
+
+```bash
+codex app-server --listen stdio:// --config "model_catalog_json=E:/generated/catalog.json"
+```
+
+使用步骤：
+
+1. 准备一份完整的模型目录 JSON。
+2. 设置 `CODEX_MODEL_CATALOG_JSON` 指向该文件。
+3. 设置 `CODEX_LOCAL_SHELL_MODELS`，值为逗号分隔的模型 `slug` 或 `display_name`。
+4. 重启 `codex-server` 后端。
+
+注意：
+
+- `model_catalog_json` 是启动时生效的全局覆盖，不是某个 workspace 的局部设置。
+- 如果没有设置 `CODEX_MODEL_CATALOG_JSON`，后端会尝试从 `CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）读取 `model_catalog_json` 作为默认值。
+- `CODEX_LOCAL_SHELL_MODELS` 只能基于完整模型目录做派生，不能只靠 `model/list` 响应自动重建，因为 app-server 的 `model/list` 不返回 `shell_type`。
+- 如果你要使用 `CODEX_LOCAL_SHELL_MODELS`，不要再把 `model_catalog_json` 手工写进 `CODEX_APP_SERVER_COMMAND`；后端会直接报错，避免派生 catalog 被旧命令遮掉。
+- 目录文件必须包含完整模型条目；如果只放一个占位模型，运行时只会看到那一个模型。
+
+现在也可以直接在 `Settings > Config > Runtime Shell Overrides` 页面配置：
+
+- `Model Catalog Path`
+- `Default Shell Type`
+- `Model Shell Type Overrides (JSON)`
+- `Import Model Catalog Template` 按钮会把 `config/model-catalog.json` 复制到受管文件 `config/runtime-model-catalog.json`，自动绑定 `Model Catalog Path`
+
+如果该页面留空，后端会继续回退到环境变量或 Codex 自身配置中的默认值。
 
 ## 下一步建议
 

@@ -191,6 +191,8 @@ export type CatalogItem = {
   id: string
   name: string
   description: string
+  value?: string
+  shellType?: string
 }
 
 export type RemoteSkillSummary = {
@@ -228,6 +230,19 @@ export type ConfigWriteResult = {
 
 export type ConfigRequirementsResult = {
   requirements?: Record<string, unknown> | null
+}
+
+export type RuntimePreferencesResult = {
+  configuredModelCatalogPath: string
+  configuredDefaultShellType: string
+  configuredModelShellTypeOverrides: Record<string, string>
+  defaultModelCatalogPath: string
+  defaultDefaultShellType: string
+  defaultModelShellTypeOverrides: Record<string, string>
+  effectiveModelCatalogPath: string
+  effectiveDefaultShellType: string
+  effectiveModelShellTypeOverrides: Record<string, string>
+  effectiveCommand: string
 }
 
 export type ExternalAgentConfigDetectResult = {

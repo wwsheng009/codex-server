@@ -21,6 +21,8 @@
 - 后端：Go
 - 前端：React + Vite
 - Codex 运行时：`codex app-server --listen stdio://`
+- 可选模型目录覆盖：通过 `CODEX_MODEL_CATALOG_JSON` 注入 `model_catalog_json`
+- 可选 `LocalShell` 自动派生：通过 `CODEX_LOCAL_SHELL_MODELS` 基于完整模型目录生成覆盖 catalog
 
 ## 2. 总体架构
 
@@ -46,6 +48,10 @@ codex-core / workspace / shell / tools
 1. 浏览器只和 Go 后端通信
 2. Go 后端负责 `app-server` 生命周期、鉴权、审计和工作区隔离
 3. `codex app-server` 作为 sidecar 运行时，保持官方协议语义
+4. 如需覆盖模型能力元数据（例如把某个模型的 `shell_type` 改成 `local`），后端可通过
+   `CODEX_MODEL_CATALOG_JSON` 在启动时追加 `--config model_catalog_json=...`
+5. 如需按配置自动启用 `LocalShell`，后端可读取 `CODEX_LOCAL_SHELL_MODELS`，基于完整模型目录
+   生成派生 catalog，再把该派生 catalog 注入到 app-server 启动命令
 4. 前端不直接消费原始 JSON-RPC，而消费后端包装后的 Web API 与事件流
 
 ## 3. 关键约束

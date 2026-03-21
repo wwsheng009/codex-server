@@ -17,6 +17,7 @@ import (
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/notifications"
 	appRuntime "codex-server/backend/internal/runtime"
+	"codex-server/backend/internal/runtimeprefs"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turns"
@@ -42,6 +43,7 @@ type Dependencies struct {
 	ExecFS         *execfs.Service
 	Feedback       *feedback.Service
 	Events         *events.Hub
+	RuntimePrefs   *runtimeprefs.Service
 }
 
 type Server struct {
@@ -58,6 +60,7 @@ type Server struct {
 	execfs        *execfs.Service
 	feedback      *feedback.Service
 	events        *events.Hub
+	runtimePrefs  *runtimeprefs.Service
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -77,6 +80,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		execfs:        deps.ExecFS,
 		feedback:      deps.Feedback,
 		events:        deps.Events,
+		runtimePrefs:  deps.RuntimePrefs,
 	}
 
 	router := chi.NewRouter()
@@ -95,6 +99,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	router.Get("/healthz", server.handleHealth)
 	router.Route("/api", func(r chi.Router) {
 		r.Get("/account", server.handleGetAccount)
+		r.Get("/runtime/preferences", server.handleReadRuntimePreferences)
+		r.Post("/runtime/preferences", server.handleWriteRuntimePreferences)
+		r.Post("/runtime/preferences/import-model-catalog", server.handleImportRuntimeModelCatalog)
 		r.Post("/account/login", server.handleLogin)
 		r.Post("/account/login/cancel", server.handleCancelLogin)
 		r.Post("/account/logout", server.handleLogout)
@@ -211,6 +218,51 @@ func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, account)
+}
+
+func (s *Server) handleReadRuntimePreferences(w http.ResponseWriter, _ *http.Request) {
+	result, err := s.runtimePrefs.Read()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "runtime_preferences_invalid", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		ModelCatalogPath        string            `json:"modelCatalogPath"`
+		DefaultShellType        string            `json:"defaultShellType"`
+		ModelShellTypeOverrides map[string]string `json:"modelShellTypeOverrides"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.runtimePrefs.Write(runtimeprefs.WriteInput{
+		ModelCatalogPath:        request.ModelCatalogPath,
+		DefaultShellType:        request.DefaultShellType,
+		ModelShellTypeOverrides: request.ModelShellTypeOverrides,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "runtime_preferences_invalid", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleImportRuntimeModelCatalog(w http.ResponseWriter, _ *http.Request) {
+	result, err := s.runtimePrefs.ImportModelCatalogTemplate()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "runtime_preferences_invalid", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

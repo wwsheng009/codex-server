@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { PageHeader } from '../components/ui/PageHeader'
 import { Button } from '../components/ui/Button'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { Modal } from '../components/ui/Modal'
+import { AutomationRunLog } from '../features/automations/AutomationRunLog'
 import {
   deleteAutomation,
   getAutomation,
@@ -19,11 +22,15 @@ import { isApiClientErrorCode } from '../lib/api-client'
 import { getErrorMessage } from '../lib/error-utils'
 import type { AutomationRun } from '../types/api'
 
+type RunViewMode = 'details' | 'summary' | 'logs'
+
 export function AutomationDetailPage() {
   const { automationId = '' } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<RunViewMode>('details')
 
   const automationQuery = useQuery({
     queryKey: ['automation', automationId],
@@ -41,7 +48,7 @@ export function AutomationDetailPage() {
     queryKey: ['automation-run', selectedRunId],
     queryFn: () => getAutomationRun(selectedRunId ?? ''),
     enabled: selectedRunId !== null,
-    refetchInterval: selectedRunId ? 3_000 : false,
+    refetchInterval: selectedRunId && viewMode === 'logs' ? 3_000 : false,
   })
 
   const statusMutation = useMutation({
@@ -59,6 +66,7 @@ export function AutomationDetailPage() {
     mutationFn: (id: string) => triggerAutomationRun(id),
     onSuccess: async (run) => {
       setSelectedRunId(run.id)
+      setViewMode('logs')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['automation', automationId] }),
         queryClient.invalidateQueries({ queryKey: ['automations'] }),
@@ -76,56 +84,21 @@ export function AutomationDetailPage() {
     },
   })
 
-  const latestRun = useMemo(() => runsQuery.data?.[0] ?? null, [runsQuery.data])
   const actionError = statusMutation.error ?? triggerMutation.error ?? deleteMutation.error
 
-  if (!automationId) {
-    return <AutomationNotFound />
-  }
-
-  if (automationQuery.isLoading) {
-    return (
-      <section className="screen screen--centered">
-        <section className="empty-card">
-          <p className="page-header__eyebrow">Automation</p>
-          <h1>Loading Automation</h1>
-          <p className="page-header__description">Fetching the latest automation data from the server.</p>
-        </section>
-      </section>
-    )
-  }
-
+  if (!automationId) return <AutomationNotFound />
+  if (automationQuery.isLoading) return <LoadingState />
   if (automationQuery.error) {
-    if (isApiClientErrorCode(automationQuery.error, 'automation_not_found')) {
-      return <AutomationNotFound />
-    }
-
-    return (
-      <section className="screen screen--centered">
-        <section className="empty-card">
-          <p className="page-header__eyebrow">Automation</p>
-          <h1>Automation Unavailable</h1>
-          <InlineNotice
-            dismissible
-            noticeKey={`automation-detail-${automationId}-${getErrorMessage(automationQuery.error)}`}
-            title="Automation Loading Failed"
-            tone="error"
-          >
-            {getErrorMessage(automationQuery.error)}
-          </InlineNotice>
-          <div className="header-actions">
-            <Link className="ide-button" to="/automations">
-              Back to Automations
-            </Link>
-          </div>
-        </section>
-      </section>
-    )
+    if (isApiClientErrorCode(automationQuery.error, 'automation_not_found')) return <AutomationNotFound />
+    return <ErrorState error={automationQuery.error} />
   }
 
   const automation = automationQuery.data
-  if (!automation) {
-    return <AutomationNotFound />
+  if (!automation) return <AutomationNotFound />
+
+  const openRunView = (runId: string, mode: RunViewMode) => {
+    setSelectedRunId(runId)
+    setViewMode(mode)
   }
 
   return (
@@ -162,6 +135,7 @@ export function AutomationDetailPage() {
             </Button>
             <Button
               intent="secondary"
+              className="ide-button--ghost-danger"
               isLoading={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate(automation.id)}
             >
@@ -169,178 +143,207 @@ export function AutomationDetailPage() {
             </Button>
           </div>
         }
-        description="Automation configuration, execution state, and run history."
+        description={automation.description}
         eyebrow="Automation Detail"
         meta={
-          <>
-            <span className="meta-pill">{automation.scheduleLabel}</span>
-            <span className="meta-pill">{automation.model}</span>
-            <span className="meta-pill">{automation.status}</span>
-          </>
+          <div className="automation-meta-group">
+            <span className={`status-pill status-pill--${automation.status === 'active' ? 'connected' : 'paused'}`}>
+              {automation.status}
+            </span>
+            <span className="meta-pill">Schedule: {automation.scheduleLabel}</span>
+            <span className="meta-pill">Model: {automation.model}</span>
+            <span className="meta-pill">Workspace: {automation.workspaceName}</span>
+            {automation.lastRun && (
+              <span className="meta-pill">Last Run: {formatTimestamp(automation.lastRun)}</span>
+            )}
+          </div>
         }
         title={automation.title}
       />
 
-      <div className="detail-layout">
+      <div className="detail-layout detail-layout--single">
         <section className="detail-layout__main settings-section">
           <div className="section-header">
             <div>
-              <h2>Summary</h2>
-              <p>Prompt, configuration, and recent execution output.</p>
+              <h2>Recent Runs</h2>
+              <p>Execution history, summarized results, and detailed logs.</p>
             </div>
+            <div className="section-header__meta">{runsQuery.data?.length ?? 0} total</div>
           </div>
-          <div className="stack-screen">
-            <div className="detail-copy">
-              <span>Description</span>
-              <p>{automation.description}</p>
-            </div>
-            <div className="detail-copy">
-              <span>Prompt</span>
-              <pre className="code-block">{automation.prompt}</pre>
-            </div>
-            <section className="content-section">
-              <div className="section-header">
-                <div>
-                  <h2>Recent Runs</h2>
-                  <p>Persisted execution history, status, and logs.</p>
-                </div>
-                <div className="section-header__meta">{runsQuery.data?.length ?? 0}</div>
-              </div>
-              {runsQuery.isLoading ? <div className="notice">Loading run history…</div> : null}
-              {runsQuery.error ? (
-                <InlineNotice
-                  dismissible
-                  noticeKey={`automation-runs-${automation.id}-${getErrorMessage(runsQuery.error)}`}
-                  title="Run History Loading Failed"
-                  tone="error"
-                >
-                  {getErrorMessage(runsQuery.error)}
-                </InlineNotice>
-              ) : null}
-              {runsQuery.data?.length ? (
-                <div className="automation-run-list">
-                  {runsQuery.data.map((run) => (
-                    <button
-                      className="automation-run-card"
-                      key={run.id}
-                      onClick={() => setSelectedRunId(run.id)}
-                      type="button"
-                    >
-                      <div className="automation-run-card__header">
-                        <strong>{formatRunLabel(run)}</strong>
-                        <span className={`status-pill status-pill--${runStatusTone(run.status)}`}>
-                          {run.status}
-                        </span>
-                      </div>
-                      <div className="automation-run-card__meta">
-                        <span>{formatTimestamp(run.startedAt)}</span>
-                        <span>{run.trigger}</span>
-                      </div>
-                      <p>{run.summary || run.error || 'Run completed without a summary.'}</p>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="notice">No runs yet. Trigger the automation or wait for the scheduler.</div>
-              )}
-            </section>
-          </div>
-        </section>
 
-        <section className="detail-layout__aside settings-section">
-          <div className="section-header">
+          {runsQuery.isLoading ? <div className="notice">Loading run history…</div> : null}
+          {runsQuery.error && (
+            <InlineNotice
+              dismissible
+              noticeKey={`automation-runs-${automation.id}-${getErrorMessage(runsQuery.error)}`}
+              title="Run History Loading Failed"
+              tone="error"
+            >
+              {getErrorMessage(runsQuery.error)}
+            </InlineNotice>
+          )}
+
+          {runsQuery.data?.length ? (
+            <div className="automation-run-list-table">
+              {runsQuery.data.map((run) => (
+                <div className="automation-run-row" key={run.id}>
+                  <div className="automation-run-row__main">
+                    <div className="run-identity">
+                      <span className={`status-pill status-pill--${runStatusTone(run.status)}`}>
+                        {run.status}
+                      </span>
+                      <strong>{formatRunLabel(run)}</strong>
+                      <span className="run-meta">{formatTimestamp(run.startedAt)}</span>
+                      <span className="run-trigger">{run.trigger}</span>
+                    </div>
+                    {run.summary && <p className="run-brief-summary">{run.summary.slice(0, 100)}...</p>}
+                    {run.error && <p className="run-error-text">{run.error}</p>}
+                  </div>
+                  <div className="automation-run-row__actions">
+                    <Button intent="ghost" onClick={() => openRunView(run.id, 'summary')}>
+                      Summary
+                    </Button>
+                    <Button intent="ghost" onClick={() => openRunView(run.id, 'logs')}>
+                      Logs
+                    </Button>
+                    <Button intent="ghost" onClick={() => openRunView(run.id, 'details')}>
+                      Details
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="notice">No runs yet. Trigger the automation or wait for the scheduler.</div>
+          )}
+
+          <div className="section-header" style={{ marginTop: '2rem' }}>
             <div>
-              <h2>Details</h2>
-              <p>Current status and latest run outcome.</p>
+              <h2>Prompt Configuration</h2>
+              <p>The instructions being executed by the model.</p>
             </div>
           </div>
-          <div className="detail-list">
-            <DetailRow label="Status" value={automation.status} />
-            <DetailRow label="Next Run" value={automation.nextRun} />
-            <DetailRow label="Last Run" value={automation.lastRun ? formatTimestamp(automation.lastRun) : 'Never'} />
-            <DetailRow label="Workspace" value={automation.workspaceName} />
-            <DetailRow label="Repeats" value={automation.scheduleLabel} />
-            <DetailRow label="Model" value={automation.model} />
-            <DetailRow label="Reasoning" value={automation.reasoning} />
-            <DetailRow label="Latest Result" value={latestRun ? latestRun.status : 'No runs yet'} />
+          <div className="detail-copy">
+            <pre className="code-block prompt-display">{automation.prompt}</pre>
           </div>
-          {latestRun ? (
-            <div className="detail-copy">
-              <span>Latest Summary</span>
-              <p>{latestRun.summary || latestRun.error || 'No summary available.'}</p>
-            </div>
-          ) : null}
         </section>
       </div>
 
-      {selectedRunId ? (
+      {selectedRunId && (
         <Modal
-          description="Persisted run logs and captured result for this automation execution."
+          description={formatRunDescription(selectedRunQuery.data, viewMode)}
+          maxWidth="min(1400px, 75vw)"
           footer={
-            <Button intent="secondary" onClick={() => setSelectedRunId(null)}>
-              Close
-            </Button>
+            <div className="modal-footer-distributed">
+               <div className="segmented-control">
+                <Button 
+                  intent={viewMode === 'summary' ? 'secondary' : 'ghost'} 
+                  onClick={() => setViewMode('summary')}
+                >
+                  Summary
+                </Button>
+                <Button 
+                  intent={viewMode === 'logs' ? 'secondary' : 'ghost'} 
+                  onClick={() => setViewMode('logs')}
+                >
+                  Logs
+                </Button>
+                <Button 
+                  intent={viewMode === 'details' ? 'secondary' : 'ghost'} 
+                  onClick={() => setViewMode('details')}
+                >
+                  Details
+                </Button>
+              </div>
+              <Button intent="secondary" onClick={() => setSelectedRunId(null)}>
+                Close
+              </Button>
+            </div>
           }
           onClose={() => setSelectedRunId(null)}
-          title={selectedRunQuery.data ? formatRunLabel(selectedRunQuery.data) : 'Run Logs'}
+          title={`${selectedRunQuery.data ? formatRunLabel(selectedRunQuery.data) : 'Run'} - ${viewMode.charAt(0).toUpperCase() + viewMode.slice(1)}`}
         >
-          {selectedRunQuery.isLoading ? <div className="notice">Loading run logs…</div> : null}
-          {selectedRunQuery.error ? (
+          {selectedRunQuery.isLoading ? <div className="notice">Loading…</div> : null}
+          {selectedRunQuery.error && (
             <InlineNotice
               dismissible
-              noticeKey={`automation-run-detail-${selectedRunId}-${getErrorMessage(selectedRunQuery.error)}`}
-              title="Run Log Loading Failed"
+              noticeKey={`run-error-${selectedRunId}`}
+              title="Failed to Load Run Data"
               tone="error"
             >
               {getErrorMessage(selectedRunQuery.error)}
             </InlineNotice>
-          ) : null}
-          {selectedRunQuery.data ? (
-            <div className="form-stack">
-              <div className="detail-list">
-                <DetailRow label="Status" value={selectedRunQuery.data.status} />
-                <DetailRow label="Started" value={formatTimestamp(selectedRunQuery.data.startedAt)} />
-                <DetailRow label="Finished" value={selectedRunQuery.data.finishedAt ? formatTimestamp(selectedRunQuery.data.finishedAt) : 'In progress'} />
-                <DetailRow label="Trigger" value={selectedRunQuery.data.trigger} />
-              </div>
-              {selectedRunQuery.data.summary ? (
-                <div className="detail-copy">
-                  <span>Summary</span>
-                  <p>{selectedRunQuery.data.summary}</p>
-                </div>
-              ) : null}
-              {selectedRunQuery.data.error ? (
-                <InlineNotice
-                  dismissible
-                  noticeKey={`automation-run-error-${selectedRunQuery.data.id}-${selectedRunQuery.data.error}`}
-                  title="Run Error"
-                  tone="error"
-                >
-                  {selectedRunQuery.data.error}
-                </InlineNotice>
-              ) : null}
-              <div className="detail-copy">
-                <span>Run Log</span>
-                <div className="automation-run-log">
-                  {selectedRunQuery.data.logs.length ? (
-                    selectedRunQuery.data.logs.map((entry) => (
-                      <div className="automation-run-log__entry" key={entry.id}>
-                        <span className="automation-run-log__timestamp">{formatTimestamp(entry.ts)}</span>
-                        <span className={`automation-run-log__level automation-run-log__level--${entry.level}`}>
-                          {entry.level}
-                        </span>
-                        <span>{entry.message}</span>
-                      </div>
-                    ))
+          )}
+
+          {selectedRunQuery.data && (
+            <div className="run-view-content">
+              {viewMode === 'summary' && (
+                <div className="markdown-container">
+                  {selectedRunQuery.data.summary ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {selectedRunQuery.data.summary}
+                    </ReactMarkdown>
                   ) : (
-                    <div className="notice">No logs captured for this run.</div>
+                    <div className="notice">No summary available for this run.</div>
+                  )}
+                  {selectedRunQuery.data.error && (
+                    <div className="run-error-block">
+                      <strong>Execution Error:</strong>
+                      <p>{selectedRunQuery.data.error}</p>
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
+
+              {viewMode === 'logs' && (
+                <AutomationRunLog logs={selectedRunQuery.data.logs} />
+              )}
+
+              {viewMode === 'details' && (
+                <div className="detail-list">
+                  <DetailRow label="ID" value={selectedRunQuery.data.id} />
+                  <DetailRow label="Status" value={selectedRunQuery.data.status} />
+                  <DetailRow label="Trigger" value={selectedRunQuery.data.trigger} />
+                  <DetailRow label="Started At" value={formatTimestamp(selectedRunQuery.data.startedAt)} />
+                  <DetailRow label="Finished At" value={selectedRunQuery.data.finishedAt ? formatTimestamp(selectedRunQuery.data.finishedAt) : 'In progress'} />
+                  {selectedRunQuery.data.turnId && <DetailRow label="Turn ID" value={selectedRunQuery.data.turnId} />}
+                </div>
+              )}
             </div>
-          ) : null}
+          )}
         </Modal>
-      ) : null}
+      )}
+    </section>
+  )
+}
+
+function LoadingState() {
+  return (
+    <section className="screen screen--centered">
+      <section className="empty-card">
+        <p className="page-header__eyebrow">Automation</p>
+        <h1>Loading Automation</h1>
+        <p className="page-header__description">Fetching the latest automation data from the server.</p>
+      </section>
+    </section>
+  )
+}
+
+function ErrorState({ error }: { error: any }) {
+  return (
+    <section className="screen screen--centered">
+      <section className="empty-card">
+        <p className="page-header__eyebrow">Automation</p>
+        <h1>Automation Unavailable</h1>
+        <InlineNotice title="Automation Loading Failed" tone="error">
+          {getErrorMessage(error)}
+        </InlineNotice>
+        <div className="header-actions">
+          <Link className="ide-button" to="/automations">
+            Back to Automations
+          </Link>
+        </div>
+      </section>
     </section>
   )
 }
@@ -351,7 +354,7 @@ function AutomationNotFound() {
       <section className="empty-card">
         <p className="page-header__eyebrow">Automation</p>
         <h1>Automation Not Found</h1>
-        <p className="page-header__description">The requested automation could not be found on the server.</p>
+        <p className="page-header__description">The requested automation could not be found.</p>
         <div className="header-actions">
           <Link className="ide-button" to="/automations">
             Back to Automations
@@ -377,20 +380,21 @@ function formatRunLabel(run: AutomationRun) {
 
 function formatTimestamp(value: string) {
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
+  if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
 }
 
 function runStatusTone(status: string) {
   switch (status) {
-    case 'completed':
-      return 'connected'
-    case 'failed':
-      return 'error'
-    default:
-      return 'paused'
+    case 'completed': return 'connected'
+    case 'failed': return 'error'
+    default: return 'paused'
   }
+}
+
+function formatRunDescription(run: AutomationRun | undefined, mode: RunViewMode) {
+  if (!run) return ''
+  if (mode === 'summary') return 'AI-generated summary of the execution outcome.'
+  if (mode === 'logs') return 'Real-time captured logs from the model execution.'
+  return 'Detailed technical metadata for this specific run.'
 }
