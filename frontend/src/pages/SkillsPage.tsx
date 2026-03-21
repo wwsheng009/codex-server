@@ -3,6 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { listRemoteSkills, listSkills } from '../features/catalog/api'
 import { listWorkspaces } from '../features/workspaces/api'
+import { SelectControl } from '../components/ui/SelectControl'
 
 type SkillCardItem = {
   id: string
@@ -92,13 +93,16 @@ export function SkillsPage() {
             </div>
             <label className="field">
               <span>Workspace</span>
-              <select value={workspaceId ?? ''} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
-                {workspacesQuery.data?.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.name}
-                  </option>
-                ))}
-              </select>
+              <SelectControl
+                ariaLabel="Workspace"
+                fullWidth
+                onChange={setSelectedWorkspaceId}
+                options={(workspacesQuery.data ?? []).map((workspace) => ({
+                  value: workspace.id,
+                  label: workspace.name,
+                }))}
+                value={workspaceId ?? ''}
+              />
             </label>
             <label className="field">
               <span>Search</span>

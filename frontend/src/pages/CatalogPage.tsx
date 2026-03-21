@@ -16,6 +16,7 @@ import {
 } from '../features/catalog/api'
 import { fuzzyFileSearch, uploadFeedback } from '../features/settings/api'
 import { listWorkspaces } from '../features/workspaces/api'
+import { SelectControl } from '../components/ui/SelectControl'
 import { getErrorMessage } from '../lib/error-utils'
 import { InlineNotice } from '../components/ui/InlineNotice'
 
@@ -193,13 +194,16 @@ export function CatalogPage() {
             </div>
             <label className="field">
               <span>Workspace</span>
-              <select value={workspaceId ?? ''} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
-                {workspacesQuery.data?.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.name}
-                  </option>
-                ))}
-              </select>
+              <SelectControl
+                ariaLabel="Workspace"
+                fullWidth
+                onChange={setSelectedWorkspaceId}
+                options={(workspacesQuery.data ?? []).map((workspace) => ({
+                  value: workspace.id,
+                  label: workspace.name,
+                }))}
+                value={workspaceId ?? ''}
+              />
             </label>
             <div className="detail-list">
               <div className="detail-row">

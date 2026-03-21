@@ -2,6 +2,13 @@ import { Suspense, lazy } from 'react'
 import type { ComponentType, LazyExoticComponent } from 'react'
 import { Navigate, createBrowserRouter } from 'react-router-dom'
 
+import {
+  AppContentRouteErrorPage,
+  RootRouteErrorPage,
+  SettingsContentRouteErrorPage,
+  SettingsRouteErrorPage,
+} from '../pages/RouteErrorPage'
+
 const AppShell = lazy(async () => {
   const module = await import('../components/shell/AppShell')
   return { default: module.AppShell }
@@ -95,31 +102,43 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: lazyElement(AppShell),
+    errorElement: <RootRouteErrorPage />,
     children: [
-      { index: true, element: <Navigate replace to="/workspaces" /> },
-      { path: 'workspaces', element: lazyElement(WorkspacesPage) },
-      { path: 'workspaces/:workspaceId', element: lazyElement(ThreadPage) },
-      { path: 'automations', element: lazyElement(AutomationsPage) },
-      { path: 'automations/:automationId', element: lazyElement(AutomationDetailPage) },
-      { path: 'skills', element: lazyElement(SkillsPage) },
-      { path: 'runtime', element: lazyElement(CatalogPage) },
       {
-        path: 'settings',
-        element: lazyElement(SettingsShell),
+        errorElement: <AppContentRouteErrorPage />,
         children: [
-          { index: true, element: <Navigate replace to="general" /> },
-          { path: 'general', element: lazyElement(GeneralSettingsPage) },
-          { path: 'appearance', element: lazyElement(AppearanceSettingsPage) },
-          { path: 'config', element: lazyElement(ConfigSettingsPage) },
-          { path: 'personalization', element: lazyElement(PersonalizationSettingsPage) },
-          { path: 'mcp', element: lazyElement(McpSettingsPage) },
-          { path: 'git', element: lazyElement(GitSettingsPage) },
-          { path: 'environment', element: lazyElement(EnvironmentSettingsPage) },
-          { path: 'worktrees', element: lazyElement(WorktreesSettingsPage) },
-          { path: 'archived-threads', element: lazyElement(ArchivedThreadsSettingsPage) },
+          { index: true, element: <Navigate replace to="/workspaces" /> },
+          { path: 'workspaces', element: lazyElement(WorkspacesPage) },
+          { path: 'workspaces/:workspaceId', element: lazyElement(ThreadPage) },
+          { path: 'automations', element: lazyElement(AutomationsPage) },
+          { path: 'automations/:automationId', element: lazyElement(AutomationDetailPage) },
+          { path: 'skills', element: lazyElement(SkillsPage) },
+          { path: 'runtime', element: lazyElement(CatalogPage) },
+          {
+            path: 'settings',
+            element: lazyElement(SettingsShell),
+            errorElement: <SettingsRouteErrorPage />,
+            children: [
+              {
+                errorElement: <SettingsContentRouteErrorPage />,
+                children: [
+                  { index: true, element: <Navigate replace to="general" /> },
+                  { path: 'general', element: lazyElement(GeneralSettingsPage) },
+                  { path: 'appearance', element: lazyElement(AppearanceSettingsPage) },
+                  { path: 'config', element: lazyElement(ConfigSettingsPage) },
+                  { path: 'personalization', element: lazyElement(PersonalizationSettingsPage) },
+                  { path: 'mcp', element: lazyElement(McpSettingsPage) },
+                  { path: 'git', element: lazyElement(GitSettingsPage) },
+                  { path: 'environment', element: lazyElement(EnvironmentSettingsPage) },
+                  { path: 'worktrees', element: lazyElement(WorktreesSettingsPage) },
+                  { path: 'archived-threads', element: lazyElement(ArchivedThreadsSettingsPage) },
+                ],
+              },
+            ],
+          },
+          { path: '*', element: lazyElement(NotFoundPage) },
         ],
       },
-      { path: '*', element: lazyElement(NotFoundPage) },
     ],
   },
 ])

@@ -2,5 +2,6 @@
 @import './styles/app-shell.css';
 @import './styles/settings-shell.css';
 @import './styles/common.css';
+@import './styles/route-error.css';
 @import './styles/workbench.css';
 @import './styles/responsive.css';

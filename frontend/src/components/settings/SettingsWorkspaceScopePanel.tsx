@@ -1,5 +1,6 @@
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { InlineNotice } from '../ui/InlineNotice'
+import { SelectControl } from '../ui/SelectControl'
 
 type SettingsWorkspaceScopePanelProps = {
   title?: string
@@ -29,13 +30,16 @@ export function SettingsWorkspaceScopePanel({
       </div>
       <label className="field">
         <span>Workspace</span>
-        <select value={workspaceId ?? ''} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
-          {workspaces.map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspace.name}
-            </option>
-          ))}
-        </select>
+        <SelectControl
+          ariaLabel="Workspace"
+          fullWidth
+          onChange={setSelectedWorkspaceId}
+          options={workspaces.map((workspace) => ({
+            value: workspace.id,
+            label: workspace.name,
+          }))}
+          value={workspaceId ?? ''}
+        />
       </label>
       {workspacesLoading ? <div className="notice">Loading workspaces…</div> : null}
       {workspacesError ? (

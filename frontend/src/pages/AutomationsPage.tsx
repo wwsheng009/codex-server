@@ -4,6 +4,7 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { InlineNotice } from '../components/ui/InlineNotice'
+import { SelectControl } from '../components/ui/SelectControl'
 import {
   AUTOMATION_TEMPLATES,
   createAutomationRecord,
@@ -237,36 +238,65 @@ export function AutomationsPage() {
                 <div className="modal-card__context">
                   <label className="field">
                     <span>Workspace</span>
-                    <select onChange={(event) => setDraft((current) => ({ ...current, workspaceId: event.target.value }))} value={draft.workspaceId}>
-                      {workspacesQuery.data?.map((workspace) => (
-                        <option key={workspace.id} value={workspace.id}>
-                          {workspace.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SelectControl
+                      ariaLabel="Workspace"
+                      fullWidth
+                      onChange={(nextValue) =>
+                        setDraft((current) => ({ ...current, workspaceId: nextValue }))
+                      }
+                      options={(workspacesQuery.data ?? []).map((workspace) => ({
+                        value: workspace.id,
+                        label: workspace.name,
+                      }))}
+                      value={draft.workspaceId}
+                    />
                   </label>
                   <label className="field">
                     <span>Schedule</span>
-                    <select onChange={(event) => setDraft((current) => ({ ...current, schedule: event.target.value }))} value={draft.schedule}>
-                      <option value="hourly">Every hour</option>
-                      <option value="daily-0800">Daily at 08:00</option>
-                      <option value="daily-1800">Daily at 18:00</option>
-                    </select>
+                    <SelectControl
+                      ariaLabel="Schedule"
+                      fullWidth
+                      onChange={(nextValue) =>
+                        setDraft((current) => ({ ...current, schedule: nextValue }))
+                      }
+                      options={[
+                        { value: 'hourly', label: 'Every hour' },
+                        { value: 'daily-0800', label: 'Daily at 08:00' },
+                        { value: 'daily-1800', label: 'Daily at 18:00' },
+                      ]}
+                      value={draft.schedule}
+                    />
                   </label>
                   <label className="field">
                     <span>Model</span>
-                    <select onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))} value={draft.model}>
-                      <option value="gpt-5.4">gpt-5.4</option>
-                      <option value="gpt-5.3-codex">gpt-5.3-codex</option>
-                    </select>
+                    <SelectControl
+                      ariaLabel="Model"
+                      fullWidth
+                      onChange={(nextValue) =>
+                        setDraft((current) => ({ ...current, model: nextValue }))
+                      }
+                      options={[
+                        { value: 'gpt-5.4', label: 'gpt-5.4' },
+                        { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
+                      ]}
+                      value={draft.model}
+                    />
                   </label>
                   <label className="field">
                     <span>Reasoning</span>
-                    <select onChange={(event) => setDraft((current) => ({ ...current, reasoning: event.target.value }))} value={draft.reasoning}>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="xhigh">Extra High</option>
-                    </select>
+                    <SelectControl
+                      ariaLabel="Reasoning"
+                      fullWidth
+                      onChange={(nextValue) =>
+                        setDraft((current) => ({ ...current, reasoning: nextValue }))
+                      }
+                      options={[
+                        { value: 'medium', label: 'Medium' },
+                        { value: 'high', label: 'High' },
+                        { value: 'xhigh', label: 'Extra High' },
+                      ]}
+                      value={draft.reasoning}
+                    />
                   </label>
                 </div>
                 {error ? (

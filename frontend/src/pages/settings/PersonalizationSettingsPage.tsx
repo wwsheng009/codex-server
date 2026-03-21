@@ -1,4 +1,5 @@
 import { SettingsGroup, SettingRow, SettingsPageHeader } from '../../components/settings/SettingsPrimitives'
+import { SelectControl } from '../../components/ui/SelectControl'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 
 export function PersonalizationSettingsPage() {
@@ -26,16 +27,19 @@ export function PersonalizationSettingsPage() {
           >
             <label className="field">
               <span>Tone</span>
-              <select
-                value={responseTone}
-                onChange={(event) =>
-                  setResponseTone(event.target.value as 'balanced' | 'direct' | 'detailed')
+              <SelectControl
+                ariaLabel="Response tone"
+                fullWidth
+                onChange={(nextValue) =>
+                  setResponseTone(nextValue as 'balanced' | 'direct' | 'detailed')
                 }
-              >
-                <option value="balanced">Balanced</option>
-                <option value="direct">Direct</option>
-                <option value="detailed">Detailed</option>
-              </select>
+                options={[
+                  { value: 'balanced', label: 'Balanced' },
+                  { value: 'direct', label: 'Direct' },
+                  { value: 'detailed', label: 'Detailed' },
+                ]}
+                value={responseTone}
+              />
             </label>
           </SettingRow>
 
