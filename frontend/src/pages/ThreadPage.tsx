@@ -1868,7 +1868,8 @@ export function ThreadPage() {
 
   useEffect(() => {
     shouldFollowThreadRef.current = true
-    threadAutoScrollKeyRef.current = ''
+    threadContentKeyRef.current = ''
+    threadSettledMessageKeyRef.current = ''
     setHasUnreadThreadUpdates(false)
     setIsThreadPinnedToLatest(true)
 
@@ -2290,7 +2291,7 @@ export function ThreadPage() {
   const turnCount = displayedTurns.length
   const timelineItemCount = displayedTurns.reduce((count, turn) => count + turn.items.length, 0)
   const latestThreadEventTs = selectedThreadEvents[selectedThreadEvents.length - 1]?.ts ?? ''
-  const threadAutoScrollKey = [
+  const threadContentKey = [
     selectedThreadId ?? '',
     turnCount,
     timelineItemCount,
@@ -2302,6 +2303,10 @@ export function ThreadPage() {
     liveThreadDetail?.updatedAt ?? '',
     selectedThread?.updatedAt ?? '',
   ].join('|')
+  const settledMessageAutoScrollKey = useMemo(
+    () => latestSettledMessageKey(displayedTurns),
+    [displayedTurns],
+  )
   const isWaitingForThreadData = Boolean(activePendingTurn)
   const isSendingSelectedThread = activePendingTurn?.phase === 'sending'
   const isApprovalDialogOpen = Boolean(activeComposerApproval)
@@ -2538,17 +2543,25 @@ export function ThreadPage() {
 
   useEffect(() => {
     if (!selectedThreadId) {
-      threadAutoScrollKeyRef.current = ''
+      threadContentKeyRef.current = ''
+      threadSettledMessageKeyRef.current = ''
       return
     }
 
-    const previousKey = threadAutoScrollKeyRef.current
-    if (previousKey === threadAutoScrollKey) {
+    const previousContentKey = threadContentKeyRef.current
+    if (previousContentKey === threadContentKey) {
       return
     }
 
-    const isInitialPaintForThread = !previousKey || !previousKey.startsWith(`${selectedThreadId}|`)
-    threadAutoScrollKeyRef.current = threadAutoScrollKey
+    const previousSettledMessageKey = threadSettledMessageKeyRef.current
+    const isInitialPaintForThread =
+      !previousContentKey || !previousContentKey.startsWith(`${selectedThreadId}|`)
+    const shouldAutoScrollForMessage =
+      Boolean(settledMessageAutoScrollKey) &&
+      previousSettledMessageKey !== settledMessageAutoScrollKey
+
+    threadContentKeyRef.current = threadContentKey
+    threadSettledMessageKeyRef.current = settledMessageAutoScrollKey
 
     const viewport = threadViewportRef.current
     const pinnedToLatest = viewport
@@ -2560,7 +2573,7 @@ export function ThreadPage() {
       setIsThreadPinnedToLatest(true)
     }
 
-    if (shouldFollowThreadRef.current || pinnedToLatest || isInitialPaintForThread) {
+    if (isInitialPaintForThread || (shouldAutoScrollForMessage && (shouldFollowThreadRef.current || pinnedToLatest))) {
       shouldFollowThreadRef.current = true
       setHasUnreadThreadUpdates(false)
       setIsThreadPinnedToLatest(true)
@@ -2576,7 +2589,7 @@ export function ThreadPage() {
     }
 
     setHasUnreadThreadUpdates(true)
-  }, [selectedThreadId, threadAutoScrollKey])
+  }, [selectedThreadId, settledMessageAutoScrollKey, threadContentKey])
 
   function syncThreadViewportState() {
     const viewport = threadViewportRef.current
