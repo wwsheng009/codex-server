@@ -61,20 +61,23 @@
 @media (max-width: 900px) {
   .web-ide {
     --app-menubar-height: 44px;
-    min-height: 100dvh;
-    height: auto;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .workbench-screen {
-    height: auto;
+    flex: 1;
     min-height: 0;
-    overflow: visible;
+    height: auto;
+    overflow: hidden;
   }
 
   .workbench-screen--mobile {
-    height: calc(100dvh - var(--app-menubar-height, 44px) - 24px);
-    min-height: calc(100dvh - var(--app-menubar-height, 44px) - 24px);
-    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    height: 100%;
+    min-height: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     overflow: hidden;
   }
 
@@ -239,7 +242,7 @@
     padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--border-subtle);
     flex-shrink: 0;
-    background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg-main) 94%, transparent) 22%, var(--bg-main) 100%);
+    background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg-app) 94%, transparent) 22%, var(--bg-app) 100%);
   }
 
   .web-ide__sidebar--mobile .web-ide__settings-link {
@@ -303,6 +306,7 @@
   }
 
   .workbench-screen--mobile .workbench-log__viewport {
+    padding: 2px 8px 8px;
     overflow: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
@@ -538,6 +542,34 @@
     justify-content: flex-end;
   }
 
+  .composer-dock--workbench {
+    padding: 12px 8px 0;
+    background: transparent;
+    overflow: visible;
+    display: flex;
+    justify-content: center;
+  }
+
+  .composer-dock__shell {
+    width: 100%;
+    max-width: 100%;
+    box-shadow: none;
+  }
+
+  .composer-dock__shell:focus-within {
+    box-shadow: none;
+  }
+
+  .composer-dock__surface {
+    background: var(--bg-main);
+    box-shadow: none;
+  }
+
+  .composer-dock__surface:focus-within {
+    background: var(--bg-main);
+    box-shadow: none;
+  }
+
   .composer-dock__footer {
     flex-direction: row;
     align-items: center;
@@ -678,6 +710,19 @@
   .workspace-compact-row__actions .divider-v,
   .automation-compact-row__actions .divider-v {
     display: none;
+  }
+
+  .automation-run-card__header,
+  .automation-run-card__meta,
+  .automation-run-log__entry,
+  .web-ide__notification-item-header,
+  .web-ide__notification-item-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .automation-run-log__timestamp {
+    flex-basis: auto;
   }
 
   .directory-item {

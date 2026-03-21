@@ -11,17 +11,17 @@ import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
 import {
   createAutomation,
+  createAutomationTemplate,
   deleteAutomation,
+  deleteAutomationTemplate,
   fixAutomation,
   listAutomations,
+  listAutomationTemplates,
   pauseAutomation,
   resumeAutomation,
+  updateAutomationTemplate,
 } from '../features/automations/api'
 import {
-  createCustomTemplate,
-  deleteCustomTemplate,
-  listTemplates,
-  updateCustomTemplate,
   type AutomationRecord,
   type AutomationTemplate,
 } from '../features/automations/store'
@@ -51,7 +51,6 @@ const EMPTY_DRAFT: Draft = {
 export function AutomationsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [templates, setTemplates] = useState<AutomationTemplate[]>(() => listTemplates())
   const [activeTemplate, setActiveTemplate] = useState<AutomationTemplate | null>(null)
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [templateDraft, setTemplateDraft] = useState({ title: '', description: '', prompt: '', category: 'Custom' })
@@ -69,6 +68,11 @@ export function AutomationsPage() {
   const automationsQuery = useQuery({
     queryKey: ['automations'],
     queryFn: listAutomations,
+    refetchInterval: 10_000,
+  })
+  const templatesQuery = useQuery({
+    queryKey: ['automation-templates'],
+    queryFn: listAutomationTemplates,
   })
 
   const createAutomationMutation = useMutation({
@@ -105,8 +109,36 @@ export function AutomationsPage() {
       await queryClient.invalidateQueries({ queryKey: ['automations'] })
     },
   })
+  const createTemplateMutation = useMutation({
+    mutationFn: createAutomationTemplate,
+    onSuccess: async () => {
+      setTemplateModalOpen(false)
+      setEditingTemplateId(null)
+      setTemplateDraft({ title: '', description: '', prompt: '', category: 'Custom' })
+      setError('')
+      await queryClient.invalidateQueries({ queryKey: ['automation-templates'] })
+    },
+  })
+  const updateTemplateMutation = useMutation({
+    mutationFn: ({ templateId, input }: { templateId: string; input: { category: string; title: string; description: string; prompt: string } }) =>
+      updateAutomationTemplate(templateId, input),
+    onSuccess: async () => {
+      setTemplateModalOpen(false)
+      setEditingTemplateId(null)
+      setTemplateDraft({ title: '', description: '', prompt: '', category: 'Custom' })
+      setError('')
+      await queryClient.invalidateQueries({ queryKey: ['automation-templates'] })
+    },
+  })
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (templateId: string) => deleteAutomationTemplate(templateId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['automation-templates'] })
+    },
+  })
 
   const automations = automationsQuery.data ?? []
+  const templates = templatesQuery.data ?? []
   const groupedTemplates = useMemo(() => {
     return templates.reduce<Record<string, AutomationTemplate[]>>((groups, template) => {
       const current = groups[template.category] ?? []
@@ -118,11 +150,16 @@ export function AutomationsPage() {
   const activeAutomationsCount = automations.filter((automation) => automation.status === 'active').length
   const templateCount = templates.length
   const createError = error || (createAutomationMutation.error ? getErrorMessage(createAutomationMutation.error) : '')
+  const templateError =
+    error ||
+    (createTemplateMutation.error
+      ? getErrorMessage(createTemplateMutation.error)
+      : updateTemplateMutation.error
+        ? getErrorMessage(updateTemplateMutation.error)
+        : deleteTemplateMutation.error
+          ? getErrorMessage(deleteTemplateMutation.error)
+          : '')
   const actionTarget = automationActionMutation.isPending ? automationActionMutation.variables : null
-
-  function refreshTemplates() {
-    setTemplates(listTemplates())
-  }
 
   function openCreateModal(template?: AutomationTemplate) {
     createAutomationMutation.reset()
@@ -163,19 +200,20 @@ export function AutomationsPage() {
     }
 
     if (editingTemplateId) {
-      updateCustomTemplate(editingTemplateId, templateDraft)
+      updateTemplateMutation.mutate({
+        templateId: editingTemplateId,
+        input: templateDraft,
+      })
     } else {
-      createCustomTemplate(templateDraft)
+      createTemplateMutation.mutate(templateDraft)
     }
-
-    refreshTemplates()
-    setTemplateModalOpen(false)
-    setEditingTemplateId(null)
-    setTemplateDraft({ title: '', description: '', prompt: '', category: 'Custom' })
-    setError('')
   }
 
   function openEditTemplateModal(template: AutomationTemplate) {
+    if (template.isBuiltIn) {
+      return
+    }
+
     setTemplateDraft({
       title: template.title,
       description: template.description,
@@ -188,8 +226,7 @@ export function AutomationsPage() {
   }
 
   function handleDeleteTemplate(id: string) {
-    deleteCustomTemplate(id)
-    refreshTemplates()
+    deleteTemplateMutation.mutate(id)
   }
 
   function closeModal() {
@@ -274,11 +311,16 @@ export function AutomationsPage() {
           setTemplateModalOpen(false)
           setEditingTemplateId(null)
           setError('')
+          createTemplateMutation.reset()
+          updateTemplateMutation.reset()
         }}
       >
         Cancel
       </Button>
-      <Button onClick={handleCreateTemplate}>
+      <Button
+        isLoading={createTemplateMutation.isPending || updateTemplateMutation.isPending}
+        onClick={handleCreateTemplate}
+      >
         {editingTemplateId ? 'Update Template' : 'Save Template'}
       </Button>
     </>
@@ -323,6 +365,16 @@ export function AutomationsPage() {
             tone="error"
           >
             {getErrorMessage(automationsQuery.error)}
+          </InlineNotice>
+        ) : null}
+        {templatesQuery.error ? (
+          <InlineNotice
+            dismissible
+            noticeKey={`automation-templates-${getErrorMessage(templatesQuery.error)}`}
+            title="Template Loading Failed"
+            tone="error"
+          >
+            {getErrorMessage(templatesQuery.error)}
           </InlineNotice>
         ) : null}
 
@@ -413,16 +465,23 @@ export function AutomationsPage() {
                           <Button intent="ghost" onClick={() => openCreateModal(template)}>
                             Use Template
                           </Button>
-                          <Button intent="ghost" onClick={() => openEditTemplateModal(template)}>
-                            Edit
-                          </Button>
-                          <Button
-                            className="ide-button--ghost-danger"
-                            intent="ghost"
-                            onClick={() => handleDeleteTemplate(template.id)}
-                          >
-                            Delete
-                          </Button>
+                          {!template.isBuiltIn ? (
+                            <>
+                              <Button intent="ghost" onClick={() => openEditTemplateModal(template)}>
+                                Edit
+                              </Button>
+                              <Button
+                                className="ide-button--ghost-danger"
+                                intent="ghost"
+                                isLoading={deleteTemplateMutation.isPending && deleteTemplateMutation.variables === template.id}
+                                onClick={() => handleDeleteTemplate(template.id)}
+                              >
+                                Delete
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="meta-pill">Built-in</span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -605,6 +664,16 @@ export function AutomationsPage() {
                 value={templateDraft.prompt}
               />
             </label>
+            {templateError ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`automation-template-${templateError}`}
+                title="Template Update Failed"
+                tone="error"
+              >
+                {templateError}
+              </InlineNotice>
+            ) : null}
           </div>
         </Modal>
       ) : null}

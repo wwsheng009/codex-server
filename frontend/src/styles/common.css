@@ -2301,6 +2301,112 @@
   flex-shrink: 0;
 }
 
+.automation-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.automation-run-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface-overlay);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+.automation-run-card:hover {
+  border-color: var(--border-accent);
+  background: var(--surface-nav-active);
+}
+
+.automation-run-card__header,
+.automation-run-card__meta,
+.automation-run-log__entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.automation-run-card__header strong,
+.automation-run-log__timestamp {
+  color: var(--text-strong);
+}
+
+.automation-run-card__meta,
+.automation-run-log__timestamp {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.automation-run-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.automation-run-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-input);
+}
+
+.automation-run-log__entry {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.automation-run-log__timestamp {
+  flex: 0 0 160px;
+}
+
+.automation-run-log__level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.automation-run-log__level--success {
+  color: var(--success);
+  background: var(--surface-success-soft);
+}
+
+.automation-run-log__level--error {
+  color: var(--danger);
+  background: var(--surface-danger-soft);
+}
+
+.automation-run-log__level--warning {
+  color: var(--warning);
+  background: var(--surface-warning-soft);
+}
+
+.automation-run-log__level--info {
+  color: var(--accent);
+  background: var(--surface-selected);
+}
+
 .meta-label {
   color: var(--text-faint);
   font-size: 0.78rem;

@@ -1,7 +1,7 @@
 .workbench-screen {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 0;
   min-height: 100%;
   height: 100%;
   background: transparent;
@@ -85,7 +85,7 @@
 .workbench-side {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 0;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -492,6 +492,7 @@
 }
 
 .workbench-stage__canvas {
+  position: relative;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
@@ -502,11 +503,14 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
+  flex: 1 1 auto;
 }
 
 .workbench-log__viewport {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 2px 4px 8px;
@@ -559,6 +563,26 @@
   background-clip: padding-box;
 }
 
+.composer-dock--workbench {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 0 24px 0;
+  background: transparent;
+  box-shadow: none;
+  z-index: 10;
+  pointer-events: none;
+  border-top: 0;
+}
+
+.composer-dock--workbench > * {
+  pointer-events: auto;
+  width: min(100%, var(--conversation-stage-width, 980px));
+  margin: 0 auto;
+}
+
 .workbench-log__thread {
   display: flex;
   flex-direction: column;
@@ -566,6 +590,7 @@
   min-height: 100%;
   width: min(100%, var(--conversation-stage-width, 980px));
   margin: 0 auto;
+  padding-bottom: 180px; /* Reduced from 220px to better fit the smaller floating area */
 }
 
 .workbench-log__empty {
@@ -1529,9 +1554,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .composer-dock__input {
@@ -1564,6 +1589,15 @@
   min-width: 0;
 }
 
+.composer-dock__shell {
+  width: min(100%, var(--conversation-stage-width, 980px));
+  max-width: 100%;
+  margin: 0 auto;
+  border-radius: 18px;
+  box-shadow: var(--shadow-float);
+  transition: box-shadow 180ms ease;
+}
+
 .composer-dock__surface {
   display: flex;
   flex-direction: column;
@@ -1574,16 +1608,15 @@
   background: var(--bg-main);
   overflow: visible;
   isolation: isolate;
-  box-shadow: var(--shadow-float);
+  box-shadow: none;
   transition:
     border-color 180ms ease,
-    box-shadow 180ms ease,
     background-color 180ms ease;
 }
 
 .composer-dock__surface--live {
   border-color: var(--border-accent);
-  box-shadow: var(--shadow-float);
+  box-shadow: none;
   animation: none;
 }
 
@@ -1861,7 +1894,7 @@
 
 .composer-dock__surface:focus-within {
   border-color: var(--accent);
-  box-shadow: var(--shadow-float);
+  box-shadow: none;
   background: var(--bg-main);
 }
 
@@ -1949,43 +1982,24 @@
 }
 
 .composer-dock--workbench {
-  position: relative;
-  margin-top: 0;
-  padding: 8px 0 8px;
-  border-top: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 0 24px env(safe-area-inset-bottom, 0px);
   background: transparent;
   box-shadow: none;
   flex-shrink: 0;
-  align-items: center;
-  overflow: visible;
-}
-
-.composer-dock--with-approval {
-  padding-top: 58px;
-}
-
-.composer-dock--with-approval::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface-nav);
-  backdrop-filter: blur(5px);
-  z-index: 1;
-}
-
-.composer-dock--with-approval > * {
-  position: relative;
-  z-index: 2;
-}
-
-.composer-dock--with-approval .composer-dock__surface,
-.composer-dock--with-approval .notice {
-  opacity: 0.52;
+  z-index: 10;
+  pointer-events: none;
+  border-top: 0;
 }
 
 .composer-dock--workbench > * {
+  pointer-events: auto;
   width: min(100%, var(--conversation-stage-width, 980px));
+  margin: 0 auto;
 }
 
 .composer-dock__meta--surface {

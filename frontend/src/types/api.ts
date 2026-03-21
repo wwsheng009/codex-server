@@ -22,15 +22,69 @@ export type Automation = {
   prompt: string
   workspaceId: string
   workspaceName: string
+  threadId?: string
   schedule: string
   scheduleLabel: string
   model: string
   reasoning: string
   status: string
   nextRun: string
+  nextRunAt?: string | null
   lastRun: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type AutomationTemplate = {
+  id: string
+  category: string
+  title: string
+  description: string
+  prompt: string
+  isBuiltIn: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type AutomationRunLogEntry = {
+  id: string
+  ts: string
+  level: string
+  message: string
+  eventType?: string
+}
+
+export type AutomationRun = {
+  id: string
+  automationId: string
+  automationTitle: string
+  workspaceId: string
+  workspaceName: string
+  threadId?: string
+  turnId?: string
+  trigger: string
+  status: string
+  summary?: string
+  error?: string
+  startedAt: string
+  finishedAt?: string | null
+  logs: AutomationRunLogEntry[]
+}
+
+export type NotificationItem = {
+  id: string
+  workspaceId: string
+  workspaceName: string
+  automationId?: string
+  automationTitle?: string
+  runId?: string
+  kind: string
+  title: string
+  message: string
+  level: string
+  read: boolean
+  createdAt: string
+  readAt?: string | null
 }
 
 export type Thread = {

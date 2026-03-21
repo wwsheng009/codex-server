@@ -1185,6 +1185,196 @@
   justify-self: center;
 }
 
+.web-ide__notification-center {
+  position: relative;
+}
+
+.web-ide__notification-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-card);
+  color: var(--text-secondary);
+}
+
+.web-ide__notification-trigger--mobile {
+  min-width: 38px;
+  justify-content: center;
+  padding: 0;
+}
+
+.web-ide__notification-trigger:hover {
+  border-color: var(--border-accent);
+  color: var(--text-strong);
+}
+
+.web-ide__notification-trigger-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+
+.web-ide__notification-trigger-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.web-ide__notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.web-ide__notification-popover {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(520px, calc(100vh - 24px));
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--surface-pane);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.web-ide__notification-popover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.web-ide__notification-popover-header strong {
+  display: block;
+  color: var(--text-strong);
+}
+
+.web-ide__notification-popover-header span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.web-ide__notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.web-ide__notification-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-card);
+  color: inherit;
+  text-align: left;
+}
+
+.web-ide__notification-item--unread {
+  border-color: var(--border-accent);
+  background: var(--surface-selected);
+}
+
+.web-ide__notification-item-header,
+.web-ide__notification-item-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.web-ide__notification-item-header strong {
+  color: var(--text-strong);
+}
+
+.web-ide__notification-item p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.web-ide__notification-item-meta {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.web-ide__notification-toast-stack {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, calc(100vw - 24px));
+}
+
+.web-ide__notification-toast {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-pane);
+  box-shadow: var(--shadow-soft);
+  color: inherit;
+  text-align: left;
+}
+
+.web-ide__notification-toast strong {
+  color: var(--text-strong);
+}
+
+.web-ide__notification-toast span {
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.web-ide__notification-toast--connected {
+  border-color: var(--border-success);
+  background: color-mix(in srgb, var(--surface-pane) 76%, var(--surface-success-soft));
+}
+
+.web-ide__notification-toast--error {
+  border-color: var(--border-danger);
+  background: color-mix(in srgb, var(--surface-pane) 76%, var(--surface-danger-soft));
+}
+
+.web-ide__notification-toast--waiting {
+  border-color: var(--border-warning);
+  background: color-mix(in srgb, var(--surface-pane) 76%, var(--surface-warning-soft));
+}
+
+.web-ide__notification-toast--idle {
+  border-color: var(--border-subtle);
+}
+
 .web-ide__main {
   display: flex;
   min-width: 0;

@@ -24,15 +24,69 @@ type Automation struct {
 	Prompt        string     `json:"prompt"`
 	WorkspaceID   string     `json:"workspaceId"`
 	WorkspaceName string     `json:"workspaceName"`
+	ThreadID      string     `json:"threadId,omitempty"`
 	Schedule      string     `json:"schedule"`
 	ScheduleLabel string     `json:"scheduleLabel"`
 	Model         string     `json:"model"`
 	Reasoning     string     `json:"reasoning"`
 	Status        string     `json:"status"`
 	NextRun       string     `json:"nextRun"`
+	NextRunAt     *time.Time `json:"nextRunAt,omitempty"`
 	LastRun       *time.Time `json:"lastRun"`
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
+}
+
+type AutomationTemplate struct {
+	ID          string    `json:"id"`
+	Category    string    `json:"category"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Prompt      string    `json:"prompt"`
+	IsBuiltIn   bool      `json:"isBuiltIn"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type AutomationRunLogEntry struct {
+	ID        string    `json:"id"`
+	TS        time.Time `json:"ts"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	EventType string    `json:"eventType,omitempty"`
+}
+
+type AutomationRun struct {
+	ID              string                  `json:"id"`
+	AutomationID    string                  `json:"automationId"`
+	AutomationTitle string                  `json:"automationTitle"`
+	WorkspaceID     string                  `json:"workspaceId"`
+	WorkspaceName   string                  `json:"workspaceName"`
+	ThreadID        string                  `json:"threadId,omitempty"`
+	TurnID          string                  `json:"turnId,omitempty"`
+	Trigger         string                  `json:"trigger"`
+	Status          string                  `json:"status"`
+	Summary         string                  `json:"summary,omitempty"`
+	Error           string                  `json:"error,omitempty"`
+	StartedAt       time.Time               `json:"startedAt"`
+	FinishedAt      *time.Time              `json:"finishedAt,omitempty"`
+	Logs            []AutomationRunLogEntry `json:"logs"`
+}
+
+type Notification struct {
+	ID              string     `json:"id"`
+	WorkspaceID     string     `json:"workspaceId"`
+	WorkspaceName   string     `json:"workspaceName"`
+	AutomationID    string     `json:"automationId,omitempty"`
+	AutomationTitle string     `json:"automationTitle,omitempty"`
+	RunID           string     `json:"runId,omitempty"`
+	Kind            string     `json:"kind"`
+	Title           string     `json:"title"`
+	Message         string     `json:"message"`
+	Level           string     `json:"level"`
+	Read            bool       `json:"read"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	ReadAt          *time.Time `json:"readAt,omitempty"`
 }
 
 type Thread struct {

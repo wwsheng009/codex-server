@@ -28,6 +28,21 @@ type SettingsLocalState = {
   maxWorktrees: number
   autoPruneDays: number
   reuseBranches: boolean
+  // New Theme Customization Fields
+  accentColorLight: string
+  accentColorDark: string
+  backgroundColorLight: string
+  backgroundColorDark: string
+  foregroundColorLight: string
+  foregroundColorDark: string
+  uiFont: string
+  codeFont: string
+  uiFontSize: number
+  codeFontSize: number
+  translucentSidebar: boolean
+  contrast: number
+  usePointerCursor: boolean
+  useCustomColors: boolean
   setTheme: (theme: AppearanceTheme) => void
   setDensity: (density: DensityMode) => void
   setReduceMotion: (reduceMotion: boolean) => void
@@ -43,6 +58,21 @@ type SettingsLocalState = {
   setMaxWorktrees: (maxWorktrees: number) => void
   setAutoPruneDays: (autoPruneDays: number) => void
   setReuseBranches: (reuseBranches: boolean) => void
+  // New Theme Customization Setters
+  setAccentColorLight: (color: string) => void
+  setAccentColorDark: (color: string) => void
+  setBackgroundColorLight: (color: string) => void
+  setBackgroundColorDark: (color: string) => void
+  setForegroundColorLight: (color: string) => void
+  setForegroundColorDark: (color: string) => void
+  setUiFont: (font: string) => void
+  setCodeFont: (font: string) => void
+  setUiFontSize: (size: number) => void
+  setCodeFontSize: (size: number) => void
+  setTranslucentSidebar: (enabled: boolean) => void
+  setContrast: (value: number) => void
+  setUsePointerCursor: (enabled: boolean) => void
+  setUseCustomColors: (enabled: boolean) => void
 }
 
 export const useSettingsLocalStore = create<SettingsLocalState>()(
@@ -63,6 +93,21 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       maxWorktrees: 4,
       autoPruneDays: 14,
       reuseBranches: true,
+      // Initial Theme Customization Values
+      accentColorLight: '#0969DA',
+      accentColorDark: '#6C87FF',
+      backgroundColorLight: '#FFFFFF',
+      backgroundColorDark: '#121a24',
+      foregroundColorLight: '#1F2328',
+      foregroundColorDark: '#d8e2ee',
+      uiFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      codeFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
+      uiFontSize: 13,
+      codeFontSize: 12,
+      translucentSidebar: true,
+      contrast: 45,
+      usePointerCursor: false,
+      useCustomColors: false,
       setTheme: (theme) => set({ theme }),
       setDensity: (density) => set({ density }),
       setReduceMotion: (reduceMotion) => set({ reduceMotion }),
@@ -78,6 +123,21 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       setMaxWorktrees: (maxWorktrees) => set({ maxWorktrees }),
       setAutoPruneDays: (autoPruneDays) => set({ autoPruneDays }),
       setReuseBranches: (reuseBranches) => set({ reuseBranches }),
+      // New Theme Customization Setters Implementation
+      setAccentColorLight: (accentColorLight) => set({ accentColorLight, useCustomColors: true }),
+      setAccentColorDark: (accentColorDark) => set({ accentColorDark, useCustomColors: true }),
+      setBackgroundColorLight: (backgroundColorLight) => set({ backgroundColorLight, useCustomColors: true }),
+      setBackgroundColorDark: (backgroundColorDark) => set({ backgroundColorDark, useCustomColors: true }),
+      setForegroundColorLight: (foregroundColorLight) => set({ foregroundColorLight, useCustomColors: true }),
+      setForegroundColorDark: (foregroundColorDark) => set({ foregroundColorDark, useCustomColors: true }),
+      setUiFont: (uiFont) => set({ uiFont }),
+      setCodeFont: (codeFont) => set({ codeFont }),
+      setUiFontSize: (uiFontSize) => set({ uiFontSize }),
+      setCodeFontSize: (codeFontSize) => set({ codeFontSize }),
+      setTranslucentSidebar: (translucentSidebar) => set({ translucentSidebar }),
+      setContrast: (contrast) => set({ contrast }),
+      setUsePointerCursor: (usePointerCursor) => set({ usePointerCursor }),
+      setUseCustomColors: (useCustomColors) => set({ useCustomColors }),
     }),
     {
       name: 'codex-server-settings-local-store',

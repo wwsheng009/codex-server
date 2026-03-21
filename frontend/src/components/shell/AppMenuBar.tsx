@@ -16,6 +16,7 @@ import { useSystemAppearancePreferences } from '../../features/settings/useSyste
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
 import { RefreshIcon, RailIconButton, ToolsIcon } from '../ui/RailControls'
+import { NotificationCenter } from './NotificationCenter'
 import type { CSSProperties } from 'react'
 
 const menuItems = ['File', 'Edit', 'View', 'Window', 'Help']
@@ -585,6 +586,7 @@ export function AppMenuBar({
           <span className="web-ide__usage-negative">-529</span>
           </div>
         ) : null}
+        <NotificationCenter compact={showMobileNavButton} />
         <AppearanceMenu compact={showMobileNavButton} />
       </div>
     </header>

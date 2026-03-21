@@ -15,6 +15,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/notifications"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
@@ -32,6 +33,7 @@ type Dependencies struct {
 	Auth           *auth.Service
 	Workspaces     *workspace.Service
 	Automations    *automations.Service
+	Notifications  *notifications.Service
 	Threads        *threads.Service
 	Turns          *turns.Service
 	Approvals      *approvals.Service
@@ -47,6 +49,7 @@ type Server struct {
 	auth          *auth.Service
 	workspaces    *workspace.Service
 	automations   *automations.Service
+	notifications *notifications.Service
 	threads       *threads.Service
 	turns         *turns.Service
 	approvals     *approvals.Service
@@ -65,6 +68,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		auth:          deps.Auth,
 		workspaces:    deps.Workspaces,
 		automations:   deps.Automations,
+		notifications: deps.Notifications,
 		threads:       deps.Threads,
 		turns:         deps.Turns,
 		approvals:     deps.Approvals,
@@ -100,11 +104,24 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/", server.handleListAutomations)
 			r.Post("/", server.handleCreateAutomation)
 			r.Get("/{automationId}", server.handleGetAutomation)
+			r.Get("/{automationId}/runs", server.handleListAutomationRuns)
 			r.Post("/{automationId}/pause", server.handlePauseAutomation)
 			r.Post("/{automationId}/resume", server.handleResumeAutomation)
 			r.Post("/{automationId}/fix", server.handleFixAutomation)
+			r.Post("/{automationId}/run", server.handleRunAutomation)
 			r.Delete("/{automationId}", server.handleDeleteAutomation)
 		})
+		r.Route("/automation-templates", func(r chi.Router) {
+			r.Get("/", server.handleListAutomationTemplates)
+			r.Post("/", server.handleCreateAutomationTemplate)
+			r.Get("/{templateId}", server.handleGetAutomationTemplate)
+			r.Post("/{templateId}", server.handleUpdateAutomationTemplate)
+			r.Delete("/{templateId}", server.handleDeleteAutomationTemplate)
+		})
+		r.Get("/automation-runs/{runId}", server.handleGetAutomationRun)
+		r.Get("/notifications", server.handleListNotifications)
+		r.Post("/notifications/read-all", server.handleReadAllNotifications)
+		r.Post("/notifications/{notificationId}/read", server.handleReadNotification)
 
 		r.Route("/workspaces", func(r chi.Router) {
 			r.Get("/", server.handleListWorkspaces)
@@ -361,6 +378,83 @@ func (s *Server) handleGetAutomation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, automation)
 }
 
+func (s *Server) handleListAutomationTemplates(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.automations.ListTemplates())
+}
+
+func (s *Server) handleCreateAutomationTemplate(w http.ResponseWriter, r *http.Request) {
+	var request automations.TemplateInput
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	template, err := s.automations.CreateTemplate(request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, template)
+}
+
+func (s *Server) handleGetAutomationTemplate(w http.ResponseWriter, r *http.Request) {
+	template, err := s.automations.GetTemplate(chi.URLParam(r, "templateId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, template)
+}
+
+func (s *Server) handleUpdateAutomationTemplate(w http.ResponseWriter, r *http.Request) {
+	var request automations.TemplateInput
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	template, err := s.automations.UpdateTemplate(chi.URLParam(r, "templateId"), request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, template)
+}
+
+func (s *Server) handleDeleteAutomationTemplate(w http.ResponseWriter, r *http.Request) {
+	if err := s.automations.DeleteTemplate(chi.URLParam(r, "templateId")); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleListAutomationRuns(w http.ResponseWriter, r *http.Request) {
+	automationID := chi.URLParam(r, "automationId")
+	if _, err := s.automations.Get(automationID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.automations.ListRuns(automationID))
+}
+
+func (s *Server) handleGetAutomationRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.automations.GetRun(chi.URLParam(r, "runId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, run)
+}
+
 func (s *Server) handlePauseAutomation(w http.ResponseWriter, r *http.Request) {
 	s.handleAutomationMutation(w, r, s.automations.Pause)
 }
@@ -373,6 +467,16 @@ func (s *Server) handleFixAutomation(w http.ResponseWriter, r *http.Request) {
 	s.handleAutomationMutation(w, r, s.automations.Fix)
 }
 
+func (s *Server) handleRunAutomation(w http.ResponseWriter, r *http.Request) {
+	run, err := s.automations.Trigger(r.Context(), chi.URLParam(r, "automationId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, run)
+}
+
 func (s *Server) handleDeleteAutomation(w http.ResponseWriter, r *http.Request) {
 	automationID := chi.URLParam(r, "automationId")
 	if err := s.automations.Delete(automationID); err != nil {
@@ -381,6 +485,24 @@ func (s *Server) handleDeleteAutomation(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleListNotifications(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.notifications.List())
+}
+
+func (s *Server) handleReadNotification(w http.ResponseWriter, r *http.Request) {
+	notification, err := s.notifications.MarkRead(chi.URLParam(r, "notificationId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, notification)
+}
+
+func (s *Server) handleReadAllNotifications(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.notifications.MarkAllRead())
 }
 
 func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
@@ -1396,8 +1518,20 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "approval_not_found", err.Error())
 	case errors.Is(err, store.ErrAutomationNotFound):
 		writeError(w, http.StatusNotFound, "automation_not_found", err.Error())
+	case errors.Is(err, store.ErrAutomationTemplateNotFound):
+		writeError(w, http.StatusNotFound, "automation_template_not_found", err.Error())
+	case errors.Is(err, store.ErrAutomationRunNotFound):
+		writeError(w, http.StatusNotFound, "automation_run_not_found", err.Error())
+	case errors.Is(err, store.ErrNotificationNotFound):
+		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
 	case errors.Is(err, automations.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+	case errors.Is(err, automations.ErrImmutableTemplate):
+		writeError(w, http.StatusConflict, "automation_template_immutable", err.Error())
+	case errors.Is(err, automations.ErrAutomationAlreadyRunning):
+		writeError(w, http.StatusConflict, "automation_already_running", err.Error())
+	case errors.Is(err, automations.ErrExecutionUnavailable):
+		writeError(w, http.StatusServiceUnavailable, "automation_execution_unavailable", err.Error())
 	case errors.Is(err, auth.ErrInvalidLoginInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, appRuntime.ErrRuntimeNotConfigured):

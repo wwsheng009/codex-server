@@ -3490,14 +3490,15 @@ export function ThreadPage() {
                     )}
                   </section>
                 ) : null}
-                <div
-                  aria-busy={isThreadProcessing}
-                  className={
-                    isThreadProcessing
-                      ? 'composer-dock__surface composer-dock__surface--live'
-                      : 'composer-dock__surface'
-                  }
-                >
+                <div className="composer-dock__shell">
+                  <div
+                    aria-busy={isThreadProcessing}
+                    className={
+                      isThreadProcessing
+                        ? 'composer-dock__surface composer-dock__surface--live'
+                        : 'composer-dock__surface'
+                    }
+                  >
                   <textarea
                     className="composer-dock__input"
                     disabled={!selectedThread || isComposerLocked}
@@ -3876,6 +3877,7 @@ export function ThreadPage() {
                       </div>
                     </div>
                   )}
+                  </div>
                 </div>
               </form>
             </div>

@@ -20,6 +20,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
@@ -40,14 +41,19 @@ func main() {
 
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
-	automationService := automations.NewService(dataStore)
-	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager)
+	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
+	notificationsService := notifications.NewService(dataStore)
+	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
-	turnService := turns.NewService(runtimeManager)
 	execfsService := execfs.NewService(runtimeManager, eventHub)
+
+	serviceCtx, serviceCancel := context.WithCancel(context.Background())
+	defer serviceCancel()
+	automationService.Start(serviceCtx)
 
 	if len(workspaceService.List()) == 0 {
 		_, _ = workspaceService.Create("Demo Workspace", "E:/projects/ai/codex-server")
@@ -58,6 +64,7 @@ func main() {
 		Auth:           authService,
 		Workspaces:     workspaceService,
 		Automations:    automationService,
+		Notifications:  notificationsService,
 		Threads:        threadService,
 		Turns:          turnService,
 		Approvals:      approvalsService,
@@ -94,6 +101,8 @@ func main() {
 	case sig := <-signalCh:
 		logger.Info("shutting down backend server", "signal", sig.String())
 	}
+
+	serviceCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

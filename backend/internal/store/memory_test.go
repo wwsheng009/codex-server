@@ -160,6 +160,122 @@ func TestPersistentStorePersistsAutomations(t *testing.T) {
 	}
 }
 
+func TestPersistentStorePersistsAutomationTemplates(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	template, err := firstStore.CreateAutomationTemplate(AutomationTemplate{
+		Category:    "Custom",
+		Title:       "Security Audit",
+		Description: "Review security posture",
+		Prompt:      "Audit the repository for security issues.",
+	})
+	if err != nil {
+		t.Fatalf("CreateAutomationTemplate() error = %v", err)
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	templates := secondStore.ListAutomationTemplates()
+	if len(templates) != 1 {
+		t.Fatalf("expected 1 template after reload, got %d", len(templates))
+	}
+	if templates[0].ID != template.ID || templates[0].Title != "Security Audit" {
+		t.Fatalf("expected persisted template, got %#v", templates[0])
+	}
+}
+
+func TestPersistentStorePersistsAutomationRunsAndNotifications(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	automation, err := firstStore.CreateAutomation(Automation{
+		Title:         "Daily Sync",
+		Description:   "Summarize changes",
+		Prompt:        "Summarize changes",
+		WorkspaceID:   workspace.ID,
+		WorkspaceName: workspace.Name,
+		Schedule:      "hourly",
+		ScheduleLabel: "Every hour",
+		Model:         "gpt-5.4",
+		Reasoning:     "medium",
+		Status:        "active",
+		NextRun:       "2026-03-21 09:00",
+	})
+	if err != nil {
+		t.Fatalf("CreateAutomation() error = %v", err)
+	}
+
+	run, err := firstStore.CreateAutomationRun(AutomationRun{
+		AutomationID:    automation.ID,
+		AutomationTitle: automation.Title,
+		WorkspaceID:     workspace.ID,
+		WorkspaceName:   workspace.Name,
+		Status:          "completed",
+		Trigger:         "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateAutomationRun() error = %v", err)
+	}
+	if _, err := firstStore.AppendAutomationRunLog(run.ID, AutomationRunLogEntry{
+		Level:   "info",
+		Message: "Run started",
+	}); err != nil {
+		t.Fatalf("AppendAutomationRunLog() error = %v", err)
+	}
+
+	if _, err := firstStore.CreateNotification(Notification{
+		WorkspaceID:     workspace.ID,
+		WorkspaceName:   workspace.Name,
+		AutomationID:    automation.ID,
+		AutomationTitle: automation.Title,
+		RunID:           run.ID,
+		Kind:            "automation_run_completed",
+		Title:           "Automation completed",
+		Message:         "Daily Sync completed",
+		Level:           "success",
+	}); err != nil {
+		t.Fatalf("CreateNotification() error = %v", err)
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	reloadedRuns := secondStore.ListAutomationRuns(automation.ID)
+	if len(reloadedRuns) != 1 {
+		t.Fatalf("expected 1 automation run after reload, got %d", len(reloadedRuns))
+	}
+	if len(reloadedRuns[0].Logs) != 1 {
+		t.Fatalf("expected persisted run logs, got %#v", reloadedRuns[0].Logs)
+	}
+
+	reloadedNotifications := secondStore.ListNotifications()
+	if len(reloadedNotifications) != 1 {
+		t.Fatalf("expected 1 notification after reload, got %d", len(reloadedNotifications))
+	}
+	if reloadedNotifications[0].Kind != "automation_run_completed" {
+		t.Fatalf("expected persisted notification kind, got %q", reloadedNotifications[0].Kind)
+	}
+}
+
 func TestThreadProjectionPersistsServerRequests(t *testing.T) {
 	t.Parallel()
 

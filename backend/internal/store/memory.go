@@ -11,39 +11,51 @@ import (
 )
 
 var (
-	ErrWorkspaceNotFound  = errors.New("workspace not found")
-	ErrThreadNotFound     = errors.New("thread not found")
-	ErrApprovalNotFound   = errors.New("approval not found")
-	ErrAutomationNotFound = errors.New("automation not found")
+	ErrWorkspaceNotFound          = errors.New("workspace not found")
+	ErrThreadNotFound             = errors.New("thread not found")
+	ErrApprovalNotFound           = errors.New("approval not found")
+	ErrAutomationNotFound         = errors.New("automation not found")
+	ErrAutomationTemplateNotFound = errors.New("automation template not found")
+	ErrAutomationRunNotFound      = errors.New("automation run not found")
+	ErrNotificationNotFound       = errors.New("notification not found")
 )
 
 type MemoryStore struct {
-	mu          sync.RWMutex
-	path        string
-	workspaces  map[string]Workspace
-	automations map[string]Automation
-	threads     map[string]Thread
-	projections map[string]ThreadProjection
-	deleted     map[string]DeletedThread
-	approvals   map[string]PendingApproval
+	mu            sync.RWMutex
+	path          string
+	workspaces    map[string]Workspace
+	automations   map[string]Automation
+	templates     map[string]AutomationTemplate
+	runs          map[string]AutomationRun
+	notifications map[string]Notification
+	threads       map[string]Thread
+	projections   map[string]ThreadProjection
+	deleted       map[string]DeletedThread
+	approvals     map[string]PendingApproval
 }
 
 type storeSnapshot struct {
-	Workspaces        []Workspace        `json:"workspaces"`
-	Automations       []Automation       `json:"automations,omitempty"`
-	Threads           []Thread           `json:"threads"`
-	ThreadProjections []ThreadProjection `json:"threadProjections,omitempty"`
-	DeletedThreads    []DeletedThread    `json:"deletedThreads,omitempty"`
+	Workspaces          []Workspace          `json:"workspaces"`
+	Automations         []Automation         `json:"automations,omitempty"`
+	AutomationTemplates []AutomationTemplate `json:"automationTemplates,omitempty"`
+	AutomationRuns      []AutomationRun      `json:"automationRuns,omitempty"`
+	Notifications       []Notification       `json:"notifications,omitempty"`
+	Threads             []Thread             `json:"threads"`
+	ThreadProjections   []ThreadProjection   `json:"threadProjections,omitempty"`
+	DeletedThreads      []DeletedThread      `json:"deletedThreads,omitempty"`
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		workspaces:  make(map[string]Workspace),
-		automations: make(map[string]Automation),
-		threads:     make(map[string]Thread),
-		projections: make(map[string]ThreadProjection),
-		deleted:     make(map[string]DeletedThread),
-		approvals:   make(map[string]PendingApproval),
+		workspaces:    make(map[string]Workspace),
+		automations:   make(map[string]Automation),
+		templates:     make(map[string]AutomationTemplate),
+		runs:          make(map[string]AutomationRun),
+		notifications: make(map[string]Notification),
+		threads:       make(map[string]Thread),
+		projections:   make(map[string]ThreadProjection),
+		deleted:       make(map[string]DeletedThread),
+		approvals:     make(map[string]PendingApproval),
 	}
 }
 
@@ -134,6 +146,289 @@ func (s *MemoryStore) ListAutomations() []Automation {
 	return items
 }
 
+func (s *MemoryStore) ListAutomationTemplates() []AutomationTemplate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]AutomationTemplate, 0, len(s.templates))
+	for _, template := range s.templates {
+		items = append(items, template)
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) CreateAutomationTemplate(template AutomationTemplate) (AutomationTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	template.ID = NewID("tpl")
+	template.CreatedAt = now
+	template.UpdatedAt = now
+	s.templates[template.ID] = template
+	s.persistLocked()
+
+	return template, nil
+}
+
+func (s *MemoryStore) GetAutomationTemplate(templateID string) (AutomationTemplate, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	template, ok := s.templates[templateID]
+	return template, ok
+}
+
+func (s *MemoryStore) UpdateAutomationTemplate(
+	templateID string,
+	updater func(AutomationTemplate) AutomationTemplate,
+) (AutomationTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	template, ok := s.templates[templateID]
+	if !ok {
+		return AutomationTemplate{}, ErrAutomationTemplateNotFound
+	}
+
+	next := updater(template)
+	next.ID = template.ID
+	next.CreatedAt = template.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	s.templates[templateID] = next
+	s.persistLocked()
+
+	return next, nil
+}
+
+func (s *MemoryStore) DeleteAutomationTemplate(templateID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.templates[templateID]; !ok {
+		return ErrAutomationTemplateNotFound
+	}
+
+	delete(s.templates, templateID)
+	s.persistLocked()
+	return nil
+}
+
+func (s *MemoryStore) ListAutomationRuns(automationID string) []AutomationRun {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]AutomationRun, 0)
+	for _, run := range s.runs {
+		if automationID != "" && run.AutomationID != automationID {
+			continue
+		}
+		items = append(items, cloneAutomationRun(run))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].StartedAt.After(items[j].StartedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) ListActiveAutomationRuns() []AutomationRun {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]AutomationRun, 0)
+	for _, run := range s.runs {
+		switch run.Status {
+		case "queued", "running":
+			items = append(items, cloneAutomationRun(run))
+		}
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].StartedAt.After(items[j].StartedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) CreateAutomationRun(run AutomationRun) (AutomationRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	automation, ok := s.automations[run.AutomationID]
+	if !ok {
+		return AutomationRun{}, ErrAutomationNotFound
+	}
+	if _, ok := s.workspaces[run.WorkspaceID]; !ok {
+		return AutomationRun{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	run.ID = NewID("run")
+	if run.StartedAt.IsZero() {
+		run.StartedAt = now
+	}
+	if run.AutomationTitle == "" {
+		run.AutomationTitle = automation.Title
+	}
+	if run.WorkspaceName == "" {
+		run.WorkspaceName = automation.WorkspaceName
+	}
+	if run.Logs == nil {
+		run.Logs = []AutomationRunLogEntry{}
+	}
+
+	s.runs[run.ID] = cloneAutomationRun(run)
+	s.persistLocked()
+
+	return cloneAutomationRun(run), nil
+}
+
+func (s *MemoryStore) GetAutomationRun(runID string) (AutomationRun, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	run, ok := s.runs[runID]
+	if !ok {
+		return AutomationRun{}, false
+	}
+
+	return cloneAutomationRun(run), true
+}
+
+func (s *MemoryStore) UpdateAutomationRun(runID string, updater func(AutomationRun) AutomationRun) (AutomationRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	run, ok := s.runs[runID]
+	if !ok {
+		return AutomationRun{}, ErrAutomationRunNotFound
+	}
+
+	next := updater(cloneAutomationRun(run))
+	next.ID = run.ID
+	if next.StartedAt.IsZero() {
+		next.StartedAt = run.StartedAt
+	}
+	s.runs[runID] = cloneAutomationRun(next)
+	s.persistLocked()
+
+	return cloneAutomationRun(next), nil
+}
+
+func (s *MemoryStore) AppendAutomationRunLog(runID string, entry AutomationRunLogEntry) (AutomationRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	run, ok := s.runs[runID]
+	if !ok {
+		return AutomationRun{}, ErrAutomationRunNotFound
+	}
+
+	if entry.ID == "" {
+		entry.ID = NewID("log")
+	}
+	if entry.TS.IsZero() {
+		entry.TS = time.Now().UTC()
+	}
+
+	run.Logs = append(run.Logs, entry)
+	s.runs[runID] = cloneAutomationRun(run)
+	s.persistLocked()
+
+	return cloneAutomationRun(run), nil
+}
+
+func (s *MemoryStore) ListNotifications() []Notification {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]Notification, 0, len(s.notifications))
+	for _, notification := range s.notifications {
+		items = append(items, notification)
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) CreateNotification(notification Notification) (Notification, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[notification.WorkspaceID]; !ok {
+		return Notification{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	notification.ID = NewID("ntf")
+	if notification.CreatedAt.IsZero() {
+		notification.CreatedAt = now
+	}
+	s.notifications[notification.ID] = notification
+	s.persistLocked()
+
+	return notification, nil
+}
+
+func (s *MemoryStore) MarkNotificationRead(notificationID string) (Notification, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	notification, ok := s.notifications[notificationID]
+	if !ok {
+		return Notification{}, ErrNotificationNotFound
+	}
+	if notification.Read {
+		return notification, nil
+	}
+
+	now := time.Now().UTC()
+	notification.Read = true
+	notification.ReadAt = &now
+	s.notifications[notificationID] = notification
+	s.persistLocked()
+
+	return notification, nil
+}
+
+func (s *MemoryStore) MarkAllNotificationsRead() []Notification {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	updated := make([]Notification, 0)
+	for id, notification := range s.notifications {
+		if notification.Read {
+			continue
+		}
+
+		notification.Read = true
+		notification.ReadAt = &now
+		s.notifications[id] = notification
+		updated = append(updated, notification)
+	}
+
+	if len(updated) > 0 {
+		s.persistLocked()
+	}
+
+	sort.Slice(updated, func(i int, j int) bool {
+		return updated[i].CreatedAt.After(updated[j].CreatedAt)
+	})
+
+	return updated
+}
+
 func (s *MemoryStore) CreateAutomation(automation Automation) (Automation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,6 +487,16 @@ func (s *MemoryStore) DeleteAutomation(automationID string) error {
 	}
 
 	delete(s.automations, automationID)
+	for runID, run := range s.runs {
+		if run.AutomationID == automationID {
+			delete(s.runs, runID)
+		}
+	}
+	for notificationID, notification := range s.notifications {
+		if notification.AutomationID == automationID {
+			delete(s.notifications, notificationID)
+		}
+	}
 	s.persistLocked()
 	return nil
 }
@@ -431,6 +736,16 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 			delete(s.automations, automationID)
 		}
 	}
+	for runID, run := range s.runs {
+		if run.WorkspaceID == workspaceID {
+			delete(s.runs, runID)
+		}
+	}
+	for notificationID, notification := range s.notifications {
+		if notification.WorkspaceID == workspaceID {
+			delete(s.notifications, notificationID)
+		}
+	}
 
 	for threadID, thread := range s.threads {
 		if thread.WorkspaceID == workspaceID {
@@ -556,6 +871,29 @@ func (s *MemoryStore) load() error {
 			maxID = value
 		}
 	}
+	for _, template := range snapshot.AutomationTemplates {
+		s.templates[template.ID] = template
+		if value := NumericIDSuffix(template.ID); value > maxID {
+			maxID = value
+		}
+	}
+	for _, run := range snapshot.AutomationRuns {
+		s.runs[run.ID] = cloneAutomationRun(run)
+		if value := NumericIDSuffix(run.ID); value > maxID {
+			maxID = value
+		}
+		for _, entry := range run.Logs {
+			if value := NumericIDSuffix(entry.ID); value > maxID {
+				maxID = value
+			}
+		}
+	}
+	for _, notification := range snapshot.Notifications {
+		s.notifications[notification.ID] = notification
+		if value := NumericIDSuffix(notification.ID); value > maxID {
+			maxID = value
+		}
+	}
 
 	for _, thread := range snapshot.Threads {
 		s.threads[thread.ID] = thread
@@ -581,11 +919,14 @@ func (s *MemoryStore) persistLocked() {
 	}
 
 	snapshot := storeSnapshot{
-		Workspaces:        make([]Workspace, 0, len(s.workspaces)),
-		Automations:       make([]Automation, 0, len(s.automations)),
-		Threads:           make([]Thread, 0, len(s.threads)),
-		ThreadProjections: make([]ThreadProjection, 0, len(s.projections)),
-		DeletedThreads:    make([]DeletedThread, 0, len(s.deleted)),
+		Workspaces:          make([]Workspace, 0, len(s.workspaces)),
+		Automations:         make([]Automation, 0, len(s.automations)),
+		AutomationTemplates: make([]AutomationTemplate, 0, len(s.templates)),
+		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
+		Notifications:       make([]Notification, 0, len(s.notifications)),
+		Threads:             make([]Thread, 0, len(s.threads)),
+		ThreadProjections:   make([]ThreadProjection, 0, len(s.projections)),
+		DeletedThreads:      make([]DeletedThread, 0, len(s.deleted)),
 	}
 
 	for _, workspace := range s.workspaces {
@@ -593,6 +934,15 @@ func (s *MemoryStore) persistLocked() {
 	}
 	for _, automation := range s.automations {
 		snapshot.Automations = append(snapshot.Automations, automation)
+	}
+	for _, template := range s.templates {
+		snapshot.AutomationTemplates = append(snapshot.AutomationTemplates, template)
+	}
+	for _, run := range s.runs {
+		snapshot.AutomationRuns = append(snapshot.AutomationRuns, cloneAutomationRun(run))
+	}
+	for _, notification := range s.notifications {
+		snapshot.Notifications = append(snapshot.Notifications, notification)
 	}
 	for _, thread := range s.threads {
 		snapshot.Threads = append(snapshot.Threads, thread)
@@ -609,6 +959,15 @@ func (s *MemoryStore) persistLocked() {
 	})
 	sort.Slice(snapshot.Automations, func(i int, j int) bool {
 		return snapshot.Automations[i].ID < snapshot.Automations[j].ID
+	})
+	sort.Slice(snapshot.AutomationTemplates, func(i int, j int) bool {
+		return snapshot.AutomationTemplates[i].ID < snapshot.AutomationTemplates[j].ID
+	})
+	sort.Slice(snapshot.AutomationRuns, func(i int, j int) bool {
+		return snapshot.AutomationRuns[i].ID < snapshot.AutomationRuns[j].ID
+	})
+	sort.Slice(snapshot.Notifications, func(i int, j int) bool {
+		return snapshot.Notifications[i].ID < snapshot.Notifications[j].ID
 	})
 	sort.Slice(snapshot.Threads, func(i int, j int) bool {
 		return snapshot.Threads[i].ID < snapshot.Threads[j].ID
@@ -645,4 +1004,14 @@ func deletedThreadKey(workspaceID string, threadID string) string {
 
 func threadProjectionKey(workspaceID string, threadID string) string {
 	return workspaceID + "\x00" + threadID
+}
+
+func cloneAutomationRun(run AutomationRun) AutomationRun {
+	next := run
+	if len(run.Logs) > 0 {
+		next.Logs = append([]AutomationRunLogEntry{}, run.Logs...)
+	} else {
+		next.Logs = []AutomationRunLogEntry{}
+	}
+	return next
 }

@@ -17,6 +17,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
@@ -339,6 +340,261 @@ func TestAutomationRoutesPersistRecords(t *testing.T) {
 	}
 }
 
+func TestAutomationRunAndNotificationRoutesReturnStoredData(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	automation, err := dataStore.CreateAutomation(store.Automation{
+		Title:         "Daily Sync",
+		Description:   "Summarize changes",
+		Prompt:        "Summarize changes",
+		WorkspaceID:   workspace.ID,
+		WorkspaceName: workspace.Name,
+		Schedule:      "hourly",
+		ScheduleLabel: "Every hour",
+		Model:         "gpt-5.4",
+		Reasoning:     "medium",
+		Status:        "active",
+		NextRun:       "2026-03-21 09:00",
+	})
+	if err != nil {
+		t.Fatalf("CreateAutomation() error = %v", err)
+	}
+
+	run, err := dataStore.CreateAutomationRun(store.AutomationRun{
+		AutomationID:    automation.ID,
+		AutomationTitle: automation.Title,
+		WorkspaceID:     workspace.ID,
+		WorkspaceName:   workspace.Name,
+		Status:          "completed",
+		Trigger:         "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateAutomationRun() error = %v", err)
+	}
+	if _, err := dataStore.AppendAutomationRunLog(run.ID, store.AutomationRunLogEntry{
+		Level:   "info",
+		Message: "Run started",
+	}); err != nil {
+		t.Fatalf("AppendAutomationRunLog() error = %v", err)
+	}
+
+	notification, err := dataStore.CreateNotification(store.Notification{
+		WorkspaceID:     workspace.ID,
+		WorkspaceName:   workspace.Name,
+		AutomationID:    automation.ID,
+		AutomationTitle: automation.Title,
+		RunID:           run.ID,
+		Kind:            "automation_run_completed",
+		Title:           "Automation completed",
+		Message:         "Daily Sync completed",
+		Level:           "success",
+	})
+	if err != nil {
+		t.Fatalf("CreateNotification() error = %v", err)
+	}
+
+	listRunsResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/automations/"+automation.ID+"/runs",
+		"",
+	)
+	if listRunsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from automation runs route, got %d", listRunsResponse.Code)
+	}
+
+	var listedRuns struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, listRunsResponse, &listedRuns)
+	if len(listedRuns.Data) != 1 || listedRuns.Data[0].ID != run.ID {
+		t.Fatalf("expected listed run id %q, got %#v", run.ID, listedRuns.Data)
+	}
+
+	getRunResponse := performJSONRequest(t, router, http.MethodGet, "/api/automation-runs/"+run.ID, "")
+	if getRunResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from automation run detail route, got %d", getRunResponse.Code)
+	}
+
+	var fetchedRun struct {
+		Data struct {
+			ID   string `json:"id"`
+			Logs []struct {
+				Message string `json:"message"`
+			} `json:"logs"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, getRunResponse, &fetchedRun)
+	if fetchedRun.Data.ID != run.ID || len(fetchedRun.Data.Logs) != 1 {
+		t.Fatalf("expected persisted run details, got %#v", fetchedRun.Data)
+	}
+
+	listNotificationsResponse := performJSONRequest(t, router, http.MethodGet, "/api/notifications", "")
+	if listNotificationsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from notifications route, got %d", listNotificationsResponse.Code)
+	}
+
+	var listedNotifications struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Read bool   `json:"read"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, listNotificationsResponse, &listedNotifications)
+	if len(listedNotifications.Data) != 1 || listedNotifications.Data[0].ID != notification.ID {
+		t.Fatalf("expected listed notification id %q, got %#v", notification.ID, listedNotifications.Data)
+	}
+
+	readNotificationResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/notifications/"+notification.ID+"/read",
+		"",
+	)
+	if readNotificationResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from read notification route, got %d", readNotificationResponse.Code)
+	}
+
+	var readNotification struct {
+		Data struct {
+			Read bool `json:"read"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, readNotificationResponse, &readNotification)
+	if !readNotification.Data.Read {
+		t.Fatal("expected notification to be marked read")
+	}
+
+	markAllResponse := performJSONRequest(t, router, http.MethodPost, "/api/notifications/read-all", "")
+	if markAllResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from read-all notifications route, got %d", markAllResponse.Code)
+	}
+}
+
+func TestAutomationTemplateRoutesSupportCustomTemplates(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+
+	listResponse := performJSONRequest(t, router, http.MethodGet, "/api/automation-templates", "")
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list templates, got %d", listResponse.Code)
+	}
+
+	var listed struct {
+		Data []struct {
+			ID        string `json:"id"`
+			IsBuiltIn bool   `json:"isBuiltIn"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, listResponse, &listed)
+	if len(listed.Data) == 0 || !listed.Data[0].IsBuiltIn {
+		t.Fatalf("expected built-in templates, got %#v", listed.Data)
+	}
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/automation-templates",
+		`{"category":"Custom","title":"Security Audit","description":"Review security posture","prompt":"Audit the repository for security issues."}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create template, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data struct {
+			ID        string `json:"id"`
+			Title     string `json:"title"`
+			IsBuiltIn bool   `json:"isBuiltIn"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+	if created.Data.ID == "" || created.Data.Title != "Security Audit" || created.Data.IsBuiltIn {
+		t.Fatalf("expected created custom template, got %#v", created.Data)
+	}
+
+	updateResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/automation-templates/"+created.Data.ID,
+		`{"category":"Security","title":"Security Audit Updated","description":"Updated","prompt":"Updated prompt"}`,
+	)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from update template, got %d", updateResponse.Code)
+	}
+
+	getResponse := performJSONRequest(t, router, http.MethodGet, "/api/automation-templates/"+created.Data.ID, "")
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from get template, got %d", getResponse.Code)
+	}
+
+	var fetched struct {
+		Data struct {
+			Title    string `json:"title"`
+			Category string `json:"category"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, getResponse, &fetched)
+	if fetched.Data.Title != "Security Audit Updated" || fetched.Data.Category != "Security" {
+		t.Fatalf("expected updated template data, got %#v", fetched.Data)
+	}
+
+	deleteResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodDelete,
+		"/api/automation-templates/"+created.Data.ID,
+		"",
+	)
+	if deleteResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from delete template, got %d", deleteResponse.Code)
+	}
+}
+
+func TestAutomationTemplateRoutesRejectBuiltInMutation(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+
+	updateResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/automation-templates/status-standup",
+		`{"category":"Status Reports","title":"Changed","description":"Changed","prompt":"Changed"}`,
+	)
+	if updateResponse.Code != http.StatusConflict {
+		t.Fatalf("expected 409 from built-in template update, got %d", updateResponse.Code)
+	}
+}
+
 func TestRestartWorkspaceRouteIsWired(t *testing.T) {
 	t.Parallel()
 
@@ -589,14 +845,17 @@ func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
 	eventHub := events.NewHub()
 	eventHub.AttachStore(dataStore)
 	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager)
 
 	router := NewRouter(Dependencies{
 		FrontendOrigin: "http://0.0.0.0:15173",
 		Auth:           auth.NewService(dataStore, runtimeManager),
 		Workspaces:     workspace.NewService(dataStore, runtimeManager),
-		Automations:    automations.NewService(dataStore),
-		Threads:        threads.NewService(dataStore, runtimeManager),
-		Turns:          turns.NewService(runtimeManager),
+		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
+		Notifications:  notifications.NewService(dataStore),
+		Threads:        threadService,
+		Turns:          turnService,
 		Approvals:      approvals.NewService(runtimeManager),
 		Catalog:        catalog.NewService(runtimeManager),
 		ConfigFS:       configfs.NewService(runtimeManager),
@@ -652,13 +911,14 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
-	automationService := automations.NewService(dataStore)
-	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager)
+	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
+	notificationsService := notifications.NewService(dataStore)
+	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
-	turnService := turns.NewService(runtimeManager)
 	execfsService := execfs.NewService(runtimeManager, eventHub)
 
 	return NewRouter(Dependencies{
@@ -666,6 +926,7 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 		Auth:           authService,
 		Workspaces:     workspaceService,
 		Automations:    automationService,
+		Notifications:  notificationsService,
 		Threads:        threadService,
 		Turns:          turnService,
 		Approvals:      approvalsService,
