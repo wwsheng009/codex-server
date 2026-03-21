@@ -9,6 +9,7 @@ export function startTurn(
     model?: string
     reasoningEffort?: string
     permissionPreset?: string
+    collaborationMode?: string
   },
 ) {
   return apiRequest<TurnResult>(`/api/workspaces/${workspaceId}/threads/${threadId}/turns`, {

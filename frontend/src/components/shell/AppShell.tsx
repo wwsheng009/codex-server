@@ -4,6 +4,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { InlineNotice } from '../ui/InlineNotice'
 import { RenameDialog } from '../ui/RenameDialog'
 import { layoutConfig } from '../../lib/layout-config'
 import { getErrorMessage } from '../../lib/error-utils'
@@ -23,6 +24,7 @@ import {
   FolderClosedIcon,
   FolderOpenIcon,
   MoreActionsIcon,
+  PlusIcon,
   RailIcon,
   RailIconButton,
   ResizeHandle,
@@ -31,11 +33,12 @@ import {
   TerminalIcon,
 } from '../ui/RailControls'
 import { createThread, deleteThread, listThreads, renameThread } from '../../features/threads/api'
-import { deleteWorkspace, listWorkspaces, renameWorkspace } from '../../features/workspaces/api'
+import { deleteWorkspace, listWorkspaces, renameWorkspace, restartWorkspace } from '../../features/workspaces/api'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
+import { useUIStore } from '../../stores/ui-store'
 import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
-import type { Thread, ThreadDetail, Workspace } from '../../types/api'
+import type { ServerEvent, Thread, ThreadDetail, Workspace } from '../../types/api'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { AppMenuBar } from './AppMenuBar'
 
@@ -82,9 +85,22 @@ type DeleteTarget =
     }
   | null
 
-type CreateThreadTarget = Workspace | null
-
 const DEFAULT_VISIBLE_THREADS = 8
+const RUNNING_THREAD_EVENT_METHODS = new Set([
+  'turn/started',
+  'item/started',
+  'item/agentMessage/delta',
+  'item/plan/delta',
+  'item/reasoning/summaryTextDelta',
+  'item/reasoning/textDelta',
+  'item/commandExecution/outputDelta',
+])
+const STOPPED_THREAD_EVENT_METHODS = new Set([
+  'turn/completed',
+  'thread/closed',
+  'thread/archived',
+  'thread/unarchived',
+])
 
 function updateThreadInList(current: Thread[] | undefined, thread: Thread) {
   if (!current?.length) {
@@ -113,6 +129,53 @@ function updateWorkspaceInList(current: Workspace[] | undefined, workspace: Work
   return current.map((item) => (item.id === workspace.id ? workspace : item))
 }
 
+function statusIsInterruptible(value?: string) {
+  const normalized = (value ?? '').toLowerCase().replace(/[\s_-]+/g, '')
+  return ['running', 'processing', 'sending', 'waiting', 'inprogress', 'started'].includes(normalized)
+}
+
+function stringField(value: unknown) {
+  return typeof value === 'string' ? value : ''
+}
+
+function threadStatusFromEvent(event?: ServerEvent) {
+  if (!event || event.method !== 'thread/status/changed') {
+    return ''
+  }
+
+  if (typeof event.payload !== 'object' || event.payload === null) {
+    return ''
+  }
+
+  const payload = event.payload as Record<string, unknown>
+  const status = payload.status
+  if (typeof status !== 'object' || status === null) {
+    return ''
+  }
+
+  return stringField((status as Record<string, unknown>).type)
+}
+
+function threadIsRunning(thread: Thread, events: ServerEvent[] | undefined) {
+  const latestEvent = events?.[events.length - 1]
+  if (latestEvent) {
+    const nextStatus = threadStatusFromEvent(latestEvent)
+    if (nextStatus) {
+      return statusIsInterruptible(nextStatus)
+    }
+
+    if (STOPPED_THREAD_EVENT_METHODS.has(latestEvent.method)) {
+      return false
+    }
+
+    if (RUNNING_THREAD_EVENT_METHODS.has(latestEvent.method)) {
+      return true
+    }
+  }
+
+  return statusIsInterruptible(thread.status)
+}
+
 export function AppShell() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -130,8 +193,6 @@ export function AppShell() {
   const [renameTarget, setRenameTarget] = useState<RenameTarget>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
-  const [createThreadTarget, setCreateThreadTarget] = useState<CreateThreadTarget>(null)
-  const [createThreadName, setCreateThreadName] = useState('')
   const [visibleThreadCountByWorkspace, setVisibleThreadCountByWorkspace] = useState<Record<string, number>>({})
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -141,6 +202,11 @@ export function AppShell() {
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace)
   const selectedWorkspaceId = useSessionStore((state) => state.selectedWorkspaceId)
   const selectedThreadIdByWorkspace = useSessionStore((state) => state.selectedThreadIdByWorkspace)
+  const eventsByThread = useSessionStore((state) => state.eventsByThread)
+  const workspaceRestartStateById = useUIStore((state) => state.workspaceRestartStateById)
+  const markWorkspaceRestarting = useUIStore((state) => state.markWorkspaceRestarting)
+  const markWorkspaceRestarted = useUIStore((state) => state.markWorkspaceRestarted)
+  const clearWorkspaceRestartState = useUIStore((state) => state.clearWorkspaceRestartState)
 
   const workspacesQuery = useQuery({
     queryKey: ['shell-workspaces'],
@@ -183,7 +249,6 @@ export function AppShell() {
     setOpenMenu(null)
     setRenameTarget(null)
     setDeleteTarget(null)
-    setCreateThreadTarget(null)
   }, [location.pathname])
 
   useEffect(() => {
@@ -273,6 +338,17 @@ export function AppShell() {
     ])
   }
 
+  async function invalidateWorkspaceRuntimeQueries(workspaceId: string) {
+    await Promise.all([
+      invalidateWorkspaceQueries(),
+      queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+    ])
+  }
+
   const renameWorkspaceMutation = useMutation({
     mutationFn: ({ workspaceId, name }: { workspaceId: string; name: string }) =>
       renameWorkspace(workspaceId, { name }),
@@ -313,9 +389,32 @@ export function AppShell() {
     },
   })
 
+  const restartWorkspaceMutation = useMutation({
+    mutationFn: (workspaceId: string) => restartWorkspace(workspaceId),
+    onMutate: (workspaceId) => {
+      markWorkspaceRestarting(workspaceId)
+    },
+    onSuccess: async (workspace) => {
+      markWorkspaceRestarted(workspace.id)
+      setOpenMenu(null)
+      queryClient.setQueryData<Workspace[]>(['shell-workspaces'], (current) =>
+        updateWorkspaceInList(current, workspace),
+      )
+      queryClient.setQueryData<Workspace[]>(['workspaces'], (current) =>
+        updateWorkspaceInList(current, workspace),
+      )
+      queryClient.setQueryData<Workspace>(['workspace', workspace.id], workspace)
+    },
+    onError: (_, workspaceId) => {
+      clearWorkspaceRestartState(workspaceId)
+    },
+    onSettled: async (_, __, workspaceId) => {
+      await invalidateWorkspaceRuntimeQueries(workspaceId)
+    },
+  })
+
   const createThreadMutation = useMutation({
-    mutationFn: ({ workspaceId, name }: { workspaceId: string; name: string }) =>
-      createThread(workspaceId, { name }),
+    mutationFn: ({ workspaceId }: { workspaceId: string }) => createThread(workspaceId),
     onSuccess: async (thread) => {
       queryClient.setQueryData<Thread[]>(['threads', thread.workspaceId], (current) =>
         upsertThreadInList(current, thread),
@@ -334,8 +433,6 @@ export function AppShell() {
         [thread.workspaceId]: Math.max(current[thread.workspaceId] ?? DEFAULT_VISIBLE_THREADS, DEFAULT_VISIBLE_THREADS),
       }))
       setOpenMenu(null)
-      setCreateThreadTarget(null)
-      setCreateThreadName('')
       await Promise.all([
         invalidateThreadQueries(thread.workspaceId),
         invalidateWorkspaceQueries(),
@@ -408,23 +505,17 @@ export function AppShell() {
   function handleWorkspaceClick(workspaceId: string) {
     const isExpanded = isWorkspaceGroupExpanded(workspaceId)
 
-    setSelectedWorkspace(workspaceId)
     setWorkspaceThreadGroupsCollapsed((current) => ({
       ...current,
       [workspaceId]: isExpanded,
     }))
-
-    if (isMobileViewport) {
-      setIsMobileSidebarOpen(false)
-    }
-
-    navigate(`/workspaces/${workspaceId}`)
   }
 
   function handleCreateThreadForWorkspace(workspace: Workspace) {
     if (
       createThreadMutation.isPending ||
       renameWorkspaceMutation.isPending ||
+      restartWorkspaceMutation.isPending ||
       deleteWorkspaceMutation.isPending ||
       renameThreadMutation.isPending ||
       deleteThreadMutation.isPending
@@ -434,14 +525,16 @@ export function AppShell() {
 
     createThreadMutation.reset()
     setOpenMenu(null)
-    setCreateThreadTarget(workspace)
-    setCreateThreadName('New Thread')
+    createThreadMutation.mutate({
+      workspaceId: workspace.id,
+    })
   }
 
   function handleRenameWorkspace(workspace: Workspace) {
     if (
       createThreadMutation.isPending ||
       renameWorkspaceMutation.isPending ||
+      restartWorkspaceMutation.isPending ||
       deleteWorkspaceMutation.isPending ||
       renameThreadMutation.isPending ||
       deleteThreadMutation.isPending
@@ -458,9 +551,27 @@ export function AppShell() {
     setRenameValue(workspace.name)
   }
 
+  function handleRestartWorkspace(workspace: Workspace) {
+    if (
+      createThreadMutation.isPending ||
+      renameWorkspaceMutation.isPending ||
+      restartWorkspaceMutation.isPending ||
+      deleteWorkspaceMutation.isPending ||
+      renameThreadMutation.isPending ||
+      deleteThreadMutation.isPending
+    ) {
+      return
+    }
+
+    restartWorkspaceMutation.reset()
+    setOpenMenu(null)
+    restartWorkspaceMutation.mutate(workspace.id)
+  }
+
   function handleDeleteWorkspace(workspace: Workspace) {
     if (
       createThreadMutation.isPending ||
+      restartWorkspaceMutation.isPending ||
       deleteWorkspaceMutation.isPending ||
       renameWorkspaceMutation.isPending ||
       renameThreadMutation.isPending ||
@@ -529,16 +640,6 @@ export function AppShell() {
     renameThreadMutation.reset()
   }
 
-  function handleCloseCreateThreadDialog() {
-    if (createThreadMutation.isPending) {
-      return
-    }
-
-    setCreateThreadTarget(null)
-    setCreateThreadName('')
-    createThreadMutation.reset()
-  }
-
   function handleSubmitRenameDialog() {
     if (!renameTarget || renameThreadMutation.isPending || renameWorkspaceMutation.isPending) {
       return
@@ -572,22 +673,6 @@ export function AppShell() {
     })
   }
 
-  function handleSubmitCreateThreadDialog() {
-    if (!createThreadTarget || createThreadMutation.isPending) {
-      return
-    }
-
-    const trimmedName = createThreadName.trim()
-    if (!trimmedName) {
-      return
-    }
-
-    createThreadMutation.mutate({
-      workspaceId: createThreadTarget.id,
-      name: trimmedName,
-    })
-  }
-
   function handleCloseDeleteDialog() {
     if (deleteThreadMutation.isPending || deleteWorkspaceMutation.isPending || createThreadMutation.isPending) {
       return
@@ -602,6 +687,13 @@ export function AppShell() {
     setVisibleThreadCountByWorkspace((current) => ({
       ...current,
       [workspaceId]: (current[workspaceId] ?? DEFAULT_VISIBLE_THREADS) + DEFAULT_VISIBLE_THREADS,
+    }))
+  }
+
+  function handleShowLessThreads(workspaceId: string) {
+    setVisibleThreadCountByWorkspace((current) => ({
+      ...current,
+      [workspaceId]: DEFAULT_VISIBLE_THREADS,
     }))
   }
 
@@ -689,33 +781,6 @@ export function AppShell() {
               onPointerDown={handleSidebarResizeStart}
             />
           ) : null}
-          <div className="web-ide__brand">
-            <div className="web-ide__brand-mark">C</div>
-            {shouldShowSidebarLabels ? (
-              <div>
-                <strong>codex-server</strong>
-                <p>Web IDE prototype</p>
-              </div>
-            ) : null}
-            <RailIconButton
-              aria-label={
-                isMobileViewport
-                  ? 'Close navigation'
-                  : isSidebarCollapsed
-                    ? 'Expand sidebar'
-                    : 'Collapse sidebar'
-              }
-              className="web-ide__sidebar-toggle"
-              onClick={() =>
-                isMobileViewport
-                  ? setIsMobileSidebarOpen(false)
-                  : setIsSidebarCollapsed((current) => !current)
-              }
-            >
-              {isMobileViewport ? <ChevronLeftIcon /> : isSidebarCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-            </RailIconButton>
-          </div>
-
           <div className="web-ide__sidebar-body">
             <nav className="web-ide__primary-nav">
               {primaryNav.map((item) => (
@@ -743,13 +808,50 @@ export function AppShell() {
             {shouldShowSidebarLabels && !isSettingsRoute ? (
               <div className="web-ide__workspace-tree">
                 <div className="web-ide__section-title">Workspaces</div>
+                {restartWorkspaceMutation.error ? (
+                  <InlineNotice
+                    details={getErrorMessage(restartWorkspaceMutation.error)}
+                    dismissible
+                    noticeKey={`sidebar-restart-workspace-${restartWorkspaceMutation.error instanceof Error ? restartWorkspaceMutation.error.message : 'unknown'}`}
+                    onRetry={() => {
+                      if (restartWorkspaceMutation.variables) {
+                        restartWorkspaceMutation.mutate(restartWorkspaceMutation.variables)
+                      }
+                    }}
+                    title="Failed To Restart Workspace"
+                    tone="error"
+                  >
+                    {getErrorMessage(restartWorkspaceMutation.error)}
+                  </InlineNotice>
+                ) : null}
+                {createThreadMutation.error ? (
+                  <InlineNotice
+                    details={getErrorMessage(createThreadMutation.error)}
+                    dismissible
+                    noticeKey={`sidebar-create-thread-${createThreadMutation.error instanceof Error ? createThreadMutation.error.message : 'unknown'}`}
+                    onRetry={() => {
+                      if (createThreadMutation.variables?.workspaceId) {
+                        createThreadMutation.mutate(createThreadMutation.variables)
+                      }
+                    }}
+                    title="Failed To Create Thread"
+                    tone="error"
+                  >
+                    {getErrorMessage(createThreadMutation.error)}
+                  </InlineNotice>
+                ) : null}
                 {workspacesQuery.data?.map((workspace, index) => {
                   const threads = threadQueries[index]?.data ?? []
+                  const restartPhase = workspaceRestartStateById[workspace.id]
+                  const visualRuntimeStatus =
+                    restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
                   const isWorkspaceGroupOpen = isWorkspaceGroupExpanded(workspace.id)
                   const visibleThreadCount =
                     visibleThreadCountByWorkspace[workspace.id] ?? DEFAULT_VISIBLE_THREADS
                   const visibleThreads = threads.slice(0, visibleThreadCount)
                   const remainingThreadCount = Math.max(0, threads.length - visibleThreads.length)
+                  const canShowLessThreads =
+                    visibleThreadCount > DEFAULT_VISIBLE_THREADS && threads.length > DEFAULT_VISIBLE_THREADS
                   const activeThreadId = getSelectedThreadIdForWorkspace(
                     {
                       selectedWorkspaceId,
@@ -757,37 +859,89 @@ export function AppShell() {
                     },
                     workspace.id,
                   )
+                  const workspaceRouteActive = location.pathname.startsWith(`/workspaces/${workspace.id}`)
 
                   return (
-                    <section className="workspace-tree__group" key={workspace.id}>
+                    <section
+                      className={[
+                        'workspace-tree__group',
+                        restartPhase === 'restarting' ? 'workspace-tree__group--restarting' : '',
+                        restartPhase === 'restarted' ? 'workspace-tree__group--restarted' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      key={workspace.id}
+                    >
                       <div className="workspace-tree__group-header">
                         <button
-                          className={
-                            isWorkspaceGroupOpen
-                              ? location.pathname.startsWith(`/workspaces/${workspace.id}`)
-                                ? 'workspace-tree__workspace workspace-tree__workspace--expanded workspace-tree__workspace--active'
-                                : 'workspace-tree__workspace workspace-tree__workspace--expanded'
-                              : location.pathname.startsWith(`/workspaces/${workspace.id}`)
-                                ? 'workspace-tree__workspace workspace-tree__workspace--active'
-                                : 'workspace-tree__workspace'
-                          }
+                          aria-controls={`workspace-threads-${workspace.id}`}
+                          aria-expanded={isWorkspaceGroupOpen}
+                          aria-busy={restartPhase === 'restarting'}
+                          className={[
+                            'workspace-tree__workspace',
+                            isWorkspaceGroupOpen ? 'workspace-tree__workspace--expanded' : '',
+                            location.pathname.startsWith(`/workspaces/${workspace.id}`)
+                              ? 'workspace-tree__workspace--active'
+                              : '',
+                            restartPhase === 'restarting' ? 'workspace-tree__workspace--restarting' : '',
+                            restartPhase === 'restarted' ? 'workspace-tree__workspace--restarted' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
                           onClick={() => handleWorkspaceClick(workspace.id)}
                           type="button"
                         >
-                          <span className="workspace-tree__workspace-icon" aria-hidden="true">
+                          <span
+                            aria-hidden="true"
+                            className={[
+                              'workspace-tree__workspace-icon',
+                              restartPhase === 'restarting'
+                                ? 'workspace-tree__workspace-icon--restarting'
+                                : '',
+                              restartPhase === 'restarted'
+                                ? 'workspace-tree__workspace-icon--restarted'
+                                : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                          >
                             {isWorkspaceGroupOpen ? <FolderOpenIcon /> : <FolderClosedIcon />}
                           </span>
                           <span className="workspace-tree__workspace-copy">
                             <span className="workspace-tree__workspace-name">{workspace.name}</span>
                             <span className="workspace-tree__workspace-meta">
-                              {threads.length} threads · {workspace.runtimeStatus}
+                              {threads.length} threads · {visualRuntimeStatus}
                             </span>
+                            {restartPhase ? (
+                              <span
+                                className={[
+                                  'workspace-tree__workspace-runtime',
+                                  restartPhase === 'restarting'
+                                    ? 'workspace-tree__workspace-runtime--restarting'
+                                    : 'workspace-tree__workspace-runtime--restarted',
+                                ].join(' ')}
+                              >
+                                {restartPhase === 'restarting'
+                                  ? 'Restarting runtime'
+                                  : 'Runtime refreshed'}
+                              </span>
+                            ) : null}
                           </span>
                         </button>
                         <div
                           className="workspace-tree__workspace-actions"
                           ref={isWorkspaceMenuOpen(workspace.id) ? menuRef : undefined}
                         >
+                          <button
+                            aria-label={`Create thread in ${workspace.name}`}
+                            className="workspace-tree__create-trigger"
+                            disabled={createThreadMutation.isPending || restartPhase === 'restarting'}
+                            onClick={() => handleCreateThreadForWorkspace(workspace)}
+                            title={`Create thread in ${workspace.name}`}
+                            type="button"
+                          >
+                            <PlusIcon />
+                          </button>
                           <button
                             aria-expanded={isWorkspaceMenuOpen(workspace.id)}
                             aria-label={`Open actions for ${workspace.name}`}
@@ -812,19 +966,27 @@ export function AppShell() {
                             <div className="workspace-tree__menu" role="menu">
                               <button
                                 className="workspace-tree__menu-item"
-                                disabled={createThreadMutation.isPending}
-                                onClick={() => handleCreateThreadForWorkspace(workspace)}
+                                disabled={
+                                  restartPhase === 'restarting' ||
+                                  renameWorkspaceMutation.isPending ||
+                                  restartWorkspaceMutation.isPending ||
+                                  deleteWorkspaceMutation.isPending
+                                }
+                                onClick={() => handleRestartWorkspace(workspace)}
                                 type="button"
                               >
-                                {createThreadMutation.isPending &&
-                                createThreadTarget?.id === workspace.id
-                                  ? 'Creating…'
-                                  : 'New Thread'}
+                                {restartWorkspaceMutation.isPending &&
+                                restartWorkspaceMutation.variables === workspace.id
+                                  ? 'Restarting…'
+                                  : 'Restart'}
                               </button>
                               <button
                                 className="workspace-tree__menu-item"
                                 disabled={
-                                  renameWorkspaceMutation.isPending || deleteWorkspaceMutation.isPending
+                                  restartPhase === 'restarting' ||
+                                  renameWorkspaceMutation.isPending ||
+                                  restartWorkspaceMutation.isPending ||
+                                  deleteWorkspaceMutation.isPending
                                 }
                                 onClick={() => handleRenameWorkspace(workspace)}
                                 type="button"
@@ -834,7 +996,10 @@ export function AppShell() {
                               <button
                                 className="workspace-tree__menu-item workspace-tree__menu-item--danger"
                                 disabled={
-                                  renameWorkspaceMutation.isPending || deleteWorkspaceMutation.isPending
+                                  restartPhase === 'restarting' ||
+                                  renameWorkspaceMutation.isPending ||
+                                  restartWorkspaceMutation.isPending ||
+                                  deleteWorkspaceMutation.isPending
                                 }
                                 onClick={() => handleDeleteWorkspace(workspace)}
                                 type="button"
@@ -852,7 +1017,17 @@ export function AppShell() {
 
                       {isWorkspaceGroupOpen ? (
                         <div className="workspace-tree__threads" id={`workspace-threads-${workspace.id}`}>
-                          {visibleThreads.map((thread) => (
+                          {visibleThreads.map((thread) => {
+                            const running = threadIsRunning(thread, eventsByThread[thread.id])
+                            const activityTone = running
+                              ? workspaceRouteActive &&
+                                selectedWorkspaceId === workspace.id &&
+                                activeThreadId === thread.id
+                                ? 'foreground'
+                                : 'background'
+                              : null
+
+                            return (
                             <div className="workspace-tree__thread-row" key={thread.id}>
                               <button
                                 className={
@@ -870,7 +1045,19 @@ export function AppShell() {
                                 }}
                                 type="button"
                               >
-                                <span className="workspace-tree__thread-title">{thread.name}</span>
+                                <span className="workspace-tree__thread-title-shell">
+                                  {activityTone ? (
+                                    <span
+                                      aria-hidden="true"
+                                      className={
+                                        activityTone === 'foreground'
+                                          ? 'workspace-tree__thread-activity workspace-tree__thread-activity--foreground'
+                                          : 'workspace-tree__thread-activity workspace-tree__thread-activity--background'
+                                      }
+                                    />
+                                  ) : null}
+                                  <span className="workspace-tree__thread-title">{thread.name}</span>
+                                </span>
                                 <span className="workspace-tree__thread-meta">
                                   {formatRelativeTimeShort(thread.updatedAt)}
                                 </span>
@@ -930,15 +1117,29 @@ export function AppShell() {
                                 ) : null}
                               </div>
                             </div>
-                          ))}
-                          {remainingThreadCount > 0 ? (
-                            <button
-                              className="workspace-tree__show-more"
-                              onClick={() => handleShowMoreThreads(workspace.id)}
-                              type="button"
-                            >
-                              Show {Math.min(DEFAULT_VISIBLE_THREADS, remainingThreadCount)} more
-                            </button>
+                            )
+                          })}
+                          {remainingThreadCount > 0 || canShowLessThreads ? (
+                            <div className="workspace-tree__thread-pagination">
+                              {remainingThreadCount > 0 ? (
+                                <button
+                                  className="workspace-tree__show-more"
+                                  onClick={() => handleShowMoreThreads(workspace.id)}
+                                  type="button"
+                                >
+                                  Show {Math.min(DEFAULT_VISIBLE_THREADS, remainingThreadCount)} more
+                                </button>
+                              ) : null}
+                              {canShowLessThreads ? (
+                                <button
+                                  className="workspace-tree__show-more"
+                                  onClick={() => handleShowLessThreads(workspace.id)}
+                                  type="button"
+                                >
+                                  Show less
+                                </button>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
                       ) : null}
@@ -967,6 +1168,23 @@ export function AppShell() {
               </RailIcon>
               {shouldShowSidebarLabels ? <span className="web-ide__primary-link-label">Settings</span> : null}
             </NavLink>
+            <RailIconButton
+              aria-label={
+                isMobileViewport ? 'Close navigation' : isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
+              }
+              className="web-ide__sidebar-toggle"
+              onClick={() => {
+                if (isMobileViewport) {
+                  setIsMobileSidebarOpen(false)
+                  return
+                }
+
+                setIsSidebarCollapsed((current) => !current)
+              }}
+              title={isMobileViewport ? 'Close navigation' : isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {isMobileViewport ? <ChevronLeftIcon /> : isSidebarCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+            </RailIconButton>
           </div>
         </aside>
 
@@ -1012,22 +1230,6 @@ export function AppShell() {
           submitLabel={renameTarget.kind === 'workspace' ? 'Save Workspace' : 'Save Thread'}
           title={renameTarget.kind === 'workspace' ? 'Rename Workspace' : 'Rename Thread'}
           value={renameValue}
-        />
-      ) : null}
-      {createThreadTarget ? (
-        <RenameDialog
-          description={`Create a new thread in ${createThreadTarget.name}.`}
-          error={createThreadMutation.error ? getErrorMessage(createThreadMutation.error) : null}
-          fieldLabel="Thread Name"
-          isPending={createThreadMutation.isPending}
-          isSubmitDisabled={!createThreadName.trim()}
-          onChange={setCreateThreadName}
-          onClose={handleCloseCreateThreadDialog}
-          onSubmit={handleSubmitCreateThreadDialog}
-          placeholder="New Thread"
-          submitLabel="Create Thread"
-          title="Create Thread"
-          value={createThreadName}
         />
       ) : null}
       {deleteTarget ? (

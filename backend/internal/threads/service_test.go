@@ -146,7 +146,7 @@ func TestThreadIsMaterializedWhenPreviewExists(t *testing.T) {
 	}
 }
 
-func TestFilterStoredThreadsSkipsNonMaterializedEntries(t *testing.T) {
+func TestFilterStoredThreadsKeepsCreatedUnmaterializedEntries(t *testing.T) {
 	t.Parallel()
 
 	items := filterStoredThreads([]store.Thread{
@@ -164,8 +164,8 @@ func TestFilterStoredThreadsSkipsNonMaterializedEntries(t *testing.T) {
 		},
 	}, normalizePath(`E:\projects\ai\codex-server`))
 
-	if len(items) != 1 || items[0].ID != "thread-1" {
-		t.Fatalf("expected only the materialized thread to remain, got %+v", items)
+	if len(items) != 2 {
+		t.Fatalf("expected both stored threads to remain, got %+v", items)
 	}
 }
 
@@ -320,6 +320,98 @@ func TestApplyStoredProjectionExpiresUnavailableServerRequests(t *testing.T) {
 
 	if got := detail.Turns[0].Items[0]["status"]; got != "expired" {
 		t.Fatalf("expected unavailable request to be marked expired, got %#v", got)
+	}
+}
+
+func TestApplyStoredProjectionMergesEquivalentConversationItemsWithDifferentIDs(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/started",
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"item": map[string]any{
+				"id":   "item-1",
+				"type": "userMessage",
+				"content": []any{
+					map[string]any{
+						"text": "Reply with exactly: hello",
+						"type": "text",
+					},
+				},
+			},
+		},
+	})
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/completed",
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"item": map[string]any{
+				"id":    "item-2",
+				"type":  "agentMessage",
+				"text":  "hello",
+				"phase": "final_answer",
+			},
+		},
+	})
+
+	detail := applyStoredProjection(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "idle",
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":   "a0e5a61e-1a69-4cf8-b34c-0d3c80d90d3a",
+						"type": "userMessage",
+						"content": []any{
+							map[string]any{
+								"text": "Reply with exactly: hello",
+								"type": "text",
+							},
+						},
+					},
+					{
+						"id":   "msg_123",
+						"type": "agentMessage",
+						"text": "hello",
+					},
+				},
+			},
+		},
+	}, dataStore, runtime.NewManager("codex app-server --listen stdio://", nil), workspace.ID, "thread-1")
+
+	if len(detail.Turns) != 1 {
+		t.Fatalf("expected 1 turn after merge, got %d", len(detail.Turns))
+	}
+	if len(detail.Turns[0].Items) != 2 {
+		t.Fatalf("expected duplicate conversation items to merge, got %d items", len(detail.Turns[0].Items))
+	}
+	if got := detail.Turns[0].Items[0]["id"]; got != "a0e5a61e-1a69-4cf8-b34c-0d3c80d90d3a" {
+		t.Fatalf("expected canonical user item id to be preserved, got %#v", got)
+	}
+	if got := detail.Turns[0].Items[1]["id"]; got != "msg_123" {
+		t.Fatalf("expected canonical agent item id to be preserved, got %#v", got)
+	}
+	if got := detail.Turns[0].Items[1]["text"]; got != "hello" {
+		t.Fatalf("expected canonical agent item text to survive merge, got %#v", got)
 	}
 }
 

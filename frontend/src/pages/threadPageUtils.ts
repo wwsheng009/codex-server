@@ -1,3 +1,5 @@
+import type { ThreadTurn } from '../types/api'
+
 const threadQueryRefreshMethods = new Set([
   'thread/started',
   'thread/status/changed',
@@ -58,4 +60,55 @@ export function isViewportNearBottom(
   thresholdPx = THREAD_VIEWPORT_NEAR_BOTTOM_THRESHOLD_PX,
 ) {
   return scrollHeight - (scrollTop + clientHeight) <= thresholdPx
+}
+
+export function latestSettledMessageKey(turns: ThreadTurn[]) {
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = turns[turnIndex]
+
+    for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = turn.items[itemIndex]
+      const type = typeof item.type === 'string' ? item.type : ''
+
+      if (type === 'agentMessage') {
+        const text = typeof item.text === 'string' ? item.text : ''
+        const phase = typeof item.phase === 'string' ? item.phase : ''
+        if (!text.trim() || phase === 'streaming') {
+          continue
+        }
+
+        return `${turn.id}:${String(item.id ?? itemIndex)}:agent:${text.length}`
+      }
+
+      if (type === 'userMessage') {
+        const text = userMessageText(item)
+        if (!text.trim()) {
+          continue
+        }
+
+        return `${turn.id}:${String(item.id ?? itemIndex)}:user:${text.length}`
+      }
+    }
+  }
+
+  return ''
+}
+
+function userMessageText(item: Record<string, unknown>) {
+  if (!Array.isArray(item.content)) {
+    return ''
+  }
+
+  return item.content
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) {
+        return ''
+      }
+
+      return typeof (entry as Record<string, unknown>).text === 'string'
+        ? String((entry as Record<string, unknown>).text)
+        : ''
+    })
+    .filter(Boolean)
+    .join('\n')
 }

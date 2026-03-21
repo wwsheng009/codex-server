@@ -54,9 +54,7 @@ func (s *Service) List(ctx context.Context, workspaceID string) ([]store.Thread,
 }
 
 func (s *Service) Create(ctx context.Context, workspaceID string, input CreateInput) (store.Thread, error) {
-	if strings.TrimSpace(input.Name) == "" {
-		return store.Thread{}, errors.New("thread name is required")
-	}
+	trimmedName := strings.TrimSpace(input.Name)
 
 	var response struct {
 		Thread map[string]any `json:"thread"`
@@ -71,13 +69,18 @@ func (s *Service) Create(ctx context.Context, workspaceID string, input CreateIn
 		return store.Thread{}, errors.New("thread/start returned empty thread id")
 	}
 
-	if _, err := s.Rename(ctx, workspaceID, threadID, input.Name); err != nil {
-		return store.Thread{}, err
+	if trimmedName != "" {
+		if _, err := s.Rename(ctx, workspaceID, threadID, trimmedName); err != nil {
+			return store.Thread{}, err
+		}
 	}
 
 	thread, err := s.Get(ctx, workspaceID, threadID)
 	if err != nil {
 		return store.Thread{}, err
+	}
+	if !thread.Materialized {
+		s.store.UpsertThread(thread)
 	}
 
 	return thread, nil
@@ -448,7 +451,7 @@ func mergeThreads(primary []store.Thread, secondary []store.Thread) []store.Thre
 func filterStoredThreads(items []store.Thread, workspaceRoot string) []store.Thread {
 	filtered := make([]store.Thread, 0, len(items))
 	for _, thread := range items {
-		if storedThreadBelongsToWorkspace(thread, workspaceRoot) && thread.Materialized {
+		if storedThreadBelongsToWorkspace(thread, workspaceRoot) {
 			filtered = append(filtered, thread)
 		}
 	}
@@ -613,18 +616,24 @@ func mergeProjectedItems(base []map[string]any, overlay []map[string]any) []map[
 
 	nextItems := cloneItems(base)
 	for _, projectedItem := range overlay {
-		itemID := stringValue(projectedItem["id"])
-		if itemID == "" {
+		projectedID := stringValue(projectedItem["id"])
+		if projectedID == "" {
 			nextItems = append(nextItems, cloneItem(projectedItem))
 			continue
 		}
 
 		index := -1
 		for itemIndex, item := range nextItems {
-			if stringValue(item["id"]) == itemID {
+			if stringValue(item["id"]) == projectedID {
 				index = itemIndex
 				break
 			}
+		}
+
+		semanticMatch := false
+		if index < 0 {
+			index = findEquivalentProjectedItemIndex(nextItems, projectedItem)
+			semanticMatch = index >= 0
 		}
 
 		if index < 0 {
@@ -632,10 +641,139 @@ func mergeProjectedItems(base []map[string]any, overlay []map[string]any) []map[
 			continue
 		}
 
-		nextItems[index] = mergeProjectedItem(nextItems[index], projectedItem)
+		merged := mergeProjectedItem(nextItems[index], projectedItem)
+		if semanticMatch {
+			merged["id"] = chooseCanonicalProjectedItemID(
+				stringValue(nextItems[index]["id"]),
+				projectedID,
+			)
+		}
+		nextItems[index] = merged
 	}
 
 	return nextItems
+}
+
+func findEquivalentProjectedItemIndex(items []map[string]any, candidate map[string]any) int {
+	candidateType := stringValue(candidate["type"])
+	if candidateType == "" {
+		return -1
+	}
+
+	candidateText := projectedItemSemanticText(candidate)
+	matchingTypeIndices := make([]int, 0, len(items))
+
+	for index, item := range items {
+		if stringValue(item["type"]) != candidateType {
+			continue
+		}
+
+		matchingTypeIndices = append(matchingTypeIndices, index)
+		if candidateText != "" && projectedItemSemanticText(item) == candidateText {
+			return index
+		}
+	}
+
+	switch candidateType {
+	case "userMessage", "agentMessage", "reasoning":
+		if len(matchingTypeIndices) == 1 {
+			return matchingTypeIndices[0]
+		}
+	}
+
+	return -1
+}
+
+func projectedItemSemanticText(item map[string]any) string {
+	switch stringValue(item["type"]) {
+	case "userMessage":
+		return normalizeProjectedItemText(userMessageContentText(item))
+	case "agentMessage", "plan":
+		return normalizeProjectedItemText(stringValue(item["text"]))
+	case "reasoning":
+		return normalizeProjectedItemText(
+			strings.Join(stringListValue(item["summary"]), "\n") + "\n" + strings.Join(stringListValue(item["content"]), "\n"),
+		)
+	default:
+		return ""
+	}
+}
+
+func userMessageContentText(item map[string]any) string {
+	rawContent, ok := item["content"].([]any)
+	if !ok || len(rawContent) == 0 {
+		return ""
+	}
+
+	lines := make([]string, 0, len(rawContent))
+	for _, rawEntry := range rawContent {
+		entry, ok := rawEntry.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		text := strings.TrimSpace(stringValue(entry["text"]))
+		if text != "" {
+			lines = append(lines, text)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func stringListValue(value any) []string {
+	rawItems, ok := value.([]any)
+	if !ok || len(rawItems) == 0 {
+		return nil
+	}
+
+	items := make([]string, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		text := strings.TrimSpace(stringValue(rawItem))
+		if text != "" {
+			items = append(items, text)
+		}
+	}
+
+	return items
+}
+
+func normalizeProjectedItemText(value string) string {
+	return strings.TrimSpace(strings.ReplaceAll(value, "\r\n", "\n"))
+}
+
+func chooseCanonicalProjectedItemID(baseID string, overlayID string) string {
+	if baseID == "" {
+		return overlayID
+	}
+	if overlayID == "" {
+		return baseID
+	}
+
+	baseTemporary := isTemporaryProjectedItemID(baseID)
+	overlayTemporary := isTemporaryProjectedItemID(overlayID)
+	switch {
+	case baseTemporary && !overlayTemporary:
+		return overlayID
+	case !baseTemporary && overlayTemporary:
+		return baseID
+	default:
+		return baseID
+	}
+}
+
+func isTemporaryProjectedItemID(value string) bool {
+	if !strings.HasPrefix(value, "item-") {
+		return false
+	}
+
+	for _, r := range value[len("item-"):] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return len(value) > len("item-")
 }
 
 func mergeProjectedItem(base map[string]any, overlay map[string]any) map[string]any {

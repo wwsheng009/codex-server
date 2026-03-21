@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import {
   getAppearanceThemeLabel,
   getQuickToggleTheme,
@@ -5,8 +6,9 @@ import {
 } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
+import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
-import { RailIconButton, ToolsIcon } from '../ui/RailControls'
+import { RefreshIcon, RailIconButton, ToolsIcon } from '../ui/RailControls'
 import { useLocation } from 'react-router-dom'
 
 const menuItems = ['File', 'Edit', 'View', 'Window', 'Help']
@@ -62,12 +64,18 @@ export function AppMenuBar({
   onOpenSidebar,
   showMobileNavButton = false,
 }: AppMenuBarProps) {
+  const queryClient = useQueryClient()
   const location = useLocation()
   const theme = useSettingsLocalStore((state) => state.theme)
   const setTheme = useSettingsLocalStore((state) => state.setTheme)
   const mobileThreadChromeVisible = useUIStore((state) => state.mobileThreadChromeVisible)
   const mobileThreadStatusLabel = useUIStore((state) => state.mobileThreadStatusLabel)
   const mobileThreadStatusTone = useUIStore((state) => state.mobileThreadStatusTone)
+  const mobileThreadSyncLabel = useUIStore((state) => state.mobileThreadSyncLabel)
+  const mobileThreadSyncTitle = useUIStore((state) => state.mobileThreadSyncTitle)
+  const mobileThreadActivityVisible = useUIStore((state) => state.mobileThreadActivityVisible)
+  const mobileThreadActivityRunning = useUIStore((state) => state.mobileThreadActivityRunning)
+  const mobileThreadRefreshBusy = useUIStore((state) => state.mobileThreadRefreshBusy)
   const mobileThreadToolsOpen = useUIStore((state) => state.mobileThreadToolsOpen)
   const setMobileThreadToolsOpen = useUIStore((state) => state.setMobileThreadToolsOpen)
   const { prefersDark } = useSystemAppearancePreferences()
@@ -79,7 +87,27 @@ export function AppMenuBar({
       ? `System (${resolvedTheme === 'dark' ? 'Dark' : 'Light'})`
       : getAppearanceThemeLabel(theme)
   const nextThemeLabel = getAppearanceThemeLabel(nextTheme)
-  const isThreadRoute = /^\/workspaces\/[^/]+$/.test(location.pathname)
+  const threadRouteMatch = location.pathname.match(/^\/workspaces\/([^/]+)$/)
+  const workspaceId = threadRouteMatch?.[1] ?? ''
+  const isThreadRoute = Boolean(workspaceId)
+  const selectedThreadId = useSessionStore((state) =>
+    workspaceId ? state.selectedThreadIdByWorkspace[workspaceId] : undefined,
+  )
+
+  async function handleRefreshThreadChrome() {
+    if (!workspaceId) {
+      return
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+      selectedThreadId
+        ? queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })
+        : Promise.resolve(),
+      queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+    ])
+  }
 
   return (
     <header className="web-ide__menubar">
@@ -107,6 +135,40 @@ export function AppMenuBar({
       <div className="web-ide__status">
         {showMobileNavButton && isThreadRoute && mobileThreadChromeVisible ? (
           <div className="web-ide__thread-tools">
+            {mobileThreadActivityVisible ? (
+              <span
+                className="web-ide__thread-activity-status"
+                title={mobileThreadActivityRunning ? 'Thread running' : 'Thread idle'}
+              >
+                <span
+                  aria-hidden="true"
+                  className={
+                    mobileThreadActivityRunning
+                      ? 'web-ide__thread-activity-dot web-ide__thread-activity-dot--running'
+                      : 'web-ide__thread-activity-dot web-ide__thread-activity-dot--idle'
+                  }
+                />
+              </span>
+            ) : null}
+            {mobileThreadSyncLabel ? (
+              <span className="meta-pill web-ide__thread-sync-pill" title={mobileThreadSyncTitle || mobileThreadSyncLabel}>
+                {mobileThreadSyncLabel}
+              </span>
+            ) : null}
+            <button
+              aria-label="Sync thread now"
+              className={
+                mobileThreadRefreshBusy
+                  ? 'web-ide__thread-refresh-button web-ide__thread-refresh-button--spinning'
+                  : 'web-ide__thread-refresh-button'
+              }
+              disabled={mobileThreadRefreshBusy}
+              onClick={() => void handleRefreshThreadChrome()}
+              title="Sync thread now"
+              type="button"
+            >
+              <RefreshIcon />
+            </button>
             <span className={`status-pill status-pill--${mobileThreadStatusTone} web-ide__thread-status-pill`}>
               {mobileThreadStatusLabel}
             </span>

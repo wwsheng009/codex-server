@@ -8,8 +8,9 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { StatusPill } from '../components/ui/StatusPill'
 import { formatRelativeTimeShort } from '../components/workspace/timeline-utils'
 import { getErrorMessage } from '../lib/error-utils'
-import { createWorkspace, deleteWorkspace, listWorkspaces } from '../features/workspaces/api'
+import { createWorkspace, deleteWorkspace, listWorkspaces, restartWorkspace } from '../features/workspaces/api'
 import { useSessionStore } from '../stores/session-store'
+import { useUIStore } from '../stores/ui-store'
 import type { Workspace } from '../types/api'
 
 export function WorkspacesPage() {
@@ -18,6 +19,10 @@ export function WorkspacesPage() {
   const [rootPath, setRootPath] = useState('')
   const [confirmingWorkspaceDelete, setConfirmingWorkspaceDelete] = useState<Workspace | null>(null)
   const removeWorkspaceFromSession = useSessionStore((state) => state.removeWorkspace)
+  const workspaceRestartStateById = useUIStore((state) => state.workspaceRestartStateById)
+  const markWorkspaceRestarting = useUIStore((state) => state.markWorkspaceRestarting)
+  const markWorkspaceRestarted = useUIStore((state) => state.markWorkspaceRestarted)
+  const clearWorkspaceRestartState = useUIStore((state) => state.clearWorkspaceRestartState)
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
@@ -67,6 +72,29 @@ export function WorkspacesPage() {
       ])
     },
   })
+  const restartWorkspaceMutation = useMutation({
+    mutationFn: (workspaceId: string) => restartWorkspace(workspaceId),
+    onMutate: (workspaceId) => {
+      markWorkspaceRestarting(workspaceId)
+    },
+    onSuccess: (workspace) => {
+      markWorkspaceRestarted(workspace.id)
+    },
+    onError: (_, workspaceId) => {
+      clearWorkspaceRestartState(workspaceId)
+    },
+    onSettled: async (_, __, workspaceId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+      ])
+    },
+  })
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -81,7 +109,7 @@ export function WorkspacesPage() {
   }
 
   function handleDeleteWorkspace(workspace: Workspace) {
-    if (deleteWorkspaceMutation.isPending) {
+    if (deleteWorkspaceMutation.isPending || restartWorkspaceMutation.isPending) {
       return
     }
 
@@ -237,46 +265,117 @@ export function WorkspacesPage() {
                 {getErrorMessage(workspacesQuery.error)}
               </InlineNotice>
             ) : null}
+            {restartWorkspaceMutation.error ? (
+              <InlineNotice
+                details={getErrorMessage(restartWorkspaceMutation.error)}
+                dismissible
+                noticeKey={`restart-workspace-${restartWorkspaceMutation.error instanceof Error ? restartWorkspaceMutation.error.message : 'unknown'}`}
+                onRetry={() => {
+                  if (restartWorkspaceMutation.variables) {
+                    restartWorkspaceMutation.mutate(restartWorkspaceMutation.variables)
+                  }
+                }}
+                title="Failed To Restart Workspace"
+                tone="error"
+              >
+                {getErrorMessage(restartWorkspaceMutation.error)}
+              </InlineNotice>
+            ) : null}
             {!workspacesQuery.isLoading && !workspaces.length ? (
               <div className="empty-state">No workspaces yet. Create the first one from the rail.</div>
             ) : null}
             <div className="workspace-registry">
-              {workspaces.map((workspace) => (
-                <div className="workspace-registry__row" key={workspace.id}>
-                  <Link className="workspace-registry__row-link" to={`/workspaces/${workspace.id}`}>
-                    <div className="workspace-registry__main">
-                      <div className="workspace-registry__title-row">
-                        <strong>{workspace.name}</strong>
-                        <StatusPill status={workspace.runtimeStatus} />
+              {workspaces.map((workspace) => {
+                const restartPhase = workspaceRestartStateById[workspace.id]
+                const visualRuntimeStatus =
+                  restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
+
+                return (
+                  <div
+                    aria-busy={restartPhase === 'restarting'}
+                    className={[
+                      'workspace-registry__row',
+                      restartPhase === 'restarting' ? 'workspace-registry__row--restarting' : '',
+                      restartPhase === 'restarted' ? 'workspace-registry__row--restarted' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    key={workspace.id}
+                  >
+                    <Link className="workspace-registry__row-link" to={`/workspaces/${workspace.id}`}>
+                      <div className="workspace-registry__main">
+                        <div className="workspace-registry__title-row">
+                          <strong>{workspace.name}</strong>
+                          <StatusPill status={visualRuntimeStatus} />
+                        </div>
+                        <p>{workspace.rootPath}</p>
+                        {restartPhase ? (
+                          <span
+                            className={[
+                              'workspace-registry__runtime-signal',
+                              restartPhase === 'restarting'
+                                ? 'workspace-registry__runtime-signal--restarting'
+                                : 'workspace-registry__runtime-signal--restarted',
+                            ].join(' ')}
+                          >
+                            {restartPhase === 'restarting'
+                              ? 'Restarting runtime'
+                              : 'Runtime refreshed'}
+                          </span>
+                        ) : null}
                       </div>
-                      <p>{workspace.rootPath}</p>
-                    </div>
-                    <div className="workspace-registry__meta">
-                      <span>ID</span>
-                      <strong>{workspace.id.slice(0, 8)}</strong>
-                    </div>
-                    <div className="workspace-registry__meta">
-                      <span>Updated</span>
-                      <strong>{formatRelativeTimeShort(workspace.updatedAt)}</strong>
-                    </div>
-                  </Link>
-                  <div className="workspace-registry__actions">
-                    <Link className="workspace-registry__action-link" to={`/workspaces/${workspace.id}`}>
-                      Open Surface
+                      <div className="workspace-registry__meta">
+                        <span>ID</span>
+                        <strong>{workspace.id.slice(0, 8)}</strong>
+                      </div>
+                      <div className="workspace-registry__meta">
+                        <span>Updated</span>
+                        <strong>{formatRelativeTimeShort(workspace.updatedAt)}</strong>
+                      </div>
                     </Link>
-                    <button
-                      className="workspace-registry__remove"
-                      disabled={deleteWorkspaceMutation.isPending}
-                      onClick={() => handleDeleteWorkspace(workspace)}
-                      type="button"
-                    >
-                      {deleteWorkspaceMutation.isPending && deleteWorkspaceMutation.variables === workspace.id
-                        ? 'Removing…'
-                        : 'Remove'}
-                    </button>
+                    <div className="workspace-registry__actions">
+                      <Link className="workspace-registry__action-link" to={`/workspaces/${workspace.id}`}>
+                        Open Surface
+                      </Link>
+                      <button
+                        className={[
+                          'workspace-registry__action-link',
+                          restartPhase === 'restarting'
+                            ? 'workspace-registry__action-link--restarting'
+                            : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        disabled={
+                          deleteWorkspaceMutation.isPending ||
+                          restartWorkspaceMutation.isPending ||
+                          restartPhase === 'restarting'
+                        }
+                        onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
+                        type="button"
+                      >
+                        {restartWorkspaceMutation.isPending && restartWorkspaceMutation.variables === workspace.id
+                          ? 'Restarting…'
+                          : 'Restart'}
+                      </button>
+                      <button
+                        className="workspace-registry__remove"
+                        disabled={
+                          deleteWorkspaceMutation.isPending ||
+                          restartWorkspaceMutation.isPending ||
+                          restartPhase === 'restarting'
+                        }
+                        onClick={() => handleDeleteWorkspace(workspace)}
+                        type="button"
+                      >
+                        {deleteWorkspaceMutation.isPending && deleteWorkspaceMutation.variables === workspace.id
+                          ? 'Removing…'
+                          : 'Remove'}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </section>
         </section>

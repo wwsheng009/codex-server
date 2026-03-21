@@ -1,20 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useParams } from 'react-router-dom'
 
 import {
   ApprovalIcon,
   ContextIcon,
   FeedIcon,
+  FolderClosedIcon,
   PanelOpenIcon,
   RailIconButton,
+  RefreshIcon,
   ResizeHandle,
   SendIcon,
+  SettingsIcon,
+  SparkIcon,
   StopIcon,
+  TerminalIcon,
   ToolsIcon,
 } from '../components/ui/RailControls'
 import { ThreadTerminalBlock } from '../components/thread/ThreadContent'
+import {
+  buildComposerAutocompleteKey,
+  getComposerAutocompleteMatch,
+  normalizeComposerFileSearchItem,
+  replaceComposerAutocompleteToken,
+} from '../lib/composer-autocomplete'
 import {
   readRightRailExpanded,
   readRightRailWidth,
@@ -34,19 +46,23 @@ import { getErrorMessage, isAuthenticationError } from '../lib/error-utils'
 import { computeContextUsage } from '../lib/thread-token-usage'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { isApiClientErrorCode } from '../lib/api-client'
+import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
 import { ApprovalDialog, ApprovalStack, LiveFeed, TurnTimeline } from '../components/workspace/renderers'
 import { buildLiveTimelineEntries, formatRelativeTimeShort } from '../components/workspace/timeline-utils'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
-import { getAccount } from '../features/account/api'
+import { getAccount, getRateLimits } from '../features/account/api'
 import { listPendingApprovals, respondServerRequestWithDetails } from '../features/approvals/api'
-import { listModels } from '../features/catalog/api'
+import { listCollaborationModes, listMcpServerStatus, listModels, listSkills } from '../features/catalog/api'
+import { useSettingsLocalStore } from '../features/settings/local-store'
+import { fuzzyFileSearch } from '../features/settings/api'
 import { startCommand, terminateCommand, writeCommand } from '../features/commands/api'
 import {
   archiveThread,
-  createThread,
+  compactThread,
   deleteThread,
   getThread,
+  listLoadedThreadIds,
   listThreads,
   renameThread,
   resumeThread,
@@ -61,13 +77,14 @@ import { getSelectedThreadIdForWorkspace } from '../stores/session-store-utils'
 import { useUIStore } from '../stores/ui-store'
 import {
   isViewportNearBottom,
+  latestSettledMessageKey,
   shouldRefreshApprovalsForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
 } from './threadPageUtils'
-import { applyThreadEventsToDetail, upsertPendingUserMessage } from './threadLiveState'
-import type { ServerEvent, Thread, ThreadDetail, ThreadTokenUsage, ThreadTurn, TurnResult } from '../types/api'
+import { applyLiveThreadEvents, upsertPendingUserMessage } from './threadLiveState'
+import type { CatalogItem, RateLimit, ServerEvent, Thread, ThreadTokenUsage, ThreadTurn, TurnResult } from '../types/api'
 
 const EMPTY_EVENTS: ServerEvent[] = []
 const EMPTY_COMMAND_SESSIONS = {}
@@ -77,6 +94,7 @@ const FALLBACK_MODEL_OPTIONS = ['gpt-5.4', 'gpt-5.3-codex']
 
 type ComposerPermissionPreset = 'default' | 'full-access'
 type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
+type ComposerCollaborationMode = 'default' | 'plan'
 
 type PendingThreadTurn = {
   localId: string
@@ -87,16 +105,220 @@ type PendingThreadTurn = {
   turnId?: string
 }
 
+type ContextCompactionFeedback = {
+  phase: 'requested' | 'completed' | 'failed'
+  title: string
+  threadId: string
+}
+
 type ComposerPreferences = {
   permissionPreset: ComposerPermissionPreset
   model: string
   reasoningEffort: ComposerReasoningEffort
+  collaborationMode: ComposerCollaborationMode
 }
 
 const DEFAULT_COMPOSER_PREFERENCES: ComposerPreferences = {
   permissionPreset: 'default',
   model: '',
   reasoningEffort: 'medium',
+  collaborationMode: 'default',
+}
+
+type ComposerAssistPanel = 'mcp' | 'personalization' | 'status' | 'worktree'
+type ComposerCommandMenu = 'root' | 'review'
+
+type ComposerCommandId =
+  | 'mcp'
+  | 'personalization'
+  | 'review'
+  | 'feedback'
+  | 'worktree'
+  | 'status'
+  | 'plan'
+
+type ComposerCommandAction =
+  | { kind: 'panel'; panel: ComposerAssistPanel }
+  | { kind: 'prompt'; prompt: string }
+  | { kind: 'submenu'; menu: ComposerCommandMenu }
+  | { kind: 'toggle-plan' }
+
+type ComposerCommandDefinition = {
+  id: ComposerCommandId
+  title: string
+  description: string
+  keywords: string[]
+  icon: ComposerOptionIcon
+  action: ComposerCommandAction
+}
+
+type ComposerReviewShortcutDefinition = {
+  id: 'review-base' | 'review-uncommitted'
+  title: string
+  description: string
+  prompt: string
+}
+
+type ComposerOptionIcon =
+  | 'feedback'
+  | 'file'
+  | 'mcp'
+  | 'personalization'
+  | 'plan'
+  | 'review'
+  | 'skill'
+  | 'status'
+  | 'worktree'
+
+type ComposerAutocompleteItem =
+  | {
+      kind: 'command'
+      id: ComposerCommandId
+      title: string
+      description: string
+      meta?: string
+      icon: ComposerOptionIcon
+      action: ComposerCommandAction
+      section: 'commands'
+    }
+  | {
+      kind: 'review'
+      id: ComposerReviewShortcutDefinition['id']
+      title: string
+      description: string
+      meta?: string
+      icon: ComposerOptionIcon
+      prompt: string
+      section: 'commands'
+    }
+  | {
+      kind: 'skill'
+      id: string
+      title: string
+      description: string
+      meta?: string
+      icon: ComposerOptionIcon
+      insertion: string
+      section: 'skills'
+    }
+  | {
+      kind: 'file'
+      id: string
+      title: string
+      description: string
+      meta?: string
+      icon: ComposerOptionIcon
+      insertion: string
+      section: 'files'
+    }
+
+type ComposerAutocompleteSection = {
+  id: ComposerAutocompleteItem['section']
+  label: string
+  items: ComposerAutocompleteItem[]
+}
+
+const FEEDBACK_PROMPT =
+  '请帮我整理一条产品反馈，包含问题概述、复现步骤、期望结果、实际结果和影响范围：'
+
+const REVIEW_SHORTCUTS: ComposerReviewShortcutDefinition[] = [
+  {
+    id: 'review-base',
+    title: '基于基础分支进行审查',
+    description: '审查当前分支相对基础分支的变更。',
+    prompt: '请基于当前基础分支对代码变更进行审查，优先指出 bug、行为回归、风险点和缺失的测试。',
+  },
+  {
+    id: 'review-uncommitted',
+    title: '审查未提交的更改',
+    description: '审查当前工作区中尚未提交的本地修改。',
+    prompt: '请审查当前未提交的本地更改，优先指出 bug、行为回归、风险点和缺失的测试。',
+  },
+]
+
+function buildComposerCommandDefinitions(
+  collaborationMode: ComposerCollaborationMode,
+): ComposerCommandDefinition[] {
+  return [
+    {
+      id: 'mcp',
+      title: 'MCP',
+      description: '显示 MCP 服务器状态',
+      keywords: ['mcp', 'server', 'oauth', 'status'],
+      icon: 'mcp',
+      action: { kind: 'panel', panel: 'mcp' },
+    },
+    {
+      id: 'personalization',
+      title: '个性',
+      description: '查看本地响应偏好与自定义指令',
+      keywords: ['个性', '个性化', 'personalization', 'tone', 'instructions'],
+      icon: 'personalization',
+      action: { kind: 'panel', panel: 'personalization' },
+    },
+    {
+      id: 'review',
+      title: '代码审查',
+      description: '打开审查快捷指令',
+      keywords: ['review', 'code review', '代码审查', '审查'],
+      icon: 'review',
+      action: { kind: 'submenu', menu: 'review' },
+    },
+    {
+      id: 'feedback',
+      title: '反馈',
+      description: '插入产品反馈提示词',
+      keywords: ['feedback', 'bug report', '反馈'],
+      icon: 'feedback',
+      action: { kind: 'prompt', prompt: FEEDBACK_PROMPT },
+    },
+    {
+      id: 'worktree',
+      title: '新工作树',
+      description: '查看当前工作树策略与设置入口',
+      keywords: ['worktree', '工作树', 'branch'],
+      icon: 'worktree',
+      action: { kind: 'panel', panel: 'worktree' },
+    },
+    {
+      id: 'status',
+      title: '状态',
+      description: '显示线程 ID、上下文使用情况以及额度',
+      keywords: ['status', 'quota', 'context', 'thread', '状态', '额度'],
+      icon: 'status',
+      action: { kind: 'panel', panel: 'status' },
+    },
+    {
+      id: 'plan',
+      title: '计划模式',
+      description:
+        collaborationMode === 'plan' ? '关闭计划模式' : '开启计划模式',
+      keywords: ['plan', 'planning', '计划', 'plan mode'],
+      icon: 'plan',
+      action: { kind: 'toggle-plan' },
+    },
+  ]
+}
+
+function updateThreadStatusInList(
+  current: Thread[] | undefined,
+  threadId: string,
+  status: string,
+  updatedAt = new Date().toISOString(),
+) {
+  if (!current?.length) {
+    return current
+  }
+
+  return current.map((item) =>
+    item.id === threadId
+      ? {
+          ...item,
+          status,
+          updatedAt,
+        }
+      : item,
+  )
 }
 
 function buildRetryPromptFromServerRequest(item: Record<string, unknown>) {
@@ -151,17 +373,6 @@ function buildRetryPromptFromServerRequest(item: Record<string, unknown>) {
     default:
       return 'Please retry the previous request so I can complete it again.'
   }
-}
-
-function upsertThreadList(current: Thread[] | undefined, thread: Thread) {
-  const items = current ?? []
-  const nextItems = items.some((item) => item.id === thread.id)
-    ? items.map((item) => (item.id === thread.id ? thread : item))
-    : [thread, ...items]
-
-  return [...nextItems].sort(
-    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-  )
 }
 
 function createPendingTurn(threadId: string, input: string): PendingThreadTurn {
@@ -222,6 +433,10 @@ function normalizeReasoningEffort(value: string): ComposerReasoningEffort {
   }
 }
 
+function normalizeCollaborationMode(value: string): ComposerCollaborationMode {
+  return value === 'plan' ? 'plan' : 'default'
+}
+
 function readComposerPreferences(workspaceId: string): ComposerPreferences {
   if (!workspaceId || typeof window === 'undefined') {
     return DEFAULT_COMPOSER_PREFERENCES
@@ -238,6 +453,7 @@ function readComposerPreferences(workspaceId: string): ComposerPreferences {
       permissionPreset: normalizePermissionPreset(String(parsed.permissionPreset ?? 'default')),
       model: typeof parsed.model === 'string' ? parsed.model : '',
       reasoningEffort: normalizeReasoningEffort(String(parsed.reasoningEffort ?? 'medium')),
+      collaborationMode: normalizeCollaborationMode(String(parsed.collaborationMode ?? 'default')),
     }
   } catch {
     return DEFAULT_COMPOSER_PREFERENCES
@@ -256,6 +472,214 @@ function writeComposerPreferences(workspaceId: string, preferences: ComposerPref
     )
   } catch {
     // Ignore browser storage failures.
+  }
+}
+
+function matchesComposerQuery(query: string, values: string[]) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) {
+    return true
+  }
+
+  return values.some((value) => value.toLowerCase().includes(normalizedQuery))
+}
+
+function buildComposerAutocompleteSections(input: {
+  mode: 'command' | 'mention' | 'skill'
+  commands: ComposerCommandDefinition[]
+  commandMenu: ComposerCommandMenu
+  query: string
+  skills: CatalogItem[]
+  files: Array<{ path: string; name: string; directory: string }>
+}) {
+  const { commands, commandMenu, files, mode, query, skills } = input
+  const sections: ComposerAutocompleteSection[] = []
+
+  if (mode === 'command' && commandMenu === 'review') {
+    const items = REVIEW_SHORTCUTS.filter((shortcut) =>
+      matchesComposerQuery(query, [shortcut.title, shortcut.description, shortcut.prompt]),
+    ).map<ComposerAutocompleteItem>((shortcut) => ({
+      kind: 'review',
+      id: shortcut.id,
+      title: shortcut.title,
+      description: shortcut.description,
+      icon: 'review',
+      prompt: shortcut.prompt,
+      section: 'commands',
+    }))
+
+    sections.push({ id: 'commands', label: '搜索', items })
+    return sections
+  }
+
+  if (mode === 'command') {
+    const commandItems = commands
+      .filter((command) =>
+        matchesComposerQuery(query, [
+          command.title,
+          command.description,
+          ...command.keywords,
+        ]),
+      )
+      .map<ComposerAutocompleteItem>((command) => ({
+        kind: 'command',
+        id: command.id,
+        title: command.title,
+        description: command.description,
+        icon: command.icon,
+        action: command.action,
+        section: 'commands',
+      }))
+
+    if (commandItems.length) {
+      sections.push({ id: 'commands', label: '搜索', items: commandItems })
+    }
+  }
+
+  const skillItems = skills
+    .filter((skill) =>
+      matchesComposerQuery(query, [skill.name, skill.description]),
+    )
+    .slice(0, 6)
+    .map<ComposerAutocompleteItem>((skill) => ({
+      kind: 'skill',
+      id: skill.id,
+      title: skill.name,
+      description: skill.description || '将技能标记插入输入框',
+      meta: skill.id,
+      icon: 'skill',
+      insertion: `$${skill.name} `,
+      section: 'skills',
+    }))
+
+  if (skillItems.length && (mode === 'command' || mode === 'skill')) {
+    sections.push({ id: 'skills', label: '技能', items: skillItems })
+  }
+
+  if (mode === 'mention') {
+    const fileItems = files.map<ComposerAutocompleteItem>((file) => ({
+      kind: 'file',
+      id: file.path,
+      title: file.name,
+      description: file.directory || file.path,
+      meta: file.path,
+      icon: 'file',
+      insertion: `@${file.path} `,
+      section: 'files',
+    }))
+
+    if (fileItems.length) {
+      sections.push({ id: 'files', label: '文件', items: fileItems })
+    }
+  }
+
+  return sections
+}
+
+function composerSectionLabel(id: ComposerAutocompleteItem['section']) {
+  switch (id) {
+    case 'files':
+      return '文件'
+    case 'skills':
+      return '技能'
+    default:
+      return '搜索'
+  }
+}
+
+function stringRecordField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function formatShortTime(value: string) {
+  const timestamp = Date.parse(value)
+  if (Number.isNaN(timestamp)) {
+    return '未知'
+  }
+
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function truncateInlineText(value: string, maxLength = 120) {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (compact.length <= maxLength) {
+    return compact
+  }
+
+  return `${compact.slice(0, Math.max(0, maxLength - 1))}…`
+}
+
+function describeRateLimits(rateLimits: RateLimit[] | undefined) {
+  if (!rateLimits?.length) {
+    return '不可用'
+  }
+
+  return rateLimits
+    .slice(0, 2)
+    .map((limit) => `${limit.name}: ${limit.remaining}/${limit.limit}`)
+    .join(' · ')
+}
+
+function normalizeMcpServerState(entry: Record<string, unknown>) {
+  const name =
+    stringRecordField(entry.name) ||
+    stringRecordField(entry.serverName) ||
+    stringRecordField(entry.id) ||
+    'Unnamed server'
+  const status =
+    stringRecordField(entry.status) ||
+    stringRecordField(entry.authStatus) ||
+    stringRecordField(entry.state) ||
+    'unknown'
+  const detail =
+    stringRecordField(entry.message) ||
+    stringRecordField(entry.description) ||
+    stringRecordField(entry.detail)
+
+  return { name, status, detail }
+}
+
+function ComposerCloseIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <path d="m7 7 10 10M17 7 7 17" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
+function ComposerFileIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path d="M7 4.5h6l4 4v11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 6 19.5V6A1.5 1.5 0 0 1 7.5 4.5Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+      <path d="M13 4.5V9h4.5" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
+function ComposerOptionGlyph({ icon }: { icon: ComposerOptionIcon }) {
+  switch (icon) {
+    case 'mcp':
+      return <TerminalIcon />
+    case 'personalization':
+      return <SettingsIcon />
+    case 'review':
+      return <ToolsIcon />
+    case 'feedback':
+      return <FeedIcon />
+    case 'worktree':
+      return <FolderClosedIcon />
+    case 'status':
+      return <ContextIcon />
+    case 'plan':
+      return <RefreshIcon />
+    case 'skill':
+      return <SparkIcon />
+    case 'file':
+    default:
+      return <ComposerFileIcon />
   }
 }
 
@@ -295,16 +719,313 @@ function compactStatusLabel(value?: string) {
   }
 }
 
+type ComposerStatusTone = 'active' | 'warning' | 'error' | 'neutral'
+
+type ComposerStatusDetailRow = {
+  label: string
+  value: string
+}
+
+type ComposerStatusInfo = {
+  label: string
+  tone: ComposerStatusTone
+  summary: string
+  detailRows: ComposerStatusDetailRow[]
+  noticeTitle?: string
+  noticeMessage?: string
+}
+
+function normalizeStatusValue(value?: string) {
+  const normalized = (value ?? '').toLowerCase().replace(/[\s_-]+/g, '')
+  return normalized
+}
+
+function formatStatusValueLabel(value?: string) {
+  const normalized = normalizeStatusValue(value)
+
+  switch (normalized) {
+    case 'running':
+    case 'processing':
+    case 'sending':
+    case 'waiting':
+    case 'inprogress':
+    case 'started':
+      return '处理中'
+    case 'archived':
+      return '已归档'
+    case 'failed':
+    case 'error':
+    case 'systemerror':
+      return '异常'
+    case 'reviewing':
+      return '待审批'
+    case 'interrupted':
+      return '已停止'
+    case 'completed':
+      return '已完成'
+    case 'idle':
+    case 'connected':
+    case 'ready':
+    case 'open':
+    case 'active':
+      return '空闲'
+    case 'notloaded':
+      return '未载入'
+    case '':
+      return '未知'
+    default:
+      return value ?? '未知'
+  }
+}
+
+function readStatusReason(value: unknown): string {
+  if (!value) {
+    return ''
+  }
+
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+
+  if (value instanceof Error) {
+    return value.message.trim()
+  }
+
+  if (typeof value !== 'object') {
+    return ''
+  }
+
+  const record = value as Record<string, unknown>
+  const directKeys = ['message', 'error', 'detail', 'reason', 'summary']
+  for (const key of directKeys) {
+    const next = record[key]
+    if (typeof next === 'string' && next.trim() !== '') {
+      return next.trim()
+    }
+  }
+
+  for (const key of directKeys) {
+    const next = record[key]
+    const nested = readStatusReason(next)
+    if (nested) {
+      return nested
+    }
+  }
+
+  return ''
+}
+
+function describeStreamState(value: string) {
+  switch (value) {
+    case 'open':
+      return 'Live'
+    case 'connecting':
+      return '连接中'
+    case 'closed':
+      return '连接已断开'
+    case 'error':
+      return '连接异常'
+    default:
+      return '未连接'
+  }
+}
+
+function buildComposerStatusInfo(input: {
+  streamState: string
+  rawThreadStatus?: string
+  latestTurnStatus?: string
+  latestTurnError?: unknown
+  sendError?: string | null
+  requiresOpenAIAuth: boolean
+  isApprovalDialogOpen: boolean
+  approvalSummary?: string
+  isWaitingForThreadData: boolean
+  pendingPhase?: PendingThreadTurn['phase']
+  isThreadInterruptible: boolean
+  isThreadLoaded: boolean | null
+}) {
+  const rawThreadStatus = input.rawThreadStatus ?? ''
+  const latestTurnStatus = input.latestTurnStatus ?? ''
+  const rawNormalized = normalizeStatusValue(rawThreadStatus)
+  const latestTurnNormalized = normalizeStatusValue(latestTurnStatus)
+  const latestTurnErrorMessage = readStatusReason(input.latestTurnError)
+  const sendErrorMessage = input.sendError?.trim() ?? ''
+  const detailRows: ComposerStatusDetailRow[] = [
+    { label: '线程载入', value: input.isThreadLoaded === null ? '未知' : input.isThreadLoaded ? '已加载' : '未加载' },
+    { label: '实时连接', value: describeStreamState(input.streamState) },
+    { label: '线程原始状态', value: formatStatusValueLabel(rawThreadStatus) },
+  ]
+
+  if (latestTurnStatus) {
+    detailRows.push({ label: '最近 Turn 状态', value: formatStatusValueLabel(latestTurnStatus) })
+  }
+  if (latestTurnErrorMessage) {
+    detailRows.push({ label: '最近错误', value: latestTurnErrorMessage })
+  }
+  if (sendErrorMessage) {
+    detailRows.push({ label: '发送错误', value: sendErrorMessage })
+  }
+  if (input.approvalSummary) {
+    detailRows.push({ label: '审批状态', value: input.approvalSummary })
+  }
+
+  if (input.requiresOpenAIAuth) {
+    return {
+      label: '认证异常',
+      tone: 'error',
+      summary: 'OpenAI 认证失效，线程当前无法继续执行。',
+      detailRows,
+      noticeTitle: '线程认证异常',
+      noticeMessage: 'OpenAI 认证失效，线程当前无法继续执行。',
+    } satisfies ComposerStatusInfo
+  }
+
+  if (input.isApprovalDialogOpen) {
+    return {
+      label: '待审批',
+      tone: 'warning',
+      summary: input.approvalSummary
+        ? `线程正在等待审批：${input.approvalSummary}`
+        : '线程正在等待审批，暂不会继续执行。',
+      detailRows,
+    } satisfies ComposerStatusInfo
+  }
+
+  if (input.isWaitingForThreadData || input.isThreadInterruptible) {
+    return {
+      label: '处理中',
+      tone: 'active',
+      summary:
+        input.pendingPhase === 'sending'
+          ? '消息已提交，正在等待 runtime 创建 turn。'
+          : '线程正在执行或等待当前 turn 完成。',
+      detailRows,
+    } satisfies ComposerStatusInfo
+  }
+
+  if (latestTurnErrorMessage) {
+    return {
+      label: '异常',
+      tone: 'error',
+      summary: latestTurnErrorMessage,
+      detailRows,
+      noticeTitle: '线程运行异常',
+      noticeMessage: latestTurnErrorMessage,
+    } satisfies ComposerStatusInfo
+  }
+
+  if (sendErrorMessage) {
+    return {
+      label: '异常',
+      tone: 'error',
+      summary: sendErrorMessage,
+      detailRows,
+      noticeTitle: '线程发送异常',
+      noticeMessage: sendErrorMessage,
+    } satisfies ComposerStatusInfo
+  }
+
+  if (rawNormalized === 'systemerror') {
+    if (!latestTurnErrorMessage && input.isThreadLoaded !== false && latestTurnNormalized !== 'error' && latestTurnNormalized !== 'failed') {
+      return null
+    }
+
+    return {
+      label: '异常',
+      tone: 'error',
+      summary:
+        input.isThreadLoaded === false
+          ? 'Runtime 将线程标记为 systemError，且当前线程未处于已加载状态。'
+          : 'Runtime 将线程标记为 systemError，但没有返回更具体的错误信息。',
+      detailRows,
+      noticeTitle: '线程运行异常',
+      noticeMessage:
+        input.isThreadLoaded === false
+          ? 'Runtime 将线程标记为 systemError，且当前线程未处于已加载状态。'
+          : 'Runtime 将线程标记为 systemError，但没有返回更具体的错误信息。',
+    } satisfies ComposerStatusInfo
+  }
+
+  if (rawNormalized === 'archived') {
+    return {
+      label: '已归档',
+      tone: 'warning',
+      summary: '当前线程已归档。',
+      detailRows,
+    } satisfies ComposerStatusInfo
+  }
+
+  if (rawNormalized === 'interrupted') {
+    return {
+      label: '已停止',
+      tone: 'warning',
+      summary: '线程执行已被中断。',
+      detailRows,
+    } satisfies ComposerStatusInfo
+  }
+
+  return null
+}
+
+function compactSyncLabel(label: string, streamState: string) {
+  if (label === 'Syncing…') {
+    return '同步中'
+  }
+
+  if (label.startsWith('Next sync ')) {
+    return label.slice('Next sync '.length)
+  }
+
+  if (label === 'Manual sync') {
+    return '手动'
+  }
+
+  if (label === 'Live' || streamState === 'open') {
+    return 'Live'
+  }
+
+  return label
+}
+
+function formatSyncCountdown(lastSyncAtMs: number, intervalMs: number, nowMs: number) {
+  if (!lastSyncAtMs || !intervalMs) {
+    return 'soon'
+  }
+
+  const remainingMs = Math.max(0, lastSyncAtMs + intervalMs - nowMs)
+  if (remainingMs < 1_000) {
+    return 'soon'
+  }
+
+  const totalSeconds = Math.ceil(remainingMs / 1_000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+
+  if (!minutes) {
+    return `${totalSeconds}s`
+  }
+
+  return `${minutes}m ${seconds}s`
+}
+
 function ContextUsageIndicator({
   usage,
   percent,
   totalTokens,
   contextWindow,
+  compactDisabledReason,
+  compactFeedback,
+  compactPending,
+  onCompact,
 }: {
   usage: ThreadTokenUsage | null | undefined
   percent: number | null
   totalTokens: number
   contextWindow: number
+  compactDisabledReason: string | null
+  compactFeedback: ContextCompactionFeedback | null
+  compactPending: boolean
+  onCompact: () => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -325,6 +1046,13 @@ function ContextUsageIndicator({
       : `Context usage ${usagePercent}% (${totalTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens)`
   const totalBreakdown = usage?.total
   const lastBreakdown = usage?.last
+  const compactButtonLabel = compactPending
+    ? 'Starting'
+    : compactFeedback?.phase === 'requested'
+      ? 'Queued'
+      : compactFeedback?.phase === 'failed'
+        ? 'Retry'
+        : 'Compact'
 
   useEffect(() => {
     if (!isOpen) {
@@ -372,18 +1100,17 @@ function ContextUsageIndicator({
         type="button"
       >
         <span aria-hidden="true" className="composer-context-usage__ring" />
+        <span aria-hidden="true" className="composer-context-usage__core" />
         <span className="composer-context-usage__value">{label}</span>
       </button>
       {isOpen ? (
         <div className="composer-context-usage__popover" role="dialog">
           <div className="composer-context-usage__header">
-            <strong>Context Usage</strong>
-            <span>{label}</span>
+            <strong>Context</strong>
+            <span className={`composer-context-usage__pill composer-context-usage__pill--${tone}`}>{label}</span>
           </div>
           {percent === null ? (
-            <p className="composer-context-usage__empty">
-              Token usage is not available yet for this thread.
-            </p>
+            <p className="composer-context-usage__empty">No usage data</p>
           ) : (
             <>
               <div className="composer-context-usage__metric-grid">
@@ -412,13 +1139,157 @@ function ContextUsageIndicator({
                   <strong>{(lastBreakdown?.totalTokens ?? 0).toLocaleString()}</strong>
                 </div>
               </div>
-              <div className="composer-context-usage__caption">
-                Context usage is based on cumulative thread tokens reported by the runtime.
-              </div>
             </>
           )}
+          <div className="composer-context-usage__action">
+            {compactFeedback ? (
+              <span
+                aria-live="polite"
+                className={
+                  compactFeedback.phase === 'failed'
+                    ? 'composer-context-usage__status composer-context-usage__status--error'
+                    : compactFeedback.phase === 'completed'
+                      ? 'composer-context-usage__status composer-context-usage__status--success'
+                      : 'composer-context-usage__status composer-context-usage__status--pending'
+                }
+                role="status"
+              >
+                {compactFeedback.title}
+              </span>
+            ) : null}
+            <button
+              className="ide-button ide-button--secondary composer-context-usage__compact-button"
+              disabled={Boolean(compactDisabledReason) || compactPending || compactFeedback?.phase === 'requested'}
+              onClick={onCompact}
+              title={compactDisabledReason ?? 'Compact older thread context'}
+              type="button"
+            >
+              <span aria-hidden="true" className="composer-context-usage__compact-icon">
+                <SparkIcon />
+              </span>
+              <span>{compactButtonLabel}</span>
+            </button>
+          </div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function ComposerStatusIndicator({ info }: { info: ComposerStatusInfo }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [position, setPosition] = useState<{ bottom: number; right: number } | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    function updatePosition() {
+      const trigger = triggerRef.current
+      if (!trigger) {
+        return
+      }
+
+      const rect = trigger.getBoundingClientRect()
+      const viewportPadding = 12
+      const estimatedWidth = 320
+      const bottom = Math.max(viewportPadding, window.innerHeight - rect.top + 8)
+      const right = Math.max(viewportPadding, window.innerWidth - rect.right)
+      const maxRight = Math.max(viewportPadding, window.innerWidth - viewportPadding - estimatedWidth)
+
+      setPosition({
+        bottom,
+        right: Math.max(viewportPadding, Math.min(right, maxRight)),
+      })
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+
+      if (containerRef.current?.contains(target) || popoverRef.current?.contains(target)) {
+        return
+      }
+
+      setIsOpen(false)
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    const frameId = window.requestAnimationFrame(updatePosition)
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen])
+
+  const popover =
+    isOpen && position
+      ? createPortal(
+          <div
+            className="composer-thread-status__popover"
+            role="dialog"
+            ref={popoverRef}
+            style={{ bottom: `${position.bottom}px`, right: `${position.right}px` }}
+          >
+            <div className="composer-thread-status__popover-header">
+              <strong>{info.label}</strong>
+              <span>{info.summary}</span>
+            </div>
+            <div className="composer-thread-status__popover-grid">
+              {info.detailRows.map((row) => (
+                <div className="composer-thread-status__popover-row" key={`${row.label}-${row.value}`}>
+                  <span>{row.label}</span>
+                  <strong title={row.value}>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )
+      : null
+
+  return (
+    <div
+      className={
+        isOpen
+          ? `composer-thread-status composer-thread-status--${info.tone} composer-thread-status--open`
+          : `composer-thread-status composer-thread-status--${info.tone}`
+      }
+      ref={containerRef}
+    >
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-label={`${info.label}: ${info.summary}`}
+        className="composer-thread-status__trigger"
+        onClick={() => setIsOpen((current) => !current)}
+        ref={triggerRef}
+        title={info.summary}
+        type="button"
+      >
+        <span className="composer-thread-status__dot" />
+        <span className="composer-thread-status__label">{info.label}</span>
+      </button>
+      {popover}
     </div>
   )
 }
@@ -427,10 +1298,15 @@ export function ThreadPage() {
   const { workspaceId = '' } = useParams()
   const queryClient = useQueryClient()
 
-  const [newThreadName, setNewThreadName] = useState('New Thread')
   const [message, setMessage] = useState('')
-  const [pendingTurn, setPendingTurn] = useState<PendingThreadTurn | null>(null)
+  const [composerCaret, setComposerCaret] = useState(0)
+  const [activeComposerPanel, setActiveComposerPanel] = useState<ComposerAssistPanel | null>(null)
+  const [composerCommandMenu, setComposerCommandMenu] = useState<ComposerCommandMenu>('root')
+  const [composerAutocompleteIndex, setComposerAutocompleteIndex] = useState(0)
+  const [dismissedComposerAutocompleteKey, setDismissedComposerAutocompleteKey] = useState<string | null>(null)
+  const [pendingTurnsByThread, setPendingTurnsByThread] = useState<Record<string, PendingThreadTurn>>({})
   const [sendError, setSendError] = useState<string | null>(null)
+  const [contextCompactionFeedback, setContextCompactionFeedback] = useState<ContextCompactionFeedback | null>(null)
   const [command, setCommand] = useState('git status')
   const [stdinValue, setStdinValue] = useState('')
   const [selectedProcessId, setSelectedProcessId] = useState<string>()
@@ -453,6 +1329,7 @@ export function ThreadPage() {
   const [composerPreferences, setComposerPreferences] = useState<ComposerPreferences>(DEFAULT_COMPOSER_PREFERENCES)
   const [hasUnreadThreadUpdates, setHasUnreadThreadUpdates] = useState(false)
   const [isThreadPinnedToLatest, setIsThreadPinnedToLatest] = useState(true)
+  const [syncClock, setSyncClock] = useState(() => Date.now())
   const [confirmingThreadDelete, setConfirmingThreadDelete] = useState<Thread | null>(null)
   const inspectorResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const surfacePanelResizeRef = useRef<{ side: SurfacePanelSide; startX: number; startWidth: number; view: SurfacePanelView } | null>(null)
@@ -461,7 +1338,8 @@ export function ThreadPage() {
   const threadViewportRef = useRef<HTMLDivElement | null>(null)
   const threadBottomRef = useRef<HTMLDivElement | null>(null)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
-  const threadAutoScrollKeyRef = useRef('')
+  const threadContentKeyRef = useRef('')
+  const threadSettledMessageKeyRef = useRef('')
   const shouldFollowThreadRef = useRef(true)
 
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
@@ -473,9 +1351,26 @@ export function ThreadPage() {
   const setMobileThreadChrome = useUIStore((state) => state.setMobileThreadChrome)
   const setMobileThreadToolsOpen = useUIStore((state) => state.setMobileThreadToolsOpen)
   const resetMobileThreadChrome = useUIStore((state) => state.resetMobileThreadChrome)
+  const responseTone = useSettingsLocalStore((state) => state.responseTone)
+  const customInstructions = useSettingsLocalStore((state) => state.customInstructions)
+  const maxWorktrees = useSettingsLocalStore((state) => state.maxWorktrees)
+  const autoPruneDays = useSettingsLocalStore((state) => state.autoPruneDays)
+  const reuseBranches = useSettingsLocalStore((state) => state.reuseBranches)
   const selectedThreadId = useSessionStore((state) => getSelectedThreadIdForWorkspace(state, workspaceId))
+  const allThreadEvents = useSessionStore((state) => state.eventsByThread)
   const isMobileViewport = useMediaQuery('(max-width: 900px)')
   const streamState = useWorkspaceStream(workspaceId)
+  const activeComposerMatch = useMemo(
+    () => getComposerAutocompleteMatch(message, composerCaret),
+    [composerCaret, message],
+  )
+  const activeComposerAutocompleteKey = buildComposerAutocompleteKey(activeComposerMatch)
+  const deferredComposerQuery = useDeferredValue(activeComposerMatch?.query ?? '')
+  const normalizedDeferredComposerQuery = deferredComposerQuery.trim()
+  const composerCommandDefinitions = useMemo(
+    () => buildComposerCommandDefinitions(composerPreferences.collaborationMode),
+    [composerPreferences.collaborationMode],
+  )
 
   const workspaceQuery = useQuery({
     queryKey: ['workspace', workspaceId],
@@ -487,14 +1382,45 @@ export function ThreadPage() {
     queryFn: getAccount,
     staleTime: 15_000,
   })
+  const rateLimitsQuery = useQuery({
+    queryKey: ['rate-limits'],
+    queryFn: getRateLimits,
+    staleTime: 15_000,
+    enabled: activeComposerPanel === 'status',
+  })
   const threadsQuery = useQuery({
     queryKey: ['threads', workspaceId],
     queryFn: () => listThreads(workspaceId),
     enabled: Boolean(workspaceId),
   })
+  const loadedThreadsQuery = useQuery({
+    queryKey: ['loaded-threads', workspaceId],
+    queryFn: () => listLoadedThreadIds(workspaceId),
+    enabled: Boolean(workspaceId),
+    refetchInterval: workspaceId && streamState !== 'open' ? 5_000 : false,
+    staleTime: 5_000,
+  })
   const modelsQuery = useQuery({
     queryKey: ['models', workspaceId],
     queryFn: () => listModels(workspaceId),
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  })
+  const skillsQuery = useQuery({
+    queryKey: ['skills', workspaceId],
+    queryFn: () => listSkills(workspaceId),
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  })
+  const mcpServerStatusQuery = useQuery({
+    queryKey: ['mcp-server-status', workspaceId],
+    queryFn: () => listMcpServerStatus(workspaceId),
+    enabled: Boolean(workspaceId && activeComposerPanel === 'mcp'),
+    staleTime: 30_000,
+  })
+  const collaborationModesQuery = useQuery({
+    queryKey: ['collaboration-modes', workspaceId],
+    queryFn: () => listCollaborationModes(workspaceId),
     enabled: Boolean(workspaceId),
     staleTime: 60_000,
   })
@@ -503,7 +1429,7 @@ export function ThreadPage() {
     queryFn: () => getThread(workspaceId, selectedThreadId ?? ''),
     enabled: Boolean(workspaceId && selectedThreadId),
     refetchInterval:
-      selectedThreadId && pendingTurn?.threadId === selectedThreadId
+      selectedThreadId && Boolean(pendingTurnsByThread[selectedThreadId])
         ? 1_000
         : selectedThreadId && streamState !== 'open'
           ? 5_000
@@ -515,30 +1441,60 @@ export function ThreadPage() {
     enabled: Boolean(workspaceId),
     refetchInterval: workspaceId && streamState !== 'open' ? 4_000 : false,
   })
+  const fileSearchQuery = useQuery({
+    queryKey: ['composer-file-search', workspaceId, normalizedDeferredComposerQuery],
+    queryFn: () => fuzzyFileSearch(workspaceId, { query: normalizedDeferredComposerQuery }),
+    enabled: Boolean(
+      workspaceId &&
+        activeComposerMatch?.mode === 'mention' &&
+        normalizedDeferredComposerQuery,
+    ),
+    staleTime: 15_000,
+  })
 
   async function invalidateThreadQueries() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
     ])
   }
 
-  const createThreadMutation = useMutation({
-    mutationFn: (input: { name: string; model?: string; permissionPreset?: string }) =>
-      createThread(workspaceId, input),
-    onSuccess: async (thread) => {
-      setNewThreadName('New Thread')
-      queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
-        upsertThreadList(current, thread),
-      )
-      queryClient.setQueryData<ThreadDetail>(['thread-detail', workspaceId, thread.id], {
-        ...thread,
-        turns: [],
-      })
-      setSelectedThread(workspaceId, thread.id)
-      await invalidateThreadQueries()
-    },
-  })
+  function clearPendingTurn(threadId: string) {
+    setPendingTurnsByThread((current) => {
+      if (!(threadId in current)) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[threadId]
+      return next
+    })
+  }
+
+  function updatePendingTurn(
+    threadId: string,
+    updater: (current: PendingThreadTurn | null) => PendingThreadTurn | null,
+  ) {
+    setPendingTurnsByThread((current) => {
+      const nextValue = updater(current[threadId] ?? null)
+      if (!nextValue) {
+        if (!(threadId in current)) {
+          return current
+        }
+
+        const next = { ...current }
+        delete next[threadId]
+        return next
+      }
+
+      return {
+        ...current,
+        [threadId]: nextValue,
+      }
+    })
+  }
+
   const renameThreadMutation = useMutation({
     mutationFn: ({ threadId, name }: { threadId: string; name: string }) =>
       renameThread(workspaceId, threadId, { name }),
@@ -578,7 +1534,7 @@ export function ThreadPage() {
 
       setEditingThreadId((current) => (current === threadId ? undefined : current))
       setEditingThreadName('')
-      setPendingTurn((current) => (current?.threadId === threadId ? null : current))
+      clearPendingTurn(threadId)
       setSendError(null)
       setConfirmingThreadDelete(null)
       deleteThreadMutation.reset()
@@ -594,6 +1550,30 @@ export function ThreadPage() {
       ])
     },
   })
+  const compactThreadMutation = useMutation({
+    mutationFn: (threadId: string) => compactThread(workspaceId, threadId),
+    onMutate: (threadId) => {
+      setContextCompactionFeedback({
+        threadId,
+        phase: 'requested',
+        title: 'Queued',
+      })
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+      ])
+    },
+    onError: (error, threadId) => {
+      void error
+      setContextCompactionFeedback({
+        threadId,
+        phase: 'failed',
+        title: 'Failed',
+      })
+    },
+  })
   const startTurnMutation = useMutation<
     TurnResult,
     Error,
@@ -603,23 +1583,28 @@ export function ThreadPage() {
       model?: string
       reasoningEffort?: string
       permissionPreset?: string
+      collaborationMode?: string
     }
   >({
-    mutationFn: ({ threadId, input, model, reasoningEffort, permissionPreset }) =>
+    mutationFn: ({ threadId, input, model, reasoningEffort, permissionPreset, collaborationMode }) =>
       startTurn(workspaceId, threadId, {
         input,
         model,
         reasoningEffort,
         permissionPreset,
+        collaborationMode,
       }),
   })
   const interruptTurnMutation = useMutation({
     mutationFn: () => interruptTurn(workspaceId, selectedThreadId ?? ''),
     onSuccess: async () => {
-      setPendingTurn(null)
+      if (selectedThreadId) {
+        clearPendingTurn(selectedThreadId)
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] }),
         queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
       ])
     },
   })
@@ -685,7 +1670,7 @@ export function ThreadPage() {
       : (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string]),
   )
   const liveThreadDetail = useMemo(
-    () => applyThreadEventsToDetail(threadDetailQuery.data, selectedThreadEvents),
+    () => applyLiveThreadEvents(threadDetailQuery.data, selectedThreadEvents),
     [selectedThreadEvents, threadDetailQuery.data],
   )
 
@@ -696,6 +1681,120 @@ export function ThreadPage() {
       ),
     [workspaceCommandSessions],
   )
+  const activePendingTurn = selectedThreadId ? pendingTurnsByThread[selectedThreadId] ?? null : null
+  const collaborationModes = collaborationModesQuery.data ?? []
+  const supportsPlanMode = collaborationModes.some(
+    (mode) => normalizeCollaborationMode(mode.mode ?? mode.id) === 'plan',
+  )
+  const isMentionAutocompleteOpen =
+    activeComposerMatch?.mode === 'mention' &&
+    activeComposerAutocompleteKey !== dismissedComposerAutocompleteKey
+  const isSkillAutocompleteOpen =
+    activeComposerMatch?.mode === 'skill' &&
+    activeComposerAutocompleteKey !== dismissedComposerAutocompleteKey
+  const isCommandAutocompleteOpen =
+    ((activeComposerMatch?.mode === 'command' &&
+      activeComposerAutocompleteKey !== dismissedComposerAutocompleteKey) ||
+      composerCommandMenu === 'review')
+  const normalizedMentionFiles = useMemo(
+    () =>
+      (fileSearchQuery.data?.files ?? [])
+        .map((entry) => normalizeComposerFileSearchItem(entry))
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+    [fileSearchQuery.data?.files],
+  )
+  const composerAutocompleteSections = useMemo(() => {
+    if (isCommandAutocompleteOpen) {
+      return buildComposerAutocompleteSections({
+        mode: 'command',
+        commands: composerCommandDefinitions,
+        commandMenu: composerCommandMenu,
+        query:
+          activeComposerMatch?.mode === 'command'
+            ? deferredComposerQuery
+            : '',
+        skills: skillsQuery.data ?? [],
+        files: [],
+      })
+    }
+
+    if (isSkillAutocompleteOpen) {
+      return buildComposerAutocompleteSections({
+        mode: 'skill',
+        commands: [],
+        commandMenu: 'root',
+        query:
+          activeComposerMatch?.mode === 'skill'
+            ? deferredComposerQuery
+            : '',
+        skills: skillsQuery.data ?? [],
+        files: [],
+      })
+    }
+
+    if (isMentionAutocompleteOpen) {
+      return buildComposerAutocompleteSections({
+        mode: 'mention',
+        commands: [],
+        commandMenu: 'root',
+        query: '',
+        skills: [],
+        files: normalizedMentionFiles,
+      })
+    }
+
+    return []
+  }, [
+    activeComposerMatch?.mode,
+    composerCommandDefinitions,
+    composerCommandMenu,
+    deferredComposerQuery,
+    isCommandAutocompleteOpen,
+    isMentionAutocompleteOpen,
+    isSkillAutocompleteOpen,
+    normalizedMentionFiles,
+    skillsQuery.data,
+  ])
+  const composerAutocompleteItems = useMemo(
+    () => composerAutocompleteSections.flatMap((section) => section.items),
+    [composerAutocompleteSections],
+  )
+  const composerAutocompleteSectionGroups = useMemo(() => {
+    let offset = 0
+
+    return composerAutocompleteSections.map((section) => {
+      const indexedItems = section.items.map((item) => {
+        const indexedItem = { item, index: offset }
+        offset += 1
+        return indexedItem
+      })
+
+      return {
+        ...section,
+        indexedItems,
+      }
+    })
+  }, [composerAutocompleteSections])
+  const composerAutocompleteItem =
+    composerAutocompleteItems[
+      Math.max(0, Math.min(composerAutocompleteIndex, composerAutocompleteItems.length - 1))
+    ] ?? null
+  const mcpServerStates = useMemo(
+    () =>
+      (mcpServerStatusQuery.data?.data ?? []).map((entry) =>
+        normalizeMcpServerState(entry),
+      ),
+    [mcpServerStatusQuery.data?.data],
+  )
+  const showMentionSearchHint =
+    isMentionAutocompleteOpen &&
+    !normalizedDeferredComposerQuery &&
+    !fileSearchQuery.isFetching &&
+    !composerAutocompleteItems.length
+  const showSkillSearchLoading =
+    isSkillAutocompleteOpen &&
+    skillsQuery.isFetching &&
+    !composerAutocompleteItems.length
 
   useEffect(() => {
     setSelectedWorkspace(workspaceId)
@@ -708,6 +1807,39 @@ export function ThreadPage() {
   useEffect(() => {
     writeComposerPreferences(workspaceId, composerPreferences)
   }, [composerPreferences, workspaceId])
+
+  useEffect(() => {
+    if (!supportsPlanMode && composerPreferences.collaborationMode === 'plan') {
+      setComposerPreferences((current) => ({
+        ...current,
+        collaborationMode: 'default',
+      }))
+    }
+  }, [composerPreferences.collaborationMode, supportsPlanMode])
+
+  useEffect(() => {
+    setActiveComposerPanel(null)
+    setComposerCommandMenu('root')
+    setComposerAutocompleteIndex(0)
+    setDismissedComposerAutocompleteKey(null)
+    setContextCompactionFeedback(null)
+  }, [selectedThreadId, workspaceId])
+
+  useEffect(() => {
+    setComposerAutocompleteIndex(0)
+  }, [activeComposerAutocompleteKey, composerCommandMenu])
+
+  useEffect(() => {
+    if (composerAutocompleteIndex < composerAutocompleteItems.length) {
+      return
+    }
+
+    setComposerAutocompleteIndex(0)
+  }, [composerAutocompleteIndex, composerAutocompleteItems.length])
+
+  useEffect(() => {
+    setPendingTurnsByThread({})
+  }, [workspaceId])
 
   useEffect(() => {
     if (!isMobileViewport) {
@@ -723,21 +1855,16 @@ export function ThreadPage() {
       return
     }
 
+    if (!selectedThreadId) {
+      setSelectedThread(workspaceId, currentThreads[0].id)
+      return
+    }
+
     const hasSelectedThread = currentThreads.some((thread) => thread.id === selectedThreadId)
-    if (!hasSelectedThread) {
+    if (!hasSelectedThread && threadDetailQuery.data?.id !== selectedThreadId) {
       setSelectedThread(workspaceId, currentThreads[0].id)
     }
-  }, [selectedThreadId, setSelectedThread, threadsQuery.data, workspaceId])
-
-  useEffect(() => {
-    setPendingTurn((current) => {
-      if (!current) {
-        return null
-      }
-
-      return current.threadId === selectedThreadId ? current : null
-    })
-  }, [selectedThreadId])
+  }, [selectedThreadId, setSelectedThread, threadDetailQuery.data?.id, threadsQuery.data, workspaceId])
 
   useEffect(() => {
     shouldFollowThreadRef.current = true
@@ -757,34 +1884,30 @@ export function ThreadPage() {
   }, [selectedThreadId])
 
   useEffect(() => {
-    if (!selectedThreadId || !pendingTurn?.turnId || pendingTurn.threadId !== selectedThreadId) {
+    if (!selectedThreadId || !activePendingTurn?.turnId) {
       return
     }
 
     const turns = threadDetailQuery.data?.turns ?? []
-    if (!turns.some((turn) => turn.id === pendingTurn.turnId)) {
+    if (!turns.some((turn) => turn.id === activePendingTurn.turnId)) {
       return
     }
 
-    const submittedAtMs = new Date(pendingTurn.submittedAt).getTime()
+    const submittedAtMs = new Date(activePendingTurn.submittedAt).getTime()
     const elapsedMs = Number.isNaN(submittedAtMs) ? MIN_SEND_FEEDBACK_MS : Date.now() - submittedAtMs
     const remainingMs = Math.max(0, MIN_SEND_FEEDBACK_MS - elapsedMs)
 
     if (remainingMs === 0) {
-      setPendingTurn((current) =>
-        current?.turnId === pendingTurn.turnId && current?.threadId === selectedThreadId ? null : current,
-      )
+      clearPendingTurn(selectedThreadId)
       return
     }
 
     const timeoutId = window.setTimeout(() => {
-      setPendingTurn((current) =>
-        current?.turnId === pendingTurn.turnId && current?.threadId === selectedThreadId ? null : current,
-      )
+      clearPendingTurn(selectedThreadId)
     }, remainingMs)
 
     return () => window.clearTimeout(timeoutId)
-  }, [liveThreadDetail?.turns, pendingTurn, selectedThreadId])
+  }, [activePendingTurn, clearPendingTurn, liveThreadDetail?.turns, selectedThreadId])
 
   useEffect(() => {
     if (!selectedThreadId || !selectedThreadEvents.length) {
@@ -793,7 +1916,10 @@ export function ThreadPage() {
 
     const latestEvent = selectedThreadEvents[selectedThreadEvents.length - 1]
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
-      void queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] })
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+      ])
     }
 
     if (!shouldRefreshThreadDetailForEvent(latestEvent.method)) {
@@ -818,6 +1944,29 @@ export function ThreadPage() {
   }, [queryClient, selectedThreadEvents, selectedThreadId, workspaceId])
 
   useEffect(() => {
+    if (
+      !selectedThreadId ||
+      !contextCompactionFeedback ||
+      contextCompactionFeedback.threadId !== selectedThreadId ||
+      contextCompactionFeedback.phase !== 'requested' ||
+      !selectedThreadEvents.length
+    ) {
+      return
+    }
+
+    const latestEvent = selectedThreadEvents[selectedThreadEvents.length - 1]
+    if (latestEvent.method !== 'thread/compacted') {
+      return
+    }
+
+    setContextCompactionFeedback({
+      threadId: selectedThreadId,
+      phase: 'completed',
+      title: 'Compacted',
+    })
+  }, [contextCompactionFeedback, selectedThreadEvents, selectedThreadId])
+
+  useEffect(() => {
     if (!workspaceActivityEvents.length) {
       return
     }
@@ -825,7 +1974,10 @@ export function ThreadPage() {
     const latestEvent = workspaceActivityEvents[workspaceActivityEvents.length - 1]
 
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
-      void queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] })
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+      ])
     }
 
     if (shouldRefreshApprovalsForEvent(latestEvent.method, latestEvent.serverRequestId)) {
@@ -843,36 +1995,45 @@ export function ThreadPage() {
   )
 
   useEffect(() => {
-    if (!pendingTurn?.turnId || pendingTurn.threadId !== selectedThreadId) {
+    const entries = Object.values(pendingTurnsByThread)
+    if (!entries.length) {
       return
     }
 
-    const hasCompletedEvent = selectedThreadEvents.some(
-      (event) => event.turnId === pendingTurn.turnId && event.method === 'turn/completed',
-    )
-    if (!hasCompletedEvent) {
-      return
-    }
+    const timeoutIds: number[] = []
 
-    const submittedAtMs = new Date(pendingTurn.submittedAt).getTime()
-    const elapsedMs = Number.isNaN(submittedAtMs) ? MIN_SEND_FEEDBACK_MS : Date.now() - submittedAtMs
-    const remainingMs = Math.max(0, MIN_SEND_FEEDBACK_MS - elapsedMs)
+    for (const entry of entries) {
+      if (!entry.turnId) {
+        continue
+      }
 
-    if (remainingMs === 0) {
-      setPendingTurn((current) =>
-        current?.turnId === pendingTurn.turnId && current?.threadId === selectedThreadId ? null : current,
+      const hasCompletedEvent = (allThreadEvents[entry.threadId] ?? []).some(
+        (event) => event.turnId === entry.turnId && event.method === 'turn/completed',
       )
-      return
+      if (!hasCompletedEvent) {
+        continue
+      }
+
+      const submittedAtMs = new Date(entry.submittedAt).getTime()
+      const elapsedMs = Number.isNaN(submittedAtMs) ? MIN_SEND_FEEDBACK_MS : Date.now() - submittedAtMs
+      const remainingMs = Math.max(0, MIN_SEND_FEEDBACK_MS - elapsedMs)
+
+      if (remainingMs === 0) {
+        clearPendingTurn(entry.threadId)
+        continue
+      }
+
+      timeoutIds.push(
+        window.setTimeout(() => {
+          clearPendingTurn(entry.threadId)
+        }, remainingMs),
+      )
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setPendingTurn((current) =>
-        current?.turnId === pendingTurn.turnId && current?.threadId === selectedThreadId ? null : current,
-      )
-    }, remainingMs)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [pendingTurn, selectedThreadEvents, selectedThreadId])
+    return () => {
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    }
+  }, [allThreadEvents, clearPendingTurn, pendingTurnsByThread])
 
   useEffect(() => {
     if (!isMobileViewport) {
@@ -1012,22 +2173,24 @@ export function ThreadPage() {
   }, [isSurfacePanelResizing])
 
   const selectedThread = useMemo(
-    () => threadsQuery.data?.find((thread) => thread.id === selectedThreadId),
-    [selectedThreadId, threadsQuery.data],
+    () =>
+      threadsQuery.data?.find((thread) => thread.id === selectedThreadId) ??
+      (threadDetailQuery.data?.id === selectedThreadId ? threadDetailQuery.data : undefined),
+    [selectedThreadId, threadDetailQuery.data, threadsQuery.data],
   )
   const displayedTurns = useMemo(() => {
     const turns = liveThreadDetail?.turns ?? []
 
-    if (!pendingTurn || pendingTurn.threadId !== selectedThreadId) {
+    if (!activePendingTurn) {
       return turns
     }
 
-    if (pendingTurn.turnId && turns.some((turn) => turn.id === pendingTurn.turnId)) {
-      return upsertPendingUserMessage(turns, pendingTurn)
+    if (activePendingTurn.turnId && turns.some((turn) => turn.id === activePendingTurn.turnId)) {
+      return upsertPendingUserMessage(turns, activePendingTurn)
     }
 
-    return [...turns, buildPendingThreadTurn(pendingTurn)]
-  }, [liveThreadDetail?.turns, pendingTurn, selectedThreadId])
+    return [...turns, buildPendingThreadTurn(activePendingTurn)]
+  }, [activePendingTurn, liveThreadDetail?.turns])
   const liveTimelineEntries = useMemo(
     () =>
       buildLiveTimelineEntries(
@@ -1046,6 +2209,8 @@ export function ThreadPage() {
     () => computeContextUsage(resolvedThreadTokenUsage),
     [resolvedThreadTokenUsage],
   )
+  const activeContextCompactionFeedback =
+    contextCompactionFeedback?.threadId === selectedThreadId ? contextCompactionFeedback : null
   const availableModels = useMemo(
     () =>
       Array.from(
@@ -1054,6 +2219,49 @@ export function ThreadPage() {
         ),
       ),
     [composerPreferences.model, modelsQuery.data],
+  )
+  const mobileCollaborationModeOptions = useMemo(
+    () => [
+      { value: 'default', label: '默认模式', triggerLabel: '模式' },
+      { value: 'plan', label: 'Plan 模式', triggerLabel: 'Plan', disabled: !supportsPlanMode },
+    ],
+    [supportsPlanMode],
+  )
+  const mobilePermissionOptions = useMemo(
+    () => [
+      { value: 'default', label: '默认权限', triggerLabel: '权限' },
+      { value: 'full-access', label: '完全访问', triggerLabel: '全开' },
+    ],
+    [],
+  )
+  const mobileModelOptions = useMemo(
+    () => [
+      { value: '', label: '默认模型', triggerLabel: '模型' },
+      ...availableModels.map((model) => ({
+        value: model,
+        label: model,
+      })),
+    ],
+    [availableModels],
+  )
+  const desktopModelOptions = useMemo(
+    () => [
+      { value: '', label: '跟随默认模型', triggerLabel: '默认' },
+      ...availableModels.map((model) => ({
+        value: model,
+        label: model,
+      })),
+    ],
+    [availableModels],
+  )
+  const mobileReasoningOptions = useMemo(
+    () => [
+      { value: 'low', label: '低' },
+      { value: 'medium', label: '中' },
+      { value: 'high', label: '高' },
+      { value: 'xhigh', label: '超' },
+    ],
+    [],
   )
   const activeComposerApproval = useMemo(() => {
     const approvals = approvalsQuery.data ?? []
@@ -1068,6 +2276,17 @@ export function ThreadPage() {
     return threadApproval ?? approvals[0]
   }, [approvalsQuery.data, selectedThreadId])
   const latestDisplayedTurn = displayedTurns[displayedTurns.length - 1]
+  const isSelectedThreadLoaded = useMemo(() => {
+    if (!selectedThreadId) {
+      return null
+    }
+
+    if (!loadedThreadsQuery.data) {
+      return null
+    }
+
+    return loadedThreadsQuery.data.includes(selectedThreadId)
+  }, [loadedThreadsQuery.data, selectedThreadId])
   const turnCount = displayedTurns.length
   const timelineItemCount = displayedTurns.reduce((count, turn) => count + turn.items.length, 0)
   const latestThreadEventTs = selectedThreadEvents[selectedThreadEvents.length - 1]?.ts ?? ''
@@ -1078,55 +2297,62 @@ export function ThreadPage() {
     latestDisplayedTurn?.id ?? '',
     latestDisplayedTurn?.status ?? '',
     latestThreadEventTs,
-    pendingTurn?.phase ?? '',
-    pendingTurn?.turnId ?? '',
+    activePendingTurn?.phase ?? '',
+    activePendingTurn?.turnId ?? '',
     liveThreadDetail?.updatedAt ?? '',
     selectedThread?.updatedAt ?? '',
   ].join('|')
-  const isWaitingForThreadData = Boolean(pendingTurn && pendingTurn.threadId === selectedThreadId)
+  const isWaitingForThreadData = Boolean(activePendingTurn)
+  const isSendingSelectedThread = activePendingTurn?.phase === 'sending'
   const isApprovalDialogOpen = Boolean(activeComposerApproval)
   const requiresOpenAIAuth =
     accountQuery.data?.status === 'requires_openai_auth' || isAuthenticationError(accountQuery.error)
-  const isThreadSystemError = (liveThreadDetail?.status ?? selectedThread?.status) === 'systemError'
   const isThreadInterruptible = Boolean(
     selectedThreadId &&
       (isWaitingForThreadData ||
         statusIsInterruptible(selectedThread?.status) ||
         statusIsInterruptible(latestDisplayedTurn?.status)),
   )
-  const isSendBusy = startTurnMutation.isPending || isWaitingForThreadData
+  const isSendBusy = isWaitingForThreadData
   const isThreadProcessing =
-    startTurnMutation.isPending || interruptTurnMutation.isPending || isThreadInterruptible
+    isWaitingForThreadData || interruptTurnMutation.isPending || isThreadInterruptible
+  const compactDisabledReason = !selectedThreadId
+    ? 'Select a thread to compact its context.'
+    : activeContextCompactionFeedback?.phase === 'requested'
+      ? 'Compaction is already running. This panel will update when the runtime confirms it.'
+      : isThreadProcessing
+        ? 'Wait until the current reply finishes before compacting this thread.'
+        : null
   const isInterruptMode = Boolean(
     selectedThreadId &&
       !isApprovalDialogOpen &&
-      !startTurnMutation.isPending &&
+      !isSendingSelectedThread &&
       (interruptTurnMutation.isPending || isThreadInterruptible),
   )
   const isComposerLocked =
     isApprovalDialogOpen ||
-    startTurnMutation.isPending ||
+    isWaitingForThreadData ||
     interruptTurnMutation.isPending ||
     isThreadInterruptible
   const sendButtonLabel = interruptTurnMutation.isPending
     ? 'Stopping…'
-    : startTurnMutation.isPending
+    : isSendingSelectedThread
       ? 'Sending…'
       : isInterruptMode
         ? 'Stop'
         : 'Send'
   const shouldShowComposerSpinner =
-    startTurnMutation.isPending || interruptTurnMutation.isPending || isInterruptMode
+    isSendingSelectedThread || interruptTurnMutation.isPending || isInterruptMode
   const composerActivityTitle = interruptTurnMutation.isPending
     ? 'Stopping current reply…'
-    : startTurnMutation.isPending || pendingTurn?.phase === 'sending'
+    : isSendingSelectedThread
       ? 'Sending message to Codex…'
       : isThreadInterruptible
         ? 'Codex is replying…'
         : null
   const composerActivityDetail = interruptTurnMutation.isPending
     ? 'The runtime is stopping the active turn. The thread will settle in place when it completes.'
-    : startTurnMutation.isPending || pendingTurn?.phase === 'sending'
+    : isSendingSelectedThread
       ? 'Your message is staged. The primary action will switch to Stop as soon as the turn is live.'
       : isThreadInterruptible
         ? isThreadPinnedToLatest
@@ -1139,6 +2365,73 @@ export function ThreadPage() {
     ? 'running'
     : selectedThread?.status ?? streamState
   const composerStatusMessage = sendError
+  const composerStatusInfo = useMemo(
+    () =>
+      buildComposerStatusInfo({
+        streamState,
+        rawThreadStatus: liveThreadDetail?.status ?? selectedThread?.status,
+        latestTurnStatus: latestDisplayedTurn?.status,
+        latestTurnError: latestDisplayedTurn?.error,
+        sendError,
+        requiresOpenAIAuth,
+        isApprovalDialogOpen,
+        approvalSummary: activeComposerApproval?.summary,
+        isWaitingForThreadData,
+        pendingPhase: activePendingTurn?.phase,
+        isThreadInterruptible,
+        isThreadLoaded: isSelectedThreadLoaded,
+      }),
+    [
+      activeComposerApproval?.summary,
+      activePendingTurn?.phase,
+      isApprovalDialogOpen,
+      isSelectedThreadLoaded,
+      isThreadInterruptible,
+      isWaitingForThreadData,
+      latestDisplayedTurn?.error,
+      latestDisplayedTurn?.status,
+      liveThreadDetail?.status,
+      requiresOpenAIAuth,
+      selectedThread?.status,
+      sendError,
+      streamState,
+    ],
+  )
+  const threadDetailPollIntervalMs = selectedThreadId
+    ? activePendingTurn
+      ? 1_000
+      : streamState !== 'open'
+        ? 5_000
+        : null
+    : null
+  const approvalsPollIntervalMs = workspaceId && streamState !== 'open' ? 4_000 : null
+  const autoSyncIntervalMs = [threadDetailPollIntervalMs, approvalsPollIntervalMs].reduce<number | null>(
+    (current, value) => {
+      if (typeof value !== 'number') {
+        return current
+      }
+
+      return current === null ? value : Math.min(current, value)
+    },
+    null,
+  )
+  const lastAutoSyncAtMs = Math.max(
+    threadsQuery.dataUpdatedAt || 0,
+    selectedThreadId ? threadDetailQuery.dataUpdatedAt || 0 : 0,
+    approvalsQuery.dataUpdatedAt || 0,
+  )
+  const isHeaderSyncBusy =
+    threadsQuery.isFetching ||
+    (Boolean(selectedThreadId) && threadDetailQuery.isFetching) ||
+    approvalsQuery.isFetching
+  const syncCountdownLabel =
+    isHeaderSyncBusy
+      ? 'Syncing…'
+      : autoSyncIntervalMs
+        ? `Next sync ${formatSyncCountdown(lastAutoSyncAtMs, autoSyncIntervalMs, syncClock)}`
+        : streamState === 'open'
+          ? 'Live'
+          : 'Manual sync'
   const activeCommandCount = commandSessions.filter((session) => session.status === 'running').length
   const lastTimelineEventTs =
     selectedThreadEvents[selectedThreadEvents.length - 1]?.ts ?? workspaceEvents[workspaceEvents.length - 1]?.ts
@@ -1182,6 +2475,11 @@ export function ThreadPage() {
       visible: true,
       statusLabel: compactStatusLabel(mobileStatus),
       statusTone: compactStatusTone(mobileStatus),
+      syncLabel: compactSyncLabel(syncCountdownLabel, streamState),
+      syncTitle: syncCountdownLabel,
+      activityVisible: Boolean(selectedThread),
+      activityRunning: isThreadProcessing,
+      refreshBusy: isHeaderSyncBusy,
     })
 
     return () => {
@@ -1190,10 +2488,15 @@ export function ThreadPage() {
     }
   }, [
     isMobileViewport,
+    isHeaderSyncBusy,
+    isThreadProcessing,
     mobileStatus,
     resetMobileThreadChrome,
+    selectedThread,
     setMobileThreadChrome,
     setMobileThreadToolsOpen,
+    streamState,
+    syncCountdownLabel,
   ])
 
   useEffect(() => {
@@ -1217,6 +2520,21 @@ export function ThreadPage() {
     mobileThreadToolsOpen,
     setMobileThreadToolsOpen,
   ])
+
+  useEffect(() => {
+    if (streamState === 'open' || !autoSyncIntervalMs || typeof window === 'undefined') {
+      return
+    }
+
+    setSyncClock(Date.now())
+    const intervalId = window.setInterval(() => {
+      setSyncClock(Date.now())
+    }, 1_000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [autoSyncIntervalMs, streamState])
 
   useEffect(() => {
     if (!selectedThreadId) {
@@ -1302,6 +2620,16 @@ export function ThreadPage() {
     scrollThreadToLatest('smooth')
   }
 
+  async function handleManualSync() {
+    await Promise.all([
+      invalidateThreadQueries(),
+      selectedThreadId
+        ? queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })
+        : Promise.resolve(),
+      queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+    ])
+  }
+
   function handleRetryServerRequest(item: Record<string, unknown>) {
     const nextPrompt = buildRetryPromptFromServerRequest(item)
 
@@ -1328,24 +2656,153 @@ export function ThreadPage() {
     })
   }
 
-  function handleCreateThread(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!newThreadName.trim()) {
-      return
-    }
-    createThreadMutation.mutate({
-      name: newThreadName.trim(),
-      model: composerPreferences.model || undefined,
-      permissionPreset: composerPreferences.permissionPreset,
+  function focusComposerAt(nextCaret: number) {
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus()
+      composerInputRef.current?.setSelectionRange(nextCaret, nextCaret)
     })
   }
 
-  function handleQuickCreateThread() {
-    createThreadMutation.mutate({
-      name: newThreadName.trim() || 'New Thread',
-      model: composerPreferences.model || undefined,
-      permissionPreset: composerPreferences.permissionPreset,
-    })
+  function applyComposerMessage(nextValue: string, nextCaret: number) {
+    setMessage(nextValue)
+    setComposerCaret(nextCaret)
+    setSendError(null)
+    setDismissedComposerAutocompleteKey(null)
+    focusComposerAt(nextCaret)
+  }
+
+  function clearComposerTriggerToken() {
+    if (!activeComposerMatch) {
+      return { value: message, caret: composerCaret }
+    }
+
+    return replaceComposerAutocompleteToken(message, activeComposerMatch, '')
+  }
+
+  function insertComposerText(input: {
+    replacement: string
+    replaceActiveToken?: boolean
+  }) {
+    const { replacement, replaceActiveToken = false } = input
+    if (replaceActiveToken && activeComposerMatch) {
+      return replaceComposerAutocompleteToken(message, activeComposerMatch, replacement)
+    }
+
+    return {
+      value: `${message.slice(0, composerCaret)}${replacement}${message.slice(composerCaret)}`,
+      caret: composerCaret + replacement.length,
+    }
+  }
+
+  function dismissComposerAutocomplete() {
+    setComposerCommandMenu('root')
+    if (activeComposerAutocompleteKey) {
+      setDismissedComposerAutocompleteKey(activeComposerAutocompleteKey)
+    }
+  }
+
+  function handleComposerCommandAction(action: ComposerCommandAction) {
+    switch (action.kind) {
+      case 'panel': {
+        const cleared = clearComposerTriggerToken()
+        setComposerCommandMenu('root')
+        setActiveComposerPanel(action.panel)
+        applyComposerMessage(cleared.value, cleared.caret)
+        return
+      }
+      case 'prompt': {
+        const nextMessage = insertComposerText({
+          replacement: action.prompt,
+          replaceActiveToken: activeComposerMatch?.mode === 'command',
+        })
+        setComposerCommandMenu('root')
+        applyComposerMessage(nextMessage.value, nextMessage.caret)
+        return
+      }
+      case 'submenu': {
+        const cleared = clearComposerTriggerToken()
+        setComposerCommandMenu(action.menu)
+        setDismissedComposerAutocompleteKey(null)
+        applyComposerMessage(cleared.value, cleared.caret)
+        return
+      }
+      case 'toggle-plan': {
+        if (!supportsPlanMode) {
+          setSendError('Plan mode is not available for this workspace.')
+          dismissComposerAutocomplete()
+          return
+        }
+
+        const cleared = clearComposerTriggerToken()
+        setComposerPreferences((current) => ({
+          ...current,
+          collaborationMode: current.collaborationMode === 'plan' ? 'default' : 'plan',
+        }))
+        setComposerCommandMenu('root')
+        setActiveComposerPanel(null)
+        applyComposerMessage(cleared.value, cleared.caret)
+      }
+    }
+  }
+
+  function handleSelectComposerAutocompleteItem(item: ComposerAutocompleteItem) {
+    switch (item.kind) {
+      case 'command':
+        handleComposerCommandAction(item.action)
+        return
+      case 'review': {
+        const nextMessage = insertComposerText({
+          replacement: item.prompt,
+          replaceActiveToken: activeComposerMatch?.mode === 'command',
+        })
+        setComposerCommandMenu('root')
+        applyComposerMessage(nextMessage.value, nextMessage.caret)
+        return
+      }
+      case 'skill':
+      case 'file': {
+        const nextMessage = insertComposerText({
+          replacement: item.insertion,
+          replaceActiveToken: Boolean(activeComposerMatch),
+        })
+        setComposerCommandMenu('root')
+        applyComposerMessage(nextMessage.value, nextMessage.caret)
+        return
+      }
+    }
+  }
+
+  function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Escape' && (isCommandAutocompleteOpen || isMentionAutocompleteOpen || isSkillAutocompleteOpen)) {
+      event.preventDefault()
+      dismissComposerAutocomplete()
+      return
+    }
+
+    if (!composerAutocompleteItems.length) {
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setComposerAutocompleteIndex((current) =>
+        current + 1 >= composerAutocompleteItems.length ? 0 : current + 1,
+      )
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setComposerAutocompleteIndex((current) =>
+        current - 1 < 0 ? composerAutocompleteItems.length - 1 : current - 1,
+      )
+      return
+    }
+
+    if ((event.key === 'Enter' || event.key === 'Tab') && composerAutocompleteItem) {
+      event.preventDefault()
+      handleSelectComposerAutocompleteItem(composerAutocompleteItem)
+    }
   }
 
   function handleDeleteSelectedThread() {
@@ -1382,10 +2839,28 @@ export function ThreadPage() {
 
     const input = message.trim()
     const optimisticTurn = createPendingTurn(selectedThreadId, input)
+    const optimisticStatusUpdatedAt = new Date().toISOString()
 
     setSendError(null)
-    setPendingTurn(optimisticTurn)
+    updatePendingTurn(selectedThreadId, () => optimisticTurn)
     setMessage('')
+    setComposerCaret(0)
+    setComposerCommandMenu('root')
+    setDismissedComposerAutocompleteKey(null)
+    setActiveComposerPanel(null)
+    queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
+      updateThreadStatusInList(current, selectedThreadId, 'running', optimisticStatusUpdatedAt),
+    )
+    queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
+      updateThreadStatusInList(current, selectedThreadId, 'running', optimisticStatusUpdatedAt),
+    )
+    queryClient.setQueryData<string[]>(['loaded-threads', workspaceId], (current) => {
+      if (!current?.length) {
+        return current
+      }
+
+      return current.includes(selectedThreadId) ? current : [...current, selectedThreadId]
+    })
     scrollThreadToLatest('smooth')
 
     try {
@@ -1398,6 +2873,8 @@ export function ThreadPage() {
           model: composerPreferences.model || undefined,
           reasoningEffort: composerPreferences.reasoningEffort,
           permissionPreset: composerPreferences.permissionPreset,
+          collaborationMode:
+            composerPreferences.collaborationMode === 'plan' ? 'plan' : undefined,
         })
       } catch (error) {
         if (!shouldRetryTurnAfterResume(error)) {
@@ -1411,10 +2888,12 @@ export function ThreadPage() {
           model: composerPreferences.model || undefined,
           reasoningEffort: composerPreferences.reasoningEffort,
           permissionPreset: composerPreferences.permissionPreset,
+          collaborationMode:
+            composerPreferences.collaborationMode === 'plan' ? 'plan' : undefined,
         })
       }
 
-      setPendingTurn((current) =>
+      updatePendingTurn(selectedThreadId, (current) =>
         current?.localId === optimisticTurn.localId
           ? {
               ...current,
@@ -1427,11 +2906,17 @@ export function ThreadPage() {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] }),
         queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
       ])
     } catch (error) {
-      setPendingTurn((current) => (current?.localId === optimisticTurn.localId ? null : current))
+      updatePendingTurn(selectedThreadId, (current) =>
+        current?.localId === optimisticTurn.localId ? null : current,
+      )
       setMessage(input)
+      setComposerCaret(input.length)
       setSendError(getErrorMessage(error, 'Failed to send message.'))
+      void invalidateThreadQueries()
     }
   }
 
@@ -1478,6 +2963,14 @@ export function ThreadPage() {
     }
 
     interruptTurnMutation.mutate()
+  }
+
+  function handleCompactSelectedThread() {
+    if (!selectedThreadId || compactDisabledReason || compactThreadMutation.isPending) {
+      return
+    }
+
+    compactThreadMutation.mutate(selectedThreadId)
   }
 
   function handleTerminalResizeStart(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -1588,45 +3081,32 @@ export function ThreadPage() {
               {!isMobileViewport ? (
                 <div className="workbench-stage__meta-bar">
                   <>
+                    {selectedThread ? (
+                      <span className="workbench-stage__activity-status" title={isThreadProcessing ? 'Thread running' : 'Thread idle'}>
+                        <span
+                          aria-hidden="true"
+                          className={
+                            isThreadProcessing
+                              ? 'workbench-stage__activity-dot workbench-stage__activity-dot--running'
+                              : 'workbench-stage__activity-dot workbench-stage__activity-dot--idle'
+                          }
+                        />
+                      </span>
+                    ) : null}
+                    <span className="meta-pill workbench-stage__sync-pill">{syncCountdownLabel}</span>
                     <button
-                      className="ide-button"
-                      disabled={createThreadMutation.isPending}
-                      onClick={handleQuickCreateThread}
-                      type="button"
-                    >
-                      {createThreadMutation.isPending ? 'Creating…' : 'New Thread'}
-                    </button>
-                    <button
-                      className={surfacePanelView === 'feed' ? 'ide-button ide-button--secondary workbench-stage__peek-button workbench-stage__peek-button--active' : 'ide-button ide-button--secondary workbench-stage__peek-button'}
-                      onClick={() => {
-                        if (surfacePanelView === 'feed') {
-                          setSurfacePanelView(null)
-                          return
-                        }
-
-                        handleOpenSurfacePanel('feed')
-                      }}
-                      type="button"
-                    >
-                      Feed
-                    </button>
-                    <button
+                      aria-label="Sync thread now"
                       className={
-                        surfacePanelView === 'approvals'
-                          ? 'ide-button ide-button--secondary workbench-stage__peek-button workbench-stage__peek-button--active'
-                          : 'ide-button ide-button--secondary workbench-stage__peek-button'
+                        isHeaderSyncBusy
+                          ? 'workbench-stage__sync-button workbench-stage__sync-button--spinning'
+                          : 'workbench-stage__sync-button'
                       }
-                      onClick={() => {
-                        if (surfacePanelView === 'approvals') {
-                          setSurfacePanelView(null)
-                          return
-                        }
-
-                        handleOpenSurfacePanel('approvals')
-                      }}
+                      disabled={isHeaderSyncBusy}
+                      onClick={() => void handleManualSync()}
+                      title="Sync thread now"
                       type="button"
                     >
-                      Approvals
+                      <RefreshIcon />
                     </button>
                     <StatusPill status={streamState} />
                   </>
@@ -1658,16 +3138,16 @@ export function ThreadPage() {
                       </InlineNotice>
                     ) : displayedTurns.length ? (
                       <div className="workbench-log__thread">
-                        {isThreadSystemError ? (
+                        {composerStatusInfo?.noticeTitle && composerStatusInfo.noticeMessage ? (
                           <InlineNotice
-                            details={requiresOpenAIAuth ? 'requires_openai_auth' : 'systemError'}
+                            details={composerStatusInfo.summary}
                             dismissible
-                            noticeKey={`thread-runtime-${selectedThreadId}-${liveThreadDetail?.status ?? selectedThread?.status ?? 'unknown'}`}
+                            noticeKey={`thread-runtime-${selectedThreadId}-${composerStatusInfo.label}`}
                             onRetry={() => void queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })}
-                            title="Thread Runtime Error"
+                            title={composerStatusInfo.noticeTitle}
                             tone="error"
                           >
-                            {'Thread status is systemError. The runtime did not return a more specific error message for this turn.'}
+                            {composerStatusInfo.noticeMessage}
                           </InlineNotice>
                         ) : null}
                         <TurnTimeline
@@ -1678,7 +3158,7 @@ export function ThreadPage() {
                           <div
                             aria-live="polite"
                             className={
-                              pendingTurn?.phase === 'sending'
+                              activePendingTurn?.phase === 'sending'
                                 ? 'thread-pending-state thread-pending-state--sending'
                                 : 'thread-pending-state thread-pending-state--waiting'
                             }
@@ -1687,12 +3167,12 @@ export function ThreadPage() {
                             <span aria-hidden="true" className="thread-pending-state__spinner" />
                             <div className="thread-pending-state__copy">
                               <strong>
-                                {pendingTurn?.phase === 'sending'
+                                {activePendingTurn?.phase === 'sending'
                                   ? 'Sending message…'
                                   : 'Generating reply…'}
                               </strong>
                               <span>
-                                {pendingTurn?.phase === 'sending'
+                                {activePendingTurn?.phase === 'sending'
                                   ? 'Your message is staged and the thread is preparing a response.'
                                   : isThreadPinnedToLatest
                                     ? 'Auto-follow is keeping the newest output in view.'
@@ -1709,17 +3189,7 @@ export function ThreadPage() {
                   ) : (
                     <div className="empty-state workbench-log__empty">
                       <div className="form-stack">
-                        <p>Select a thread from the left sidebar or create a new thread in this workspace.</p>
-                        <div className="header-actions">
-                          <button
-                            className="ide-button"
-                            disabled={createThreadMutation.isPending}
-                            onClick={handleQuickCreateThread}
-                            type="button"
-                          >
-                            {createThreadMutation.isPending ? 'Creating…' : 'Create Thread'}
-                          </button>
-                        </div>
+                        <p>Select a thread from the left sidebar to start working in this workspace.</p>
                       </div>
                     </div>
                   )}
@@ -1851,6 +3321,217 @@ export function ThreadPage() {
                     {composerStatusMessage}
                   </InlineNotice>
                 ) : null}
+                {activeComposerPanel ? (
+                  <section className="composer-assist-card" aria-live="polite">
+                    <div className="composer-assist-card__header">
+                      <div className="composer-assist-card__copy">
+                        <strong>
+                          {activeComposerPanel === 'mcp'
+                            ? 'MCP'
+                            : activeComposerPanel === 'status'
+                              ? '状态'
+                              : activeComposerPanel === 'personalization'
+                                ? '个性'
+                                : '工作树'}
+                        </strong>
+                        <span>
+                          {activeComposerPanel === 'mcp'
+                            ? '查看当前工作区的 MCP 服务状态。'
+                            : activeComposerPanel === 'status'
+                              ? '查看线程、上下文使用情况和账户额度。'
+                              : activeComposerPanel === 'personalization'
+                                ? '查看本地响应偏好和自定义指令。'
+                                : '查看当前工作树策略和设置入口。'}
+                        </span>
+                      </div>
+                      <button
+                        aria-label="关闭辅助面板"
+                        className="composer-assist-card__close"
+                        onClick={() => setActiveComposerPanel(null)}
+                        type="button"
+                      >
+                        <ComposerCloseIcon />
+                      </button>
+                    </div>
+                    <div className="composer-assist-card__body">
+                      {activeComposerPanel === 'mcp' ? (
+                        <>
+                          {mcpServerStatusQuery.isLoading ? (
+                            <div className="composer-assist-card__empty">正在读取 MCP 服务器状态…</div>
+                          ) : mcpServerStates.length ? (
+                            <div className="composer-assist-card__list">
+                              {mcpServerStates.slice(0, 4).map((server) => (
+                                <article className="composer-assist-card__row" key={`${server.name}-${server.status}`}>
+                                  <div className="composer-assist-card__icon">
+                                    <ComposerOptionGlyph icon="mcp" />
+                                  </div>
+                                  <div className="composer-assist-card__details">
+                                    <strong>{server.name}</strong>
+                                    <span>{server.detail || server.status}</span>
+                                  </div>
+                                  <span className="meta-pill">{server.status}</span>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="composer-assist-card__empty">未配置 MCP 服务器</div>
+                          )}
+                          <div className="composer-assist-card__footer">
+                            <Link className="composer-assist-card__link" to="/settings/mcp">
+                              打开 MCP 设置
+                            </Link>
+                          </div>
+                        </>
+                      ) : null}
+                      {activeComposerPanel === 'status' ? (
+                        <>
+                          <div className="composer-assist-card__facts">
+                            <div className="composer-assist-card__fact">
+                              <span>线程</span>
+                              <strong>{selectedThreadId ?? '未选择线程'}</strong>
+                            </div>
+                            <div className="composer-assist-card__fact">
+                              <span>运行时</span>
+                              <strong>{workspaceQuery.data?.runtimeStatus ?? 'unknown'}</strong>
+                            </div>
+                            <div className="composer-assist-card__fact">
+                              <span>上下文</span>
+                              <strong>
+                                {contextUsage.percent === null
+                                  ? '不可用'
+                                  : `${contextUsage.percent}% · ${contextUsage.totalTokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()}`}
+                              </strong>
+                            </div>
+                            <div className="composer-assist-card__fact">
+                              <span>额度</span>
+                              <strong>
+                                {rateLimitsQuery.isLoading
+                                  ? '读取中…'
+                                  : rateLimitsQuery.error
+                                    ? '不可用'
+                                    : describeRateLimits(rateLimitsQuery.data)}
+                              </strong>
+                            </div>
+                          </div>
+                          <div className="composer-assist-card__footer">
+                            <span className="composer-assist-card__hint">
+                              {rateLimitsQuery.data?.[0]?.resetsAt
+                                ? `额度重置 ${formatShortTime(rateLimitsQuery.data[0].resetsAt)}`
+                                : accountQuery.data?.email ?? '未连接账户'}
+                            </span>
+                            <Link className="composer-assist-card__link" to="/settings/general">
+                              打开常规设置
+                            </Link>
+                          </div>
+                        </>
+                      ) : null}
+                      {activeComposerPanel === 'personalization' ? (
+                        <>
+                          <div className="composer-assist-card__facts">
+                            <div className="composer-assist-card__fact">
+                              <span>响应风格</span>
+                              <strong>{responseTone}</strong>
+                            </div>
+                            <div className="composer-assist-card__fact">
+                              <span>自定义指令</span>
+                              <strong>
+                                {customInstructions.trim()
+                                  ? truncateInlineText(customInstructions, 100)
+                                  : '未设置'}
+                              </strong>
+                            </div>
+                          </div>
+                          <div className="composer-assist-card__footer">
+                            <Link className="composer-assist-card__link" to="/settings/personalization">
+                              打开个性化设置
+                            </Link>
+                          </div>
+                        </>
+                      ) : null}
+                      {activeComposerPanel === 'worktree' ? (
+                        <>
+                          <div className="composer-assist-card__facts">
+                            <div className="composer-assist-card__fact">
+                              <span>最大工作树</span>
+                              <strong>{maxWorktrees}</strong>
+                            </div>
+                            <div className="composer-assist-card__fact">
+                              <span>自动清理</span>
+                              <strong>{autoPruneDays} 天</strong>
+                            </div>
+                            <div className="composer-assist-card__fact">
+                              <span>复用分支</span>
+                              <strong>{reuseBranches ? '开启' : '关闭'}</strong>
+                            </div>
+                          </div>
+                          <div className="composer-assist-card__footer">
+                            <Link className="composer-assist-card__link" to="/settings/worktrees">
+                              打开工作树设置
+                            </Link>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : null}
+                {isCommandAutocompleteOpen || isMentionAutocompleteOpen || isSkillAutocompleteOpen ? (
+                  <section className="composer-autocomplete" role="listbox">
+                    {showMentionSearchHint ? (
+                      <div className="composer-autocomplete__hint">
+                        输入相关内容以搜索文件
+                      </div>
+                    ) : showSkillSearchLoading ? (
+                      <div className="composer-autocomplete__hint">正在加载技能…</div>
+                    ) : fileSearchQuery.isFetching && isMentionAutocompleteOpen && !composerAutocompleteItems.length ? (
+                      <div className="composer-autocomplete__hint">正在搜索文件…</div>
+                    ) : composerAutocompleteSectionGroups.length ? (
+                      composerAutocompleteSectionGroups.map((section) => (
+                        <div className="composer-autocomplete__section" key={section.id}>
+                          <div className="composer-autocomplete__section-label">
+                            {section.label || composerSectionLabel(section.id)}
+                          </div>
+                          <div className="composer-autocomplete__list">
+                            {section.indexedItems.map(({ item, index }) => (
+                              <button
+                                aria-selected={composerAutocompleteIndex === index}
+                                className={
+                                  composerAutocompleteIndex === index
+                                    ? 'composer-autocomplete__item composer-autocomplete__item--active'
+                                    : 'composer-autocomplete__item'
+                                }
+                                key={`${section.id}-${item.id}`}
+                                onClick={() => handleSelectComposerAutocompleteItem(item)}
+                                onMouseDown={(event) => event.preventDefault()}
+                                onMouseEnter={() => setComposerAutocompleteIndex(index)}
+                                role="option"
+                                type="button"
+                              >
+                                <span className="composer-autocomplete__icon">
+                                  <ComposerOptionGlyph icon={item.icon} />
+                                </span>
+                                <span className="composer-autocomplete__body">
+                                  <strong>{item.title}</strong>
+                                  <span>{item.description}</span>
+                                </span>
+                                {item.meta ? (
+                                  <span className="composer-autocomplete__meta">{item.meta}</span>
+                                ) : null}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="composer-autocomplete__hint">
+                        {isCommandAutocompleteOpen
+                          ? '未找到匹配命令。'
+                          : isSkillAutocompleteOpen
+                            ? '未找到匹配技能。'
+                            : '未找到匹配文件。'}
+                      </div>
+                    )}
+                  </section>
+                ) : null}
                 <div
                   aria-busy={isThreadProcessing}
                   className={
@@ -1864,15 +3545,24 @@ export function ThreadPage() {
                     disabled={!selectedThread || isComposerLocked}
                     onChange={(event) => {
                       setMessage(event.target.value)
+                      setComposerCaret(event.target.selectionStart ?? event.target.value.length)
+                      setComposerCommandMenu((current) =>
+                        current === 'review' ? current : 'root',
+                      )
+                      setDismissedComposerAutocompleteKey(null)
                       if (sendError) {
                         setSendError(null)
                       }
                     }}
+                    onKeyDown={handleComposerKeyDown}
+                    onSelect={(event) =>
+                      setComposerCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+                    }
                     placeholder={
                       isApprovalDialogOpen
                         ? 'Resolve the approval request above to continue this thread.'
                         : selectedThread
-                        ? 'Describe the next task, continue the conversation, or ask for a repo change.'
+                        ? '向 Codex 任意提问，@ 添加文件，$ 选择技能，/ 调出命令'
                         : 'Select a thread to activate the workspace composer.'
                     }
                     rows={isMobileViewport ? 2 : 3}
@@ -1899,61 +3589,78 @@ export function ThreadPage() {
                   {isMobileViewport ? (
                     <div className="composer-dock__footer composer-dock__footer--mobile">
                       <div className="composer-dock__mobile-controls">
-                        <select
-                          aria-label="Permission preset"
+                        <SelectControl
+                          ariaLabel="Collaboration mode"
+                          className="composer-dock__mobile-select composer-dock__mobile-select--mode"
+                          disabled={!workspaceId || isComposerLocked}
+                          menuLabel="协作模式"
+                          menuClassName="composer-dock__mobile-select-menu"
+                          onChange={(nextValue) =>
+                            setComposerPreferences((current) => ({
+                              ...current,
+                              collaborationMode: normalizeCollaborationMode(nextValue),
+                            }))
+                          }
+                          optionClassName="composer-dock__mobile-select-option"
+                          options={mobileCollaborationModeOptions}
+                          value={composerPreferences.collaborationMode}
+                        />
+                        <SelectControl
+                          ariaLabel="Permission preset"
                           className="composer-dock__mobile-select"
                           disabled={!workspaceId || isComposerLocked}
-                          onChange={(event) =>
+                          menuLabel="权限范围"
+                          menuClassName="composer-dock__mobile-select-menu"
+                          onChange={(nextValue) =>
                             setComposerPreferences((current) => ({
                               ...current,
-                              permissionPreset: normalizePermissionPreset(event.target.value),
+                              permissionPreset: normalizePermissionPreset(nextValue),
                             }))
                           }
+                          optionClassName="composer-dock__mobile-select-option"
+                          options={mobilePermissionOptions}
                           value={composerPreferences.permissionPreset}
-                        >
-                          <option value="default">默认权限</option>
-                          <option value="full-access">完全访问</option>
-                        </select>
-                        <select
-                          aria-label="Model"
+                        />
+                        <SelectControl
+                          ariaLabel="Model"
                           className="composer-dock__mobile-select composer-dock__mobile-select--model"
                           disabled={!workspaceId || isComposerLocked || modelsQuery.isLoading}
-                          onChange={(event) =>
+                          menuLabel="选择模型"
+                          menuClassName="composer-dock__mobile-select-menu"
+                          onChange={(nextValue) =>
                             setComposerPreferences((current) => ({
                               ...current,
-                              model: event.target.value,
+                              model: nextValue,
                             }))
                           }
+                          optionClassName="composer-dock__mobile-select-option"
+                          options={mobileModelOptions}
                           value={composerPreferences.model}
-                        >
-                          <option value="">默认模型</option>
-                          {availableModels.map((model) => (
-                            <option key={model} value={model}>
-                              {model}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          aria-label="Reasoning effort"
+                        />
+                        <SelectControl
+                          ariaLabel="Reasoning effort"
                           className="composer-dock__mobile-select composer-dock__mobile-select--reasoning"
                           disabled={!workspaceId || isComposerLocked}
-                          onChange={(event) =>
+                          menuLabel="推理强度"
+                          menuClassName="composer-dock__mobile-select-menu"
+                          onChange={(nextValue) =>
                             setComposerPreferences((current) => ({
                               ...current,
-                              reasoningEffort: normalizeReasoningEffort(event.target.value),
+                              reasoningEffort: normalizeReasoningEffort(nextValue),
                             }))
                           }
+                          optionClassName="composer-dock__mobile-select-option"
+                          options={mobileReasoningOptions}
                           value={composerPreferences.reasoningEffort}
-                        >
-                          <option value="low">低推理</option>
-                          <option value="medium">中推理</option>
-                          <option value="high">高推理</option>
-                          <option value="xhigh">超高推理</option>
-                        </select>
+                        />
                       </div>
-                      <div className="composer-dock__actions">
+                      <div className="composer-dock__actions composer-dock__actions--mobile">
                         <ContextUsageIndicator
                           contextWindow={contextUsage.contextWindow}
+                          compactDisabledReason={compactDisabledReason}
+                          compactFeedback={activeContextCompactionFeedback}
+                          compactPending={compactThreadMutation.isPending}
+                          onCompact={handleCompactSelectedThread}
                           percent={contextUsage.percent}
                           totalTokens={contextUsage.totalTokens}
                           usage={resolvedThreadTokenUsage}
@@ -1966,6 +3673,219 @@ export function ThreadPage() {
                               : isSendBusy
                                 ? 'ide-button ide-button--busy composer-dock__action composer-dock__action--mobile'
                                 : 'ide-button composer-dock__action composer-dock__action--mobile'
+                          }
+                          disabled={
+                            isInterruptMode
+                              ? !selectedThreadId || interruptTurnMutation.isPending
+                              : !selectedThread || isComposerLocked || !message.trim()
+                          }
+                          onClick={isInterruptMode ? handlePrimaryComposerAction : undefined}
+                          title={sendButtonLabel}
+                          type={isInterruptMode ? 'button' : 'submit'}
+                        >
+                          {isInterruptMode ? (
+                            shouldShowComposerSpinner ? (
+                              <span
+                                aria-hidden="true"
+                                className="composer-dock__action-icon composer-dock__action-icon--spinning"
+                              >
+                                <StopIcon />
+                              </span>
+                            ) : (
+                              <span aria-hidden="true" className="composer-dock__action-icon">
+                                <StopIcon />
+                              </span>
+                            )
+                          ) : shouldShowComposerSpinner ? (
+                            <span aria-hidden="true" className="composer-dock__spinner" />
+                          ) : (
+                            <span aria-hidden="true" className="composer-dock__action-icon">
+                              <SendIcon />
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="composer-dock__footer">
+                      <div className="composer-dock__footer-main">
+                        <div className="composer-dock__control-strip">
+                          <div className="composer-control-group composer-control-group--active" role="group" aria-label="协作模式">
+                            <span className="composer-control-group__label">模式</span>
+                            <div className="segmented-control composer-control-group__segmented">
+                              <button
+                                className={
+                                  composerPreferences.collaborationMode === 'default'
+                                    ? 'segmented-control__item segmented-control__item--active composer-control-group__item'
+                                    : 'segmented-control__item composer-control-group__item'
+                                }
+                                aria-pressed={composerPreferences.collaborationMode === 'default'}
+                                disabled={!workspaceId || isComposerLocked}
+                                onClick={() =>
+                                  setComposerPreferences((current) => ({
+                                    ...current,
+                                    collaborationMode: 'default',
+                                  }))
+                                }
+                                title="默认模式"
+                                type="button"
+                              >
+                                默认
+                              </button>
+                              <button
+                                className={
+                                  composerPreferences.collaborationMode === 'plan'
+                                    ? 'segmented-control__item segmented-control__item--active composer-control-group__item'
+                                    : 'segmented-control__item composer-control-group__item'
+                                }
+                                aria-pressed={composerPreferences.collaborationMode === 'plan'}
+                                disabled={!workspaceId || isComposerLocked || !supportsPlanMode}
+                                onClick={() =>
+                                  setComposerPreferences((current) => ({
+                                    ...current,
+                                    collaborationMode: 'plan',
+                                  }))
+                                }
+                                title="计划模式"
+                                type="button"
+                              >
+                                计划
+                              </button>
+                            </div>
+                          </div>
+                          <div
+                            className={
+                              composerPreferences.permissionPreset === 'full-access'
+                                ? 'composer-control-group composer-control-group--active composer-control-group--danger-active'
+                                : 'composer-control-group composer-control-group--active'
+                            }
+                            role="group"
+                            aria-label="权限"
+                          >
+                            <span className="composer-control-group__label">权限</span>
+                            <div className="segmented-control composer-control-group__segmented">
+                              <button
+                                className={
+                                  composerPreferences.permissionPreset === 'default'
+                                    ? 'segmented-control__item segmented-control__item--active composer-control-group__item'
+                                    : 'segmented-control__item composer-control-group__item'
+                                }
+                                aria-pressed={composerPreferences.permissionPreset === 'default'}
+                                disabled={!workspaceId || isComposerLocked}
+                                onClick={() =>
+                                  setComposerPreferences((current) => ({
+                                    ...current,
+                                    permissionPreset: 'default',
+                                  }))
+                                }
+                                title="默认权限"
+                                type="button"
+                              >
+                                默认
+                              </button>
+                              <button
+                                className={
+                                  composerPreferences.permissionPreset === 'full-access'
+                                    ? 'segmented-control__item segmented-control__item--active composer-control-group__item composer-control-group__item--danger'
+                                    : 'segmented-control__item composer-control-group__item composer-control-group__item--danger'
+                                }
+                                aria-pressed={composerPreferences.permissionPreset === 'full-access'}
+                                disabled={!workspaceId || isComposerLocked}
+                                onClick={() =>
+                                  setComposerPreferences((current) => ({
+                                    ...current,
+                                    permissionPreset: 'full-access',
+                                  }))
+                                }
+                                title="完全访问权限"
+                                type="button"
+                              >
+                                全权
+                              </button>
+                            </div>
+                          </div>
+                          <label
+                            className={
+                              composerPreferences.model
+                                ? 'composer-control-select composer-control-select--active composer-control-select--model'
+                                : 'composer-control-select composer-control-select--model'
+                            }
+                          >
+                            <span className="composer-control-group__label">模型</span>
+                            <SelectControl
+                              ariaLabel="Model"
+                              className="composer-control-select__control"
+                              disabled={!workspaceId || isComposerLocked || modelsQuery.isLoading}
+                              menuLabel="选择模型"
+                              menuClassName="composer-control-select__menu"
+                              onChange={(nextValue) =>
+                                setComposerPreferences((current) => ({
+                                  ...current,
+                                  model: nextValue,
+                                }))
+                              }
+                              optionClassName="composer-control-select__option"
+                              options={desktopModelOptions}
+                              value={composerPreferences.model}
+                            />
+                          </label>
+                          <div className="composer-control-group composer-control-group--active" role="group" aria-label="推理强度">
+                            <span className="composer-control-group__label">推理</span>
+                            <div className="segmented-control composer-control-group__segmented">
+                              {[
+                                ['low', '低'],
+                                ['medium', '中'],
+                                ['high', '高'],
+                                ['xhigh', '超'],
+                              ].map(([value, label]) => (
+                                <button
+                                  className={
+                                    composerPreferences.reasoningEffort === value
+                                      ? 'segmented-control__item segmented-control__item--active composer-control-group__item'
+                                      : 'segmented-control__item composer-control-group__item'
+                                  }
+                                  aria-pressed={composerPreferences.reasoningEffort === value}
+                                  disabled={!workspaceId || isComposerLocked}
+                                  key={value}
+                                  onClick={() =>
+                                    setComposerPreferences((current) => ({
+                                      ...current,
+                                      reasoningEffort: normalizeReasoningEffort(value),
+                                    }))
+                                  }
+                                  title={`${label}推理强度`}
+                                  type="button"
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="composer-dock__meta composer-dock__meta--surface">
+                          {composerStatusInfo ? <ComposerStatusIndicator info={composerStatusInfo} /> : null}
+                          {isWaitingForThreadData ? <span className="composer-dock__hint">Waiting for backend turn data…</span> : null}
+                        </div>
+                      </div>
+                      <div className="composer-dock__actions">
+                        <ContextUsageIndicator
+                          contextWindow={contextUsage.contextWindow}
+                          compactDisabledReason={compactDisabledReason}
+                          compactFeedback={activeContextCompactionFeedback}
+                          compactPending={compactThreadMutation.isPending}
+                          onCompact={handleCompactSelectedThread}
+                          percent={contextUsage.percent}
+                          totalTokens={contextUsage.totalTokens}
+                          usage={resolvedThreadTokenUsage}
+                        />
+                        <button
+                          aria-label={sendButtonLabel}
+                          className={
+                            isInterruptMode
+                              ? 'ide-button composer-dock__action composer-dock__action--interrupt'
+                              : isSendBusy
+                                ? 'ide-button ide-button--busy composer-dock__action'
+                                : 'ide-button composer-dock__action'
                           }
                           disabled={
                             isInterruptMode
@@ -1994,165 +3914,6 @@ export function ThreadPage() {
                               <SendIcon />
                             </span>
                           )}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="composer-dock__footer">
-                      <div className="composer-dock__footer-main">
-                        <div className="composer-dock__control-strip">
-                          <div
-                            className={
-                              composerPreferences.permissionPreset === 'full-access'
-                                ? 'composer-control-group composer-control-group--active composer-control-group--danger-active'
-                                : 'composer-control-group composer-control-group--active'
-                            }
-                            role="group"
-                            aria-label="权限"
-                          >
-                            <span className="composer-control-group__label">权限</span>
-                            <div className="segmented-control composer-control-group__segmented">
-                              <button
-                                className={
-                                  composerPreferences.permissionPreset === 'default'
-                                    ? 'segmented-control__item segmented-control__item--active composer-control-group__item'
-                                    : 'segmented-control__item composer-control-group__item'
-                                }
-                                aria-pressed={composerPreferences.permissionPreset === 'default'}
-                                disabled={!workspaceId || isComposerLocked}
-                                onClick={() =>
-                                  setComposerPreferences((current) => ({
-                                    ...current,
-                                    permissionPreset: 'default',
-                                  }))
-                                }
-                                type="button"
-                              >
-                                默认
-                              </button>
-                              <button
-                                className={
-                                  composerPreferences.permissionPreset === 'full-access'
-                                    ? 'segmented-control__item segmented-control__item--active composer-control-group__item composer-control-group__item--danger'
-                                    : 'segmented-control__item composer-control-group__item composer-control-group__item--danger'
-                                }
-                                aria-pressed={composerPreferences.permissionPreset === 'full-access'}
-                                disabled={!workspaceId || isComposerLocked}
-                                onClick={() =>
-                                  setComposerPreferences((current) => ({
-                                    ...current,
-                                    permissionPreset: 'full-access',
-                                  }))
-                                }
-                                type="button"
-                              >
-                                完全访问
-                              </button>
-                            </div>
-                          </div>
-                          <label
-                            className={
-                              composerPreferences.model
-                                ? 'composer-control-select composer-control-select--active composer-control-select--model'
-                                : 'composer-control-select composer-control-select--model'
-                            }
-                          >
-                            <span className="composer-control-group__label">模型</span>
-                            <select
-                              className="composer-control-select__input"
-                              disabled={!workspaceId || isComposerLocked || modelsQuery.isLoading}
-                              onChange={(event) =>
-                                setComposerPreferences((current) => ({
-                                  ...current,
-                                  model: event.target.value,
-                                }))
-                              }
-                              value={composerPreferences.model}
-                            >
-                              <option value="">默认模型</option>
-                              {availableModels.map((model) => (
-                                <option key={model} value={model}>
-                                  {model}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <div className="composer-control-group composer-control-group--active" role="group" aria-label="推理强度">
-                            <span className="composer-control-group__label">推理</span>
-                            <div className="segmented-control composer-control-group__segmented">
-                              {[
-                                ['low', '低'],
-                                ['medium', '中'],
-                                ['high', '高'],
-                                ['xhigh', '超高'],
-                              ].map(([value, label]) => (
-                                <button
-                                  className={
-                                    composerPreferences.reasoningEffort === value
-                                      ? 'segmented-control__item segmented-control__item--active composer-control-group__item'
-                                      : 'segmented-control__item composer-control-group__item'
-                                  }
-                                  aria-pressed={composerPreferences.reasoningEffort === value}
-                                  disabled={!workspaceId || isComposerLocked}
-                                  key={value}
-                                  onClick={() =>
-                                    setComposerPreferences((current) => ({
-                                      ...current,
-                                      reasoningEffort: normalizeReasoningEffort(value),
-                                    }))
-                                  }
-                                  type="button"
-                                >
-                                  {label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="composer-dock__meta composer-dock__meta--surface">
-                          {selectedThread ? <span className="meta-pill">{selectedThread.status}</span> : null}
-                          {isApprovalDialogOpen ? <span className="meta-pill">approval required</span> : null}
-                          {isWaitingForThreadData ? <span className="composer-dock__hint">Waiting for backend turn data…</span> : null}
-                        </div>
-                      </div>
-                      <div className="composer-dock__actions">
-                        <ContextUsageIndicator
-                          contextWindow={contextUsage.contextWindow}
-                          percent={contextUsage.percent}
-                          totalTokens={contextUsage.totalTokens}
-                          usage={resolvedThreadTokenUsage}
-                        />
-                        <button
-                          className={
-                            isInterruptMode
-                              ? 'ide-button composer-dock__action composer-dock__action--interrupt'
-                              : isSendBusy
-                                ? 'ide-button ide-button--busy composer-dock__action'
-                                : 'ide-button composer-dock__action'
-                          }
-                          disabled={
-                            isInterruptMode
-                              ? !selectedThreadId || interruptTurnMutation.isPending
-                              : !selectedThread || isComposerLocked || !message.trim()
-                          }
-                          onClick={isInterruptMode ? handlePrimaryComposerAction : undefined}
-                          type={isInterruptMode ? 'button' : 'submit'}
-                        >
-                          {isInterruptMode ? (
-                            <span
-                              aria-hidden="true"
-                              className={
-                                shouldShowComposerSpinner
-                                  ? 'composer-dock__action-icon composer-dock__action-icon--spinning'
-                                  : 'composer-dock__action-icon'
-                              }
-                            >
-                              <StopIcon />
-                            </span>
-                          ) : shouldShowComposerSpinner ? (
-                            <span aria-hidden="true" className="composer-dock__spinner" />
-                          ) : null}
-                          <span>{sendButtonLabel}</span>
                         </button>
                       </div>
                     </div>
@@ -2336,14 +4097,6 @@ export function ThreadPage() {
                 </div>
                 <div className="workbench-mobile-actions">
                   <button
-                    className="pane-section__toggle workbench-mobile-actions__button"
-                    disabled={createThreadMutation.isPending}
-                    onClick={handleQuickCreateThread}
-                    type="button"
-                  >
-                    {createThreadMutation.isPending ? 'Creating…' : 'New Thread'}
-                  </button>
-                  <button
                     className={surfacePanelView === 'feed' ? 'pane-section__toggle workbench-mobile-actions__button workbench-mobile-actions__button--active' : 'pane-section__toggle workbench-mobile-actions__button'}
                     onClick={() => {
                       handleCloseWorkbenchOverlay()
@@ -2383,16 +4136,6 @@ export function ThreadPage() {
               </div>
               {isThreadToolsExpanded ? (
                 <>
-                  <form className="form-stack" onSubmit={handleCreateThread}>
-                    <label className="field">
-                      <span>New Thread</span>
-                      <input onChange={(event) => setNewThreadName(event.target.value)} value={newThreadName} />
-                    </label>
-                    <button className="ide-button" disabled={!newThreadName.trim()} type="submit">
-                      {createThreadMutation.isPending ? 'Creating…' : 'Create Thread'}
-                    </button>
-                  </form>
-
                   {selectedThread ? (
                     <>
                       <div className="header-actions">
@@ -2461,10 +4204,48 @@ export function ThreadPage() {
             </div>
 
             <div className="pane-section">
-              <div className="section-header">
+              <div className="section-header section-header--inline">
                 <div>
                   <h2>Workspace Context</h2>
                   <p>Persistent context stays in the rail. Feed and approvals open as lighter in-surface panels.</p>
+                </div>
+                <div className="header-actions workbench-pane__panel-actions">
+                  <button
+                    className={
+                      surfacePanelView === 'feed'
+                        ? 'pane-section__toggle workbench-pane__panel-toggle workbench-pane__panel-toggle--active'
+                        : 'pane-section__toggle workbench-pane__panel-toggle'
+                    }
+                    onClick={() => {
+                      if (surfacePanelView === 'feed') {
+                        setSurfacePanelView(null)
+                        return
+                      }
+
+                      handleOpenSurfacePanel('feed')
+                    }}
+                    type="button"
+                  >
+                    Feed
+                  </button>
+                  <button
+                    className={
+                      surfacePanelView === 'approvals'
+                        ? 'pane-section__toggle workbench-pane__panel-toggle workbench-pane__panel-toggle--active'
+                        : 'pane-section__toggle workbench-pane__panel-toggle'
+                    }
+                    onClick={() => {
+                      if (surfacePanelView === 'approvals') {
+                        setSurfacePanelView(null)
+                        return
+                      }
+
+                      handleOpenSurfacePanel('approvals')
+                    }}
+                    type="button"
+                  >
+                    Approvals
+                  </button>
                 </div>
               </div>
               <div className="detail-list">

@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"codex-server/backend/internal/runtime"
 )
@@ -17,6 +18,9 @@ type CollaborationMode struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Mode        string `json:"mode,omitempty"`
+	Model       string `json:"model,omitempty"`
+	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 }
 
 type Service struct {
@@ -181,11 +185,92 @@ func (s *Service) UninstallPlugin(ctx context.Context, workspaceID string, plugi
 	}, nil)
 }
 
-func (s *Service) CollaborationModes() []CollaborationMode {
-	return []CollaborationMode{
-		{ID: "default", Name: "Default", Description: "Single-agent execution with proactive progress updates"},
-		{ID: "plan", Name: "Plan", Description: "Task planning mode with explicit user checkpoints"},
+func (s *Service) CollaborationModes(ctx context.Context, workspaceID string) ([]CollaborationMode, error) {
+	var response struct {
+		Data []struct {
+			Name            string  `json:"name"`
+			Mode            *string `json:"mode"`
+			Model           *string `json:"model"`
+			ReasoningEffort *string `json:"reasoning_effort"`
+		} `json:"data"`
 	}
+
+	if err := s.runtimes.Call(ctx, workspaceID, "collaborationMode/list", map[string]any{}, &response); err != nil {
+		return nil, err
+	}
+
+	items := make([]CollaborationMode, 0, len(response.Data))
+	for _, entry := range response.Data {
+		mode := normalizeCollaborationMode(stringPointerValue(entry.Mode))
+		items = append(items, CollaborationMode{
+			ID:              fallbackString(mode, slugifyModeName(entry.Name)),
+			Name:            fallbackString(strings.TrimSpace(entry.Name), humanizeModeLabel(mode)),
+			Description:     collaborationModeDescription(mode),
+			Mode:            mode,
+			Model:           strings.TrimSpace(stringPointerValue(entry.Model)),
+			ReasoningEffort: trimStringPointer(entry.ReasoningEffort),
+		})
+	}
+
+	return items, nil
+}
+
+func collaborationModeDescription(mode string) string {
+	switch mode {
+	case "plan":
+		return "Task planning mode with explicit user checkpoints"
+	default:
+		return "Single-agent execution with proactive progress updates"
+	}
+}
+
+func humanizeModeLabel(mode string) string {
+	switch mode {
+	case "plan":
+		return "Plan"
+	default:
+		return "Default"
+	}
+}
+
+func slugifyModeName(value string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	if trimmed == "" {
+		return "default"
+	}
+
+	trimmed = strings.ReplaceAll(trimmed, " ", "-")
+	return trimmed
+}
+
+func normalizeCollaborationMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "plan":
+		return "plan"
+	default:
+		return "default"
+	}
+}
+
+func stringPointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
+}
+
+func trimStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+
+	return &trimmed
 }
 
 func (s *Service) ListRemoteSkills(ctx context.Context, workspaceID string, enabled bool, hazelnutScope string, productSurface string) (RemoteSkillResult, error) {

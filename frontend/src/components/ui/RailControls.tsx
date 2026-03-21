@@ -151,6 +151,14 @@ export function MoreActionsIcon() {
   )
 }
 
+export function PlusIcon() {
+  return (
+    <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
 export function SettingsIcon() {
   return (
     <svg fill="none" height="18" viewBox="0 0 24 24" width="18">
@@ -236,6 +244,26 @@ export function CopyIcon() {
       <rect height="11" rx="2.2" stroke="currentColor" strokeWidth="1.7" width="10.5" x="9" y="7" />
       <path
         d="M7 15H6.2A2.2 2.2 0 0 1 4 12.8V6.2A2.2 2.2 0 0 1 6.2 4h6.6A2.2 2.2 0 0 1 15 6.2V7"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  )
+}
+
+export function RefreshIcon() {
+  return (
+    <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M19 6.5v5h-5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M19 11.5a7 7 0 1 1-2.1-5"
         stroke="currentColor"
         strokeLinecap="round"
         strokeWidth="1.7"

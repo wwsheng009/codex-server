@@ -5,13 +5,29 @@ export function listThreads(workspaceId: string) {
   return apiRequest<Thread[]>(`/api/workspaces/${workspaceId}/threads`)
 }
 
+export function listLoadedThreadIds(workspaceId: string) {
+  return apiRequest<string[] | { data?: unknown }>(`/api/workspaces/${workspaceId}/threads/loaded`).then(
+    (result) => {
+      if (Array.isArray(result)) {
+        return result
+      }
+
+      if (result && typeof result === 'object' && Array.isArray(result.data)) {
+        return result.data.filter((item): item is string => typeof item === 'string')
+      }
+
+      return []
+    },
+  )
+}
+
 export function getThread(workspaceId: string, threadId: string) {
   return apiRequest<ThreadDetail>(`/api/workspaces/${workspaceId}/threads/${threadId}`)
 }
 
 export function createThread(
   workspaceId: string,
-  input: { name: string; model?: string; permissionPreset?: string },
+  input: { name?: string; model?: string; permissionPreset?: string } = {},
 ) {
   return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads`, {
     method: 'POST',
@@ -47,5 +63,11 @@ export function unarchiveThread(workspaceId: string, threadId: string) {
 export function deleteThread(workspaceId: string, threadId: string) {
   return apiRequest<{ status: string }>(`/api/workspaces/${workspaceId}/threads/${threadId}`, {
     method: 'DELETE',
+  })
+}
+
+export function compactThread(workspaceId: string, threadId: string) {
+  return apiRequest<{ status: string }>(`/api/workspaces/${workspaceId}/threads/${threadId}/compact`, {
+    method: 'POST',
   })
 }

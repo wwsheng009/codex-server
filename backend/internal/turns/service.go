@@ -17,6 +17,7 @@ type StartOptions struct {
 	Model            string
 	ReasoningEffort  string
 	PermissionPreset string
+	CollaborationMode string
 }
 
 type Result struct {
@@ -66,14 +67,39 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 func (s *Service) startTurn(ctx context.Context, workspaceID string, threadID string, input string, options StartOptions) (turnStartResponse, error) {
 	var response turnStartResponse
 
-	if err := s.runtimes.Call(ctx, workspaceID, "turn/start", buildTurnStartPayload(threadID, input, options), &response); err != nil {
+	payload, err := s.buildRuntimeTurnStartPayload(ctx, workspaceID, threadID, input, options)
+	if err != nil {
+		return turnStartResponse{}, err
+	}
+
+	if err := s.runtimes.Call(ctx, workspaceID, "turn/start", payload, &response); err != nil {
 		return turnStartResponse{}, err
 	}
 
 	return response, nil
 }
 
-func buildTurnStartPayload(threadID string, input string, options StartOptions) map[string]any {
+func (s *Service) buildRuntimeTurnStartPayload(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	input string,
+	options StartOptions,
+) (map[string]any, error) {
+	collaborationMode, err := s.resolveCollaborationMode(ctx, workspaceID, options)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildTurnStartPayload(threadID, input, options, collaborationMode), nil
+}
+
+func buildTurnStartPayload(
+	threadID string,
+	input string,
+	options StartOptions,
+	collaborationMode map[string]any,
+) map[string]any {
 	payload := map[string]any{
 		"input": []map[string]any{
 			{
@@ -84,13 +110,17 @@ func buildTurnStartPayload(threadID string, input string, options StartOptions) 
 		"threadId": threadID,
 	}
 
-	if model := strings.TrimSpace(options.Model); model != "" {
-		payload["model"] = model
-	}
+	if collaborationMode != nil {
+		payload["collaborationMode"] = collaborationMode
+	} else {
+		if model := strings.TrimSpace(options.Model); model != "" {
+			payload["model"] = model
+		}
 
-	switch normalizeReasoningEffort(options.ReasoningEffort) {
-	case "low", "medium", "high", "xhigh":
-		payload["effort"] = normalizeReasoningEffort(options.ReasoningEffort)
+		switch normalizeReasoningEffort(options.ReasoningEffort) {
+		case "low", "medium", "high", "xhigh":
+			payload["effort"] = normalizeReasoningEffort(options.ReasoningEffort)
+		}
 	}
 
 	switch normalizePermissionPreset(options.PermissionPreset) {
@@ -102,6 +132,107 @@ func buildTurnStartPayload(threadID string, input string, options StartOptions) 
 	}
 
 	return payload
+}
+
+type collaborationModePreset struct {
+	Name            string
+	Mode            string
+	Model           string
+	ReasoningEffort *string
+}
+
+func (s *Service) resolveCollaborationMode(
+	ctx context.Context,
+	workspaceID string,
+	options StartOptions,
+) (map[string]any, error) {
+	mode := normalizeCollaborationMode(options.CollaborationMode)
+	if mode == "default" {
+		return nil, nil
+	}
+
+	presets, err := s.listCollaborationModePresets(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	var preset *collaborationModePreset
+	for index := range presets {
+		if presets[index].Mode == mode {
+			preset = &presets[index]
+			break
+		}
+	}
+	if preset == nil {
+		return nil, errors.New("collaboration mode " + mode + " is not available")
+	}
+
+	return buildCollaborationModePayload(mode, options, *preset)
+}
+
+func (s *Service) listCollaborationModePresets(
+	ctx context.Context,
+	workspaceID string,
+) ([]collaborationModePreset, error) {
+	var response struct {
+		Data []struct {
+			Name            string  `json:"name"`
+			Mode            *string `json:"mode"`
+			Model           *string `json:"model"`
+			ReasoningEffort *string `json:"reasoning_effort"`
+		} `json:"data"`
+	}
+
+	if err := s.runtimes.Call(ctx, workspaceID, "collaborationMode/list", map[string]any{}, &response); err != nil {
+		return nil, err
+	}
+
+	items := make([]collaborationModePreset, 0, len(response.Data))
+	for _, entry := range response.Data {
+		items = append(items, collaborationModePreset{
+			Name:            strings.TrimSpace(entry.Name),
+			Mode:            normalizeCollaborationMode(stringPointerValue(entry.Mode)),
+			Model:           strings.TrimSpace(stringPointerValue(entry.Model)),
+			ReasoningEffort: trimStringPointer(entry.ReasoningEffort),
+		})
+	}
+
+	return items, nil
+}
+
+func buildCollaborationModePayload(
+	mode string,
+	options StartOptions,
+	preset collaborationModePreset,
+) (map[string]any, error) {
+	model := strings.TrimSpace(options.Model)
+	if model == "" {
+		model = strings.TrimSpace(preset.Model)
+	}
+	if model == "" {
+		return nil, errors.New("collaboration mode " + mode + " requires a model")
+	}
+
+	settings := map[string]any{
+		"developer_instructions": nil,
+		"model":                  model,
+	}
+
+	reasoningEffort := ""
+	if strings.TrimSpace(options.ReasoningEffort) != "" {
+		reasoningEffort = normalizeReasoningEffort(options.ReasoningEffort)
+	} else if preset.ReasoningEffort != nil {
+		reasoningEffort = normalizeReasoningEffort(*preset.ReasoningEffort)
+	}
+
+	if reasoningEffort != "" {
+		settings["reasoning_effort"] = reasoningEffort
+	}
+
+	return map[string]any{
+		"mode":     mode,
+		"settings": settings,
+	}, nil
 }
 
 func normalizeReasoningEffort(value string) string {
@@ -124,6 +255,36 @@ func normalizePermissionPreset(value string) string {
 	default:
 		return "default"
 	}
+}
+
+func normalizeCollaborationMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "plan":
+		return "plan"
+	default:
+		return "default"
+	}
+}
+
+func stringPointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
+}
+
+func trimStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+
+	return &trimmed
 }
 
 func (s *Service) Steer(ctx context.Context, workspaceID string, threadID string, input string) (Result, error) {

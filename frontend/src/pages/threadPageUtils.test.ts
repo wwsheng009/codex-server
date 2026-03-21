@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   isViewportNearBottom,
+  latestSettledMessageKey,
   shouldRefreshApprovalsForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
@@ -36,5 +37,51 @@ describe('threadPageUtils', () => {
   it('treats the thread viewport as pinned when it is close to the bottom', () => {
     expect(isViewportNearBottom(430, 1_000, 520)).toBe(true)
     expect(isViewportNearBottom(320, 1_000, 520)).toBe(false)
+  })
+
+  it('tracks only settled text messages for auto-scroll follow decisions', () => {
+    expect(
+      latestSettledMessageKey([
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'user-1',
+              type: 'userMessage',
+              content: [{ type: 'inputText', text: 'Inspect the tool rows' }],
+            },
+            {
+              id: 'tool-1',
+              type: 'commandExecution',
+              command: 'git status',
+              status: 'inProgress',
+            },
+            {
+              id: 'assistant-1',
+              type: 'agentMessage',
+              text: 'Streaming reply',
+              phase: 'streaming',
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-1:user-1:user:21')
+
+    expect(
+      latestSettledMessageKey([
+        {
+          id: 'turn-2',
+          status: 'completed',
+          items: [
+            {
+              id: 'assistant-2',
+              type: 'agentMessage',
+              text: 'Final reply',
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-2:assistant-2:agent:11')
   })
 })

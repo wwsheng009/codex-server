@@ -83,3 +83,9 @@ export function uninstallPlugin(workspaceId: string, input: { pluginId: string }
 export function listCollaborationModes(workspaceId: string) {
   return apiRequest<CollaborationMode[]>(`/api/workspaces/${workspaceId}/collaboration-modes`)
 }
+
+export function listMcpServerStatus(workspaceId: string) {
+  return apiRequest<{ data: Array<Record<string, unknown>> }>(
+    `/api/workspaces/${workspaceId}/mcp-server-status`,
+  )
+}

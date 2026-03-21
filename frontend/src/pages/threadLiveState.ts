@@ -1,5 +1,27 @@
 import type { ServerEvent, ThreadDetail, ThreadTurn } from '../types/api'
 
+export function applyLiveThreadEvents(
+  detail: ThreadDetail | undefined,
+  events: ServerEvent[],
+): ThreadDetail | undefined {
+  if (!detail) {
+    return detail
+  }
+
+  const baselineMs = parseTimestamp(detail.updatedAt)
+  if (baselineMs === null) {
+    return applyThreadEventsToDetail(detail, events)
+  }
+
+  return applyThreadEventsToDetail(
+    detail,
+    events.filter((event) => {
+      const eventMs = parseTimestamp(event.ts)
+      return eventMs === null || eventMs > baselineMs
+    }),
+  )
+}
+
 export function applyThreadEventsToDetail(
   detail: ThreadDetail | undefined,
   events: ServerEvent[],
@@ -414,6 +436,15 @@ function asObject(value: unknown): Record<string, unknown> {
 
 function hasOwn(value: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function parseTimestamp(value: string | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
 }
 
 function isServerRequestMethod(method: string) {

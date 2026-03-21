@@ -170,6 +170,9 @@ export type CollaborationMode = {
   id: string
   name: string
   description: string
+  mode?: string
+  model?: string
+  reasoningEffort?: string | null
 }
 
 export type TokenUsageBreakdown = {

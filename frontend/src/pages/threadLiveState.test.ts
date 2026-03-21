@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ServerEvent, ThreadDetail } from '../types/api'
 import {
+  applyLiveThreadEvents,
   applyThreadEventToDetail,
   applyThreadEventsToDetail,
   upsertPendingUserMessage,
@@ -146,6 +147,82 @@ describe('threadLiveState', () => {
       id: 'tool-1',
       type: 'dynamicToolCall',
       tool: 'search_query',
+    })
+  })
+
+  it('does not replay events already reflected in thread detail', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Hello',
+            },
+          ],
+        },
+      ],
+    }
+
+    const nextDetail = applyLiveThreadEvents(detail, [
+      makeEvent('item/agentMessage/delta', {
+        delta: 'Hello',
+        itemId: 'item-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    ])
+
+    expect(nextDetail?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello',
+    })
+  })
+
+  it('still applies events newer than the thread detail snapshot', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Hello',
+            },
+          ],
+        },
+      ],
+    }
+
+    const nextDetail = applyLiveThreadEvents(detail, [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/agentMessage/delta',
+        payload: {
+          delta: ' world',
+          itemId: 'item-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:02.000Z',
+      },
+    ])
+
+    expect(nextDetail?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello world',
     })
   })
 
