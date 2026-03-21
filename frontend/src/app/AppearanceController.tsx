@@ -9,6 +9,9 @@ export function AppearanceController() {
   const accentTone = useSettingsLocalStore((state) => state.accentTone)
   const density = useSettingsLocalStore((state) => state.density)
   const reduceMotion = useSettingsLocalStore((state) => state.reduceMotion)
+  const threadSpacing = useSettingsLocalStore((state) => state.threadSpacing)
+  const messageSurface = useSettingsLocalStore((state) => state.messageSurface)
+  const userMessageEmphasis = useSettingsLocalStore((state) => state.userMessageEmphasis)
   const { prefersDark, prefersReducedMotion } = useSystemAppearancePreferences()
 
   useEffect(() => {
@@ -19,9 +22,22 @@ export function AppearanceController() {
     root.dataset.themeMode = theme
     root.dataset.colorTheme = accentTone
     root.dataset.density = density
+    root.dataset.threadSpacing = threadSpacing
+    root.dataset.messageSurface = messageSurface
+    root.dataset.userMessageEmphasis = userMessageEmphasis
     root.dataset.motion = reduceMotion || prefersReducedMotion ? 'reduce' : 'normal'
     root.style.colorScheme = resolvedTheme
-  }, [accentTone, density, prefersDark, prefersReducedMotion, reduceMotion, theme])
+  }, [
+    accentTone,
+    density,
+    messageSurface,
+    prefersDark,
+    prefersReducedMotion,
+    reduceMotion,
+    theme,
+    threadSpacing,
+    userMessageEmphasis,
+  ])
 
   return null
 }

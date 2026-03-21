@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   colorThemeOptions,
+  getAppearancePaletteLabel,
   getAppearanceThemeLabel,
   getColorThemeLabel,
+  getMessageSurfaceLabel,
   getQuickToggleTheme,
+  getThreadSpacingLabel,
+  getUserMessageEmphasisLabel,
   resolveAppearanceTheme,
 } from './appearance'
 
@@ -29,6 +33,9 @@ describe('appearance helpers', () => {
   it('returns friendly labels for theme controls', () => {
     expect(getAppearanceThemeLabel('system')).toBe('System')
     expect(getColorThemeLabel('mint')).toBe('Mint')
+    expect(getThreadSpacingLabel('tight')).toBe('Tight')
+    expect(getMessageSurfaceLabel('soft')).toBe('Soft')
+    expect(getUserMessageEmphasisLabel('minimal')).toBe('Minimal')
   })
 
   it('exposes multiple color themes for the settings UI', () => {
@@ -37,6 +44,13 @@ describe('appearance helpers', () => {
       'slate',
       'amber',
       'mint',
+      'graphite',
+      'solarized',
     ])
+  })
+
+  it('builds a readable active palette label from the current palette and theme', () => {
+    expect(getAppearancePaletteLabel('solarized', 'dark')).toBe('Solarized Dark')
+    expect(getAppearancePaletteLabel('graphite', 'light')).toBe('Graphite Light')
   })
 })

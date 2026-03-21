@@ -9,7 +9,7 @@ export const settingsSections = [
     id: 'appearance',
     to: '/settings/appearance',
     label: 'Appearance',
-    caption: 'Theme mode, color themes, density, and motion preferences.',
+    caption: 'Theme presets, thread reading controls, density, and motion preferences.',
   },
   {
     id: 'config',

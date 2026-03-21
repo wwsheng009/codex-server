@@ -22,11 +22,25 @@
   --surface-nav: rgba(248, 249, 251, 0.58);
   --surface-nav-active: rgba(255, 255, 255, 0.96);
   --surface-nav-hover: rgba(255, 255, 255, 0.84);
+  --thread-stream-gap: 8px;
+  --thread-message-padding-y: 6px;
+  --thread-message-padding-x: 8px;
+  --thread-message-radius: 12px;
+  --thread-surface-alpha: 0.42;
+  --thread-surface-alpha-strong: 0.48;
+  --thread-user-tint-strength: 4%;
+  --thread-streaming-tint-strength: 8%;
+  --surface-thread-message: rgba(255, 255, 255, var(--thread-surface-alpha));
+  --surface-thread-message-user:
+    color-mix(in srgb, var(--accent) var(--thread-user-tint-strength), rgba(255, 255, 255, var(--thread-surface-alpha-strong)));
+  --surface-thread-message-streaming:
+    color-mix(in srgb, var(--accent) var(--thread-streaming-tint-strength), rgba(255, 255, 255, var(--thread-surface-alpha-strong)));
   --surface-input: rgba(255, 255, 255, 0.92);
   --surface-overlay: rgba(255, 255, 255, 0.82);
   --surface-control: rgba(255, 255, 255, 0.84);
   --surface-control-strong: rgba(245, 247, 250, 0.92);
   --surface-composer-footer: rgba(248, 250, 252, 0.7);
+  --surface-select-popup: #ffffff;
   --surface-danger-tint: rgba(235, 87, 87, 0.12);
   --surface-control-active: rgba(47, 128, 255, 0.1);
   --surface-control-danger-active: rgba(235, 87, 87, 0.12);
@@ -113,11 +127,25 @@
   --surface-nav: rgba(255, 255, 255, 0.03);
   --surface-nav-active: rgba(25, 35, 49, 0.96);
   --surface-nav-hover: rgba(21, 31, 44, 0.88);
+  --thread-stream-gap: 8px;
+  --thread-message-padding-y: 6px;
+  --thread-message-padding-x: 8px;
+  --thread-message-radius: 12px;
+  --thread-surface-alpha: 0.05;
+  --thread-surface-alpha-strong: 0.065;
+  --thread-user-tint-strength: 4%;
+  --thread-streaming-tint-strength: 8%;
+  --surface-thread-message: rgba(255, 255, 255, var(--thread-surface-alpha));
+  --surface-thread-message-user:
+    color-mix(in srgb, var(--accent) var(--thread-user-tint-strength), rgba(255, 255, 255, var(--thread-surface-alpha-strong)));
+  --surface-thread-message-streaming:
+    color-mix(in srgb, var(--accent) var(--thread-streaming-tint-strength), rgba(255, 255, 255, var(--thread-surface-alpha-strong)));
   --surface-input: rgba(19, 28, 40, 0.94);
   --surface-overlay: rgba(18, 25, 35, 0.88);
   --surface-control: rgba(25, 35, 49, 0.84);
   --surface-control-strong: rgba(14, 22, 33, 0.92);
   --surface-composer-footer: rgba(12, 18, 27, 0.74);
+  --surface-select-popup: #111a25;
   --surface-danger-tint: rgba(248, 113, 113, 0.14);
   --surface-control-active: rgba(110, 168, 255, 0.14);
   --surface-control-danger-active: rgba(248, 113, 113, 0.14);
@@ -184,6 +212,81 @@
   --scrollbar-thumb-hover: rgba(145, 160, 179, 0.38);
 }
 
+:root[data-thread-spacing='tight'] {
+  --thread-stream-gap: 8px;
+}
+
+:root[data-thread-spacing='balanced'] {
+  --thread-stream-gap: 10px;
+}
+
+:root[data-thread-spacing='relaxed'] {
+  --thread-stream-gap: 14px;
+}
+
+:root[data-message-surface='bare'][data-theme='light'] {
+  --thread-message-padding-y: 4px;
+  --thread-message-padding-x: 6px;
+  --thread-message-radius: 10px;
+  --thread-surface-alpha: 0.28;
+  --thread-surface-alpha-strong: 0.34;
+}
+
+:root[data-message-surface='soft'][data-theme='light'] {
+  --thread-message-padding-y: 6px;
+  --thread-message-padding-x: 8px;
+  --thread-message-radius: 12px;
+  --thread-surface-alpha: 0.42;
+  --thread-surface-alpha-strong: 0.48;
+}
+
+:root[data-message-surface='layered'][data-theme='light'] {
+  --thread-message-padding-y: 9px;
+  --thread-message-padding-x: 12px;
+  --thread-message-radius: 16px;
+  --thread-surface-alpha: 0.58;
+  --thread-surface-alpha-strong: 0.66;
+}
+
+:root[data-message-surface='bare'][data-theme='dark'] {
+  --thread-message-padding-y: 4px;
+  --thread-message-padding-x: 6px;
+  --thread-message-radius: 10px;
+  --thread-surface-alpha: 0.03;
+  --thread-surface-alpha-strong: 0.04;
+}
+
+:root[data-message-surface='soft'][data-theme='dark'] {
+  --thread-message-padding-y: 6px;
+  --thread-message-padding-x: 8px;
+  --thread-message-radius: 12px;
+  --thread-surface-alpha: 0.05;
+  --thread-surface-alpha-strong: 0.065;
+}
+
+:root[data-message-surface='layered'][data-theme='dark'] {
+  --thread-message-padding-y: 9px;
+  --thread-message-padding-x: 12px;
+  --thread-message-radius: 16px;
+  --thread-surface-alpha: 0.075;
+  --thread-surface-alpha-strong: 0.095;
+}
+
+:root[data-user-message-emphasis='minimal'] {
+  --thread-user-tint-strength: 3%;
+  --thread-streaming-tint-strength: 6%;
+}
+
+:root[data-user-message-emphasis='subtle'] {
+  --thread-user-tint-strength: 6%;
+  --thread-streaming-tint-strength: 10%;
+}
+
+:root[data-user-message-emphasis='accented'] {
+  --thread-user-tint-strength: 10%;
+  --thread-streaming-tint-strength: 16%;
+}
+
 :root[data-color-theme='slate'] {
   --bg-glow-secondary: rgba(90, 113, 137, 0.12);
   --bg-app: #f3f6f8;
@@ -212,6 +315,36 @@
   --accent: #1f9d7a;
   --accent-strong: #13765b;
   --focus-ring: rgba(31, 157, 122, 0.36);
+}
+
+:root[data-color-theme='graphite'] {
+  --bg-glow-secondary: rgba(31, 157, 104, 0.1);
+  --bg-app: #edf1f4;
+  --bg-main: #f7fafc;
+  --bg-sidebar: linear-gradient(180deg, #e5ebf0 0%, #eef3f7 100%);
+  --surface-code: #edf2f7;
+  --accent: #1f9d68;
+  --accent-strong: #176e49;
+  --focus-ring: rgba(31, 157, 104, 0.34);
+}
+
+:root[data-color-theme='solarized'] {
+  --bg-glow-secondary: rgba(38, 139, 210, 0.08);
+  --bg-app: #f5eed9;
+  --bg-main: #fdf6e3;
+  --bg-sidebar: linear-gradient(180deg, #eee8d5 0%, #f6efdc 100%);
+  --surface-card: rgba(255, 251, 240, 0.78);
+  --surface-card-strong: rgba(255, 251, 240, 0.92);
+  --surface-code: #efe7d2;
+  --surface-nav-active: rgba(255, 249, 233, 0.96);
+  --text-strong: #334249;
+  --text-primary: #46565f;
+  --text-secondary: #657b83;
+  --text-muted: #7d8f95;
+  --text-faint: #93a1a1;
+  --accent: #2aa198;
+  --accent-strong: #207f79;
+  --focus-ring: rgba(42, 161, 152, 0.34);
 }
 
 :root[data-theme='dark'][data-color-theme='slate'] {
@@ -244,6 +377,44 @@
   --focus-ring: rgba(78, 199, 160, 0.42);
 }
 
+:root[data-theme='dark'][data-color-theme='graphite'] {
+  --bg-glow: rgba(47, 191, 113, 0.12);
+  --bg-app: #0d1117;
+  --bg-main: #11161d;
+  --bg-sidebar: linear-gradient(180deg, #10151b 0%, #0c1016 100%);
+  --surface-card: rgba(19, 24, 31, 0.84);
+  --surface-card-strong: rgba(18, 22, 29, 0.94);
+  --surface-code: #161b22;
+  --surface-nav-active: rgba(26, 33, 40, 0.96);
+  --text-strong: #e6edf3;
+  --text-primary: #d0d7de;
+  --text-secondary: #9ea7b3;
+  --text-muted: #828f9d;
+  --text-faint: #6b7785;
+  --accent: #2fbf71;
+  --accent-strong: #66d99b;
+  --focus-ring: rgba(47, 191, 113, 0.4);
+}
+
+:root[data-theme='dark'][data-color-theme='solarized'] {
+  --bg-glow: rgba(38, 139, 210, 0.14);
+  --bg-app: #05232b;
+  --bg-main: #002b36;
+  --bg-sidebar: linear-gradient(180deg, #04232c 0%, #001f27 100%);
+  --surface-card: rgba(7, 47, 57, 0.82);
+  --surface-card-strong: rgba(5, 42, 52, 0.94);
+  --surface-code: #073642;
+  --surface-nav-active: rgba(8, 53, 65, 0.96);
+  --text-strong: #eee8d5;
+  --text-primary: #d8d0bc;
+  --text-secondary: #a5b1af;
+  --text-muted: #93a1a1;
+  --text-faint: #75878d;
+  --accent: #2aa198;
+  --accent-strong: #5fc9be;
+  --focus-ring: rgba(42, 161, 152, 0.42);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -266,6 +437,7 @@ body {
   transition:
     background-color 220ms ease,
     color 220ms ease;
+  color-scheme: inherit;
 }
 
 a {
@@ -278,6 +450,25 @@ input,
 textarea,
 select {
   font: inherit;
+  color-scheme: inherit;
+}
+
+select,
+optgroup,
+option {
+  color-scheme: inherit;
+}
+
+optgroup,
+option {
+  color: var(--text-primary);
+  background-color: var(--surface-select-popup);
+}
+
+select:disabled,
+optgroup:disabled,
+option:disabled {
+  color: var(--text-muted);
 }
 
 code,
