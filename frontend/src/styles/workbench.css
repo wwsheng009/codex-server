@@ -500,6 +500,7 @@
 }
 
 .workbench-log {
+  --thread-bottom-clearance: 180px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -514,6 +515,7 @@
   min-height: 0;
   overflow: auto;
   padding: 2px 4px 8px;
+  scroll-padding-bottom: var(--thread-bottom-clearance);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--scrollbar-thumb) 80%, transparent) transparent;
 }
@@ -590,7 +592,7 @@
   min-height: 100%;
   width: min(100%, var(--conversation-stage-width, 980px));
   margin: 0 auto;
-  padding-bottom: 180px; /* Reduced from 220px to better fit the smaller floating area */
+  padding-bottom: var(--thread-bottom-clearance);
 }
 
 .workbench-log__empty {
@@ -787,10 +789,9 @@
 }
 
 .workbench-log__jump-shell {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  z-index: 4;
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 auto 8px;
   pointer-events: none;
 }
 
@@ -2147,7 +2148,7 @@
 .composer-control-group__segmented {
   padding: 2px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-main) 94%, var(--text-faint) 6%);
+  background: color-mix(in srgb, var(--bg-main) 97%, var(--text-faint) 3%);
   border: 1px solid var(--border-subtle);
   transition: all 180ms ease;
 }
@@ -2157,6 +2158,14 @@
   padding: 0 8px;
   border-radius: 8px;
   font-size: 0.72rem;
+  transition: all 160ms ease;
+}
+
+.composer-control-group__item.segmented-control__item--active {
+  background: color-mix(in srgb, var(--bg-main) 92%, var(--text-faint) 8%);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
   font-weight: 600;
   white-space: nowrap;
   transition:
@@ -2181,15 +2190,15 @@
 }
 
 .composer-control-group__item.segmented-control__item--active {
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: var(--text-on-accent);
-  box-shadow: var(--shadow-control-active);
+  background: color-mix(in srgb, var(--bg-main) 92%, var(--text-faint) 8%);
+  color: var(--text-secondary);
+  box-shadow: none;
 }
 
 .composer-control-group__item--danger.segmented-control__item--active {
-  background: linear-gradient(135deg, var(--danger), var(--danger-strong));
-  color: var(--text-on-accent);
-  box-shadow: var(--shadow-control-danger);
+  background: var(--surface-danger-tint);
+  color: var(--danger-strong);
+  box-shadow: none;
 }
 
 .composer-control-group--active .composer-control-group__label {

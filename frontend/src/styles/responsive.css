@@ -516,9 +516,8 @@
   }
 
   .workbench-log__jump-shell {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
+    justify-content: flex-start;
+    margin-bottom: 6px;
   }
 
   .workbench-log__jump {

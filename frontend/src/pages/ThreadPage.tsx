@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useParams } from 'react-router-dom'
 
@@ -88,6 +88,9 @@ import type { CatalogItem, RateLimit, ServerEvent, Thread, ThreadTokenUsage, Thr
 const EMPTY_EVENTS: ServerEvent[] = []
 const EMPTY_COMMAND_SESSIONS = {}
 const MIN_SEND_FEEDBACK_MS = 700
+const MIN_THREAD_BOTTOM_CLEARANCE_PX = 96
+const DEFAULT_THREAD_BOTTOM_CLEARANCE_PX = 180
+const THREAD_BOTTOM_CLEARANCE_GAP_PX = 16
 const COMPOSER_PREFERENCES_STORAGE_PREFIX = 'codex-server:composer-preferences:'
 const FALLBACK_MODEL_OPTIONS = ['gpt-5.4', 'gpt-5.3-codex']
 
@@ -1328,6 +1331,7 @@ export function ThreadPage() {
   const [composerPreferences, setComposerPreferences] = useState<ComposerPreferences>(DEFAULT_COMPOSER_PREFERENCES)
   const [hasUnreadThreadUpdates, setHasUnreadThreadUpdates] = useState(false)
   const [isThreadPinnedToLatest, setIsThreadPinnedToLatest] = useState(true)
+  const [threadBottomClearancePx, setThreadBottomClearancePx] = useState(DEFAULT_THREAD_BOTTOM_CLEARANCE_PX)
   const [syncClock, setSyncClock] = useState(() => Date.now())
   const [confirmingThreadDelete, setConfirmingThreadDelete] = useState<Thread | null>(null)
   const inspectorResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
@@ -1335,7 +1339,7 @@ export function ThreadPage() {
   const terminalDockResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const threadDetailRefreshTimerRef = useRef<number | null>(null)
   const threadViewportRef = useRef<HTMLDivElement | null>(null)
-  const threadBottomRef = useRef<HTMLDivElement | null>(null)
+  const composerDockRef = useRef<HTMLFormElement | null>(null)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const threadContentKeyRef = useRef('')
   const threadSettledMessageKeyRef = useRef('')
@@ -1794,6 +1798,25 @@ export function ThreadPage() {
     isSkillAutocompleteOpen &&
     skillsQuery.isFetching &&
     !composerAutocompleteItems.length
+  const threadLogStyle = useMemo(
+    () =>
+      ({
+        '--thread-bottom-clearance': `${threadBottomClearancePx}px`,
+      }) as CSSProperties,
+    [threadBottomClearancePx],
+  )
+
+  function scrollThreadViewportToBottom(behavior: ScrollBehavior = 'smooth') {
+    const viewport = threadViewportRef.current
+    if (!viewport) {
+      return
+    }
+
+    viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior,
+    })
+  }
 
   useEffect(() => {
     setSelectedWorkspace(workspaceId)
@@ -1866,6 +1889,36 @@ export function ThreadPage() {
   }, [selectedThreadId, setSelectedThread, threadDetailQuery.data?.id, threadsQuery.data, workspaceId])
 
   useEffect(() => {
+    const composerDock = composerDockRef.current
+    if (!composerDock) {
+      return
+    }
+
+    const updateThreadBottomClearance = () => {
+      const nextClearance = Math.max(
+        MIN_THREAD_BOTTOM_CLEARANCE_PX,
+        Math.ceil(composerDock.getBoundingClientRect().height) + THREAD_BOTTOM_CLEARANCE_GAP_PX,
+      )
+
+      setThreadBottomClearancePx((current) => (current === nextClearance ? current : nextClearance))
+    }
+
+    updateThreadBottomClearance()
+
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateThreadBottomClearance()
+    })
+
+    observer.observe(composerDock)
+
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
     shouldFollowThreadRef.current = true
     threadContentKeyRef.current = ''
     threadSettledMessageKeyRef.current = ''
@@ -1877,7 +1930,7 @@ export function ThreadPage() {
     }
 
     const frameId = window.requestAnimationFrame(() => {
-      threadBottomRef.current?.scrollIntoView({ block: 'end' })
+      scrollThreadViewportToBottom('auto')
     })
 
     return () => window.cancelAnimationFrame(frameId)
@@ -2576,10 +2629,7 @@ export function ThreadPage() {
       setIsThreadPinnedToLatest(true)
 
       const frameId = window.requestAnimationFrame(() => {
-        threadBottomRef.current?.scrollIntoView({
-          behavior: isInitialPaintForThread ? 'auto' : 'smooth',
-          block: 'end',
-        })
+        scrollThreadViewportToBottom(isInitialPaintForThread ? 'auto' : 'smooth')
       })
 
       return () => window.cancelAnimationFrame(frameId)
@@ -2587,6 +2637,18 @@ export function ThreadPage() {
 
     setHasUnreadThreadUpdates(true)
   }, [selectedThreadId, settledMessageAutoScrollKey, threadContentKey])
+
+  useEffect(() => {
+    if (!selectedThreadId || !shouldFollowThreadRef.current) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollThreadViewportToBottom('auto')
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [selectedThreadId, threadBottomClearancePx])
 
   function syncThreadViewportState() {
     const viewport = threadViewportRef.current
@@ -2618,7 +2680,7 @@ export function ThreadPage() {
     setHasUnreadThreadUpdates(false)
     setIsThreadPinnedToLatest(true)
     window.requestAnimationFrame(() => {
-      threadBottomRef.current?.scrollIntoView({ behavior, block: 'end' })
+      scrollThreadViewportToBottom(behavior)
     })
   }
 
@@ -3059,6 +3121,8 @@ export function ThreadPage() {
     setInspectorWidth(layoutConfig.workbench.rightRail.defaultWidth)
   }
 
+  const showJumpToLatestButton = Boolean(selectedThread && displayedTurns.length > 0 && !isThreadPinnedToLatest)
+
   return (
     <section className={isMobileViewport ? 'screen workbench-screen workbench-screen--mobile' : 'screen workbench-screen'}>
       {isMobileWorkbenchOverlayOpen ? (
@@ -3073,7 +3137,7 @@ export function ThreadPage() {
         <section className="workbench-main">
           <section className="workbench-surface workbench-surface--ide">
             <div className="workbench-stage__canvas">
-              <div className="workbench-log">
+              <div className="workbench-log" style={threadLogStyle}>
                 <div
                   aria-busy={isThreadProcessing}
                   className="workbench-log__viewport"
@@ -3139,7 +3203,7 @@ export function ThreadPage() {
                             </div>
                           </div>
                         ) : null}
-                        <div aria-hidden="true" className="workbench-log__bottom-anchor" ref={threadBottomRef} />
+                        <div aria-hidden="true" className="workbench-log__bottom-anchor" />
                       </div>
                     ) : (
                       <div className="empty-state workbench-log__empty">Send the first message to start this thread.</div>
@@ -3152,22 +3216,6 @@ export function ThreadPage() {
                     </div>
                   )}
                 </div>
-                {selectedThread && displayedTurns.length && !isThreadPinnedToLatest ? (
-                  <div className="workbench-log__jump-shell">
-                    <button
-                      className={
-                        hasUnreadThreadUpdates
-                          ? 'workbench-log__jump workbench-log__jump--unread'
-                          : 'workbench-log__jump'
-                      }
-                      onClick={handleJumpToLatest}
-                      type="button"
-                    >
-                      <span aria-hidden="true" className="workbench-log__jump-indicator" />
-                      <span>{hasUnreadThreadUpdates ? 'New messages below' : 'Back to latest'}</span>
-                    </button>
-                  </div>
-                ) : null}
                 {surfacePanelView ? (
                   <section
                     className={
@@ -3244,6 +3292,7 @@ export function ThreadPage() {
               <form
                 className={isApprovalDialogOpen ? 'composer-dock composer-dock--workbench composer-dock--with-approval' : 'composer-dock composer-dock--workbench'}
                 onSubmit={handleSendMessage}
+                ref={composerDockRef}
               >
                 {activeComposerApproval ? (
                   <ApprovalDialog
@@ -3489,6 +3538,22 @@ export function ThreadPage() {
                       </div>
                     )}
                   </section>
+                ) : null}
+                {showJumpToLatestButton ? (
+                  <div className="workbench-log__jump-shell">
+                    <button
+                      className={
+                        hasUnreadThreadUpdates
+                          ? 'workbench-log__jump workbench-log__jump--unread'
+                          : 'workbench-log__jump'
+                      }
+                      onClick={handleJumpToLatest}
+                      type="button"
+                    >
+                      <span aria-hidden="true" className="workbench-log__jump-indicator" />
+                      <span>{hasUnreadThreadUpdates ? 'New messages below' : 'Back to latest'}</span>
+                    </button>
+                  </div>
                 ) : null}
                 <div className="composer-dock__shell">
                   <div

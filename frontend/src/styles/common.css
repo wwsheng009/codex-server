@@ -768,7 +768,7 @@
   padding: 0 10px;
   border: 1px solid var(--border-subtle);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-card);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 0.78rem;
@@ -782,7 +782,7 @@
 
 .notice__tool:hover {
   border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--surface-nav-active);
   color: var(--text-strong);
   transform: translateY(-1px);
 }
@@ -818,7 +818,7 @@
   padding: 0;
   border: 1px solid var(--border-subtle);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface-card);
   color: var(--text-muted);
   cursor: pointer;
   font-size: 1rem;
@@ -832,7 +832,7 @@
 
 .notice__close:hover {
   border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--surface-nav-active);
   color: var(--text-strong);
   transform: translateY(-1px);
 }
@@ -844,7 +844,7 @@
 
 .notice--error .notice__close {
   border-color: rgba(235, 87, 87, 0.18);
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--surface-card);
   color: var(--danger-strong);
 }
 
