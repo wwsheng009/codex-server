@@ -59,7 +59,14 @@ export function AppearanceSettingsPage() {
     setUseCustomColors(false)
   }
 
+  const activeColorTheme = colorThemeOptions.find((option) => option.value === accentTone) || colorThemeOptions[0]
+  const useCustomColors = useSettingsLocalStore((state) => state.useCustomColors)
+  
   const isLight = editingMode === 'light'
+  const effectiveAccentColor = useCustomColors 
+    ? (isLight ? accentColorLight : accentColorDark)
+    : activeColorTheme.swatches[isLight ? 0 : 1]
+
   const accentColor = isLight ? accentColorLight : accentColorDark
   const setAccentColor = isLight ? setAccentColorLight : setAccentColorDark
   const backgroundColor = isLight ? backgroundColorLight : backgroundColorDark
@@ -69,7 +76,7 @@ export function AppearanceSettingsPage() {
 
   const themePreviewCode = `const themePreview: ThemeConfig = {
   surface: "${isLight ? 'sidebar' : 'sidebar-elevated'}",
-  accent: "${accentColor || 'default'}",
+  accent: "${effectiveAccentColor || 'default'}",
   contrast: ${contrast},
 };`
 

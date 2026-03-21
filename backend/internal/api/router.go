@@ -129,6 +129,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		r.Get("/notifications", server.handleListNotifications)
 		r.Post("/notifications/read-all", server.handleReadAllNotifications)
 		r.Post("/notifications/{notificationId}/read", server.handleReadNotification)
+		r.Delete("/notifications/read", server.handleDeleteReadNotifications)
 
 		r.Route("/workspaces", func(r chi.Router) {
 			r.Get("/", server.handleListWorkspaces)
@@ -555,6 +556,10 @@ func (s *Server) handleReadNotification(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleReadAllNotifications(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.notifications.MarkAllRead())
+}
+
+func (s *Server) handleDeleteReadNotifications(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.notifications.DeleteRead())
 }
 
 func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {

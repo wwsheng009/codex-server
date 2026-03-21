@@ -468,6 +468,29 @@ func (s *MemoryStore) MarkAllNotificationsRead() []Notification {
 	return updated
 }
 
+func (s *MemoryStore) DeleteReadNotifications() []Notification {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	deleted := make([]Notification, 0)
+	for id, notification := range s.notifications {
+		if notification.Read {
+			deleted = append(deleted, notification)
+			delete(s.notifications, id)
+		}
+	}
+
+	if len(deleted) > 0 {
+		s.persistLocked()
+	}
+
+	sort.Slice(deleted, func(i int, j int) bool {
+		return deleted[i].CreatedAt.After(deleted[j].CreatedAt)
+	})
+
+	return deleted
+}
+
 func (s *MemoryStore) CreateAutomation(automation Automation) (Automation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

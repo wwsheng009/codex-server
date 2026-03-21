@@ -28,6 +28,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className={classes}
         disabled={disabled || isLoading}
         ref={ref}
+        type={props.type || 'button'}
         {...props}
       >
         {isLoading && <span className="ide-button__spinner" />}

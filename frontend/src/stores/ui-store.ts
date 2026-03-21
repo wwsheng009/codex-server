@@ -2,8 +2,20 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 type WorkspaceRestartPhase = 'restarting' | 'restarted'
+type ToastTone = 'info' | 'success' | 'error' | 'warning'
+
+export type UIToast = {
+  id: string
+  title: string
+  message: string
+  tone: ToastTone
+  durationMs: number
+  actionLabel?: string
+  onAction?: () => void
+}
 
 const workspaceRestartTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 function clearWorkspaceRestartTimer(workspaceId: string) {
   const timer = workspaceRestartTimers.get(workspaceId)
@@ -18,6 +30,7 @@ function clearWorkspaceRestartTimer(workspaceId: string) {
 type UIState = {
   utilityPanelOpen: boolean
   workspaceRestartStateById: Record<string, WorkspaceRestartPhase>
+  toasts: UIToast[]
   mobileThreadChromeVisible: boolean
   mobileThreadTitle: string
   mobileThreadStatusLabel: string
@@ -29,6 +42,8 @@ type UIState = {
   mobileThreadRefreshBusy: boolean
   mobileThreadToolsOpen: boolean
   setUtilityPanelOpen: (open: boolean) => void
+  pushToast: (toast: Pick<UIToast, 'title' | 'message' | 'tone' | 'actionLabel' | 'onAction'> & { id?: string; durationMs?: number }) => void
+  dismissToast: (toastId: string) => void
   markWorkspaceRestarting: (workspaceId: string) => void
   markWorkspaceRestarted: (workspaceId: string) => void
   clearWorkspaceRestartState: (workspaceId: string) => void
@@ -49,9 +64,10 @@ type UIState = {
 
 export const useUIStore = create<UIState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       utilityPanelOpen: false,
       workspaceRestartStateById: {},
+      toasts: [],
       mobileThreadChromeVisible: false,
       mobileThreadTitle: '',
       mobileThreadStatusLabel: '',
@@ -63,6 +79,32 @@ export const useUIStore = create<UIState>()(
       mobileThreadRefreshBusy: false,
       mobileThreadToolsOpen: false,
       setUtilityPanelOpen: (open) => set({ utilityPanelOpen: open }),
+      pushToast: ({ id, durationMs = 4000, ...toast }) => {
+        const toastId = id ?? `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const dismiss = get().dismissToast
+        const existingTimer = toastTimers.get(toastId)
+        if (existingTimer) {
+          clearTimeout(existingTimer)
+        }
+        set((state) => ({
+          toasts: [{ id: toastId, durationMs, ...toast }, ...state.toasts.filter((item) => item.id !== toastId)].slice(0, 4),
+        }))
+        const timer = setTimeout(() => {
+          dismiss(toastId)
+          toastTimers.delete(toastId)
+        }, durationMs)
+        toastTimers.set(toastId, timer)
+      },
+      dismissToast: (toastId) => {
+        const timer = toastTimers.get(toastId)
+        if (timer) {
+          clearTimeout(timer)
+          toastTimers.delete(toastId)
+        }
+        set((state) => ({
+          toasts: state.toasts.filter((toast) => toast.id !== toastId),
+        }))
+      },
       markWorkspaceRestarting: (workspaceId) => {
         clearWorkspaceRestartTimer(workspaceId)
         set((state) => ({

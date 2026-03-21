@@ -144,6 +144,9 @@ codex app-server --listen stdio:// --config "model_catalog_json=E:/generated/cat
 - `Default Shell Type`
 - `Model Shell Type Overrides (JSON)`
 - `Import Model Catalog Template` 按钮会把 `config/model-catalog.json` 复制到受管文件 `config/runtime-model-catalog.json`，自动绑定 `Model Catalog Path`
+- 配置页右侧的 inspection panels 已切成带图标 tabs，并会记住上次激活项
+- 成功 toast 支持动作按钮，可直接打开 `Effective` / `Configured` / `Detected` 对应页签
+- JSON 预览支持复制与折叠，字段帮助提示可通过键盘聚焦查看
 
 如果该页面留空，后端会继续回退到环境变量或 Codex 自身配置中的默认值。
 

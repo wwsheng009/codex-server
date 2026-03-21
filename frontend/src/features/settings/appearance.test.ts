@@ -40,6 +40,7 @@ describe('appearance helpers', () => {
 
   it('exposes multiple color themes for the settings UI', () => {
     expect(colorThemeOptions.map((option) => option.value)).toEqual([
+      'cyan',
       'blue',
       'slate',
       'amber',

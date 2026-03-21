@@ -188,7 +188,7 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
         Math.max(rect.width, compact ? 276 : 318),
         window.innerWidth - viewportPadding * 2,
       )
-      const estimatedHeight = compact ? 344 : 332
+      const estimatedHeight = compact ? 412 : 400
       const menuHeight = popoverRef.current?.offsetHeight ?? estimatedHeight
       const openAbove =
         rect.bottom + menuGap + menuHeight > window.innerHeight - viewportPadding &&
@@ -341,7 +341,6 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                       </span>
                       <span className="web-ide__appearance-theme-copy">
                         <strong>{option.label}</strong>
-                        <span>{option.description}</span>
                       </span>
                       <span
                         aria-hidden="true"

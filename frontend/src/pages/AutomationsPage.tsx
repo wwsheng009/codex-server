@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { CronGenerator } from '../components/ui/CronGenerator'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { Modal } from '../components/ui/Modal'
 import { SelectControl } from '../components/ui/SelectControl'
@@ -26,6 +27,7 @@ import {
   type AutomationTemplate,
 } from '../features/automations/store'
 import { listWorkspaces } from '../features/workspaces/api'
+import { listModels } from '../features/catalog/api'
 import { getErrorMessage } from '../lib/error-utils'
 
 type Draft = {
@@ -56,6 +58,7 @@ export function AutomationsPage() {
   const [templateDraft, setTemplateDraft] = useState({ title: '', description: '', prompt: '', category: 'Custom' })
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [cronPickerOpen, setCronPickerOpen] = useState(false)
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState<AutomationRecord | null>(null)
   const [isTemplatesVisible, setIsTemplatesVisible] = useState(true)
@@ -65,6 +68,22 @@ export function AutomationsPage() {
     queryKey: ['workspaces'],
     queryFn: listWorkspaces,
   })
+
+  const modelsQuery = useQuery({
+    queryKey: ['models', draft.workspaceId],
+    queryFn: () => listModels(draft.workspaceId),
+    enabled: !!draft.workspaceId,
+  })
+
+  // Handle model reset when workspace changes
+  useMemo(() => {
+    if (modelsQuery.data?.length && !draft.model) {
+      setDraft((current) => ({ ...current, model: modelsQuery.data[0].id }))
+    } else if (modelsQuery.data?.length && !modelsQuery.data.some(m => m.id === draft.model)) {
+      // If the currently selected model is not in the new models list, reset it
+      setDraft((current) => ({ ...current, model: modelsQuery.data[0].id }))
+    }
+  }, [modelsQuery.data, draft.workspaceId])
   const automationsQuery = useQuery({
     queryKey: ['automations'],
     queryFn: listAutomations,
@@ -553,23 +572,143 @@ export function AutomationsPage() {
               />
             </label>
 
-            <div className="form-row" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-              <label className="field">
-                <span>Schedule</span>
+            <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+              <div className="field">
+                <span>Frequency</span>
                 <SelectControl
-                  ariaLabel="Schedule"
+                  ariaLabel="Frequency"
                   fullWidth
-                  onChange={(nextValue) =>
-                    setDraft((current) => ({ ...current, schedule: nextValue }))
-                  }
+                  onChange={(nextValue) => {
+                    let baseSchedule = '0 * * * *'
+                    if (nextValue === 'daily') baseSchedule = 'daily-0900'
+                    if (nextValue === 'weekly') baseSchedule = 'weekly-1-0900'
+                    if (nextValue === 'monthly') baseSchedule = 'monthly-01-0900'
+                    if (nextValue === 'cron') baseSchedule = '0 9 * * 1-5'
+                    setDraft((current) => ({ ...current, schedule: baseSchedule }))
+                  }}
                   options={[
-                    { value: 'hourly', label: 'Every hour' },
-                    { value: 'daily-0800', label: 'Daily at 08:00' },
-                    { value: 'daily-1800', label: 'Daily at 18:00' },
+                    { value: 'hourly', label: 'Hourly' },
+                    { value: 'daily', label: 'Daily' },
+                    { value: 'weekly', label: 'Weekly' },
+                    { value: 'monthly', label: 'Monthly' },
+                    { value: 'cron', label: 'Advanced (Cron)' },
                   ]}
-                  value={draft.schedule}
+                  value={
+                    draft.schedule === '0 * * * *' || draft.schedule === 'hourly' ? 'hourly' :
+                    draft.schedule.startsWith('daily-') ? 'daily' :
+                    draft.schedule.startsWith('weekly-') ? 'weekly' :
+                    draft.schedule.startsWith('monthly-') ? 'monthly' : 'cron'
+                  }
                 />
-              </label>
+              </div>
+
+              {/* Dynamic sub-controls based on Frequency */}
+              {draft.schedule.startsWith('daily-') && (
+                <div className="field">
+                  <span>Run Time</span>
+                  <input
+                    type="time"
+                    onChange={(e) => {
+                      const [hh, mm] = e.target.value.split(':')
+                      setDraft((current) => ({ ...current, schedule: `daily-${hh}${mm}` }))
+                    }}
+                    value={`${draft.schedule.slice(6, 8)}:${draft.schedule.slice(8, 10)}`}
+                  />
+                </div>
+              )}
+
+              {draft.schedule.startsWith('weekly-') && (
+                <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div className="field">
+                    <span>Day</span>
+                    <SelectControl
+                      ariaLabel="Day of Week"
+                      fullWidth
+                      onChange={(day) => {
+                        const time = draft.schedule.slice(9)
+                        setDraft((current) => ({ ...current, schedule: `weekly-${day}-${time}` }))
+                      }}
+                      options={[
+                        { value: '0', label: 'Sunday' },
+                        { value: '1', label: 'Monday' },
+                        { value: '2', label: 'Tuesday' },
+                        { value: '3', label: 'Wednesday' },
+                        { value: '4', label: 'Thursday' },
+                        { value: '5', label: 'Friday' },
+                        { value: '6', label: 'Saturday' },
+                      ]}
+                      value={draft.schedule.slice(7, 8)}
+                    />
+                  </div>
+                  <div className="field">
+                    <span>Time</span>
+                    <input
+                      type="time"
+                      onChange={(e) => {
+                        const [hh, mm] = e.target.value.split(':')
+                        const day = draft.schedule.slice(7, 8)
+                        setDraft((current) => ({ ...current, schedule: `weekly-${day}-${hh}${mm}` }))
+                      }}
+                      value={`${draft.schedule.slice(9, 11)}:${draft.schedule.slice(11, 13)}`}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {draft.schedule.startsWith('monthly-') && (
+                <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div className="field">
+                    <span>Day of Month</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      onChange={(e) => {
+                        const day = e.target.value.padStart(2, '0')
+                        const time = draft.schedule.slice(11)
+                        setDraft((current) => ({ ...current, schedule: `monthly-${day}-${time}` }))
+                      }}
+                      value={draft.schedule.slice(8, 10)}
+                    />
+                  </div>
+                  <div className="field">
+                    <span>Time</span>
+                    <input
+                      type="time"
+                      onChange={(e) => {
+                        const [hh, mm] = e.target.value.split(':')
+                        const day = draft.schedule.slice(8, 10)
+                        setDraft((current) => ({ ...current, schedule: `monthly-${day}-${hh}${mm}` }))
+                      }}
+                      value={`${draft.schedule.slice(11, 13)}:${draft.schedule.slice(13, 15)}`}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {!(draft.schedule === '0 * * * *' || draft.schedule === 'hourly' || draft.schedule.startsWith('daily-') || draft.schedule.startsWith('weekly-') || draft.schedule.startsWith('monthly-')) && (
+                <div className="field">
+                  <span>Advanced Scheduling</span>
+                  <div className="cron-trigger-area">
+                    <code>{draft.schedule}</code>
+                    <Button intent="secondary" size="sm" onClick={() => setCronPickerOpen(true)}>
+                      Edit
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {draft.schedule === '0 * * * *' || draft.schedule === 'hourly' ? (
+                <div className="field">
+                  <span>Interval</span>
+                  <div style={{ padding: '12px 0', fontSize: '0.86rem', color: 'var(--text-muted)' }}>
+                    Runs once per hour, on the hour.
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
               <label className="field">
                 <span>Model</span>
                 <SelectControl
@@ -578,11 +717,14 @@ export function AutomationsPage() {
                   onChange={(nextValue) =>
                     setDraft((current) => ({ ...current, model: nextValue }))
                   }
-                  options={[
-                    { value: 'gpt-5.4', label: 'gpt-5.4' },
-                    { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
-                  ]}
+                  options={
+                    modelsQuery.data?.map((m) => ({
+                      value: m.id,
+                      label: m.name || m.id,
+                    })) ?? []
+                  }
                   value={draft.model}
+                  disabled={modelsQuery.isLoading || !draft.workspaceId}
                 />
               </label>
               <label className="field">
@@ -594,6 +736,7 @@ export function AutomationsPage() {
                     setDraft((current) => ({ ...current, reasoning: nextValue }))
                   }
                   options={[
+                    { value: 'low', label: 'Low' },
                     { value: 'medium', label: 'Medium' },
                     { value: 'high', label: 'High' },
                     { value: 'xhigh', label: 'Extra High' },
@@ -694,6 +837,24 @@ export function AutomationsPage() {
           subject={confirmingDelete.title}
           title="Delete Automation?"
         />
+      ) : null}
+
+      {cronPickerOpen ? (
+        <Modal
+          onClose={() => setCronPickerOpen(false)}
+          title="Configure Advanced Schedule"
+          description="Use the visual generator below to define your execution frequency."
+          footer={
+            <Button type="button" onClick={() => setCronPickerOpen(false)}>
+              Apply Schedule
+            </Button>
+          }
+        >
+          <CronGenerator
+            value={draft.schedule}
+            onChange={(cron) => setDraft((current) => ({ ...current, schedule: cron }))}
+          />
+        </Modal>
       ) : null}
     </section>
   )

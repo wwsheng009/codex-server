@@ -831,4 +831,13 @@
     grid-column: 2;
     justify-content: flex-start;
   }
+
+  .config-workbench,
+  .config-action-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .config-summary-card__grid {
+    grid-template-columns: 1fr;
+  }
 }

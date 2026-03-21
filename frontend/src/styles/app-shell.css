@@ -400,6 +400,19 @@
 .web-ide__appearance-theme-list {
   display: grid;
   gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+.web-ide__appearance-theme-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.web-ide__appearance-theme-list::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 4px;
 }
 
 .web-ide__appearance-theme-option {
@@ -457,7 +470,7 @@
 .web-ide__appearance-theme-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  justify-content: center;
   min-width: 0;
 }
 
@@ -1306,6 +1319,13 @@
   gap: 12px;
 }
 
+.web-ide__notification-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .web-ide__notification-popover-header strong {
   display: block;
   color: var(--text-strong);
@@ -1416,6 +1436,121 @@
 
 .web-ide__notification-toast--idle {
   border-color: var(--border-subtle);
+}
+
+.ui-toast-stack {
+  position: fixed;
+  right: 18px;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, calc(100vw - 24px));
+}
+
+.ui-toast {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-pane);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  animation: ui-toast-enter 180ms ease-out;
+}
+
+.ui-toast__content {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-toast__content strong {
+  color: var(--text-strong);
+}
+
+.ui-toast__content span {
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.ui-toast__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ui-toast__close {
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.ui-toast__close:hover {
+  color: var(--text-strong);
+}
+
+.ui-toast--info {
+  border-color: var(--border-subtle);
+}
+
+.ui-toast--success {
+  border-color: var(--border-success);
+  background: color-mix(in srgb, var(--surface-pane) 76%, var(--surface-success-soft));
+}
+
+.ui-toast--error {
+  border-color: var(--border-danger);
+  background: color-mix(in srgb, var(--surface-pane) 76%, var(--surface-danger-soft));
+}
+
+.ui-toast--warning {
+  border-color: var(--border-warning);
+  background: color-mix(in srgb, var(--surface-pane) 76%, var(--surface-warning-soft));
+}
+
+.ui-toast__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: currentColor;
+  opacity: 0.24;
+  transform-origin: left center;
+  animation-name: ui-toast-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes ui-toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes ui-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .web-ide__main {

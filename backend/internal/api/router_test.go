@@ -481,6 +481,22 @@ func TestAutomationRunAndNotificationRoutesReturnStoredData(t *testing.T) {
 	if markAllResponse.Code != http.StatusOK {
 		t.Fatalf("expected 200 from read-all notifications route, got %d", markAllResponse.Code)
 	}
+
+	deleteReadResponse := performJSONRequest(t, router, http.MethodDelete, "/api/notifications/read", "")
+	if deleteReadResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from delete-read notifications route, got %d", deleteReadResponse.Code)
+	}
+
+	afterDeleteResponse := performJSONRequest(t, router, http.MethodGet, "/api/notifications", "")
+	var afterDeleteNotifications struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, afterDeleteResponse, &afterDeleteNotifications)
+	if len(afterDeleteNotifications.Data) != 0 {
+		t.Fatalf("expected 0 notifications after delete, got %d", len(afterDeleteNotifications.Data))
+	}
 }
 
 func TestAutomationTemplateRoutesSupportCustomTemplates(t *testing.T) {

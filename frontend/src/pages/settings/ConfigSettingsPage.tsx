@@ -3,8 +3,6 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import {
-  SettingRow,
-  SettingsGroup,
   SettingsJsonPreview,
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
@@ -23,10 +21,15 @@ import {
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { getErrorMessage } from '../../lib/error-utils'
 import { SelectControl } from '../../components/ui/SelectControl'
+import { activateStoredTab, Tabs } from '../../components/ui/Tabs'
+import { useUIStore } from '../../stores/ui-store'
+import { ContextIcon, FeedIcon, RefreshIcon, SettingsIcon, SparkIcon, TerminalIcon } from '../../components/ui/RailControls'
+import { Tooltip } from '../../components/ui/Tooltip'
 
 export function ConfigSettingsPage() {
   const queryClient = useQueryClient()
   const { workspaceId, workspaceName } = useSettingsShellContext()
+  const pushToast = useUIStore((state) => state.pushToast)
   const [configKeyPath, setConfigKeyPath] = useState('model')
   const [configValue, setConfigValue] = useState('"gpt-5.4"')
   const [modelCatalogPath, setModelCatalogPath] = useState('')
@@ -79,17 +82,46 @@ export function ConfigSettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
         queryClient.invalidateQueries({ queryKey: ['models'] }),
       ])
+      pushToast({
+        title: 'Runtime overrides applied',
+        message: `Default shell type: ${result.effectiveDefaultShellType || 'catalog default'}; overrides: ${Object.keys(result.effectiveModelShellTypeOverrides ?? {}).length}.`,
+        tone: 'success',
+        actionLabel: 'Open Effective',
+        onAction: () => {
+          activateStoredTab('settings-config-main-tabs', 'runtime')
+          activateStoredTab('settings-config-runtime-side-tabs', 'effective')
+        },
+      })
     },
   })
 
   const detectExternalMutation = useMutation({
     mutationFn: () => detectExternalAgentConfig(workspaceId!, { includeHome: true }),
+    onSuccess: (result) => {
+      pushToast({
+        title: 'External config detected',
+        message: `Found ${result.items?.length ?? 0} candidate item(s) for import review.`,
+        tone: 'info',
+        actionLabel: 'Open Detected',
+        onAction: () => {
+          activateStoredTab('settings-config-main-tabs', 'migration')
+          activateStoredTab('settings-config-migration-side-tabs', 'detected')
+        },
+      })
+    },
   })
   const importExternalMutation = useMutation({
     mutationFn: () =>
       importExternalAgentConfig(workspaceId!, {
         migrationItems: detectExternalMutation.data?.items ?? [],
       }),
+    onSuccess: (result) => {
+      pushToast({
+        title: 'External agent state imported',
+        message: `Imported ${detectExternalMutation.data?.items?.length ?? 0} item(s); backend status: ${result.status ?? 'accepted'}.`,
+        tone: 'success',
+      })
+    },
   })
   const importModelCatalogMutation = useMutation({
     mutationFn: importRuntimeModelCatalogTemplate,
@@ -104,6 +136,16 @@ export function ConfigSettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
         queryClient.invalidateQueries({ queryKey: ['models'] }),
       ])
+      pushToast({
+        title: 'Model catalog imported',
+        message: `Bound runtime catalog to ${result.configuredModelCatalogPath}.`,
+        tone: 'success',
+        actionLabel: 'Open Configured',
+        onAction: () => {
+          activateStoredTab('settings-config-main-tabs', 'runtime')
+          activateStoredTab('settings-config-runtime-side-tabs', 'configured')
+        },
+      })
     },
   })
 
@@ -120,11 +162,479 @@ export function ConfigSettingsPage() {
   }, [runtimePreferencesQuery.data])
 
   const configLayerCount = Array.isArray(configQuery.data?.layers) ? configQuery.data.layers.length : 0
+  const runtimeSummary = {
+    catalogBound: Boolean(runtimePreferencesQuery.data?.effectiveModelCatalogPath),
+    defaultShellType: runtimePreferencesQuery.data?.effectiveDefaultShellType || 'catalog default',
+  }
+
+  const configTabs = [
+    {
+      id: 'runtime',
+      label: 'Runtime',
+      icon: <SparkIcon />,
+      content: (
+        <div className="config-workbench">
+          <div className="config-workbench__header">
+            <div className="config-workbench__header-main">
+              <SettingsWorkspaceScopePanel />
+            </div>
+            <div className="config-workbench__header-status">
+              <div className={`status-pill ${runtimeSummary.catalogBound ? 'status-pill--active' : 'status-pill--paused'}`}>
+                Catalog: {runtimeSummary.catalogBound ? 'Attached' : 'Missing'}
+              </div>
+              <div className="status-pill">
+                Shell: {runtimeSummary.defaultShellType}
+              </div>
+            </div>
+          </div>
+
+          <div className="config-workbench__body">
+            <div className="config-workbench__main-panel">
+              <form
+                className="config-card"
+                onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                  event.preventDefault()
+                  writeRuntimePreferencesMutation.mutate()
+                }}
+              >
+                <div className="config-card__header">
+                  <strong>Shell Configuration</strong>
+                  <button className="ide-button ide-button--primary ide-button--sm" type="submit">
+                    {writeRuntimePreferencesMutation.isPending ? 'Applying…' : 'Apply Changes'}
+                  </button>
+                </div>
+
+                <div className="form-stack">
+                  <div className="field-group">
+                    <label className="field">
+                      <span>
+                        Model Catalog Path
+                        <FieldHint
+                          label="Explain model catalog path"
+                          text="Path to the full model catalog JSON file. codex-server uses this file as the source when it needs to rewrite shell_type metadata."
+                        />
+                      </span>
+                      <div className="input-with-action">
+                        <input
+                          onChange={(event) => setModelCatalogPath(event.target.value)}
+                          placeholder={runtimePreferencesQuery.data?.defaultModelCatalogPath || 'E:/path/to/models.json'}
+                          value={modelCatalogPath}
+                        />
+                        <button
+                          className="ide-button ide-button--secondary ide-button--sm"
+                          onClick={() => importModelCatalogMutation.mutate()}
+                          type="button"
+                        >
+                          Template
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className="form-row">
+                    <label className="field">
+                      <span>
+                        Default Shell Type
+                        <FieldHint
+                          label="Explain default shell type"
+                          text="Applies one shell type to the catalog unless a model-specific override replaces it."
+                        />
+                      </span>
+                      <SelectControl
+                        ariaLabel="Default shell type"
+                        fullWidth
+                        onChange={setDefaultShellType}
+                        options={shellTypeOptions}
+                        value={defaultShellType}
+                      />
+                    </label>
+                  </div>
+
+                  <label className="field">
+                    <span>
+                      Model Shell Type Overrides (JSON)
+                      <FieldHint
+                        label="Explain model shell type overrides"
+                        text="Optional JSON object for model-specific exceptions. Keys are model ids or slugs and values are shell types such as local, shell_command, unified_exec, default, or disabled."
+                      />
+                    </span>
+                    <textarea
+                      className="ide-textarea"
+                      onChange={(event) => setModelShellTypeOverridesInput(event.target.value)}
+                      placeholder="{}"
+                      rows={5}
+                      value={modelShellTypeOverridesInput}
+                    />
+                  </label>
+                </div>
+              </form>
+
+              <details className="config-details-box">
+                <summary className="config-details-box__summary">
+                  <span>Strategy Guide</span>
+                  <small>Which shell type should you choose?</small>
+                </summary>
+                <div className="config-helper-grid config-helper-grid--compact">
+                  <article className="config-helper-card">
+                    <strong>local</strong>
+                    <p>Standard local execution.</p>
+                  </article>
+                  <article className="config-helper-card">
+                    <strong>unified_exec</strong>
+                    <p>Streaming output + stdin.</p>
+                  </article>
+                  <article className="config-helper-card">
+                    <strong>shell_command</strong>
+                    <p>Script string wrapper.</p>
+                  </article>
+                  <article className="config-helper-card">
+                    <strong>default</strong>
+                    <p>Upstream catalog values.</p>
+                  </article>
+                </div>
+              </details>
+
+              {writeRuntimePreferencesMutation.error && (
+                <InlineNotice
+                  details={getErrorMessage(writeRuntimePreferencesMutation.error)}
+                  dismissible
+                  noticeKey="runtime-write-error"
+                  title="Update Failed"
+                  tone="error"
+                >
+                  {getErrorMessage(writeRuntimePreferencesMutation.error)}
+                </InlineNotice>
+              )}
+            </div>
+
+            <div className="config-workbench__side-panel">
+              <div className="config-card config-card--muted">
+                <div className="config-card__header">
+                  <strong>Status & Inspection</strong>
+                </div>
+                {runtimePreferencesQuery.data ? (
+                  <Tabs
+                    ariaLabel="Runtime inspection tabs"
+                    className="config-workbench__panel"
+                    storageKey="settings-config-runtime-side-tabs"
+                    items={[
+                      {
+                        id: 'effective',
+                        label: 'Effective',
+                        icon: <TerminalIcon />,
+                        content: (
+                          <SettingsJsonPreview
+                            description="Current resolved runtime state."
+                            title="Effective Values"
+                            value={{
+                              modelCatalogPath: runtimePreferencesQuery.data.effectiveModelCatalogPath,
+                              defaultShellType: runtimePreferencesQuery.data.effectiveDefaultShellType,
+                              modelShellTypeOverrides: runtimePreferencesQuery.data.effectiveModelShellTypeOverrides,
+                              command: runtimePreferencesQuery.data.effectiveCommand,
+                            }}
+                          />
+                        ),
+                      },
+                      {
+                        id: 'configured',
+                        label: 'Configured',
+                        icon: <ContextIcon />,
+                        content: (
+                          <SettingsJsonPreview
+                            description="Values saved in codex-server database."
+                            title="Saved Values"
+                            value={{
+                              modelCatalogPath: runtimePreferencesQuery.data.configuredModelCatalogPath,
+                              defaultShellType: runtimePreferencesQuery.data.configuredDefaultShellType,
+                              modelShellTypeOverrides: runtimePreferencesQuery.data.configuredModelShellTypeOverrides,
+                            }}
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <div className="notice">Loading runtime preferences…</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'advanced',
+      label: 'Advanced',
+      icon: <TerminalIcon />,
+      content: (
+        <div className="config-workbench">
+          <div className="config-workbench__body">
+            <div className="config-workbench__main-panel">
+              <form
+                className="config-card"
+                onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                  event.preventDefault()
+                  if (workspaceId) {
+                    writeConfigMutation.mutate()
+                  }
+                }}
+              >
+                <div className="config-card__header">
+                  <strong>Direct JSON Write</strong>
+                  <button className="ide-button ide-button--primary ide-button--sm" disabled={!workspaceId} type="submit">
+                    {writeConfigMutation.isPending ? 'Writing…' : 'Write Key'}
+                  </button>
+                </div>
+                <div className="form-stack">
+                  <label className="field">
+                    <span>Key Path</span>
+                    <input onChange={(event) => setConfigKeyPath(event.target.value)} value={configKeyPath} />
+                  </label>
+                  <label className="field">
+                    <span>Value (JSON)</span>
+                    <textarea
+                      className="ide-textarea"
+                      onChange={(event) => setConfigValue(event.target.value)}
+                      rows={4}
+                      value={configValue}
+                    />
+                  </label>
+                </div>
+              </form>
+
+              <div className="config-details-box">
+                <div className="config-card__header">
+                  <strong>Common Key Paths</strong>
+                </div>
+                <div className="config-helper-grid config-helper-grid--compact">
+                  <div className="config-helper-card">
+                    <code>model</code>
+                    <small>Model identifier</small>
+                  </div>
+                  <div className="config-helper-card">
+                    <code>sandbox_mode</code>
+                    <small>local or container</small>
+                  </div>
+                  <div className="config-helper-card">
+                    <code>approval_policy</code>
+                    <small>Approval logic</small>
+                  </div>
+                </div>
+              </div>
+
+              {writeConfigMutation.error && (
+                <InlineNotice
+                  details={getErrorMessage(writeConfigMutation.error)}
+                  dismissible
+                  noticeKey="write-config-error"
+                  title="Write Failed"
+                  tone="error"
+                >
+                  {getErrorMessage(writeConfigMutation.error)}
+                </InlineNotice>
+              )}
+            </div>
+
+            <div className="config-workbench__side-panel">
+              <div className="config-card config-card--muted">
+                <div className="config-card__header">
+                  <strong>Resolved Analysis</strong>
+                </div>
+                <Tabs
+                  ariaLabel="Resolved analysis tabs"
+                  className="config-workbench__panel"
+                  storageKey="settings-config-advanced-side-tabs"
+                  items={[
+                    {
+                      id: 'config',
+                      label: 'Current Config',
+                      icon: <ContextIcon />,
+                      content: configQuery.isLoading ? (
+                        <div className="notice">Loading configuration…</div>
+                      ) : configQuery.data ? (
+                        <SettingsJsonPreview
+                          collapsible
+                          defaultExpanded={false}
+                          description="Final merged configuration including all layers."
+                          title="Effective Config"
+                          value={configQuery.data.config}
+                        />
+                      ) : (
+                        <div className="empty-state">Configuration data is unavailable.</div>
+                      ),
+                    },
+                    {
+                      id: 'requirements',
+                      label: 'Requirements',
+                      icon: <FeedIcon />,
+                      content: requirementsQuery.data ? (
+                        <SettingsJsonPreview
+                          collapsible
+                          defaultExpanded={false}
+                          description="Validation status and requirements."
+                          title="Requirements"
+                          value={requirementsQuery.data.requirements ?? null}
+                        />
+                      ) : (
+                        <div className="empty-state">No requirements payload returned.</div>
+                      ),
+                    },
+                  ]}
+                />
+                {configQuery.error && (
+                  <InlineNotice
+                    details={getErrorMessage(configQuery.error)}
+                    onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] })}
+                    title="Read Error"
+                    tone="error"
+                  >
+                    {getErrorMessage(configQuery.error)}
+                  </InlineNotice>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'migration',
+      label: 'Migration',
+      icon: <RefreshIcon />,
+      content: (
+        <div className="config-workbench">
+          <div className="config-workbench__body">
+            <div className="config-workbench__main-panel">
+              <div className="config-card">
+                <div className="config-card__header">
+                  <strong>Migration Console</strong>
+                  <div className="setting-row__actions">
+                    <button
+                      className="ide-button ide-button--primary ide-button--sm"
+                      disabled={!workspaceId}
+                      onClick={() => detectExternalMutation.mutate()}
+                      type="button"
+                    >
+                      Scan
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={!workspaceId || importExternalMutation.isPending || !detectExternalMutation.data?.items?.length}
+                      onClick={() => importExternalMutation.mutate()}
+                      type="button"
+                    >
+                      Import
+                    </button>
+                  </div>
+                </div>
+                <p className="config-inline-note">
+                  Search for and import state from external agents on this machine.
+                </p>
+              </div>
+
+              <details className="config-details-box">
+                <summary className="config-details-box__summary">
+                  <span>Migration Workflow</span>
+                  <small>How to safely migrate your state</small>
+                </summary>
+                <div className="config-helper-grid config-helper-grid--compact">
+                  <article className="config-helper-card">
+                    <strong>1. Scan</strong>
+                    <p>Detect artifacts in home & local scopes.</p>
+                  </article>
+                  <article className="config-helper-card">
+                    <strong>2. Review</strong>
+                    <p>Verify detected items in the side panel.</p>
+                  </article>
+                  <article className="config-helper-card">
+                    <strong>3. Import</strong>
+                    <p>Merge items into active workspace.</p>
+                  </article>
+                </div>
+              </details>
+
+              {detectExternalMutation.error && (
+                <InlineNotice
+                  details={getErrorMessage(detectExternalMutation.error)}
+                  onRetry={() => detectExternalMutation.mutate()}
+                  title="Scan Failed"
+                  tone="error"
+                >
+                  {getErrorMessage(detectExternalMutation.error)}
+                </InlineNotice>
+              )}
+            </div>
+
+            <div className="config-workbench__side-panel">
+              <div className="config-card config-card--muted">
+                <div className="config-card__header">
+                  <strong>Detected State</strong>
+                </div>
+                <Tabs
+                  ariaLabel="Migration inspection tabs"
+                  className="config-workbench__panel"
+                  storageKey="settings-config-migration-side-tabs"
+                  items={[
+                    {
+                      id: 'workflow',
+                      label: 'Workflow',
+                      icon: <SettingsIcon />,
+                      content: (
+                        <div className="config-helper-grid config-helper-grid--compact">
+                          <article className="config-helper-card">
+                            <strong>1. Scan</strong>
+                            <p>Discover candidate artifacts from local and home scopes.</p>
+                          </article>
+                          <article className="config-helper-card">
+                            <strong>2. Review</strong>
+                            <p>Inspect the detected payload before you import it.</p>
+                          </article>
+                          <article className="config-helper-card">
+                            <strong>3. Import</strong>
+                            <p>Apply the detected state into the active workspace.</p>
+                          </article>
+                        </div>
+                      ),
+                    },
+                    {
+                      id: 'detected',
+                      label: 'Detected',
+                      icon: <RefreshIcon />,
+                      badge: detectExternalMutation.data?.items?.length ?? null,
+                      content: detectExternalMutation.data ? (
+                        <SettingsJsonPreview
+                          collapsible
+                          description="Candidate artifacts ready for migration."
+                          title="Detected Items"
+                          value={detectExternalMutation.data.items}
+                        />
+                      ) : (
+                        <div className="empty-state">Run a scan to see migration items.</div>
+                      ),
+                    },
+                  ]}
+                />
+                {importExternalMutation.error && (
+                  <InlineNotice
+                    details={getErrorMessage(importExternalMutation.error)}
+                    title="Import Failed"
+                    tone="error"
+                  >
+                    {getErrorMessage(importExternalMutation.error)}
+                  </InlineNotice>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ),
+    },
+  ]
 
   return (
     <section className="settings-page">
       <SettingsPageHeader
-        description="Configure workspace-scoped runtime values and migrate external agent state without leaving the settings center."
+        description="Manage workspace-scoped runtime values, advanced JSON configurations, and environment migrations."
         meta={
           <>
             <span className="meta-pill">{workspaceName}</span>
@@ -134,326 +644,12 @@ export function ConfigSettingsPage() {
         title="Config"
       />
 
-      <div className="settings-page__stack">
-        <SettingsWorkspaceScopePanel />
-
-        <SettingsGroup
-          description="Read and write config values for the selected workspace runtime."
-          meta={workspaceId ? 'Workspace scoped' : 'Workspace required'}
-          title="Runtime Config"
-        >
-          <SettingRow
-            description="Configure service-level shell type overrides. `Default Shell Type` can be used alone; `Model Shell Type Overrides` is optional and only needed when some models should differ from the default."
-            title="Runtime Shell Overrides"
-          >
-            <form
-              className="form-stack"
-              onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                event.preventDefault()
-                writeRuntimePreferencesMutation.mutate()
-              }}
-            >
-              <label className="field">
-                <span>Model Catalog Path</span>
-                <input
-                  onChange={(event) => setModelCatalogPath(event.target.value)}
-                  placeholder={runtimePreferencesQuery.data?.defaultModelCatalogPath || 'E:/path/to/models.json'}
-                  value={modelCatalogPath}
-                />
-              </label>
-              <label className="field">
-                <span>Default Shell Type</span>
-                <SelectControl
-                  ariaLabel="Default shell type"
-                  fullWidth
-                  onChange={setDefaultShellType}
-                  options={shellTypeOptions}
-                  value={defaultShellType}
-                />
-              </label>
-              <label className="field">
-                <span>Model Shell Type Overrides (JSON)</span>
-                <textarea
-                  className="ide-textarea"
-                  onChange={(event) => setModelShellTypeOverridesInput(event.target.value)}
-                  placeholder={JSON.stringify(runtimePreferencesQuery.data?.defaultModelShellTypeOverrides ?? {}, null, 2)}
-                  rows={8}
-                  value={modelShellTypeOverridesInput}
-                />
-              </label>
-              <div className="setting-row__actions">
-                <button
-                  className="ide-button ide-button--secondary"
-                  onClick={() => importModelCatalogMutation.mutate()}
-                  type="button"
-                >
-                  {importModelCatalogMutation.isPending
-                    ? 'Importing template…'
-                    : 'Import Model Catalog Template'}
-                </button>
-                <button className="ide-button" type="submit">
-                  {writeRuntimePreferencesMutation.isPending ? 'Applying…' : 'Apply Runtime Overrides'}
-                </button>
-              </div>
-            </form>
-            <div className="notice">
-              Saving this section updates the backend launch command and resets managed runtimes so the next runtime request starts with the new shell behavior. If you only want one shell type everywhere, set `Default Shell Type` and leave the overrides JSON as `{}`. You can also import the bundled template first so you do not need to type a catalog path manually.
-            </div>
-            {runtimePreferencesQuery.data ? (
-              <div className="settings-grid">
-                <SettingsJsonPreview
-                  description="Configured values stored by codex-server. Empty values fall back to environment defaults."
-                  title="Configured Runtime Preferences"
-                  value={{
-                    modelCatalogPath: runtimePreferencesQuery.data.configuredModelCatalogPath,
-                    defaultShellType: runtimePreferencesQuery.data.configuredDefaultShellType,
-                    modelShellTypeOverrides: runtimePreferencesQuery.data.configuredModelShellTypeOverrides,
-                  }}
-                />
-                <SettingsJsonPreview
-                  description="Current effective runtime command and resolved shell type overrides."
-                  title="Effective Runtime State"
-                  value={{
-                    modelCatalogPath: runtimePreferencesQuery.data.effectiveModelCatalogPath,
-                    defaultShellType: runtimePreferencesQuery.data.effectiveDefaultShellType,
-                    modelShellTypeOverrides: runtimePreferencesQuery.data.effectiveModelShellTypeOverrides,
-                    command: runtimePreferencesQuery.data.effectiveCommand,
-                  }}
-                />
-              </div>
-            ) : null}
-            {runtimePreferencesQuery.error ? (
-              <InlineNotice
-                details={getErrorMessage(runtimePreferencesQuery.error)}
-                dismissible
-                noticeKey={`runtime-preferences-read-${runtimePreferencesQuery.error instanceof Error ? runtimePreferencesQuery.error.message : 'unknown'}`}
-                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-runtime-preferences'] })}
-                title="Failed To Read Runtime Preferences"
-                tone="error"
-              >
-                {getErrorMessage(runtimePreferencesQuery.error)}
-              </InlineNotice>
-            ) : null}
-            {writeRuntimePreferencesMutation.error ? (
-              <InlineNotice
-                details={getErrorMessage(writeRuntimePreferencesMutation.error)}
-                dismissible
-                noticeKey={`runtime-preferences-write-${writeRuntimePreferencesMutation.error instanceof Error ? writeRuntimePreferencesMutation.error.message : 'unknown'}`}
-                title="Runtime Override Update Failed"
-                tone="error"
-              >
-                {getErrorMessage(writeRuntimePreferencesMutation.error)}
-              </InlineNotice>
-            ) : null}
-            {importModelCatalogMutation.error ? (
-              <InlineNotice
-                details={getErrorMessage(importModelCatalogMutation.error)}
-                dismissible
-                noticeKey={`runtime-preferences-import-${importModelCatalogMutation.error instanceof Error ? importModelCatalogMutation.error.message : 'unknown'}`}
-                title="Model Catalog Import Failed"
-                tone="error"
-              >
-                {getErrorMessage(importModelCatalogMutation.error)}
-              </InlineNotice>
-            ) : null}
-            {importModelCatalogMutation.isSuccess && importModelCatalogMutation.data ? (
-              <InlineNotice
-                details={JSON.stringify(
-                  {
-                    modelCatalogPath: importModelCatalogMutation.data.configuredModelCatalogPath,
-                    effectiveModelCatalogPath: importModelCatalogMutation.data.effectiveModelCatalogPath,
-                    effectiveCommand: importModelCatalogMutation.data.effectiveCommand,
-                  },
-                  null,
-                  2,
-                )}
-                dismissible
-                noticeKey={`runtime-preferences-import-success-${importModelCatalogMutation.data.effectiveModelCatalogPath}`}
-                title="Model Catalog Imported"
-              >
-                Bundled template copied and bound to
-                {' '}
-                <code>{importModelCatalogMutation.data.configuredModelCatalogPath}</code>
-                . Managed runtimes will restart with the imported catalog on the next request.
-              </InlineNotice>
-            ) : null}
-          </SettingRow>
-
-          <SettingRow
-            description="Write a JSON value into the selected key path for the active workspace."
-            title="Write Config Value"
-          >
-            <form
-              className="form-stack"
-              onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                event.preventDefault()
-                if (workspaceId) {
-                  writeConfigMutation.mutate()
-                }
-              }}
-            >
-              <label className="field">
-                <span>Key Path</span>
-                <input onChange={(event) => setConfigKeyPath(event.target.value)} value={configKeyPath} />
-              </label>
-              <label className="field">
-                <span>Value (JSON)</span>
-                <textarea
-                  className="ide-textarea"
-                  onChange={(event) => setConfigValue(event.target.value)}
-                  rows={5}
-                  value={configValue}
-                />
-              </label>
-              <div className="setting-row__actions">
-                <button className="ide-button" disabled={!workspaceId} type="submit">
-                  {writeConfigMutation.isPending ? 'Writing…' : 'Write Config'}
-                </button>
-              </div>
-            </form>
-            {writeConfigMutation.error ? (
-              <InlineNotice
-                details={getErrorMessage(writeConfigMutation.error)}
-                dismissible
-                noticeKey={`write-config-${writeConfigMutation.error instanceof Error ? writeConfigMutation.error.message : 'unknown'}`}
-                title="Write Config Failed"
-                tone="error"
-              >
-                {getErrorMessage(writeConfigMutation.error)}
-              </InlineNotice>
-            ) : null}
-          </SettingRow>
-
-          <SettingRow
-            description="Inspect the resolved runtime config and its validation requirements."
-            title="Resolved Output"
-          >
-            {configQuery.isLoading || requirementsQuery.isLoading ? (
-              <div className="notice">Loading workspace config…</div>
-            ) : null}
-            {configQuery.error ? (
-              <InlineNotice
-                details={getErrorMessage(configQuery.error)}
-                dismissible
-                noticeKey={`config-read-${configQuery.error instanceof Error ? configQuery.error.message : 'unknown'}`}
-                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] })}
-                title="Failed To Read Config"
-                tone="error"
-              >
-                {getErrorMessage(configQuery.error)}
-              </InlineNotice>
-            ) : null}
-            {requirementsQuery.error ? (
-              <InlineNotice
-                details={getErrorMessage(requirementsQuery.error)}
-                dismissible
-                noticeKey={`config-requirements-${requirementsQuery.error instanceof Error ? requirementsQuery.error.message : 'unknown'}`}
-                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-requirements', workspaceId] })}
-                title="Failed To Read Requirements"
-                tone="error"
-              >
-                {getErrorMessage(requirementsQuery.error)}
-              </InlineNotice>
-            ) : null}
-            {configQuery.data || requirementsQuery.data ? (
-              <div className="settings-grid">
-                {configQuery.data ? (
-                  <SettingsJsonPreview
-                    description="Resolved configuration for the active workspace."
-                    title="Current Config"
-                    value={configQuery.data.config}
-                  />
-                ) : null}
-                {requirementsQuery.data ? (
-                  <SettingsJsonPreview
-                    description="Validation and requirement output for the same workspace."
-                    title="Requirements"
-                    value={requirementsQuery.data.requirements ?? null}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-          </SettingRow>
-        </SettingsGroup>
-
-        <SettingsGroup
-          description="Detect local external agent settings and import them into the selected workspace."
-          title="External Config"
-        >
-          <SettingRow
-            description="Run a migration scan, then import the detected items if they match the workspace you selected."
-            title="Import External Agent State"
-          >
-            <div className="setting-row__actions">
-              <button
-                className="ide-button"
-                disabled={!workspaceId}
-                onClick={() => detectExternalMutation.mutate()}
-                type="button"
-              >
-                {detectExternalMutation.isPending ? 'Detecting…' : 'Detect External Config'}
-              </button>
-              <button
-                className="ide-button ide-button--secondary"
-                disabled={!workspaceId || importExternalMutation.isPending || !detectExternalMutation.data?.items?.length}
-                onClick={() => importExternalMutation.mutate()}
-                type="button"
-              >
-                {importExternalMutation.isPending ? 'Importing…' : 'Import Detected Items'}
-              </button>
-            </div>
-            {!detectExternalMutation.data ? <div className="notice">No migration scan has been run yet.</div> : null}
-            {detectExternalMutation.data ? (
-              <SettingsJsonPreview
-                description="Detected items that can be imported into the active workspace."
-                title="Detected Items"
-                value={detectExternalMutation.data.items}
-              />
-            ) : null}
-            {detectExternalMutation.error ? (
-              <InlineNotice
-                details={getErrorMessage(detectExternalMutation.error)}
-                dismissible
-                noticeKey={`detect-external-${detectExternalMutation.error instanceof Error ? detectExternalMutation.error.message : 'unknown'}`}
-                onRetry={() => detectExternalMutation.mutate()}
-                title="External Scan Failed"
-                tone="error"
-              >
-                {getErrorMessage(detectExternalMutation.error)}
-              </InlineNotice>
-            ) : null}
-            {importExternalMutation.error ? (
-              <InlineNotice
-                details={getErrorMessage(importExternalMutation.error)}
-                dismissible
-                noticeKey={`import-external-${importExternalMutation.error instanceof Error ? importExternalMutation.error.message : 'unknown'}`}
-                onRetry={() => importExternalMutation.mutate()}
-                title="Import Failed"
-                tone="error"
-              >
-                {getErrorMessage(importExternalMutation.error)}
-              </InlineNotice>
-            ) : null}
-            {importExternalMutation.isSuccess ? (
-              <InlineNotice
-                details={JSON.stringify(importExternalMutation.data, null, 2)}
-                dismissible
-                noticeKey={`import-external-success-${detectExternalMutation.data?.items?.length ?? 0}`}
-                title="External Agent State Imported"
-              >
-                Imported
-                {' '}
-                <strong>{detectExternalMutation.data?.items?.length ?? 0}</strong>
-                {' '}
-                detected item(s) into the selected workspace. The backend returned
-                {' '}
-                <code>{importExternalMutation.data?.status ?? 'accepted'}</code>
-                .
-              </InlineNotice>
-            ) : null}
-          </SettingRow>
-        </SettingsGroup>
-      </div>
+      <Tabs
+        ariaLabel="Config navigation tabs"
+        className="config-main-tabs"
+        storageKey="settings-config-main-tabs"
+        items={configTabs}
+      />
     </section>
   )
 }
@@ -495,4 +691,14 @@ function parseShellOverridesInput(value: string) {
   }
 
   return normalized
+}
+
+function FieldHint({ label, text }: { label: string; text: string }) {
+  return (
+    <Tooltip content={text} position="top" triggerLabel={label}>
+      <span aria-hidden="true" className="field-hint">
+        ?
+      </span>
+    </Tooltip>
+  )
 }

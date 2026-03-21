@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 
 import {
+  clearReadNotifications,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -76,10 +77,20 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
       await queryClient.invalidateQueries({ queryKey: ['notifications'] })
     },
   })
+  const clearReadMutation = useMutation({
+    mutationFn: clearReadNotifications,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
 
   const notifications = notificationsQuery.data ?? []
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,
+    [notifications],
+  )
+  const hasRead = useMemo(
+    () => notifications.some((notification) => notification.read),
     [notifications],
   )
 
@@ -237,13 +248,30 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                 <strong>Notifications</strong>
                 <span>Automation runs, failures, and saved outcomes.</span>
               </div>
-              <Button
-                intent="ghost"
-                isLoading={markAllReadMutation.isPending}
-                onClick={() => markAllReadMutation.mutate()}
-              >
-                Mark all read
-              </Button>
+              {notifications.length > 0 ? (
+                <div className="web-ide__notification-popover-actions">
+                  {unreadCount > 0 ? (
+                    <Button
+                      intent="ghost"
+                      isLoading={markAllReadMutation.isPending}
+                      onClick={() => markAllReadMutation.mutate()}
+                      size="sm"
+                    >
+                      Mark all read
+                    </Button>
+                  ) : null}
+                  {hasRead ? (
+                    <Button
+                      intent="ghost"
+                      isLoading={clearReadMutation.isPending}
+                      onClick={() => clearReadMutation.mutate()}
+                      size="sm"
+                    >
+                      Clear read
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             {notificationsQuery.error ? (

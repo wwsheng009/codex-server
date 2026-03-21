@@ -16,3 +16,9 @@ export function markAllNotificationsRead() {
     method: 'POST',
   })
 }
+
+export function clearReadNotifications() {
+  return apiRequest<NotificationItem[]>('/api/notifications/read', {
+    method: 'DELETE',
+  })
+}

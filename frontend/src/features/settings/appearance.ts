@@ -18,39 +18,45 @@ export const appearanceThemeOptions = [
 
 export const colorThemeOptions = [
   {
+    value: 'cyan',
+    label: 'Cyan',
+    description: 'Crisp oceanic surfaces.',
+    swatches: ['#0891B2', '#22D3EE', '#ECFEFF', '#083344'],
+  },
+  {
     value: 'blue',
     label: 'Cobalt',
-    description: 'Neutral shell with a crisp blue accent.',
+    description: 'Neutral blue accents.',
     swatches: ['#5271FF', '#8AA0FF', '#f6f2ee', '#fcfbfa'],
   },
   {
     value: 'slate',
     label: 'Slate',
-    description: 'Cool gray surfaces with restrained contrast.',
+    description: 'Cool gray surfaces.',
     swatches: ['#5a7189', '#93a9bf', '#f3f6f8', '#f8fbfd'],
   },
   {
     value: 'amber',
     label: 'Amber',
-    description: 'Warmer sand surfaces with editorial highlights.',
+    description: 'Warm sand highlights.',
     swatches: ['#c77d2a', '#efb36b', '#fbf4e9', '#fffaf2'],
   },
   {
     value: 'mint',
     label: 'Mint',
-    description: 'Fresh green-cyan accents with softer panels.',
+    description: 'Fresh green accents.',
     swatches: ['#1f9d7a', '#6ccfb3', '#edf7f3', '#f7fcfa'],
   },
   {
     value: 'graphite',
     label: 'Graphite',
-    description: 'Coding-focused graphite surfaces with terminal-green accents.',
+    description: 'Terminal-green coding surfaces.',
     swatches: ['#1f9d68', '#63d29c', '#eef3f6', '#0d1117'],
   },
   {
     value: 'solarized',
     label: 'Solarized',
-    description: 'Classic Solarized tones that adapt cleanly to light and dark workbenches.',
+    description: 'Classic solarized workbench.',
     swatches: ['#2aa198', '#268bd2', '#fdf6e3', '#002b36'],
   },
 ] as const

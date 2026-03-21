@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/robfig/cron/v3"
 
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
@@ -925,94 +928,76 @@ func (s *Service) endFinalization(runID string) {
 }
 
 func normalizeSchedule(value string) string {
-	switch strings.TrimSpace(value) {
-	case "", "hourly":
-		return "hourly"
-	case "daily-0800":
-		return "daily-0800"
-	case "daily-1800":
-		return "daily-1800"
-	default:
-		return strings.TrimSpace(value)
+	val := strings.TrimSpace(value)
+	if val == "" || val == "hourly" {
+		return "0 * * * *"
 	}
-}
-
-func normalizeModel(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "gpt-5.4"
+	if strings.HasPrefix(val, "daily-") && len(val) == 10 {
+		hh, _ := strconv.Atoi(val[6:8])
+		mm, _ := strconv.Atoi(val[8:10])
+		return fmt.Sprintf("%d %d * * *", mm, hh)
 	}
-
-	return strings.TrimSpace(value)
-}
-
-func normalizeReasoning(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "medium"
+	if strings.HasPrefix(val, "weekly-") && len(val) == 12 {
+		day, _ := strconv.Atoi(val[7:8])
+		hh, _ := strconv.Atoi(val[9:11])
+		mm, _ := strconv.Atoi(val[11:13])
+		return fmt.Sprintf("%d %d * * %d", mm, hh, day)
 	}
-
-	return strings.TrimSpace(value)
-}
-
-func normalizeTemplateInput(input TemplateInput) (store.AutomationTemplate, error) {
-	title := strings.TrimSpace(input.Title)
-	if title == "" {
-		return store.AutomationTemplate{}, fmt.Errorf("%w: template title is required", ErrInvalidInput)
+	if strings.HasPrefix(val, "monthly-") && len(val) == 13 {
+		day, _ := strconv.Atoi(val[8:10])
+		hh, _ := strconv.Atoi(val[11:13])
+		mm, _ := strconv.Atoi(val[13:15])
+		return fmt.Sprintf("%d %d %d * *", mm, hh, day)
 	}
-
-	prompt := strings.TrimSpace(input.Prompt)
-	if prompt == "" {
-		return store.AutomationTemplate{}, fmt.Errorf("%w: template prompt is required", ErrInvalidInput)
-	}
-
-	category := strings.TrimSpace(input.Category)
-	if category == "" {
-		category = "Custom"
-	}
-
-	return store.AutomationTemplate{
-		Category:    category,
-		Title:       title,
-		Description: strings.TrimSpace(input.Description),
-		Prompt:      prompt,
-	}, nil
+	return val
 }
 
 func scheduleLabel(schedule string) string {
-	switch schedule {
-	case "hourly":
+	if schedule == "0 * * * *" {
 		return "Every hour"
-	case "daily-0800":
-		return "Daily at 08:00"
-	case "daily-1800":
-		return "Daily at 18:00"
-	default:
-		return schedule
 	}
+	
+	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	sched, err := p.Parse(schedule)
+	if err != nil {
+		return "Custom: " + schedule
+	}
+
+	// Try to detect common patterns for cleaner labels
+	fields := strings.Fields(schedule)
+	if len(fields) == 5 {
+		mm, hh, dom, mon, dow := fields[0], fields[1], fields[2], fields[3], fields[4]
+		if dom == "*" && mon == "*" && dow == "*" {
+			return fmt.Sprintf("Hourly at :%s", mm)
+		}
+		if dom == "*" && mon == "*" && dow != "*" {
+			return fmt.Sprintf("Weekly (Day %s) at %s:%s", dow, hh, mm)
+		}
+		if dom != "*" && mon == "*" && dow == "*" {
+			return fmt.Sprintf("Monthly (Day %s) at %s:%s", dom, hh, mm)
+		}
+		if dom == "*" && mon == "*" && dow == "*" {
+			return fmt.Sprintf("Daily at %s:%s", hh, mm)
+		}
+	}
+
+	_ = sched
+	return "Cron: " + schedule
 }
 
 func nextScheduledTime(now time.Time, schedule string, location *time.Location) *time.Time {
-	localNow := now.In(location)
-
-	switch schedule {
-	case "daily-0800":
-		next := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 8, 0, 0, 0, location)
-		if !next.After(localNow) {
-			next = next.Add(24 * time.Hour)
-		}
-		nextUTC := next.UTC()
-		return &nextUTC
-	case "daily-1800":
-		next := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 18, 0, 0, 0, location)
-		if !next.After(localNow) {
-			next = next.Add(24 * time.Hour)
-		}
-		nextUTC := next.UTC()
-		return &nextUTC
-	default:
-		next := localNow.Truncate(time.Hour).Add(time.Hour)
+	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	sched, err := p.Parse(schedule)
+	if err != nil {
+		// Fallback to hourly if invalid cron
+		next := now.In(location).Truncate(time.Hour).Add(time.Hour)
 		nextUTC := next.UTC()
 		return &nextUTC
 	}
+
+	next := sched.Next(now.In(location))
+	nextUTC := next.UTC()
+	return &nextUTC
 }
 
 func formatAutomationNextRun(status string, nextRunAt *time.Time, location *time.Location) string {
@@ -1179,4 +1164,36 @@ func builtInTemplateByID(templateID string) (store.AutomationTemplate, bool) {
 	}
 
 	return store.AutomationTemplate{}, false
+}
+
+func normalizeModel(value string) string {
+	val := strings.TrimSpace(value)
+	if val == "" {
+		return "gpt-5.4"
+	}
+	return val
+}
+
+func normalizeReasoning(value string) string {
+	val := strings.TrimSpace(value)
+	if val == "" {
+		return "medium"
+	}
+	return val
+}
+
+func normalizeTemplateInput(input TemplateInput) (TemplateInput, error) {
+	input.Category = strings.TrimSpace(input.Category)
+	input.Title = strings.TrimSpace(input.Title)
+	input.Description = strings.TrimSpace(input.Description)
+	input.Prompt = strings.TrimSpace(input.Prompt)
+
+	if input.Title == "" {
+		return input, fmt.Errorf("%w: template title is required", ErrInvalidInput)
+	}
+	if input.Prompt == "" {
+		return input, fmt.Errorf("%w: template prompt is required", ErrInvalidInput)
+	}
+
+	return input, nil
 }

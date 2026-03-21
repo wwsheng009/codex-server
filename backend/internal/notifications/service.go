@@ -21,3 +21,7 @@ func (s *Service) MarkRead(notificationID string) (store.Notification, error) {
 func (s *Service) MarkAllRead() []store.Notification {
 	return s.store.MarkAllNotificationsRead()
 }
+
+func (s *Service) DeleteRead() []store.Notification {
+	return s.store.DeleteReadNotifications()
+}
