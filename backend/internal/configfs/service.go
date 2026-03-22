@@ -19,10 +19,12 @@ type ConfigReadResult struct {
 }
 
 type ConfigWriteResult struct {
-	FilePath           string         `json:"filePath"`
-	Status             string         `json:"status"`
-	Version            string         `json:"version"`
-	OverriddenMetadata map[string]any `json:"overriddenMetadata,omitempty"`
+	FilePath                   string         `json:"filePath"`
+	Status                     string         `json:"status"`
+	Version                    string         `json:"version"`
+	OverriddenMetadata         map[string]any `json:"overriddenMetadata,omitempty"`
+	RuntimeReloadRequired      bool           `json:"runtimeReloadRequired,omitempty"`
+	MatchedRuntimeSensitiveKey string         `json:"matchedRuntimeSensitiveKey,omitempty"`
 }
 
 type FuzzyFileSearchResult struct {

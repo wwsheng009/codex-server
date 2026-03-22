@@ -459,6 +459,233 @@ func TestApplyStoredProjectionMergesEquivalentConversationItemsWithDifferentIDs(
 	}
 }
 
+func TestSliceThreadDetailTurnsKeepsLatestWindow(t *testing.T) {
+	t.Parallel()
+
+	detail := store.ThreadDetail{
+		Turns: []store.ThreadTurn{
+			{ID: "turn-1"},
+			{ID: "turn-2"},
+			{ID: "turn-3"},
+			{ID: "turn-4"},
+		},
+	}
+
+	windowed := sliceThreadDetailTurns(detail, 2, "")
+
+	if !windowed.HasMoreTurns {
+		t.Fatal("expected latest window to report more turns before the slice")
+	}
+	if len(windowed.Turns) != 2 {
+		t.Fatalf("expected 2 turns in latest window, got %d", len(windowed.Turns))
+	}
+	if windowed.Turns[0].ID != "turn-3" || windowed.Turns[1].ID != "turn-4" {
+		t.Fatalf("unexpected latest turn window: %+v", windowed.Turns)
+	}
+}
+
+func TestSliceThreadDetailTurnsPaginatesBeforeTurnID(t *testing.T) {
+	t.Parallel()
+
+	detail := store.ThreadDetail{
+		Turns: []store.ThreadTurn{
+			{ID: "turn-1"},
+			{ID: "turn-2"},
+			{ID: "turn-3"},
+			{ID: "turn-4"},
+			{ID: "turn-5"},
+		},
+	}
+
+	windowed := sliceThreadDetailTurns(detail, 2, "turn-4")
+
+	if !windowed.HasMoreTurns {
+		t.Fatal("expected older page to report more turns before the slice")
+	}
+	if len(windowed.Turns) != 2 {
+		t.Fatalf("expected 2 turns in older page, got %d", len(windowed.Turns))
+	}
+	if windowed.Turns[0].ID != "turn-2" || windowed.Turns[1].ID != "turn-3" {
+		t.Fatalf("unexpected older turn page: %+v", windowed.Turns)
+	}
+}
+
+func TestBuildCachedThreadDetailUsesProjectionSnapshot(t *testing.T) {
+	t.Parallel()
+
+	thread := store.Thread{
+		ID:          "thread-1",
+		WorkspaceID: "ws-1",
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Cached Thread",
+		Status:      "idle",
+	}
+	contextWindow := int64(128000)
+	detail := buildCachedThreadDetail(thread, store.ThreadProjection{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		Status:      "running",
+		UpdatedAt:   time.Unix(42, 0).UTC(),
+		TokenUsage: &store.ThreadTokenUsage{
+			ModelContextWindow: &contextWindow,
+		},
+		Turns: []store.ThreadTurn{
+			{ID: "turn-1", Status: "completed"},
+			{ID: "turn-2", Status: "inProgress"},
+		},
+	})
+
+	if detail.Status != "running" {
+		t.Fatalf("expected projection status to win, got %q", detail.Status)
+	}
+	if detail.TurnCount != 2 {
+		t.Fatalf("expected cached detail turn count, got %d", detail.TurnCount)
+	}
+	if len(detail.Turns) != 2 || detail.Turns[0].ID != "turn-1" || detail.Turns[1].ID != "turn-2" {
+		t.Fatalf("unexpected cached turns: %+v", detail.Turns)
+	}
+	if detail.TokenUsage == nil || detail.TokenUsage.ModelContextWindow == nil || *detail.TokenUsage.ModelContextWindow != contextWindow {
+		t.Fatalf("expected cached token usage to survive, got %#v", detail.TokenUsage)
+	}
+}
+
+func TestGetDetailWindowUsesCachedSnapshotWhenRuntimeIsNotLive(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-cache",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Cached Thread",
+		Status:      "idle",
+		UpdatedAt:   time.Unix(90, 0).UTC(),
+	}
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread:     thread,
+		Cwd:        thread.Cwd,
+		Preview:    "cached preview",
+		Path:       `E:\projects\ai\codex-server\.codex\threads\thread-cache.jsonl`,
+		Source:     "cache",
+		TurnCount:  3,
+		Turns: []store.ThreadTurn{
+			{ID: "turn-1", Status: "completed"},
+			{ID: "turn-2", Status: "completed"},
+			{ID: "turn-3", Status: "inProgress"},
+		},
+	})
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+	detail, err := service.GetDetailWindow(context.Background(), workspace.ID, thread.ID, 2, "")
+	if err != nil {
+		t.Fatalf("GetDetailWindow() error = %v", err)
+	}
+
+	if detail.Preview != "cached preview" {
+		t.Fatalf("expected cached preview, got %q", detail.Preview)
+	}
+	if detail.HasMoreTurns != true {
+		t.Fatalf("expected cached window to report older turns, got %+v", detail.HasMoreTurns)
+	}
+	if len(detail.Turns) != 2 || detail.Turns[0].ID != "turn-2" || detail.Turns[1].ID != "turn-3" {
+		t.Fatalf("unexpected cached detail turns: %+v", detail.Turns)
+	}
+}
+
+func TestCachedThreadDetailRejectsIncompleteProjection(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-incomplete",
+		TurnID:      "turn-1",
+		Method:      "item/agentMessage/delta",
+		Payload: map[string]any{
+			"threadId": "thread-incomplete",
+			"turnId":   "turn-1",
+			"itemId":   "item-1",
+			"delta":    "partial",
+		},
+	})
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+	if _, ok := service.cachedThreadDetail(workspace.ID, "thread-incomplete"); ok {
+		t.Fatal("expected incomplete projection to be rejected as a cache detail source")
+	}
+}
+
+func TestShouldServeCurrentWindowFromCacheRequiresFreshSnapshot(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-fresh",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Fresh Thread",
+		Status:      "idle",
+		UpdatedAt:   time.Unix(100, 0).UTC(),
+	}
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread:    thread,
+		Cwd:       thread.Cwd,
+		TurnCount: 1,
+		Turns: []store.ThreadTurn{
+			{ID: "turn-1", Status: "completed"},
+		},
+	})
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+	if !service.shouldServeCurrentWindowFromCache(workspace.ID, thread.ID) {
+		t.Fatal("expected fresh snapshot to be eligible for current-window cache")
+	}
+
+	thread.UpdatedAt = time.Unix(200, 0).UTC()
+	dataStore.UpsertThread(thread)
+	if service.shouldServeCurrentWindowFromCache(workspace.ID, thread.ID) {
+		t.Fatal("expected stale snapshot to be rejected for current-window cache")
+	}
+}
+
+func TestShouldServeCurrentWindowFromCacheRejectsActiveTurns(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-active",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Active Thread",
+		Status:      "running",
+		UpdatedAt:   time.Unix(100, 0).UTC(),
+	}
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread:    thread,
+		Cwd:       thread.Cwd,
+		TurnCount: 1,
+		Turns: []store.ThreadTurn{
+			{ID: "turn-1", Status: "inProgress"},
+		},
+	})
+
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", nil)
+	runtimeManager.Configure(workspace.ID, workspace.RootPath)
+	runtimeManager.RememberActiveTurn(workspace.ID, thread.ID, "turn-1")
+
+	service := NewService(dataStore, runtimeManager)
+	if service.shouldServeCurrentWindowFromCache(workspace.ID, thread.ID) {
+		t.Fatal("expected active thread to bypass current-window cache")
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }

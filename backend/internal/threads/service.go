@@ -176,18 +176,52 @@ func (s *Service) Get(ctx context.Context, workspaceID string, threadID string) 
 }
 
 func (s *Service) GetDetail(ctx context.Context, workspaceID string, threadID string) (store.ThreadDetail, error) {
+	return s.GetDetailWindow(ctx, workspaceID, threadID, 0, "")
+}
+
+func (s *Service) GetDetailWindow(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	turnLimit int,
+	beforeTurnID string,
+) (store.ThreadDetail, error) {
 	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
 		return store.ThreadDetail{}, err
+	}
+
+	if beforeTurnID != "" {
+		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok && threadDetailHasTurnID(cachedDetail, beforeTurnID) {
+			return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+		}
+	}
+
+	if turnLimit > 0 && beforeTurnID == "" && s.shouldServeCurrentWindowFromCache(workspaceID, threadID) {
+		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+			return sliceThreadDetailTurns(cachedDetail, turnLimit, ""), nil
+		}
+	}
+
+	if turnLimit > 0 && !runtimeStateIsLive(s.runtimes.State(workspaceID).Status) {
+		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+			return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+		}
 	}
 
 	threadData, err := s.readThread(ctx, workspaceID, threadID, true)
 	if err != nil {
 		if !isThreadTurnsUnavailableBeforeFirstUserMessage(err) {
+			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+				return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+			}
 			return store.ThreadDetail{}, err
 		}
 
 		threadData, err = s.readThread(ctx, workspaceID, threadID, false)
 		if err != nil {
+			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+				return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+			}
 			return store.ThreadDetail{}, err
 		}
 	}
@@ -204,16 +238,198 @@ func (s *Service) GetDetail(ctx context.Context, workspaceID string, threadID st
 	}
 
 	detail := store.ThreadDetail{
-		Thread:     thread,
-		Cwd:        stringValue(threadData["cwd"]),
-		Preview:    stringValue(threadData["preview"]),
-		Path:       stringValue(threadData["path"]),
-		Source:     stringValue(threadData["source"]),
-		TokenUsage: mapThreadTokenUsage(threadData["tokenUsage"]),
-		Turns:      turns,
+		Thread:       thread,
+		Cwd:          stringValue(threadData["cwd"]),
+		Preview:      stringValue(threadData["preview"]),
+		Path:         stringValue(threadData["path"]),
+		Source:       stringValue(threadData["source"]),
+		TokenUsage:   mapThreadTokenUsage(threadData["tokenUsage"]),
+		TurnCount:    len(turns),
+		HasMoreTurns: false,
+		Turns:        turns,
 	}
 
-	return applyStoredProjection(detail, s.store, s.runtimes, workspaceID, threadID), nil
+	projectedDetail := applyStoredProjection(detail, s.store, s.runtimes, workspaceID, threadID)
+	projectedDetail.TurnCount = len(projectedDetail.Turns)
+	s.store.UpsertThreadProjectionSnapshot(projectedDetail)
+
+	if turnLimit > 0 {
+		projectedDetail = sliceThreadDetailTurns(projectedDetail, turnLimit, beforeTurnID)
+	}
+
+	return projectedDetail, nil
+}
+
+func (s *Service) cachedThreadDetail(workspaceID string, threadID string) (store.ThreadDetail, bool) {
+	projection, ok := s.store.GetThreadProjection(workspaceID, threadID)
+	if !ok || !projection.SnapshotComplete {
+		return store.ThreadDetail{}, false
+	}
+
+	thread, foundThread := s.store.GetThread(workspaceID, threadID)
+	if !foundThread {
+		thread = store.Thread{
+			ID:          threadID,
+			WorkspaceID: workspaceID,
+			Name:        "Untitled Thread",
+			Status:      fallbackString(projection.Status, "idle"),
+			UpdatedAt:   projection.UpdatedAt,
+		}
+	}
+
+	detail := buildCachedThreadDetail(thread, projection)
+	detail.Turns = reconcileServerRequestStatuses(detail.Turns, s.runtimes)
+	detail.TurnCount = len(detail.Turns)
+	return detail, true
+}
+
+func sliceThreadDetailTurns(
+	detail store.ThreadDetail,
+	turnLimit int,
+	beforeTurnID string,
+) store.ThreadDetail {
+	if turnLimit <= 0 || len(detail.Turns) <= turnLimit && beforeTurnID == "" {
+		detail.HasMoreTurns = false
+		return detail
+	}
+
+	endIndex := len(detail.Turns)
+	if beforeTurnID != "" {
+		for index, turn := range detail.Turns {
+			if turn.ID == beforeTurnID {
+				endIndex = index
+				break
+			}
+		}
+	}
+
+	if endIndex < 0 {
+		endIndex = 0
+	}
+	if endIndex > len(detail.Turns) {
+		endIndex = len(detail.Turns)
+	}
+
+	startIndex := endIndex - turnLimit
+	if startIndex < 0 {
+		startIndex = 0
+	}
+
+	detail.HasMoreTurns = startIndex > 0
+	detail.Turns = append([]store.ThreadTurn{}, detail.Turns[startIndex:endIndex]...)
+	return detail
+}
+
+func buildCachedThreadDetail(thread store.Thread, projection store.ThreadProjection) store.ThreadDetail {
+	detail := store.ThreadDetail{
+		Thread:       thread,
+		Cwd:          fallbackString(projection.Cwd, thread.Cwd),
+		Preview:      projection.Preview,
+		Path:         projection.Path,
+		Source:       projection.Source,
+		TokenUsage:   cloneThreadTokenUsageLocal(projection.TokenUsage),
+		TurnCount:    len(projection.Turns),
+		HasMoreTurns: false,
+		Turns:        cloneThreadTurnsLocal(projection.Turns),
+	}
+
+	if projection.Status != "" {
+		detail.Status = projection.Status
+	}
+	if projection.UpdatedAt.After(detail.UpdatedAt) {
+		detail.UpdatedAt = projection.UpdatedAt
+	}
+
+	return detail
+}
+
+func (s *Service) shouldServeCurrentWindowFromCache(workspaceID string, threadID string) bool {
+	projection, ok := s.store.GetThreadProjection(workspaceID, threadID)
+	if !ok || !projection.SnapshotComplete {
+		return false
+	}
+
+	if s.runtimes.ActiveTurnID(workspaceID, threadID) != "" {
+		return false
+	}
+
+	thread, ok := s.store.GetThread(workspaceID, threadID)
+	if !ok {
+		return true
+	}
+
+	return !projection.UpdatedAt.Before(thread.UpdatedAt)
+}
+
+func runtimeStateIsLive(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "ready", "active", "connected", "starting":
+		return true
+	default:
+		return false
+	}
+}
+
+func threadDetailHasTurnID(detail store.ThreadDetail, turnID string) bool {
+	if turnID == "" {
+		return false
+	}
+
+	for _, turn := range detail.Turns {
+		if turn.ID == turnID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func cloneThreadTokenUsageLocal(usage *store.ThreadTokenUsage) *store.ThreadTokenUsage {
+	if usage == nil {
+		return nil
+	}
+
+	cloned := *usage
+	if usage.ModelContextWindow != nil {
+		value := *usage.ModelContextWindow
+		cloned.ModelContextWindow = &value
+	}
+	return &cloned
+}
+
+func cloneThreadTurnsLocal(turns []store.ThreadTurn) []store.ThreadTurn {
+	if len(turns) == 0 {
+		return []store.ThreadTurn{}
+	}
+
+	cloned := make([]store.ThreadTurn, 0, len(turns))
+	for _, turn := range turns {
+		cloned = append(cloned, store.ThreadTurn{
+			ID:     turn.ID,
+			Status: turn.Status,
+			Items:  cloneTurnItemsLocal(turn.Items),
+			Error:  turn.Error,
+		})
+	}
+
+	return cloned
+}
+
+func cloneTurnItemsLocal(items []map[string]any) []map[string]any {
+	if len(items) == 0 {
+		return []map[string]any{}
+	}
+
+	cloned := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		next := make(map[string]any, len(item))
+		for key, value := range item {
+			next[key] = value
+		}
+		cloned = append(cloned, next)
+	}
+
+	return cloned
 }
 
 func (s *Service) readThread(ctx context.Context, workspaceID string, threadID string, includeTurns bool) (map[string]any, error) {

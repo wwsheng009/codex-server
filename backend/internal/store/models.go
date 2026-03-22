@@ -147,16 +147,23 @@ type ThreadDetail struct {
 	Path       string            `json:"path,omitempty"`
 	Source     string            `json:"source,omitempty"`
 	TokenUsage *ThreadTokenUsage `json:"tokenUsage,omitempty"`
+	TurnCount  int               `json:"turnCount"`
+	HasMoreTurns bool            `json:"hasMoreTurns,omitempty"`
 	Turns      []ThreadTurn      `json:"turns"`
 }
 
 type ThreadProjection struct {
-	WorkspaceID string            `json:"workspaceId"`
-	ThreadID    string            `json:"threadId"`
-	Status      string            `json:"status,omitempty"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	TokenUsage  *ThreadTokenUsage `json:"tokenUsage,omitempty"`
-	Turns       []ThreadTurn      `json:"turns"`
+	WorkspaceID      string            `json:"workspaceId"`
+	ThreadID         string            `json:"threadId"`
+	Cwd              string            `json:"cwd,omitempty"`
+	Preview          string            `json:"preview,omitempty"`
+	Path             string            `json:"path,omitempty"`
+	Source           string            `json:"source,omitempty"`
+	Status           string            `json:"status,omitempty"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
+	TokenUsage       *ThreadTokenUsage `json:"tokenUsage,omitempty"`
+	SnapshotComplete bool              `json:"snapshotComplete,omitempty"`
+	Turns            []ThreadTurn      `json:"turns"`
 }
 
 type PendingApproval struct {

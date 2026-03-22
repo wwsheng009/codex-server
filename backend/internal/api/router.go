@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -634,8 +635,24 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	threadID := chi.URLParam(r, "threadId")
+	beforeTurnID := strings.TrimSpace(r.URL.Query().Get("beforeTurnId"))
+	turnLimit := 0
+	if value := strings.TrimSpace(r.URL.Query().Get("turnLimit")); value != "" {
+		parsedLimit, err := strconv.Atoi(value)
+		if err != nil || parsedLimit < 0 {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid turnLimit query")
+			return
+		}
+		turnLimit = parsedLimit
+	}
 
-	thread, err := s.threads.GetDetail(r.Context(), workspaceID, threadID)
+	thread, err := s.threads.GetDetailWindow(
+		r.Context(),
+		workspaceID,
+		threadID,
+		turnLimit,
+		beforeTurnID,
+	)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -1244,7 +1261,9 @@ func (s *Server) handleConfigWrite(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
-	if configWriteRequiresRuntimeReload(request.KeyPath) {
+	if matchedKey := configfs.MatchingRuntimeSensitiveConfigPrefix(request.KeyPath); matchedKey != "" {
+		result.RuntimeReloadRequired = true
+		result.MatchedRuntimeSensitiveKey = matchedKey
 		if _, markErr := s.workspaces.MarkRuntimeConfigChanged(workspaceID); markErr != nil {
 			s.writeStoreError(w, markErr)
 			return
@@ -1273,7 +1292,9 @@ func (s *Server) handleConfigBatchWrite(w http.ResponseWriter, r *http.Request) 
 		s.writeStoreError(w, err)
 		return
 	}
-	if configBatchWriteRequiresRuntimeReload(request.Edits) {
+	if matchedKeys := configfs.MatchingRuntimeSensitiveConfigPrefixes(request.Edits); len(matchedKeys) > 0 {
+		result.RuntimeReloadRequired = true
+		result.MatchedRuntimeSensitiveKey = matchedKeys[0]
 		if _, markErr := s.workspaces.MarkRuntimeConfigChanged(workspaceID); markErr != nil {
 			s.writeStoreError(w, markErr)
 			return
@@ -1281,21 +1302,6 @@ func (s *Server) handleConfigBatchWrite(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusAccepted, result)
-}
-
-func configWriteRequiresRuntimeReload(keyPath string) bool {
-	normalized := strings.TrimSpace(keyPath)
-	return normalized == "shell_environment_policy" || strings.HasPrefix(normalized, "shell_environment_policy.")
-}
-
-func configBatchWriteRequiresRuntimeReload(edits []map[string]any) bool {
-	for _, edit := range edits {
-		keyPath, _ := edit["keyPath"].(string)
-		if configWriteRequiresRuntimeReload(keyPath) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Server) handleFuzzyFileSearch(w http.ResponseWriter, r *http.Request) {

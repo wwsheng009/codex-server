@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -737,6 +738,37 @@ func (s *MemoryStore) GetThreadProjection(workspaceID string, threadID string) (
 	return projection, ok
 }
 
+func (s *MemoryStore) UpsertThreadProjectionSnapshot(detail ThreadDetail) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, deleted := s.deleted[deletedThreadKey(detail.WorkspaceID, detail.ID)]; deleted {
+		delete(s.projections, threadProjectionKey(detail.WorkspaceID, detail.ID))
+		s.persistLocked()
+		return
+	}
+
+	projection := ThreadProjection{
+		WorkspaceID:      detail.WorkspaceID,
+		ThreadID:         detail.ID,
+		Cwd:              detail.Cwd,
+		Preview:          detail.Preview,
+		Path:             detail.Path,
+		Source:           detail.Source,
+		Status:           detail.Status,
+		UpdatedAt:        detail.UpdatedAt,
+		TokenUsage:       cloneThreadTokenUsage(detail.TokenUsage),
+		SnapshotComplete: true,
+		Turns:            cloneThreadTurns(detail.Turns),
+	}
+	current := s.projections[threadProjectionKey(detail.WorkspaceID, detail.ID)]
+	if threadProjectionSnapshotEqual(current, projection) {
+		return
+	}
+	s.projections[threadProjectionKey(detail.WorkspaceID, detail.ID)] = projection
+	s.persistLocked()
+}
+
 func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	if event.ThreadID == "" {
 		return
@@ -1150,6 +1182,50 @@ func cloneAutomationRun(run AutomationRun) AutomationRun {
 		next.Logs = []AutomationRunLogEntry{}
 	}
 	return next
+}
+
+func cloneThreadTokenUsage(usage *ThreadTokenUsage) *ThreadTokenUsage {
+	if usage == nil {
+		return nil
+	}
+
+	cloned := *usage
+	if usage.ModelContextWindow != nil {
+		value := *usage.ModelContextWindow
+		cloned.ModelContextWindow = &value
+	}
+	return &cloned
+}
+
+func cloneThreadTurns(turns []ThreadTurn) []ThreadTurn {
+	if len(turns) == 0 {
+		return []ThreadTurn{}
+	}
+
+	cloned := make([]ThreadTurn, 0, len(turns))
+	for _, turn := range turns {
+		cloned = append(cloned, ThreadTurn{
+			ID:     turn.ID,
+			Status: turn.Status,
+			Items:  cloneItems(turn.Items),
+			Error:  turn.Error,
+		})
+	}
+	return cloned
+}
+
+func threadProjectionSnapshotEqual(left ThreadProjection, right ThreadProjection) bool {
+	return left.WorkspaceID == right.WorkspaceID &&
+		left.ThreadID == right.ThreadID &&
+		left.Cwd == right.Cwd &&
+		left.Preview == right.Preview &&
+		left.Path == right.Path &&
+		left.Source == right.Source &&
+		left.Status == right.Status &&
+		left.UpdatedAt.Equal(right.UpdatedAt) &&
+		left.SnapshotComplete == right.SnapshotComplete &&
+		reflect.DeepEqual(left.TokenUsage, right.TokenUsage) &&
+		reflect.DeepEqual(left.Turns, right.Turns)
 }
 
 func cloneStringMap(values map[string]string) map[string]string {
