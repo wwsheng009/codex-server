@@ -1,12 +1,28 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import type {
-  AccentTone,
-  AppearanceTheme,
-  MessageSurface,
-  ThreadSpacing,
-  UserMessageEmphasis,
+import {
+  cloneWorkbenchThemeColors,
+  copyThemeColorCustomizationPalette,
+  createLegacyThemeColorCustomizations,
+  createCustomThemeDefinition,
+  createThemeColorCustomizations,
+  hasThemeColorCustomizationOverrides,
+  normalizeAccentTone,
+  normalizeAppearanceTheme,
+  normalizeThemeColorCustomizations,
+  resetThemeColorCustomization,
+  withThemeColorCustomization,
+  type AccentTone,
+  type AppearanceTheme,
+  type CustomThemeDefinition,
+  type MessageSurface,
+  type ResolvedAppearanceTheme,
+  type ThemeColorCustomizations,
+  type ThreadSpacing,
+  type UserMessageEmphasis,
+  type WorkbenchThemeColorField,
+  type WorkbenchThemeColors,
 } from './appearance'
 import { sourceLocale, type AppLocale } from '../../i18n/config'
 
@@ -30,13 +46,9 @@ type SettingsLocalState = {
   maxWorktrees: number
   autoPruneDays: number
   reuseBranches: boolean
-  // New Theme Customization Fields
-  accentColorLight: string
-  accentColorDark: string
-  backgroundColorLight: string
-  backgroundColorDark: string
-  foregroundColorLight: string
-  foregroundColorDark: string
+  themeColorCustomizations: ThemeColorCustomizations
+  customThemes: CustomThemeDefinition[]
+  activeCustomThemeId: string
   uiFont: string
   codeFont: string
   uiFontSize: number
@@ -61,13 +73,18 @@ type SettingsLocalState = {
   setMaxWorktrees: (maxWorktrees: number) => void
   setAutoPruneDays: (autoPruneDays: number) => void
   setReuseBranches: (reuseBranches: boolean) => void
-  // New Theme Customization Setters
-  setAccentColorLight: (color: string) => void
-  setAccentColorDark: (color: string) => void
-  setBackgroundColorLight: (color: string) => void
-  setBackgroundColorDark: (color: string) => void
-  setForegroundColorLight: (color: string) => void
-  setForegroundColorDark: (color: string) => void
+  setThemeColorCustomization: (
+    accentTone: AccentTone,
+    mode: ResolvedAppearanceTheme,
+    field: WorkbenchThemeColorField,
+    value: string,
+  ) => void
+  selectCustomTheme: (themeId: string) => void
+  createCustomTheme: (name?: string, sourceAccentTone?: AccentTone) => string
+  renameCustomTheme: (themeId: string, name: string) => void
+  deleteCustomTheme: (themeId: string) => void
+  resetThemePaletteCustomization: (accentTone: AccentTone, mode?: ResolvedAppearanceTheme) => void
+  copyThemePaletteCustomization: (sourceAccentTone: AccentTone, targetAccentTone: AccentTone) => void
   setUiFont: (font: string) => void
   setCodeFont: (font: string) => void
   setUiFontSize: (size: number) => void
@@ -78,9 +95,200 @@ type SettingsLocalState = {
   setUseCustomColors: (enabled: boolean) => void
 }
 
+type LegacyPersistedSettingsState = Partial<
+  Omit<
+    SettingsLocalState,
+    | 'setThemeColorCustomization'
+    | 'selectCustomTheme'
+    | 'createCustomTheme'
+    | 'renameCustomTheme'
+    | 'deleteCustomTheme'
+    | 'resetThemePaletteCustomization'
+    | 'copyThemePaletteCustomization'
+  >
+> & {
+  accentColorLight?: string
+  accentColorDark?: string
+  backgroundColorLight?: string
+  backgroundColorDark?: string
+  foregroundColorLight?: string
+  foregroundColorDark?: string
+  themeColorCustomizations?: unknown
+}
+
+const legacyBlueLightColors: WorkbenchThemeColors = {
+  accent: '#0969DA',
+  background: '#FFFFFF',
+  foreground: '#1F2328',
+}
+
+const legacyBlueDarkColors: WorkbenchThemeColors = {
+  accent: '#6C87FF',
+  background: '#121A24',
+  foreground: '#D8E2EE',
+}
+
+function createCustomThemeId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `custom-theme-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function buildCustomThemeName(customThemes: CustomThemeDefinition[]) {
+  let index = customThemes.length + 1
+
+  while (customThemes.some((theme) => theme.name === `Custom Theme ${index}`)) {
+    index += 1
+  }
+
+  return `Custom Theme ${index}`
+}
+
+function applyActiveCustomThemeToWorkingCopy(
+  themeColorCustomizations: ThemeColorCustomizations,
+  customThemes: CustomThemeDefinition[],
+  activeCustomThemeId: string,
+) {
+  const activeCustomTheme =
+    customThemes.find((theme) => theme.id === activeCustomThemeId) ?? customThemes[0]
+
+  if (!activeCustomTheme) {
+    return themeColorCustomizations
+  }
+
+  return {
+    ...themeColorCustomizations,
+    custom: cloneWorkbenchThemeColors(activeCustomTheme.colors),
+  }
+}
+
+function resolvePersistedCustomThemes(
+  state: LegacyPersistedSettingsState,
+  themeColorCustomizations: ThemeColorCustomizations,
+) {
+  const persistedCustomThemes = Array.isArray(state.customThemes)
+    ? state.customThemes.filter(
+        (theme): theme is CustomThemeDefinition =>
+          Boolean(
+            theme &&
+              typeof theme === 'object' &&
+              typeof theme.id === 'string' &&
+              typeof theme.name === 'string' &&
+              theme.colors &&
+              typeof theme.colors === 'object',
+          ),
+      )
+    : []
+
+  if (persistedCustomThemes.length > 0) {
+    const customThemes = persistedCustomThemes.map((theme) =>
+      createCustomThemeDefinition(theme.id, theme.name, theme.colors),
+    )
+    const activeCustomThemeId =
+      typeof state.activeCustomThemeId === 'string' &&
+      customThemes.some((theme) => theme.id === state.activeCustomThemeId)
+        ? state.activeCustomThemeId
+        : customThemes[0].id
+
+    return {
+      customThemes,
+      activeCustomThemeId,
+    }
+  }
+
+  const initialCustomTheme = createCustomThemeDefinition(
+    createCustomThemeId(),
+    'Custom Theme 1',
+    themeColorCustomizations.custom,
+  )
+
+  return {
+    customThemes: [initialCustomTheme],
+    activeCustomThemeId: initialCustomTheme.id,
+  }
+}
+
+function hasLegacyThemeCustomizationFields(state: LegacyPersistedSettingsState) {
+  return [
+    state.accentColorLight,
+    state.accentColorDark,
+    state.backgroundColorLight,
+    state.backgroundColorDark,
+    state.foregroundColorLight,
+    state.foregroundColorDark,
+  ].some((value) => typeof value === 'string' && value.length > 0)
+}
+
+function resolvePersistedThemeColorCustomizations(state: LegacyPersistedSettingsState) {
+  if (state.themeColorCustomizations) {
+    return normalizeThemeColorCustomizations(state.themeColorCustomizations)
+  }
+
+  if (!hasLegacyThemeCustomizationFields(state)) {
+    return createThemeColorCustomizations()
+  }
+
+  return createLegacyThemeColorCustomizations({
+    light: {
+      accent: state.accentColorLight ?? legacyBlueLightColors.accent,
+      background: state.backgroundColorLight ?? legacyBlueLightColors.background,
+      foreground: state.foregroundColorLight ?? legacyBlueLightColors.foreground,
+    },
+    dark: {
+      accent: state.accentColorDark ?? legacyBlueDarkColors.accent,
+      background: state.backgroundColorDark ?? legacyBlueDarkColors.background,
+      foreground: state.foregroundColorDark ?? legacyBlueDarkColors.foreground,
+    },
+  })
+}
+
+function normalizePersistedSettingsState(
+  persistedState: LegacyPersistedSettingsState | undefined,
+): Partial<SettingsLocalState> {
+  const state = persistedState ?? {}
+  const {
+    accentColorLight: _accentColorLight,
+    accentColorDark: _accentColorDark,
+    backgroundColorLight: _backgroundColorLight,
+    backgroundColorDark: _backgroundColorDark,
+    foregroundColorLight: _foregroundColorLight,
+    foregroundColorDark: _foregroundColorDark,
+    themeColorCustomizations: _themeColorCustomizations,
+    ...rest
+  } = state
+  const themeColorCustomizations = resolvePersistedThemeColorCustomizations(state)
+  const { customThemes, activeCustomThemeId } = resolvePersistedCustomThemes(
+    state,
+    themeColorCustomizations,
+  )
+  const normalizedThemeColorCustomizations = applyActiveCustomThemeToWorkingCopy(
+    themeColorCustomizations,
+    customThemes,
+    activeCustomThemeId,
+  )
+
+  return {
+    ...rest,
+    theme: normalizeAppearanceTheme(state.theme),
+    accentTone: normalizeAccentTone(state.accentTone),
+    themeColorCustomizations: normalizedThemeColorCustomizations,
+    customThemes,
+    activeCustomThemeId,
+    useCustomColors:
+      typeof state.useCustomColors === 'boolean'
+        ? state.useCustomColors
+        : hasThemeColorCustomizationOverrides(normalizedThemeColorCustomizations),
+  }
+}
+
 export const useSettingsLocalStore = create<SettingsLocalState>()(
   persist(
-    (set) => ({
+    (set) => {
+      const initialCustomTheme = createCustomThemeDefinition(createCustomThemeId(), 'Custom Theme 1')
+
+      return {
       locale: sourceLocale,
       theme: 'system',
       density: 'comfortable',
@@ -97,13 +305,12 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       maxWorktrees: 4,
       autoPruneDays: 14,
       reuseBranches: true,
-      // Initial Theme Customization Values
-      accentColorLight: '#0969DA',
-      accentColorDark: '#6C87FF',
-      backgroundColorLight: '#FFFFFF',
-      backgroundColorDark: '#121a24',
-      foregroundColorLight: '#1F2328',
-      foregroundColorDark: '#d8e2ee',
+      themeColorCustomizations: {
+        ...createThemeColorCustomizations(),
+        custom: cloneWorkbenchThemeColors(initialCustomTheme.colors),
+      },
+      customThemes: [initialCustomTheme],
+      activeCustomThemeId: initialCustomTheme.id,
       uiFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       codeFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
       uiFontSize: 13,
@@ -113,10 +320,29 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       usePointerCursor: false,
       useCustomColors: false,
       setLocale: (locale) => set({ locale }),
-      setTheme: (theme) => set({ theme }),
+      setTheme: (theme) => set({ theme: normalizeAppearanceTheme(theme) }),
       setDensity: (density) => set({ density }),
       setReduceMotion: (reduceMotion) => set({ reduceMotion }),
-      setAccentTone: (accentTone) => set({ accentTone }),
+      setAccentTone: (accentTone) =>
+        set((state) => {
+          const nextAccentTone = normalizeAccentTone(accentTone)
+
+          if (nextAccentTone !== 'custom') {
+            return { accentTone: nextAccentTone }
+          }
+
+          const themeColorCustomizations = applyActiveCustomThemeToWorkingCopy(
+            state.themeColorCustomizations,
+            state.customThemes,
+            state.activeCustomThemeId,
+          )
+
+          return {
+            accentTone: nextAccentTone,
+            themeColorCustomizations,
+            useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
+          }
+        }),
       setThreadSpacing: (threadSpacing) => set({ threadSpacing }),
       setMessageSurface: (messageSurface) => set({ messageSurface }),
       setUserMessageEmphasis: (userMessageEmphasis) => set({ userMessageEmphasis }),
@@ -128,13 +354,210 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       setMaxWorktrees: (maxWorktrees) => set({ maxWorktrees }),
       setAutoPruneDays: (autoPruneDays) => set({ autoPruneDays }),
       setReuseBranches: (reuseBranches) => set({ reuseBranches }),
-      // New Theme Customization Setters Implementation
-      setAccentColorLight: (accentColorLight) => set({ accentColorLight, useCustomColors: true }),
-      setAccentColorDark: (accentColorDark) => set({ accentColorDark, useCustomColors: true }),
-      setBackgroundColorLight: (backgroundColorLight) => set({ backgroundColorLight, useCustomColors: true }),
-      setBackgroundColorDark: (backgroundColorDark) => set({ backgroundColorDark, useCustomColors: true }),
-      setForegroundColorLight: (foregroundColorLight) => set({ foregroundColorLight, useCustomColors: true }),
-      setForegroundColorDark: (foregroundColorDark) => set({ foregroundColorDark, useCustomColors: true }),
+      setThemeColorCustomization: (accentTone, mode, field, value) =>
+        set((state) => {
+          let themeColorCustomizations = withThemeColorCustomization(
+            state.themeColorCustomizations,
+            accentTone,
+            mode,
+            field,
+            value,
+          )
+          const customThemes =
+            accentTone === 'custom'
+              ? state.customThemes.map((theme) =>
+                  theme.id === state.activeCustomThemeId
+                    ? {
+                        ...theme,
+                        colors: {
+                          ...theme.colors,
+                          [mode]: {
+                            ...theme.colors[mode],
+                            [field]: value,
+                          },
+                        },
+                      }
+                    : theme,
+                )
+              : state.customThemes
+
+          if (accentTone === 'custom') {
+            themeColorCustomizations = applyActiveCustomThemeToWorkingCopy(
+              themeColorCustomizations,
+              customThemes,
+              state.activeCustomThemeId,
+            )
+          }
+
+          return {
+            themeColorCustomizations,
+            customThemes,
+            useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
+          }
+        }),
+      selectCustomTheme: (themeId) =>
+        set((state) => {
+          if (!state.customThemes.some((theme) => theme.id === themeId)) {
+            return state
+          }
+
+          const themeColorCustomizations = applyActiveCustomThemeToWorkingCopy(
+            state.themeColorCustomizations,
+            state.customThemes,
+            themeId,
+          )
+
+          return {
+            accentTone: 'custom',
+            activeCustomThemeId: themeId,
+            themeColorCustomizations,
+            useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
+          }
+        }),
+      createCustomTheme: (name, sourceAccentTone = 'custom') => {
+        const themeId = createCustomThemeId()
+
+        set((state) => {
+          const nextName = name?.trim() || buildCustomThemeName(state.customThemes)
+          const sourceColors =
+            sourceAccentTone === 'custom'
+              ? state.themeColorCustomizations.custom
+              : state.themeColorCustomizations[sourceAccentTone]
+          const nextTheme = createCustomThemeDefinition(themeId, nextName, sourceColors)
+          const customThemes = [...state.customThemes, nextTheme]
+          const themeColorCustomizations = {
+            ...state.themeColorCustomizations,
+            custom: cloneWorkbenchThemeColors(nextTheme.colors),
+          }
+
+          return {
+            accentTone: 'custom',
+            customThemes,
+            activeCustomThemeId: themeId,
+            themeColorCustomizations,
+            useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
+          }
+        })
+
+        return themeId
+      },
+      renameCustomTheme: (themeId, name) =>
+        set((state) => ({
+          customThemes: state.customThemes.map((theme) =>
+            theme.id === themeId
+              ? {
+                  ...theme,
+                  name: name.trim() || theme.name,
+                }
+              : theme,
+          ),
+        })),
+      deleteCustomTheme: (themeId) =>
+        set((state) => {
+          const remainingThemes = state.customThemes.filter((theme) => theme.id !== themeId)
+
+          if (remainingThemes.length === 0) {
+            const fallbackTheme = createCustomThemeDefinition(createCustomThemeId(), 'Custom Theme 1')
+            const fallbackCustomizations = {
+              ...state.themeColorCustomizations,
+              custom: cloneWorkbenchThemeColors(fallbackTheme.colors),
+            }
+
+            return {
+              accentTone: state.accentTone === 'custom' ? 'blue' : state.accentTone,
+              customThemes: [fallbackTheme],
+              activeCustomThemeId: fallbackTheme.id,
+              themeColorCustomizations: fallbackCustomizations,
+              useCustomColors: hasThemeColorCustomizationOverrides(fallbackCustomizations),
+            }
+          }
+
+          const nextActiveCustomThemeId =
+            state.activeCustomThemeId === themeId ? remainingThemes[0].id : state.activeCustomThemeId
+          const themeColorCustomizations = applyActiveCustomThemeToWorkingCopy(
+            state.themeColorCustomizations,
+            remainingThemes,
+            nextActiveCustomThemeId,
+          )
+
+          return {
+            customThemes: remainingThemes,
+            activeCustomThemeId: nextActiveCustomThemeId,
+            themeColorCustomizations,
+            useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
+          }
+        }),
+      resetThemePaletteCustomization: (accentTone, mode) =>
+        set((state) => {
+          let themeColorCustomizations = resetThemeColorCustomization(
+            state.themeColorCustomizations,
+            accentTone,
+            mode,
+          )
+          const customThemes =
+            accentTone === 'custom'
+              ? state.customThemes.map((theme) =>
+                  theme.id === state.activeCustomThemeId
+                    ? {
+                        ...theme,
+                        colors: mode
+                          ? {
+                              ...theme.colors,
+                              [mode]: { ...themeColorCustomizations.custom[mode] },
+                            }
+                          : cloneWorkbenchThemeColors(themeColorCustomizations.custom),
+                      }
+                    : theme,
+                )
+              : state.customThemes
+
+          if (accentTone === 'custom') {
+            themeColorCustomizations = applyActiveCustomThemeToWorkingCopy(
+              themeColorCustomizations,
+              customThemes,
+              state.activeCustomThemeId,
+            )
+          }
+
+          return {
+            themeColorCustomizations,
+            customThemes,
+            useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
+          }
+        }),
+      copyThemePaletteCustomization: (sourceAccentTone, targetAccentTone) =>
+        set((state) => {
+          let themeColorCustomizations = copyThemeColorCustomizationPalette(
+            state.themeColorCustomizations,
+            sourceAccentTone,
+            targetAccentTone,
+          )
+          const customThemes =
+            targetAccentTone === 'custom'
+              ? state.customThemes.map((theme) =>
+                  theme.id === state.activeCustomThemeId
+                    ? {
+                        ...theme,
+                        colors: cloneWorkbenchThemeColors(themeColorCustomizations.custom),
+                      }
+                    : theme,
+                )
+              : state.customThemes
+
+          if (targetAccentTone === 'custom') {
+            themeColorCustomizations = applyActiveCustomThemeToWorkingCopy(
+              themeColorCustomizations,
+              customThemes,
+              state.activeCustomThemeId,
+            )
+          }
+
+          return {
+            themeColorCustomizations,
+            customThemes,
+            useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
+          }
+        }),
       setUiFont: (uiFont) => set({ uiFont }),
       setCodeFont: (codeFont) => set({ codeFont }),
       setUiFontSize: (uiFontSize) => set({ uiFontSize }),
@@ -143,9 +566,20 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       setContrast: (contrast) => set({ contrast }),
       setUsePointerCursor: (usePointerCursor) => set({ usePointerCursor }),
       setUseCustomColors: (useCustomColors) => set({ useCustomColors }),
-    }),
+      }
+    },
     {
       name: 'codex-server-settings-local-store',
+      version: 3,
+      migrate: (persistedState) => {
+        return normalizePersistedSettingsState(persistedState as LegacyPersistedSettingsState)
+      },
+      merge: (persistedState, currentState) => {
+        return {
+          ...currentState,
+          ...normalizePersistedSettingsState(persistedState as LegacyPersistedSettingsState),
+        }
+      },
       storage: createJSONStorage(() => window.localStorage),
     },
   ),

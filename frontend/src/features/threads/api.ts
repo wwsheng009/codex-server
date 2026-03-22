@@ -21,8 +21,21 @@ export function listLoadedThreadIds(workspaceId: string) {
   )
 }
 
-export function getThread(workspaceId: string, threadId: string) {
-  return apiRequest<ThreadDetail>(`/api/workspaces/${workspaceId}/threads/${threadId}`)
+export function getThread(
+  workspaceId: string,
+  threadId: string,
+  input?: { beforeTurnId?: string; turnLimit?: number },
+) {
+  const query = new URLSearchParams()
+  if (input?.beforeTurnId) {
+    query.set('beforeTurnId', input.beforeTurnId)
+  }
+  if (input?.turnLimit && input.turnLimit > 0) {
+    query.set('turnLimit', String(input.turnLimit))
+  }
+
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return apiRequest<ThreadDetail>(`/api/workspaces/${workspaceId}/threads/${threadId}${suffix}`)
 }
 
 export function createThread(

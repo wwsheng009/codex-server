@@ -12,7 +12,7 @@ export const appearanceThemeOptions = [
   },
 ] as const
 
-export const colorThemeOptions = [
+export const builtinColorThemeOptions = [
   {
     value: 'cyan',
     swatches: ['#0891B2', '#22D3EE', '#ECFEFF', '#083344'],
@@ -40,6 +40,14 @@ export const colorThemeOptions = [
   {
     value: 'solarized',
     swatches: ['#2aa198', '#268bd2', '#fdf6e3', '#002b36'],
+  },
+] as const
+
+export const colorThemeOptions = [
+  ...builtinColorThemeOptions,
+  {
+    value: 'custom',
+    swatches: ['#7C6A58', '#D3B79A', '#FAF6F1', '#18120F'],
   },
 ] as const
 
@@ -80,11 +88,105 @@ export const userMessageEmphasisOptions = [
 ] as const
 
 export type AppearanceTheme = (typeof appearanceThemeOptions)[number]['value']
+export type BuiltinAccentTone = (typeof builtinColorThemeOptions)[number]['value']
 export type AccentTone = (typeof colorThemeOptions)[number]['value']
 export type ThreadSpacing = (typeof threadSpacingOptions)[number]['value']
 export type MessageSurface = (typeof messageSurfaceOptions)[number]['value']
 export type UserMessageEmphasis = (typeof userMessageEmphasisOptions)[number]['value']
 export type ResolvedAppearanceTheme = 'light' | 'dark'
+export type WorkbenchThemeColorField = 'accent' | 'background' | 'foreground'
+export type WorkbenchThemeColors = Record<WorkbenchThemeColorField, string>
+export type ThemeColorCustomizations = Record<
+  AccentTone,
+  Record<ResolvedAppearanceTheme, WorkbenchThemeColors>
+>
+export type CustomThemeDefinition = {
+  id: string
+  name: string
+  colors: Record<ResolvedAppearanceTheme, WorkbenchThemeColors>
+}
+
+export const appearanceColorDefaults = {
+  cyan: {
+    light: { accent: '#0891B2', background: '#F0FDFA', foreground: '#303744' },
+    dark: { accent: '#22D3EE', background: '#0E4455', foreground: '#D8E2EE' },
+  },
+  blue: {
+    light: { accent: '#5271FF', background: '#FCFBFA', foreground: '#303744' },
+    dark: { accent: '#6C87FF', background: '#121A24', foreground: '#D8E2EE' },
+  },
+  slate: {
+    light: { accent: '#5A7189', background: '#F8FBFD', foreground: '#303744' },
+    dark: { accent: '#84A3C0', background: '#121A23', foreground: '#D8E2EE' },
+  },
+  amber: {
+    light: { accent: '#C77D2A', background: '#FFFAF2', foreground: '#303744' },
+    dark: { accent: '#F0A958', background: '#1B1510', foreground: '#D8E2EE' },
+  },
+  mint: {
+    light: { accent: '#1F9D7A', background: '#F7FCFA', foreground: '#303744' },
+    dark: { accent: '#4EC7A0', background: '#0D1B17', foreground: '#D8E2EE' },
+  },
+  graphite: {
+    light: { accent: '#1F9D68', background: '#F7FAFC', foreground: '#303744' },
+    dark: { accent: '#2FBF71', background: '#11161D', foreground: '#D0D7DE' },
+  },
+  solarized: {
+    light: { accent: '#2AA198', background: '#FDF6E3', foreground: '#586E75' },
+    dark: { accent: '#2AA198', background: '#002B36', foreground: '#93A1A1' },
+  },
+  custom: {
+    light: { accent: '#7C6A58', background: '#FAF6F1', foreground: '#362E29' },
+    dark: { accent: '#D3B79A', background: '#18120F', foreground: '#F1E7DD' },
+  },
+} as const satisfies ThemeColorCustomizations
+
+type PartialThemeColorCustomizations = Partial<
+  Record<AccentTone, Partial<Record<ResolvedAppearanceTheme, Partial<WorkbenchThemeColors>>>>
+>
+
+export function isAppearanceTheme(value: unknown): value is AppearanceTheme {
+  return appearanceThemeOptions.some((option) => option.value === value)
+}
+
+export function normalizeAppearanceTheme(value: unknown): AppearanceTheme {
+  return isAppearanceTheme(value) ? value : 'system'
+}
+
+export function isAccentTone(value: unknown): value is AccentTone {
+  return colorThemeOptions.some((option) => option.value === value)
+}
+
+export function normalizeAccentTone(value: unknown): AccentTone {
+  return isAccentTone(value) ? value : 'blue'
+}
+
+export function getThemeColorCustomizationPalette(
+  customizations: ThemeColorCustomizations | PartialThemeColorCustomizations,
+  theme: unknown,
+): Record<ResolvedAppearanceTheme, WorkbenchThemeColors> {
+  const normalizedTheme = normalizeAccentTone(theme)
+  const palette = customizations[normalizedTheme]
+
+  return {
+    light: {
+      ...appearanceColorDefaults[normalizedTheme].light,
+      ...(palette?.light ?? {}),
+    },
+    dark: {
+      ...appearanceColorDefaults[normalizedTheme].dark,
+      ...(palette?.dark ?? {}),
+    },
+  }
+}
+
+export function getThemeColorCustomization(
+  customizations: ThemeColorCustomizations | PartialThemeColorCustomizations,
+  theme: unknown,
+  resolvedTheme: ResolvedAppearanceTheme,
+): WorkbenchThemeColors {
+  return getThemeColorCustomizationPalette(customizations, theme)[resolvedTheme]
+}
 
 export function resolveAppearanceTheme(
   theme: AppearanceTheme,
@@ -157,6 +259,8 @@ export function getColorThemeLabel(theme: AccentTone): string {
       return i18n._({ id: 'Graphite', message: 'Graphite' })
     case 'solarized':
       return i18n._({ id: 'Solarized', message: 'Solarized' })
+    case 'custom':
+      return i18n._({ id: 'Custom', message: 'Custom' })
     default:
       return theme
   }
@@ -183,6 +287,11 @@ export function getColorThemeDescription(theme: AccentTone): string {
       return i18n._({
         id: 'Classic solarized workbench.',
         message: 'Classic solarized workbench.',
+      })
+    case 'custom':
+      return i18n._({
+        id: 'Your editable palette.',
+        message: 'Your editable palette.',
       })
     default:
       return ''
@@ -299,4 +408,182 @@ export function getAppearancePaletteLabel(
   resolvedTheme: ResolvedAppearanceTheme,
 ): string {
   return `${getColorThemeLabel(theme)} ${resolvedTheme === 'dark' ? i18n._({ id: 'Dark', message: 'Dark' }) : i18n._({ id: 'Light', message: 'Light' })}`
+}
+
+export function getAppearanceColorDefaults(
+  theme: AccentTone,
+  resolvedTheme: ResolvedAppearanceTheme,
+): WorkbenchThemeColors {
+  return appearanceColorDefaults[normalizeAccentTone(theme)][resolvedTheme]
+}
+
+export function cloneWorkbenchThemeColors(
+  colors: Record<ResolvedAppearanceTheme, WorkbenchThemeColors>,
+): Record<ResolvedAppearanceTheme, WorkbenchThemeColors> {
+  return {
+    light: { ...colors.light },
+    dark: { ...colors.dark },
+  }
+}
+
+export function isBuiltInColorTheme(theme: AccentTone): theme is BuiltinAccentTone {
+  return theme !== 'custom'
+}
+
+export function areWorkbenchThemeColorsEqual(
+  left: WorkbenchThemeColors,
+  right: WorkbenchThemeColors,
+) {
+  return (
+    left.accent === right.accent &&
+    left.background === right.background &&
+    left.foreground === right.foreground
+  )
+}
+
+export function createThemeColorCustomizations(
+  seed?: PartialThemeColorCustomizations,
+): ThemeColorCustomizations {
+  return colorThemeOptions.reduce<ThemeColorCustomizations>((customizations, option) => {
+    customizations[option.value] = {
+      light: {
+        ...appearanceColorDefaults[option.value].light,
+        ...(seed?.[option.value]?.light ?? {}),
+      },
+      dark: {
+        ...appearanceColorDefaults[option.value].dark,
+        ...(seed?.[option.value]?.dark ?? {}),
+      },
+    }
+
+    return customizations
+  }, {} as ThemeColorCustomizations)
+}
+
+export function createLegacyThemeColorCustomizations(colors: Record<ResolvedAppearanceTheme, WorkbenchThemeColors>) {
+  return colorThemeOptions.reduce<ThemeColorCustomizations>((customizations, option) => {
+    customizations[option.value] = {
+      light: { ...colors.light },
+      dark: { ...colors.dark },
+    }
+
+    return customizations
+  }, {} as ThemeColorCustomizations)
+}
+
+export function normalizeThemeColorCustomizations(
+  value: unknown,
+): ThemeColorCustomizations {
+  if (!value || typeof value !== 'object') {
+    return createThemeColorCustomizations()
+  }
+
+  return createThemeColorCustomizations(value as PartialThemeColorCustomizations)
+}
+
+export function getColorThemeSwatches(
+  theme: AccentTone,
+  customizations: ThemeColorCustomizations,
+) {
+  return getWorkbenchThemeSwatches(getThemeColorCustomizationPalette(customizations, theme))
+}
+
+export function getWorkbenchThemeSwatches(
+  colors: Record<ResolvedAppearanceTheme, WorkbenchThemeColors>,
+) {
+  return [
+    colors.light.accent,
+    colors.dark.accent,
+    colors.light.background,
+    colors.dark.background,
+  ]
+}
+
+export function hasThemeColorCustomizationOverrides(
+  customizations: ThemeColorCustomizations,
+) {
+  return colorThemeOptions.some((option) => {
+    const theme = option.value
+    const themeColors = getThemeColorCustomizationPalette(customizations, theme)
+
+    return (
+      !areWorkbenchThemeColorsEqual(themeColors.light, appearanceColorDefaults[theme].light) ||
+      !areWorkbenchThemeColorsEqual(themeColors.dark, appearanceColorDefaults[theme].dark)
+    )
+  })
+}
+
+export function withThemeColorCustomization(
+  customizations: ThemeColorCustomizations,
+  theme: AccentTone,
+  mode: ResolvedAppearanceTheme,
+  field: WorkbenchThemeColorField,
+  value: string,
+): ThemeColorCustomizations {
+  const themeColors = getThemeColorCustomizationPalette(customizations, theme)
+
+  return {
+    ...customizations,
+    [theme]: {
+      ...themeColors,
+      [mode]: {
+        ...themeColors[mode],
+        [field]: value,
+      },
+    },
+  }
+}
+
+export function resetThemeColorCustomization(
+  customizations: ThemeColorCustomizations,
+  theme: AccentTone,
+  mode?: ResolvedAppearanceTheme,
+): ThemeColorCustomizations {
+  const themeColors = getThemeColorCustomizationPalette(customizations, theme)
+
+  if (mode) {
+    return {
+      ...customizations,
+      [theme]: {
+        ...themeColors,
+        [mode]: { ...appearanceColorDefaults[theme][mode] },
+      },
+    }
+  }
+
+  return {
+    ...customizations,
+    [theme]: {
+      light: { ...appearanceColorDefaults[theme].light },
+      dark: { ...appearanceColorDefaults[theme].dark },
+    },
+  }
+}
+
+export function copyThemeColorCustomizationPalette(
+  customizations: ThemeColorCustomizations,
+  sourceTheme: AccentTone,
+  targetTheme: AccentTone,
+): ThemeColorCustomizations {
+  const sourceThemeColors = getThemeColorCustomizationPalette(customizations, sourceTheme)
+
+  return {
+    ...customizations,
+    [targetTheme]: {
+      light: { ...sourceThemeColors.light },
+      dark: { ...sourceThemeColors.dark },
+    },
+  }
+}
+
+export function createCustomThemeDefinition(
+  id: string,
+  name: string,
+  colors?: Record<ResolvedAppearanceTheme, WorkbenchThemeColors>,
+): CustomThemeDefinition {
+  return {
+    id,
+    name,
+    colors: cloneWorkbenchThemeColors(colors ?? appearanceColorDefaults.custom),
+  }
 }
