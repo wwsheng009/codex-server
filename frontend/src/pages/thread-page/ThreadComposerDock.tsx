@@ -1,6 +1,9 @@
+import { useLayoutEffect } from 'react'
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import { Link } from 'react-router-dom'
 
+import { formatLocaleNumber } from '../../i18n/format'
+import { i18n } from '../../i18n/runtime'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { SelectControl, type SelectOption } from '../../components/ui/SelectControl'
 import { SendIcon, StopIcon } from '../../components/ui/RailControls'
@@ -202,6 +205,61 @@ export function ThreadComposerDock({
 }: ThreadComposerDockProps) {
   const isAutocompleteOpen =
     isCommandAutocompleteOpen || isMentionAutocompleteOpen || isSkillAutocompleteOpen
+  const composerMinRows = isMobileViewport ? 2 : 3
+  const composerMaxRows = isMobileViewport ? 6 : 8
+  const modeLabel = i18n._({ id: 'Mode', message: 'Mode' })
+  const permissionLabel = i18n._({ id: 'Permission', message: 'Permission' })
+  const modelLabel = i18n._({ id: 'Model', message: 'Model' })
+  const reasoningLabel = i18n._({ id: 'Reasoning', message: 'Reasoning' })
+
+  useLayoutEffect(() => {
+    const textarea = composerInputRef.current
+    if (!textarea) {
+      return
+    }
+
+    const computedStyle = window.getComputedStyle(textarea)
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 24
+    const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0
+    const paddingBottom = Number.parseFloat(computedStyle.paddingBottom) || 0
+    const borderTop = Number.parseFloat(computedStyle.borderTopWidth) || 0
+    const borderBottom = Number.parseFloat(computedStyle.borderBottomWidth) || 0
+    const minHeight = lineHeight * composerMinRows + paddingTop + paddingBottom + borderTop + borderBottom
+    const maxHeight = lineHeight * composerMaxRows + paddingTop + paddingBottom + borderTop + borderBottom
+
+    textarea.style.height = 'auto'
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight)
+    textarea.style.height = `${nextHeight}px`
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  }, [composerInputRef, composerMaxRows, composerMinRows, message])
+
+  function handleComposerInputKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    onComposerKeyDown(event)
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.key !== 'Enter') {
+      return
+    }
+
+    if (event.ctrlKey || event.metaKey) {
+      return
+    }
+
+    event.preventDefault()
+
+    if (isInterruptMode) {
+      if (!selectedThreadId || interruptPending) {
+        return
+      }
+
+      onPrimaryComposerAction()
+      return
+    }
+
+    if (!selectedThread || isComposerLocked || !message.trim()) {
+      return
+    }
+
+    composerDockRef.current?.requestSubmit()
+  }
 
   return (
     <form
@@ -233,7 +291,10 @@ export function ThreadComposerDock({
           noticeKey={composerStatusMessage ?? 'composer-status'}
           onRetry={onRetryComposerStatus}
           retryLabel={composerStatusRetryLabel}
-          title="Send Failed"
+          title={i18n._({
+            id: 'Send failed',
+            message: 'Send failed',
+          })}
           tone="error"
         >
           {composerStatusMessage}
@@ -247,23 +308,38 @@ export function ThreadComposerDock({
                 {activeComposerPanel === 'mcp'
                   ? 'MCP'
                   : activeComposerPanel === 'status'
-                    ? '状态'
+                    ? i18n._({ id: 'Status', message: 'Status' })
                     : activeComposerPanel === 'personalization'
-                      ? '个性'
-                      : '工作树'}
+                      ? i18n._({ id: 'Personalization', message: 'Personalization' })
+                      : i18n._({ id: 'Worktree', message: 'Worktree' })}
               </strong>
               <span>
                 {activeComposerPanel === 'mcp'
-                  ? '查看当前工作区的 MCP 服务状态。'
+                  ? i18n._({
+                      id: 'Inspect MCP service status for the current workspace.',
+                      message: 'Inspect MCP service status for the current workspace.',
+                    })
                   : activeComposerPanel === 'status'
-                    ? '查看线程、上下文使用情况和账户额度。'
+                    ? i18n._({
+                        id: 'Inspect thread, context usage, and account quota status.',
+                        message: 'Inspect thread, context usage, and account quota status.',
+                      })
                     : activeComposerPanel === 'personalization'
-                      ? '查看本地响应偏好和自定义指令。'
-                      : '查看当前工作树策略和设置入口。'}
+                      ? i18n._({
+                          id: 'Inspect local response preferences and custom instructions.',
+                          message: 'Inspect local response preferences and custom instructions.',
+                        })
+                      : i18n._({
+                          id: 'Inspect current worktree policy and settings entry points.',
+                          message: 'Inspect current worktree policy and settings entry points.',
+                        })}
               </span>
             </div>
             <button
-              aria-label="关闭辅助面板"
+              aria-label={i18n._({
+                id: 'Close assist panel',
+                message: 'Close assist panel',
+              })}
               className="composer-assist-card__close"
               onClick={onCloseComposerPanel}
               type="button"
@@ -275,7 +351,12 @@ export function ThreadComposerDock({
             {activeComposerPanel === 'mcp' ? (
               <>
                 {mcpServerStatusLoading ? (
-                  <div className="composer-assist-card__empty">正在读取 MCP 服务器状态…</div>
+                  <div className="composer-assist-card__empty">
+                    {i18n._({
+                      id: 'Loading MCP server status…',
+                      message: 'Loading MCP server status…',
+                    })}
+                  </div>
                 ) : mcpServerStates.length ? (
                   <div className="composer-assist-card__list">
                     {mcpServerStates.slice(0, 4).map((server) => (
@@ -292,11 +373,19 @@ export function ThreadComposerDock({
                     ))}
                   </div>
                 ) : (
-                  <div className="composer-assist-card__empty">未配置 MCP 服务器</div>
+                  <div className="composer-assist-card__empty">
+                    {i18n._({
+                      id: 'No MCP servers configured',
+                      message: 'No MCP servers configured',
+                    })}
+                  </div>
                 )}
                 <div className="composer-assist-card__footer">
                   <Link className="composer-assist-card__link" to="/settings/mcp">
-                    打开 MCP 设置
+                    {i18n._({
+                      id: 'Open MCP settings',
+                      message: 'Open MCP settings',
+                    })}
                   </Link>
                 </div>
               </>
@@ -305,28 +394,34 @@ export function ThreadComposerDock({
               <>
                 <div className="composer-assist-card__facts">
                   <div className="composer-assist-card__fact">
-                    <span>线程</span>
-                    <strong>{selectedThreadId ?? '未选择线程'}</strong>
-                  </div>
-                  <div className="composer-assist-card__fact">
-                    <span>运行时</span>
-                    <strong>{runtimeStatus || 'unknown'}</strong>
-                  </div>
-                  <div className="composer-assist-card__fact">
-                    <span>上下文</span>
+                    <span>{i18n._({ id: 'Thread', message: 'Thread' })}</span>
                     <strong>
-                      {percent === null
-                        ? '不可用'
-                        : `${percent}% · ${totalTokens.toLocaleString()} / ${contextWindow.toLocaleString()}`}
+                      {selectedThreadId ??
+                        i18n._({
+                          id: 'No thread selected',
+                          message: 'No thread selected',
+                        })}
                     </strong>
                   </div>
                   <div className="composer-assist-card__fact">
-                    <span>额度</span>
+                    <span>{i18n._({ id: 'Runtime', message: 'Runtime' })}</span>
+                    <strong>{runtimeStatus || 'unknown'}</strong>
+                  </div>
+                  <div className="composer-assist-card__fact">
+                    <span>{i18n._({ id: 'Context', message: 'Context' })}</span>
+                    <strong>
+                      {percent === null
+                        ? i18n._({ id: 'Unavailable', message: 'Unavailable' })
+                        : `${percent}% · ${formatLocaleNumber(totalTokens)} / ${formatLocaleNumber(contextWindow)}`}
+                    </strong>
+                  </div>
+                  <div className="composer-assist-card__fact">
+                    <span>{i18n._({ id: 'Quota', message: 'Quota' })}</span>
                     <strong>
                       {rateLimitsLoading
-                        ? '读取中…'
+                        ? i18n._({ id: 'Loading…', message: 'Loading…' })
                         : rateLimitsError
-                          ? '不可用'
+                          ? i18n._({ id: 'Unavailable', message: 'Unavailable' })
                           : describeRateLimits(rateLimits)}
                     </strong>
                   </div>
@@ -334,11 +429,22 @@ export function ThreadComposerDock({
                 <div className="composer-assist-card__footer">
                   <span className="composer-assist-card__hint">
                     {rateLimits?.[0]?.resetsAt
-                      ? `额度重置 ${formatShortTime(rateLimits[0].resetsAt)}`
-                      : accountEmail ?? '未连接账户'}
+                      ? i18n._({
+                          id: 'Quota resets {time}',
+                          message: 'Quota resets {time}',
+                          values: { time: formatShortTime(rateLimits[0].resetsAt) },
+                        })
+                      : accountEmail ??
+                        i18n._({
+                          id: 'No account connected',
+                          message: 'No account connected',
+                        })}
                   </span>
                   <Link className="composer-assist-card__link" to="/settings/general">
-                    打开常规设置
+                    {i18n._({
+                      id: 'Open general settings',
+                      message: 'Open general settings',
+                    })}
                   </Link>
                 </div>
               </>
@@ -347,21 +453,24 @@ export function ThreadComposerDock({
               <>
                 <div className="composer-assist-card__facts">
                   <div className="composer-assist-card__fact">
-                    <span>响应风格</span>
+                    <span>{i18n._({ id: 'Response tone', message: 'Response tone' })}</span>
                     <strong>{responseTone}</strong>
                   </div>
                   <div className="composer-assist-card__fact">
-                    <span>自定义指令</span>
+                    <span>{i18n._({ id: 'Custom instructions', message: 'Custom instructions' })}</span>
                     <strong>
                       {customInstructions.trim()
                         ? truncateInlineText(customInstructions, 100)
-                        : '未设置'}
+                        : i18n._({ id: 'Not set', message: 'Not set' })}
                     </strong>
                   </div>
                 </div>
                 <div className="composer-assist-card__footer">
                   <Link className="composer-assist-card__link" to="/settings/personalization">
-                    打开个性化设置
+                    {i18n._({
+                      id: 'Open personalization settings',
+                      message: 'Open personalization settings',
+                    })}
                   </Link>
                 </div>
               </>
@@ -370,21 +479,34 @@ export function ThreadComposerDock({
               <>
                 <div className="composer-assist-card__facts">
                   <div className="composer-assist-card__fact">
-                    <span>最大工作树</span>
+                    <span>{i18n._({ id: 'Max worktrees', message: 'Max worktrees' })}</span>
                     <strong>{maxWorktrees}</strong>
                   </div>
                   <div className="composer-assist-card__fact">
-                    <span>自动清理</span>
-                    <strong>{autoPruneDays} 天</strong>
+                    <span>{i18n._({ id: 'Auto prune', message: 'Auto prune' })}</span>
+                    <strong>
+                      {i18n._({
+                        id: '{days} days',
+                        message: '{days} days',
+                        values: { days: autoPruneDays },
+                      })}
+                    </strong>
                   </div>
                   <div className="composer-assist-card__fact">
-                    <span>复用分支</span>
-                    <strong>{reuseBranches ? '开启' : '关闭'}</strong>
+                    <span>{i18n._({ id: 'Reuse branches', message: 'Reuse branches' })}</span>
+                    <strong>
+                      {reuseBranches
+                        ? i18n._({ id: 'Enabled', message: 'Enabled' })
+                        : i18n._({ id: 'Disabled', message: 'Disabled' })}
+                    </strong>
                   </div>
                 </div>
                 <div className="composer-assist-card__footer">
                   <Link className="composer-assist-card__link" to="/settings/worktrees">
-                    打开工作树设置
+                    {i18n._({
+                      id: 'Open worktree settings',
+                      message: 'Open worktree settings',
+                    })}
                   </Link>
                 </div>
               </>
@@ -395,11 +517,26 @@ export function ThreadComposerDock({
       {isAutocompleteOpen ? (
         <section className="composer-autocomplete" role="listbox">
           {showMentionSearchHint ? (
-            <div className="composer-autocomplete__hint">输入相关内容以搜索文件</div>
+            <div className="composer-autocomplete__hint">
+              {i18n._({
+                id: 'Type to search files',
+                message: 'Type to search files',
+              })}
+            </div>
           ) : showSkillSearchLoading ? (
-            <div className="composer-autocomplete__hint">正在加载技能…</div>
+            <div className="composer-autocomplete__hint">
+              {i18n._({
+                id: 'Loading skills…',
+                message: 'Loading skills…',
+              })}
+            </div>
           ) : fileSearchIsFetching && isMentionAutocompleteOpen && !composerAutocompleteSectionGroups.length ? (
-            <div className="composer-autocomplete__hint">正在搜索文件…</div>
+            <div className="composer-autocomplete__hint">
+              {i18n._({
+                id: 'Searching files…',
+                message: 'Searching files…',
+              })}
+            </div>
           ) : composerAutocompleteSectionGroups.length ? (
             composerAutocompleteSectionGroups.map((section) => (
               <div className="composer-autocomplete__section" key={section.id}>
@@ -440,10 +577,19 @@ export function ThreadComposerDock({
           ) : (
             <div className="composer-autocomplete__hint">
               {isCommandAutocompleteOpen
-                ? '未找到匹配命令。'
+                ? i18n._({
+                    id: 'No matching commands found.',
+                    message: 'No matching commands found.',
+                  })
                 : isSkillAutocompleteOpen
-                  ? '未找到匹配技能。'
-                  : '未找到匹配文件。'}
+                  ? i18n._({
+                      id: 'No matching skills found.',
+                      message: 'No matching skills found.',
+                    })
+                  : i18n._({
+                      id: 'No matching files found.',
+                      message: 'No matching files found.',
+                    })}
             </div>
           )}
         </section>
@@ -460,7 +606,17 @@ export function ThreadComposerDock({
             type="button"
           >
             <span aria-hidden="true" className="workbench-log__jump-indicator" />
-            <span>{hasUnreadThreadUpdates ? 'New messages below' : 'Back to latest'}</span>
+            <span>
+              {hasUnreadThreadUpdates
+                ? i18n._({
+                    id: 'New messages below',
+                    message: 'New messages below',
+                  })
+                : i18n._({
+                    id: 'Back to latest',
+                    message: 'Back to latest',
+                  })}
+            </span>
           </button>
         </div>
       ) : null}
@@ -482,19 +638,28 @@ export function ThreadComposerDock({
                 event.target.selectionStart ?? event.target.value.length,
               )
             }
-            onKeyDown={onComposerKeyDown}
+            onKeyDown={handleComposerInputKeyDown}
             onSelect={(event) =>
               onComposerSelect(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
             }
             placeholder={
               isApprovalDialogOpen
-                ? 'Resolve the approval request above to continue this thread.'
+                ? i18n._({
+                    id: 'Resolve the approval request above to continue this thread.',
+                    message: 'Resolve the approval request above to continue this thread.',
+                  })
                 : selectedThread
-                  ? '向 Codex 任意提问，@ 添加文件，$ 选择技能，/ 调出命令'
-                  : 'Select a thread to activate the workspace composer.'
+                  ? i18n._({
+                      id: 'Ask Codex anything, use @ for files, $ for skills, and / for commands',
+                      message: 'Ask Codex anything, use @ for files, $ for skills, and / for commands',
+                    })
+                  : i18n._({
+                      id: 'Select a thread to activate the workspace composer.',
+                      message: 'Select a thread to activate the workspace composer.',
+                    })
             }
             ref={composerInputRef}
-            rows={isMobileViewport ? 2 : 3}
+            rows={composerMinRows}
             value={message}
           />
           {composerActivityTitle && composerActivityDetail ? (
@@ -518,44 +683,44 @@ export function ThreadComposerDock({
             <div className="composer-dock__footer composer-dock__footer--mobile">
               <div className="composer-dock__mobile-controls">
                 <SelectControl
-                  ariaLabel="Collaboration mode"
+                  ariaLabel={i18n._({ id: 'Collaboration mode', message: 'Collaboration mode' })}
                   className="composer-dock__mobile-select composer-dock__mobile-select--mode"
                   disabled={!workspaceId || isComposerLocked}
                   menuClassName="composer-dock__mobile-select-menu"
-                  menuLabel="协作模式"
+                  menuLabel={i18n._({ id: 'Collaboration mode', message: 'Collaboration mode' })}
                   onChange={onChangeCollaborationMode}
                   optionClassName="composer-dock__mobile-select-option"
                   options={mobileCollaborationModeOptions}
                   value={composerPreferences.collaborationMode}
                 />
                 <SelectControl
-                  ariaLabel="Permission preset"
+                  ariaLabel={i18n._({ id: 'Permission preset', message: 'Permission preset' })}
                   className="composer-dock__mobile-select"
                   disabled={!workspaceId || isComposerLocked}
                   menuClassName="composer-dock__mobile-select-menu"
-                  menuLabel="权限范围"
+                  menuLabel={i18n._({ id: 'Permission range', message: 'Permission range' })}
                   onChange={onChangePermissionPreset}
                   optionClassName="composer-dock__mobile-select-option"
                   options={mobilePermissionOptions}
                   value={composerPreferences.permissionPreset}
                 />
                 <SelectControl
-                  ariaLabel="Model"
+                  ariaLabel={modelLabel}
                   className="composer-dock__mobile-select composer-dock__mobile-select--model"
                   disabled={!workspaceId || isComposerLocked || modelsLoading}
                   menuClassName="composer-dock__mobile-select-menu"
-                  menuLabel="选择模型"
+                  menuLabel={i18n._({ id: 'Select model', message: 'Select model' })}
                   onChange={onChangeModel}
                   optionClassName="composer-dock__mobile-select-option"
                   options={mobileModelOptions}
                   value={composerPreferences.model}
                 />
                 <SelectControl
-                  ariaLabel="Reasoning effort"
+                  ariaLabel={i18n._({ id: 'Reasoning effort', message: 'Reasoning effort' })}
                   className="composer-dock__mobile-select composer-dock__mobile-select--reasoning"
                   disabled={!workspaceId || isComposerLocked}
                   menuClassName="composer-dock__mobile-select-menu"
-                  menuLabel="推理强度"
+                  menuLabel={i18n._({ id: 'Reasoning effort', message: 'Reasoning effort' })}
                   onChange={onChangeReasoningEffort}
                   optionClassName="composer-dock__mobile-select-option"
                   options={mobileReasoningOptions}
@@ -619,11 +784,11 @@ export function ThreadComposerDock({
               <div className="composer-dock__footer-main">
                 <div className="composer-dock__control-strip">
                   <div
-                    aria-label="协作模式"
+                    aria-label={i18n._({ id: 'Collaboration mode', message: 'Collaboration mode' })}
                     className="composer-control-group composer-control-group--active"
                     role="group"
                   >
-                    <span className="composer-control-group__label">模式</span>
+                    <span className="composer-control-group__label">{modeLabel}</span>
                     <div className="segmented-control composer-control-group__segmented">
                       <button
                         aria-pressed={composerPreferences.collaborationMode === 'default'}
@@ -634,10 +799,10 @@ export function ThreadComposerDock({
                         }
                         disabled={!workspaceId || isComposerLocked}
                         onClick={() => onChangeCollaborationMode('default')}
-                        title="默认模式"
+                        title={i18n._({ id: 'Default mode', message: 'Default mode' })}
                         type="button"
                       >
-                        默认
+                        {i18n._({ id: 'Default', message: 'Default' })}
                       </button>
                       <button
                         aria-pressed={composerPreferences.collaborationMode === 'plan'}
@@ -654,15 +819,15 @@ export function ThreadComposerDock({
                           )
                         }
                         onClick={() => onChangeCollaborationMode('plan')}
-                        title="计划模式"
+                        title={i18n._({ id: 'Plan mode', message: 'Plan mode' })}
                         type="button"
                       >
-                        计划
+                        Plan
                       </button>
                     </div>
                   </div>
                   <div
-                    aria-label="权限"
+                    aria-label={i18n._({ id: 'Permission', message: 'Permission' })}
                     className={
                       composerPreferences.permissionPreset === 'full-access'
                         ? 'composer-control-group composer-control-group--active composer-control-group--danger-active'
@@ -670,7 +835,7 @@ export function ThreadComposerDock({
                     }
                     role="group"
                   >
-                    <span className="composer-control-group__label">权限</span>
+                    <span className="composer-control-group__label">{permissionLabel}</span>
                     <div className="segmented-control composer-control-group__segmented">
                       <button
                         aria-pressed={composerPreferences.permissionPreset === 'default'}
@@ -681,10 +846,10 @@ export function ThreadComposerDock({
                         }
                         disabled={!workspaceId || isComposerLocked}
                         onClick={() => onChangePermissionPreset('default')}
-                        title="默认权限"
+                        title={i18n._({ id: 'Default permission', message: 'Default permission' })}
                         type="button"
                       >
-                        默认
+                        {i18n._({ id: 'Default', message: 'Default' })}
                       </button>
                       <button
                         aria-pressed={composerPreferences.permissionPreset === 'full-access'}
@@ -695,10 +860,10 @@ export function ThreadComposerDock({
                         }
                         disabled={!workspaceId || isComposerLocked}
                         onClick={() => onChangePermissionPreset('full-access')}
-                        title="完全访问权限"
+                        title={i18n._({ id: 'Full access permission', message: 'Full access permission' })}
                         type="button"
                       >
-                        全权
+                        {i18n._({ id: 'Full', message: 'Full' })}
                       </button>
                     </div>
                   </div>
@@ -709,13 +874,13 @@ export function ThreadComposerDock({
                         : 'composer-control-select composer-control-select--model'
                     }
                   >
-                    <span className="composer-control-group__label">模型</span>
+                    <span className="composer-control-group__label">{modelLabel}</span>
                     <SelectControl
-                      ariaLabel="Model"
+                      ariaLabel={modelLabel}
                       className="composer-control-select__control"
                       disabled={!workspaceId || isComposerLocked || modelsLoading}
                       menuClassName="composer-control-select__menu"
-                      menuLabel="选择模型"
+                      menuLabel={i18n._({ id: 'Select model', message: 'Select model' })}
                       onChange={onChangeModel}
                       optionClassName="composer-control-select__option"
                       options={desktopModelOptions}
@@ -723,17 +888,17 @@ export function ThreadComposerDock({
                     />
                   </label>
                   <div
-                    aria-label="推理强度"
+                    aria-label={i18n._({ id: 'Reasoning effort', message: 'Reasoning effort' })}
                     className="composer-control-group composer-control-group--active"
                     role="group"
                   >
-                    <span className="composer-control-group__label">推理</span>
+                    <span className="composer-control-group__label">{reasoningLabel}</span>
                     <div className="segmented-control composer-control-group__segmented">
                       {[
-                        ['low', '低'],
-                        ['medium', '中'],
-                        ['high', '高'],
-                        ['xhigh', '超'],
+                        ['low', i18n._({ id: 'Low', message: 'Low' })],
+                        ['medium', i18n._({ id: 'Medium', message: 'Medium' })],
+                        ['high', i18n._({ id: 'High', message: 'High' })],
+                        ['xhigh', i18n._({ id: 'Max', message: 'Max' })],
                       ].map(([value, label]) => (
                         <button
                           aria-pressed={composerPreferences.reasoningEffort === value}
@@ -745,7 +910,11 @@ export function ThreadComposerDock({
                           disabled={!workspaceId || isComposerLocked}
                           key={value}
                           onClick={() => onChangeReasoningEffort(value)}
-                          title={`${label}推理强度`}
+                          title={i18n._({
+                            id: '{label} reasoning effort',
+                            message: '{label} reasoning effort',
+                            values: { label },
+                          })}
                           type="button"
                         >
                           {label}
@@ -757,7 +926,12 @@ export function ThreadComposerDock({
                 <div className="composer-dock__meta composer-dock__meta--surface">
                   {composerStatusInfo ? <ComposerStatusIndicator info={composerStatusInfo} /> : null}
                   {isWaitingForThreadData ? (
-                    <span className="composer-dock__hint">Waiting for backend turn data…</span>
+                    <span className="composer-dock__hint">
+                      {i18n._({
+                        id: 'Waiting for backend turn data…',
+                        message: 'Waiting for backend turn data…',
+                      })}
+                    </span>
                   ) : null}
                 </div>
               </div>

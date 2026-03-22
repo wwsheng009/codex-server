@@ -1,6 +1,7 @@
 package threads
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -174,7 +175,7 @@ func TestBuildThreadStartPayloadUsesDefaultPermissions(t *testing.T) {
 
 	payload := buildThreadStartPayload(`E:\projects\ai\codex-server`, CreateInput{
 		Name: "New Thread",
-	})
+	}, runtimeThreadDefaults{})
 
 	if payload["approvalPolicy"] != "on-request" {
 		t.Fatalf("expected default approval policy, got %#v", payload["approvalPolicy"])
@@ -191,7 +192,7 @@ func TestBuildThreadStartPayloadUsesFullAccessPreset(t *testing.T) {
 		Name:             "New Thread",
 		Model:            "gpt-5.4",
 		PermissionPreset: "full-access",
-	})
+	}, runtimeThreadDefaults{})
 
 	if payload["approvalPolicy"] != "never" {
 		t.Fatalf("expected full-access approval policy, got %#v", payload["approvalPolicy"])
@@ -201,6 +202,49 @@ func TestBuildThreadStartPayloadUsesFullAccessPreset(t *testing.T) {
 	}
 	if payload["model"] != "gpt-5.4" {
 		t.Fatalf("expected model override, got %#v", payload["model"])
+	}
+}
+
+func TestBuildThreadStartPayloadAppliesRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+
+	payload := buildThreadStartPayload(`E:\projects\ai\codex-server`, CreateInput{
+		Name: "New Thread",
+	}, runtimeThreadDefaults{
+		ApprovalPolicy: "never",
+		SandboxMode:    "read-only",
+	})
+
+	if payload["approvalPolicy"] != "never" {
+		t.Fatalf("expected runtime approval policy, got %#v", payload["approvalPolicy"])
+	}
+	if payload["sandbox"] != "read-only" {
+		t.Fatalf("expected runtime sandbox mode, got %#v", payload["sandbox"])
+	}
+}
+
+func TestBuildThreadStartPayloadSkipsUnsupportedThreadSandboxOverride(t *testing.T) {
+	t.Parallel()
+
+	payload := buildThreadStartPayload(`E:\projects\ai\codex-server`, CreateInput{
+		Name: "New Thread",
+	}, runtimeThreadDefaults{
+		ApprovalPolicy:     "on-request",
+		SandboxMode:        "",
+		HasSandboxOverride: true,
+	})
+
+	if _, ok := payload["sandbox"]; ok {
+		t.Fatalf("expected unsupported sandbox override to omit thread/start sandbox, got %#v", payload["sandbox"])
+	}
+}
+
+func TestShellCommandRejectsEmptyInput(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(store.NewMemoryStore(), runtime.NewManager("codex app-server --listen stdio://", nil))
+	if err := service.ShellCommand(context.Background(), "ws-1", "thread-1", "   "); err == nil {
+		t.Fatal("expected empty shell command to be rejected")
 	}
 }
 

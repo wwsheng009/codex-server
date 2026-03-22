@@ -19,22 +19,34 @@ type Service struct {
 }
 
 type ReadResult struct {
-	ConfiguredModelCatalogPath        string            `json:"configuredModelCatalogPath"`
-	ConfiguredDefaultShellType        string            `json:"configuredDefaultShellType"`
-	ConfiguredModelShellTypeOverrides map[string]string `json:"configuredModelShellTypeOverrides"`
-	DefaultModelCatalogPath           string            `json:"defaultModelCatalogPath"`
-	DefaultDefaultShellType           string            `json:"defaultDefaultShellType"`
-	DefaultModelShellTypeOverrides    map[string]string `json:"defaultModelShellTypeOverrides"`
-	EffectiveModelCatalogPath         string            `json:"effectiveModelCatalogPath"`
-	EffectiveDefaultShellType         string            `json:"effectiveDefaultShellType"`
-	EffectiveModelShellTypeOverrides  map[string]string `json:"effectiveModelShellTypeOverrides"`
-	EffectiveCommand                  string            `json:"effectiveCommand"`
+	ConfiguredModelCatalogPath            string            `json:"configuredModelCatalogPath"`
+	ConfiguredDefaultShellType            string            `json:"configuredDefaultShellType"`
+	ConfiguredModelShellTypeOverrides     map[string]string `json:"configuredModelShellTypeOverrides"`
+	ConfiguredDefaultTurnApprovalPolicy   string            `json:"configuredDefaultTurnApprovalPolicy"`
+	ConfiguredDefaultTurnSandboxPolicy    map[string]any    `json:"configuredDefaultTurnSandboxPolicy"`
+	ConfiguredDefaultCommandSandboxPolicy map[string]any    `json:"configuredDefaultCommandSandboxPolicy"`
+	DefaultModelCatalogPath               string            `json:"defaultModelCatalogPath"`
+	DefaultDefaultShellType               string            `json:"defaultDefaultShellType"`
+	DefaultModelShellTypeOverrides        map[string]string `json:"defaultModelShellTypeOverrides"`
+	DefaultDefaultTurnApprovalPolicy      string            `json:"defaultDefaultTurnApprovalPolicy"`
+	DefaultDefaultTurnSandboxPolicy       map[string]any    `json:"defaultDefaultTurnSandboxPolicy"`
+	DefaultDefaultCommandSandboxPolicy    map[string]any    `json:"defaultDefaultCommandSandboxPolicy"`
+	EffectiveModelCatalogPath             string            `json:"effectiveModelCatalogPath"`
+	EffectiveDefaultShellType             string            `json:"effectiveDefaultShellType"`
+	EffectiveModelShellTypeOverrides      map[string]string `json:"effectiveModelShellTypeOverrides"`
+	EffectiveDefaultTurnApprovalPolicy    string            `json:"effectiveDefaultTurnApprovalPolicy"`
+	EffectiveDefaultTurnSandboxPolicy     map[string]any    `json:"effectiveDefaultTurnSandboxPolicy"`
+	EffectiveDefaultCommandSandboxPolicy  map[string]any    `json:"effectiveDefaultCommandSandboxPolicy"`
+	EffectiveCommand                      string            `json:"effectiveCommand"`
 }
 
 type WriteInput struct {
-	ModelCatalogPath        string            `json:"modelCatalogPath"`
-	DefaultShellType        string            `json:"defaultShellType"`
-	ModelShellTypeOverrides map[string]string `json:"modelShellTypeOverrides"`
+	ModelCatalogPath            string            `json:"modelCatalogPath"`
+	DefaultShellType            string            `json:"defaultShellType"`
+	ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides"`
+	DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy"`
+	DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy"`
+	DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy"`
 }
 
 func NewService(
@@ -49,14 +61,18 @@ func NewService(
 		runtimes:    runtimeManager,
 		baseCommand: baseCommand,
 		defaultPrefs: appconfig.RuntimePreferences{
-			ModelCatalogPath:        strings.TrimSpace(defaultModelCatalogPath),
-			ModelShellTypeOverrides: localShellModelsToOverrides(defaultLocalShellModels),
+			ModelCatalogPath:            strings.TrimSpace(defaultModelCatalogPath),
+			ModelShellTypeOverrides:     localShellModelsToOverrides(defaultLocalShellModels),
+			DefaultCommandSandboxPolicy: appconfig.DefaultCommandSandboxPolicy(),
 		},
 	}
 }
 
 func (s *Service) Read() (ReadResult, error) {
-	configuredPrefs := s.store.GetRuntimePreferences()
+	configuredPrefs, err := normalizeConfiguredPreferences(s.store.GetRuntimePreferences())
+	if err != nil {
+		return ReadResult{}, err
+	}
 	effectivePrefs := s.mergeWithDefaults(configuredPrefs)
 	resolved, err := appconfig.ResolveCodexRuntime(s.baseCommand, effectivePrefs)
 	if err != nil {
@@ -67,10 +83,26 @@ func (s *Service) Read() (ReadResult, error) {
 }
 
 func (s *Service) Write(input WriteInput) (ReadResult, error) {
+	defaultTurnApprovalPolicy, err := appconfig.NormalizeApprovalPolicy(strings.TrimSpace(input.DefaultTurnApprovalPolicy))
+	if err != nil {
+		return ReadResult{}, err
+	}
+	defaultTurnSandboxPolicy, err := appconfig.NormalizeSandboxPolicyMap(input.DefaultTurnSandboxPolicy)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	defaultCommandSandboxPolicy, err := appconfig.NormalizeSandboxPolicyMap(input.DefaultCommandSandboxPolicy)
+	if err != nil {
+		return ReadResult{}, err
+	}
+
 	candidateConfigured := store.RuntimePreferences{
-		ModelCatalogPath:        strings.TrimSpace(input.ModelCatalogPath),
-		DefaultShellType:        strings.TrimSpace(input.DefaultShellType),
-		ModelShellTypeOverrides: normalizeInputs(input.ModelShellTypeOverrides),
+		ModelCatalogPath:            strings.TrimSpace(input.ModelCatalogPath),
+		DefaultShellType:            strings.TrimSpace(input.DefaultShellType),
+		ModelShellTypeOverrides:     normalizeInputs(input.ModelShellTypeOverrides),
+		DefaultTurnApprovalPolicy:   defaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:    defaultTurnSandboxPolicy,
+		DefaultCommandSandboxPolicy: defaultCommandSandboxPolicy,
 	}
 	effectivePrefs := s.mergeWithDefaults(candidateConfigured)
 	resolved, err := appconfig.ResolveCodexRuntime(s.baseCommand, effectivePrefs)
@@ -101,12 +133,18 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 		return ReadResult{}, err
 	}
 
-	currentConfigured := s.store.GetRuntimePreferences()
+	currentConfigured, err := normalizeConfiguredPreferences(s.store.GetRuntimePreferences())
+	if err != nil {
+		return ReadResult{}, err
+	}
 	candidateConfigured := store.RuntimePreferences{
-		ModelCatalogPath:        targetPath,
-		LocalShellModels:        cloneStrings(currentConfigured.LocalShellModels),
-		DefaultShellType:        currentConfigured.DefaultShellType,
-		ModelShellTypeOverrides: cloneStringMap(currentConfigured.ModelShellTypeOverrides),
+		ModelCatalogPath:            targetPath,
+		LocalShellModels:            cloneStrings(currentConfigured.LocalShellModels),
+		DefaultShellType:            currentConfigured.DefaultShellType,
+		ModelShellTypeOverrides:     cloneStringMap(currentConfigured.ModelShellTypeOverrides),
+		DefaultTurnApprovalPolicy:   currentConfigured.DefaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:    cloneAnyMap(currentConfigured.DefaultTurnSandboxPolicy),
+		DefaultCommandSandboxPolicy: cloneAnyMap(currentConfigured.DefaultCommandSandboxPolicy),
 	}
 	effectivePrefs := s.mergeWithDefaults(candidateConfigured)
 	resolved, err := appconfig.ResolveCodexRuntime(s.baseCommand, effectivePrefs)
@@ -122,10 +160,13 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 
 func (s *Service) mergeWithDefaults(configured store.RuntimePreferences) appconfig.RuntimePreferences {
 	merged := appconfig.RuntimePreferences{
-		ModelCatalogPath:        configured.ModelCatalogPath,
-		LocalShellModels:        cloneStrings(configured.LocalShellModels),
-		DefaultShellType:        configured.DefaultShellType,
-		ModelShellTypeOverrides: cloneStringMap(configured.ModelShellTypeOverrides),
+		ModelCatalogPath:            configured.ModelCatalogPath,
+		LocalShellModels:            cloneStrings(configured.LocalShellModels),
+		DefaultShellType:            configured.DefaultShellType,
+		ModelShellTypeOverrides:     cloneStringMap(configured.ModelShellTypeOverrides),
+		DefaultTurnApprovalPolicy:   configured.DefaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:    cloneAnyMap(configured.DefaultTurnSandboxPolicy),
+		DefaultCommandSandboxPolicy: cloneAnyMap(configured.DefaultCommandSandboxPolicy),
 	}
 	if merged.ModelCatalogPath == "" {
 		merged.ModelCatalogPath = s.defaultPrefs.ModelCatalogPath
@@ -146,6 +187,15 @@ func (s *Service) mergeWithDefaults(configured store.RuntimePreferences) appconf
 				merged.ModelShellTypeOverrides[key] = value
 			}
 		}
+	}
+	if merged.DefaultTurnApprovalPolicy == "" {
+		merged.DefaultTurnApprovalPolicy = s.defaultPrefs.DefaultTurnApprovalPolicy
+	}
+	if len(merged.DefaultTurnSandboxPolicy) == 0 {
+		merged.DefaultTurnSandboxPolicy = cloneAnyMap(s.defaultPrefs.DefaultTurnSandboxPolicy)
+	}
+	if len(merged.DefaultCommandSandboxPolicy) == 0 {
+		merged.DefaultCommandSandboxPolicy = cloneAnyMap(s.defaultPrefs.DefaultCommandSandboxPolicy)
 	}
 	return merged
 }
@@ -170,6 +220,26 @@ func normalizeInputs(values map[string]string) map[string]string {
 	return items
 }
 
+func normalizeConfiguredPreferences(input store.RuntimePreferences) (store.RuntimePreferences, error) {
+	defaultTurnApprovalPolicy, err := appconfig.NormalizeApprovalPolicy(input.DefaultTurnApprovalPolicy)
+	if err != nil {
+		return store.RuntimePreferences{}, err
+	}
+	defaultTurnSandboxPolicy, err := appconfig.NormalizeSandboxPolicyMap(input.DefaultTurnSandboxPolicy)
+	if err != nil {
+		return store.RuntimePreferences{}, err
+	}
+	defaultCommandSandboxPolicy, err := appconfig.NormalizeSandboxPolicyMap(input.DefaultCommandSandboxPolicy)
+	if err != nil {
+		return store.RuntimePreferences{}, err
+	}
+
+	input.DefaultTurnApprovalPolicy = defaultTurnApprovalPolicy
+	input.DefaultTurnSandboxPolicy = defaultTurnSandboxPolicy
+	input.DefaultCommandSandboxPolicy = defaultCommandSandboxPolicy
+	return input, nil
+}
+
 func cloneStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -189,21 +259,57 @@ func cloneStringMap(values map[string]string) map[string]string {
 	return cloned
 }
 
+func cloneAnyMap(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]any, len(values))
+	for key, value := range values {
+		cloned[key] = cloneAnyValue(value)
+	}
+	return cloned
+}
+
+func cloneAnyValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, entry := range typed {
+			cloned[index] = cloneAnyValue(entry)
+		}
+		return cloned
+	default:
+		return typed
+	}
+}
+
 func (s *Service) buildReadResult(
 	configuredPrefs store.RuntimePreferences,
 	resolved appconfig.ResolvedRuntime,
 ) ReadResult {
 	return ReadResult{
-		ConfiguredModelCatalogPath:        configuredPrefs.ModelCatalogPath,
-		ConfiguredDefaultShellType:        configuredPrefs.DefaultShellType,
-		ConfiguredModelShellTypeOverrides: cloneStringMap(configuredPrefs.ModelShellTypeOverrides),
-		DefaultModelCatalogPath:           s.defaultPrefs.ModelCatalogPath,
-		DefaultDefaultShellType:           s.defaultPrefs.DefaultShellType,
-		DefaultModelShellTypeOverrides:    cloneStringMap(s.defaultPrefs.ModelShellTypeOverrides),
-		EffectiveModelCatalogPath:         resolved.EffectiveModelCatalogPath,
-		EffectiveDefaultShellType:         resolved.Preferences.DefaultShellType,
-		EffectiveModelShellTypeOverrides:  cloneStringMap(resolved.Preferences.ModelShellTypeOverrides),
-		EffectiveCommand:                  resolved.Command,
+		ConfiguredModelCatalogPath:            configuredPrefs.ModelCatalogPath,
+		ConfiguredDefaultShellType:            configuredPrefs.DefaultShellType,
+		ConfiguredModelShellTypeOverrides:     cloneStringMap(configuredPrefs.ModelShellTypeOverrides),
+		ConfiguredDefaultTurnApprovalPolicy:   configuredPrefs.DefaultTurnApprovalPolicy,
+		ConfiguredDefaultTurnSandboxPolicy:    cloneAnyMap(configuredPrefs.DefaultTurnSandboxPolicy),
+		ConfiguredDefaultCommandSandboxPolicy: cloneAnyMap(configuredPrefs.DefaultCommandSandboxPolicy),
+		DefaultModelCatalogPath:               s.defaultPrefs.ModelCatalogPath,
+		DefaultDefaultShellType:               s.defaultPrefs.DefaultShellType,
+		DefaultModelShellTypeOverrides:        cloneStringMap(s.defaultPrefs.ModelShellTypeOverrides),
+		DefaultDefaultTurnApprovalPolicy:      s.defaultPrefs.DefaultTurnApprovalPolicy,
+		DefaultDefaultTurnSandboxPolicy:       cloneAnyMap(s.defaultPrefs.DefaultTurnSandboxPolicy),
+		DefaultDefaultCommandSandboxPolicy:    cloneAnyMap(s.defaultPrefs.DefaultCommandSandboxPolicy),
+		EffectiveModelCatalogPath:             resolved.EffectiveModelCatalogPath,
+		EffectiveDefaultShellType:             resolved.Preferences.DefaultShellType,
+		EffectiveModelShellTypeOverrides:      cloneStringMap(resolved.Preferences.ModelShellTypeOverrides),
+		EffectiveDefaultTurnApprovalPolicy:    resolved.Preferences.DefaultTurnApprovalPolicy,
+		EffectiveDefaultTurnSandboxPolicy:     cloneAnyMap(resolved.Preferences.DefaultTurnSandboxPolicy),
+		EffectiveDefaultCommandSandboxPolicy:  cloneAnyMap(resolved.Preferences.DefaultCommandSandboxPolicy),
+		EffectiveCommand:                      resolved.Command,
 	}
 }
 

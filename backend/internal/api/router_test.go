@@ -862,7 +862,7 @@ func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
 	eventHub.AttachStore(dataStore)
 	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
 	threadService := threads.NewService(dataStore, runtimeManager)
-	turnService := turns.NewService(runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
 
 	router := NewRouter(Dependencies{
 		FrontendOrigin: "http://0.0.0.0:15173",
@@ -875,7 +875,7 @@ func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
 		Approvals:      approvals.NewService(runtimeManager),
 		Catalog:        catalog.NewService(runtimeManager),
 		ConfigFS:       configfs.NewService(runtimeManager),
-		ExecFS:         execfs.NewService(runtimeManager, eventHub),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub, dataStore),
 		Feedback:       feedback.NewService(runtimeManager),
 		Events:         eventHub,
 	})
@@ -928,14 +928,14 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
-	turnService := turns.NewService(runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
 	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
 	notificationsService := notifications.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
-	execfsService := execfs.NewService(runtimeManager, eventHub)
+	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
 
 	return NewRouter(Dependencies{
 		FrontendOrigin: "http://localhost:15173",

@@ -1,0 +1,3997 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-03-22 00:39+0800\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:397
+msgid "[Function {name}]"
+msgstr "[Function {name}]"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:132
+msgid "{count} active"
+msgstr "{count} active"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:69
+msgid "{count} archived"
+msgstr "{count} archived"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:36
+msgid "{count} max"
+msgstr "{count} max"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:234
+msgid "{count} models"
+msgstr "{count} models"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:241
+msgid "{count} plugins"
+msgstr "{count} plugins"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:133
+msgid "{count} registered workspace shares this root."
+msgstr "{count} registered workspace shares this root."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:138
+msgid "{count} registered workspaces share this root."
+msgstr "{count} registered workspaces share this root."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:105
+msgid "{count} roots"
+msgstr "{count} roots"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:96
+msgid "{count} running"
+msgstr "{count} running"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:89
+msgid "{count} sessions"
+msgstr "{count} sessions"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:137
+msgid "{count} stored"
+msgstr "{count} stored"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1226
+msgid "{count} threads · {status}"
+msgstr "{count} threads · {status}"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:248
+msgid "{count} total entries"
+msgstr "{count} total entries"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:43
+msgid "{count}d prune"
+msgstr "{count}d prune"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:488
+msgid "{days} days"
+msgstr "{days} days"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:913
+msgid "{label} reasoning effort"
+msgstr "{label} reasoning effort"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:112
+msgid "{mode} mode"
+msgstr "{mode} mode"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:191
+msgid "{mode} workbench"
+msgstr "{mode} workbench"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:184
+msgid "{root} · updated {time}"
+msgstr "{root} · updated {time}"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:138
+msgid "{workspace} · updated {time}"
+msgstr "{workspace} · updated {time}"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:248
+msgid "A quiet message background that separates turns without feeling card-heavy."
+msgstr "A quiet message background that separates turns without feeling card-heavy."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:155
+msgid "A runtime exception interrupted this route before it finished rendering."
+msgstr "A runtime exception interrupted this route before it finished rendering."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:220
+msgid "Accent"
+msgstr "Accent"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:224
+msgid "Accent color"
+msgstr "Accent color"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:269
+msgid "Accented"
+msgstr "Accented"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:57
+msgid "Access to this screen was denied"
+msgstr "Access to this screen was denied"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:901
+msgid "Account, login, and usage limits"
+msgstr "Account, login, and usage limits"
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:34
+msgid "Action"
+msgstr "Action"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:70
+#: src/components/shell/AppShell.tsx:206
+#: src/components/ui/StatusPill.tsx:21
+#: src/pages/AutomationsPage.tsx:466
+msgid "Active"
+msgstr "Active"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:517
+msgid "Active Automations"
+msgstr "Active Automations"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:127
+msgid "Activity"
+msgstr "Activity"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:283
+msgid "Add a light hint of accent to help your prompts stand out without shouting."
+msgstr "Add a light hint of accent to help your prompts stand out without shouting."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:64
+msgid "Add instructions that should appear as your personal preference baseline for future settings-aware workflows."
+msgstr "Add instructions that should appear as your personal preference baseline for future settings-aware workflows."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:277
+msgid "Adjust visual separation between surfaces."
+msgstr "Adjust visual separation between surfaces."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:78
+msgid "Advanced (Cron)"
+msgstr "Advanced (Cron)"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:812
+msgid "Advanced Scheduling"
+msgstr "Advanced Scheduling"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:144
+#: src/pages/CatalogPage.tsx:311
+msgid "All"
+msgstr "All"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:143
+msgid "All models"
+msgstr "All models"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:243
+msgid "Almost no container treatment. The text carries nearly all the weight."
+msgstr "Almost no container treatment. The text carries nearly all the weight."
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:153
+msgid "Amber"
+msgstr "Amber"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:198
+msgid "An unknown route error interrupted rendering."
+msgstr "An unknown route error interrupted rendering."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:401
+msgid "anonymous"
+msgstr "anonymous"
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:117
+msgid "App shell"
+msgstr "App shell"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:278
+msgid "App-Server Command"
+msgstr "App-Server Command"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:358
+#: src/components/shell/AppMenuBar.tsx:520
+#: src/pages/settings/AppearanceSettingsPage.tsx:96
+msgid "Appearance"
+msgstr "Appearance"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:493
+msgid "Appearance menu. {colorTheme}. {mode}."
+msgstr "Appearance menu. {colorTheme}. {mode}."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:131
+msgid "Apply a pre-defined color palette to the interface."
+msgstr "Apply a pre-defined color palette to the interface."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:1021
+msgid "Apply Schedule"
+msgstr "Apply Schedule"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:267
+msgid "Apply subtle blur and transparency to the sidebar background."
+msgstr "Apply subtle blur and transparency to the sidebar background."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:894
+msgid "Approval status"
+msgstr "Approval status"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:69
+#: src/pages/thread-page/ThreadWorkbenchRailMobileQuickActions.tsx:50
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:100
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:224
+msgid "Approvals"
+msgstr "Approvals"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:183
+#: src/pages/CatalogPage.tsx:347
+msgid "Apps"
+msgstr "Apps"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:55
+msgid "April"
+msgstr "April"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:88
+msgid "Archive"
+msgstr "Archive"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:85
+msgid "Archive Registry"
+msgstr "Archive Registry"
+
+#. js-lingui-explicit-id
+#: src/components/ui/StatusPill.tsx:37
+#: src/pages/thread-page/threadPageComposerShared.tsx:636
+#: src/pages/thread-page/threadPageComposerShared.tsx:1047
+msgid "Archived"
+msgstr "Archived"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:690
+msgid "Archived complete"
+msgstr "Archived"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:93
+msgid "Archived Items"
+msgstr "Archived Items"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:81
+msgid "Archived thread inventory across all registered workspaces."
+msgstr "Archived thread inventory across all registered workspaces."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:76
+msgid "Archived Threads"
+msgstr "Archived Threads"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:652
+msgid "Ask Codex anything, use @ for files, $ for skills, and / for commands"
+msgstr "Ask Codex anything, use @ for files, $ for skills, and / for commands"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:141
+msgid "Attention"
+msgstr "Attention"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:59
+msgid "August"
+msgstr "August"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:904
+msgid "Authentication error"
+msgstr "Authentication error"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:99
+msgid "Authorization details returned for the MCP server login."
+msgstr "Authorization details returned for the MCP server login."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:54
+msgid "Authorize an MCP server against the selected workspace context."
+msgstr "Authorize an MCP server against the selected workspace context."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:159
+msgid "Auto"
+msgstr "Auto"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:486
+msgid "Auto prune"
+msgstr "Auto prune"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:87
+msgid "Auto Prune Days"
+msgstr "Auto Prune Days"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:119
+msgid "Auto-follow is keeping the latest output in view."
+msgstr "Auto-follow is keeping the latest output in view."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:160
+msgid "Auto-follow is keeping the newest output in view."
+msgstr "Auto-follow is keeping the newest output in view."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:366
+msgid "Automation created from the web IDE prototype."
+msgstr "Automation created from the web IDE prototype."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:490
+msgid "Automation Loading Failed"
+msgstr "Automation Loading Failed"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:871
+msgid "Automation Setup Incomplete"
+msgstr "Automation Setup Incomplete"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:453
+msgid "Automation Studio"
+msgstr "Automation Studio"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:56
+#: src/pages/AutomationsPage.tsx:450
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:67
+msgid "Automations"
+msgstr "Automations"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:202
+msgid "Available collaboration modes that shape the agent interaction model."
+msgstr "Available collaboration modes that shape the agent interaction model."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GeneralSettingsPage.tsx:98
+msgid "Available languages"
+msgstr "Available languages"
+
+#: src/pages/settings/GeneralSettingsPage.tsx:122
+#~ msgid "Available languages"
+#~ msgstr "Available languages"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:702
+#: src/pages/thread-page/threadPageComposerShared.tsx:927
+msgid "Awaiting approval"
+msgstr "Awaiting approval"
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:84
+msgid "Back"
+msgstr "Back"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:615
+msgid "Back to latest"
+msgstr "Back to latest"
+
+#. js-lingui-explicit-id
+#: src/pages/NotFoundPage.tsx:18
+msgid "Back to Workspaces"
+msgstr "Back to Workspaces"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:227
+msgid "Background"
+msgstr "Background"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:231
+msgid "Background color"
+msgstr "Background color"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:197
+#: src/pages/settings/PersonalizationSettingsPage.tsx:16
+#: src/pages/settings/PersonalizationSettingsPage.tsx:54
+msgid "Balanced"
+msgstr "Balanced"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:230
+msgid "Bare"
+msgstr "Bare"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:329
+msgid "Base font size for code editors and diffs."
+msgstr "Base font size for code editors and diffs."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:313
+msgid "Base font size for the Codex UI."
+msgstr "Base font size for the Codex UI."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:227
+msgid "Base surface color for the main workbench."
+msgstr "Base surface color for the main workbench."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:692
+msgid "Briefly describe the automation's purpose..."
+msgstr "Briefly describe the automation's purpose..."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:862
+msgid "Browse automation runs and templates"
+msgstr "Browse automation runs and templates"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:874
+msgid "Browse installed and remote skills"
+msgstr "Browse installed and remote skills"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:618
+msgid "Built-in"
+msgstr "Built-in"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:411
+#: src/pages/AutomationsPage.tsx:432
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:136
+msgid "Cancel"
+msgstr "Cancel"
+
+#. js-lingui-explicit-id
+#: src/components/ui/StatusPill.tsx:35
+msgid "Cancelled"
+msgstr "Cancelled"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:644
+msgid "Capability Template"
+msgstr "Capability Template"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:572
+msgid "Capability Templates"
+msgstr "Capability Templates"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:931
+msgid "Category"
+msgstr "Category"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:298
+msgid "Cause"
+msgstr "Cause"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:253
+msgid "Changing shell_environment_policy affects new child processes. Restart the workspace runtime to force app-server to reload Codex config."
+msgstr "Changing shell_environment_policy affects new child processes. Restart the workspace runtime to force app-server to reload Codex config."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:39
+msgid "Choose the default response tone you want the client to bias toward."
+msgstr "Choose the default response tone you want the client to bias toward."
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:18
+msgid "Choose the runtime root for this settings page."
+msgstr "Choose the runtime root for this settings page."
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:183
+msgid "Classic solarized workbench."
+msgstr "Classic solarized workbench."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:84
+msgid "Cleanup"
+msgstr "Cleanup"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:122
+msgid "Clear finished"
+msgstr "Clear finished"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:115
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:264
+msgid "Close"
+msgstr "Close"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:198
+msgid "Close {command}"
+msgstr "Close {command}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:339
+msgid "Close assist panel"
+msgstr "Close assist panel"
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:208
+msgid "Close command palette"
+msgstr "Close command palette"
+
+#: src/components/shell/CommandPalette.tsx:196
+#~ msgid "Close command palette"
+#~ msgstr "Close command palette"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:617
+#: src/components/shell/AppShell.tsx:1073
+#: src/components/shell/AppShell.tsx:1535
+#: src/components/shell/AppShell.tsx:1551
+msgid "Close navigation"
+msgstr "Close navigation"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:734
+msgid "Close thread tools"
+msgstr "Close thread tools"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:149
+msgid "Cobalt"
+msgstr "Cobalt"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:254
+msgid "Code font"
+msgstr "Code font"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:259
+msgid "Code font family"
+msgstr "Code font family"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:329
+#: src/pages/settings/AppearanceSettingsPage.tsx:335
+msgid "Code font size"
+msgstr "Code font size"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:222
+msgid "Code Review"
+msgstr "Code Review"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:101
+msgid "Codex is replying…"
+msgstr "Codex is replying…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:686
+#: src/pages/thread-page/ThreadComposerDock.tsx:690
+#: src/pages/thread-page/ThreadComposerDock.tsx:787
+msgid "Collaboration mode"
+msgstr "Collaboration mode"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsPrimitives.tsx:134
+msgid "Collapse"
+msgstr "Collapse"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1538
+#: src/components/shell/AppShell.tsx:1554
+msgid "Collapse sidebar"
+msgstr "Collapse sidebar"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:433
+#: src/pages/settings/AppearanceSettingsPage.tsx:135
+msgid "Color theme"
+msgstr "Color theme"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:377
+msgid "Color theme and mode stay synced with Appearance settings."
+msgstr "Color theme and mode stay synced with Appearance settings."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:574
+msgid "Command"
+msgstr "Command"
+
+#: src/components/shell/AppMenuBar.tsx:424
+#~ msgid "Command"
+#~ msgstr "Command"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:552
+#: src/components/shell/CommandPalette.tsx:226
+msgid "Command Palette"
+msgstr "Command Palette"
+
+#: src/components/shell/AppMenuBar.tsx:423
+#: src/components/shell/CommandPalette.tsx:211
+#~ msgid "Command Palette"
+#~ msgstr "Command Palette"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:108
+msgid "command/exec"
+msgstr "command/exec"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:137
+msgid "Commands"
+msgstr "Commands"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:43
+msgid "Commit Template"
+msgstr "Commit Template"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1230
+msgid "Compact"
+msgstr "Compact"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1388
+msgid "Compact older thread context"
+msgstr "Compact older thread context"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/useThreadPageRefreshEffects.ts:83
+msgid "Compacted"
+msgstr "Compacted"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:43
+msgid "Compaction is already running. This panel will update when the runtime confirms it."
+msgstr "Compaction is already running. This panel will update when the runtime confirms it."
+
+#. js-lingui-explicit-id
+#: src/components/ui/StatusPill.tsx:33
+#: src/pages/thread-page/threadPageComposerShared.tsx:712
+#: src/pages/thread-page/ThreadTerminalDock.tsx:25
+msgid "Completed"
+msgstr "Completed"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:208
+msgid "Compress the stream slightly for faster scanning in longer threads."
+msgstr "Compress the stream slightly for faster scanning in longer threads."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:1011
+msgid "Configure Advanced Schedule"
+msgstr "Configure Advanced Schedule"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:23
+msgid "Confirm before write"
+msgstr "Confirm before write"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:91
+msgid "Confirm Git Actions"
+msgstr "Confirm Git Actions"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:88
+msgid "Confirmation"
+msgstr "Confirmation"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:208
+#: src/components/ui/StatusPill.tsx:23
+msgid "Connected"
+msgstr "Connected"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:184
+msgid "Connected app surfaces and app-aware runtime capabilities."
+msgstr "Connected app surfaces and app-aware runtime capabilities."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:785
+msgid "Connecting"
+msgstr "Connecting"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:795
+msgid "Connection error"
+msgstr "Connection error"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:411
+#: src/pages/thread-page/threadPageComposerShared.tsx:1288
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:41
+msgid "Context"
+msgstr "Context"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1204
+msgid "Context usage {usagePercent}% ({totalTokens} / {contextWindow} tokens)"
+msgstr "Context usage {usagePercent}% ({totalTokens} / {contextWindow} tokens)"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1200
+msgid "Context usage is not available until the runtime reports token usage."
+msgstr "Context usage is not available until the runtime reports token usage."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:277
+msgid "Contrast"
+msgstr "Contrast"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:283
+msgid "Contrast adjustment"
+msgstr "Contrast adjustment"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:80
+msgid "Control local cleanup timing and whether existing branches should be reused."
+msgstr "Control local cleanup timing and whether existing branches should be reused."
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:172
+msgid "Cool gray surfaces."
+msgstr "Cool gray surfaces."
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:99
+msgid "Copied"
+msgstr "Copied"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsPrimitives.tsx:129
+#: src/pages/RouteErrorPage.tsx:100
+msgid "Copy"
+msgstr "Copy"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:892
+msgid "Create a reusable automation pattern that can be used across different workspaces."
+msgstr "Create a reusable automation pattern that can be used across different workspaces."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:264
+msgid "Create a workspace first to inspect runtime data."
+msgstr "Create a workspace first to inspect runtime data."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:414
+msgid "Create Automation"
+msgstr "Create Automation"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:456
+msgid "Create scheduled automations from reusable templates and manage workbench objects."
+msgstr "Create scheduled automations from reusable templates and manage workbench objects."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1264
+#: src/components/shell/AppShell.tsx:1272
+msgid "Create thread in {workspace}"
+msgstr "Create thread in {workspace}"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:168
+msgid "Crisp oceanic surfaces."
+msgstr "Crisp oceanic surfaces."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:300
+msgid "Current scope"
+msgstr "Current scope"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:66
+msgid "Custom"
+msgstr "Custom"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:460
+msgid "Custom instructions"
+msgstr "Custom instructions"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:69
+msgid "Custom Instructions"
+msgstr "Custom Instructions"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:181
+msgid "Customize colors and typography for {mode} workbench."
+msgstr "Customize colors and typography for {mode} workbench."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:116
+msgid "CWD"
+msgstr "CWD"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:147
+msgid "Cyan"
+msgstr "Cyan"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:73
+msgid "Daily"
+msgstr "Daily"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:684
+msgid "Daily Sync"
+msgstr "Daily Sync"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:188
+msgid "dark"
+msgstr "dark"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:169
+#: src/components/shell/AppMenuBar.tsx:191
+#: src/components/shell/AppMenuBar.tsx:202
+#: src/features/settings/appearance.ts:116
+#: src/features/settings/appearance.ts:301
+#: src/pages/settings/AppearanceSettingsPage.tsx:198
+#: src/pages/settings/AppearanceSettingsPage.tsx:215
+msgid "Dark"
+msgstr "Dark"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:41
+#: src/components/ui/CronGenerator.tsx:44
+#: src/pages/AutomationsPage.tsx:752
+msgid "Day"
+msgstr "Day"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:782
+msgid "Day of Month"
+msgstr "Day of Month"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:754
+msgid "Day of Week"
+msgstr "Day of Week"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:63
+msgid "December"
+msgstr "December"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:665
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:13
+#: src/pages/thread-page/ThreadComposerDock.tsx:805
+#: src/pages/thread-page/ThreadComposerDock.tsx:852
+msgid "Default"
+msgstr "Default"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:24
+#: src/pages/thread-page/ThreadComposerDock.tsx:802
+msgid "Default mode"
+msgstr "Default mode"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:37
+msgid "Default model"
+msgstr "Default model"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:49
+#: src/pages/thread-page/ThreadComposerDock.tsx:849
+msgid "Default permission"
+msgstr "Default permission"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:39
+msgid "Default structure for generated commit messages."
+msgstr "Default structure for generated commit messages."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:57
+msgid "Default structure for generated pull request summaries."
+msgstr "Default structure for generated pull request summaries."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:234
+msgid "Default text color for primary content."
+msgstr "Default text color for primary content."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:955
+msgid "Define the logic/instructions for this template..."
+msgstr "Define the logic/instructions for this template..."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1465
+#: src/pages/AutomationsPage.tsx:560
+#: src/pages/AutomationsPage.tsx:613
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:104
+msgid "Delete"
+msgstr "Delete"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:982
+msgid "Delete Automation"
+msgstr "Delete Automation"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:1001
+msgid "Delete Automation?"
+msgstr "Delete Automation?"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1629
+msgid "Delete Thread"
+msgstr "Delete Thread"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1663
+msgid "Delete Thread?"
+msgstr "Delete Thread?"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1464
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:100
+msgid "Deleting…"
+msgstr "Deleting…"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:689
+#: src/pages/AutomationsPage.tsx:940
+msgid "Description"
+msgstr "Description"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:15
+#: src/pages/settings/PersonalizationSettingsPage.tsx:56
+msgid "Detailed"
+msgstr "Detailed"
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:95
+msgid "Details"
+msgstr "Details"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:315
+msgid "Diagnosis"
+msgstr "Diagnosis"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:13
+#: src/pages/settings/PersonalizationSettingsPage.tsx:55
+msgid "Direct"
+msgstr "Direct"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:24
+msgid "Direct actions"
+msgstr "Direct actions"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:667
+#: src/pages/thread-page/ThreadComposerDock.tsx:500
+msgid "Disabled"
+msgstr "Disabled"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:790
+msgid "Disconnected"
+msgstr "Disconnected"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:141
+msgid "Dismiss error"
+msgstr "Dismiss error"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:106
+msgid "Distinct roots currently represented by the registered workspace list."
+msgstr "Distinct roots currently represented by the registered workspace list."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:249
+msgid "Dock left"
+msgstr "Dock left"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:253
+msgid "Dock right"
+msgstr "Dock right"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:934
+msgid "e.g. Security"
+msgstr "e.g. Security"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:923
+msgid "e.g. Security Audit"
+msgstr "e.g. Security Audit"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:148
+msgid "Each registered workspace acts as an environment root for threads, runtime tools, and settings-scoped actions."
+msgstr "Each registered workspace acts as an environment root for threads, runtime tools, and settings-scoped actions."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:220
+#: src/pages/AutomationsPage.tsx:605
+#: src/pages/AutomationsPage.tsx:816
+msgid "Edit"
+msgstr "Edit"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:907
+msgid "Edit Capability Template"
+msgstr "Edit Capability Template"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:268
+msgid "Effective Command"
+msgstr "Effective Command"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:336
+msgid "Effective shell_environment_policy returned by app-server config/read."
+msgstr "Effective shell_environment_policy returned by app-server config/read."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:271
+msgid "Enable translucent sidebar"
+msgstr "Enable translucent sidebar"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:499
+msgid "Enabled"
+msgstr "Enabled"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1575
+msgid "Enter a new name for this thread."
+msgstr "Enter a new name for this thread."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1571
+msgid "Enter a new name for this workspace folder."
+msgstr "Enter a new name for this workspace folder."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:113
+msgid "Environment"
+msgstr "Environment"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:329
+msgid "Environment Check"
+msgstr "Environment Check"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:181
+msgid "Environment Root"
+msgstr "Environment Root"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:643
+#: src/pages/thread-page/threadPageComposerShared.tsx:697
+#: src/pages/thread-page/threadPageComposerShared.tsx:969
+#: src/pages/thread-page/threadPageComposerShared.tsx:986
+#: src/pages/thread-page/threadPageComposerShared.tsx:1012
+#: src/pages/thread-page/ThreadTerminalDock.tsx:31
+msgid "Error"
+msgstr "Error"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:300
+msgid "Errors"
+msgstr "Errors"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:111
+msgid "Every {label}"
+msgstr "Every {label}"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:71
+msgid "Every Day"
+msgstr "Every Day"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:51
+msgid "Every Month"
+msgstr "Every Month"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:92
+msgid "Execution mode"
+msgstr "Execution mode"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:157
+msgid "Execution models currently discoverable in the active runtime."
+msgstr "Execution models currently discoverable in the active runtime."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:218
+msgid "exit {exitCode}"
+msgstr "exit {exitCode}"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsPrimitives.tsx:135
+msgid "Expand"
+msgstr "Expand"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1537
+#: src/components/shell/AppShell.tsx:1553
+msgid "Expand sidebar"
+msgstr "Expand sidebar"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:407
+msgid "Export remote skills into the selected workspace from a dedicated runtime console."
+msgstr "Export remote skills into the selected workspace from a dedicated runtime console."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:434
+msgid "Export skill"
+msgstr "Export skill"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:430
+msgid "Exporting…"
+msgstr "Exporting…"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:100
+msgid "Extra High"
+msgstr "Extra High"
+
+#. js-lingui-explicit-id
+#: src/components/ui/StatusPill.tsx:31
+msgid "Failed"
+msgstr "Failed"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1147
+msgid "Failed To Create Thread"
+msgstr "Failed To Create Thread"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:107
+msgid "Failed To Load Archived Threads"
+msgstr "Failed To Load Archived Threads"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:302
+msgid "Failed To Load Runtime Config"
+msgstr "Failed To Load Runtime Config"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:378
+msgid "Failed to load runtime inventory"
+msgstr "Failed to load runtime inventory"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:107
+msgid "Failed to load thread"
+msgstr "Failed to load thread"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:162
+msgid "Failed To Load Workspaces"
+msgstr "Failed To Load Workspaces"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1128
+msgid "Failed To Restart Workspace"
+msgstr "Failed To Restart Workspace"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:53
+msgid "February"
+msgstr "February"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:55
+#: src/pages/thread-page/ThreadWorkbenchRailMobileQuickActions.tsx:36
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:82
+msgid "Feed"
+msgstr "Feed"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:236
+msgid "Feedback"
+msgstr "Feedback"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:605
+msgid "Feedback classification"
+msgstr "Feedback classification"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:637
+msgid "Feedback upload failed"
+msgstr "Feedback upload failed"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:215
+msgid "File"
+msgstr "File"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:384
+#: src/pages/thread-page/threadPageComposerShared.tsx:472
+msgid "Files"
+msgstr "Files"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:91
+msgid "Fine-tune the shell palette, typography, and interactive feedback to match your local workbench preferences."
+msgstr "Fine-tune the shell palette, typography, and interactive feedback to match your local workbench preferences."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:536
+msgid "Fix"
+msgstr "Fix"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:12
+msgid "Follow default model"
+msgstr "Follow default model"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:125
+msgid "Follow the operating system light or dark preference."
+msgstr "Follow the operating system light or dark preference."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:234
+msgid "Foreground"
+msgstr "Foreground"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:238
+msgid "Foreground color"
+msgstr "Foreground color"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:717
+#: src/pages/AutomationsPage.tsx:719
+msgid "Frequency"
+msgstr "Frequency"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:176
+msgid "Fresh green accents."
+msgstr "Fresh green accents."
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:78
+#: src/pages/AutomationsPage.tsx:90
+msgid "Friday"
+msgstr "Friday"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:55
+#: src/pages/thread-page/ThreadComposerDock.tsx:866
+msgid "Full"
+msgstr "Full"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:54
+msgid "Full access"
+msgstr "Full access"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:863
+msgid "Full access permission"
+msgstr "Full access permission"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:568
+msgid "Fuzzy search query"
+msgstr "Fuzzy search query"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:148
+msgid "Generating reply…"
+msgstr "Generating reply…"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:27
+msgid "Git"
+msgstr "Git"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:263
+msgid "Global app-server launch command after codex-server runtime preference resolution."
+msgstr "Global app-server launch command after codex-server runtime preference resolution."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:118
+msgid "Global environment snapshot across all registered workspaces."
+msgstr "Global environment snapshot across all registered workspaces."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:41
+msgid "Global shortcuts and ad-hoc commands stay collapsed by default."
+msgstr "Global shortcuts and ad-hoc commands stay collapsed by default."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:850
+msgid "Go to the workspace registry"
+msgstr "Go to the workspace registry"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:157
+msgid "Graphite"
+msgstr "Graphite"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:80
+msgid "Guardrails"
+msgstr "Guardrails"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:425
+msgid "Hazelnut ID"
+msgstr "Hazelnut ID"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:137
+msgid "Healthy"
+msgstr "Healthy"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:235
+msgid "Help"
+msgstr "Help"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:151
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:55
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:53
+msgid "Hide"
+msgstr "Hide"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:119
+msgid "Hide rail"
+msgstr "Hide rail"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:580
+msgid "Hide Templates"
+msgstr "Hide Templates"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:99
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:61
+#: src/pages/thread-page/ThreadComposerDock.tsx:900
+msgid "High"
+msgstr "High"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:35
+#: src/components/ui/CronGenerator.tsx:38
+msgid "Hour"
+msgstr "Hour"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:72
+msgid "Hourly"
+msgstr "Hourly"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:648
+#: src/pages/thread-page/threadPageComposerShared.tsx:721
+#: src/pages/thread-page/ThreadTerminalDock.tsx:37
+#: src/pages/thread-page/ThreadTerminalDock.tsx:111
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:131
+msgid "Idle"
+msgstr "Idle"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:622
+msgid "Include logs"
+msgstr "Include logs"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1326
+msgid "Input"
+msgstr "Input"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:240
+msgid "Insert a product feedback prompt"
+msgstr "Insert a product feedback prompt"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:435
+msgid "Insert this skill token into the composer"
+msgstr "Insert this skill token into the composer"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:254
+msgid "Inspect current worktree policy and settings entry points"
+msgstr "Inspect current worktree policy and settings entry points"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:332
+msgid "Inspect current worktree policy and settings entry points."
+msgstr "Inspect current worktree policy and settings entry points."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:212
+msgid "Inspect local response preferences and custom instructions"
+msgstr "Inspect local response preferences and custom instructions"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:328
+msgid "Inspect local response preferences and custom instructions."
+msgstr "Inspect local response preferences and custom instructions."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:318
+msgid "Inspect MCP service status for the current workspace."
+msgstr "Inspect MCP service status for the current workspace."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:231
+msgid "Inspect recent live activity without opening the full side rail."
+msgstr "Inspect recent live activity without opening the full side rail."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:886
+msgid "Inspect runtime inventory and actions"
+msgstr "Inspect runtime inventory and actions"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:225
+msgid "Inspect runtime inventory and run export or plugin actions from a tighter control-surface layout."
+msgstr "Inspect runtime inventory and run export or plugin actions from a tighter control-surface layout."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:208
+msgid "Inspect the effective app-server command and the shell environment policy currently resolved for the selected workspace."
+msgstr "Inspect the effective app-server command and the shell environment policy currently resolved for the selected workspace."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:97
+msgid "Inspect the registered project roots and runtime posture for the current client environment."
+msgstr "Inspect the registered project roots and runtime posture for the current client environment."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:323
+msgid "Inspect thread, context usage, and account quota status."
+msgstr "Inspect thread, context usage, and account quota status."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:498
+msgid "Install"
+msgstr "Install"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:193
+msgid "Installed or discoverable plugins for this workspace runtime."
+msgstr "Installed or discoverable plugins for this workspace runtime."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:165
+msgid "Installed skills"
+msgstr "Installed skills"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:494
+msgid "Installing…"
+msgstr "Installing…"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:72
+msgid "Instructions"
+msgstr "Instructions"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:301
+msgid "Interaction"
+msgstr "Interaction"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:297
+msgid "Interactive and sizing preferences."
+msgstr "Interactive and sizing preferences."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GeneralSettingsPage.tsx:94
+msgid "Interface language"
+msgstr "Interface language"
+
+#: src/pages/settings/GeneralSettingsPage.tsx:116
+#: src/pages/settings/GeneralSettingsPage.tsx:120
+#~ msgid "Interface language"
+#~ msgstr "Interface language"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:261
+msgid "Internal: {value}"
+msgstr "Internal: {value}"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:824
+msgid "Interval"
+msgstr "Interval"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:304
+msgid "Inventory entries"
+msgstr "Inventory entries"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:52
+msgid "January"
+msgstr "January"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:58
+msgid "July"
+msgstr "July"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:57
+msgid "June"
+msgstr "June"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:213
+msgid "Keep a little more breathing room between turns."
+msgstr "Keep a little more breathing room between turns."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:16
+msgid "Keep git-related writing templates and safety preferences in one predictable settings page."
+msgstr "Keep git-related writing templates and safety preferences in one predictable settings page."
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:130
+msgid "Keep the shell bright with layered surfaces and soft contrast."
+msgstr "Keep the shell bright with layered surfaces and soft contrast."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GeneralSettingsPage.tsx:85
+msgid "Language"
+msgstr "Language"
+
+#: src/pages/settings/GeneralSettingsPage.tsx:112
+#~ msgid "Language"
+#~ msgstr "Language"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1353
+msgid "Last Turn"
+msgstr "Last Turn"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:876
+msgid "Latest error"
+msgstr "Latest error"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:867
+msgid "Latest turn status"
+msgstr "Latest turn status"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:234
+msgid "Layered"
+msgstr "Layered"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:371
+msgid "Layers"
+msgstr "Layers"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:187
+msgid "light"
+msgstr "light"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:164
+#: src/components/shell/AppMenuBar.tsx:186
+#: src/components/shell/AppMenuBar.tsx:206
+#: src/features/settings/appearance.ts:114
+#: src/features/settings/appearance.ts:301
+#: src/pages/settings/AppearanceSettingsPage.tsx:197
+#: src/pages/settings/AppearanceSettingsPage.tsx:208
+msgid "Light"
+msgstr "Light"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:63
+msgid "Limit how many worktrees this client should keep visible before pruning guidance appears."
+msgstr "Limit how many worktrees this client should keep visible before pruning guidance appears."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1143
+msgid "Live"
+msgstr "Live"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:850
+msgid "Live connection"
+msgstr "Live connection"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:220
+msgid "Live feed"
+msgstr "Live feed"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:167
+msgid "Live look at current theme configuration."
+msgstr "Live look at current theme configuration."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:840
+msgid "Loaded"
+msgstr "Loaded"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:97
+msgid "Loading archived threads…"
+msgstr "Loading archived threads…"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:483
+msgid "Loading automations…"
+msgstr "Loading automations…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:355
+msgid "Loading MCP server status…"
+msgstr "Loading MCP server status…"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:282
+msgid "Loading runtime preferences…"
+msgstr "Loading runtime preferences…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:528
+msgid "Loading skills…"
+msgstr "Loading skills…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:96
+msgid "Loading thread surface…"
+msgstr "Loading thread surface…"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:296
+msgid "Loading workspace config…"
+msgstr "Loading workspace config…"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:53
+#: src/pages/settings/EnvironmentSettingsPage.tsx:156
+msgid "Loading workspaces…"
+msgstr "Loading workspaces…"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:698
+#: src/pages/thread-page/ThreadComposerDock.tsx:422
+msgid "Loading…"
+msgstr "Loading…"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:32
+msgid "Local instruction defaults for future multi-page personalization work."
+msgstr "Local instruction defaults for future multi-page personalization work."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:56
+msgid "Local policy controls for future worktree-aware flows."
+msgstr "Local policy controls for future worktree-aware flows."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:32
+msgid "Local-only git authoring defaults."
+msgstr "Local-only git authoring defaults."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:97
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:59
+#: src/pages/thread-page/ThreadComposerDock.tsx:898
+msgid "Low"
+msgstr "Low"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:47
+msgid "Low-frequency thread management stays folded unless you need it."
+msgstr "Low-frequency thread management stays folded unless you need it."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1155
+msgid "Manual"
+msgstr "Manual"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1159
+msgid "Manual sync"
+msgstr "Manual sync"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:54
+msgid "March"
+msgstr "March"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:468
+msgid "Marketplace path"
+msgstr "Marketplace path"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:62
+#: src/pages/thread-page/ThreadComposerDock.tsx:901
+msgid "Max"
+msgstr "Max"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:482
+msgid "Max worktrees"
+msgstr "Max worktrees"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:70
+msgid "Max Worktrees"
+msgstr "Max Worktrees"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:67
+msgid "Maximum Worktrees"
+msgstr "Maximum Worktrees"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:56
+msgid "May"
+msgstr "May"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:111
+msgid "MCP OAuth Failed"
+msgstr "MCP OAuth Failed"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:47
+msgid "MCP Servers"
+msgstr "MCP Servers"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:98
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:60
+#: src/pages/thread-page/ThreadComposerDock.tsx:899
+msgid "Medium"
+msgstr "Medium"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:366
+msgid "Merged config layers returned by app-server for this workspace."
+msgstr "Merged config layers returned by app-server for this workspace."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:290
+msgid "Message: {message}"
+msgstr "Message: {message}"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:302
+msgid "Metadata"
+msgstr "Metadata"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:265
+msgid "Minimal"
+msgstr "Minimal"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:155
+msgid "Mint"
+msgstr "Mint"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:29
+#: src/components/ui/CronGenerator.tsx:32
+msgid "Minute"
+msgstr "Minute"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:78
+#: src/pages/settings/AppearanceSettingsPage.tsx:105
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:25
+#: src/pages/thread-page/ThreadComposerDock.tsx:210
+msgid "Mode"
+msgstr "Mode"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:837
+#: src/pages/AutomationsPage.tsx:839
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:38
+#: src/pages/thread-page/ThreadComposerDock.tsx:212
+msgid "Model"
+msgstr "Model"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:308
+msgid "Model filter"
+msgstr "Model filter"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:356
+msgid "Model shell type"
+msgstr "Model shell type"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:358
+msgid "Model shell type filter"
+msgstr "Model shell type filter"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:156
+#: src/pages/CatalogPage.tsx:333
+msgid "Models"
+msgstr "Models"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:201
+#: src/pages/CatalogPage.tsx:341
+msgid "Modes"
+msgstr "Modes"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:74
+#: src/pages/AutomationsPage.tsx:86
+msgid "Monday"
+msgstr "Monday"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:263
+msgid "Monospace default"
+msgstr "Monospace default"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:254
+msgid "Monospace typeface for editors and terminal outputs."
+msgstr "Monospace typeface for editors and terminal outputs."
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:47
+msgid "Month"
+msgstr "Month"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:75
+msgid "Monthly"
+msgstr "Monthly"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:39
+msgid "Move back to a stable area of the app or retry after checking the URL and resource state."
+msgstr "Move back to a stable area of the app or retry after checking the URL and resource state."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:283
+msgid "Name: {name}"
+msgstr "Name: {name}"
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:36
+msgid "Navigation"
+msgstr "Navigation"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:170
+msgid "Neutral blue accents."
+msgstr "Neutral blue accents."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:475
+#: src/pages/AutomationsPage.tsx:638
+msgid "New Automation"
+msgstr "New Automation"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:911
+msgid "New Capability Template"
+msgstr "New Capability Template"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:611
+msgid "New messages below"
+msgstr "New messages below"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:164
+msgid "New output is arriving. Jump to latest to keep following it."
+msgstr "New output is arriving. Jump to latest to keep following it."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:124
+msgid "New output is available below. Jump to latest to follow it."
+msgstr "New output is available below. Jump to latest to follow it."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:576
+msgid "New Template"
+msgstr "New Template"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:931
+msgid "New Thread in {workspace}"
+msgstr "New Thread in {workspace}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1134
+msgid "Next sync {time}"
+msgstr "Next sync {time}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:438
+msgid "No account connected"
+msgstr "No account connected"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:118
+msgid "No archived threads found."
+msgstr "No archived threads found."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:718
+msgid "No description provided."
+msgstr "No description provided."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:702
+msgid "No entries available."
+msgstr "No entries available."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:277
+msgid "No live feed entries yet."
+msgstr "No live feed entries yet."
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:300
+msgid "No matching commands"
+msgstr "No matching commands"
+
+#: src/components/shell/CommandPalette.tsx:279
+#~ msgid "No matching commands"
+#~ msgstr "No matching commands"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:580
+msgid "No matching commands found."
+msgstr "No matching commands found."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:589
+msgid "No matching files found."
+msgstr "No matching files found."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:585
+msgid "No matching skills found."
+msgstr "No matching skills found."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:377
+msgid "No MCP servers configured"
+msgstr "No MCP servers configured"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:294
+msgid "No pending approvals in this workspace."
+msgstr "No pending approvals in this workspace."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:122
+msgid "No roots available yet."
+msgstr "No roots available yet."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:346
+msgid "No shell_environment_policy key is currently present in the resolved config."
+msgstr "No shell_environment_policy key is currently present in the resolved config."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:400
+msgid "No thread selected"
+msgstr "No thread selected"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1299
+msgid "No usage data"
+msgstr "No usage data"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:122
+msgid "No workspace"
+msgstr "No workspace"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:170
+msgid "No workspaces registered yet."
+msgstr "No workspaces registered yet."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:652
+msgid "None (Start from scratch)"
+msgstr "None (Start from scratch)"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:800
+msgid "Not connected"
+msgstr "Not connected"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:726
+#: src/pages/thread-page/threadPageComposerShared.tsx:844
+msgid "Not loaded"
+msgstr "Not loaded"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:464
+msgid "Not set"
+msgstr "Not set"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:62
+msgid "November"
+msgstr "November"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:44
+msgid "OAuth"
+msgstr "OAuth"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:103
+msgid "OAuth Result"
+msgstr "OAuth Result"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:61
+msgid "October"
+msgstr "October"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:631
+msgid "Online"
+msgstr "Online"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailMobileQuickActions.tsx:19
+msgid "Only open side panels when you need them."
+msgstr "Only open side panels when you need them."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:961
+msgid "Open {workspace}"
+msgstr "Open {workspace}"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1283
+#: src/components/shell/AppShell.tsx:1420
+msgid "Open actions for {name}"
+msgstr "Open actions for {name}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:63
+msgid "Open approvals panel"
+msgstr "Open approvals panel"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:861
+msgid "Open Automations"
+msgstr "Open Automations"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:548
+msgid "Open command palette"
+msgstr "Open command palette"
+
+#: src/components/shell/AppMenuBar.tsx:422
+#~ msgid "Open command palette"
+#~ msgstr "Open command palette"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:444
+msgid "Open general settings"
+msgstr "Open general settings"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:49
+msgid "Open live feed panel"
+msgstr "Open live feed panel"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:385
+msgid "Open MCP settings"
+msgstr "Open MCP settings"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:621
+msgid "Open navigation"
+msgstr "Open navigation"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:470
+msgid "Open personalization settings"
+msgstr "Open personalization settings"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:226
+msgid "Open review shortcuts"
+msgstr "Open review shortcuts"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:885
+msgid "Open Runtime"
+msgstr "Open Runtime"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:912
+msgid "Open Settings: Appearance"
+msgstr "Open Settings: Appearance"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:897
+msgid "Open Settings: General"
+msgstr "Open Settings: General"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:20
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:27
+msgid "Open side rail"
+msgstr "Open side rail"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:873
+msgid "Open Skills"
+msgstr "Open Skills"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:218
+msgid "Open the rhythm up when you want a calmer reading pace."
+msgstr "Open the rhythm up when you want a calmer reading pace."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:738
+msgid "Open thread tools"
+msgstr "Open thread tools"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:77
+msgid "Open workbench tools"
+msgstr "Open workbench tools"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:35
+msgid "Open workspace context"
+msgstr "Open workspace context"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:849
+msgid "Open Workspaces"
+msgstr "Open Workspaces"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:506
+msgid "Open worktree settings"
+msgstr "Open worktree settings"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:909
+#: src/pages/thread-page/threadPageComposerShared.tsx:918
+msgid "OpenAI authentication expired. This thread cannot continue until access is restored."
+msgstr "OpenAI authentication expired. This thread cannot continue until access is restored."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:355
+msgid "Origin entries for shell_environment_policy and its nested keys."
+msgstr "Origin entries for shell_environment_policy and its nested keys."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:360
+msgid "Origins"
+msgstr "Origins"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1335
+msgid "Output"
+msgstr "Output"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:145
+msgid "Part of the app failed to load"
+msgstr "Part of the app failed to load"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:544
+msgid "Pause"
+msgstr "Pause"
+
+#. js-lingui-explicit-id
+#: src/components/ui/StatusPill.tsx:29
+msgid "Paused"
+msgstr "Paused"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:123
+msgid "Pending approvals"
+msgstr "Pending approvals"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:50
+#: src/pages/thread-page/ThreadComposerDock.tsx:211
+#: src/pages/thread-page/ThreadComposerDock.tsx:830
+msgid "Permission"
+msgstr "Permission"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:697
+msgid "Permission preset"
+msgstr "Permission preset"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:701
+msgid "Permission range"
+msgstr "Permission range"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:63
+msgid "Persistent context stays in the rail. Feed and approvals open as lighter in-surface panels."
+msgstr "Persistent context stays in the rail. Feed and approvals open as lighter in-surface panels."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:27
+#: src/pages/thread-page/ThreadComposerDock.tsx:313
+#: src/pages/thread-page/threadPageComposerShared.tsx:208
+msgid "Personalization"
+msgstr "Personalization"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildComposerPreferenceOptions.ts:29
+#: src/pages/thread-page/ThreadComposerDock.tsx:822
+msgid "Plan mode"
+msgstr "Plan mode"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:278
+msgid "Plan Mode"
+msgstr "Plan Mode"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:147
+msgid "Please help me draft a product feedback report with a summary, reproduction steps, expected result, actual result, and impact scope:"
+msgstr "Please help me draft a product feedback report with a summary, reproduction steps, expected result, actual result, and impact scope:"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:166
+msgid "Please review the code changes against the current base branch, prioritizing bugs, regressions, risks, and missing tests."
+msgstr "Please review the code changes against the current base branch, prioritizing bugs, regressions, risks, and missing tests."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:182
+msgid "Please review the current uncommitted local changes, prioritizing bugs, regressions, risks, and missing tests."
+msgstr "Please review the current uncommitted local changes, prioritizing bugs, regressions, risks, and missing tests."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:448
+msgid "Plugin actions"
+msgstr "Plugin actions"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:523
+msgid "Plugin ID"
+msgstr "Plugin ID"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:472
+msgid "Plugin name"
+msgstr "Plugin name"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:192
+#: src/pages/CatalogPage.tsx:337
+msgid "Plugins"
+msgstr "Plugins"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:303
+msgid "Pointer cursor"
+msgstr "Pointer cursor"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:60
+msgid "Policy"
+msgstr "Policy"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:321
+msgid "Potential Windows Execution Risk"
+msgstr "Potential Windows Execution Risk"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:85
+msgid "Preview:"
+msgstr "Preview:"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:220
+msgid "Primary color for buttons, links, and highlights."
+msgstr "Primary color for buttons, links, and highlights."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:241
+msgid "Primary typeface for labels, menus, and controls."
+msgstr "Primary typeface for labels, menus, and controls."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:623
+#: src/pages/thread-page/threadPageComposerShared.tsx:685
+#: src/pages/thread-page/threadPageComposerShared.tsx:948
+#: src/pages/thread-page/ThreadTerminalDock.tsx:20
+msgid "Processing"
+msgstr "Processing"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:702
+msgid "Prompt"
+msgstr "Prompt"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:61
+msgid "Provide the server name, requested scopes, and timeout window for the OAuth handshake."
+msgstr "Provide the server name, requested scopes, and timeout window for the OAuth handshake."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:61
+msgid "Pull Request Template"
+msgstr "Pull Request Template"
+
+#. js-lingui-explicit-id
+#: src/components/ui/StatusPill.tsx:25
+#: src/pages/thread-page/threadPageComposerShared.tsx:1221
+msgid "Queued"
+msgstr "Queued"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailMobileQuickActions.tsx:13
+msgid "Quick actions"
+msgstr "Quick actions"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:419
+msgid "Quota"
+msgstr "Quota"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:432
+msgid "Quota resets {time}"
+msgstr "Quota resets {time}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:857
+msgid "Raw thread status"
+msgstr "Raw thread status"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:67
+msgid "Re-authenticate if needed, then retry the route or move to a screen your session can access."
+msgstr "Re-authenticate if needed, then retry the route or move to a screen your session can access."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:482
+msgid "Read plugin"
+msgstr "Read plugin"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:450
+msgid "Read, install, and remove plugins without leaving the runtime surface."
+msgstr "Read, install, and remove plugins without leaving the runtime surface."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:478
+msgid "Reading…"
+msgstr "Reading…"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:204
+#: src/components/ui/StatusPill.tsx:19
+msgid "Ready"
+msgstr "Ready"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:613
+msgid "Reason"
+msgstr "Reason"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:855
+#: src/pages/AutomationsPage.tsx:857
+#: src/pages/thread-page/ThreadComposerDock.tsx:213
+#: src/pages/thread-page/threadPageComposerShared.tsx:1344
+msgid "Reasoning"
+msgstr "Reasoning"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:719
+#: src/pages/thread-page/ThreadComposerDock.tsx:723
+#: src/pages/thread-page/ThreadComposerDock.tsx:891
+msgid "Reasoning effort"
+msgstr "Reasoning effort"
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:38
+msgid "Recent"
+msgstr "Recent"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:950
+msgid "Refetch threads, workspace state, and approvals"
+msgstr "Refetch threads, workspace state, and approvals"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1312
+msgid "Refresh"
+msgstr "Refresh"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:945
+msgid "Refresh {workspace}"
+msgstr "Refresh {workspace}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:137
+msgid "Refresh status"
+msgstr "Refresh status"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1245
+msgid "Refreshing..."
+msgstr "Refreshing..."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:153
+#: src/pages/settings/WorktreesSettingsPage.tsx:110
+msgid "Registered Roots"
+msgstr "Registered Roots"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:199
+msgid "Relaxed"
+msgstr "Relaxed"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:160
+msgid "Reload this route to request the missing bundle again. If a deployment just changed, a refresh usually resolves it."
+msgstr "Reload this route to request the missing bundle again. If a deployment just changed, a refresh usually resolves it."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:405
+msgid "Remote skill export"
+msgstr "Remote skill export"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:174
+#: src/pages/CatalogPage.tsx:351
+msgid "Remote skills"
+msgstr "Remote skills"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:175
+msgid "Remote skills available to export into the current workspace."
+msgstr "Remote skills available to export into the current workspace."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1358
+msgid "Remove"
+msgstr "Remove"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1628
+msgid "Remove Workspace"
+msgstr "Remove Workspace"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1662
+msgid "Remove Workspace?"
+msgstr "Remove Workspace?"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1357
+msgid "Removing..."
+msgstr "Removing..."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1341
+#: src/components/shell/AppShell.tsx:1452
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:73
+msgid "Rename"
+msgstr "Rename"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:114
+msgid "Rename thread"
+msgstr "Rename thread"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1619
+msgid "Rename Thread"
+msgstr "Rename Thread"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1618
+msgid "Rename Workspace"
+msgstr "Rename Workspace"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:83
+msgid "Require an explicit confirmation step before applying git-affecting actions from future settings-aware workflows."
+msgstr "Require an explicit confirmation step before applying git-affecting actions from future settings-aware workflows."
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:82
+msgid "Required"
+msgstr "Required"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:103
+msgid "Reset width"
+msgstr "Reset width"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:79
+msgid "Resize side rail"
+msgstr "Resize side rail"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1082
+msgid "Resize sidebar"
+msgstr "Resize sidebar"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:207
+msgid "Resize surface panel"
+msgstr "Resize surface panel"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:166
+msgid "Resize terminal dock"
+msgstr "Resize terminal dock"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:647
+msgid "Resolve the approval request above to continue this thread."
+msgstr "Resolve the approval request above to continue this thread."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:287
+msgid "Resolved shell_environment_policy from config/read for the currently selected workspace."
+msgstr "Resolved shell_environment_policy from config/read for the currently selected workspace."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:256
+msgid "Response payload"
+msgstr "Response payload"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:36
+msgid "Response Preferences"
+msgstr "Response Preferences"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:48
+#: src/pages/thread-page/ThreadComposerDock.tsx:456
+msgid "Response tone"
+msgstr "Response tone"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:43
+msgid "Response Tone"
+msgstr "Response Tone"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1328
+msgid "Restart"
+msgstr "Restart"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:249
+msgid "Restart Runtime"
+msgstr "Restart Runtime"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:212
+msgid "Restarting"
+msgstr "Restarting"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1247
+msgid "Restarting runtime"
+msgstr "Restarting runtime"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1327
+#: src/pages/settings/EnvironmentSettingsPage.tsx:248
+msgid "Restarting…"
+msgstr "Restarting…"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:134
+msgid "Restoring…"
+msgstr "Restoring…"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:552
+msgid "Resume"
+msgstr "Resume"
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:76
+#: src/pages/thread-page/threadPageComposerShared.tsx:1226
+msgid "Retry"
+msgstr "Retry"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:184
+#: src/lib/route-error.ts:202
+msgid "Retry the route or move back to a stable screen."
+msgstr "Retry the route or move back to a stable screen."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:124
+msgid "Retry the route or navigate back to a stable screen."
+msgstr "Retry the route or navigate back to a stable screen."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:165
+msgid "Retry this route first. If it fails again, move back to a stable screen and use the technical details to debug it."
+msgstr "Retry this route first. If it fails again, move back to a stable screen and use the technical details to debug it."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:95
+msgid "Retry this route first. If it keeps failing, back out to a stable screen and inspect the details below."
+msgstr "Retry this route first. If it keeps failing, back out to a stable screen and inspect the details below."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:496
+msgid "Reuse branches"
+msgstr "Reuse branches"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:95
+msgid "Reuse Branches"
+msgstr "Reuse Branches"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:158
+msgid "Review against base branch"
+msgstr "Review against base branch"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:62
+msgid "Review archived threads across all workspaces and restore them without leaving the settings center."
+msgstr "Review archived threads across all workspaces and restore them without leaving the settings center."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:178
+msgid "Review local modifications in the current workspace that have not been committed yet."
+msgstr "Review local modifications in the current workspace that have not been committed yet."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:235
+msgid "Review pending approvals as a smaller in-surface panel."
+msgstr "Review pending approvals as a smaller in-surface panel."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:162
+msgid "Review the current branch diff relative to the base branch."
+msgstr "Review the current branch diff relative to the base branch."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:125
+msgid "Review the current runtime footprint and health across all registered roots."
+msgstr "Review the current runtime footprint and health across all registered roots."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:174
+msgid "Review uncommitted changes"
+msgstr "Review uncommitted changes"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:28
+msgid "Review worktree retention policy and root reuse behavior. Current worktree data is approximated from registered workspace roots."
+msgstr "Review worktree retention policy and root reuse behavior. Current worktree data is approximated from registered workspace roots."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:118
+msgid "Root Overview"
+msgstr "Root Overview"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:111
+msgid "Root path"
+msgstr "Root path"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:74
+msgid "Roots"
+msgstr "Roots"
+
+#. js-lingui-explicit-id
+#: src/pages/NotFoundPage.tsx:9
+msgid "Route Not Found"
+msgstr "Route Not Found"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:274
+msgid "Run a command to mount the dock. Sessions stay attached to the workspace and can be revisited from this bottom panel."
+msgstr "Run a command to mount the dock. Sessions stay attached to the workspace and can be revisited from this bottom panel."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:231
+msgid "Run a command to see output."
+msgstr "Run a command to see output."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:138
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:181
+msgid "Run command"
+msgstr "Run command"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:177
+msgid "Run in thread"
+msgstr "Run in thread"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:549
+msgid "Run lightweight operational actions from runtime instead of burying them inside settings."
+msgstr "Run lightweight operational actions from runtime instead of burying them inside settings."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:134
+msgid "Run shell command in thread"
+msgstr "Run shell command in thread"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:737
+msgid "Run Time"
+msgstr "Run Time"
+
+#. js-lingui-explicit-id
+#: src/components/ui/StatusPill.tsx:27
+msgid "Running"
+msgstr "Running"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:155
+msgid "Runs a single shell command through thread/shellCommand. It is unsandboxed with full access and streams back into the thread, not the terminal dock."
+msgstr "Runs a single shell command through thread/shellCommand. It is unsandboxed with full access and streams back into the thread, not the terminal dock."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:160
+msgid "Runs a standalone command/exec session using the configured command sandbox policy and attaches output to the terminal dock."
+msgstr "Runs a standalone command/exec session using the configured command sandbox policy and attaches output to the terminal dock."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:826
+msgid "Runs once per hour, on the hour."
+msgstr "Runs once per hour, on the hour."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:66
+#: src/pages/CatalogPage.tsx:219
+#: src/pages/thread-page/ThreadComposerDock.tsx:407
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:79
+msgid "Runtime"
+msgstr "Runtime"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:143
+msgid "Runtime Error"
+msgstr "Runtime Error"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:213
+msgid "Runtime Inspection"
+msgstr "Runtime Inspection"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:278
+msgid "Runtime queries and write actions are scoped to the selected workspace."
+msgstr "Runtime queries and write actions are scoped to the selected workspace."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1251
+msgid "Runtime refreshed"
+msgstr "Runtime refreshed"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:321
+msgid "Runtime snapshot"
+msgstr "Runtime snapshot"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:222
+msgid "Runtime tools"
+msgstr "Runtime tools"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:76
+msgid "Safety defaults for git-affecting flows."
+msgstr "Safety defaults for git-affecting flows."
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:79
+#: src/pages/AutomationsPage.tsx:91
+msgid "Saturday"
+msgstr "Saturday"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:126
+msgid "Save"
+msgstr "Save"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:440
+msgid "Save Template"
+msgstr "Save Template"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1614
+msgid "Save Thread"
+msgstr "Save Thread"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1613
+msgid "Save Workspace"
+msgstr "Save Workspace"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:80
+msgid "Saved locally in this client."
+msgstr "Saved locally in this client."
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:81
+msgid "Scoped"
+msgstr "Scoped"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:82
+msgid "Scopes"
+msgstr "Scopes"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:128
+msgid "Scroll back to the latest message to resume auto-follow."
+msgstr "Scroll back to the latest message to resume auto-follow."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:573
+#: src/pages/thread-page/threadPageComposerShared.tsx:376
+#: src/pages/thread-page/threadPageComposerShared.tsx:482
+msgid "Search"
+msgstr "Search"
+
+#: src/components/shell/AppMenuBar.tsx:424
+#~ msgid "Search"
+#~ msgstr "Search"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:583
+msgid "Search failed"
+msgstr "Search failed"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:572
+msgid "Search files"
+msgstr "Search files"
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:229
+msgid "Search navigation, actions, and recent context."
+msgstr "Search navigation, actions, and recent context."
+
+#: src/components/shell/CommandPalette.tsx:214
+#~ msgid "Search navigation, actions, and recent context."
+#~ msgstr "Search navigation, actions, and recent context."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:535
+msgid "Searching files…"
+msgstr "Searching files…"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:646
+msgid "Select a template"
+msgstr "Select a template"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:186
+msgid "Select a thread from the left sidebar to start working in this workspace."
+msgstr "Select a thread from the left sidebar to start working in this workspace."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:656
+msgid "Select a thread to activate the workspace composer."
+msgstr "Select a thread to activate the workspace composer."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:38
+msgid "Select a thread to compact its context."
+msgstr "Select a thread to compact its context."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:343
+msgid "Select a workspace before creating an automation."
+msgstr "Select a workspace before creating an automation."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:101
+msgid "Select light, dark, or system-matched interface mode."
+msgstr "Select light, dark, or system-matched interface mode."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:712
+#: src/pages/thread-page/ThreadComposerDock.tsx:883
+msgid "Select model"
+msgstr "Select model"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:113
+msgid "Selected thread"
+msgstr "Selected thread"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:221
+msgid "Selected Workspace"
+msgstr "Selected Workspace"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:82
+#: src/pages/thread-page/ThreadTerminalDock.tsx:252
+msgid "Send"
+msgstr "Send"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:885
+msgid "Send error"
+msgstr "Send error"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:294
+msgid "Send failed"
+msgstr "Send failed"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:241
+msgid "Send stdin to selected process"
+msgstr "Send stdin to selected process"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:176
+msgid "Send the first message to start this thread."
+msgstr "Send the first message to start this thread."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:96
+msgid "Sending message to Codex…"
+msgstr "Sending message to Codex…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:144
+msgid "Sending message…"
+msgstr "Sending message…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:73
+msgid "Sending…"
+msgstr "Sending…"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:60
+msgid "September"
+msgstr "September"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:58
+msgid "Server Authorization"
+msgstr "Server Authorization"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:78
+msgid "Server Name"
+msgstr "Server Name"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GeneralSettingsPage.tsx:81
+msgid "Set the primary locale for translated UI surfaces and locale-aware formatting."
+msgstr "Set the primary locale for translated UI surfaces and locale-aware formatting."
+
+#: src/pages/settings/GeneralSettingsPage.tsx:110
+#~ msgid "Set the primary locale for translated UI surfaces and locale-aware formatting."
+#~ msgstr "Set the primary locale for translated UI surfaces and locale-aware formatting."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1520
+#: src/components/shell/AppShell.tsx:1528
+msgid "Settings"
+msgstr "Settings"
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:150
+msgid "Settings page"
+msgstr "Settings page"
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:139
+msgid "Settings shell"
+msgstr "Settings shell"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:292
+msgid "Shell Environment Policy"
+msgstr "Shell Environment Policy"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:135
+msgid "Shift the shell to a darker workbench for long sessions."
+msgstr "Shift the shell to a darker workbench for long sessions."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:155
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:59
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:57
+msgid "Show"
+msgstr "Show"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1481
+msgid "Show {count} more"
+msgstr "Show {count} more"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1496
+msgid "Show less"
+msgstr "Show less"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:198
+msgid "Show MCP server status"
+msgstr "Show MCP server status"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:581
+msgid "Show Templates"
+msgstr "Show Templates"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:268
+msgid "Show thread ID, context usage, and quota status"
+msgstr "Show thread ID, context usage, and quota status"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:95
+msgid "Side rail"
+msgstr "Side rail"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:61
+#: src/pages/thread-page/threadPageComposerShared.tsx:380
+#: src/pages/thread-page/threadPageComposerShared.tsx:477
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:73
+msgid "Skills"
+msgstr "Skills"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:151
+msgid "Slate"
+msgstr "Slate"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:232
+msgid "Soft"
+msgstr "Soft"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:159
+msgid "Solarized"
+msgstr "Solarized"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:179
+#: src/lib/route-error.ts:194
+msgid "Something went wrong on this route"
+msgstr "Something went wrong on this route"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1080
+#: src/pages/thread-page/threadPageComposerShared.tsx:1088
+msgid "soon"
+msgstr "soon"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:304
+msgid ""
+"Stack:\n"
+"{stack}"
+msgstr ""
+"Stack:\n"
+"{stack}"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:93
+msgid "Start MCP OAuth"
+msgstr "Start MCP OAuth"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:66
+msgid "Start OAuth Login"
+msgstr "Start OAuth Login"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:36
+msgid "Start workspace-scoped MCP authorization flows and keep server onboarding isolated from the rest of the settings surface."
+msgstr "Start workspace-scoped MCP authorization flows and keep server onboarding isolated from the rest of the settings surface."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1216
+#: src/pages/thread-page/ThreadTerminalDock.tsx:14
+msgid "Starting"
+msgstr "Starting"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:92
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:172
+msgid "Starting…"
+msgstr "Starting…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:311
+#: src/pages/thread-page/threadPageComposerShared.tsx:264
+msgid "Status"
+msgstr "Status"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:46
+#: src/lib/route-error.ts:74
+#: src/lib/route-error.ts:102
+#: src/lib/route-error.ts:130
+#: src/lib/route-error.ts:250
+msgid "Status: {status}"
+msgstr "Status: {status}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:78
+#: src/pages/thread-page/ThreadTerminalDock.tsx:263
+msgid "Stop"
+msgstr "Stop"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:707
+#: src/pages/thread-page/threadPageComposerShared.tsx:1062
+msgid "Stopped"
+msgstr "Stopped"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:91
+msgid "Stopping current reply…"
+msgstr "Stopping current reply…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:68
+msgid "Stopping…"
+msgstr "Stopping…"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:21
+msgid "Store local response preferences and instruction text that shape how the client should feel when you start new work."
+msgstr "Store local response preferences and instruction text that shape how the client should feel when you start new work."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:109
+msgid "Stream"
+msgstr "Stream"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:310
+msgid "Structured diagnosis derived from the currently resolved shell_environment_policy object."
+msgstr "Structured diagnosis derived from the currently resolved shell_environment_policy object."
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:267
+msgid "Subtle"
+msgstr "Subtle"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:129
+msgid "Summary"
+msgstr "Summary"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:80
+#: src/pages/AutomationsPage.tsx:85
+msgid "Sunday"
+msgstr "Sunday"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:216
+msgid "Switch the focused workspace to inspect its runtime-backed config and restart behavior."
+msgstr "Switch the focused workspace to inspect its runtime-backed config and restart behavior."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:556
+msgid "Sync thread now"
+msgstr "Sync thread now"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1114
+msgid "Syncing"
+msgstr "Syncing"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1118
+msgid "Syncing…"
+msgstr "Syncing…"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:181
+#: src/features/settings/appearance.ts:112
+msgid "System"
+msgstr "System"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:250
+msgid "System default"
+msgstr "System default"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:663
+msgid "Target Workspace"
+msgstr "Target Workspace"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GitSettingsPage.tsx:46
+#: src/pages/settings/GitSettingsPage.tsx:64
+msgid "Template"
+msgstr "Template"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:503
+msgid "Template Loading Failed"
+msgstr "Template Loading Failed"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:951
+msgid "Template Prompt"
+msgstr "Template Prompt"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:920
+msgid "Template Title"
+msgstr "Template Title"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:967
+msgid "Template Update Failed"
+msgstr "Template Update Failed"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:470
+#: src/pages/settings/GitSettingsPage.tsx:36
+msgid "Templates"
+msgstr "Templates"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:83
+msgid "Terminal"
+msgstr "Terminal"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:178
+msgid "Terminal-green coding surfaces."
+msgstr "Terminal-green coding surfaces."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:85
+msgid "The app hit an internal route error"
+msgstr "The app hit an internal route error"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:955
+msgid "The message was submitted and the runtime is creating a turn."
+msgstr "The message was submitted and the runtime is creating a turn."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:35
+msgid "The route or backing resource is no longer available."
+msgstr "The route or backing resource is no longer available."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:120
+msgid "The route returned an unexpected response and could not complete rendering."
+msgstr "The route returned an unexpected response and could not complete rendering."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:108
+msgid "The runtime is stopping the active turn. The thread will settle in place when it completes."
+msgstr "The runtime is stopping the active turn. The thread will settle in place when it completes."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1019
+#: src/pages/thread-page/threadPageComposerShared.tsx:1034
+msgid "The runtime marked this thread as systemError while the thread was not loaded."
+msgstr "The runtime marked this thread as systemError while the thread was not loaded."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1023
+#: src/pages/thread-page/threadPageComposerShared.tsx:1038
+msgid "The runtime marked this thread as systemError without returning a more specific error."
+msgstr "The runtime marked this thread as systemError without returning a more specific error."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:91
+msgid "The server returned an error before this screen finished loading."
+msgstr "The server returned an error before this screen finished loading."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:959
+msgid "The thread is running or waiting for the current turn to finish."
+msgstr "The thread is running or waiting for the current turn to finish."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:516
+msgid "Theme"
+msgstr "Theme"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:387
+#: src/components/shell/AppMenuBar.tsx:395
+msgid "Theme mode"
+msgstr "Theme mode"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:171
+msgid "Theme preview"
+msgstr "Theme preview"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:916
+msgid "Theme, density, and motion preferences"
+msgstr "Theme, density, and motion preferences"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:113
+msgid "This is not yet live git worktree discovery. It is a stable placeholder using the roots already known to the client."
+msgstr "This is not yet live git worktree discovery. It is a stable placeholder using the roots already known to the client."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:273
+msgid "This is the command codex-server will use when it starts or restarts a workspace runtime."
+msgstr "This is the command codex-server will use when it starts or restarts a workspace runtime."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1633
+msgid "This removes the workspace from the sidebar registry and clears its loaded thread list from the UI."
+msgstr "This removes the workspace from the sidebar registry and clears its loaded thread list from the UI."
+
+#. js-lingui-explicit-id
+#: src/pages/NotFoundPage.tsx:11
+msgid "This route does not exist in the rebuilt web IDE yet."
+msgstr "This route does not exist in the rebuilt web IDE yet."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:114
+msgid "This route returned an unexpected response"
+msgstr "This route returned an unexpected response"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:29
+msgid "This screen could not be found"
+msgstr "This screen could not be found"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:149
+msgid "This screen crashed while rendering"
+msgstr "This screen crashed while rendering"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/GeneralSettingsPage.tsx:89
+msgid "This selection controls translated shell copy and localized dates, times, and numbers."
+msgstr "This selection controls translated shell copy and localized dates, times, and numbers."
+
+#: src/pages/settings/GeneralSettingsPage.tsx:115
+#~ msgid "This selection controls translated shell copy and localized dates, times, and numbers."
+#~ msgstr "This selection controls translated shell copy and localized dates, times, and numbers."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1052
+msgid "This thread is archived."
+msgstr "This thread is archived."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:938
+msgid "This thread is waiting for approval and will not continue until a decision is made."
+msgstr "This thread is waiting for approval and will not continue until a decision is made."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:933
+msgid "This thread is waiting for approval: {approvalSummary}"
+msgstr "This thread is waiting for approval: {approvalSummary}"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:986
+msgid "This will permanently remove the automation record. This action cannot be undone."
+msgstr "This will permanently remove the automation record. This action cannot be undone."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1638
+msgid "This will remove the thread from the current workspace list."
+msgstr "This will remove the thread from the current workspace list."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:397
+msgid "Thread"
+msgstr "Thread"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:914
+msgid "Thread authentication error"
+msgstr "Thread authentication error"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:1067
+msgid "Thread execution was interrupted."
+msgstr "Thread execution was interrupted."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:564
+msgid "Thread idle"
+msgstr "Thread idle"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:829
+msgid "Thread loaded"
+msgstr "Thread loaded"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1600
+msgid "Thread Name"
+msgstr "Thread Name"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:560
+msgid "Thread running"
+msgstr "Thread running"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:976
+#: src/pages/thread-page/threadPageComposerShared.tsx:1028
+msgid "Thread runtime error"
+msgstr "Thread runtime error"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:993
+msgid "Thread send error"
+msgstr "Thread send error"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:568
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:41
+msgid "Thread tools"
+msgstr "Thread tools"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:124
+msgid "thread/shellCommand"
+msgstr "thread/shellCommand"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:110
+msgid "Threads"
+msgstr "Threads"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:77
+#: src/pages/AutomationsPage.tsx:89
+msgid "Thursday"
+msgstr "Thursday"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:195
+msgid "Tight"
+msgstr "Tight"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:765
+#: src/pages/AutomationsPage.tsx:796
+msgid "Time"
+msgstr "Time"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:119
+msgid "Timeline items"
+msgstr "Timeline items"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/McpSettingsPage.tsx:86
+msgid "Timeout Seconds"
+msgstr "Timeout Seconds"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:681
+msgid "Title"
+msgstr "Title"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:292
+msgid "Title and prompt are required for templates."
+msgstr "Title and prompt are required for templates."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:353
+msgid "Title and prompt are required."
+msgstr "Title and prompt are required."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/PersonalizationSettingsPage.tsx:46
+msgid "Tone"
+msgstr "Tone"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:83
+msgid "Tools"
+msgstr "Tools"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:133
+#: src/pages/thread-page/threadPageComposerShared.tsx:1308
+msgid "Total"
+msgstr "Total"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:267
+msgid "Translucent sidebar"
+msgstr "Translucent sidebar"
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:306
+msgid "Try a page name, workspace, thread, or action keyword."
+msgstr "Try a page name, workspace, thread, or action keyword."
+
+#: src/components/shell/CommandPalette.tsx:282
+#~ msgid "Try a page name, workspace, thread, or action keyword."
+#~ msgstr "Try a page name, workspace, thread, or action keyword."
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:75
+#: src/pages/AutomationsPage.tsx:87
+msgid "Tuesday"
+msgstr "Tuesday"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:284
+msgid "Turn off plan mode"
+msgstr "Turn off plan mode"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/threadPageComposerShared.tsx:288
+msgid "Turn on plan mode"
+msgstr "Turn on plan mode"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:117
+msgid "Turns"
+msgstr "Turns"
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:248
+msgid "Type a command or destination"
+msgstr "Type a command or destination"
+
+#: src/components/shell/CommandPalette.tsx:230
+#~ msgid "Type a command or destination"
+#~ msgstr "Type a command or destination"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:521
+msgid "Type to search files"
+msgstr "Type to search files"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:241
+msgid "UI font"
+msgstr "UI font"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:246
+msgid "UI font family"
+msgstr "UI font family"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:313
+#: src/pages/settings/AppearanceSettingsPage.tsx:319
+msgid "UI font size"
+msgstr "UI font size"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:330
+msgid "Unable to read value"
+msgstr "Unable to read value"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:135
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:84
+msgid "Unarchive"
+msgstr "Unarchive"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:157
+msgid "Unarchive Failed"
+msgstr "Unarchive Failed"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:414
+#: src/pages/thread-page/ThreadComposerDock.tsx:424
+#: src/pages/thread-page/threadPageComposerShared.tsx:516
+msgid "Unavailable"
+msgstr "Unavailable"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:532
+msgid "Uninstall"
+msgstr "Uninstall"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:528
+msgid "Uninstalling…"
+msgstr "Uninstalling…"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:210
+#: src/pages/settings/EnvironmentSettingsPage.tsx:239
+#: src/pages/thread-page/threadPageComposerShared.tsx:496
+#: src/pages/thread-page/threadPageComposerShared.tsx:731
+#: src/pages/thread-page/threadPageComposerShared.tsx:736
+#: src/pages/thread-page/threadPageComposerShared.tsx:835
+msgid "Unknown"
+msgstr "Unknown"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:178
+#: src/lib/route-error.ts:193
+msgid "Unknown Error"
+msgstr "Unknown Error"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:439
+msgid "Update Template"
+msgstr "Update Template"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:888
+msgid "Update this reusable automation pattern."
+msgstr "Update this reusable automation pattern."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:104
+msgid "updated {time}"
+msgstr "updated {time}"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:626
+msgid "Upload feedback"
+msgstr "Upload feedback"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:288
+msgid "Use a clearer tint when you want to find your own prompts quickly."
+msgstr "Use a clearer tint when you want to find your own prompts quickly."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:307
+msgid "Use pointer cursor"
+msgstr "Use pointer cursor"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx:303
+msgid "Use pointing hand cursor for interactive elements."
+msgstr "Use pointing hand cursor for interactive elements."
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:253
+msgid "Use slightly more padding and surface so message groupings read more clearly."
+msgstr "Use slightly more padding and surface so message groupings read more clearly."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:600
+msgid "Use Template"
+msgstr "Use Template"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:323
+msgid "Use the side rail to read the overall runtime shape before drilling into the inventory board."
+msgstr "Use the side rail to read the overall runtime shape before drilling into the inventory board."
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:1015
+msgid "Use the visual generator below to define your execution frequency."
+msgstr "Use the visual generator below to define your execution frequency."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ArchivedThreadsSettingsPage.tsx:88
+msgid "Use this page to inspect archived work and restore it when it should return to the main thread registry."
+msgstr "Use this page to inspect archived work and restore it when it should return to the main thread registry."
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:278
+msgid "User messages stay only faintly tinted so both sides read almost the same."
+msgstr "User messages stay only faintly tinted so both sides read almost the same."
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:188
+#: src/lib/route-error.ts:206
+msgid "Value"
+msgstr "Value"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:225
+msgid "View"
+msgstr "View"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:48
+msgid "Wait until the current reply finishes before compacting this thread."
+msgstr "Wait until the current reply finishes before compacting this thread."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:930
+msgid "Waiting for backend turn data…"
+msgstr "Waiting for backend turn data…"
+
+#. js-lingui-explicit-id
+#: src/features/settings/appearance.ts:174
+msgid "Warm sand highlights."
+msgstr "Warm sand highlights."
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:76
+#: src/pages/AutomationsPage.tsx:88
+msgid "Wednesday"
+msgstr "Wednesday"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:67
+msgid "Weekday"
+msgstr "Weekday"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:73
+msgid "Weekends (Sat-Sun)"
+msgstr "Weekends (Sat-Sun)"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:74
+msgid "Weekly"
+msgstr "Weekly"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:943
+msgid "What does this pattern do?"
+msgstr "What does this pattern do?"
+
+#. js-lingui-explicit-id
+#: src/pages/AutomationsPage.tsx:706
+msgid "What should the assistant do?"
+msgstr "What should the assistant do?"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:230
+#: src/pages/thread-page/threadPageComposerShared.tsx:1317
+msgid "Window"
+msgstr "Window"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:91
+msgid "Workbench"
+msgstr "Workbench"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:35
+msgid "Workbench tools"
+msgstr "Workbench tools"
+
+#. js-lingui-explicit-id
+#: src/components/ui/CronGenerator.tsx:72
+msgid "Workdays (Mon-Fri)"
+msgstr "Workdays (Mon-Fri)"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:40
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:42
+#: src/pages/AutomationsPage.tsx:665
+#: src/pages/CatalogPage.tsx:286
+#: src/pages/CatalogPage.tsx:288
+#: src/pages/settings/EnvironmentSettingsPage.tsx:225
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:108
+msgid "Workspace"
+msgstr "Workspace"
+
+#. js-lingui-explicit-id
+#: src/pages/RouteErrorPage.tsx:128
+msgid "Workspace area"
+msgstr "Workspace area"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:57
+msgid "Workspace context"
+msgstr "Workspace context"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1599
+msgid "Workspace Name"
+msgstr "Workspace Name"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/EnvironmentSettingsPage.tsx:122
+msgid "Workspace Registry"
+msgstr "Workspace Registry"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:259
+msgid "Workspace required"
+msgstr "Workspace required"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:276
+msgid "Workspace scope"
+msgstr "Workspace scope"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:15
+msgid "Workspace Scope"
+msgstr "Workspace Scope"
+
+#. js-lingui-explicit-id
+#: src/components/settings/SettingsWorkspaceScopePanel.tsx:59
+msgid "Workspace Scope Unavailable"
+msgstr "Workspace Scope Unavailable"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:547
+msgid "Workspace utilities"
+msgstr "Workspace utilities"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:166
+msgid "Workspace-local skills already mounted into the runtime."
+msgstr "Workspace-local skills already mounted into the runtime."
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:51
+#: src/components/shell/AppShell.tsx:1116
+#: src/pages/RouteErrorPage.tsx:115
+#: src/pages/RouteErrorPage.tsx:126
+#: src/pages/RouteErrorPage.tsx:137
+#: src/pages/RouteErrorPage.tsx:148
+msgid "Workspaces"
+msgstr "Workspaces"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadComposerDock.tsx:314
+#: src/pages/thread-page/threadPageComposerShared.tsx:250
+msgid "Worktree"
+msgstr "Worktree"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/WorktreesSettingsPage.tsx:51
+msgid "Worktrees"
+msgstr "Worktrees"
+
+#. js-lingui-explicit-id
+#: src/lib/route-error.ts:63
+msgid "Your current session cannot open this route."
+msgstr "Your current session cannot open this route."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:155
+msgid "Your message is staged and the thread is preparing a response."
+msgstr "Your message is staged and the thread is preparing a response."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:113
+msgid "Your message is staged. The primary action will switch to Stop as soon as the turn is live."
+msgstr "Your message is staged. The primary action will switch to Stop as soon as the turn is live."

@@ -18,11 +18,14 @@ type Workspace struct {
 }
 
 type RuntimePreferences struct {
-	ModelCatalogPath        string            `json:"modelCatalogPath"`
-	LocalShellModels        []string          `json:"localShellModels,omitempty"`
-	DefaultShellType        string            `json:"defaultShellType,omitempty"`
-	ModelShellTypeOverrides map[string]string `json:"modelShellTypeOverrides,omitempty"`
-	UpdatedAt               time.Time         `json:"updatedAt,omitempty"`
+	ModelCatalogPath            string            `json:"modelCatalogPath"`
+	LocalShellModels            []string          `json:"localShellModels,omitempty"`
+	DefaultShellType            string            `json:"defaultShellType,omitempty"`
+	ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides,omitempty"`
+	DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy,omitempty"`
+	DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
+	DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
+	UpdatedAt                   time.Time         `json:"updatedAt,omitempty"`
 }
 
 type Automation struct {

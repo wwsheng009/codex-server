@@ -4,10 +4,12 @@ import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 
 import {
+  getAppearancePaletteLabel,
+  getAppearanceThemeDescription,
+  getColorThemeDescription,
+  getColorThemeLabel,
   appearanceThemeOptions,
   colorThemeOptions,
-  getAppearancePaletteLabel,
-  getAppearanceThemeLabel,
   resolveAppearanceTheme,
 } from '../../features/settings/appearance'
 import type { AccentTone, AppearanceTheme } from '../../features/settings/appearance'
@@ -15,19 +17,17 @@ import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
+import { i18n } from '../../i18n/runtime'
 import { RefreshIcon, RailIconButton, ToolsIcon } from '../ui/RailControls'
 import { NotificationCenter } from './NotificationCenter'
 import type { CSSProperties } from 'react'
 
-const menuItems = ['File', 'Edit', 'View', 'Window', 'Help']
-const shortThemeLabels: Record<AppearanceTheme, string> = {
-  system: 'Auto',
-  light: 'Light',
-  dark: 'Dark',
-}
+const menuItems = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
 type AppMenuBarProps = {
+  commandPaletteShortcutLabel: string
   mobileNavOpen?: boolean
+  onOpenCommandPalette: () => void
   onOpenSidebar?: () => void
   showMobileNavButton?: boolean
 }
@@ -63,6 +63,15 @@ function MenuIcon() {
         strokeLinecap="round"
         strokeWidth="1.6"
       />
+    </svg>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 20 20">
+      <circle cx="9" cy="9" r="4.75" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m12.6 12.6 3.2 3.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
     </svg>
   )
 }
@@ -142,6 +151,94 @@ function ThemeModeGlyph({
   }
 
   return resolvedTheme === 'dark' ? <MoonIcon /> : <SunIcon />
+}
+
+function getAppearanceModeShortLabel(theme: AppearanceTheme) {
+  switch (theme) {
+    case 'system':
+      return i18n._({
+        id: 'Auto',
+        message: 'Auto',
+      })
+    case 'light':
+      return i18n._({
+        id: 'Light',
+        message: 'Light',
+      })
+    case 'dark':
+      return i18n._({
+        id: 'Dark',
+        message: 'Dark',
+      })
+    default:
+      return theme
+  }
+}
+
+function getAppearanceModeLabel(theme: AppearanceTheme) {
+  switch (theme) {
+    case 'system':
+      return i18n._({
+        id: 'System',
+        message: 'System',
+      })
+    case 'light':
+      return i18n._({
+        id: 'Light',
+        message: 'Light',
+      })
+    case 'dark':
+      return i18n._({
+        id: 'Dark',
+        message: 'Dark',
+      })
+    default:
+      return theme
+  }
+}
+
+function getResolvedThemeLabel(resolvedTheme: 'light' | 'dark') {
+  return resolvedTheme === 'dark'
+    ? i18n._({
+        id: 'Dark',
+        message: 'Dark',
+      })
+    : i18n._({
+        id: 'Light',
+        message: 'Light',
+      })
+}
+
+function getMenuItemLabel(item: (typeof menuItems)[number]) {
+  switch (item) {
+    case 'File':
+      return i18n._({
+        id: 'File',
+        message: 'File',
+      })
+    case 'Edit':
+      return i18n._({
+        id: 'Edit',
+        message: 'Edit',
+      })
+    case 'View':
+      return i18n._({
+        id: 'View',
+        message: 'View',
+      })
+    case 'Window':
+      return i18n._({
+        id: 'Window',
+        message: 'Window',
+      })
+    case 'Help':
+      return i18n._({
+        id: 'Help',
+        message: 'Help',
+      })
+    default:
+      return item
+  }
 }
 
 function AppearanceMenu({ compact = false }: { compact?: boolean }) {
@@ -245,18 +342,23 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
 
   const currentModeLabel =
     theme === 'system'
-      ? `${shortThemeLabels[theme]} · ${resolvedTheme === 'dark' ? 'Dark' : 'Light'}`
-      : getAppearanceThemeLabel(theme)
+      ? `${getAppearanceModeShortLabel(theme)} · ${getResolvedThemeLabel(resolvedTheme)}`
+      : getAppearanceModeLabel(theme)
   const triggerClassName = compact
     ? 'web-ide__appearance-trigger web-ide__appearance-trigger--mobile'
     : 'web-ide__appearance-trigger'
   const activeThemeStyle = colorThemeStyleByValue[activeColorTheme.value]
+  const activeColorThemeLabel = getColorThemeLabel(activeColorTheme.value)
+  const appearancePaletteLabel = getAppearancePaletteLabel(activeColorTheme.value, resolvedTheme)
 
   const popover =
     isOpen && menuPosition
       ? createPortal(
           <div
-            aria-label="Appearance"
+            aria-label={i18n._({
+              id: 'Appearance',
+              message: 'Appearance',
+            })}
             className="web-ide__appearance-popover"
             id={dialogId}
             ref={popoverRef}
@@ -270,16 +372,33 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
             tabIndex={-1}
           >
             <div className="web-ide__appearance-popover-header">
-              <strong>{getAppearancePaletteLabel(accentTone, resolvedTheme)}</strong>
-              <span>Color theme and mode stay synced with Appearance settings.</span>
+              <strong>{appearancePaletteLabel}</strong>
+              <span>
+                {i18n._({
+                  id: 'Color theme and mode stay synced with Appearance settings.',
+                  message: 'Color theme and mode stay synced with Appearance settings.',
+                })}
+              </span>
             </div>
 
             <section className="web-ide__appearance-section" aria-labelledby={`${dialogId}-mode`}>
               <div className="web-ide__appearance-section-heading">
-                <span id={`${dialogId}-mode`}>Theme Mode</span>
+                <span id={`${dialogId}-mode`}>
+                  {i18n._({
+                    id: 'Theme mode',
+                    message: 'Theme mode',
+                  })}
+                </span>
                 <span>{currentModeLabel}</span>
               </div>
-              <div aria-label="Theme mode" className="web-ide__appearance-mode-group" role="group">
+              <div
+                aria-label={i18n._({
+                  id: 'Theme mode',
+                  message: 'Theme mode',
+                })}
+                className="web-ide__appearance-mode-group"
+                role="group"
+              >
                 {appearanceThemeOptions.map((option) => {
                   const isActive = theme === option.value
                   const optionClassName = isActive
@@ -292,7 +411,7 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                       className={optionClassName}
                       key={option.value}
                       onClick={() => setTheme(option.value)}
-                      title={option.description}
+                      title={getAppearanceThemeDescription(option.value)}
                       type="button"
                     >
                       <span className="web-ide__appearance-mode-icon" aria-hidden="true">
@@ -301,7 +420,7 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                           theme={option.value}
                         />
                       </span>
-                      <span>{shortThemeLabels[option.value]}</span>
+                      <span>{getAppearanceModeShortLabel(option.value)}</span>
                     </button>
                   )
                 })}
@@ -310,8 +429,13 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
 
             <section className="web-ide__appearance-section" aria-labelledby={`${dialogId}-color`}>
               <div className="web-ide__appearance-section-heading">
-                <span id={`${dialogId}-color`}>Color Theme</span>
-                <span>{activeColorTheme.label}</span>
+                <span id={`${dialogId}-color`}>
+                  {i18n._({
+                    id: 'Color theme',
+                    message: 'Color theme',
+                  })}
+                </span>
+                <span>{activeColorThemeLabel}</span>
               </div>
               <div className="web-ide__appearance-theme-list">
                 {colorThemeOptions.map((option) => {
@@ -327,7 +451,7 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                       key={option.value}
                       onClick={() => setAccentTone(option.value)}
                       style={colorThemeStyleByValue[option.value]}
-                      title={option.description}
+                      title={getColorThemeDescription(option.value)}
                       type="button"
                     >
                       <span className="web-ide__appearance-theme-palette" aria-hidden="true">
@@ -340,7 +464,7 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                         ))}
                       </span>
                       <span className="web-ide__appearance-theme-copy">
-                        <strong>{option.label}</strong>
+                        <strong>{getColorThemeLabel(option.value)}</strong>
                       </span>
                       <span
                         aria-hidden="true"
@@ -366,12 +490,19 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
         aria-controls={dialogId}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        aria-label={`Appearance menu. ${activeColorTheme.label}. ${currentModeLabel}.`}
+        aria-label={i18n._({
+          id: 'Appearance menu. {colorTheme}. {mode}.',
+          message: 'Appearance menu. {colorTheme}. {mode}.',
+          values: {
+            colorTheme: activeColorThemeLabel,
+            mode: currentModeLabel,
+          },
+        })}
         className={triggerClassName}
         onClick={() => setIsOpen((current) => !current)}
         ref={triggerRef}
         style={activeThemeStyle}
-        title={`${activeColorTheme.label} · ${currentModeLabel}`}
+        title={`${activeColorThemeLabel} · ${currentModeLabel}`}
         type="button"
       >
         <span className="web-ide__appearance-trigger-palette" aria-hidden="true">
@@ -381,9 +512,17 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
         </span>
         <span className="web-ide__appearance-trigger-copy">
           <span className="web-ide__appearance-trigger-label">
-            {compact ? 'Theme' : 'Appearance'}
+            {compact
+              ? i18n._({
+                  id: 'Theme',
+                  message: 'Theme',
+                })
+              : i18n._({
+                  id: 'Appearance',
+                  message: 'Appearance',
+                })}
           </span>
-          <span className="web-ide__appearance-trigger-value">{activeColorTheme.label}</span>
+          <span className="web-ide__appearance-trigger-value">{activeColorThemeLabel}</span>
         </span>
         <span className="web-ide__appearance-trigger-mode" aria-hidden="true">
           <ThemeModeGlyph resolvedTheme={resolvedTheme} theme={theme} />
@@ -398,12 +537,41 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
 }
 
 export function AppMenuBar({
+  commandPaletteShortcutLabel,
   mobileNavOpen = false,
+  onOpenCommandPalette,
   onOpenSidebar,
   showMobileNavButton = false,
 }: AppMenuBarProps) {
   const queryClient = useQueryClient()
   const location = useLocation()
+  const openCommandPaletteLabel = i18n._({
+    id: 'Open command palette',
+    message: 'Open command palette',
+  })
+  const commandPaletteLabel = i18n._({
+    id: 'Command Palette',
+    message: 'Command Palette',
+  })
+  const syncThreadNowLabel = i18n._({
+    id: 'Sync thread now',
+    message: 'Sync thread now',
+  })
+  const threadRunningLabel = i18n._({
+    id: 'Thread running',
+    message: 'Thread running',
+  })
+  const threadIdleLabel = i18n._({
+    id: 'Thread idle',
+    message: 'Thread idle',
+  })
+  const threadToolsLabel = i18n._({
+    id: 'Thread tools',
+    message: 'Thread tools',
+  })
+  const commandTriggerLabel = showMobileNavButton
+    ? i18n._({ id: 'Search', message: 'Search' })
+    : i18n._({ id: 'Command', message: 'Command' })
   const mobileThreadChromeVisible = useUIStore((state) => state.mobileThreadChromeVisible)
   const mobileThreadTitle = useUIStore((state) => state.mobileThreadTitle)
   const mobileThreadStatusLabel = useUIStore((state) => state.mobileThreadStatusLabel)
@@ -444,7 +612,17 @@ export function AppMenuBar({
         {showMobileNavButton ? (
           <button
             aria-expanded={mobileNavOpen}
-            aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+            aria-label={
+              mobileNavOpen
+                ? i18n._({
+                    id: 'Close navigation',
+                    message: 'Close navigation',
+                  })
+                : i18n._({
+                    id: 'Open navigation',
+                    message: 'Open navigation',
+                  })
+            }
             className="web-ide__mobile-nav-button"
             onClick={onOpenSidebar}
             type="button"
@@ -467,7 +645,7 @@ export function AppMenuBar({
         ) : null}
         {menuItems.map((item) => (
           <button className="web-ide__menuitem" key={item} type="button">
-            {item}
+            {getMenuItemLabel(item)}
           </button>
         ))}
       </div>
@@ -487,7 +665,7 @@ export function AppMenuBar({
               </span>
             ) : null}
             <button
-              aria-label="Sync thread now"
+              aria-label={syncThreadNowLabel}
               className={
                 mobileThreadRefreshBusy
                   ? 'web-ide__thread-refresh-button web-ide__thread-refresh-button--spinning'
@@ -495,7 +673,7 @@ export function AppMenuBar({
               }
               disabled={mobileThreadRefreshBusy}
               onClick={() => void handleRefreshThreadChrome()}
-              title="Sync thread now"
+              title={syncThreadNowLabel}
               type="button"
             >
               <RefreshIcon />
@@ -506,7 +684,7 @@ export function AppMenuBar({
             {mobileThreadActivityVisible ? (
               <span
                 className="web-ide__thread-activity-status"
-                title={mobileThreadActivityRunning ? 'Thread running' : 'Thread idle'}
+                title={mobileThreadActivityRunning ? threadRunningLabel : threadIdleLabel}
               >
                 <span
                   aria-hidden="true"
@@ -534,7 +712,7 @@ export function AppMenuBar({
               </span>
             ) : null}
             <button
-              aria-label="Sync thread now"
+              aria-label={syncThreadNowLabel}
               className={
                 mobileThreadRefreshBusy
                   ? 'web-ide__thread-refresh-button web-ide__thread-refresh-button--spinning'
@@ -542,7 +720,7 @@ export function AppMenuBar({
               }
               disabled={mobileThreadRefreshBusy}
               onClick={() => void handleRefreshThreadChrome()}
-              title="Sync thread now"
+              title={syncThreadNowLabel}
               type="button"
             >
               <RefreshIcon />
@@ -551,21 +729,31 @@ export function AppMenuBar({
               {mobileThreadStatusLabel}
             </span>
             <RailIconButton
-              aria-label={mobileThreadToolsOpen ? 'Close thread tools' : 'Open thread tools'}
+              aria-label={
+                mobileThreadToolsOpen
+                  ? i18n._({
+                      id: 'Close thread tools',
+                      message: 'Close thread tools',
+                    })
+                  : i18n._({
+                      id: 'Open thread tools',
+                      message: 'Open thread tools',
+                    })
+              }
               className={
                 mobileThreadToolsOpen
                   ? 'web-ide__thread-tools-button web-ide__thread-tools-button--active'
                   : 'web-ide__thread-tools-button'
               }
               onClick={() => setMobileThreadToolsOpen(!mobileThreadToolsOpen)}
-                title="Thread tools"
+              title={threadToolsLabel}
               >
                 <ToolsIcon />
               </RailIconButton>
             {mobileThreadActivityVisible ? (
               <span
                 className="web-ide__thread-activity-status"
-                title={mobileThreadActivityRunning ? 'Thread running' : 'Thread idle'}
+                title={mobileThreadActivityRunning ? threadRunningLabel : threadIdleLabel}
               >
                 <span
                   aria-hidden="true"
@@ -585,6 +773,27 @@ export function AppMenuBar({
           <span className="web-ide__usage-negative">-529</span>
           </div>
         ) : null}
+        <button
+          aria-label={`${openCommandPaletteLabel} (${commandPaletteShortcutLabel})`}
+          className={
+            showMobileNavButton
+              ? 'web-ide__command-trigger web-ide__command-trigger--mobile'
+              : 'web-ide__command-trigger'
+          }
+          onClick={onOpenCommandPalette}
+          title={`${commandPaletteLabel} (${commandPaletteShortcutLabel})`}
+          type="button"
+        >
+          <span className="web-ide__command-trigger-icon" aria-hidden="true">
+            <SearchIcon />
+          </span>
+          <span className="web-ide__command-trigger-copy">
+            <span className="web-ide__command-trigger-label">{commandTriggerLabel}</span>
+            {!showMobileNavButton ? (
+              <span className="web-ide__command-trigger-hint">{commandPaletteShortcutLabel}</span>
+            ) : null}
+          </span>
+        </button>
         <NotificationCenter compact={showMobileNavButton} />
         <AppearanceMenu compact={showMobileNavButton} />
       </div>

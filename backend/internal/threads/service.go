@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codex-server/backend/internal/bridge"
+	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 )
@@ -60,7 +61,12 @@ func (s *Service) Create(ctx context.Context, workspaceID string, input CreateIn
 		Thread map[string]any `json:"thread"`
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/start", buildThreadStartPayload(s.runtimes.RootPath(workspaceID), input), &response); err != nil {
+	defaults, err := s.runtimeDefaults()
+	if err != nil {
+		return store.Thread{}, err
+	}
+
+	if err := s.runtimes.Call(ctx, workspaceID, "thread/start", buildThreadStartPayload(s.runtimes.RootPath(workspaceID), input, defaults), &response); err != nil {
 		return store.Thread{}, err
 	}
 
@@ -86,11 +92,29 @@ func (s *Service) Create(ctx context.Context, workspaceID string, input CreateIn
 	return thread, nil
 }
 
-func buildThreadStartPayload(rootPath string, input CreateInput) map[string]any {
+type runtimeThreadDefaults struct {
+	ApprovalPolicy     string
+	SandboxMode        string
+	HasSandboxOverride bool
+}
+
+func buildThreadStartPayload(rootPath string, input CreateInput, defaults runtimeThreadDefaults) map[string]any {
 	payload := map[string]any{
-		"approvalPolicy": "on-request",
-		"cwd":            rootPath,
-		"sandbox":        "workspace-write",
+		"cwd": rootPath,
+	}
+
+	approvalPolicy := appconfig.ApprovalPolicyJSONValue(defaults.ApprovalPolicy)
+	if approvalPolicy == "" {
+		approvalPolicy = "on-request"
+	}
+	payload["approvalPolicy"] = approvalPolicy
+
+	sandboxMode := strings.TrimSpace(defaults.SandboxMode)
+	switch {
+	case sandboxMode != "":
+		payload["sandbox"] = sandboxMode
+	case !defaults.HasSandboxOverride:
+		payload["sandbox"] = "workspace-write"
 	}
 
 	if model := strings.TrimSpace(input.Model); model != "" {
@@ -104,6 +128,24 @@ func buildThreadStartPayload(rootPath string, input CreateInput) map[string]any 
 	}
 
 	return payload
+}
+
+func (s *Service) runtimeDefaults() (runtimeThreadDefaults, error) {
+	prefs := s.store.GetRuntimePreferences()
+	approvalPolicy, err := appconfig.NormalizeApprovalPolicy(prefs.DefaultTurnApprovalPolicy)
+	if err != nil {
+		return runtimeThreadDefaults{}, err
+	}
+	sandboxPolicy, err := appconfig.NormalizeSandboxPolicyMap(prefs.DefaultTurnSandboxPolicy)
+	if err != nil {
+		return runtimeThreadDefaults{}, err
+	}
+
+	return runtimeThreadDefaults{
+		ApprovalPolicy:     approvalPolicy,
+		SandboxMode:        appconfig.SandboxModeFromSandboxPolicyMap(sandboxPolicy),
+		HasSandboxOverride: len(sandboxPolicy) > 0,
+	}, nil
 }
 
 func normalizePermissionPreset(value string) string {
@@ -383,6 +425,34 @@ func (s *Service) Delete(ctx context.Context, workspaceID string, threadID strin
 	}
 
 	return s.store.DeleteThread(workspaceID, threadID)
+}
+
+func (s *Service) ShellCommand(ctx context.Context, workspaceID string, threadID string, command string) error {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(command) == "" {
+		return errors.New("shell command is required")
+	}
+
+	if err := s.runThreadShellCommand(ctx, workspaceID, threadID, command); err != nil {
+		if !isThreadResumeRequired(err) {
+			return err
+		}
+		if _, resumeErr := s.Resume(ctx, workspaceID, threadID); resumeErr != nil {
+			return resumeErr
+		}
+		return s.runThreadShellCommand(ctx, workspaceID, threadID, command)
+	}
+
+	return nil
+}
+
+func (s *Service) runThreadShellCommand(ctx context.Context, workspaceID string, threadID string, command string) error {
+	return s.runtimes.Call(ctx, workspaceID, "thread/shellCommand", map[string]any{
+		"threadId": threadID,
+		"command":  command,
+	}, nil)
 }
 
 func (s *Service) listByArchived(ctx context.Context, workspaceID string, archived bool) ([]store.Thread, error) {
@@ -1063,4 +1133,19 @@ func isThreadTurnsUnavailableBeforeFirstUserMessage(err error) bool {
 	message := strings.ToLower(strings.TrimSpace(rpcErr.Message))
 	return strings.Contains(message, "not materialized yet") &&
 		strings.Contains(message, "before first user message")
+}
+
+func isThreadResumeRequired(err error) bool {
+	var rpcErr *bridge.RPCError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+
+	if rpcErr.Code != -32600 {
+		return false
+	}
+
+	message := strings.ToLower(strings.TrimSpace(rpcErr.Message))
+	return strings.Contains(message, "thread not loaded") ||
+		strings.Contains(message, "thread not found")
 }

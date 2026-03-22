@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 
+import { InlineNotice } from '../components/ui/InlineNotice'
 import { listRemoteSkills, listSkills } from '../features/catalog/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { SelectControl } from '../components/ui/SelectControl'
+import { getErrorMessage } from '../lib/error-utils'
 
 type SkillCardItem = {
   id: string
@@ -62,6 +64,9 @@ export function SkillsPage() {
     [workspaceId, workspacesQuery.data],
   )
   const filteredCount = localSkills.length + remoteSkills.length
+  const workspacesError = workspacesQuery.error ? getErrorMessage(workspacesQuery.error) : null
+  const localSkillsError = localSkillsQuery.error ? getErrorMessage(localSkillsQuery.error) : null
+  const remoteSkillsError = remoteSkillsQuery.error ? getErrorMessage(remoteSkillsQuery.error) : null
 
   return (
     <section className="screen">
@@ -145,22 +150,42 @@ export function SkillsPage() {
         </aside>
 
         <div className="mode-stage stack-screen">
+          {workspacesError ? (
+            <InlineNotice
+              dismissible
+              noticeKey={`skills-workspaces-${workspacesError}`}
+              onRetry={() => void workspacesQuery.refetch()}
+              title="Failed To Load Workspaces"
+              tone="error"
+            >
+              {workspacesError}
+            </InlineNotice>
+          ) : null}
+          {!workspacesQuery.isLoading && !workspacesError && !workspaceId ? (
+            <div className="empty-state">Create a workspace first to browse installed and remote skills.</div>
+          ) : null}
           <DirectorySection
             description="Installed skills already available in the selected workspace runtime."
             emptyMessage="No installed skills available."
+            errorMessage={localSkillsError}
             items={localSkills}
             loading={localSkillsQuery.isLoading}
             marker="IN"
+            onRetry={() => void localSkillsQuery.refetch()}
             sourceLabel="Installed"
+            titleError="Failed To Load Installed Skills"
             title="Installed Skills"
           />
           <DirectorySection
             description="Remote skills that can be inspected or brought into the current workspace later."
             emptyMessage="No remote skills available."
+            errorMessage={remoteSkillsError}
             items={remoteSkills}
             loading={remoteSkillsQuery.isLoading}
             marker="RM"
+            onRetry={() => void remoteSkillsQuery.refetch()}
             sourceLabel="Remote"
+            titleError="Failed To Load Remote Skills"
             title="Remote Skills"
           />
         </div>
@@ -177,6 +202,9 @@ function DirectorySection({
   marker,
   sourceLabel,
   emptyMessage,
+  errorMessage,
+  onRetry,
+  titleError,
 }: {
   title: string
   description: string
@@ -185,6 +213,9 @@ function DirectorySection({
   marker: string
   sourceLabel: string
   emptyMessage: string
+  errorMessage?: string | null
+  onRetry?: () => void
+  titleError: string
 }) {
   return (
     <section className="mode-panel mode-panel--flush">
@@ -198,7 +229,18 @@ function DirectorySection({
         <p className="mode-panel__description">{description}</p>
       </div>
       {loading ? <div className="notice">Loading…</div> : null}
-      {!loading && !items.length ? <div className="empty-state">{emptyMessage}</div> : null}
+      {errorMessage ? (
+        <InlineNotice
+          dismissible
+          noticeKey={`${title}-${errorMessage}`}
+          onRetry={onRetry}
+          title={titleError}
+          tone="error"
+        >
+          {errorMessage}
+        </InlineNotice>
+      ) : null}
+      {!loading && !errorMessage && !items.length ? <div className="empty-state">{emptyMessage}</div> : null}
       <div className="directory-list">
         {items.map((item) => (
           <article className="directory-item" key={item.id}>

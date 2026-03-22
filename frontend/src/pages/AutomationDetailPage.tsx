@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 
 import { PageHeader } from '../components/ui/PageHeader'
 import { Button } from '../components/ui/Button'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { Modal } from '../components/ui/Modal'
 import { AutomationRunLog } from '../features/automations/AutomationRunLog'
@@ -29,6 +30,7 @@ export function AutomationDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<RunViewMode>('details')
 
@@ -77,6 +79,7 @@ export function AutomationDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteAutomation(id),
     onSuccess: async (_, id) => {
+      setConfirmingDelete(false)
       queryClient.removeQueries({ queryKey: ['automation', id] })
       queryClient.removeQueries({ queryKey: ['automation-runs', id] })
       await queryClient.invalidateQueries({ queryKey: ['automations'] })
@@ -84,7 +87,7 @@ export function AutomationDetailPage() {
     },
   })
 
-  const actionError = statusMutation.error ?? triggerMutation.error ?? deleteMutation.error
+  const actionError = statusMutation.error ?? triggerMutation.error
 
   if (!automationId) return <AutomationNotFound />
   if (automationQuery.isLoading) return <LoadingState />
@@ -99,6 +102,32 @@ export function AutomationDetailPage() {
   const openRunView = (runId: string, mode: RunViewMode) => {
     setSelectedRunId(runId)
     setViewMode(mode)
+  }
+
+  function handleOpenDeleteConfirm() {
+    if (deleteMutation.isPending) {
+      return
+    }
+
+    deleteMutation.reset()
+    setConfirmingDelete(true)
+  }
+
+  function handleCloseDeleteConfirm() {
+    if (deleteMutation.isPending) {
+      return
+    }
+
+    deleteMutation.reset()
+    setConfirmingDelete(false)
+  }
+
+  function handleConfirmDelete(automationIdToDelete: string) {
+    if (deleteMutation.isPending) {
+      return
+    }
+
+    deleteMutation.mutate(automationIdToDelete)
   }
 
   return (
@@ -136,8 +165,7 @@ export function AutomationDetailPage() {
             <Button
               intent="secondary"
               className="ide-button--ghost-danger"
-              isLoading={deleteMutation.isPending}
-              onClick={() => deleteMutation.mutate(automation.id)}
+              onClick={handleOpenDeleteConfirm}
             >
               Delete
             </Button>
@@ -313,6 +341,19 @@ export function AutomationDetailPage() {
           )}
         </Modal>
       )}
+
+      {confirmingDelete ? (
+        <ConfirmDialog
+          confirmLabel="Delete Automation"
+          description="This permanently removes the automation and its recorded runs. You will be returned to the automation registry."
+          error={deleteMutation.error ? getErrorMessage(deleteMutation.error) : null}
+          isPending={deleteMutation.isPending}
+          onClose={handleCloseDeleteConfirm}
+          onConfirm={() => handleConfirmDelete(automation.id)}
+          subject={automation.title}
+          title="Delete Automation?"
+        />
+      ) : null}
     </section>
   )
 }

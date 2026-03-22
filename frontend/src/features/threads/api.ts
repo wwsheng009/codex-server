@@ -71,3 +71,17 @@ export function compactThread(workspaceId: string, threadId: string) {
     method: 'POST',
   })
 }
+
+export function runThreadShellCommand(
+  workspaceId: string,
+  threadId: string,
+  input: { command: string },
+) {
+  return apiRequest<{ status: string }>(
+    `/api/workspaces/${workspaceId}/threads/${threadId}/shell-command`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  )
+}

@@ -1,3 +1,6 @@
+import { useMemo } from 'react'
+
+import { buildShellEnvironmentDiagnosis } from '../../features/settings/shell-environment-diagnostics'
 import { useThreadPagePanelQueries } from './useThreadPagePanelQueries'
 import { useThreadPageQueries } from './useThreadPageQueries'
 import { useThreadPageSelectedThread } from './useThreadPageSelectedThread'
@@ -24,6 +27,7 @@ export function useThreadPageData({
   const {
     accountQuery,
     approvalsQuery,
+    environmentConfigQuery,
     fileSearchQuery,
     loadedThreadsQuery,
     modelsQuery,
@@ -64,10 +68,28 @@ export function useThreadPageData({
     threads: threadsQuery.data,
   })
 
+  const shellEnvironmentPolicy = useMemo(() => {
+    const config = environmentConfigQuery.data?.config
+    if (!config || typeof config !== 'object') {
+      return null
+    }
+
+    const value = config['shell_environment_policy']
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+  }, [environmentConfigQuery.data?.config])
+
+  const shellEnvironmentDiagnosis = useMemo(
+    () => buildShellEnvironmentDiagnosis(shellEnvironmentPolicy),
+    [shellEnvironmentPolicy],
+  )
+
   return {
     accountQuery,
     approvalsQuery,
     commandSessions,
+    environmentConfigQuery,
     fileSearchQuery,
     liveThreadDetail,
     loadedThreadsQuery,
@@ -77,6 +99,8 @@ export function useThreadPageData({
     selectedThread,
     selectedThreadEvents,
     selectedThreadTokenUsage,
+    shellEnvironmentDiagnosis,
+    shellEnvironmentPolicy,
     skillsQuery,
     threadDetailQuery,
     threadsQuery,

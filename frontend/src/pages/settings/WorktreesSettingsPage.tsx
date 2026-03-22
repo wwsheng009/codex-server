@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { SettingsGroup, SettingRow, SettingsPageHeader } from '../../components/settings/SettingsPrimitives'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
+import { i18n } from '../../i18n/runtime'
 
 export function WorktreesSettingsPage() {
   const { workspaces } = useSettingsShellContext()
@@ -24,27 +25,49 @@ export function WorktreesSettingsPage() {
   return (
     <section className="settings-page">
       <SettingsPageHeader
-        description="Review worktree retention policy and root reuse behavior. Current worktree data is approximated from registered workspace roots."
+        description={i18n._({
+          id: 'Review worktree retention policy and root reuse behavior. Current worktree data is approximated from registered workspace roots.',
+          message:
+            'Review worktree retention policy and root reuse behavior. Current worktree data is approximated from registered workspace roots.',
+        })}
         meta={
           <>
-            <span className="meta-pill">{maxWorktrees} max</span>
-            <span className="meta-pill">{autoPruneDays}d prune</span>
+            <span className="meta-pill">
+              {i18n._({
+                id: '{count} max',
+                message: '{count} max',
+                values: { count: maxWorktrees },
+              })}
+            </span>
+            <span className="meta-pill">
+              {i18n._({
+                id: '{count}d prune',
+                message: '{count}d prune',
+                values: { count: autoPruneDays },
+              })}
+            </span>
           </>
         }
-        title="Worktrees"
+        title={i18n._({ id: 'Worktrees', message: 'Worktrees' })}
       />
 
       <div className="settings-page__stack">
         <SettingsGroup
-          description="Local policy controls for future worktree-aware flows."
-          title="Policy"
+          description={i18n._({
+            id: 'Local policy controls for future worktree-aware flows.',
+            message: 'Local policy controls for future worktree-aware flows.',
+          })}
+          title={i18n._({ id: 'Policy', message: 'Policy' })}
         >
           <SettingRow
-            description="Limit how many worktrees this client should keep visible before pruning guidance appears."
-            title="Maximum Worktrees"
+            description={i18n._({
+              id: 'Limit how many worktrees this client should keep visible before pruning guidance appears.',
+              message: 'Limit how many worktrees this client should keep visible before pruning guidance appears.',
+            })}
+            title={i18n._({ id: 'Maximum Worktrees', message: 'Maximum Worktrees' })}
           >
             <label className="field">
-              <span>Max Worktrees</span>
+              <span>{i18n._({ id: 'Max Worktrees', message: 'Max Worktrees' })}</span>
               <input
                 onChange={(event) => setMaxWorktrees(Number.parseInt(event.target.value || '0', 10) || 0)}
                 type="number"
@@ -54,11 +77,14 @@ export function WorktreesSettingsPage() {
           </SettingRow>
 
           <SettingRow
-            description="Control local cleanup timing and whether existing branches should be reused."
-            title="Cleanup"
+            description={i18n._({
+              id: 'Control local cleanup timing and whether existing branches should be reused.',
+              message: 'Control local cleanup timing and whether existing branches should be reused.',
+            })}
+            title={i18n._({ id: 'Cleanup', message: 'Cleanup' })}
           >
             <label className="field">
-              <span>Auto Prune Days</span>
+              <span>{i18n._({ id: 'Auto Prune Days', message: 'Auto Prune Days' })}</span>
               <input
                 onChange={(event) => setAutoPruneDays(Number.parseInt(event.target.value || '0', 10) || 0)}
                 type="number"
@@ -66,7 +92,7 @@ export function WorktreesSettingsPage() {
               />
             </label>
             <label className="field field--inline">
-              <span>Reuse Branches</span>
+              <span>{i18n._({ id: 'Reuse Branches', message: 'Reuse Branches' })}</span>
               <input
                 checked={reuseBranches}
                 onChange={(event) => setReuseBranches(event.target.checked)}
@@ -77,21 +103,44 @@ export function WorktreesSettingsPage() {
         </SettingsGroup>
 
         <SettingsGroup
-          description="Distinct roots currently represented by the registered workspace list."
-          title="Registered Roots"
+          description={i18n._({
+            id: 'Distinct roots currently represented by the registered workspace list.',
+            message: 'Distinct roots currently represented by the registered workspace list.',
+          })}
+          title={i18n._({ id: 'Registered Roots', message: 'Registered Roots' })}
         >
           <SettingRow
-            description="This is not yet live git worktree discovery. It is a stable placeholder using the roots already known to the client."
-            title="Root Overview"
+            description={i18n._({
+              id: 'This is not yet live git worktree discovery. It is a stable placeholder using the roots already known to the client.',
+              message:
+                'This is not yet live git worktree discovery. It is a stable placeholder using the roots already known to the client.',
+            })}
+            title={i18n._({ id: 'Root Overview', message: 'Root Overview' })}
           >
-            {!rootSummary.length ? <div className="empty-state">No roots available yet.</div> : null}
+            {!rootSummary.length ? (
+              <div className="empty-state">
+                {i18n._({ id: 'No roots available yet.', message: 'No roots available yet.' })}
+              </div>
+            ) : null}
             <div className="directory-list">
               {rootSummary.map((root) => (
                 <article className="directory-item" key={root.rootPath}>
                   <div className="directory-item__icon">WT</div>
                   <div className="directory-item__body">
                     <strong>{root.rootPath}</strong>
-                    <p>{root.count} registered workspace{root.count === 1 ? '' : 's'} share this root.</p>
+                    <p>
+                      {root.count === 1
+                        ? i18n._({
+                            id: '{count} registered workspace shares this root.',
+                            message: '{count} registered workspace shares this root.',
+                            values: { count: root.count },
+                          })
+                        : i18n._({
+                            id: '{count} registered workspaces share this root.',
+                            message: '{count} registered workspaces share this root.',
+                            values: { count: root.count },
+                          })}
+                    </p>
                   </div>
                   <div className="directory-item__meta">
                     <span className="meta-pill">{root.count}</span>

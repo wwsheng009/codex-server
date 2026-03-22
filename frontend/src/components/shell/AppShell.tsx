@@ -1,8 +1,9 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
+import { CommandPalette, type CommandPaletteItem } from './CommandPalette'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { InlineNotice } from '../ui/InlineNotice'
 import { RenameDialog } from '../ui/RenameDialog'
@@ -41,13 +42,32 @@ import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-util
 import type { ServerEvent, Thread, ThreadDetail, Workspace } from '../../types/api'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { AppMenuBar } from './AppMenuBar'
+import { getActiveLocale, i18n } from '../../i18n/runtime'
 
-const primaryNav = [
-  { to: '/workspaces', label: 'Workspaces', icon: AppGridIcon },
-  { to: '/automations', label: 'Automations', icon: AutomationIcon },
-  { to: '/skills', label: 'Skills', icon: SparkIcon },
-  { to: '/runtime', label: 'Runtime', icon: TerminalIcon },
-]
+function getPrimaryNavItems() {
+  return [
+    {
+      to: '/workspaces',
+      label: i18n._({ id: 'Workspaces', message: 'Workspaces' }),
+      icon: AppGridIcon,
+    },
+    {
+      to: '/automations',
+      label: i18n._({ id: 'Automations', message: 'Automations' }),
+      icon: AutomationIcon,
+    },
+    {
+      to: '/skills',
+      label: i18n._({ id: 'Skills', message: 'Skills' }),
+      icon: SparkIcon,
+    },
+    {
+      to: '/runtime',
+      label: i18n._({ id: 'Runtime', message: 'Runtime' }),
+      icon: TerminalIcon,
+    },
+  ] as const
+}
 
 type SidebarMenuState =
   | {
@@ -176,10 +196,30 @@ function threadIsRunning(thread: Thread, events: ServerEvent[] | undefined) {
   return statusIsInterruptible(thread.status)
 }
 
+function formatWorkspaceRuntimeStatus(status: string) {
+  const normalized = status.trim().toLowerCase().replace(/[\s_-]+/g, '')
+
+  switch (normalized) {
+    case 'ready':
+      return i18n._({ id: 'Ready', message: 'Ready' })
+    case 'active':
+      return i18n._({ id: 'Active', message: 'Active' })
+    case 'connected':
+      return i18n._({ id: 'Connected', message: 'Connected' })
+    case 'unknown':
+      return i18n._({ id: 'Unknown', message: 'Unknown' })
+    case 'restarting':
+      return i18n._({ id: 'Restarting', message: 'Restarting' })
+    default:
+      return status
+  }
+}
+
 export function AppShell() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
+  const activeLocale = getActiveLocale()
   const isMobileViewport = useMediaQuery('(max-width: 900px)')
   const isSettingsRoute = location.pathname.startsWith('/settings')
   const [isSidebarResizing, setIsSidebarResizing] = useState(false)
@@ -189,6 +229,7 @@ export function AppShell() {
     readWorkspaceThreadGroupsCollapsed,
   )
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(readLeftSidebarWidth)
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [openMenu, setOpenMenu] = useState<SidebarMenuState>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -250,7 +291,26 @@ export function AppShell() {
     setOpenMenu(null)
     setRenameTarget(null)
     setDeleteTarget(null)
+    setIsCommandPaletteOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    function handleCommandPaletteKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing) {
+        return
+      }
+
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setIsCommandPaletteOpen(true)
+      }
+    }
+
+    window.addEventListener('keydown', handleCommandPaletteKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleCommandPaletteKeyDown)
+    }
+  }, [])
 
   useEffect(() => {
     if (!openMenu) {
@@ -751,6 +811,225 @@ export function AppShell() {
 
   const isDesktopSidebarCollapsed = !isMobileViewport && isSidebarCollapsed
   const shouldShowSidebarLabels = isMobileViewport || !isSidebarCollapsed
+  const commandPaletteShortcutLabel = useMemo(() => {
+    if (typeof navigator === 'undefined') {
+      return 'Ctrl K'
+    }
+
+    return /mac/i.test(navigator.platform) ? '⌘K' : 'Ctrl K'
+  }, [])
+  const threadsByWorkspace = useMemo(
+    () =>
+      new Map(
+        (workspacesQuery.data ?? []).map((workspace, index) => [workspace.id, threadQueries[index]?.data ?? []]),
+      ),
+    [threadQueries, workspacesQuery.data],
+  )
+  const selectedWorkspace = useMemo(
+    () => (workspacesQuery.data ?? []).find((workspace) => workspace.id === selectedWorkspaceId),
+    [selectedWorkspaceId, workspacesQuery.data],
+  )
+  const currentSection = location.pathname.startsWith('/workspaces')
+    ? 'workspaces'
+    : location.pathname.startsWith('/automations')
+      ? 'automations'
+      : location.pathname.startsWith('/skills')
+        ? 'skills'
+        : location.pathname.startsWith('/runtime')
+          ? 'runtime'
+          : location.pathname.startsWith('/settings')
+            ? 'settings'
+            : 'other'
+  const primaryNav = getPrimaryNavItems()
+  const paletteItems = useMemo(() => {
+    const nextItems: CommandPaletteItem[] = [
+      {
+        id: 'nav-workspaces',
+        group: 'Nav',
+        title: i18n._({ id: 'Open Workspaces', message: 'Open Workspaces' }),
+        subtitle: i18n._({
+          id: 'Go to the workspace registry',
+          message: 'Go to the workspace registry',
+        }),
+        keywords: ['workspace', 'registry', 'workbench'],
+        priority: currentSection === 'workspaces' ? 40 : 10,
+        onSelect: () => navigate('/workspaces'),
+      },
+      {
+        id: 'nav-automations',
+        group: 'Nav',
+        title: i18n._({ id: 'Open Automations', message: 'Open Automations' }),
+        subtitle: i18n._({
+          id: 'Browse automation runs and templates',
+          message: 'Browse automation runs and templates',
+        }),
+        keywords: ['automation', 'jobs', 'scheduler'],
+        priority: currentSection === 'automations' ? 40 : 11,
+        onSelect: () => navigate('/automations'),
+      },
+      {
+        id: 'nav-skills',
+        group: 'Nav',
+        title: i18n._({ id: 'Open Skills', message: 'Open Skills' }),
+        subtitle: i18n._({
+          id: 'Browse installed and remote skills',
+          message: 'Browse installed and remote skills',
+        }),
+        keywords: ['skills', 'catalog', 'directory'],
+        priority: currentSection === 'skills' ? 40 : 12,
+        onSelect: () => navigate('/skills'),
+      },
+      {
+        id: 'nav-runtime',
+        group: 'Nav',
+        title: i18n._({ id: 'Open Runtime', message: 'Open Runtime' }),
+        subtitle: i18n._({
+          id: 'Inspect runtime inventory and actions',
+          message: 'Inspect runtime inventory and actions',
+        }),
+        keywords: ['runtime', 'catalog', 'models', 'plugins'],
+        priority: currentSection === 'runtime' ? 40 : 13,
+        onSelect: () => navigate('/runtime'),
+      },
+      {
+        id: 'nav-settings-general',
+        group: 'Nav',
+        title: i18n._({
+          id: 'Open Settings: General',
+          message: 'Open Settings: General',
+        }),
+        subtitle: i18n._({
+          id: 'Account, login, and usage limits',
+          message: 'Account, login, and usage limits',
+        }),
+        keywords: ['settings', 'general', 'account', 'login'],
+        priority: currentSection === 'settings' ? 42 : 14,
+        onSelect: () => navigate('/settings/general'),
+      },
+      {
+        id: 'nav-settings-appearance',
+        group: 'Nav',
+        title: i18n._({
+          id: 'Open Settings: Appearance',
+          message: 'Open Settings: Appearance',
+        }),
+        subtitle: i18n._({
+          id: 'Theme, density, and motion preferences',
+          message: 'Theme, density, and motion preferences',
+        }),
+        keywords: ['settings', 'appearance', 'theme', 'motion'],
+        priority: currentSection === 'settings' ? 43 : 15,
+        onSelect: () => navigate('/settings/appearance'),
+      },
+    ]
+
+    if (selectedWorkspace) {
+      nextItems.unshift(
+        {
+          id: `action-new-thread-${selectedWorkspace.id}`,
+          group: 'Action',
+          title: i18n._({
+            id: 'New Thread in {workspace}',
+            message: 'New Thread in {workspace}',
+            values: { workspace: selectedWorkspace.name },
+          }),
+          subtitle: selectedWorkspace.rootPath,
+          keywords: ['new thread', 'create thread', 'workspace'],
+          priority: currentSection === 'workspaces' ? 0 : 4,
+          shortcut: 'Enter',
+          onSelect: () => handleCreateThreadForWorkspace(selectedWorkspace),
+        },
+        {
+          id: `action-refresh-workspace-${selectedWorkspace.id}`,
+          group: 'Action',
+          title: i18n._({
+            id: 'Refresh {workspace}',
+            message: 'Refresh {workspace}',
+            values: { workspace: selectedWorkspace.name },
+          }),
+          subtitle: i18n._({
+            id: 'Refetch threads, workspace state, and approvals',
+            message: 'Refetch threads, workspace state, and approvals',
+          }),
+          keywords: ['refresh', 'reload', 'sync', 'workspace'],
+          priority: currentSection === 'workspaces' ? 1 : 5,
+          onSelect: () => void handleRefreshWorkspace(selectedWorkspace.id),
+        },
+        {
+          id: `nav-current-workspace-${selectedWorkspace.id}`,
+          group: 'Nav',
+          title: i18n._({
+            id: 'Open {workspace}',
+            message: 'Open {workspace}',
+            values: { workspace: selectedWorkspace.name },
+          }),
+          subtitle: selectedWorkspace.rootPath,
+          keywords: ['open workspace', 'current workspace', selectedWorkspace.name],
+          priority: currentSection === 'workspaces' ? 2 : 16,
+          onSelect: () => {
+            setSelectedWorkspace(selectedWorkspace.id)
+            navigate(`/workspaces/${selectedWorkspace.id}`)
+          },
+        },
+      )
+    }
+
+    const recentWorkspaces = [...(workspacesQuery.data ?? [])]
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+      .slice(0, 5)
+
+    recentWorkspaces.forEach((workspace, index) => {
+      nextItems.push({
+        id: `recent-workspace-${workspace.id}`,
+        group: 'Recent',
+        title: workspace.name,
+        subtitle: workspace.rootPath,
+        keywords: ['recent workspace', workspace.name, workspace.rootPath],
+        priority: 100 + index,
+        onSelect: () => {
+          setSelectedWorkspace(workspace.id)
+          navigate(`/workspaces/${workspace.id}`)
+        },
+      })
+    })
+
+    const recentThreads = [...(workspacesQuery.data ?? [])]
+      .flatMap((workspace) =>
+        (threadsByWorkspace.get(workspace.id) ?? []).map((thread) => ({
+          workspace,
+          thread,
+        })),
+      )
+      .sort((left, right) => new Date(right.thread.updatedAt).getTime() - new Date(left.thread.updatedAt).getTime())
+      .slice(0, 6)
+
+    recentThreads.forEach(({ workspace, thread }, index) => {
+      nextItems.push({
+        id: `recent-thread-${thread.id}`,
+        group: 'Recent',
+        title: thread.name,
+        subtitle: `${workspace.name} · ${formatRelativeTimeShort(thread.updatedAt)}`,
+        keywords: ['recent thread', 'thread', thread.name, workspace.name],
+        priority: 120 + index,
+        onSelect: () => {
+          setSelectedWorkspace(workspace.id)
+          setSelectedThread(workspace.id, thread.id)
+          navigate(`/workspaces/${workspace.id}`)
+        },
+      })
+    })
+
+    return nextItems
+  }, [
+    activeLocale,
+    currentSection,
+    navigate,
+    selectedWorkspace,
+    setSelectedThread,
+    setSelectedWorkspace,
+    threadsByWorkspace,
+    workspacesQuery.data,
+  ])
   const sidebarClassName = [
     'web-ide__sidebar',
     isDesktopSidebarCollapsed ? 'web-ide__sidebar--collapsed' : '',
@@ -771,7 +1050,9 @@ export function AppShell() {
   return (
     <div className="web-ide">
       <AppMenuBar
+        commandPaletteShortcutLabel={commandPaletteShortcutLabel}
         mobileNavOpen={isMobileSidebarOpen}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenSidebar={() => setIsMobileSidebarOpen((current) => !current)}
         showMobileNavButton={isMobileViewport}
       />
@@ -789,7 +1070,7 @@ export function AppShell() {
       >
         {isMobileViewport && isMobileSidebarOpen ? (
           <button
-            aria-label="Close navigation"
+            aria-label={i18n._({ id: 'Close navigation', message: 'Close navigation' })}
             className="web-ide__sidebar-backdrop"
             onClick={() => setIsMobileSidebarOpen(false)}
             type="button"
@@ -798,7 +1079,7 @@ export function AppShell() {
         <aside className={sidebarClassName}>
           {!isMobileViewport && !isSidebarCollapsed ? (
             <ResizeHandle
-              aria-label="Resize sidebar"
+              aria-label={i18n._({ id: 'Resize sidebar', message: 'Resize sidebar' })}
               axis="horizontal"
               className="web-ide__sidebar-resize"
               edge="end"
@@ -831,7 +1112,9 @@ export function AppShell() {
 
             {shouldShowSidebarLabels && !isSettingsRoute ? (
               <div className="web-ide__workspace-tree">
-                <div className="web-ide__section-title">Workspaces</div>
+                <div className="web-ide__section-title">
+                  {i18n._({ id: 'Workspaces', message: 'Workspaces' })}
+                </div>
                 {restartWorkspaceMutation.error ? (
                   <InlineNotice
                     details={getErrorMessage(restartWorkspaceMutation.error)}
@@ -842,7 +1125,10 @@ export function AppShell() {
                         restartWorkspaceMutation.mutate(restartWorkspaceMutation.variables)
                       }
                     }}
-                    title="Failed To Restart Workspace"
+                    title={i18n._({
+                      id: 'Failed To Restart Workspace',
+                      message: 'Failed To Restart Workspace',
+                    })}
                     tone="error"
                   >
                     {getErrorMessage(restartWorkspaceMutation.error)}
@@ -858,7 +1144,10 @@ export function AppShell() {
                         createThreadMutation.mutate(createThreadMutation.variables)
                       }
                     }}
-                    title="Failed To Create Thread"
+                    title={i18n._({
+                      id: 'Failed To Create Thread',
+                      message: 'Failed To Create Thread',
+                    })}
                     tone="error"
                   >
                     {getErrorMessage(createThreadMutation.error)}
@@ -931,12 +1220,19 @@ export function AppShell() {
                           >
                             {isWorkspaceGroupOpen ? <FolderOpenIcon /> : <FolderClosedIcon />}
                           </span>
-                          <span className="workspace-tree__workspace-copy">
-                            <span className="workspace-tree__workspace-name">{workspace.name}</span>
-                            <span className="workspace-tree__workspace-meta">
-                              {threads.length} threads · {visualRuntimeStatus}
-                            </span>
-                            {restartPhase || refreshingWorkspaceIds.has(workspace.id) ? (
+                            <span className="workspace-tree__workspace-copy">
+                              <span className="workspace-tree__workspace-name">{workspace.name}</span>
+                              <span className="workspace-tree__workspace-meta">
+                                {i18n._({
+                                  id: '{count} threads · {status}',
+                                  message: '{count} threads · {status}',
+                                  values: {
+                                    count: threads.length,
+                                    status: formatWorkspaceRuntimeStatus(visualRuntimeStatus),
+                                  },
+                                })}
+                              </span>
+                              {restartPhase || refreshingWorkspaceIds.has(workspace.id) ? (
                               <span
                                 className={[
                                   'workspace-tree__workspace-runtime',
@@ -946,10 +1242,16 @@ export function AppShell() {
                                 ].join(' ')}
                               >
                                 {refreshingWorkspaceIds.has(workspace.id)
-                                  ? 'Refreshing...'
+                                  ? i18n._({ id: 'Refreshing...', message: 'Refreshing...' })
                                   : restartPhase === 'restarting'
-                                    ? 'Restarting runtime'
-                                    : 'Runtime refreshed'}
+                                    ? i18n._({
+                                        id: 'Restarting runtime',
+                                        message: 'Restarting runtime',
+                                      })
+                                    : i18n._({
+                                        id: 'Runtime refreshed',
+                                        message: 'Runtime refreshed',
+                                      })}
                               </span>
                             ) : null}
                           </span>
@@ -959,18 +1261,30 @@ export function AppShell() {
                           ref={isWorkspaceMenuOpen(workspace.id) ? menuRef : undefined}
                         >
                           <button
-                            aria-label={`Create thread in ${workspace.name}`}
+                            aria-label={i18n._({
+                              id: 'Create thread in {workspace}',
+                              message: 'Create thread in {workspace}',
+                              values: { workspace: workspace.name },
+                            })}
                             className="workspace-tree__create-trigger"
                             disabled={createThreadMutation.isPending || restartPhase === 'restarting'}
                             onClick={() => handleCreateThreadForWorkspace(workspace)}
-                            title={`Create thread in ${workspace.name}`}
+                            title={i18n._({
+                              id: 'Create thread in {workspace}',
+                              message: 'Create thread in {workspace}',
+                              values: { workspace: workspace.name },
+                            })}
                             type="button"
                           >
                             <PlusIcon />
                           </button>
                           <button
                             aria-expanded={isWorkspaceMenuOpen(workspace.id)}
-                            aria-label={`Open actions for ${workspace.name}`}
+                            aria-label={i18n._({
+                              id: 'Open actions for {name}',
+                              message: 'Open actions for {name}',
+                              values: { name: workspace.name },
+                            })}
                             className={
                               isWorkspaceMenuOpen(workspace.id)
                                 ? 'workspace-tree__menu-trigger workspace-tree__menu-trigger--active'
@@ -995,7 +1309,7 @@ export function AppShell() {
                                 onClick={() => void handleRefreshWorkspace(workspace.id)}
                                 type="button"
                               >
-                                Refresh
+                                {i18n._({ id: 'Refresh', message: 'Refresh' })}
                               </button>
                               <button
                                 className="workspace-tree__menu-item"
@@ -1010,8 +1324,8 @@ export function AppShell() {
                               >
                                 {restartWorkspaceMutation.isPending &&
                                 restartWorkspaceMutation.variables === workspace.id
-                                  ? 'Restarting…'
-                                  : 'Restart'}
+                                  ? i18n._({ id: 'Restarting…', message: 'Restarting…' })
+                                  : i18n._({ id: 'Restart', message: 'Restart' })}
                               </button>
                               <button
                                 className="workspace-tree__menu-item"
@@ -1024,7 +1338,7 @@ export function AppShell() {
                                 onClick={() => handleRenameWorkspace(workspace)}
                                 type="button"
                               >
-                                Rename
+                                {i18n._({ id: 'Rename', message: 'Rename' })}
                               </button>
                               <button
                                 className="workspace-tree__menu-item workspace-tree__menu-item--danger"
@@ -1040,8 +1354,8 @@ export function AppShell() {
                                 {deleteWorkspaceMutation.isPending &&
                                 deleteTarget?.kind === 'workspace' &&
                                 deleteTarget.workspace.id === workspace.id
-                                  ? 'Removing...'
-                                  : 'Remove'}
+                                  ? i18n._({ id: 'Removing...', message: 'Removing...' })
+                                  : i18n._({ id: 'Remove', message: 'Remove' })}
                               </button>
                             </div>
                           ) : null}
@@ -1103,7 +1417,11 @@ export function AppShell() {
                               >
                                 <button
                                   aria-expanded={isThreadMenuOpen(workspace.id, thread.id)}
-                                  aria-label={`Open actions for ${thread.name}`}
+                                  aria-label={i18n._({
+                                    id: 'Open actions for {name}',
+                                    message: 'Open actions for {name}',
+                                    values: { name: thread.name },
+                                  })}
                                   className={
                                     isThreadMenuOpen(workspace.id, thread.id)
                                       ? 'workspace-tree__menu-trigger workspace-tree__menu-trigger--active'
@@ -1131,7 +1449,7 @@ export function AppShell() {
                                       onClick={() => handleRenameThread(workspace.id, thread)}
                                       type="button"
                                     >
-                                      Rename
+                                      {i18n._({ id: 'Rename', message: 'Rename' })}
                                     </button>
                                     <button
                                       className="workspace-tree__menu-item workspace-tree__menu-item--danger"
@@ -1143,8 +1461,8 @@ export function AppShell() {
                                       deleteTarget?.kind === 'thread' &&
                                       deleteTarget.workspaceId === workspace.id &&
                                       deleteTarget.thread.id === thread.id
-                                        ? 'Deleting…'
-                                        : 'Delete'}
+                                        ? i18n._({ id: 'Deleting…', message: 'Deleting…' })
+                                        : i18n._({ id: 'Delete', message: 'Delete' })}
                                     </button>
                                   </div>
                                 ) : null}
@@ -1160,7 +1478,13 @@ export function AppShell() {
                                   onClick={() => handleShowMoreThreads(workspace.id)}
                                   type="button"
                                 >
-                                  Show {Math.min(DEFAULT_VISIBLE_THREADS, remainingThreadCount)} more
+                                  {i18n._({
+                                    id: 'Show {count} more',
+                                    message: 'Show {count} more',
+                                    values: {
+                                      count: Math.min(DEFAULT_VISIBLE_THREADS, remainingThreadCount),
+                                    },
+                                  })}
                                 </button>
                               ) : null}
                               {canShowLessThreads ? (
@@ -1169,7 +1493,7 @@ export function AppShell() {
                                   onClick={() => handleShowLessThreads(workspace.id)}
                                   type="button"
                                 >
-                                  Show less
+                                  {i18n._({ id: 'Show less', message: 'Show less' })}
                                 </button>
                               ) : null}
                             </div>
@@ -1193,17 +1517,25 @@ export function AppShell() {
                   setIsMobileSidebarOpen(false)
                 }
               }}
-              title="Settings"
+              title={i18n._({ id: 'Settings', message: 'Settings' })}
               to="/settings/general"
             >
               <RailIcon>
                 <SettingsIcon />
               </RailIcon>
-              {shouldShowSidebarLabels ? <span className="web-ide__primary-link-label">Settings</span> : null}
+              {shouldShowSidebarLabels ? (
+                <span className="web-ide__primary-link-label">
+                  {i18n._({ id: 'Settings', message: 'Settings' })}
+                </span>
+              ) : null}
             </NavLink>
             <RailIconButton
               aria-label={
-                isMobileViewport ? 'Close navigation' : isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
+                isMobileViewport
+                  ? i18n._({ id: 'Close navigation', message: 'Close navigation' })
+                  : isSidebarCollapsed
+                    ? i18n._({ id: 'Expand sidebar', message: 'Expand sidebar' })
+                    : i18n._({ id: 'Collapse sidebar', message: 'Collapse sidebar' })
               }
               className="web-ide__sidebar-toggle"
               onClick={() => {
@@ -1214,7 +1546,13 @@ export function AppShell() {
 
                 setIsSidebarCollapsed((current) => !current)
               }}
-              title={isMobileViewport ? 'Close navigation' : isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={
+                isMobileViewport
+                  ? i18n._({ id: 'Close navigation', message: 'Close navigation' })
+                  : isSidebarCollapsed
+                    ? i18n._({ id: 'Expand sidebar', message: 'Expand sidebar' })
+                    : i18n._({ id: 'Collapse sidebar', message: 'Collapse sidebar' })
+              }
             >
               {isMobileViewport ? <ChevronLeftIcon /> : isSidebarCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
             </RailIconButton>
@@ -1230,8 +1568,14 @@ export function AppShell() {
         <RenameDialog
           description={
             renameTarget.kind === 'workspace'
-              ? 'Enter a new name for this workspace folder.'
-              : 'Enter a new name for this thread.'
+              ? i18n._({
+                  id: 'Enter a new name for this workspace folder.',
+                  message: 'Enter a new name for this workspace folder.',
+                })
+              : i18n._({
+                  id: 'Enter a new name for this thread.',
+                  message: 'Enter a new name for this thread.',
+                })
           }
           error={
             renameTarget.kind === 'workspace'
@@ -1250,7 +1594,11 @@ export function AppShell() {
           onChange={setRenameValue}
           onClose={handleCloseRenameDialog}
           onSubmit={handleSubmitRenameDialog}
-          fieldLabel={renameTarget.kind === 'workspace' ? 'Workspace Name' : 'Thread Name'}
+          fieldLabel={
+            renameTarget.kind === 'workspace'
+              ? i18n._({ id: 'Workspace Name', message: 'Workspace Name' })
+              : i18n._({ id: 'Thread Name', message: 'Thread Name' })
+          }
           isSubmitDisabled={
             !renameValue.trim() ||
             (renameTarget.kind === 'workspace'
@@ -1260,18 +1608,37 @@ export function AppShell() {
           placeholder={
             renameTarget.kind === 'workspace' ? renameTarget.workspace.name : renameTarget.thread.name
           }
-          submitLabel={renameTarget.kind === 'workspace' ? 'Save Workspace' : 'Save Thread'}
-          title={renameTarget.kind === 'workspace' ? 'Rename Workspace' : 'Rename Thread'}
+          submitLabel={
+            renameTarget.kind === 'workspace'
+              ? i18n._({ id: 'Save Workspace', message: 'Save Workspace' })
+              : i18n._({ id: 'Save Thread', message: 'Save Thread' })
+          }
+          title={
+            renameTarget.kind === 'workspace'
+              ? i18n._({ id: 'Rename Workspace', message: 'Rename Workspace' })
+              : i18n._({ id: 'Rename Thread', message: 'Rename Thread' })
+          }
           value={renameValue}
         />
       ) : null}
       {deleteTarget ? (
         <ConfirmDialog
-          confirmLabel={deleteTarget.kind === 'workspace' ? 'Remove Workspace' : 'Delete Thread'}
+          confirmLabel={
+            deleteTarget.kind === 'workspace'
+              ? i18n._({ id: 'Remove Workspace', message: 'Remove Workspace' })
+              : i18n._({ id: 'Delete Thread', message: 'Delete Thread' })
+          }
           description={
             deleteTarget.kind === 'workspace'
-              ? 'This removes the workspace from the sidebar registry and clears its loaded thread list from the UI.'
-              : 'This will remove the thread from the current workspace list.'
+              ? i18n._({
+                  id: 'This removes the workspace from the sidebar registry and clears its loaded thread list from the UI.',
+                  message:
+                    'This removes the workspace from the sidebar registry and clears its loaded thread list from the UI.',
+                })
+              : i18n._({
+                  id: 'This will remove the thread from the current workspace list.',
+                  message: 'This will remove the thread from the current workspace list.',
+                })
           }
           error={
             deleteTarget.kind === 'workspace'
@@ -1290,9 +1657,19 @@ export function AppShell() {
           onClose={handleCloseDeleteDialog}
           onConfirm={handleConfirmDeleteDialog}
           subject={deleteTarget.kind === 'workspace' ? deleteTarget.workspace.name : deleteTarget.thread.name}
-          title={deleteTarget.kind === 'workspace' ? 'Remove Workspace?' : 'Delete Thread?'}
+          title={
+            deleteTarget.kind === 'workspace'
+              ? i18n._({ id: 'Remove Workspace?', message: 'Remove Workspace?' })
+              : i18n._({ id: 'Delete Thread?', message: 'Delete Thread?' })
+          }
         />
       ) : null}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        items={paletteItems}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        shortcutLabel={commandPaletteShortcutLabel}
+      />
     </div>
   )
 }

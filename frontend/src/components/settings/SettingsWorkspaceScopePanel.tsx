@@ -1,4 +1,5 @@
 import { useSettingsShellContext } from '../../features/settings/shell-context'
+import { i18n } from '../../i18n/runtime'
 import { InlineNotice } from '../ui/InlineNotice'
 import { SelectControl } from '../ui/SelectControl'
 
@@ -8,9 +9,16 @@ type SettingsWorkspaceScopePanelProps = {
 }
 
 export function SettingsWorkspaceScopePanel({
-  title = 'Workspace Scope',
-  description = 'Choose the runtime root for this settings page.',
+  title,
+  description,
 }: SettingsWorkspaceScopePanelProps) {
+  const resolvedTitle = title ?? i18n._({ id: 'Workspace Scope', message: 'Workspace Scope' })
+  const resolvedDescription =
+    description ??
+    i18n._({
+      id: 'Choose the runtime root for this settings page.',
+      message: 'Choose the runtime root for this settings page.',
+    })
   const {
     workspaceId,
     workspaceName,
@@ -24,14 +32,14 @@ export function SettingsWorkspaceScopePanel({
     <section className="mode-panel settings-scope-panel">
       <div className="section-header">
         <div>
-          <h2>{title}</h2>
-          <p>{description}</p>
+          <h2>{resolvedTitle}</h2>
+          <p>{resolvedDescription}</p>
         </div>
       </div>
       <label className="field">
-        <span>Workspace</span>
+        <span>{i18n._({ id: 'Workspace', message: 'Workspace' })}</span>
         <SelectControl
-          ariaLabel="Workspace"
+          ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
           fullWidth
           onChange={setSelectedWorkspaceId}
           options={workspaces.map((workspace) => ({
@@ -41,12 +49,17 @@ export function SettingsWorkspaceScopePanel({
           value={workspaceId ?? ''}
         />
       </label>
-      {workspacesLoading ? <div className="notice">Loading workspaces…</div> : null}
+      {workspacesLoading ? (
+        <div className="notice">{i18n._({ id: 'Loading workspaces…', message: 'Loading workspaces…' })}</div>
+      ) : null}
       {workspacesError ? (
         <InlineNotice
           dismissible
           noticeKey={`settings-scope-${workspacesError}`}
-          title="Workspace Scope Unavailable"
+          title={i18n._({
+            id: 'Workspace Scope Unavailable',
+            message: 'Workspace Scope Unavailable',
+          })}
           tone="error"
         >
           {workspacesError}
@@ -54,16 +67,20 @@ export function SettingsWorkspaceScopePanel({
       ) : null}
       <div className="settings-scope-panel__summary">
         <div className="settings-scope-panel__summary-item">
-          <span>Active</span>
+          <span>{i18n._({ id: 'Active', message: 'Active' })}</span>
           <strong>{workspaceName}</strong>
         </div>
         <div className="settings-scope-panel__summary-item">
-          <span>Roots</span>
+          <span>{i18n._({ id: 'Roots', message: 'Roots' })}</span>
           <strong>{workspaces.length}</strong>
         </div>
         <div className="settings-scope-panel__summary-item">
-          <span>Mode</span>
-          <strong>{workspaceId ? 'Scoped' : 'Required'}</strong>
+          <span>{i18n._({ id: 'Mode', message: 'Mode' })}</span>
+          <strong>
+            {workspaceId
+              ? i18n._({ id: 'Scoped', message: 'Scoped' })
+              : i18n._({ id: 'Required', message: 'Required' })}
+          </strong>
         </div>
       </div>
     </section>

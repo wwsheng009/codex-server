@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getAccount } from '../../features/account/api'
 import { listPendingApprovals } from '../../features/approvals/api'
 import { listModels, listSkills } from '../../features/catalog/api'
-import { fuzzyFileSearch } from '../../features/settings/api'
+import { fuzzyFileSearch, readConfig } from '../../features/settings/api'
 import { getThread, listLoadedThreadIds, listThreads } from '../../features/threads/api'
 import { getWorkspace } from '../../features/workspaces/api'
 
@@ -86,9 +86,17 @@ export function useThreadPageQueries({
     staleTime: 15_000,
   })
 
+  const environmentConfigQuery = useQuery({
+    queryKey: ['thread-page-environment-config', workspaceId],
+    queryFn: () => readConfig(workspaceId, { includeLayers: false }),
+    enabled: Boolean(workspaceId),
+    staleTime: 15_000,
+  })
+
   return {
     accountQuery,
     approvalsQuery,
+    environmentConfigQuery,
     fileSearchQuery,
     loadedThreadsQuery,
     modelsQuery,

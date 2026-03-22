@@ -19,6 +19,7 @@
 - 账号页支持 `API Key` / `ChatGPT` 登录入口
 - 审批抽屉支持基础审批和 `requestUserInput` 问题填写
 - 聊天页支持独立 `command/exec` 终端面板和流式输出展示
+- 线程工作台右侧工具区支持在 `command/exec` 与 `thread/shellCommand` 之间切换执行单条命令
 - 线程详情支持基于 `thread/read` 的历史 turn / item 回放
 - 历史回放已按 `userMessage / agentMessage / plan / reasoning / commandExecution / fileChange` 分类渲染
 - `Live Events` 区也已升级为专用事件卡片，而不是原始 JSON
@@ -35,7 +36,7 @@
 - 后端已补 `config/mcp-server/reload`、`windows-sandbox/setup-start`
 - 前端 `Catalog` / `Settings` 页面已接入 remote skills、plugin actions、config、external agent detect、fuzzy file search、feedback upload
 - 前端 `Settings` 页面已接入 `account/login/cancel` 和 `mcp/oauth/login`
-- 前端 `Settings > Config` 页面已接入服务级 runtime shell override 配置，可持久化 `model_catalog_json` 与 `LocalShell` 模型列表
+- 前端 `Settings > Config` 页面已接入服务级 runtime shell override、turn 权限策略和 sandboxPolicy 配置，可持久化 `model_catalog_json`、`shell_type` override、默认 `turn/start` 权限与默认 `command/exec` 沙箱策略
 - 审批抽屉已支持 `item/tool/call` 与 `account/chatgptAuthTokens/refresh` 的响应表单
 - 线程侧栏支持搜索、状态筛选与最近更新时间展示
 - 线程侧栏支持最近访问排序、归档分组与内联重命名
@@ -92,7 +93,7 @@ npm test
 
 默认地址：`http://localhost:15173`
 
-开发环境下，Vite 现在会把同源的 `/api` 请求代理到后端，默认目标是 `http://localhost:18080`。
+开发环境下，Vite 现在会把同源的 `/api` 请求和 WebSocket 代理到后端，默认目标是 `http://localhost:18080`。
 
 如需修改代理目标，可设置：
 
@@ -109,7 +110,6 @@ VITE_API_BASE_URL=http://localhost:18080
 如果未设置 `VITE_API_BASE_URL`：
 
 - 开发环境会优先走 Vite 同源代理
-- workspace stream 的 WebSocket 会继续直连当前主机的 `:18080`，避免 Vite 开发期的代理断连噪声
 - 非开发环境会按当前访问主机拼接 `:18080`，例如 `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
 
 ## 启用 LocalShell
@@ -172,10 +172,26 @@ codex app-server --listen stdio:// --config "model_catalog_json=E:/generated/cat
 
 如果该页面留空，后端会继续回退到环境变量或 Codex 自身配置中的默认值。
 
+要区分两层职责：
+
+- `shell_type` 负责决定模型是否暴露 `local_shell` / shell 能力
+- `sandboxPolicy` 才决定 `turn/start`、`command/exec` 是否进入 Codex 自带沙箱
+
+也就是说，把模型改成 `shell_type = "local"` 并不会自动绕过当前 turn 的沙箱；如果你要默认不进入沙箱，需要在 `Settings > Config > Runtime` 里额外配置：
+
+- `Default Turn Approval Policy`
+- `Default Turn Sandbox Policy (JSON)`，例如 `{"type":"dangerFullAccess"}`
+- `Default Command Sandbox Policy (JSON)`，例如 `{"type":"dangerFullAccess"}` 或 `{"type":"externalSandbox","networkAccess":"enabled"}`
+- 线程页右侧 `Workbench Tools` 现在支持在 `command/exec` 与 `thread/shellCommand` 之间切换；后者会直接以 full access 在线程里执行一条 shell 命令
+
 排查这类问题时要区分两层：
 
 - `backend/data/metadata.json` 持久化的是 `codex-server` 自己的 runtime preferences
 - `%LOCALAPPDATA%\\Temp\\codex-server\\model-catalog-shell-overrides-*.json` 只是根据当前 preferences 派生出来的临时目录，不是根配置
+
+详细流程见 [docs/runtime-execution-controls.md](docs/runtime-execution-controls.md)。
+
+`shell_environment_policy` 的检查结果和前端配置说明见 [docs/shell-environment-policy.md](docs/shell-environment-policy.md)。
 
 ## 下一步建议
 

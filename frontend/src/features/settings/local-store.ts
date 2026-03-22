@@ -8,11 +8,13 @@ import type {
   ThreadSpacing,
   UserMessageEmphasis,
 } from './appearance'
+import { sourceLocale, type AppLocale } from '../../i18n/config'
 
 type DensityMode = 'comfortable' | 'compact'
 type ResponseTone = 'balanced' | 'direct' | 'detailed'
 
 type SettingsLocalState = {
+  locale: AppLocale
   theme: AppearanceTheme
   density: DensityMode
   reduceMotion: boolean
@@ -43,6 +45,7 @@ type SettingsLocalState = {
   contrast: number
   usePointerCursor: boolean
   useCustomColors: boolean
+  setLocale: (locale: AppLocale) => void
   setTheme: (theme: AppearanceTheme) => void
   setDensity: (density: DensityMode) => void
   setReduceMotion: (reduceMotion: boolean) => void
@@ -78,6 +81,7 @@ type SettingsLocalState = {
 export const useSettingsLocalStore = create<SettingsLocalState>()(
   persist(
     (set) => ({
+      locale: sourceLocale,
       theme: 'system',
       density: 'comfortable',
       reduceMotion: false,
@@ -108,6 +112,7 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       contrast: 45,
       usePointerCursor: false,
       useCustomColors: false,
+      setLocale: (locale) => set({ locale }),
       setTheme: (theme) => set({ theme }),
       setDensity: (density) => set({ density }),
       setReduceMotion: (reduceMotion) => set({ reduceMotion }),

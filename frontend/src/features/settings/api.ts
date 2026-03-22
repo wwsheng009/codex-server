@@ -24,6 +24,9 @@ export function writeRuntimePreferences(input: {
   modelCatalogPath: string
   defaultShellType: string
   modelShellTypeOverrides: Record<string, string>
+  defaultTurnApprovalPolicy?: string
+  defaultTurnSandboxPolicy?: Record<string, unknown>
+  defaultCommandSandboxPolicy?: Record<string, unknown>
 }) {
   return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences`, {
     method: 'POST',

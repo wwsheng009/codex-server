@@ -10,6 +10,7 @@ import {
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { listThreads, unarchiveThread } from '../../features/threads/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
+import { getActiveLocale, i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 
 export function ArchivedThreadsSettingsPage() {
@@ -58,33 +59,67 @@ export function ArchivedThreadsSettingsPage() {
   return (
     <section className="settings-page">
       <SettingsPageHeader
-        description="Review archived threads across all workspaces and restore them without leaving the settings center."
-        meta={<span className="meta-pill">{archivedThreads.length} archived</span>}
-        title="Archived Threads"
+        description={i18n._({
+          id: 'Review archived threads across all workspaces and restore them without leaving the settings center.',
+          message:
+            'Review archived threads across all workspaces and restore them without leaving the settings center.',
+        })}
+        meta={
+          <span className="meta-pill">
+            {i18n._({
+              id: '{count} archived',
+              message: '{count} archived',
+              values: { count: archivedThreads.length },
+            })}
+          </span>
+        }
+        title={i18n._({ id: 'Archived Threads', message: 'Archived Threads' })}
       />
 
       <div className="settings-page__stack">
         <SettingsGroup
-          description="Archived thread inventory across all registered workspaces."
-          title="Archive Registry"
+          description={i18n._({
+            id: 'Archived thread inventory across all registered workspaces.',
+            message: 'Archived thread inventory across all registered workspaces.',
+          })}
+          title={i18n._({ id: 'Archive Registry', message: 'Archive Registry' })}
         >
           <SettingRow
-            description="Use this page to inspect archived work and restore it when it should return to the main thread registry."
-            title="Archived Items"
+            description={i18n._({
+              id: 'Use this page to inspect archived work and restore it when it should return to the main thread registry.',
+              message:
+                'Use this page to inspect archived work and restore it when it should return to the main thread registry.',
+            })}
+            title={i18n._({ id: 'Archived Items', message: 'Archived Items' })}
           >
-            {isLoading ? <div className="notice">Loading archived threads…</div> : null}
+            {isLoading ? (
+              <div className="notice">
+                {i18n._({
+                  id: 'Loading archived threads…',
+                  message: 'Loading archived threads…',
+                })}
+              </div>
+            ) : null}
             {firstError ? (
               <InlineNotice
                 dismissible
                 noticeKey={`archived-load-${firstError}`}
-                title="Failed To Load Archived Threads"
+                title={i18n._({
+                  id: 'Failed To Load Archived Threads',
+                  message: 'Failed To Load Archived Threads',
+                })}
                 tone="error"
               >
                 {firstError}
               </InlineNotice>
             ) : null}
             {!isLoading && !archivedThreads.length ? (
-              <div className="empty-state">No archived threads found.</div>
+              <div className="empty-state">
+                {i18n._({
+                  id: 'No archived threads found.',
+                  message: 'No archived threads found.',
+                })}
+              </div>
             ) : null}
             <div className="settings-record-list">
               {archivedThreads.map((thread) => (
@@ -95,10 +130,19 @@ export function ArchivedThreadsSettingsPage() {
                       onClick={() => unarchiveMutation.mutate({ workspaceId: thread.workspaceId, threadId: thread.id })}
                       type="button"
                     >
-                      {unarchiveMutation.isPending ? 'Restoring…' : 'Unarchive'}
+                      {unarchiveMutation.isPending
+                        ? i18n._({ id: 'Restoring…', message: 'Restoring…' })
+                        : i18n._({ id: 'Unarchive', message: 'Unarchive' })}
                     </button>
                   }
-                  description={`${thread.workspaceName} · updated ${formatDateTime(thread.updatedAt)}`}
+                  description={i18n._({
+                    id: '{workspace} · updated {time}',
+                    message: '{workspace} · updated {time}',
+                    values: {
+                      workspace: thread.workspaceName,
+                      time: formatDateTime(thread.updatedAt),
+                    },
+                  })}
                   key={thread.id}
                   marker="AR"
                   meta={<span className="meta-pill">{thread.status}</span>}
@@ -110,7 +154,7 @@ export function ArchivedThreadsSettingsPage() {
               <InlineNotice
                 dismissible
                 noticeKey={`archived-unarchive-${unarchiveMutation.error instanceof Error ? unarchiveMutation.error.message : 'unknown'}`}
-                title="Unarchive Failed"
+                title={i18n._({ id: 'Unarchive Failed', message: 'Unarchive Failed' })}
                 tone="error"
               >
                 {getErrorMessage(unarchiveMutation.error)}
@@ -124,5 +168,8 @@ export function ArchivedThreadsSettingsPage() {
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString()
+  return new Intl.DateTimeFormat(getActiveLocale(), {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
 }

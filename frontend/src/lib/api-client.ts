@@ -64,7 +64,12 @@ export function buildApiWebSocketUrl(path: string) {
     return `${API_BASE_URL.replace(/^http/, 'ws')}${path}`
   }
 
-  return `${defaultApiWebSocketBaseUrl()}${path}`
+  if (typeof window === 'undefined') {
+    return `ws://localhost:18080${path}`
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}${path}`
 }
 
 async function readApiResponse<T>(response: Response) {
@@ -91,13 +96,4 @@ function defaultApiBaseUrl() {
   }
 
   return `${window.location.protocol}//${window.location.hostname}:18080`
-}
-
-function defaultApiWebSocketBaseUrl() {
-  if (typeof window === 'undefined') {
-    return 'ws://localhost:18080'
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.hostname}:18080`
 }

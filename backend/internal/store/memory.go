@@ -73,6 +73,12 @@ func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
 	if len(prefs.ModelShellTypeOverrides) > 0 {
 		prefs.ModelShellTypeOverrides = cloneStringMap(prefs.ModelShellTypeOverrides)
 	}
+	if len(prefs.DefaultTurnSandboxPolicy) > 0 {
+		prefs.DefaultTurnSandboxPolicy = cloneAnyMap(prefs.DefaultTurnSandboxPolicy)
+	}
+	if len(prefs.DefaultCommandSandboxPolicy) > 0 {
+		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
+	}
 	return prefs
 }
 
@@ -90,6 +96,17 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 		prefs.ModelShellTypeOverrides = cloneStringMap(prefs.ModelShellTypeOverrides)
 	} else {
 		prefs.ModelShellTypeOverrides = nil
+	}
+	prefs.DefaultTurnApprovalPolicy = strings.TrimSpace(prefs.DefaultTurnApprovalPolicy)
+	if len(prefs.DefaultTurnSandboxPolicy) > 0 {
+		prefs.DefaultTurnSandboxPolicy = cloneAnyMap(prefs.DefaultTurnSandboxPolicy)
+	} else {
+		prefs.DefaultTurnSandboxPolicy = nil
+	}
+	if len(prefs.DefaultCommandSandboxPolicy) > 0 {
+		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
+	} else {
+		prefs.DefaultCommandSandboxPolicy = nil
 	}
 	prefs.UpdatedAt = time.Now().UTC()
 	s.runtimePrefs = prefs
@@ -924,6 +941,12 @@ func (s *MemoryStore) load() error {
 		if len(s.runtimePrefs.ModelShellTypeOverrides) > 0 {
 			s.runtimePrefs.ModelShellTypeOverrides = cloneStringMap(s.runtimePrefs.ModelShellTypeOverrides)
 		}
+		if len(s.runtimePrefs.DefaultTurnSandboxPolicy) > 0 {
+			s.runtimePrefs.DefaultTurnSandboxPolicy = cloneAnyMap(s.runtimePrefs.DefaultTurnSandboxPolicy)
+		}
+		if len(s.runtimePrefs.DefaultCommandSandboxPolicy) > 0 {
+			s.runtimePrefs.DefaultCommandSandboxPolicy = cloneAnyMap(s.runtimePrefs.DefaultCommandSandboxPolicy)
+		}
 	}
 
 	s.mu.Lock()
@@ -1004,13 +1027,22 @@ func (s *MemoryStore) persistLocked() {
 	if s.runtimePrefs.ModelCatalogPath != "" ||
 		len(s.runtimePrefs.LocalShellModels) > 0 ||
 		s.runtimePrefs.DefaultShellType != "" ||
-		len(s.runtimePrefs.ModelShellTypeOverrides) > 0 {
+		len(s.runtimePrefs.ModelShellTypeOverrides) > 0 ||
+		s.runtimePrefs.DefaultTurnApprovalPolicy != "" ||
+		len(s.runtimePrefs.DefaultTurnSandboxPolicy) > 0 ||
+		len(s.runtimePrefs.DefaultCommandSandboxPolicy) > 0 {
 		prefs := s.runtimePrefs
 		if len(prefs.LocalShellModels) > 0 {
 			prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
 		}
 		if len(prefs.ModelShellTypeOverrides) > 0 {
 			prefs.ModelShellTypeOverrides = cloneStringMap(prefs.ModelShellTypeOverrides)
+		}
+		if len(prefs.DefaultTurnSandboxPolicy) > 0 {
+			prefs.DefaultTurnSandboxPolicy = cloneAnyMap(prefs.DefaultTurnSandboxPolicy)
+		}
+		if len(prefs.DefaultCommandSandboxPolicy) > 0 {
+			prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 		}
 		snapshot.RuntimePreferences = &prefs
 	}
@@ -1112,4 +1144,31 @@ func cloneStringMap(values map[string]string) map[string]string {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func cloneAnyMap(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]any, len(values))
+	for key, value := range values {
+		cloned[key] = cloneAnyValue(value)
+	}
+	return cloned
+}
+
+func cloneAnyValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, entry := range typed {
+			cloned[index] = cloneAnyValue(entry)
+		}
+		return cloned
+	default:
+		return typed
+	}
 }

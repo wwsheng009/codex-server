@@ -1,12 +1,20 @@
 import { useState } from 'react'
+import { i18n } from '../../i18n/runtime'
 import { SettingsGroup, SettingRow, SettingsPageHeader } from '../../components/settings/SettingsPrimitives'
 import {
   appearanceThemeOptions,
   colorThemeOptions,
+  getAppearanceThemeDescription,
+  getAppearanceThemeLabel,
+  getColorThemeDescription,
+  getColorThemeLabel,
   resolveAppearanceTheme,
 } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
+import { Input } from '../../components/ui/Input'
+import { Switch } from '../../components/ui/Switch'
+import { Slider } from '../../components/ui/Slider'
 
 export function AppearanceSettingsPage() {
   const theme = useSettingsLocalStore((state) => state.theme)
@@ -83,43 +91,58 @@ export function AppearanceSettingsPage() {
   return (
     <section className="settings-page" role="main">
       <SettingsPageHeader
-        description="Fine-tune the shell palette, typography, and interactive feedback to match your local workbench preferences."
-        title="Appearance"
+        description={i18n._({
+          id: 'Fine-tune the shell palette, typography, and interactive feedback to match your local workbench preferences.',
+          message:
+            'Fine-tune the shell palette, typography, and interactive feedback to match your local workbench preferences.',
+        })}
+        title={i18n._({ id: 'Appearance', message: 'Appearance' })}
       />
 
       <div className="settings-page__stack">
         <SettingsGroup
-          description="Select light, dark, or system-matched interface mode."
-          title="Mode"
+          description={i18n._({
+            id: 'Select light, dark, or system-matched interface mode.',
+            message: 'Select light, dark, or system-matched interface mode.',
+          })}
+          title={i18n._({ id: 'Mode', message: 'Mode' })}
         >
           <div className="theme-mode-selector" role="radiogroup">
             {appearanceThemeOptions.map((option) => (
               <button
                 key={option.value}
                 aria-checked={theme === option.value}
-                aria-label={`${option.label} mode`}
+                aria-label={i18n._({
+                  id: '{mode} mode',
+                  message: '{mode} mode',
+                  values: { mode: getAppearanceThemeLabel(option.value) },
+                })}
                 className={theme === option.value ? 'theme-mode-button theme-mode-button--active' : 'theme-mode-button'}
                 onClick={() => setTheme(option.value)}
                 role="radio"
+                title={getAppearanceThemeDescription(option.value)}
                 type="button"
               >
                 <ThemeIcon mode={option.value} />
-                <span>{option.label}</span>
+                <span>{getAppearanceThemeLabel(option.value)}</span>
               </button>
             ))}
           </div>
         </SettingsGroup>
 
         <SettingsGroup
-          description="Apply a pre-defined color palette to the interface."
-          title="Color theme"
+          description={i18n._({
+            id: 'Apply a pre-defined color palette to the interface.',
+            message: 'Apply a pre-defined color palette to the interface.',
+          })}
+          title={i18n._({ id: 'Color theme', message: 'Color theme' })}
         >
           <div className="theme-swatch-grid" role="radiogroup">
             {colorThemeOptions.map((option) => (
               <button
                 key={option.value}
                 aria-checked={accentTone === option.value}
-                aria-label={option.label}
+                aria-label={getColorThemeLabel(option.value)}
                 className={accentTone === option.value ? 'theme-swatch theme-swatch--active' : 'theme-swatch'}
                 onClick={() => handleSetAccentTone(option.value)}
                 role="radio"
@@ -135,8 +158,8 @@ export function AppearanceSettingsPage() {
                   ))}
                 </span>
                 <span className="theme-swatch__copy">
-                  <strong>{option.label}</strong>
-                  <span>{option.description}</span>
+                  <strong>{getColorThemeLabel(option.value)}</strong>
+                  <span>{getColorThemeDescription(option.value)}</span>
                 </span>
               </button>
             ))}
@@ -144,8 +167,11 @@ export function AppearanceSettingsPage() {
         </SettingsGroup>
 
         <SettingsGroup
-          description="Live look at current theme configuration."
-          title="Theme preview"
+          description={i18n._({
+            id: 'Live look at current theme configuration.',
+            message: 'Live look at current theme configuration.',
+          })}
+          title={i18n._({ id: 'Theme preview', message: 'Theme preview' })}
         >
           <div className="theme-preview-container">
             <pre className="theme-preview-code">
@@ -155,8 +181,26 @@ export function AppearanceSettingsPage() {
         </SettingsGroup>
 
         <SettingsGroup
-          description={`Customize colors and typography for ${editingMode} workbench.`}
-          title={`${editingMode.charAt(0).toUpperCase() + editingMode.slice(1)} workbench`}
+          description={i18n._({
+            id: 'Customize colors and typography for {mode} workbench.',
+            message: 'Customize colors and typography for {mode} workbench.',
+            values: {
+              mode:
+                editingMode === 'light'
+                  ? i18n._({ id: 'light', message: 'light' })
+                  : i18n._({ id: 'dark', message: 'dark' }),
+            },
+          })}
+          title={i18n._({
+            id: '{mode} workbench',
+            message: '{mode} workbench',
+            values: {
+              mode:
+                editingMode === 'light'
+                  ? i18n._({ id: 'Light', message: 'Light' })
+                  : i18n._({ id: 'Dark', message: 'Dark' }),
+            },
+          })}
           meta={
             <div className="segmented-control segmented-control--sm">
               <button 
@@ -164,102 +208,130 @@ export function AppearanceSettingsPage() {
                 onClick={() => setEditingMode('light')}
                 aria-pressed={editingMode === 'light'}
               >
-                Light
+                {i18n._({ id: 'Light', message: 'Light' })}
               </button>
               <button 
                 className={editingMode === 'dark' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'}
                 onClick={() => setEditingMode('dark')}
                 aria-pressed={editingMode === 'dark'}
               >
-                Dark
+                {i18n._({ id: 'Dark', message: 'Dark' })}
               </button>
             </div>
           }
         >
-          <SettingRow title="Accent" description="Primary color for buttons, links, and highlights.">
-            <ColorInput ariaLabel="Accent color" value={accentColor} onChange={setAccentColor} />
+          <SettingRow title={i18n._({ id: 'Accent', message: 'Accent' })} description={i18n._({
+            id: 'Primary color for buttons, links, and highlights.',
+            message: 'Primary color for buttons, links, and highlights.',
+          })}>
+            <ColorInput ariaLabel={i18n._({ id: 'Accent color', message: 'Accent color' })} value={accentColor} onChange={setAccentColor} />
           </SettingRow>
 
-          <SettingRow title="Background" description="Base surface color for the main workbench.">
-            <ColorInput ariaLabel="Background color" value={backgroundColor} onChange={setBackgroundColor} />
+          <SettingRow title={i18n._({ id: 'Background', message: 'Background' })} description={i18n._({
+            id: 'Base surface color for the main workbench.',
+            message: 'Base surface color for the main workbench.',
+          })}>
+            <ColorInput ariaLabel={i18n._({ id: 'Background color', message: 'Background color' })} value={backgroundColor} onChange={setBackgroundColor} />
           </SettingRow>
 
-          <SettingRow title="Foreground" description="Default text color for primary content.">
-            <ColorInput ariaLabel="Foreground color" value={foregroundColor} onChange={setForegroundColor} />
+          <SettingRow title={i18n._({ id: 'Foreground', message: 'Foreground' })} description={i18n._({
+            id: 'Default text color for primary content.',
+            message: 'Default text color for primary content.',
+          })}>
+            <ColorInput ariaLabel={i18n._({ id: 'Foreground color', message: 'Foreground color' })} value={foregroundColor} onChange={setForegroundColor} />
           </SettingRow>
 
-          <SettingRow title="UI font" description="Primary typeface for labels, menus, and controls.">
-            <input 
-              aria-label="UI font family"
-              className="field" 
+          <SettingRow title={i18n._({ id: 'UI font', message: 'UI font' })} description={i18n._({
+            id: 'Primary typeface for labels, menus, and controls.',
+            message: 'Primary typeface for labels, menus, and controls.',
+          })}>
+            <Input 
+              aria-label={i18n._({ id: 'UI font family', message: 'UI font family' })}
               value={uiFont} 
               onChange={(e) => setUiFont(e.target.value)} 
-              placeholder="System default"
+              placeholder={i18n._({ id: 'System default', message: 'System default' })}
             />
           </SettingRow>
 
-          <SettingRow title="Code font" description="Monospace typeface for editors and terminal outputs.">
-            <input 
-              aria-label="Code font family"
-              className="field" 
+          <SettingRow title={i18n._({ id: 'Code font', message: 'Code font' })} description={i18n._({
+            id: 'Monospace typeface for editors and terminal outputs.',
+            message: 'Monospace typeface for editors and terminal outputs.',
+          })}>
+            <Input 
+              aria-label={i18n._({ id: 'Code font family', message: 'Code font family' })}
               value={codeFont} 
               onChange={(e) => setCodeFont(e.target.value)} 
-              placeholder="Monospace default"
+              placeholder={i18n._({ id: 'Monospace default', message: 'Monospace default' })}
             />
           </SettingRow>
 
-          <SettingRow title="Translucent sidebar" description="Apply subtle blur and transparency to the sidebar background.">
-            <Toggle checked={translucentSidebar} onChange={setTranslucentSidebar} label="Enable translucent sidebar" />
+          <SettingRow title={i18n._({ id: 'Translucent sidebar', message: 'Translucent sidebar' })} description={i18n._({
+            id: 'Apply subtle blur and transparency to the sidebar background.',
+            message: 'Apply subtle blur and transparency to the sidebar background.',
+          })}>
+            <Switch checked={translucentSidebar} onChange={(e) => setTranslucentSidebar(e.target.checked)} label={i18n._({
+              id: 'Enable translucent sidebar',
+              message: 'Enable translucent sidebar',
+            })} />
           </SettingRow>
 
-          <SettingRow title="Contrast" description="Adjust visual separation between surfaces.">
-            <div className="slider-container">
-              <input 
-                aria-label="Contrast adjustment"
-                type="range" 
-                min="0" 
-                max="100" 
-                value={contrast} 
-                onChange={(e) => setContrast(Number(e.target.value))} 
-                className="slider"
-              />
-              <span className="slider-value" aria-hidden="true">{contrast}</span>
-            </div>
+          <SettingRow title={i18n._({ id: 'Contrast', message: 'Contrast' })} description={i18n._({
+            id: 'Adjust visual separation between surfaces.',
+            message: 'Adjust visual separation between surfaces.',
+          })}>
+            <Slider 
+              aria-label={i18n._({ id: 'Contrast adjustment', message: 'Contrast adjustment' })}
+              min="0" 
+              max="100" 
+              value={contrast} 
+              onChange={(e) => setContrast(Number(e.target.value))} 
+            />
           </SettingRow>
         </SettingsGroup>
 
         <SettingsGroup
-          description="Interactive and sizing preferences."
-          title="Interaction"
+          description={i18n._({
+            id: 'Interactive and sizing preferences.',
+            message: 'Interactive and sizing preferences.',
+          })}
+          title={i18n._({ id: 'Interaction', message: 'Interaction' })}
         >
-          <SettingRow title="Pointer cursor" description="Use pointing hand cursor for interactive elements.">
-            <Toggle checked={usePointerCursor} onChange={setUsePointerCursor} label="Use pointer cursor" />
+          <SettingRow title={i18n._({ id: 'Pointer cursor', message: 'Pointer cursor' })} description={i18n._({
+            id: 'Use pointing hand cursor for interactive elements.',
+            message: 'Use pointing hand cursor for interactive elements.',
+          })}>
+            <Switch checked={usePointerCursor} onChange={(e) => setUsePointerCursor(e.target.checked)} label={i18n._({
+              id: 'Use pointer cursor',
+              message: 'Use pointer cursor',
+            })} />
           </SettingRow>
 
-          <SettingRow title="UI font size" description="Base font size for the Codex UI.">
-            <div className="number-input-group">
-              <input 
-                aria-label="UI font size"
-                type="number" 
-                className="field field--sm" 
-                value={uiFontSize} 
-                onChange={(e) => setUiFontSize(Number(e.target.value))} 
-              />
-              <span className="unit" aria-hidden="true">px</span>
-            </div>
+          <SettingRow title={i18n._({ id: 'UI font size', message: 'UI font size' })} description={i18n._({
+            id: 'Base font size for the Codex UI.',
+            message: 'Base font size for the Codex UI.',
+          })}>
+            <Input 
+              aria-label={i18n._({ id: 'UI font size', message: 'UI font size' })}
+              type="number" 
+              value={uiFontSize} 
+              onChange={(e) => setUiFontSize(Number(e.target.value))} 
+              className="field--inline"
+              hint="px"
+            />
           </SettingRow>
 
-          <SettingRow title="Code font size" description="Base font size for code editors and diffs.">
-            <div className="number-input-group">
-              <input 
-                aria-label="Code font size"
-                type="number" 
-                className="field field--sm" 
-                value={codeFontSize} 
-                onChange={(e) => setCodeFontSize(Number(e.target.value))} 
-              />
-              <span className="unit" aria-hidden="true">px</span>
-            </div>
+          <SettingRow title={i18n._({ id: 'Code font size', message: 'Code font size' })} description={i18n._({
+            id: 'Base font size for code editors and diffs.',
+            message: 'Base font size for code editors and diffs.',
+          })}>
+            <Input 
+              aria-label={i18n._({ id: 'Code font size', message: 'Code font size' })}
+              type="number" 
+              value={codeFontSize} 
+              onChange={(e) => setCodeFontSize(Number(e.target.value))} 
+              className="field--inline"
+              hint="px"
+            />
           </SettingRow>
         </SettingsGroup>
       </div>
@@ -293,26 +365,12 @@ function ColorInput({ value, onChange, ariaLabel }: { value: string, onChange: (
   return (
     <div className="color-input-wrapper">
       <div className="color-swatch" style={{ backgroundColor: value }} aria-hidden="true" />
-      <input 
+      <Input 
         aria-label={ariaLabel}
-        className="field color-field" 
         value={value} 
         onChange={(e) => onChange(e.target.value)} 
+        className="color-field"
       />
     </div>
-  )
-}
-
-function Toggle({ checked, onChange, label }: { checked: boolean, onChange: (val: boolean) => void, label: string }) {
-  return (
-    <label className="toggle-switch">
-      <input 
-        type="checkbox" 
-        checked={checked} 
-        onChange={(e) => onChange(e.target.checked)} 
-        aria-label={label}
-      />
-      <span className="toggle-slider"></span>
-    </label>
   )
 }

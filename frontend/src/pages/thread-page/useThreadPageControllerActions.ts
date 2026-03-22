@@ -1,0 +1,106 @@
+import { useThreadComposerActions } from './useThreadComposerActions'
+import { useThreadPageActions } from './useThreadPageActions'
+import { useThreadPageComposerCallbacks } from './useThreadPageComposerCallbacks'
+import type {
+  ThreadPageControllerActions,
+  UseThreadPageControllerActionsInput,
+} from './threadPageControllerLayoutTypes'
+
+export function useThreadPageControllerActions({
+  controllerState,
+  dataState,
+  displayState,
+  mutationState,
+  panelState,
+  railState,
+  statusState,
+  viewportState,
+}: UseThreadPageControllerActionsInput): ThreadPageControllerActions {
+  const composerActions = useThreadComposerActions({
+    activeComposerMatchMode: controllerState.activeComposerMatch?.mode,
+    applyComposerMessage: controllerState.applyComposerMessage,
+    clearComposerTriggerToken: controllerState.clearComposerTriggerToken,
+    composerAutocompleteItem: panelState.composerAutocompleteItem,
+    composerAutocompleteItemsLength: panelState.composerAutocompleteItems.length,
+    dismissComposerAutocomplete: controllerState.dismissComposerAutocomplete,
+    insertComposerText: controllerState.insertComposerText,
+    isCommandAutocompleteOpen: controllerState.isCommandAutocompleteOpen,
+    isMentionAutocompleteOpen: controllerState.isMentionAutocompleteOpen,
+    isSkillAutocompleteOpen: controllerState.isSkillAutocompleteOpen,
+    message: controllerState.message,
+    sendError: controllerState.sendError,
+    setActiveComposerPanel: controllerState.setActiveComposerPanel,
+    setComposerAutocompleteIndex: controllerState.setComposerAutocompleteIndex,
+    setComposerCaret: controllerState.setComposerCaret,
+    setComposerCommandMenu: controllerState.setComposerCommandMenu,
+    setComposerPreferences: controllerState.setComposerPreferences,
+    setDismissedComposerAutocompleteKey: controllerState.setDismissedComposerAutocompleteKey,
+    setMessage: controllerState.setMessage,
+    setSendError: controllerState.setSendError,
+    supportsPlanMode: controllerState.supportsPlanMode,
+  })
+
+  const pageActions = useThreadPageActions({
+    archiveThreadMutation: mutationState.archiveThreadMutation,
+    clearCompletedCommandSessions: controllerState.clearCompletedCommandSessions,
+    closeDeleteThreadDialog: railState.handleCloseDeleteThreadDialog,
+    command: controllerState.command,
+    commandRunMode: controllerState.commandRunMode,
+    commandSessions: dataState.commandSessions,
+    compactDisabledReason: statusState.compactDisabledReason,
+    compactThreadMutation: mutationState.compactThreadMutation,
+    composerPreferences: controllerState.composerPreferences,
+    confirmingThreadDelete: railState.confirmingThreadDelete,
+    deleteThreadMutation: mutationState.deleteThreadMutation,
+    editingThreadName: railState.editingThreadName,
+    interruptTurnMutation: mutationState.interruptTurnMutation,
+    invalidateThreadQueries: mutationState.invalidateThreadQueries,
+    isInterruptMode: statusState.isInterruptMode,
+    message: controllerState.message,
+    queryClient: controllerState.queryClient,
+    removeCommandSession: controllerState.removeCommandSession,
+    renameThreadMutation: mutationState.renameThreadMutation,
+    requestDeleteSelectedThread: railState.handleDeleteSelectedThread,
+    respondApprovalMutation: mutationState.respondApprovalMutation,
+    scrollThreadToLatest: viewportState.scrollThreadToLatest,
+    selectedCommandSession: displayState.selectedCommandSession,
+    selectedProcessId: controllerState.selectedProcessId,
+    selectedThread: dataState.selectedThread,
+    selectedThreadId: controllerState.selectedThreadId,
+    setActiveComposerPanel: controllerState.setActiveComposerPanel,
+    setApprovalAnswers: controllerState.setApprovalAnswers,
+    setComposerCaret: controllerState.setComposerCaret,
+    setComposerCommandMenu: controllerState.setComposerCommandMenu,
+    setDismissedComposerAutocompleteKey: controllerState.setDismissedComposerAutocompleteKey,
+    setCommandRunMode: controllerState.setCommandRunMode,
+    setIsTerminalDockExpanded: controllerState.setIsTerminalDockExpanded,
+    setMessage: controllerState.setMessage,
+    setSelectedProcessId: controllerState.setSelectedProcessId,
+    setSendError: controllerState.setSendError,
+    startCommandMutation: mutationState.startCommandMutation,
+    startTurnMutation: mutationState.startTurnMutation,
+    stdinValue: controllerState.stdinValue,
+    terminateCommandMutation: mutationState.terminateCommandMutation,
+    threadShellCommandMutation: mutationState.threadShellCommandMutation,
+    unarchiveThreadMutation: mutationState.unarchiveThreadMutation,
+    updatePendingTurn: controllerState.updatePendingTurn,
+    workspaceId: controllerState.workspaceId,
+    writeCommandMutation: mutationState.writeCommandMutation,
+  })
+
+  const composerCallbacks = useThreadPageComposerCallbacks({
+    hasAccountError: Boolean(dataState.accountQuery.error),
+    queryClient: controllerState.queryClient,
+    requiresOpenAIAuth: statusState.requiresOpenAIAuth,
+    sendError: controllerState.sendError,
+    setActiveComposerPanel: controllerState.setActiveComposerPanel,
+    setComposerPreferences: controllerState.setComposerPreferences,
+    setSendError: controllerState.setSendError,
+  })
+
+  return {
+    composerActions,
+    composerCallbacks,
+    pageActions,
+  }
+}

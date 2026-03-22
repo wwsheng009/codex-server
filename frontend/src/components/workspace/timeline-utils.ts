@@ -1,5 +1,8 @@
 import { decodeBase64 } from '../thread/threadRender'
+import { formatRelativeTimeShort } from '../../i18n/format'
 import type { ServerEvent } from '../../types/api'
+
+export { formatRelativeTimeShort }
 
 export type LiveTimelineEntry =
   | {
@@ -18,27 +21,6 @@ export type LiveTimelineEntry =
       endedTs: string
       count: number
     }
-
-export function formatRelativeTimeShort(value?: string) {
-  if (!value) {
-    return 'now'
-  }
-
-  const then = new Date(value).getTime()
-  if (Number.isNaN(then)) {
-    return 'now'
-  }
-
-  const deltaMs = Date.now() - then
-  const deltaHours = Math.floor(deltaMs / 3_600_000)
-  const deltaDays = Math.floor(deltaMs / 86_400_000)
-  const deltaMinutes = Math.floor(deltaMs / 60_000)
-
-  if (deltaDays > 0) return `${deltaDays}d`
-  if (deltaHours > 0) return `${deltaHours}h`
-  if (deltaMinutes > 0) return `${deltaMinutes}m`
-  return 'now'
-}
 
 export function buildLiveTimelineEntries(events: ServerEvent[]) {
   const entries: LiveTimelineEntry[] = []

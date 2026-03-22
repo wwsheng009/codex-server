@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useRouteError } from 'react-router-dom'
 
+import { i18n } from '../i18n/runtime'
 import { describeRouteError } from '../lib/route-error'
 
 type RouteErrorPageProps = {
@@ -57,57 +58,46 @@ function RouteErrorPage({ chrome, scopeLabel, homeLabel, homeTo }: RouteErrorPag
         role="alert"
         tabIndex={-1}
       >
-        <div className="route-error__topline">
-          <p className="page-header__eyebrow">Route Recovery</p>
-          <span className="route-error__pill route-error__pill--danger">{description.code}</span>
-          <span className="route-error__pill">{scopeLabel}</span>
-        </div>
-
         <div className="route-error__hero">
-          <div aria-hidden="true" className="route-error__signal">
-            <span />
-          </div>
           <div className="route-error__copy">
-            <h1>{description.title}</h1>
-            <p>{description.message}</p>
+            <div className="route-error__headline">
+              <div className="route-error__meta" role="presentation">
+                <span className="route-error__pill route-error__pill--danger">{description.code}</span>
+                <span className="route-error__pill">{scopeLabel}</span>
+                <span className="route-error__pill route-error__pill--route" title={location.pathname || '/'}>
+                  {location.pathname || '/'}
+                </span>
+              </div>
+              <h1>{description.title}</h1>
+            </div>
           </div>
-        </div>
-
-        <div className="route-error__actions">
-          <button className="ide-button" onClick={handleRetry} type="button">
-            Try again
-          </button>
-          {canGoBack ? (
-            <button
-              className="ide-button ide-button--secondary"
-              onClick={() => navigate(-1)}
-              type="button"
-            >
-              Go back
+          <div className="route-error__actions">
+            <button className="ide-button ide-button--sm" onClick={handleRetry} type="button">
+              {i18n._({ id: 'Retry', message: 'Retry' })}
             </button>
-          ) : null}
-          <Link className="ide-button ide-button--secondary" to={homeTo}>
-            {homeLabel}
-          </Link>
-        </div>
-
-        <div className="route-error__facts" role="presentation">
-          <section className="route-error__fact">
-            <span>Failed route</span>
-            <strong>{location.pathname || '/'}</strong>
-          </section>
-          <section className="route-error__fact">
-            <span>Next step</span>
-            <strong>{description.recovery}</strong>
-          </section>
+            {canGoBack ? (
+              <button
+                className="ide-button ide-button--secondary ide-button--sm"
+                onClick={() => navigate(-1)}
+                type="button"
+              >
+                {i18n._({ id: 'Back', message: 'Back' })}
+              </button>
+            ) : null}
+            <Link className="ide-button ide-button--secondary ide-button--sm" to={homeTo}>
+              {homeLabel}
+            </Link>
+          </div>
         </div>
 
         {description.details ? (
-          <details className="route-error__debug">
-            <summary>Technical details</summary>
+          <details className="route-error__debug" open>
+            <summary>{i18n._({ id: 'Details', message: 'Details' })}</summary>
             <div className="route-error__debug-actions">
               <button className="notice__tool" onClick={() => void handleCopyDetails()} type="button">
-                {copied ? 'Copied' : 'Copy details'}
+                {copied
+                  ? i18n._({ id: 'Copied', message: 'Copied' })
+                  : i18n._({ id: 'Copy', message: 'Copy' })}
               </button>
             </div>
             <pre className="code-block">{description.details}</pre>
@@ -122,9 +112,9 @@ export function RootRouteErrorPage() {
   return (
     <RouteErrorPage
       chrome="fullscreen"
-      homeLabel="Back to Workspaces"
+      homeLabel={i18n._({ id: 'Workspaces', message: 'Workspaces' })}
       homeTo="/workspaces"
-      scopeLabel="App shell"
+      scopeLabel={i18n._({ id: 'App shell', message: 'App shell' })}
     />
   )
 }
@@ -133,9 +123,9 @@ export function AppContentRouteErrorPage() {
   return (
     <RouteErrorPage
       chrome="page"
-      homeLabel="Back to Workspaces"
+      homeLabel={i18n._({ id: 'Workspaces', message: 'Workspaces' })}
       homeTo="/workspaces"
-      scopeLabel="Workspace area"
+      scopeLabel={i18n._({ id: 'Workspace area', message: 'Workspace area' })}
     />
   )
 }
@@ -144,9 +134,9 @@ export function SettingsRouteErrorPage() {
   return (
     <RouteErrorPage
       chrome="page"
-      homeLabel="Back to Workspaces"
+      homeLabel={i18n._({ id: 'Workspaces', message: 'Workspaces' })}
       homeTo="/workspaces"
-      scopeLabel="Settings shell"
+      scopeLabel={i18n._({ id: 'Settings shell', message: 'Settings shell' })}
     />
   )
 }
@@ -155,9 +145,9 @@ export function SettingsContentRouteErrorPage() {
   return (
     <RouteErrorPage
       chrome="panel"
-      homeLabel="Back to Workspaces"
+      homeLabel={i18n._({ id: 'Workspaces', message: 'Workspaces' })}
       homeTo="/workspaces"
-      scopeLabel="Settings page"
+      scopeLabel={i18n._({ id: 'Settings page', message: 'Settings page' })}
     />
   )
 }

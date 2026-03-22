@@ -236,12 +236,21 @@ export type RuntimePreferencesResult = {
   configuredModelCatalogPath: string
   configuredDefaultShellType: string
   configuredModelShellTypeOverrides: Record<string, string>
+  configuredDefaultTurnApprovalPolicy: string
+  configuredDefaultTurnSandboxPolicy?: Record<string, unknown> | null
+  configuredDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   defaultModelCatalogPath: string
   defaultDefaultShellType: string
   defaultModelShellTypeOverrides: Record<string, string>
+  defaultDefaultTurnApprovalPolicy: string
+  defaultDefaultTurnSandboxPolicy?: Record<string, unknown> | null
+  defaultDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   effectiveModelCatalogPath: string
   effectiveDefaultShellType: string
   effectiveModelShellTypeOverrides: Record<string, string>
+  effectiveDefaultTurnApprovalPolicy: string
+  effectiveDefaultTurnSandboxPolicy?: Record<string, unknown> | null
+  effectiveDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   effectiveCommand: string
 }
 

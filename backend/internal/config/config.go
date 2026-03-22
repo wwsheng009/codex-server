@@ -26,10 +26,13 @@ type Config struct {
 }
 
 type RuntimePreferences struct {
-	ModelCatalogPath        string
-	LocalShellModels        []string
-	DefaultShellType        string
-	ModelShellTypeOverrides map[string]string
+	ModelCatalogPath            string
+	LocalShellModels            []string
+	DefaultShellType            string
+	ModelShellTypeOverrides     map[string]string
+	DefaultTurnApprovalPolicy   string
+	DefaultTurnSandboxPolicy    map[string]any
+	DefaultCommandSandboxPolicy map[string]any
 }
 
 type ResolvedRuntime struct {
@@ -71,6 +74,18 @@ func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (Resolved
 	if err != nil {
 		return ResolvedRuntime{}, err
 	}
+	defaultTurnApprovalPolicy, err := NormalizeApprovalPolicy(prefs.DefaultTurnApprovalPolicy)
+	if err != nil {
+		return ResolvedRuntime{}, err
+	}
+	defaultTurnSandboxPolicy, err := NormalizeSandboxPolicyMap(prefs.DefaultTurnSandboxPolicy)
+	if err != nil {
+		return ResolvedRuntime{}, err
+	}
+	defaultCommandSandboxPolicy, err := NormalizeSandboxPolicyMap(prefs.DefaultCommandSandboxPolicy)
+	if err != nil {
+		return ResolvedRuntime{}, err
+	}
 	modelShellTypeOverrides, err := normalizeModelShellTypeOverrides(prefs.ModelShellTypeOverrides)
 	if err != nil {
 		return ResolvedRuntime{}, err
@@ -103,10 +118,13 @@ func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (Resolved
 		Command:                   applyModelCatalogOverride(baseCommand, effectiveCatalogPath),
 		EffectiveModelCatalogPath: effectiveCatalogPath,
 		Preferences: RuntimePreferences{
-			ModelCatalogPath:        modelCatalogPath,
-			LocalShellModels:        localShellModels,
-			DefaultShellType:        defaultShellType,
-			ModelShellTypeOverrides: modelShellTypeOverrides,
+			ModelCatalogPath:            modelCatalogPath,
+			LocalShellModels:            localShellModels,
+			DefaultShellType:            defaultShellType,
+			ModelShellTypeOverrides:     modelShellTypeOverrides,
+			DefaultTurnApprovalPolicy:   defaultTurnApprovalPolicy,
+			DefaultTurnSandboxPolicy:    defaultTurnSandboxPolicy,
+			DefaultCommandSandboxPolicy: defaultCommandSandboxPolicy,
 		},
 	}, nil
 }

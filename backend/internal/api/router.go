@@ -179,6 +179,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/{threadId}/metadata", server.handleUpdateThreadMetadata)
 				r.Post("/{threadId}/rollback", server.handleRollbackThread)
 				r.Post("/{threadId}/compact", server.handleCompactThread)
+				r.Post("/{threadId}/shell-command", server.handleThreadShellCommand)
 				r.Post("/{threadId}/turns", server.handleStartTurn)
 				r.Post("/{threadId}/turns/steer", server.handleSteerTurn)
 				r.Post("/{threadId}/turns/interrupt", server.handleInterruptTurn)
@@ -233,9 +234,12 @@ func (s *Server) handleReadRuntimePreferences(w http.ResponseWriter, _ *http.Req
 
 func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		ModelCatalogPath        string            `json:"modelCatalogPath"`
-		DefaultShellType        string            `json:"defaultShellType"`
-		ModelShellTypeOverrides map[string]string `json:"modelShellTypeOverrides"`
+		ModelCatalogPath            string            `json:"modelCatalogPath"`
+		DefaultShellType            string            `json:"defaultShellType"`
+		ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides"`
+		DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy"`
+		DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy"`
+		DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -244,9 +248,12 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 	}
 
 	result, err := s.runtimePrefs.Write(runtimeprefs.WriteInput{
-		ModelCatalogPath:        request.ModelCatalogPath,
-		DefaultShellType:        request.DefaultShellType,
-		ModelShellTypeOverrides: request.ModelShellTypeOverrides,
+		ModelCatalogPath:            request.ModelCatalogPath,
+		DefaultShellType:            request.DefaultShellType,
+		ModelShellTypeOverrides:     request.ModelShellTypeOverrides,
+		DefaultTurnApprovalPolicy:   request.DefaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:    request.DefaultTurnSandboxPolicy,
+		DefaultCommandSandboxPolicy: request.DefaultCommandSandboxPolicy,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "runtime_preferences_invalid", err.Error())
@@ -713,6 +720,27 @@ func (s *Server) handleCompactThread(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "threadId")
 
 	if err := s.threads.Compact(r.Context(), workspaceID, threadID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleThreadShellCommand(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+
+	var request struct {
+		Command string `json:"command"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if err := s.threads.ShellCommand(r.Context(), workspaceID, threadID, request.Command); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}

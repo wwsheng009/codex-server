@@ -7,6 +7,7 @@ import {
   SettingsGroup,
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
+import { SelectControl } from '../../components/ui/SelectControl'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { StatusPill } from '../../components/ui/StatusPill'
 import {
@@ -16,10 +17,16 @@ import {
   loginAccount,
   logoutAccount,
 } from '../../features/account/api'
+import { useSettingsLocalStore } from '../../features/settings/local-store'
+import { formatLocaleDateTime, formatLocaleNumber, formatLocaleTime } from '../../i18n/format'
+import { localeLabels, type AppLocale } from '../../i18n/config'
+import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient()
+  const locale = useSettingsLocalStore((state) => state.locale)
+  const setLocale = useSettingsLocalStore((state) => state.setLocale)
   const [apiKey, setApiKey] = useState('')
   const [loginId, setLoginId] = useState('')
 
@@ -54,14 +61,44 @@ export function GeneralSettingsPage() {
 
   const accountLabel = accountQuery.data?.email ?? 'No account connected'
   const lastSyncedLabel = accountQuery.data?.lastSyncedAt
-    ? formatDateTime(accountQuery.data.lastSyncedAt)
+    ? formatLocaleDateTime(accountQuery.data.lastSyncedAt)
     : 'Not synced yet'
   const pendingLoginId = loginId || loginMutation.data?.loginId || ''
   const rateLimitCount = rateLimitsQuery.data?.length ?? 0
+  const localeOptions = useMemo(
+    () =>
+      (Object.entries(localeLabels) as Array<[AppLocale, (typeof localeLabels)[AppLocale]]>).map(([value, labels]) => ({
+        value,
+        label: `${labels.nativeLabel} · ${labels.label}`,
+        triggerLabel: labels.shortLabel,
+      })),
+    [],
+  )
   const accountStatus = useMemo(() => {
     if (accountQuery.isLoading) return 'Loading'
     return accountQuery.data?.status ?? 'Signed out'
   }, [accountQuery.data?.status, accountQuery.isLoading])
+  const languageGroupDescription = i18n._({
+    id: 'Set the primary locale for translated UI surfaces and locale-aware formatting.',
+    message: 'Set the primary locale for translated UI surfaces and locale-aware formatting.',
+  })
+  const languageTitle = i18n._({
+    id: 'Language',
+    message: 'Language',
+  })
+  const interfaceLanguageDescription = i18n._({
+    id: 'This selection controls translated shell copy and localized dates, times, and numbers.',
+    message:
+      'This selection controls translated shell copy and localized dates, times, and numbers.',
+  })
+  const interfaceLanguageTitle = i18n._({
+    id: 'Interface language',
+    message: 'Interface language',
+  })
+  const availableLanguagesLabel = i18n._({
+    id: 'Available languages',
+    message: 'Available languages',
+  })
 
   return (
     <section className="settings-page">
@@ -89,6 +126,28 @@ export function GeneralSettingsPage() {
       />
 
       <div className="settings-page__stack">
+        <SettingsGroup
+          description={languageGroupDescription}
+          meta={localeLabels[locale].nativeLabel}
+          title={languageTitle}
+        >
+          <SettingRow
+            description={interfaceLanguageDescription}
+            title={interfaceLanguageTitle}
+          >
+            <div className="setting-row__actions">
+              <SelectControl
+                ariaLabel={interfaceLanguageTitle}
+                fullWidth
+                menuLabel={availableLanguagesLabel}
+                onChange={(value) => setLocale(value as AppLocale)}
+                options={localeOptions}
+                value={locale}
+              />
+            </div>
+          </SettingRow>
+        </SettingsGroup>
+
         <SettingsGroup
           description="Current account posture and session state."
           meta={accountStatus}
@@ -265,7 +324,8 @@ export function GeneralSettingsPage() {
                   <div className="resource-row__body">
                     <strong>{limit.name}</strong>
                     <p>
-                      {limit.remaining} / {limit.limit} remaining · resets {formatTime(limit.resetsAt)}
+                      {formatLocaleNumber(limit.remaining)} / {formatLocaleNumber(limit.limit)} remaining · resets{' '}
+                      {formatLocaleTime(limit.resetsAt)}
                     </p>
                   </div>
                 </article>
@@ -276,15 +336,4 @@ export function GeneralSettingsPage() {
       </div>
     </section>
   )
-}
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString()
-}
-
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

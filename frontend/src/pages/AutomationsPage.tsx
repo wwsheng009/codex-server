@@ -28,6 +28,7 @@ import {
 } from '../features/automations/store'
 import { listWorkspaces } from '../features/workspaces/api'
 import { listModels } from '../features/catalog/api'
+import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 
 type Draft = {
@@ -40,6 +41,13 @@ type Draft = {
   reasoning: string
 }
 
+type TemplateDraft = {
+  title: string
+  description: string
+  prompt: string
+  category: string
+}
+
 const EMPTY_DRAFT: Draft = {
   title: '',
   description: '',
@@ -50,12 +58,75 @@ const EMPTY_DRAFT: Draft = {
   reasoning: 'medium',
 }
 
+function createEmptyTemplateDraft(): TemplateDraft {
+  return {
+    title: '',
+    description: '',
+    prompt: '',
+    category: i18n._({ id: 'Custom', message: 'Custom' }),
+  }
+}
+
+function getAutomationFrequencyOptions() {
+  return [
+    { value: 'hourly', label: i18n._({ id: 'Hourly', message: 'Hourly' }) },
+    { value: 'daily', label: i18n._({ id: 'Daily', message: 'Daily' }) },
+    { value: 'weekly', label: i18n._({ id: 'Weekly', message: 'Weekly' }) },
+    { value: 'monthly', label: i18n._({ id: 'Monthly', message: 'Monthly' }) },
+    {
+      value: 'cron',
+      label: i18n._({ id: 'Advanced (Cron)', message: 'Advanced (Cron)' }),
+    },
+  ]
+}
+
+function getAutomationWeekdayOptions() {
+  return [
+    { value: '0', label: i18n._({ id: 'Sunday', message: 'Sunday' }) },
+    { value: '1', label: i18n._({ id: 'Monday', message: 'Monday' }) },
+    { value: '2', label: i18n._({ id: 'Tuesday', message: 'Tuesday' }) },
+    { value: '3', label: i18n._({ id: 'Wednesday', message: 'Wednesday' }) },
+    { value: '4', label: i18n._({ id: 'Thursday', message: 'Thursday' }) },
+    { value: '5', label: i18n._({ id: 'Friday', message: 'Friday' }) },
+    { value: '6', label: i18n._({ id: 'Saturday', message: 'Saturday' }) },
+  ]
+}
+
+function getAutomationReasoningOptions() {
+  return [
+    { value: 'low', label: i18n._({ id: 'Low', message: 'Low' }) },
+    { value: 'medium', label: i18n._({ id: 'Medium', message: 'Medium' }) },
+    { value: 'high', label: i18n._({ id: 'High', message: 'High' }) },
+    { value: 'xhigh', label: i18n._({ id: 'Extra High', message: 'Extra High' }) },
+  ]
+}
+
+function getScheduleType(schedule: string) {
+  if (schedule === '0 * * * *' || schedule === 'hourly') {
+    return 'hourly'
+  }
+
+  if (schedule.startsWith('daily-')) {
+    return 'daily'
+  }
+
+  if (schedule.startsWith('weekly-')) {
+    return 'weekly'
+  }
+
+  if (schedule.startsWith('monthly-')) {
+    return 'monthly'
+  }
+
+  return 'cron'
+}
+
 export function AutomationsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [activeTemplate, setActiveTemplate] = useState<AutomationTemplate | null>(null)
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
-  const [templateDraft, setTemplateDraft] = useState({ title: '', description: '', prompt: '', category: 'Custom' })
+  const [templateDraft, setTemplateDraft] = useState<TemplateDraft>(() => createEmptyTemplateDraft())
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [cronPickerOpen, setCronPickerOpen] = useState(false)
@@ -133,7 +204,7 @@ export function AutomationsPage() {
     onSuccess: async () => {
       setTemplateModalOpen(false)
       setEditingTemplateId(null)
-      setTemplateDraft({ title: '', description: '', prompt: '', category: 'Custom' })
+      setTemplateDraft(createEmptyTemplateDraft())
       setError('')
       await queryClient.invalidateQueries({ queryKey: ['automation-templates'] })
     },
@@ -144,7 +215,7 @@ export function AutomationsPage() {
     onSuccess: async () => {
       setTemplateModalOpen(false)
       setEditingTemplateId(null)
-      setTemplateDraft({ title: '', description: '', prompt: '', category: 'Custom' })
+      setTemplateDraft(createEmptyTemplateDraft())
       setError('')
       await queryClient.invalidateQueries({ queryKey: ['automation-templates'] })
     },
@@ -179,6 +250,9 @@ export function AutomationsPage() {
           ? getErrorMessage(deleteTemplateMutation.error)
           : '')
   const actionTarget = automationActionMutation.isPending ? automationActionMutation.variables : null
+  const frequencyOptions = getAutomationFrequencyOptions()
+  const weekdayOptions = getAutomationWeekdayOptions()
+  const reasoningOptions = getAutomationReasoningOptions()
 
   function openCreateModal(template?: AutomationTemplate) {
     createAutomationMutation.reset()
@@ -214,7 +288,12 @@ export function AutomationsPage() {
 
   function handleCreateTemplate() {
     if (!templateDraft.title.trim() || !templateDraft.prompt.trim()) {
-      setError('Title and prompt are required for templates.')
+      setError(
+        i18n._({
+          id: 'Title and prompt are required for templates.',
+          message: 'Title and prompt are required for templates.',
+        }),
+      )
       return
     }
 
@@ -260,19 +339,34 @@ export function AutomationsPage() {
     createAutomationMutation.reset()
     const workspace = workspacesQuery.data?.find((item) => item.id === draft.workspaceId)
     if (!workspace) {
-      setError('Select a workspace before creating an automation.')
+      setError(
+        i18n._({
+          id: 'Select a workspace before creating an automation.',
+          message: 'Select a workspace before creating an automation.',
+        }),
+      )
       return
     }
 
     if (!draft.title.trim() || !draft.prompt.trim()) {
-      setError('Title and prompt are required.')
+      setError(
+        i18n._({
+          id: 'Title and prompt are required.',
+          message: 'Title and prompt are required.',
+        }),
+      )
       return
     }
 
     setError('')
     createAutomationMutation.mutate({
       title: draft.title.trim(),
-      description: draft.description.trim() || 'Automation created from the web IDE prototype.',
+      description:
+        draft.description.trim() ||
+        i18n._({
+          id: 'Automation created from the web IDE prototype.',
+          message: 'Automation created from the web IDE prototype.',
+        }),
       prompt: draft.prompt.trim(),
       workspaceId: workspace.id,
       schedule: draft.schedule,
@@ -314,10 +408,10 @@ export function AutomationsPage() {
   const modalFooter = (
     <>
       <Button intent="secondary" onClick={closeModal}>
-        Cancel
+        {i18n._({ id: 'Cancel', message: 'Cancel' })}
       </Button>
       <Button isLoading={createAutomationMutation.isPending} onClick={submitCreate}>
-        Create Automation
+        {i18n._({ id: 'Create Automation', message: 'Create Automation' })}
       </Button>
     </>
   )
@@ -330,17 +424,20 @@ export function AutomationsPage() {
           setTemplateModalOpen(false)
           setEditingTemplateId(null)
           setError('')
+          setTemplateDraft(createEmptyTemplateDraft())
           createTemplateMutation.reset()
           updateTemplateMutation.reset()
         }}
       >
-        Cancel
+        {i18n._({ id: 'Cancel', message: 'Cancel' })}
       </Button>
       <Button
         isLoading={createTemplateMutation.isPending || updateTemplateMutation.isPending}
         onClick={handleCreateTemplate}
       >
-        {editingTemplateId ? 'Update Template' : 'Save Template'}
+        {editingTemplateId
+          ? i18n._({ id: 'Update Template', message: 'Update Template' })
+          : i18n._({ id: 'Save Template', message: 'Save Template' })}
       </Button>
     </>
   )
@@ -349,38 +446,51 @@ export function AutomationsPage() {
     <section className="screen">
       <header className="mode-strip">
         <div className="mode-strip__copy">
-          <div className="mode-strip__eyebrow">Automations</div>
+          <div className="mode-strip__eyebrow">
+            {i18n._({ id: 'Automations', message: 'Automations' })}
+          </div>
           <div className="mode-strip__title-row">
-            <strong>Automation Studio</strong>
+            <strong>{i18n._({ id: 'Automation Studio', message: 'Automation Studio' })}</strong>
           </div>
           <div className="mode-strip__description">
-            Create scheduled automations from reusable templates and manage workbench objects.
+            {i18n._({
+              id: 'Create scheduled automations from reusable templates and manage workbench objects.',
+              message:
+                'Create scheduled automations from reusable templates and manage workbench objects.',
+            })}
           </div>
         </div>
         <div className="mode-strip__actions">
           <div className="mode-metrics">
             <div className="mode-metric">
-              <span>Active</span>
+              <span>{i18n._({ id: 'Active', message: 'Active' })}</span>
               <strong>{activeAutomationsCount}</strong>
             </div>
             <div className="mode-metric">
-              <span>Templates</span>
+              <span>{i18n._({ id: 'Templates', message: 'Templates' })}</span>
               <strong>{templateCount}</strong>
             </div>
           </div>
           <Button onClick={() => openCreateModal()}>
-            New Automation
+            {i18n._({ id: 'New Automation', message: 'New Automation' })}
           </Button>
         </div>
       </header>
 
       <div className="stack-screen">
-        {automationsQuery.isLoading ? <div className="notice">Loading automations…</div> : null}
+        {automationsQuery.isLoading ? (
+          <div className="notice">
+            {i18n._({ id: 'Loading automations…', message: 'Loading automations…' })}
+          </div>
+        ) : null}
         {automationsQuery.error ? (
           <InlineNotice
             dismissible
             noticeKey={`automation-list-${getErrorMessage(automationsQuery.error)}`}
-            title="Automation Loading Failed"
+            title={i18n._({
+              id: 'Automation Loading Failed',
+              message: 'Automation Loading Failed',
+            })}
             tone="error"
           >
             {getErrorMessage(automationsQuery.error)}
@@ -390,7 +500,10 @@ export function AutomationsPage() {
           <InlineNotice
             dismissible
             noticeKey={`automation-templates-${getErrorMessage(templatesQuery.error)}`}
-            title="Template Loading Failed"
+            title={i18n._({
+              id: 'Template Loading Failed',
+              message: 'Template Loading Failed',
+            })}
             tone="error"
           >
             {getErrorMessage(templatesQuery.error)}
@@ -401,7 +514,7 @@ export function AutomationsPage() {
           <section className="content-section">
             <div className="section-header">
               <div>
-                <h2>Active Automations</h2>
+                <h2>{i18n._({ id: 'Active Automations', message: 'Active Automations' })}</h2>
               </div>
               <div className="section-header__meta">{automations.length}</div>
             </div>
@@ -420,7 +533,7 @@ export function AutomationsPage() {
                       isLoading={actionTarget?.id === automation.id && actionTarget.action === 'fix'}
                       onClick={() => handleFix(automation.id)}
                     >
-                      Fix
+                      {i18n._({ id: 'Fix', message: 'Fix' })}
                     </Button>
                     {automation.status === 'active' ? (
                       <Button
@@ -428,7 +541,7 @@ export function AutomationsPage() {
                         isLoading={actionTarget?.id === automation.id && actionTarget.action === 'pause'}
                         onClick={() => handlePause(automation.id)}
                       >
-                        Pause
+                        {i18n._({ id: 'Pause', message: 'Pause' })}
                       </Button>
                     ) : (
                       <Button
@@ -436,7 +549,7 @@ export function AutomationsPage() {
                         isLoading={actionTarget?.id === automation.id && actionTarget.action === 'resume'}
                         onClick={() => handleResume(automation.id)}
                       >
-                        Resume
+                        {i18n._({ id: 'Resume', message: 'Resume' })}
                       </Button>
                     )}
                     <Button
@@ -444,7 +557,7 @@ export function AutomationsPage() {
                       intent="ghost"
                       onClick={() => handleDelete(automation)}
                     >
-                      Delete
+                      {i18n._({ id: 'Delete', message: 'Delete' })}
                     </Button>
                   </div>
                 </div>
@@ -456,14 +569,16 @@ export function AutomationsPage() {
         <section className="content-section">
           <div className="section-header">
             <div>
-              <h2>Capability Templates</h2>
+              <h2>{i18n._({ id: 'Capability Templates', message: 'Capability Templates' })}</h2>
             </div>
             <div className="section-header__actions">
               <Button intent="ghost" onClick={() => setTemplateModalOpen(true)}>
-                New Template
+                {i18n._({ id: 'New Template', message: 'New Template' })}
               </Button>
               <Button intent="ghost" onClick={() => setIsTemplatesVisible((current) => !current)}>
-                {isTemplatesVisible ? 'Hide Templates' : 'Show Templates'}
+                {isTemplatesVisible
+                  ? i18n._({ id: 'Hide Templates', message: 'Hide Templates' })
+                  : i18n._({ id: 'Show Templates', message: 'Show Templates' })}
               </Button>
             </div>
           </div>
@@ -482,12 +597,12 @@ export function AutomationsPage() {
                         </div>
                         <div className="automation-compact-row__actions">
                           <Button intent="ghost" onClick={() => openCreateModal(template)}>
-                            Use Template
+                            {i18n._({ id: 'Use Template', message: 'Use Template' })}
                           </Button>
                           {!template.isBuiltIn ? (
                             <>
                               <Button intent="ghost" onClick={() => openEditTemplateModal(template)}>
-                                Edit
+                                {i18n._({ id: 'Edit', message: 'Edit' })}
                               </Button>
                               <Button
                                 className="ide-button--ghost-danger"
@@ -495,11 +610,13 @@ export function AutomationsPage() {
                                 isLoading={deleteTemplateMutation.isPending && deleteTemplateMutation.variables === template.id}
                                 onClick={() => handleDeleteTemplate(template.id)}
                               >
-                                Delete
+                                {i18n._({ id: 'Delete', message: 'Delete' })}
                               </Button>
                             </>
                           ) : (
-                            <span className="meta-pill">Built-in</span>
+                            <span className="meta-pill">
+                              {i18n._({ id: 'Built-in', message: 'Built-in' })}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -516,27 +633,36 @@ export function AutomationsPage() {
         <Modal
           footer={modalFooter}
           onClose={closeModal}
-          title={activeTemplate?.title ?? 'New Automation'}
+          title={
+            activeTemplate?.title ??
+            i18n._({ id: 'New Automation', message: 'New Automation' })
+          }
         >
           <form className="form-stack" onSubmit={handleCreate}>
             <div className="form-row">
               <label className="field">
-                <span>Capability Template</span>
+                <span>{i18n._({ id: 'Capability Template', message: 'Capability Template' })}</span>
                 <SelectControl
-                  ariaLabel="Select a template"
+                  ariaLabel={i18n._({ id: 'Select a template', message: 'Select a template' })}
                   fullWidth
                   onChange={handleTemplateSelect}
                   options={[
-                    { value: '', label: 'None (Start from scratch)' },
+                    {
+                      value: '',
+                      label: i18n._({
+                        id: 'None (Start from scratch)',
+                        message: 'None (Start from scratch)',
+                      }),
+                    },
                     ...templates.map((template) => ({ value: template.id, label: `[${template.category}] ${template.title}` })),
                   ]}
                   value={activeTemplate?.id ?? ''}
                 />
               </label>
               <label className="field">
-                <span>Target Workspace</span>
+                <span>{i18n._({ id: 'Target Workspace', message: 'Target Workspace' })}</span>
                 <SelectControl
-                  ariaLabel="Workspace"
+                  ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
                   fullWidth
                   onChange={(nextValue) =>
                     setDraft((current) => ({ ...current, workspaceId: nextValue }))
@@ -552,21 +678,35 @@ export function AutomationsPage() {
 
             <div className="form-row">
               <label className="field">
-                <span>Title</span>
-                <input onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Daily Sync" value={draft.title} />
+                <span>{i18n._({ id: 'Title', message: 'Title' })}</span>
+                <input
+                  onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+                  placeholder={i18n._({ id: 'Daily Sync', message: 'Daily Sync' })}
+                  value={draft.title}
+                />
               </label>
               <label className="field">
-                <span>Description</span>
-                <input onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Briefly describe the automation's purpose..." value={draft.description} />
+                <span>{i18n._({ id: 'Description', message: 'Description' })}</span>
+                <input
+                  onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+                  placeholder={i18n._({
+                    id: "Briefly describe the automation's purpose...",
+                    message: "Briefly describe the automation's purpose...",
+                  })}
+                  value={draft.description}
+                />
               </label>
             </div>
 
             <label className="field">
-              <span>Prompt</span>
+              <span>{i18n._({ id: 'Prompt', message: 'Prompt' })}</span>
               <textarea
                 className="ide-textarea"
                 onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
-                placeholder="What should the assistant do?"
+                placeholder={i18n._({
+                  id: 'What should the assistant do?',
+                  message: 'What should the assistant do?',
+                })}
                 rows={5}
                 value={draft.prompt}
               />
@@ -574,9 +714,9 @@ export function AutomationsPage() {
 
             <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
               <div className="field">
-                <span>Frequency</span>
+                <span>{i18n._({ id: 'Frequency', message: 'Frequency' })}</span>
                 <SelectControl
-                  ariaLabel="Frequency"
+                  ariaLabel={i18n._({ id: 'Frequency', message: 'Frequency' })}
                   fullWidth
                   onChange={(nextValue) => {
                     let baseSchedule = '0 * * * *'
@@ -586,26 +726,15 @@ export function AutomationsPage() {
                     if (nextValue === 'cron') baseSchedule = '0 9 * * 1-5'
                     setDraft((current) => ({ ...current, schedule: baseSchedule }))
                   }}
-                  options={[
-                    { value: 'hourly', label: 'Hourly' },
-                    { value: 'daily', label: 'Daily' },
-                    { value: 'weekly', label: 'Weekly' },
-                    { value: 'monthly', label: 'Monthly' },
-                    { value: 'cron', label: 'Advanced (Cron)' },
-                  ]}
-                  value={
-                    draft.schedule === '0 * * * *' || draft.schedule === 'hourly' ? 'hourly' :
-                    draft.schedule.startsWith('daily-') ? 'daily' :
-                    draft.schedule.startsWith('weekly-') ? 'weekly' :
-                    draft.schedule.startsWith('monthly-') ? 'monthly' : 'cron'
-                  }
+                  options={frequencyOptions}
+                  value={getScheduleType(draft.schedule)}
                 />
               </div>
 
               {/* Dynamic sub-controls based on Frequency */}
               {draft.schedule.startsWith('daily-') && (
                 <div className="field">
-                  <span>Run Time</span>
+                  <span>{i18n._({ id: 'Run Time', message: 'Run Time' })}</span>
                   <input
                     type="time"
                     onChange={(e) => {
@@ -620,28 +749,20 @@ export function AutomationsPage() {
               {draft.schedule.startsWith('weekly-') && (
                 <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <div className="field">
-                    <span>Day</span>
+                    <span>{i18n._({ id: 'Day', message: 'Day' })}</span>
                     <SelectControl
-                      ariaLabel="Day of Week"
+                      ariaLabel={i18n._({ id: 'Day of Week', message: 'Day of Week' })}
                       fullWidth
                       onChange={(day) => {
                         const time = draft.schedule.slice(9)
                         setDraft((current) => ({ ...current, schedule: `weekly-${day}-${time}` }))
                       }}
-                      options={[
-                        { value: '0', label: 'Sunday' },
-                        { value: '1', label: 'Monday' },
-                        { value: '2', label: 'Tuesday' },
-                        { value: '3', label: 'Wednesday' },
-                        { value: '4', label: 'Thursday' },
-                        { value: '5', label: 'Friday' },
-                        { value: '6', label: 'Saturday' },
-                      ]}
+                      options={weekdayOptions}
                       value={draft.schedule.slice(7, 8)}
                     />
                   </div>
                   <div className="field">
-                    <span>Time</span>
+                    <span>{i18n._({ id: 'Time', message: 'Time' })}</span>
                     <input
                       type="time"
                       onChange={(e) => {
@@ -658,7 +779,7 @@ export function AutomationsPage() {
               {draft.schedule.startsWith('monthly-') && (
                 <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <div className="field">
-                    <span>Day of Month</span>
+                    <span>{i18n._({ id: 'Day of Month', message: 'Day of Month' })}</span>
                     <input
                       type="number"
                       min="1"
@@ -672,7 +793,7 @@ export function AutomationsPage() {
                     />
                   </div>
                   <div className="field">
-                    <span>Time</span>
+                    <span>{i18n._({ id: 'Time', message: 'Time' })}</span>
                     <input
                       type="time"
                       onChange={(e) => {
@@ -688,11 +809,11 @@ export function AutomationsPage() {
 
               {!(draft.schedule === '0 * * * *' || draft.schedule === 'hourly' || draft.schedule.startsWith('daily-') || draft.schedule.startsWith('weekly-') || draft.schedule.startsWith('monthly-')) && (
                 <div className="field">
-                  <span>Advanced Scheduling</span>
+                  <span>{i18n._({ id: 'Advanced Scheduling', message: 'Advanced Scheduling' })}</span>
                   <div className="cron-trigger-area">
                     <code>{draft.schedule}</code>
                     <Button intent="secondary" size="sm" onClick={() => setCronPickerOpen(true)}>
-                      Edit
+                      {i18n._({ id: 'Edit', message: 'Edit' })}
                     </Button>
                   </div>
                 </div>
@@ -700,9 +821,12 @@ export function AutomationsPage() {
 
               {draft.schedule === '0 * * * *' || draft.schedule === 'hourly' ? (
                 <div className="field">
-                  <span>Interval</span>
+                  <span>{i18n._({ id: 'Interval', message: 'Interval' })}</span>
                   <div style={{ padding: '12px 0', fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-                    Runs once per hour, on the hour.
+                    {i18n._({
+                      id: 'Runs once per hour, on the hour.',
+                      message: 'Runs once per hour, on the hour.',
+                    })}
                   </div>
                 </div>
               ) : null}
@@ -710,9 +834,9 @@ export function AutomationsPage() {
 
             <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
               <label className="field">
-                <span>Model</span>
+                <span>{i18n._({ id: 'Model', message: 'Model' })}</span>
                 <SelectControl
-                  ariaLabel="Model"
+                  ariaLabel={i18n._({ id: 'Model', message: 'Model' })}
                   fullWidth
                   onChange={(nextValue) =>
                     setDraft((current) => ({ ...current, model: nextValue }))
@@ -728,19 +852,14 @@ export function AutomationsPage() {
                 />
               </label>
               <label className="field">
-                <span>Reasoning</span>
+                <span>{i18n._({ id: 'Reasoning', message: 'Reasoning' })}</span>
                 <SelectControl
-                  ariaLabel="Reasoning"
+                  ariaLabel={i18n._({ id: 'Reasoning', message: 'Reasoning' })}
                   fullWidth
                   onChange={(nextValue) =>
                     setDraft((current) => ({ ...current, reasoning: nextValue }))
                   }
-                  options={[
-                    { value: 'low', label: 'Low' },
-                    { value: 'medium', label: 'Medium' },
-                    { value: 'high', label: 'High' },
-                    { value: 'xhigh', label: 'Extra High' },
-                  ]}
+                  options={reasoningOptions}
                   value={draft.reasoning}
                 />
               </label>
@@ -749,7 +868,10 @@ export function AutomationsPage() {
               <InlineNotice
                 dismissible
                 noticeKey={`automation-create-${createError}`}
-                title="Automation Setup Incomplete"
+                title={i18n._({
+                  id: 'Automation Setup Incomplete',
+                  message: 'Automation Setup Incomplete',
+                })}
                 tone="error"
               >
                 {createError}
@@ -761,48 +883,79 @@ export function AutomationsPage() {
 
       {templateModalOpen ? (
         <Modal
-          description={editingTemplateId ? 'Update this reusable automation pattern.' : 'Create a reusable automation pattern that can be used across different workspaces.'}
+          description={
+            editingTemplateId
+              ? i18n._({
+                  id: 'Update this reusable automation pattern.',
+                  message: 'Update this reusable automation pattern.',
+                })
+              : i18n._({
+                  id: 'Create a reusable automation pattern that can be used across different workspaces.',
+                  message:
+                    'Create a reusable automation pattern that can be used across different workspaces.',
+                })
+          }
           footer={templateModalFooter}
           onClose={() => {
             setTemplateModalOpen(false)
             setEditingTemplateId(null)
             setError('')
+            setTemplateDraft(createEmptyTemplateDraft())
           }}
-          title={editingTemplateId ? 'Edit Capability Template' : 'New Capability Template'}
+          title={
+            editingTemplateId
+              ? i18n._({
+                  id: 'Edit Capability Template',
+                  message: 'Edit Capability Template',
+                })
+              : i18n._({
+                  id: 'New Capability Template',
+                  message: 'New Capability Template',
+                })
+          }
         >
           <div className="form-stack">
             <div className="form-row">
               <label className="field">
-                <span>Template Title</span>
+                <span>{i18n._({ id: 'Template Title', message: 'Template Title' })}</span>
                 <input
                   onChange={(event) => setTemplateDraft((current) => ({ ...current, title: event.target.value }))}
-                  placeholder="e.g. Security Audit"
+                  placeholder={i18n._({
+                    id: 'e.g. Security Audit',
+                    message: 'e.g. Security Audit',
+                  })}
                   value={templateDraft.title}
                 />
               </label>
               <label className="field">
-                <span>Category</span>
+                <span>{i18n._({ id: 'Category', message: 'Category' })}</span>
                 <input
                   onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value }))}
-                  placeholder="e.g. Security"
+                  placeholder={i18n._({ id: 'e.g. Security', message: 'e.g. Security' })}
                   value={templateDraft.category}
                 />
               </label>
             </div>
             <label className="field">
-              <span>Description</span>
+              <span>{i18n._({ id: 'Description', message: 'Description' })}</span>
               <input
                 onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))}
-                placeholder="What does this pattern do?"
+                placeholder={i18n._({
+                  id: 'What does this pattern do?',
+                  message: 'What does this pattern do?',
+                })}
                 value={templateDraft.description}
               />
             </label>
             <label className="field">
-              <span>Template Prompt</span>
+              <span>{i18n._({ id: 'Template Prompt', message: 'Template Prompt' })}</span>
               <textarea
                 className="ide-textarea"
                 onChange={(event) => setTemplateDraft((current) => ({ ...current, prompt: event.target.value }))}
-                placeholder="Define the logic/instructions for this template..."
+                placeholder={i18n._({
+                  id: 'Define the logic/instructions for this template...',
+                  message: 'Define the logic/instructions for this template...',
+                })}
                 rows={6}
                 value={templateDraft.prompt}
               />
@@ -811,7 +964,10 @@ export function AutomationsPage() {
               <InlineNotice
                 dismissible
                 noticeKey={`automation-template-${templateError}`}
-                title="Template Update Failed"
+                title={i18n._({
+                  id: 'Template Update Failed',
+                  message: 'Template Update Failed',
+                })}
                 tone="error"
               >
                 {templateError}
@@ -823,8 +979,15 @@ export function AutomationsPage() {
 
       {confirmingDelete ? (
         <ConfirmDialog
-          confirmLabel="Delete Automation"
-          description="This will permanently remove the automation record. This action cannot be undone."
+          confirmLabel={i18n._({
+            id: 'Delete Automation',
+            message: 'Delete Automation',
+          })}
+          description={i18n._({
+            id: 'This will permanently remove the automation record. This action cannot be undone.',
+            message:
+              'This will permanently remove the automation record. This action cannot be undone.',
+          })}
           error={deleteAutomationMutation.error ? getErrorMessage(deleteAutomationMutation.error) : null}
           isPending={deleteAutomationMutation.isPending}
           onClose={() => {
@@ -835,18 +998,27 @@ export function AutomationsPage() {
           }}
           onConfirm={confirmDelete}
           subject={confirmingDelete.title}
-          title="Delete Automation?"
+          title={i18n._({
+            id: 'Delete Automation?',
+            message: 'Delete Automation?',
+          })}
         />
       ) : null}
 
       {cronPickerOpen ? (
         <Modal
           onClose={() => setCronPickerOpen(false)}
-          title="Configure Advanced Schedule"
-          description="Use the visual generator below to define your execution frequency."
+          title={i18n._({
+            id: 'Configure Advanced Schedule',
+            message: 'Configure Advanced Schedule',
+          })}
+          description={i18n._({
+            id: 'Use the visual generator below to define your execution frequency.',
+            message: 'Use the visual generator below to define your execution frequency.',
+          })}
           footer={
             <Button type="button" onClick={() => setCronPickerOpen(false)}>
-              Apply Schedule
+              {i18n._({ id: 'Apply Schedule', message: 'Apply Schedule' })}
             </Button>
           }
         >

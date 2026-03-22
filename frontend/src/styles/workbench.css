@@ -1574,14 +1574,16 @@
 }
 
 .composer-dock__input {
-  min-height: 78px;
+  min-height: 0;
+  max-height: 216px;
   width: 100%;
   padding: 12px 14px 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
   line-height: 1.5;
-  resize: vertical;
+  overflow-y: hidden;
+  resize: none;
   outline: none;
 }
 
@@ -2184,9 +2186,20 @@
 }
 
 .composer-control-group__item.segmented-control__item--active {
-  background: color-mix(in srgb, var(--bg-main) 92%, var(--text-faint) 8%);
-  color: var(--text-secondary);
-  box-shadow: none;
+  background: var(--bg-main);
+  color: var(--text-strong);
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 1px var(--border-strong);
+  font-weight: 500;
+}
+
+[data-theme='dark'] .composer-control-group__item.segmented-control__item--active {
+  background: var(--surface-card-strong);
+  color: var(--text-strong);
+  box-shadow: 
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 0 0 1px var(--border-accent);
 }
 
 .composer-control-group__item:hover:not(:disabled),
@@ -2203,16 +2216,20 @@
   color: var(--danger);
 }
 
-.composer-control-group__item.segmented-control__item--active {
-  background: color-mix(in srgb, var(--bg-main) 92%, var(--text-faint) 8%);
-  color: var(--text-secondary);
-  box-shadow: none;
-}
-
 .composer-control-group__item--danger.segmented-control__item--active {
   background: var(--surface-danger-tint);
   color: var(--danger-strong);
-  box-shadow: none;
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 1px var(--border-danger);
+  font-weight: 500;
+}
+
+[data-theme='dark'] .composer-control-group__item--danger.segmented-control__item--active {
+  background: color-mix(in srgb, var(--surface-danger-tint) 80%, white 4%);
+  box-shadow: 
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 0 0 1px var(--danger);
 }
 
 .composer-control-group--active .composer-control-group__label {
@@ -2248,8 +2265,10 @@
 
 .composer-control-select--active {
   border-color: var(--border-accent);
-  background: var(--surface-control-active);
-  box-shadow: var(--shadow-control-active);
+  background: var(--bg-main);
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 0 0 1px var(--border-accent);
 }
 
 .composer-control-select--active .composer-control-group__label {

@@ -1,19 +1,13 @@
 import { useMemo } from 'react'
 
-import {
-  normalizeComposerFileSearchItem,
-  type ComposerAutocompleteMode,
-} from '../../lib/composer-autocomplete'
-import type { CatalogItem } from '../../types/api'
+import { getActiveLocale } from '../../i18n/runtime'
+import { buildComposerAvailableModels } from './buildComposerAvailableModels'
+import { buildComposerPanelFlags } from './buildComposerPanelFlags'
+import { buildComposerPreferenceOptions } from './buildComposerPreferenceOptions'
+import { normalizeComposerFileSearchItem } from '../../lib/composer-autocomplete'
 import { useThreadComposerAutocomplete } from './useThreadComposerAutocomplete'
-import {
-  FALLBACK_MODEL_OPTIONS,
-  normalizeMcpServerState,
-  type ComposerCommandDefinition,
-  type ComposerCommandMenu,
-  type ComposerPreferences,
-  type ModelOption,
-} from './threadPageComposerShared'
+import { normalizeMcpServerState } from './threadPageComposerShared'
+import type { ThreadPageComposerPanelStateInput } from './threadPageComposerPanelTypes'
 
 export function useThreadPageComposerPanelState({
   activeComposerMatchMode,
@@ -33,25 +27,8 @@ export function useThreadPageComposerPanelState({
   skills,
   skillsIsFetching,
   supportsPlanMode,
-}: {
-  activeComposerMatchMode?: ComposerAutocompleteMode
-  composerAutocompleteIndex: number
-  composerCommandDefinitions: ComposerCommandDefinition[]
-  composerCommandMenu: ComposerCommandMenu
-  composerPreferences: ComposerPreferences
-  fileSearchFiles?: Record<string, unknown>[]
-  fileSearchIsFetching: boolean
-  isCommandAutocompleteOpen: boolean
-  isMentionAutocompleteOpen: boolean
-  isSkillAutocompleteOpen: boolean
-  mcpServerStatusEntries?: Record<string, unknown>[]
-  models: CatalogItem[]
-  normalizedDeferredComposerQuery: string
-  setComposerAutocompleteIndex: (value: number | ((current: number) => number)) => void
-  skills: CatalogItem[]
-  skillsIsFetching: boolean
-  supportsPlanMode: boolean
-}) {
+}: ThreadPageComposerPanelStateInput) {
+  const activeLocale = getActiveLocale()
   const normalizedMentionFiles = useMemo(
     () =>
       (fileSearchFiles ?? [])
@@ -83,105 +60,45 @@ export function useThreadPageComposerPanelState({
     [mcpServerStatusEntries],
   )
 
-  const showMentionSearchHint =
-    isMentionAutocompleteOpen &&
-    !normalizedDeferredComposerQuery &&
-    !fileSearchIsFetching &&
-    !composerAutocompleteItems.length
-  const showSkillSearchLoading =
-    isSkillAutocompleteOpen && skillsIsFetching && !composerAutocompleteItems.length
-
-  const availableModels = useMemo<ModelOption[]>(() => {
-    const options = new Map<string, ModelOption>()
-
-    const registerModel = (value: string, label?: string) => {
-      const trimmedValue = value.trim()
-      if (!trimmedValue || options.has(trimmedValue)) {
-        return
-      }
-
-      const trimmedLabel = label?.trim() || trimmedValue
-      options.set(trimmedValue, {
-        value: trimmedValue,
-        label: trimmedLabel,
-        triggerLabel: trimmedLabel,
-      })
-    }
-
-    registerModel(composerPreferences.model)
-
-    for (const item of models) {
-      registerModel(item.value ?? item.id ?? item.name, item.name)
-    }
-
-    for (const fallbackModel of FALLBACK_MODEL_OPTIONS) {
-      registerModel(fallbackModel)
-    }
-
-    return Array.from(options.values())
-  }, [composerPreferences.model, models])
-
-  const mobileCollaborationModeOptions = useMemo(
-    () => [
-      { value: 'default', label: '默认模式', triggerLabel: '模式' },
-      { value: 'plan', label: 'Plan 模式', triggerLabel: 'Plan', disabled: !supportsPlanMode },
-    ],
-    [supportsPlanMode],
+  const availableModels = useMemo(
+    () => buildComposerAvailableModels({ composerPreferences, models }),
+    [composerPreferences, models],
   )
-
-  const mobilePermissionOptions = useMemo(
-    () => [
-      { value: 'default', label: '默认权限', triggerLabel: '权限' },
-      { value: 'full-access', label: '完全访问', triggerLabel: '全开' },
-    ],
-    [],
+  const preferenceOptions = useMemo(
+    () => buildComposerPreferenceOptions({ availableModels, supportsPlanMode }),
+    [activeLocale, availableModels, supportsPlanMode],
   )
-
-  const mobileModelOptions = useMemo(
-    () => [
-      { value: '', label: '默认模型', triggerLabel: '模型' },
-      ...availableModels.map((model) => ({
-        value: model.value,
-        label: model.label,
-        triggerLabel: model.triggerLabel,
-      })),
+  const panelFlags = useMemo(
+    () =>
+      buildComposerPanelFlags({
+        composerAutocompleteItemsLength: composerAutocompleteItems.length,
+        fileSearchIsFetching,
+        isMentionAutocompleteOpen,
+        isSkillAutocompleteOpen,
+        normalizedDeferredComposerQuery,
+        skillsIsFetching,
+      }),
+    [
+      composerAutocompleteItems.length,
+      fileSearchIsFetching,
+      isMentionAutocompleteOpen,
+      isSkillAutocompleteOpen,
+      normalizedDeferredComposerQuery,
+      skillsIsFetching,
     ],
-    [availableModels],
-  )
-
-  const desktopModelOptions = useMemo(
-    () => [
-      { value: '', label: '跟随默认模型', triggerLabel: '默认' },
-      ...availableModels.map((model) => ({
-        value: model.value,
-        label: model.label,
-        triggerLabel: model.triggerLabel,
-      })),
-    ],
-    [availableModels],
-  )
-
-  const mobileReasoningOptions = useMemo(
-    () => [
-      { value: 'low', label: '低' },
-      { value: 'medium', label: '中' },
-      { value: 'high', label: '高' },
-      { value: 'xhigh', label: '超' },
-    ],
-    [],
   )
 
   return {
     composerAutocompleteItem,
     composerAutocompleteItems,
     composerAutocompleteSectionGroups,
-    desktopModelOptions,
+    desktopModelOptions: preferenceOptions.desktopModelOptions,
     mcpServerStates,
-    mobileCollaborationModeOptions,
-    mobileModelOptions,
-    mobilePermissionOptions,
-    mobileReasoningOptions,
-    showMentionSearchHint,
-    showSkillSearchLoading,
+    mobileCollaborationModeOptions: preferenceOptions.mobileCollaborationModeOptions,
+    mobileModelOptions: preferenceOptions.mobileModelOptions,
+    mobilePermissionOptions: preferenceOptions.mobilePermissionOptions,
+    mobileReasoningOptions: preferenceOptions.mobileReasoningOptions,
+    showMentionSearchHint: panelFlags.showMentionSearchHint,
+    showSkillSearchLoading: panelFlags.showSkillSearchLoading,
   }
 }

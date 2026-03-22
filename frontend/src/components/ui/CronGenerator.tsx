@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { SelectControl } from './SelectControl'
+import { i18n } from '../../i18n/runtime'
 
 interface CronGeneratorProps {
   value: string
@@ -25,63 +26,63 @@ export function CronGenerator({ value, onChange }: CronGeneratorProps) {
     <div className="cron-generator">
       <div className="cron-generator__grid">
         <CronField 
-          label="Minute" 
+          label={i18n._({ id: 'Minute', message: 'Minute' })} 
           value={minute} 
           onChange={setMinute} 
-          options={generateOptions(0, 59, 'Minute')} 
+          options={generateOptions(0, 59, i18n._({ id: 'Minute', message: 'Minute' }))} 
         />
         <CronField 
-          label="Hour" 
+          label={i18n._({ id: 'Hour', message: 'Hour' })} 
           value={hour} 
           onChange={setHour} 
-          options={generateOptions(0, 23, 'Hour')} 
+          options={generateOptions(0, 23, i18n._({ id: 'Hour', message: 'Hour' }))} 
         />
         <CronField 
-          label="Day" 
+          label={i18n._({ id: 'Day', message: 'Day' })} 
           value={dom} 
           onChange={setDom} 
-          options={generateOptions(1, 31, 'Day')} 
+          options={generateOptions(1, 31, i18n._({ id: 'Day', message: 'Day' }))} 
         />
         <CronField 
-          label="Month" 
+          label={i18n._({ id: 'Month', message: 'Month' })} 
           value={month} 
           onChange={setMonth} 
           options={[
-            { value: '*', label: 'Every Month' },
-            { value: '1', label: 'January' },
-            { value: '2', label: 'February' },
-            { value: '3', label: 'March' },
-            { value: '4', label: 'April' },
-            { value: '5', label: 'May' },
-            { value: '6', label: 'June' },
-            { value: '7', label: 'July' },
-            { value: '8', label: 'August' },
-            { value: '9', label: 'September' },
-            { value: '10', label: 'October' },
-            { value: '11', label: 'November' },
-            { value: '12', label: 'December' },
+            { value: '*', label: i18n._({ id: 'Every Month', message: 'Every Month' }) },
+            { value: '1', label: i18n._({ id: 'January', message: 'January' }) },
+            { value: '2', label: i18n._({ id: 'February', message: 'February' }) },
+            { value: '3', label: i18n._({ id: 'March', message: 'March' }) },
+            { value: '4', label: i18n._({ id: 'April', message: 'April' }) },
+            { value: '5', label: i18n._({ id: 'May', message: 'May' }) },
+            { value: '6', label: i18n._({ id: 'June', message: 'June' }) },
+            { value: '7', label: i18n._({ id: 'July', message: 'July' }) },
+            { value: '8', label: i18n._({ id: 'August', message: 'August' }) },
+            { value: '9', label: i18n._({ id: 'September', message: 'September' }) },
+            { value: '10', label: i18n._({ id: 'October', message: 'October' }) },
+            { value: '11', label: i18n._({ id: 'November', message: 'November' }) },
+            { value: '12', label: i18n._({ id: 'December', message: 'December' }) },
           ]} 
         />
         <CronField 
-          label="Weekday" 
+          label={i18n._({ id: 'Weekday', message: 'Weekday' })} 
           value={dow} 
           onChange={setDow} 
           options={[
-            { value: '*', label: 'Every Day' },
-            { value: '1-5', label: 'Workdays (Mon-Fri)' },
-            { value: '0,6', label: 'Weekends (Sat-Sun)' },
-            { value: '1', label: 'Monday' },
-            { value: '2', label: 'Tuesday' },
-            { value: '3', label: 'Wednesday' },
-            { value: '4', label: 'Thursday' },
-            { value: '5', label: 'Friday' },
-            { value: '6', label: 'Saturday' },
-            { value: '0', label: 'Sunday' },
+            { value: '*', label: i18n._({ id: 'Every Day', message: 'Every Day' }) },
+            { value: '1-5', label: i18n._({ id: 'Workdays (Mon-Fri)', message: 'Workdays (Mon-Fri)' }) },
+            { value: '0,6', label: i18n._({ id: 'Weekends (Sat-Sun)', message: 'Weekends (Sat-Sun)' }) },
+            { value: '1', label: i18n._({ id: 'Monday', message: 'Monday' }) },
+            { value: '2', label: i18n._({ id: 'Tuesday', message: 'Tuesday' }) },
+            { value: '3', label: i18n._({ id: 'Wednesday', message: 'Wednesday' }) },
+            { value: '4', label: i18n._({ id: 'Thursday', message: 'Thursday' }) },
+            { value: '5', label: i18n._({ id: 'Friday', message: 'Friday' }) },
+            { value: '6', label: i18n._({ id: 'Saturday', message: 'Saturday' }) },
+            { value: '0', label: i18n._({ id: 'Sunday', message: 'Sunday' }) },
           ]} 
         />
       </div>
       <div className="cron-generator__preview">
-        <span>Preview:</span>
+        <span>{i18n._({ id: 'Preview:', message: 'Preview:' })}</span>
         <code>{minute} {hour} {dom} {month} {dow}</code>
       </div>
     </div>
@@ -104,7 +105,16 @@ function CronField({ label, value, onChange, options }: any) {
 }
 
 function generateOptions(start: number, end: number, labelPrefix: string) {
-  const options = [{ value: '*', label: `Every ${labelPrefix}` }]
+  const options = [
+    {
+      value: '*',
+      label: i18n._({
+        id: 'Every {label}',
+        message: 'Every {label}',
+        values: { label: labelPrefix },
+      }),
+    },
+  ]
   for (let i = start; i <= end; i++) {
     options.push({ value: i.toString(), label: i.toString().padStart(2, '0') })
   }

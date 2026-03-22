@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 
+import { formatLocaleNumber, formatLocaleTime } from '../../i18n/format'
+import { i18n } from '../../i18n/runtime'
 import {
   ContextIcon,
   FeedIcon,
@@ -141,23 +143,50 @@ export type ComposerAutocompleteSection = {
   items: ComposerAutocompleteItem[]
 }
 
-const FEEDBACK_PROMPT =
-  '请帮我整理一条产品反馈，包含问题概述、复现步骤、期望结果、实际结果和影响范围：'
+function getFeedbackPrompt() {
+  return i18n._({
+    id: 'Please help me draft a product feedback report with a summary, reproduction steps, expected result, actual result, and impact scope:',
+    message:
+      'Please help me draft a product feedback report with a summary, reproduction steps, expected result, actual result, and impact scope:',
+  })
+}
 
-const REVIEW_SHORTCUTS: ComposerReviewShortcutDefinition[] = [
-  {
-    id: 'review-base',
-    title: '基于基础分支进行审查',
-    description: '审查当前分支相对基础分支的变更。',
-    prompt: '请基于当前基础分支对代码变更进行审查，优先指出 bug、行为回归、风险点和缺失的测试。',
-  },
-  {
-    id: 'review-uncommitted',
-    title: '审查未提交的更改',
-    description: '审查当前工作区中尚未提交的本地修改。',
-    prompt: '请审查当前未提交的本地更改，优先指出 bug、行为回归、风险点和缺失的测试。',
-  },
-]
+function getReviewShortcuts(): ComposerReviewShortcutDefinition[] {
+  return [
+    {
+      id: 'review-base',
+      title: i18n._({
+        id: 'Review against base branch',
+        message: 'Review against base branch',
+      }),
+      description: i18n._({
+        id: 'Review the current branch diff relative to the base branch.',
+        message: 'Review the current branch diff relative to the base branch.',
+      }),
+      prompt: i18n._({
+        id: 'Please review the code changes against the current base branch, prioritizing bugs, regressions, risks, and missing tests.',
+        message:
+          'Please review the code changes against the current base branch, prioritizing bugs, regressions, risks, and missing tests.',
+      }),
+    },
+    {
+      id: 'review-uncommitted',
+      title: i18n._({
+        id: 'Review uncommitted changes',
+        message: 'Review uncommitted changes',
+      }),
+      description: i18n._({
+        id: 'Review local modifications in the current workspace that have not been committed yet.',
+        message: 'Review local modifications in the current workspace that have not been committed yet.',
+      }),
+      prompt: i18n._({
+        id: 'Please review the current uncommitted local changes, prioritizing bugs, regressions, risks, and missing tests.',
+        message:
+          'Please review the current uncommitted local changes, prioritizing bugs, regressions, risks, and missing tests.',
+      }),
+    },
+  ]
+}
 
 export function buildComposerCommandDefinitions(
   collaborationMode: ComposerCollaborationMode,
@@ -166,56 +195,101 @@ export function buildComposerCommandDefinitions(
     {
       id: 'mcp',
       title: 'MCP',
-      description: '显示 MCP 服务器状态',
+      description: i18n._({
+        id: 'Show MCP server status',
+        message: 'Show MCP server status',
+      }),
       keywords: ['mcp', 'server', 'oauth', 'status'],
       icon: 'mcp',
       action: { kind: 'panel', panel: 'mcp' },
     },
     {
       id: 'personalization',
-      title: '个性',
-      description: '查看本地响应偏好与自定义指令',
-      keywords: ['个性', '个性化', 'personalization', 'tone', 'instructions'],
+      title: i18n._({
+        id: 'Personalization',
+        message: 'Personalization',
+      }),
+      description: i18n._({
+        id: 'Inspect local response preferences and custom instructions',
+        message: 'Inspect local response preferences and custom instructions',
+      }),
+      keywords: ['personalization', 'preferences', 'tone', 'instructions'],
       icon: 'personalization',
       action: { kind: 'panel', panel: 'personalization' },
     },
     {
       id: 'review',
-      title: '代码审查',
-      description: '打开审查快捷指令',
-      keywords: ['review', 'code review', '代码审查', '审查'],
+      title: i18n._({
+        id: 'Code Review',
+        message: 'Code Review',
+      }),
+      description: i18n._({
+        id: 'Open review shortcuts',
+        message: 'Open review shortcuts',
+      }),
+      keywords: ['review', 'code review'],
       icon: 'review',
       action: { kind: 'submenu', menu: 'review' },
     },
     {
       id: 'feedback',
-      title: '反馈',
-      description: '插入产品反馈提示词',
-      keywords: ['feedback', 'bug report', '反馈'],
+      title: i18n._({
+        id: 'Feedback',
+        message: 'Feedback',
+      }),
+      description: i18n._({
+        id: 'Insert a product feedback prompt',
+        message: 'Insert a product feedback prompt',
+      }),
+      keywords: ['feedback', 'bug report'],
       icon: 'feedback',
-      action: { kind: 'prompt', prompt: FEEDBACK_PROMPT },
+      action: { kind: 'prompt', prompt: getFeedbackPrompt() },
     },
     {
       id: 'worktree',
-      title: '新工作树',
-      description: '查看当前工作树策略与设置入口',
-      keywords: ['worktree', '工作树', 'branch'],
+      title: i18n._({
+        id: 'Worktree',
+        message: 'Worktree',
+      }),
+      description: i18n._({
+        id: 'Inspect current worktree policy and settings entry points',
+        message: 'Inspect current worktree policy and settings entry points',
+      }),
+      keywords: ['worktree', 'branch'],
       icon: 'worktree',
       action: { kind: 'panel', panel: 'worktree' },
     },
     {
       id: 'status',
-      title: '状态',
-      description: '显示线程 ID、上下文使用情况以及额度',
-      keywords: ['status', 'quota', 'context', 'thread', '状态', '额度'],
+      title: i18n._({
+        id: 'Status',
+        message: 'Status',
+      }),
+      description: i18n._({
+        id: 'Show thread ID, context usage, and quota status',
+        message: 'Show thread ID, context usage, and quota status',
+      }),
+      keywords: ['status', 'quota', 'context', 'thread'],
       icon: 'status',
       action: { kind: 'panel', panel: 'status' },
     },
     {
       id: 'plan',
-      title: '计划模式',
-      description: collaborationMode === 'plan' ? '关闭计划模式' : '开启计划模式',
-      keywords: ['plan', 'planning', '计划', 'plan mode'],
+      title: i18n._({
+        id: 'Plan Mode',
+        message: 'Plan Mode',
+      }),
+      description:
+        collaborationMode === 'plan'
+          ? i18n._({
+              id: 'Turn off plan mode',
+              message: 'Turn off plan mode',
+            })
+          : i18n._({
+              id: 'Turn on plan mode',
+              message: 'Turn on plan mode',
+            }),
+      keywords: ['plan', 'planning', 'plan mode'],
       icon: 'plan',
       action: { kind: 'toggle-plan' },
     },
@@ -298,9 +372,22 @@ export function buildComposerAutocompleteSections(input: {
 }) {
   const { commands, commandMenu, files, mode, query, skills } = input
   const sections: ComposerAutocompleteSection[] = []
+  const reviewShortcuts = getReviewShortcuts()
+  const searchLabel = i18n._({
+    id: 'Search',
+    message: 'Search',
+  })
+  const skillsLabel = i18n._({
+    id: 'Skills',
+    message: 'Skills',
+  })
+  const filesLabel = i18n._({
+    id: 'Files',
+    message: 'Files',
+  })
 
   if (mode === 'command' && commandMenu === 'review') {
-    const items = REVIEW_SHORTCUTS.filter((shortcut) =>
+    const items = reviewShortcuts.filter((shortcut) =>
       matchesComposerQuery(query, [shortcut.title, shortcut.description, shortcut.prompt]),
     ).map<ComposerAutocompleteItem>((shortcut) => ({
       kind: 'review',
@@ -312,7 +399,7 @@ export function buildComposerAutocompleteSections(input: {
       section: 'commands',
     }))
 
-    sections.push({ id: 'commands', label: '搜索', items })
+    sections.push({ id: 'commands', label: searchLabel, items })
     return sections
   }
 
@@ -332,7 +419,7 @@ export function buildComposerAutocompleteSections(input: {
       }))
 
     if (commandItems.length) {
-      sections.push({ id: 'commands', label: '搜索', items: commandItems })
+      sections.push({ id: 'commands', label: searchLabel, items: commandItems })
     }
   }
 
@@ -343,7 +430,12 @@ export function buildComposerAutocompleteSections(input: {
       kind: 'skill',
       id: skill.id,
       title: skill.name,
-      description: skill.description || '将技能标记插入输入框',
+      description:
+        skill.description ||
+        i18n._({
+          id: 'Insert this skill token into the composer',
+          message: 'Insert this skill token into the composer',
+        }),
       meta: skill.id,
       icon: 'skill',
       insertion: `$${skill.name} `,
@@ -351,7 +443,7 @@ export function buildComposerAutocompleteSections(input: {
     }))
 
   if (skillItems.length && (mode === 'command' || mode === 'skill')) {
-    sections.push({ id: 'skills', label: '技能', items: skillItems })
+    sections.push({ id: 'skills', label: skillsLabel, items: skillItems })
   }
 
   if (mode === 'mention') {
@@ -367,7 +459,7 @@ export function buildComposerAutocompleteSections(input: {
     }))
 
     if (fileItems.length) {
-      sections.push({ id: 'files', label: '文件', items: fileItems })
+      sections.push({ id: 'files', label: filesLabel, items: fileItems })
     }
   }
 
@@ -377,11 +469,20 @@ export function buildComposerAutocompleteSections(input: {
 export function composerSectionLabel(id: ComposerAutocompleteItem['section']) {
   switch (id) {
     case 'files':
-      return '文件'
+      return i18n._({
+        id: 'Files',
+        message: 'Files',
+      })
     case 'skills':
-      return '技能'
+      return i18n._({
+        id: 'Skills',
+        message: 'Skills',
+      })
     default:
-      return '搜索'
+      return i18n._({
+        id: 'Search',
+        message: 'Search',
+      })
   }
 }
 
@@ -392,13 +493,13 @@ function stringRecordField(value: unknown) {
 export function formatShortTime(value: string) {
   const timestamp = Date.parse(value)
   if (Number.isNaN(timestamp)) {
-    return '未知'
+    return i18n._({
+      id: 'Unknown',
+      message: 'Unknown',
+    })
   }
 
-  return new Date(timestamp).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatLocaleTime(new Date(timestamp).toISOString())
 }
 
 export function truncateInlineText(value: string, maxLength = 120) {
@@ -412,12 +513,15 @@ export function truncateInlineText(value: string, maxLength = 120) {
 
 export function describeRateLimits(rateLimits: RateLimit[] | undefined) {
   if (!rateLimits?.length) {
-    return '不可用'
+    return i18n._({
+      id: 'Unavailable',
+      message: 'Unavailable',
+    })
   }
 
   return rateLimits
     .slice(0, 2)
-    .map((limit) => `${limit.name}: ${limit.remaining}/${limit.limit}`)
+    .map((limit) => `${limit.name}: ${formatLocaleNumber(limit.remaining)}/${formatLocaleNumber(limit.limit)}`)
     .join(' · ')
 }
 
@@ -516,20 +620,35 @@ export function compactStatusLabel(value?: string) {
     case 'waiting':
     case 'inprogress':
     case 'started':
-      return '处理中'
+      return i18n._({
+        id: 'Processing',
+        message: 'Processing',
+      })
     case 'connected':
     case 'ready':
     case 'open':
     case 'active':
-      return '在线'
+      return i18n._({
+        id: 'Online',
+        message: 'Online',
+      })
     case 'archived':
-      return '归档'
+      return i18n._({
+        id: 'Archived',
+        message: 'Archived',
+      })
     case 'failed':
     case 'error':
     case 'systemerror':
-      return '异常'
+      return i18n._({
+        id: 'Error',
+        message: 'Error',
+      })
     default:
-      return '空闲'
+      return i18n._({
+        id: 'Idle',
+        message: 'Idle',
+      })
   }
 }
 
@@ -563,31 +682,61 @@ function formatStatusValueLabel(value?: string) {
     case 'waiting':
     case 'inprogress':
     case 'started':
-      return '处理中'
+      return i18n._({
+        id: 'Processing',
+        message: 'Processing',
+      })
     case 'archived':
-      return '已归档'
+      return i18n._({
+        id: 'Archived complete',
+        message: 'Archived',
+      })
     case 'failed':
     case 'error':
     case 'systemerror':
-      return '异常'
+      return i18n._({
+        id: 'Error',
+        message: 'Error',
+      })
     case 'reviewing':
-      return '待审批'
+      return i18n._({
+        id: 'Awaiting approval',
+        message: 'Awaiting approval',
+      })
     case 'interrupted':
-      return '已停止'
+      return i18n._({
+        id: 'Stopped',
+        message: 'Stopped',
+      })
     case 'completed':
-      return '已完成'
+      return i18n._({
+        id: 'Completed',
+        message: 'Completed',
+      })
     case 'idle':
     case 'connected':
     case 'ready':
     case 'open':
     case 'active':
-      return '空闲'
+      return i18n._({
+        id: 'Idle',
+        message: 'Idle',
+      })
     case 'notloaded':
-      return '未载入'
+      return i18n._({
+        id: 'Not loaded',
+        message: 'Not loaded',
+      })
     case '':
-      return '未知'
+      return i18n._({
+        id: 'Unknown',
+        message: 'Unknown',
+      })
     default:
-      return value ?? '未知'
+      return value ?? i18n._({
+        id: 'Unknown',
+        message: 'Unknown',
+      })
   }
 }
 
@@ -633,13 +782,25 @@ function describeStreamState(value: string) {
     case 'open':
       return 'Live'
     case 'connecting':
-      return '连接中'
+      return i18n._({
+        id: 'Connecting',
+        message: 'Connecting',
+      })
     case 'closed':
-      return '连接已断开'
+      return i18n._({
+        id: 'Disconnected',
+        message: 'Disconnected',
+      })
     case 'error':
-      return '连接异常'
+      return i18n._({
+        id: 'Connection error',
+        message: 'Connection error',
+      })
     default:
-      return '未连接'
+      return i18n._({
+        id: 'Not connected',
+        message: 'Not connected',
+      })
   }
 }
 
@@ -665,78 +826,174 @@ export function buildComposerStatusInfo(input: {
   const sendErrorMessage = input.sendError?.trim() ?? ''
   const detailRows: ComposerStatusDetailRow[] = [
     {
-      label: '线程载入',
-      value: input.isThreadLoaded === null ? '未知' : input.isThreadLoaded ? '已加载' : '未加载',
+      label: i18n._({
+        id: 'Thread loaded',
+        message: 'Thread loaded',
+      }),
+      value:
+        input.isThreadLoaded === null
+          ? i18n._({
+              id: 'Unknown',
+              message: 'Unknown',
+            })
+          : input.isThreadLoaded
+            ? i18n._({
+                id: 'Loaded',
+                message: 'Loaded',
+              })
+            : i18n._({
+                id: 'Not loaded',
+                message: 'Not loaded',
+              }),
     },
-    { label: '实时连接', value: describeStreamState(input.streamState) },
-    { label: '线程原始状态', value: formatStatusValueLabel(rawThreadStatus) },
+    {
+      label: i18n._({
+        id: 'Live connection',
+        message: 'Live connection',
+      }),
+      value: describeStreamState(input.streamState),
+    },
+    {
+      label: i18n._({
+        id: 'Raw thread status',
+        message: 'Raw thread status',
+      }),
+      value: formatStatusValueLabel(rawThreadStatus),
+    },
   ]
 
   if (latestTurnStatus) {
-    detailRows.push({ label: '最近 Turn 状态', value: formatStatusValueLabel(latestTurnStatus) })
+    detailRows.push({
+      label: i18n._({
+        id: 'Latest turn status',
+        message: 'Latest turn status',
+      }),
+      value: formatStatusValueLabel(latestTurnStatus),
+    })
   }
   if (latestTurnErrorMessage) {
-    detailRows.push({ label: '最近错误', value: latestTurnErrorMessage })
+    detailRows.push({
+      label: i18n._({
+        id: 'Latest error',
+        message: 'Latest error',
+      }),
+      value: latestTurnErrorMessage,
+    })
   }
   if (sendErrorMessage) {
-    detailRows.push({ label: '发送错误', value: sendErrorMessage })
+    detailRows.push({
+      label: i18n._({
+        id: 'Send error',
+        message: 'Send error',
+      }),
+      value: sendErrorMessage,
+    })
   }
   if (input.approvalSummary) {
-    detailRows.push({ label: '审批状态', value: input.approvalSummary })
+    detailRows.push({
+      label: i18n._({
+        id: 'Approval status',
+        message: 'Approval status',
+      }),
+      value: input.approvalSummary,
+    })
   }
 
   if (input.requiresOpenAIAuth) {
     return {
-      label: '认证异常',
+      label: i18n._({
+        id: 'Authentication error',
+        message: 'Authentication error',
+      }),
       tone: 'error',
-      summary: 'OpenAI 认证失效，线程当前无法继续执行。',
+      summary: i18n._({
+        id: 'OpenAI authentication expired. This thread cannot continue until access is restored.',
+        message: 'OpenAI authentication expired. This thread cannot continue until access is restored.',
+      }),
       detailRows,
-      noticeTitle: '线程认证异常',
-      noticeMessage: 'OpenAI 认证失效，线程当前无法继续执行。',
+      noticeTitle: i18n._({
+        id: 'Thread authentication error',
+        message: 'Thread authentication error',
+      }),
+      noticeMessage: i18n._({
+        id: 'OpenAI authentication expired. This thread cannot continue until access is restored.',
+        message: 'OpenAI authentication expired. This thread cannot continue until access is restored.',
+      }),
     } satisfies ComposerStatusInfo
   }
 
   if (input.isApprovalDialogOpen) {
     return {
-      label: '待审批',
+      label: i18n._({
+        id: 'Awaiting approval',
+        message: 'Awaiting approval',
+      }),
       tone: 'warning',
       summary: input.approvalSummary
-        ? `线程正在等待审批：${input.approvalSummary}`
-        : '线程正在等待审批，暂不会继续执行。',
+        ? i18n._({
+            id: 'This thread is waiting for approval: {approvalSummary}',
+            message: 'This thread is waiting for approval: {approvalSummary}',
+            values: { approvalSummary: input.approvalSummary },
+          })
+        : i18n._({
+            id: 'This thread is waiting for approval and will not continue until a decision is made.',
+            message: 'This thread is waiting for approval and will not continue until a decision is made.',
+          }),
       detailRows,
     } satisfies ComposerStatusInfo
   }
 
   if (input.isWaitingForThreadData || input.isThreadInterruptible) {
     return {
-      label: '处理中',
+      label: i18n._({
+        id: 'Processing',
+        message: 'Processing',
+      }),
       tone: 'active',
       summary:
         input.pendingPhase === 'sending'
-          ? '消息已提交，正在等待 runtime 创建 turn。'
-          : '线程正在执行或等待当前 turn 完成。',
+          ? i18n._({
+              id: 'The message was submitted and the runtime is creating a turn.',
+              message: 'The message was submitted and the runtime is creating a turn.',
+            })
+          : i18n._({
+              id: 'The thread is running or waiting for the current turn to finish.',
+              message: 'The thread is running or waiting for the current turn to finish.',
+            }),
       detailRows,
     } satisfies ComposerStatusInfo
   }
 
   if (latestTurnErrorMessage) {
     return {
-      label: '异常',
+      label: i18n._({
+        id: 'Error',
+        message: 'Error',
+      }),
       tone: 'error',
       summary: latestTurnErrorMessage,
       detailRows,
-      noticeTitle: '线程运行异常',
+      noticeTitle: i18n._({
+        id: 'Thread runtime error',
+        message: 'Thread runtime error',
+      }),
       noticeMessage: latestTurnErrorMessage,
     } satisfies ComposerStatusInfo
   }
 
   if (sendErrorMessage) {
     return {
-      label: '异常',
+      label: i18n._({
+        id: 'Error',
+        message: 'Error',
+      }),
       tone: 'error',
       summary: sendErrorMessage,
       detailRows,
-      noticeTitle: '线程发送异常',
+      noticeTitle: i18n._({
+        id: 'Thread send error',
+        message: 'Thread send error',
+      }),
       noticeMessage: sendErrorMessage,
     } satisfies ComposerStatusInfo
   }
@@ -752,35 +1009,65 @@ export function buildComposerStatusInfo(input: {
     }
 
     return {
-      label: '异常',
+      label: i18n._({
+        id: 'Error',
+        message: 'Error',
+      }),
       tone: 'error',
       summary:
         input.isThreadLoaded === false
-          ? 'Runtime 将线程标记为 systemError，且当前线程未处于已加载状态。'
-          : 'Runtime 将线程标记为 systemError，但没有返回更具体的错误信息。',
+          ? i18n._({
+              id: 'The runtime marked this thread as systemError while the thread was not loaded.',
+              message: 'The runtime marked this thread as systemError while the thread was not loaded.',
+            })
+          : i18n._({
+              id: 'The runtime marked this thread as systemError without returning a more specific error.',
+              message: 'The runtime marked this thread as systemError without returning a more specific error.',
+            }),
       detailRows,
-      noticeTitle: '线程运行异常',
+      noticeTitle: i18n._({
+        id: 'Thread runtime error',
+        message: 'Thread runtime error',
+      }),
       noticeMessage:
         input.isThreadLoaded === false
-          ? 'Runtime 将线程标记为 systemError，且当前线程未处于已加载状态。'
-          : 'Runtime 将线程标记为 systemError，但没有返回更具体的错误信息。',
+          ? i18n._({
+              id: 'The runtime marked this thread as systemError while the thread was not loaded.',
+              message: 'The runtime marked this thread as systemError while the thread was not loaded.',
+            })
+          : i18n._({
+              id: 'The runtime marked this thread as systemError without returning a more specific error.',
+              message: 'The runtime marked this thread as systemError without returning a more specific error.',
+            }),
     } satisfies ComposerStatusInfo
   }
 
   if (rawNormalized === 'archived') {
     return {
-      label: '已归档',
+      label: i18n._({
+        id: 'Archived',
+        message: 'Archived',
+      }),
       tone: 'warning',
-      summary: '当前线程已归档。',
+      summary: i18n._({
+        id: 'This thread is archived.',
+        message: 'This thread is archived.',
+      }),
       detailRows,
     } satisfies ComposerStatusInfo
   }
 
   if (rawNormalized === 'interrupted') {
     return {
-      label: '已停止',
+      label: i18n._({
+        id: 'Stopped',
+        message: 'Stopped',
+      }),
       tone: 'warning',
-      summary: '线程执行已被中断。',
+      summary: i18n._({
+        id: 'Thread execution was interrupted.',
+        message: 'Thread execution was interrupted.',
+      }),
       detailRows,
     } satisfies ComposerStatusInfo
   }
@@ -788,34 +1075,20 @@ export function buildComposerStatusInfo(input: {
   return null
 }
 
-export function compactSyncLabel(label: string, streamState: string) {
-  if (label === 'Syncing…') {
-    return '同步中'
-  }
-
-  if (label.startsWith('Next sync ')) {
-    return label.slice('Next sync '.length)
-  }
-
-  if (label === 'Manual sync') {
-    return '手动'
-  }
-
-  if (label === 'Live' || streamState === 'open') {
-    return 'Live'
-  }
-
-  return label
-}
-
 export function formatSyncCountdown(lastSyncAtMs: number, intervalMs: number, nowMs: number) {
   if (!lastSyncAtMs || !intervalMs) {
-    return 'soon'
+    return i18n._({
+      id: 'soon',
+      message: 'soon',
+    })
   }
 
   const remainingMs = Math.max(0, lastSyncAtMs + intervalMs - nowMs)
   if (remainingMs < 1_000) {
-    return 'soon'
+    return i18n._({
+      id: 'soon',
+      message: 'soon',
+    })
   }
 
   const totalSeconds = Math.ceil(remainingMs / 1_000)
@@ -827,6 +1100,67 @@ export function formatSyncCountdown(lastSyncAtMs: number, intervalMs: number, no
   }
 
   return `${minutes}m ${seconds}s`
+}
+
+export function buildSyncStatusDisplay(input: {
+  autoSyncIntervalMs: number | null
+  isHeaderSyncBusy: boolean
+  lastAutoSyncAtMs: number
+  nowMs: number
+  streamState: string
+}) {
+  if (input.isHeaderSyncBusy) {
+    return {
+      syncLabel: i18n._({
+        id: 'Syncing',
+        message: 'Syncing',
+      }),
+      syncTitle: i18n._({
+        id: 'Syncing…',
+        message: 'Syncing…',
+      }),
+    }
+  }
+
+  if (input.autoSyncIntervalMs) {
+    const countdown = formatSyncCountdown(
+      input.lastAutoSyncAtMs,
+      input.autoSyncIntervalMs,
+      input.nowMs,
+    )
+
+    return {
+      syncLabel: countdown,
+      syncTitle: i18n._({
+        id: 'Next sync {time}',
+        message: 'Next sync {time}',
+        values: { time: countdown },
+      }),
+    }
+  }
+
+  if (input.streamState === 'open') {
+    const liveLabel = i18n._({
+      id: 'Live',
+      message: 'Live',
+    })
+
+    return {
+      syncLabel: liveLabel,
+      syncTitle: liveLabel,
+    }
+  }
+
+  return {
+    syncLabel: i18n._({
+      id: 'Manual',
+      message: 'Manual',
+    }),
+    syncTitle: i18n._({
+      id: 'Manual sync',
+      message: 'Manual sync',
+    }),
+  }
 }
 
 export function ContextUsageIndicator({
@@ -863,17 +1197,40 @@ export function ContextUsageIndicator({
   const label = percent === null ? '--' : `${usagePercent}%`
   const title =
     percent === null
-      ? 'Context usage is not available until the runtime reports token usage.'
-      : `Context usage ${usagePercent}% (${totalTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens)`
+      ? i18n._({
+          id: 'Context usage is not available until the runtime reports token usage.',
+          message: 'Context usage is not available until the runtime reports token usage.',
+        })
+      : i18n._({
+          id: 'Context usage {usagePercent}% ({totalTokens} / {contextWindow} tokens)',
+          message: 'Context usage {usagePercent}% ({totalTokens} / {contextWindow} tokens)',
+          values: {
+            usagePercent,
+            totalTokens: formatLocaleNumber(totalTokens),
+            contextWindow: formatLocaleNumber(contextWindow),
+          },
+        })
   const totalBreakdown = usage?.total
   const lastBreakdown = usage?.last
   const compactButtonLabel = compactPending
-    ? 'Starting'
+    ? i18n._({
+        id: 'Starting',
+        message: 'Starting',
+      })
     : compactFeedback?.phase === 'requested'
-      ? 'Queued'
+      ? i18n._({
+          id: 'Queued',
+          message: 'Queued',
+        })
       : compactFeedback?.phase === 'failed'
-        ? 'Retry'
-        : 'Compact'
+        ? i18n._({
+            id: 'Retry',
+            message: 'Retry',
+          })
+        : i18n._({
+            id: 'Compact',
+            message: 'Compact',
+          })
 
   useEffect(() => {
     if (!isOpen) {
@@ -927,38 +1284,78 @@ export function ContextUsageIndicator({
       {isOpen ? (
         <div className="composer-context-usage__popover" role="dialog">
           <div className="composer-context-usage__header">
-            <strong>Context</strong>
+            <strong>
+              {i18n._({
+                id: 'Context',
+                message: 'Context',
+              })}
+            </strong>
             <span className={`composer-context-usage__pill composer-context-usage__pill--${tone}`}>
               {label}
             </span>
           </div>
           {percent === null ? (
-            <p className="composer-context-usage__empty">No usage data</p>
+            <p className="composer-context-usage__empty">
+              {i18n._({
+                id: 'No usage data',
+                message: 'No usage data',
+              })}
+            </p>
           ) : (
             <div className="composer-context-usage__metric-grid">
               <div className="composer-context-usage__metric">
-                <span>Total</span>
-                <strong>{totalTokens.toLocaleString()}</strong>
+                <span>
+                  {i18n._({
+                    id: 'Total',
+                    message: 'Total',
+                  })}
+                </span>
+                <strong>{formatLocaleNumber(totalTokens)}</strong>
               </div>
               <div className="composer-context-usage__metric">
-                <span>Window</span>
-                <strong>{contextWindow.toLocaleString()}</strong>
+                <span>
+                  {i18n._({
+                    id: 'Window',
+                    message: 'Window',
+                  })}
+                </span>
+                <strong>{formatLocaleNumber(contextWindow)}</strong>
               </div>
               <div className="composer-context-usage__metric">
-                <span>Input</span>
-                <strong>{(totalBreakdown?.inputTokens ?? 0).toLocaleString()}</strong>
+                <span>
+                  {i18n._({
+                    id: 'Input',
+                    message: 'Input',
+                  })}
+                </span>
+                <strong>{formatLocaleNumber(totalBreakdown?.inputTokens ?? 0)}</strong>
               </div>
               <div className="composer-context-usage__metric">
-                <span>Output</span>
-                <strong>{(totalBreakdown?.outputTokens ?? 0).toLocaleString()}</strong>
+                <span>
+                  {i18n._({
+                    id: 'Output',
+                    message: 'Output',
+                  })}
+                </span>
+                <strong>{formatLocaleNumber(totalBreakdown?.outputTokens ?? 0)}</strong>
               </div>
               <div className="composer-context-usage__metric">
-                <span>Reasoning</span>
-                <strong>{(totalBreakdown?.reasoningOutputTokens ?? 0).toLocaleString()}</strong>
+                <span>
+                  {i18n._({
+                    id: 'Reasoning',
+                    message: 'Reasoning',
+                  })}
+                </span>
+                <strong>{formatLocaleNumber(totalBreakdown?.reasoningOutputTokens ?? 0)}</strong>
               </div>
               <div className="composer-context-usage__metric">
-                <span>Last Turn</span>
-                <strong>{(lastBreakdown?.totalTokens ?? 0).toLocaleString()}</strong>
+                <span>
+                  {i18n._({
+                    id: 'Last Turn',
+                    message: 'Last Turn',
+                  })}
+                </span>
+                <strong>{formatLocaleNumber(lastBreakdown?.totalTokens ?? 0)}</strong>
               </div>
             </div>
           )}
@@ -986,7 +1383,13 @@ export function ContextUsageIndicator({
                 compactFeedback?.phase === 'requested'
               }
               onClick={onCompact}
-              title={compactDisabledReason ?? 'Compact older thread context'}
+              title={
+                compactDisabledReason ??
+                i18n._({
+                  id: 'Compact older thread context',
+                  message: 'Compact older thread context',
+                })
+              }
               type="button"
             >
               <span aria-hidden="true" className="composer-context-usage__compact-icon">

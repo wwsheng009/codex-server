@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { i18n } from '../../i18n/runtime'
 
 type SettingsPageHeaderProps = {
   eyebrow?: string
@@ -125,11 +126,13 @@ export function SettingsJsonPreview({
         </div>
         <div className="settings-output-card__actions">
           <button className="notice__tool" onClick={() => void handleCopy()} type="button">
-            Copy
+            {i18n._({ id: 'Copy', message: 'Copy' })}
           </button>
           {shouldCollapse ? (
             <button className="notice__tool" onClick={() => setExpanded((current) => !current)} type="button">
-              {expanded ? 'Collapse' : 'Expand'}
+              {expanded
+                ? i18n._({ id: 'Collapse', message: 'Collapse' })
+                : i18n._({ id: 'Expand', message: 'Expand' })}
             </button>
           ) : null}
         </div>

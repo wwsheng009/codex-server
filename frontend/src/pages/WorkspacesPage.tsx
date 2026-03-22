@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { InlineNotice } from '../components/ui/InlineNotice'
 import { StatusPill } from '../components/ui/StatusPill'
 import { CreateWorkspaceDialog } from '../components/workspace/CreateWorkspaceDialog'
 import { formatRelativeTimeShort } from '../components/workspace/timeline-utils'
@@ -36,6 +37,7 @@ export function WorkspacesPage() {
       ),
     [workspacesQuery.data],
   )
+  const workspacesError = workspacesQuery.error ? getErrorMessage(workspacesQuery.error) : null
   const healthyWorkspaces = workspaces.filter((workspace) =>
     ['ready', 'active', 'connected'].includes(workspace.runtimeStatus),
   ).length
@@ -181,43 +183,66 @@ export function WorkspacesPage() {
           </div>
 
           {workspacesQuery.isLoading ? <div className="notice">Loading registry…</div> : null}
-          
-          <div className="workspace-compact-list">
-            {workspaces.map((workspace) => {
-              const restartPhase = workspaceRestartStateById[workspace.id]
-              const visualStatus = restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
 
-              return (
-                <div className="workspace-compact-row" key={workspace.id}>
-                  <Link className="workspace-compact-row__main" to={`/workspaces/${workspace.id}`}>
-                    <div className="workspace-compact-row__title">
-                      <strong>{workspace.name}</strong>
-                      <span className="meta-label">ID: {workspace.id.slice(0, 8)}</span>
+          {workspacesError ? (
+            <InlineNotice
+              dismissible
+              noticeKey={`workspaces-load-${workspacesError}`}
+              onRetry={() => void workspacesQuery.refetch()}
+              title="Failed To Load Workspace Registry"
+              tone="error"
+            >
+              {workspacesError}
+            </InlineNotice>
+          ) : null}
+
+          {!workspacesQuery.isLoading && !workspacesError && !workspaces.length ? (
+            <div className="empty-state">
+              <div className="form-stack">
+                <p>No workspaces registered yet.</p>
+                <Button onClick={() => setIsCreatingWorkspace(true)}>Create Your First Workspace</Button>
+              </div>
+            </div>
+          ) : null}
+
+          {workspaces.length ? (
+            <div className="workspace-compact-list">
+              {workspaces.map((workspace) => {
+                const restartPhase = workspaceRestartStateById[workspace.id]
+                const visualStatus = restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
+
+                return (
+                  <div className="workspace-compact-row" key={workspace.id}>
+                    <Link className="workspace-compact-row__main" to={`/workspaces/${workspace.id}`}>
+                      <div className="workspace-compact-row__title">
+                        <strong>{workspace.name}</strong>
+                        <span className="meta-label">ID: {workspace.id.slice(0, 8)}</span>
+                      </div>
+                      <p>{workspace.rootPath}</p>
+                    </Link>
+                    <div className="workspace-compact-row__actions">
+                      <StatusPill status={visualStatus} />
+                      <div className="divider-v" />
+                      <Button
+                        intent="ghost"
+                        isLoading={restartPhase === 'restarting'}
+                        onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
+                      >
+                        Restart
+                      </Button>
+                      <Button
+                        intent="ghost"
+                        className="ide-button--ghost-danger"
+                        onClick={() => handleDeleteWorkspace(workspace)}
+                      >
+                        Remove
+                      </Button>
                     </div>
-                    <p>{workspace.rootPath}</p>
-                  </Link>
-                  <div className="workspace-compact-row__actions">
-                    <StatusPill status={visualStatus} />
-                    <div className="divider-v" />
-                    <Button
-                      intent="ghost"
-                      isLoading={restartPhase === 'restarting'}
-                      onClick={() => restartWorkspaceMutation.mutate(workspace.id)}
-                    >
-                      Restart
-                    </Button>
-                    <Button
-                      intent="ghost"
-                      className="ide-button--ghost-danger"
-                      onClick={() => handleDeleteWorkspace(workspace)}
-                    >
-                      Remove
-                    </Button>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          ) : null}
         </section>
       </div>
 

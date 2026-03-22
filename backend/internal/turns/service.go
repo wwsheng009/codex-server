@@ -6,17 +6,20 @@ import (
 	"strings"
 
 	"codex-server/backend/internal/bridge"
+	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/runtime"
+	"codex-server/backend/internal/store"
 )
 
 type Service struct {
 	runtimes *runtime.Manager
+	store    *store.MemoryStore
 }
 
 type StartOptions struct {
-	Model            string
-	ReasoningEffort  string
-	PermissionPreset string
+	Model             string
+	ReasoningEffort   string
+	PermissionPreset  string
 	CollaborationMode string
 }
 
@@ -31,8 +34,11 @@ type turnStartResponse struct {
 	} `json:"turn"`
 }
 
-func NewService(runtimeManager *runtime.Manager) *Service {
-	return &Service{runtimes: runtimeManager}
+func NewService(runtimeManager *runtime.Manager, dataStore *store.MemoryStore) *Service {
+	return &Service{
+		runtimes: runtimeManager,
+		store:    dataStore,
+	}
 }
 
 func (s *Service) Start(ctx context.Context, workspaceID string, threadID string, input string, options StartOptions) (Result, error) {
@@ -91,7 +97,12 @@ func (s *Service) buildRuntimeTurnStartPayload(
 		return nil, err
 	}
 
-	return buildTurnStartPayload(threadID, input, options, collaborationMode), nil
+	defaults, err := s.runtimeDefaults()
+	if err != nil {
+		return nil, err
+	}
+
+	return buildTurnStartPayloadWithRuntimeDefaults(threadID, input, options, collaborationMode, defaults), nil
 }
 
 func buildTurnStartPayload(
@@ -99,6 +110,21 @@ func buildTurnStartPayload(
 	input string,
 	options StartOptions,
 	collaborationMode map[string]any,
+) map[string]any {
+	return buildTurnStartPayloadWithRuntimeDefaults(threadID, input, options, collaborationMode, runtimeDefaults{})
+}
+
+type runtimeDefaults struct {
+	ApprovalPolicy string
+	SandboxPolicy  map[string]any
+}
+
+func buildTurnStartPayloadWithRuntimeDefaults(
+	threadID string,
+	input string,
+	options StartOptions,
+	collaborationMode map[string]any,
+	defaults runtimeDefaults,
 ) map[string]any {
 	payload := map[string]any{
 		"input": []map[string]any{
@@ -123,6 +149,13 @@ func buildTurnStartPayload(
 		}
 	}
 
+	if approvalPolicy := appconfig.ApprovalPolicyJSONValue(defaults.ApprovalPolicy); approvalPolicy != "" {
+		payload["approvalPolicy"] = approvalPolicy
+	}
+	if len(defaults.SandboxPolicy) > 0 {
+		payload["sandboxPolicy"] = defaults.SandboxPolicy
+	}
+
 	switch normalizePermissionPreset(options.PermissionPreset) {
 	case "full-access":
 		payload["approvalPolicy"] = "never"
@@ -132,6 +165,27 @@ func buildTurnStartPayload(
 	}
 
 	return payload
+}
+
+func (s *Service) runtimeDefaults() (runtimeDefaults, error) {
+	if s.store == nil {
+		return runtimeDefaults{}, nil
+	}
+
+	prefs := s.store.GetRuntimePreferences()
+	approvalPolicy, err := appconfig.NormalizeApprovalPolicy(prefs.DefaultTurnApprovalPolicy)
+	if err != nil {
+		return runtimeDefaults{}, err
+	}
+	sandboxPolicy, err := appconfig.NormalizeSandboxPolicyMap(prefs.DefaultTurnSandboxPolicy)
+	if err != nil {
+		return runtimeDefaults{}, err
+	}
+
+	return runtimeDefaults{
+		ApprovalPolicy: approvalPolicy,
+		SandboxPolicy:  sandboxPolicy,
+	}, nil
 }
 
 type collaborationModePreset struct {

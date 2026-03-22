@@ -1,0 +1,56 @@
+import { useQueryClient } from '@tanstack/react-query'
+
+import { useSettingsLocalStore } from '../../features/settings/local-store'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
+import { useSessionStore } from '../../stores/session-store'
+import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
+import { useUIStore } from '../../stores/ui-store'
+
+export function useThreadPageControllerStoreState(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const isMobileViewport = useMediaQuery('(max-width: 900px)')
+
+  const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
+  const setSelectedThread = useSessionStore((state) => state.setSelectedThread)
+  const removeThreadFromSession = useSessionStore((state) => state.removeThread)
+  const removeCommandSession = useSessionStore((state) => state.removeCommandSession)
+  const clearCompletedCommandSessions = useSessionStore(
+    (state) => state.clearCompletedCommandSessions,
+  )
+  const allThreadEvents = useSessionStore((state) => state.eventsByThread)
+  const selectedThreadId = useSessionStore((state) =>
+    getSelectedThreadIdForWorkspace(state, workspaceId),
+  )
+
+  const mobileThreadToolsOpen = useUIStore((state) => state.mobileThreadToolsOpen)
+  const setMobileThreadChrome = useUIStore((state) => state.setMobileThreadChrome)
+  const setMobileThreadToolsOpen = useUIStore((state) => state.setMobileThreadToolsOpen)
+  const resetMobileThreadChrome = useUIStore((state) => state.resetMobileThreadChrome)
+
+  const responseTone = useSettingsLocalStore((state) => state.responseTone)
+  const customInstructions = useSettingsLocalStore((state) => state.customInstructions)
+  const maxWorktrees = useSettingsLocalStore((state) => state.maxWorktrees)
+  const autoPruneDays = useSettingsLocalStore((state) => state.autoPruneDays)
+  const reuseBranches = useSettingsLocalStore((state) => state.reuseBranches)
+
+  return {
+    allThreadEvents,
+    autoPruneDays,
+    clearCompletedCommandSessions,
+    customInstructions,
+    isMobileViewport,
+    maxWorktrees,
+    mobileThreadToolsOpen,
+    queryClient,
+    removeCommandSession,
+    removeThreadFromSession,
+    resetMobileThreadChrome,
+    responseTone,
+    reuseBranches,
+    selectedThreadId,
+    setMobileThreadChrome,
+    setMobileThreadToolsOpen,
+    setSelectedThread,
+    setSelectedWorkspace,
+  }
+}

@@ -1,0 +1,183 @@
+import { Link } from 'react-router-dom'
+
+import { InlineNotice } from '../../components/ui/InlineNotice'
+import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
+import { i18n } from '../../i18n/runtime'
+import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string
+  value: string | number
+}) {
+  return (
+    <div className="detail-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+export function ThreadWorkbenchRailWorkspaceContextSection({
+  commandCount,
+  lastTimelineEventTs,
+  liveThreadCwd,
+  onHideSurfacePanel,
+  onOpenSurfacePanel,
+  pendingApprovalsCount,
+  rootPath,
+  selectedThread,
+  shellEnvironmentInfo,
+  shellEnvironmentSummary,
+  shellEnvironmentWarning,
+  streamState,
+  surfacePanelView,
+  threadCount,
+  timelineItemCount,
+  turnCount,
+  workspaceName,
+}: Pick<
+  ThreadWorkbenchRailProps,
+  | 'commandCount'
+  | 'lastTimelineEventTs'
+  | 'liveThreadCwd'
+  | 'onHideSurfacePanel'
+  | 'onOpenSurfacePanel'
+  | 'pendingApprovalsCount'
+  | 'rootPath'
+  | 'selectedThread'
+  | 'shellEnvironmentInfo'
+  | 'shellEnvironmentSummary'
+  | 'shellEnvironmentWarning'
+  | 'streamState'
+  | 'surfacePanelView'
+  | 'threadCount'
+  | 'timelineItemCount'
+  | 'turnCount'
+  | 'workspaceName'
+>) {
+  return (
+    <div className="pane-section">
+      <div className="section-header section-header--inline">
+        <div>
+          <h2>
+            {i18n._({
+              id: 'Workspace context',
+              message: 'Workspace context',
+            })}
+          </h2>
+          <p>
+            {i18n._({
+              id: 'Persistent context stays in the rail. Feed and approvals open as lighter in-surface panels.',
+              message:
+                'Persistent context stays in the rail. Feed and approvals open as lighter in-surface panels.',
+            })}
+          </p>
+        </div>
+        <div className="header-actions workbench-pane__panel-actions">
+          <button
+            className={
+              surfacePanelView === 'feed'
+                ? 'pane-section__toggle workbench-pane__panel-toggle workbench-pane__panel-toggle--active'
+                : 'pane-section__toggle workbench-pane__panel-toggle'
+            }
+            onClick={() =>
+              surfacePanelView === 'feed' ? onHideSurfacePanel() : onOpenSurfacePanel('feed')
+            }
+            type="button"
+          >
+            {i18n._({
+              id: 'Feed',
+              message: 'Feed',
+            })}
+          </button>
+          <button
+            className={
+              surfacePanelView === 'approvals'
+                ? 'pane-section__toggle workbench-pane__panel-toggle workbench-pane__panel-toggle--active'
+                : 'pane-section__toggle workbench-pane__panel-toggle'
+            }
+            onClick={() =>
+              surfacePanelView === 'approvals'
+                ? onHideSurfacePanel()
+                : onOpenSurfacePanel('approvals')
+            }
+            type="button"
+          >
+            {i18n._({
+              id: 'Approvals',
+              message: 'Approvals',
+            })}
+          </button>
+        </div>
+      </div>
+      {shellEnvironmentWarning ? (
+        <InlineNotice
+          noticeKey={`thread-shell-environment-warning-${shellEnvironmentSummary.inherit}`}
+          title={i18n._({ id: 'Shell Environment Risk', message: 'Shell Environment Risk' })}
+          tone="error"
+        >
+          {shellEnvironmentWarning}
+        </InlineNotice>
+      ) : (
+        <InlineNotice
+          noticeKey={`thread-shell-environment-info-${shellEnvironmentSummary.inherit}`}
+          title={i18n._({ id: 'Shell Environment', message: 'Shell Environment' })}
+        >
+          {shellEnvironmentInfo}
+        </InlineNotice>
+      )}
+      <div className="detail-list">
+        <DetailRow label={i18n._({ id: 'Workspace', message: 'Workspace' })} value={workspaceName ?? '—'} />
+        <DetailRow label={i18n._({ id: 'Stream', message: 'Stream' })} value={streamState} />
+        <DetailRow label={i18n._({ id: 'Threads', message: 'Threads' })} value={threadCount} />
+        <DetailRow label={i18n._({ id: 'Root path', message: 'Root path' })} value={rootPath ?? '—'} />
+        <DetailRow
+          label={i18n._({ id: 'Selected thread', message: 'Selected thread' })}
+          value={selectedThread?.name ?? '—'}
+        />
+        <DetailRow label={i18n._({ id: 'CWD', message: 'CWD' })} value={liveThreadCwd ?? '—'} />
+        <DetailRow label={i18n._({ id: 'Turns', message: 'Turns' })} value={turnCount} />
+        <DetailRow
+          label={i18n._({ id: 'Timeline items', message: 'Timeline items' })}
+          value={timelineItemCount}
+        />
+        <DetailRow
+          label={i18n._({ id: 'Pending approvals', message: 'Pending approvals' })}
+          value={pendingApprovalsCount}
+        />
+        <DetailRow
+          label={i18n._({ id: 'Activity', message: 'Activity' })}
+          value={
+            lastTimelineEventTs
+              ? formatRelativeTimeShort(lastTimelineEventTs)
+              : i18n._({
+                  id: 'Idle',
+                  message: 'Idle',
+                })
+          }
+        />
+        <DetailRow label={i18n._({ id: 'Commands', message: 'Commands' })} value={commandCount} />
+        <DetailRow
+          label={i18n._({ id: 'Env inherit', message: 'Env inherit' })}
+          value={shellEnvironmentSummary.inherit}
+        />
+        <DetailRow
+          label={i18n._({ id: 'Cmd resolution', message: 'Cmd resolution' })}
+          value={shellEnvironmentSummary.windowsCommandResolution}
+        />
+        <DetailRow
+          label={i18n._({ id: 'Missing vars', message: 'Missing vars' })}
+          value={shellEnvironmentSummary.missingWindowsVars.join(', ') || '—'}
+        />
+      </div>
+      <div className="header-actions" style={{ marginTop: 12 }}>
+        <Link className="ide-button ide-button--secondary" to="/settings/environment">
+          {i18n._({ id: 'Open Runtime Inspection', message: 'Open Runtime Inspection' })}
+        </Link>
+      </div>
+    </div>
+  )
+}

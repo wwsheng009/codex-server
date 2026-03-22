@@ -88,6 +88,29 @@ func TestBuildTurnStartPayloadNormalizesReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestBuildTurnStartPayloadAppliesRuntimeDefaults(t *testing.T) {
+	t.Parallel()
+
+	payload := buildTurnStartPayloadWithRuntimeDefaults("thread-1", "Inspect the repo", StartOptions{}, nil, runtimeDefaults{
+		ApprovalPolicy: "on-request",
+		SandboxPolicy: map[string]any{
+			"type": "externalSandbox",
+		},
+	})
+
+	if payload["approvalPolicy"] != "on-request" {
+		t.Fatalf("expected runtime approval policy override, got %#v", payload["approvalPolicy"])
+	}
+
+	sandboxPolicy, ok := payload["sandboxPolicy"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sandbox policy override map, got %#v", payload["sandboxPolicy"])
+	}
+	if sandboxPolicy["type"] != "externalSandbox" {
+		t.Fatalf("expected runtime sandbox policy override, got %#v", sandboxPolicy["type"])
+	}
+}
+
 func TestBuildCollaborationModePayloadUsesPresetDefaults(t *testing.T) {
 	t.Parallel()
 

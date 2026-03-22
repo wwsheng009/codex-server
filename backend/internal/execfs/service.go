@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/events"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
@@ -18,6 +19,7 @@ import (
 type Service struct {
 	runtimes  *appRuntime.Manager
 	events    *events.Hub
+	store     *store.MemoryStore
 	mu        sync.RWMutex
 	processes map[string]string
 }
@@ -57,10 +59,11 @@ type CopyResult struct {
 	Status          string `json:"status"`
 }
 
-func NewService(runtimeManager *appRuntime.Manager, eventHub *events.Hub) *Service {
+func NewService(runtimeManager *appRuntime.Manager, eventHub *events.Hub, dataStore *store.MemoryStore) *Service {
 	return &Service{
 		runtimes:  runtimeManager,
 		events:    eventHub,
+		store:     dataStore,
 		processes: make(map[string]string),
 	}
 }
@@ -101,7 +104,7 @@ func (s *Service) StartCommand(ctx context.Context, workspaceID string, command 
 			"command":            shellCommandArgs(command),
 			"cwd":                s.runtimes.RootPath(workspaceID),
 			"processId":          processID,
-			"sandboxPolicy":      commandSandboxPolicy(),
+			"sandboxPolicy":      s.commandSandboxPolicy(),
 			"streamStdin":        true,
 			"streamStdoutStderr": true,
 			"tty":                true,
@@ -404,8 +407,16 @@ func shellCommandArgs(command string) []string {
 	return []string{"sh", "-lc", command}
 }
 
-func commandSandboxPolicy() map[string]any {
-	return map[string]any{
-		"type": "dangerFullAccess",
+func (s *Service) commandSandboxPolicy() map[string]any {
+	if s.store == nil {
+		return appconfig.DefaultCommandSandboxPolicy()
 	}
+
+	prefs := s.store.GetRuntimePreferences()
+	sandboxPolicy, err := appconfig.NormalizeSandboxPolicyMap(prefs.DefaultCommandSandboxPolicy)
+	if err != nil || len(sandboxPolicy) == 0 {
+		return appconfig.DefaultCommandSandboxPolicy()
+	}
+
+	return sandboxPolicy
 }

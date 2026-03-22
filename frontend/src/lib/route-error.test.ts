@@ -33,4 +33,22 @@ describe('describeRouteError', () => {
     expect(description.title).toBe('Part of the app failed to load')
     expect(description.recovery).toContain('Reload this route')
   })
+
+  it('captures nested runtime details for debugging', () => {
+    const error = new Error('Workspace render failed') as Error & {
+      cause?: unknown
+      context?: { workspaceId: string; tab: string }
+    }
+
+    error.cause = new TypeError('Missing thread state')
+    error.context = { workspaceId: 'ws-123', tab: 'logs' }
+
+    const description = describeRouteError(error)
+
+    expect(description.details).toContain('Cause:')
+    expect(description.details).toContain('Missing thread state')
+    expect(description.details).toContain('Metadata:')
+    expect(description.details).toContain('workspaceId')
+    expect(description.details).toContain('Stack:')
+  })
 })
