@@ -58,6 +58,7 @@
   padding: 0;
   background: transparent;
   border: 0;
+  font-family: var(--font-code-custom, var(--font-code, 'Cascadia Mono', 'SFMono-Regular', ui-monospace, monospace));
   font-size: var(--text-code-size);
   line-height: var(--text-code-line-height);
   color: var(--text-primary);
@@ -80,7 +81,7 @@
 
 .color-field {
   flex: 1;
-  font-family: var(--font-code, monospace);
+  font-family: var(--font-code-custom, var(--font-code, monospace));
   font-size: 0.82rem;
 }
 
@@ -213,5 +214,36 @@ input:focus-visible + .toggle-slider {
 
 .segmented-control--sm .segmented-control__item:active:not(.segmented-control__item--active) {
   transform: scale(0.96);
+}
+
+.appearance-theme-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.appearance-theme-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.appearance-custom-theme-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.appearance-inline-note {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-accent);
+  border-radius: 12px;
+  background: var(--surface-selected);
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 

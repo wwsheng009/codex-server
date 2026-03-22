@@ -27,6 +27,11 @@
   align-self: stretch;
   max-height: 100%;
   overflow: hidden;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  border-radius: 24px;
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-soft);
 }
 
 .settings-shell__nav-body {

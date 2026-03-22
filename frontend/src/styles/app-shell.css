@@ -727,6 +727,21 @@
   border-radius: 4px;
 }
 
+.web-ide__appearance-theme-group {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.web-ide__appearance-theme-group-label {
+  color: var(--text-faint);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 2px 0;
+}
+
 .web-ide__appearance-theme-option {
   --appearance-theme-accent: var(--accent);
   --appearance-theme-accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -1222,12 +1237,12 @@
 .workspace-tree__workspace-runtime--restarting {
   color: var(--accent-strong);
   border-color: var(--border-accent);
-  background: rgba(82, 113, 255, 0.1);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .workspace-tree__workspace-runtime--restarting::before {
   background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(82, 113, 255, 0.12);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
   animation: workspace-restart-dot 1.15s ease-in-out infinite;
 }
 

@@ -1,6 +1,7 @@
 :root,
 :root[data-theme='light'] {
   color-scheme: light;
+  font-size: var(--text-body-size-custom, 16px);
   font-family:
     var(--font-ui-custom, 
     var(--font-ui, 
@@ -22,7 +23,7 @@
   --text-h2-weight: 600;
   --text-h2-line-height: 1.4;
   --text-h2-spacing: -0.01em;
-  --text-body-size: var(--text-body-size-custom, 0.94rem);
+  --text-body-size: 1rem;
   --text-body-weight: 400;
   --text-body-line-height: 1.55;
   --text-code-size: var(--text-code-size-custom, 0.86rem);
@@ -38,8 +39,10 @@
   --bg-app: var(--bg-app-custom, #f8f4ef);
   --bg-main: var(--bg-main-custom, #fcfbfa);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #f2ece7 0%, #f8f3ef 100%));
-  
-  /* Derived surfaces using color-mix to follow theme background */
+}
+
+/* Base Surface System - Automatically reacts to theme changes */
+:root {
   --surface-card: color-mix(in srgb, var(--bg-main), transparent 28%);
   --surface-card-strong: color-mix(in srgb, var(--bg-main), transparent 10%);
   --surface-muted: color-mix(in srgb, var(--bg-main), transparent 54%);
@@ -50,7 +53,27 @@
   --surface-nav: color-mix(in srgb, var(--bg-main), transparent 42%);
   --surface-nav-active: color-mix(in srgb, var(--bg-main), transparent 4%);
   --surface-nav-hover: color-mix(in srgb, var(--bg-main), transparent 16%);
-  
+  --surface-input: color-mix(in srgb, var(--bg-main), transparent 8%);
+  --surface-overlay: color-mix(in srgb, var(--bg-main), transparent 18%);
+  --surface-control: color-mix(in srgb, var(--bg-main), transparent 16%);
+  --surface-control-strong: color-mix(in srgb, var(--bg-main), transparent 8%);
+  --surface-composer-footer: color-mix(in srgb, var(--bg-main), transparent 30%);
+  --surface-thread-message: color-mix(in srgb, var(--bg-main), transparent calc(100% - (var(--thread-surface-alpha) * 100%)));
+}
+
+:root[data-theme='dark'] {
+  --surface-card: color-mix(in srgb, var(--bg-main), white 4%);
+  --surface-card-strong: color-mix(in srgb, var(--bg-main), white 8%);
+  --surface-muted: color-mix(in srgb, var(--bg-main), white 2%);
+  --surface-hover: color-mix(in srgb, var(--bg-main), white 6%);
+  --surface-code: color-mix(in srgb, var(--bg-main), white 3%);
+  --surface-pane: color-mix(in srgb, var(--bg-main), white 2%);
+  --surface-input: color-mix(in srgb, var(--bg-main), white 4%);
+  --surface-overlay: color-mix(in srgb, var(--bg-main), white 6%);
+  --surface-control: color-mix(in srgb, var(--bg-main), white 5%);
+}
+
+:root {
   --thread-stream-gap: 8px;
   --thread-message-padding-y: 6px;
   --thread-message-padding-x: 8px;
@@ -88,7 +111,7 @@
   --surface-terminal-strong: #0c1117;
   --surface-terminal-shell: rgba(10, 14, 20, 0.52);
   --surface-terminal-tab: rgba(255, 255, 255, 0.04);
-  --surface-terminal-selected: rgba(82, 113, 255, 0.16);
+  --surface-terminal-selected: color-mix(in srgb, var(--accent), transparent 84%);
   --border-subtle: color-mix(in srgb, var(--text-primary), transparent 92%);
   --border-strong: color-mix(in srgb, var(--text-primary), transparent 86%);
   --border-accent: color-mix(in srgb, var(--accent), transparent 76%);
@@ -100,9 +123,9 @@
   --border-terminal-subtle: rgba(255, 255, 255, 0.08);
   --text-strong: color-mix(in srgb, var(--text-primary), #000 20%);
   --text-primary: var(--text-primary-custom, #303744);
-  --text-secondary: color-mix(in srgb, var(--text-primary), transparent 30%);
-  --text-muted: color-mix(in srgb, var(--text-primary), transparent 50%);
-  --text-faint: color-mix(in srgb, var(--text-primary), transparent 70%);
+  --text-secondary: var(--text-secondary-custom, color-mix(in srgb, var(--text-primary), transparent 30%));
+  --text-muted: var(--text-muted-custom, color-mix(in srgb, var(--text-primary), transparent 50%));
+  --text-faint: var(--text-faint-custom, color-mix(in srgb, var(--text-primary), transparent 70%));
   --text-on-accent: #ffffff;
   --text-on-inverse: #edf2f7;
   --text-terminal-primary: rgba(237, 242, 247, 0.94);
@@ -112,7 +135,7 @@
   --text-terminal-placeholder: rgba(218, 225, 234, 0.48);
   --text-terminal-empty: rgba(218, 225, 234, 0.68);
   --accent: var(--accent-custom, #5271FF);
-  --accent-strong: var(--accent-custom, #3A5BFF);
+  --accent-strong: var(--accent-strong-custom, #3A5BFF);
   --success: #22C55E;
   --warning: #F59E0B;
   --file: #d68f42;
@@ -123,13 +146,13 @@
   --shadow-pane-side: -14px 0 34px rgba(28, 32, 40, 0.1);
   --shadow-bubble: 0 10px 24px rgba(24, 28, 36, 0.06);
   --shadow-composer-dock: 0 -10px 24px rgba(28, 32, 40, 0.04);
-  --shadow-button-accent: 0 10px 24px rgba(82, 113, 255, 0.22);
+  --shadow-button-accent: 0 10px 24px color-mix(in srgb, var(--accent) 22%, transparent);
   --shadow-button-danger: 0 10px 24px rgba(239, 68, 68, 0.2);
-  --shadow-accent-soft: 0 10px 22px rgba(82, 113, 255, 0.1);
-  --shadow-accent-strong: 0 12px 24px rgba(82, 113, 255, 0.12);
-  --shadow-control-active: 0 6px 16px rgba(82, 113, 255, 0.12);
+  --shadow-accent-soft: 0 10px 22px color-mix(in srgb, var(--accent) 10%, transparent);
+  --shadow-accent-strong: 0 12px 24px color-mix(in srgb, var(--accent) 12%, transparent);
+  --shadow-control-active: 0 6px 16px color-mix(in srgb, var(--accent) 12%, transparent);
   --shadow-control-danger: 0 6px 16px rgba(239, 68, 68, 0.12);
-  --focus-ring: color-mix(in srgb, var(--accent), transparent 65%);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 65%));
   --spinner-track-on-accent: rgba(255, 255, 255, 0.3);
   --scrollbar-track: color-mix(in srgb, var(--accent), transparent 96%);
   --scrollbar-thumb: color-mix(in srgb, var(--accent), transparent 74%);
@@ -209,7 +232,7 @@
   --surface-terminal-strong: #0c1117;
   --surface-terminal-shell: rgba(10, 14, 20, 0.6);
   --surface-terminal-tab: rgba(255, 255, 255, 0.05);
-  --surface-terminal-selected: rgba(108, 135, 255, 0.18);
+  --surface-terminal-selected: color-mix(in srgb, var(--accent), transparent 82%);
   --border-subtle: color-mix(in srgb, var(--text-primary), transparent 90%);
   --border-strong: color-mix(in srgb, var(--text-primary), transparent 82%);
   --border-accent: color-mix(in srgb, var(--accent), transparent 68%);
@@ -221,9 +244,9 @@
   --border-terminal-subtle: rgba(255, 255, 255, 0.08);
   --text-strong: color-mix(in srgb, var(--text-primary), #fff 10%);
   --text-primary: var(--text-primary-custom, #d8e2ee);
-  --text-secondary: color-mix(in srgb, var(--text-primary), transparent 18%);
-  --text-muted: color-mix(in srgb, var(--text-primary), transparent 34%);
-  --text-faint: color-mix(in srgb, var(--text-primary), transparent 48%);
+  --text-secondary: var(--text-secondary-custom, color-mix(in srgb, var(--text-primary), transparent 18%));
+  --text-muted: var(--text-muted-custom, color-mix(in srgb, var(--text-primary), transparent 34%));
+  --text-faint: var(--text-faint-custom, color-mix(in srgb, var(--text-primary), transparent 48%));
   --text-on-accent: #f8fafc;
   --text-on-inverse: #edf2f7;
   --text-terminal-primary: rgba(237, 242, 247, 0.94);
@@ -233,7 +256,7 @@
   --text-terminal-placeholder: rgba(218, 225, 234, 0.5);
   --text-terminal-empty: rgba(218, 225, 234, 0.68);
   --accent: var(--accent-custom, #6C87FF);
-  --accent-strong: var(--accent-custom, #8AA0FF);
+  --accent-strong: var(--accent-strong-custom, #8AA0FF);
   --success: #4ade80;
   --warning: #fbbf24;
   --file: #f59e0b;
@@ -244,13 +267,13 @@
   --shadow-pane-side: -14px 0 34px rgba(2, 8, 20, 0.32);
   --shadow-bubble: 0 10px 24px rgba(2, 8, 20, 0.22);
   --shadow-composer-dock: 0 -10px 24px rgba(2, 8, 20, 0.26);
-  --shadow-button-accent: 0 10px 24px rgba(108, 135, 255, 0.28);
+  --shadow-button-accent: 0 10px 24px color-mix(in srgb, var(--accent) 28%, transparent);
   --shadow-button-danger: 0 10px 24px rgba(248, 113, 113, 0.24);
-  --shadow-accent-soft: 0 10px 22px rgba(108, 135, 255, 0.18);
-  --shadow-accent-strong: 0 12px 24px rgba(108, 135, 255, 0.22);
-  --shadow-control-active: 0 6px 16px rgba(108, 135, 255, 0.16);
+  --shadow-accent-soft: 0 10px 22px color-mix(in srgb, var(--accent) 18%, transparent);
+  --shadow-accent-strong: 0 12px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  --shadow-control-active: 0 6px 16px color-mix(in srgb, var(--accent) 16%, transparent);
   --shadow-control-danger: 0 6px 16px rgba(248, 113, 113, 0.16);
-  --focus-ring: color-mix(in srgb, var(--accent), transparent 58%);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 58%));
   --spinner-track-on-accent: rgba(248, 250, 252, 0.34);
   --scrollbar-track: color-mix(in srgb, var(--accent), transparent 96%);
   --scrollbar-thumb: color-mix(in srgb, var(--accent), transparent 72%);
@@ -338,8 +361,8 @@
   --bg-main: var(--bg-main-custom, #f8fbfd);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #e8edf3 0%, #eff3f7 100%));
   --accent: var(--accent-custom, #5a7189);
-  --accent-strong: var(--accent-custom, #42566d);
-  --focus-ring: rgba(90, 113, 137, 0.35);
+  --accent-strong: var(--accent-strong-custom, #42566d);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 65%));
 }
 
 :root[data-color-theme='amber'] {
@@ -348,8 +371,8 @@
   --bg-main: var(--bg-main-custom, #fffaf2);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #f6ead7 0%, #fbf3e7 100%));
   --accent: var(--accent-custom, #c77d2a);
-  --accent-strong: var(--accent-custom, #a95d0c);
-  --focus-ring: rgba(199, 125, 42, 0.36);
+  --accent-strong: var(--accent-strong-custom, #a95d0c);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 64%));
 }
 
 :root[data-color-theme='mint'] {
@@ -358,8 +381,8 @@
   --bg-main: var(--bg-main-custom, #f7fcfa);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #dcefe8 0%, #ecf7f2 100%));
   --accent: var(--accent-custom, #1f9d7a);
-  --accent-strong: var(--accent-custom, #13765b);
-  --focus-ring: rgba(31, 157, 122, 0.36);
+  --accent-strong: var(--accent-strong-custom, #13765b);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 64%));
 }
 
 :root[data-color-theme='graphite'] {
@@ -367,29 +390,25 @@
   --bg-app: var(--bg-app-custom, #edf1f4);
   --bg-main: var(--bg-main-custom, #f7fafc);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #e5ebf0 0%, #eef3f7 100%));
-  --surface-code: #edf2f7;
+  --surface-code: color-mix(in srgb, var(--bg-main), #000 4%);
   --accent: var(--accent-custom, #1f9d68);
-  --accent-strong: var(--accent-custom, #176e49);
-  --focus-ring: rgba(31, 157, 104, 0.34);
+  --accent-strong: var(--accent-strong-custom, #176e49);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 66%));
 }
 
 :root[data-color-theme='solarized'] {
   --bg-glow-secondary: rgba(38, 139, 210, 0.08);
-  --bg-app: var(--bg-app-custom, #f5eed9);
+  --bg-app: var(--bg-app-custom, #eee8d5);
   --bg-main: var(--bg-main-custom, #fdf6e3);
-  --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #eee8d5 0%, #f6efdc 100%));
-  --surface-card: rgba(255, 251, 240, 0.78);
-  --surface-card-strong: rgba(255, 251, 240, 0.92);
-  --surface-code: #efe7d2;
-  --surface-nav-active: rgba(255, 249, 233, 0.96);
-  --text-strong: #334249;
-  --text-primary: var(--text-primary-custom, #46565f);
-  --text-secondary: #657b83;
-  --text-muted: #7d8f95;
-  --text-faint: #93a1a1;
+  --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #e4dec9 0%, #eee8d5 100%));
+  --text-strong: var(--text-strong-custom, #073642);
+  --text-primary: var(--text-primary-custom, #586e75);
+  --text-secondary: var(--text-secondary-custom, #657b83);
+  --text-muted: var(--text-muted-custom, #839496);
+  --text-faint: var(--text-faint-custom, #93a1a1);
   --accent: var(--accent-custom, #2aa198);
-  --accent-strong: var(--accent-custom, #207f79);
-  --focus-ring: rgba(42, 161, 152, 0.34);
+  --accent-strong: var(--accent-strong-custom, #207f79);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 66%));
 }
 
 :root[data-color-theme='cyan'] {
@@ -398,8 +417,22 @@
   --bg-main: var(--bg-main-custom, #f0fdfa);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #cffafe 0%, #ecfeff 100%));
   --accent: var(--accent-custom, #0891b2);
-  --accent-strong: var(--accent-custom, #0e7490);
-  --focus-ring: rgba(8, 145, 178, 0.36);
+  --accent-strong: var(--accent-strong-custom, #0e7490);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 64%));
+}
+
+:root[data-color-theme='custom'] {
+  --bg-glow-secondary: rgba(124, 106, 88, 0.1);
+  --bg-app: var(--bg-app-custom, #f4eee7);
+  --bg-main: var(--bg-main-custom, #faf6f1);
+  --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #eee4d9 0%, #f7f0e8 100%));
+  --text-primary: var(--text-primary-custom, #362e29);
+  --text-secondary: var(--text-secondary-custom, #5c5148);
+  --text-muted: var(--text-muted-custom, #7c6d61);
+  --text-faint: var(--text-faint-custom, #99887a);
+  --accent: var(--accent-custom, #7c6a58);
+  --accent-strong: var(--accent-strong-custom, #5f5144);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 64%));
 }
 
 :root[data-theme='dark'][data-color-theme='slate'] {
@@ -408,8 +441,8 @@
   --bg-main: var(--bg-main-custom, #121a23);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #0d141c 0%, #0b1117 100%));
   --accent: var(--accent-custom, #84a3c0);
-  --accent-strong: var(--accent-custom, #a7c0d7);
-  --focus-ring: rgba(132, 163, 192, 0.42);
+  --accent-strong: var(--accent-strong-custom, #a7c0d7);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 58%));
 }
 
 :root[data-theme='dark'][data-color-theme='amber'] {
@@ -418,8 +451,8 @@
   --bg-main: var(--bg-main-custom, #1b1510);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #161109 0%, #120d07 100%));
   --accent: var(--accent-custom, #f0a958);
-  --accent-strong: var(--accent-custom, #f8bd78);
-  --focus-ring: rgba(240, 169, 88, 0.42);
+  --accent-strong: var(--accent-strong-custom, #f8bd78);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 58%));
 }
 
 :root[data-theme='dark'][data-color-theme='mint'] {
@@ -428,8 +461,8 @@
   --bg-main: var(--bg-main-custom, #0d1b17);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #08140f 0%, #07110d 100%));
   --accent: var(--accent-custom, #4ec7a0);
-  --accent-strong: var(--accent-custom, #79ddbc);
-  --focus-ring: rgba(78, 199, 160, 0.42);
+  --accent-strong: var(--accent-strong-custom, #79ddbc);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 58%));
 }
 
 :root[data-theme='dark'][data-color-theme='graphite'] {
@@ -437,37 +470,29 @@
   --bg-app: var(--bg-app-custom, #0d1117);
   --bg-main: var(--bg-main-custom, #11161d);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #10151b 0%, #0c1016 100%));
-  --surface-card: rgba(19, 24, 31, 0.84);
-  --surface-card-strong: rgba(18, 22, 29, 0.94);
-  --surface-code: #161b22;
-  --surface-nav-active: rgba(26, 33, 40, 0.96);
-  --text-strong: #e6edf3;
+  --text-strong: var(--text-strong-custom, #e6edf3);
   --text-primary: var(--text-primary-custom, #d0d7de);
-  --text-secondary: #9ea7b3;
-  --text-muted: #828f9d;
-  --text-faint: #6b7785;
+  --text-secondary: var(--text-secondary-custom, #9ea7b3);
+  --text-muted: var(--text-muted-custom, #828f9d);
+  --text-faint: var(--text-faint-custom, #6b7785);
   --accent: var(--accent-custom, #2fbf71);
-  --accent-strong: var(--accent-custom, #66d99b);
-  --focus-ring: rgba(47, 191, 113, 0.4);
+  --accent-strong: var(--accent-strong-custom, #66d99b);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 60%));
 }
 
 :root[data-theme='dark'][data-color-theme='solarized'] {
   --bg-glow: rgba(38, 139, 210, 0.14);
-  --bg-app: var(--bg-app-custom, #05232b);
+  --bg-app: var(--bg-app-custom, #073642);
   --bg-main: var(--bg-main-custom, #002b36);
-  --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #04232c 0%, #001f27 100%));
-  --surface-card: rgba(7, 47, 57, 0.82);
-  --surface-card-strong: rgba(5, 42, 52, 0.94);
-  --surface-code: #073642;
-  --surface-nav-active: rgba(8, 53, 65, 0.96);
-  --text-strong: #eee8d5;
-  --text-primary: var(--text-primary-custom, #d8d0bc);
-  --text-secondary: #a5b1af;
-  --text-muted: #93a1a1;
-  --text-faint: #75878d;
+  --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #062b35 0%, #001f27 100%));
+  --text-strong: var(--text-strong-custom, #fdf6e3);
+  --text-primary: var(--text-primary-custom, #93a1a1);
+  --text-secondary: var(--text-secondary-custom, #839496);
+  --text-muted: var(--text-muted-custom, #657b83);
+  --text-faint: var(--text-faint-custom, #586e75);
   --accent: var(--accent-custom, #2aa198);
-  --accent-strong: var(--accent-custom, #5fc9be);
-  --focus-ring: rgba(42, 161, 152, 0.42);
+  --accent-strong: var(--accent-strong-custom, #5fc9be);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 58%));
 }
 
 :root[data-theme='dark'][data-color-theme='cyan'] {
@@ -476,8 +501,23 @@
   --bg-main: var(--bg-main-custom, #0e4455);
   --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #0c3e4f 0%, #083344 100%));
   --accent: var(--accent-custom, #22d3ee);
-  --accent-strong: var(--accent-custom, #67e8f9);
-  --focus-ring: rgba(34, 211, 238, 0.42);
+  --accent-strong: var(--accent-strong-custom, #67e8f9);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 58%));
+}
+
+:root[data-theme='dark'][data-color-theme='custom'] {
+  --bg-glow: rgba(211, 183, 154, 0.14);
+  --bg-app: var(--bg-app-custom, #120d0a);
+  --bg-main: var(--bg-main-custom, #18120f);
+  --bg-sidebar: var(--bg-sidebar-custom, linear-gradient(180deg, #1d1612 0%, #120d0a 100%));
+  --text-strong: var(--text-strong-custom, #f1e7dd);
+  --text-primary: var(--text-primary-custom, #f1e7dd);
+  --text-secondary: var(--text-secondary-custom, #d9c6b2);
+  --text-muted: var(--text-muted-custom, #b99f85);
+  --text-faint: var(--text-faint-custom, #987f68);
+  --accent: var(--accent-custom, #d3b79a);
+  --accent-strong: var(--accent-strong-custom, #e5ccb2);
+  --focus-ring: var(--focus-ring-custom, color-mix(in srgb, var(--accent), transparent 58%));
 }
 
 * {
@@ -538,7 +578,7 @@ option:disabled {
 }
 
 code, pre {
-  font-family: var(--font-code, 'Cascadia Mono', 'SFMono-Regular', ui-monospace, monospace);
+  font-family: var(--font-code-custom, var(--font-code, 'Cascadia Mono', 'SFMono-Regular', ui-monospace, monospace));
 }
 
 :root[data-motion='reduce'] *,
