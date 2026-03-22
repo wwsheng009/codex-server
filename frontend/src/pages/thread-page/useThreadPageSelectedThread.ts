@@ -13,8 +13,10 @@ export function useThreadPageSelectedThread({
 }) {
   return useMemo(
     () =>
+      (threadDetail?.id === selectedThreadId ? threadDetail : undefined) ??
       threads?.find((thread) => thread.id === selectedThreadId) ??
-      (threadDetail?.id === selectedThreadId ? threadDetail : undefined),
+      (!selectedThreadId ? threads?.[0] : undefined) ??
+      threadDetail,
     [selectedThreadId, threadDetail, threads],
   )
 }

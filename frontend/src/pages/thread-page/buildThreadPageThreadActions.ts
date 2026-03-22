@@ -34,6 +34,7 @@ export function buildThreadPageThreadActions({
   selectedThreadId,
   setActiveComposerPanel,
   setApprovalAnswers,
+  setAuthRecoveryRequestedAt,
   setComposerCaret,
   setComposerCommandMenu,
   setDismissedComposerAutocompleteKey,
@@ -162,8 +163,10 @@ export function buildThreadPageThreadActions({
             }
           : current,
       )
+      setAuthRecoveryRequestedAt(Date.now())
 
       void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['account'] }),
         queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] }),
         queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),

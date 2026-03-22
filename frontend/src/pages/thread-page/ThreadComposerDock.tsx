@@ -50,6 +50,7 @@ type ThreadComposerDockProps = {
   composerAutocompleteIndex: number
   composerAutocompleteSectionGroups: ComposerAutocompleteSectionGroup[]
   composerDockRef: RefObject<HTMLFormElement | null>
+  composerDockMeasureRef: RefObject<HTMLDivElement | null>
   composerInputRef: RefObject<HTMLTextAreaElement | null>
   composerPreferences: ComposerPreferences
   composerStatusInfo: ComposerStatusInfo | null
@@ -137,6 +138,7 @@ export function ThreadComposerDock({
   composerAutocompleteIndex,
   composerAutocompleteSectionGroups,
   composerDockRef,
+  composerDockMeasureRef,
   composerInputRef,
   composerPreferences,
   composerStatusInfo,
@@ -620,7 +622,7 @@ export function ThreadComposerDock({
           </button>
         </div>
       ) : null}
-      <div className="composer-dock__shell">
+      <div className="composer-dock__shell" ref={composerDockMeasureRef}>
         <div
           aria-busy={isThreadProcessing}
           className={

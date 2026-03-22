@@ -37,8 +37,6 @@ export type ThreadPageTurnDisplayStateInput = Pick<
   | 'activePendingTurn'
   | 'historicalTurns'
   | 'liveThreadDetail'
-  | 'selectedThread'
-  | 'selectedThreadEvents'
   | 'selectedThreadId'
 >
 

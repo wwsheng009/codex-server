@@ -1,8 +1,8 @@
 export type ThreadViewportStateInput = {
   displayedTurnsLength: number
   selectedThreadId?: string
-  settledMessageAutoScrollKey: string
   threadContentKey: string
+  threadUnreadUpdateKey: string
   threadDetailIsLoading: boolean
 }
 

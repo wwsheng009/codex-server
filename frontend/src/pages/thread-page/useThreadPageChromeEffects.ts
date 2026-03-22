@@ -82,10 +82,11 @@ export function useThreadPageChromeEffects({
       return
     }
 
+    const syncClockIntervalMs = Math.max(4_000, autoSyncIntervalMs)
     setSyncClock(Date.now())
     const intervalId = window.setInterval(() => {
       setSyncClock(Date.now())
-    }, 1_000)
+    }, syncClockIntervalMs)
 
     return () => {
       window.clearInterval(intervalId)

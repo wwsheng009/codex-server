@@ -12,25 +12,13 @@ export function buildThreadPageSyncStatus({
   threadDetailIsFetching,
   threadsDataUpdatedAt,
   threadsIsFetching,
-  workspaceId,
 }: ThreadPageSyncStatusInput) {
   const threadDetailPollIntervalMs = selectedThreadId
     ? activePendingTurn
       ? 1_000
-      : streamState !== 'open'
-        ? 5_000
-        : null
+      : null
     : null
-  const approvalsPollIntervalMs = workspaceId && streamState !== 'open' ? 4_000 : null
-  const autoSyncIntervalMs = [threadDetailPollIntervalMs, approvalsPollIntervalMs].reduce<
-    number | null
-  >((current, value) => {
-    if (typeof value !== 'number') {
-      return current
-    }
-
-    return current === null ? value : Math.min(current, value)
-  }, null)
+  const autoSyncIntervalMs = threadDetailPollIntervalMs
 
   const lastAutoSyncAtMs = Math.max(
     threadsDataUpdatedAt || 0,

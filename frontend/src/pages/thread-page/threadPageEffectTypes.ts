@@ -18,7 +18,9 @@ export type ThreadPageEffectsInput = {
   isDocumentVisible: boolean
   isMobileViewport: boolean
   isMobileWorkbenchOverlayOpen: boolean
+  isThreadPinnedToLatest: boolean
   isThreadProcessing: boolean
+  isThreadViewportInteracting: boolean
   latestThreadDetailId?: string
   liveThreadTurns?: Array<{ id: string }>
   mobileThreadToolsOpen: boolean
@@ -85,7 +87,10 @@ export type ThreadPageRefreshEffectsInput = Pick<
   | 'setContextCompactionFeedback'
   | 'workspaceActivityEvents'
   | 'workspaceId'
+  | 'isThreadPinnedToLatest'
+  | 'isThreadViewportInteracting'
 > & {
+  threadListRefreshTimerRef: MutableRefObject<number | null>
   threadDetailRefreshTimerRef: MutableRefObject<number | null>
 }
 

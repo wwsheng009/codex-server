@@ -62,6 +62,7 @@ export type ThreadPageActionsInput = {
   selectedThreadId?: string
   setActiveComposerPanel: Dispatch<SetStateAction<ComposerAssistPanel | null>>
   setApprovalAnswers: Dispatch<SetStateAction<Record<string, Record<string, string>>>>
+  setAuthRecoveryRequestedAt: (value: number | null) => void
   setComposerCaret: (value: number) => void
   setComposerCommandMenu: Dispatch<SetStateAction<ComposerCommandMenu>>
   setDismissedComposerAutocompleteKey: (value: string | null) => void
@@ -134,6 +135,7 @@ export type ThreadPageThreadActionsInput = Pick<
   | 'selectedThreadId'
   | 'setActiveComposerPanel'
   | 'setApprovalAnswers'
+  | 'setAuthRecoveryRequestedAt'
   | 'setComposerCaret'
   | 'setComposerCommandMenu'
   | 'setDismissedComposerAutocompleteKey'

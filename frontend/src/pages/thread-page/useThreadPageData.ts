@@ -14,7 +14,6 @@ export function useThreadPageData({
   isDocumentVisible,
   normalizedDeferredComposerQuery,
   selectedThreadId,
-  streamState,
   threadTurnWindowSize,
   workspaceId,
 }: {
@@ -24,7 +23,6 @@ export function useThreadPageData({
   isDocumentVisible: boolean
   normalizedDeferredComposerQuery: string
   selectedThreadId?: string
-  streamState: string
   threadTurnWindowSize: number
   workspaceId: string
 }) {
@@ -35,6 +33,7 @@ export function useThreadPageData({
     fileSearchQuery,
     loadedThreadsQuery,
     modelsQuery,
+    resolvedSelectedThreadId,
     skillsQuery,
     threadDetailQuery,
     threadsQuery,
@@ -46,7 +45,6 @@ export function useThreadPageData({
     hasPendingTurn,
     isDocumentVisible,
     selectedThreadId,
-    streamState,
     turnLimit: threadTurnWindowSize,
     workspaceId,
   })
@@ -65,13 +63,13 @@ export function useThreadPageData({
     workspaceEvents,
   } = useThreadPageSessionState({
     isDocumentVisible,
-    selectedThreadId,
+    selectedThreadId: resolvedSelectedThreadId,
     threadDetail: threadDetailQuery.data,
     workspaceId,
   })
 
   const selectedThread = useThreadPageSelectedThread({
-    selectedThreadId,
+    selectedThreadId: resolvedSelectedThreadId,
     threadDetail: threadDetailQuery.data,
     threads: threadsQuery.data,
   })
@@ -104,6 +102,7 @@ export function useThreadPageData({
     mcpServerStatusQuery,
     modelsQuery,
     rateLimitsQuery,
+    resolvedSelectedThreadId,
     selectedThread,
     selectedThreadEvents,
     selectedThreadTokenUsage,

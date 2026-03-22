@@ -37,6 +37,7 @@ export function useThreadComposerState({
     DEFAULT_COMPOSER_PREFERENCES,
   )
   const [sendError, setSendError] = useState<string | null>(null)
+  const [authRecoveryRequestedAt, setAuthRecoveryRequestedAt] = useState<number | null>(null)
 
   const activeComposerMatch = useMemo(
     () => getComposerAutocompleteMatch(message, composerCaret),
@@ -82,6 +83,7 @@ export function useThreadComposerState({
     setComposerCommandMenu('root')
     setComposerAutocompleteIndex(0)
     setDismissedComposerAutocompleteKey(null)
+    setAuthRecoveryRequestedAt(null)
   }, [selectedThreadId, workspaceId])
 
   useEffect(() => {
@@ -143,6 +145,7 @@ export function useThreadComposerState({
     composerPreferences,
     activeComposerAutocompleteKey,
     applyComposerMessage,
+    authRecoveryRequestedAt,
     clearComposerTriggerToken,
     dismissComposerAutocomplete,
     insertComposerText,
@@ -154,6 +157,7 @@ export function useThreadComposerState({
     sendError,
     focusComposerAt,
     setActiveComposerPanel,
+    setAuthRecoveryRequestedAt,
     setComposerAutocompleteIndex,
     setComposerCaret,
     setComposerCommandMenu,

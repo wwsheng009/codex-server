@@ -16,6 +16,7 @@ type ComposerStateLayoutInput = Pick<
   | 'composerAutocompleteIndex'
   | 'composerAutocompleteSectionGroups'
   | 'composerDockRef'
+  | 'composerDockMeasureRef'
   | 'composerInputRef'
   | 'composerPreferences'
   | 'composerStatusInfo'
@@ -82,6 +83,7 @@ export function buildThreadPageControllerComposerStateLayoutInput({
     composerAutocompleteIndex: controllerState.composerAutocompleteIndex,
     composerAutocompleteSectionGroups: panelState.composerAutocompleteSectionGroups,
     composerDockRef: viewportState.composerDockRef,
+    composerDockMeasureRef: viewportState.composerDockMeasureRef,
     composerInputRef: controllerState.composerInputRef,
     composerPreferences: controllerState.composerPreferences,
     composerStatusInfo: statusState.composerStatusInfo,

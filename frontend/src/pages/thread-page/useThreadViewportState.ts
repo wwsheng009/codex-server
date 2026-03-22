@@ -6,7 +6,8 @@ import { useThreadViewportBottomClearance } from './useThreadViewportBottomClear
 import type { ThreadViewportStateInput } from './threadViewportTypes'
 
 export function useThreadViewportState(input: ThreadViewportStateInput) {
-  const { composerDockRef, threadBottomClearancePx } = useThreadViewportBottomClearance()
+  const { composerDockMeasureRef, composerDockRef, threadBottomClearancePx } =
+    useThreadViewportBottomClearance()
   const autoScrollState = useThreadViewportAutoScroll({
     ...input,
     threadBottomClearancePx,
@@ -21,6 +22,7 @@ export function useThreadViewportState(input: ThreadViewportStateInput) {
   )
 
   return {
+    composerDockMeasureRef,
     composerDockRef,
     ...autoScrollState,
     threadLogStyle,

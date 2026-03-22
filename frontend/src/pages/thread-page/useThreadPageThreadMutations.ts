@@ -5,6 +5,7 @@ import { i18n } from '../../i18n/runtime'
 import {
   archiveThread,
   compactThread,
+  createThread,
   deleteThread,
   renameThread,
   runThreadShellCommand,
@@ -37,6 +38,25 @@ export function useThreadPageThreadMutations({
       queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
     ])
   }
+
+  const createThreadMutation = useMutation({
+    mutationFn: () => createThread(workspaceId),
+    onSuccess: async (thread) => {
+      queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
+        upsertThreadInList(current, thread),
+      )
+      queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
+        upsertThreadInList(current, thread),
+      )
+      setSelectedThread(workspaceId, thread.id)
+      setSendError(null)
+      await Promise.all([
+        invalidateThreadQueries(),
+        queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-workspaces'] }),
+      ])
+    },
+  })
 
   const renameThreadMutation = useMutation({
     mutationFn: ({ threadId, name }: { threadId: string; name: string }) =>
@@ -206,6 +226,7 @@ export function useThreadPageThreadMutations({
   return {
     archiveThreadMutation,
     compactThreadMutation,
+    createThreadMutation,
     deleteThreadMutation,
     interruptTurnMutation,
     invalidateThreadQueries,
@@ -215,4 +236,15 @@ export function useThreadPageThreadMutations({
     threadShellCommandMutation,
     unarchiveThreadMutation,
   }
+}
+
+function upsertThreadInList(current: Thread[] | undefined, thread: Thread) {
+  const items = current ?? []
+  const nextItems = items.some((item) => item.id === thread.id)
+    ? items.map((item) => (item.id === thread.id ? thread : item))
+    : [thread, ...items]
+
+  return [...nextItems].sort(
+    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+  )
 }

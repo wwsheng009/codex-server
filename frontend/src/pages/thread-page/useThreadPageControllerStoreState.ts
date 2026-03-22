@@ -1,16 +1,24 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
 
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useDocumentVisibility } from '../../hooks/useDocumentVisibility'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
-import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
+import {
+  getSelectedThreadIdForWorkspace,
+  readPersistedThreadSelectionSnapshot,
+} from '../../stores/session-store-utils'
 import { useUIStore } from '../../stores/ui-store'
 
 export function useThreadPageControllerStoreState(workspaceId: string) {
   const queryClient = useQueryClient()
   const isDocumentVisible = useDocumentVisibility()
   const isMobileViewport = useMediaQuery('(max-width: 900px)')
+  const persistedSelectionSnapshot = useMemo(
+    () => readPersistedThreadSelectionSnapshot(),
+    [workspaceId],
+  )
 
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
   const setSelectedThread = useSessionStore((state) => state.setSelectedThread)
@@ -20,7 +28,8 @@ export function useThreadPageControllerStoreState(workspaceId: string) {
     (state) => state.clearCompletedCommandSessions,
   )
   const selectedThreadId = useSessionStore((state) =>
-    getSelectedThreadIdForWorkspace(state, workspaceId),
+    getSelectedThreadIdForWorkspace(state, workspaceId) ??
+      getSelectedThreadIdForWorkspace(persistedSelectionSnapshot, workspaceId),
   )
 
   const mobileThreadToolsOpen = useUIStore((state) => state.mobileThreadToolsOpen)

@@ -5,6 +5,7 @@ export function useThreadPageControllerEffects({
   controllerState,
   dataState,
   statusState,
+  viewportState,
 }: UseThreadPageControllerEffectsInput) {
   useThreadPageEffects({
     activePendingTurn: controllerState.activePendingTurn,
@@ -17,7 +18,9 @@ export function useThreadPageControllerEffects({
     isDocumentVisible: controllerState.isDocumentVisible,
     isMobileViewport: controllerState.isMobileViewport,
     isMobileWorkbenchOverlayOpen: statusState.isMobileWorkbenchOverlayOpen,
+    isThreadPinnedToLatest: viewportState.isThreadPinnedToLatest,
     isThreadProcessing: statusState.isThreadProcessing,
+    isThreadViewportInteracting: viewportState.isThreadViewportInteracting,
     latestThreadDetailId: dataState.threadDetailQuery.data?.id,
     liveThreadTurns: dataState.liveThreadDetail?.turns,
     mobileThreadToolsOpen: controllerState.mobileThreadToolsOpen,

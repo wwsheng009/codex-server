@@ -46,6 +46,9 @@ export function buildThreadPageControllerRailStateLayoutInput({
   railState,
   statusState,
 }: BuildThreadPageControllerLayoutPropsInput): RailStateLayoutInput {
+  const activeSelectedThreadId =
+    dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
+
   return {
     command: controllerState.command,
     commandRunMode: controllerState.commandRunMode,
@@ -80,7 +83,7 @@ export function buildThreadPageControllerRailStateLayoutInput({
     shellEnvironmentSummary: dataState.shellEnvironmentDiagnosis.summary,
     shellEnvironmentWarning: dataState.shellEnvironmentDiagnosis.warning,
     startCommandModeDisabled:
-      controllerState.commandRunMode === 'thread-shell' && !controllerState.selectedThreadId,
+      controllerState.commandRunMode === 'thread-shell' && !activeSelectedThreadId,
     startCommandPending:
       mutationState.startCommandMutation.isPending ||
       mutationState.threadShellCommandMutation.isPending,

@@ -12,15 +12,59 @@ import type { ThreadPageRefreshEffectsInput } from './threadPageEffectTypes'
 export function useThreadPageRefreshEffects({
   contextCompactionFeedback,
   isDocumentVisible,
+  isThreadPinnedToLatest,
+  isThreadViewportInteracting,
   queryClient,
   selectedThreadEvents,
   selectedThreadId,
   setContextCompactionFeedback,
+  threadListRefreshTimerRef,
   threadDetailRefreshTimerRef,
   workspaceActivityEvents,
   workspaceId,
 }: ThreadPageRefreshEffectsInput) {
   const wasDocumentVisibleRef = useRef(isDocumentVisible)
+  const lastProcessedThreadEventKeyRef = useRef('')
+  const lastProcessedWorkspaceActivityEventKeyRef = useRef('')
+
+  useEffect(() => {
+    lastProcessedThreadEventKeyRef.current = ''
+  }, [selectedThreadId])
+
+  useEffect(() => {
+    lastProcessedWorkspaceActivityEventKeyRef.current = ''
+  }, [workspaceId])
+
+  function scheduleThreadListRefresh(delayMs = 120) {
+    if (threadListRefreshTimerRef.current) {
+      window.clearTimeout(threadListRefreshTimerRef.current)
+    }
+
+    threadListRefreshTimerRef.current = window.setTimeout(() => {
+      threadListRefreshTimerRef.current = null
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+      ])
+    }, delayMs)
+  }
+
+  function scheduleThreadDetailRefresh(delayMs = 120) {
+    if (!isThreadPinnedToLatest || isThreadViewportInteracting) {
+      return
+    }
+
+    if (threadDetailRefreshTimerRef.current) {
+      window.clearTimeout(threadDetailRefreshTimerRef.current)
+    }
+
+    threadDetailRefreshTimerRef.current = window.setTimeout(() => {
+      threadDetailRefreshTimerRef.current = null
+      void queryClient.invalidateQueries({
+        queryKey: ['thread-detail', workspaceId, selectedThreadId],
+      })
+    }, delayMs)
+  }
 
   useEffect(() => {
     const becameVisible = !wasDocumentVisibleRef.current && isDocumentVisible
@@ -48,38 +92,38 @@ export function useThreadPageRefreshEffects({
     }
 
     const latestEvent = selectedThreadEvents[selectedThreadEvents.length - 1]
+    const latestEventKey = `${selectedThreadId}:${selectedThreadEvents.length}:${latestEvent.ts}:${latestEvent.method}`
+    if (lastProcessedThreadEventKeyRef.current === latestEventKey) {
+      return
+    }
+
+    lastProcessedThreadEventKeyRef.current = latestEventKey
+
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
-        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
-      ])
+      scheduleThreadListRefresh()
     }
 
     if (!shouldRefreshThreadDetailForEvent(latestEvent.method)) {
       return
     }
 
-    const runRefresh = () => {
-      threadDetailRefreshTimerRef.current = null
-      void queryClient.invalidateQueries({
-        queryKey: ['thread-detail', workspaceId, selectedThreadId],
-      })
-    }
-
-    if (threadDetailRefreshTimerRef.current) {
-      window.clearTimeout(threadDetailRefreshTimerRef.current)
-      threadDetailRefreshTimerRef.current = null
-    }
-
-    if (shouldThrottleThreadDetailRefreshForEvent(latestEvent.method)) {
+    if (!isThreadPinnedToLatest || isThreadViewportInteracting) {
       return
     }
 
-    runRefresh()
+    if (shouldThrottleThreadDetailRefreshForEvent(latestEvent.method)) {
+      scheduleThreadDetailRefresh(360)
+      return
+    }
+
+    scheduleThreadDetailRefresh(80)
   }, [
     queryClient,
+    isThreadPinnedToLatest,
+    isThreadViewportInteracting,
     selectedThreadEvents,
     selectedThreadId,
+    threadListRefreshTimerRef,
     threadDetailRefreshTimerRef,
     workspaceId,
   ])
@@ -116,25 +160,31 @@ export function useThreadPageRefreshEffects({
     }
 
     const latestEvent = workspaceActivityEvents[workspaceActivityEvents.length - 1]
+    const latestEventKey = `${workspaceId}:${workspaceActivityEvents.length}:${latestEvent.serverRequestId ?? ''}:${latestEvent.method}`
+    if (lastProcessedWorkspaceActivityEventKeyRef.current === latestEventKey) {
+      return
+    }
+
+    lastProcessedWorkspaceActivityEventKeyRef.current = latestEventKey
 
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
-        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
-      ])
+      scheduleThreadListRefresh()
     }
 
     if (shouldRefreshApprovalsForEvent(latestEvent.method, latestEvent.serverRequestId)) {
       void queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] })
     }
-  }, [queryClient, workspaceActivityEvents, workspaceId])
+  }, [queryClient, threadListRefreshTimerRef, workspaceActivityEvents, workspaceId])
 
   useEffect(
     () => () => {
+      if (threadListRefreshTimerRef.current) {
+        window.clearTimeout(threadListRefreshTimerRef.current)
+      }
       if (threadDetailRefreshTimerRef.current) {
         window.clearTimeout(threadDetailRefreshTimerRef.current)
       }
     },
-    [threadDetailRefreshTimerRef],
+    [threadDetailRefreshTimerRef, threadListRefreshTimerRef],
   )
 }

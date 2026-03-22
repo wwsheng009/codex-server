@@ -22,6 +22,7 @@ export function buildThreadPageComposerDockProps(
     composerAutocompleteIndex: input.composerAutocompleteIndex,
     composerAutocompleteSectionGroups: input.composerAutocompleteSectionGroups,
     composerDockRef: input.composerDockRef,
+    composerDockMeasureRef: input.composerDockMeasureRef,
     composerInputRef: input.composerInputRef,
     composerPreferences: input.composerPreferences,
     composerStatusInfo: input.composerStatusInfo,

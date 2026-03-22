@@ -21,10 +21,15 @@ export function ThreadWorkbenchSurface({
   approvalErrors,
   children,
   approvals,
+  createThreadErrorMessage,
   displayedTurns,
   hasMoreTurnsBefore,
+  hasThreads,
   hiddenTurnsCount,
+  isCreateThreadPending,
   isLoadingOlderTurns,
+  isThreadsLoaded,
+  isThreadSelectionLoading,
   isMobileViewport,
   isSurfacePanelResizing,
   isThreadPinnedToLatest,
@@ -33,6 +38,7 @@ export function ThreadWorkbenchSurface({
   liveTimelineEntries,
   onChangeApprovalAnswer,
   onCloseWorkbenchOverlay,
+  onCreateThread,
   onLoadOlderTurns,
   onRespondApproval,
   onRetryServerRequest,
@@ -50,6 +56,7 @@ export function ThreadWorkbenchSurface({
   threadLogStyle,
   threadRuntimeNotice,
   threadViewportRef,
+  workspaceName,
 }: {
   activePendingTurnPhase?: 'sending' | 'waiting'
   activeSurfacePanelSide: SurfacePanelSide
@@ -57,10 +64,15 @@ export function ThreadWorkbenchSurface({
   approvalErrors: Record<string, string>
   children?: ReactNode
   approvals?: PendingApproval[]
+  createThreadErrorMessage?: string
   displayedTurns: ThreadTurn[]
   hasMoreTurnsBefore: boolean
+  hasThreads: boolean
   hiddenTurnsCount: number
+  isCreateThreadPending: boolean
   isLoadingOlderTurns: boolean
+  isThreadsLoaded: boolean
+  isThreadSelectionLoading: boolean
   isMobileViewport: boolean
   isSurfacePanelResizing: boolean
   isThreadPinnedToLatest: boolean
@@ -69,6 +81,7 @@ export function ThreadWorkbenchSurface({
   liveTimelineEntries: LiveTimelineEntry[]
   onChangeApprovalAnswer: (requestId: string, questionId: string, value: string) => void
   onCloseWorkbenchOverlay: () => void
+  onCreateThread: () => void
   onLoadOlderTurns: () => void
   onRespondApproval: (input: {
     requestId: string
@@ -90,7 +103,13 @@ export function ThreadWorkbenchSurface({
   threadLogStyle: CSSProperties
   threadRuntimeNotice?: ThreadRuntimeNotice
   threadViewportRef: RefObject<HTMLDivElement | null>
+  workspaceName?: string
 }) {
+  const showCreateThreadEmptyState =
+    !selectedThread && !isThreadSelectionLoading && isThreadsLoaded && !hasThreads
+  const showThreadsLoadingState =
+    isThreadSelectionLoading || (!selectedThread && !isThreadsLoaded)
+
   return (
     <div className="workbench-stage__canvas">
       <div className="workbench-log" style={threadLogStyle}>
@@ -224,11 +243,63 @@ export function ThreadWorkbenchSurface({
             <div className="empty-state workbench-log__empty">
               <div className="form-stack">
                 <p>
-                  {i18n._({
-                    id: 'Select a thread from the left sidebar to start working in this workspace.',
-                    message: 'Select a thread from the left sidebar to start working in this workspace.',
-                  })}
+                  {showThreadsLoadingState
+                    ? i18n._({
+                        id: 'Loading workspace threads…',
+                        message: 'Loading workspace threads…',
+                      })
+                    : showCreateThreadEmptyState
+                      ? i18n._({
+                          id: 'Workspace {name} does not have any threads yet.',
+                          message: 'Workspace {name} does not have any threads yet.',
+                          values: {
+                            name:
+                              workspaceName ??
+                              i18n._({
+                                id: 'this workspace',
+                                message: 'this workspace',
+                              }),
+                          },
+                        })
+                      : i18n._({
+                          id: 'Select a thread from the left sidebar to start working in this workspace.',
+                          message: 'Select a thread from the left sidebar to start working in this workspace.',
+                        })}
                 </p>
+                {showCreateThreadEmptyState ? (
+                  <>
+                    {createThreadErrorMessage ? (
+                      <InlineNotice
+                        dismissible
+                        noticeKey={`create-first-thread-${createThreadErrorMessage}`}
+                        onRetry={onCreateThread}
+                        title={i18n._({
+                          id: 'Failed To Create Thread',
+                          message: 'Failed To Create Thread',
+                        })}
+                        tone="error"
+                      >
+                        {createThreadErrorMessage}
+                      </InlineNotice>
+                    ) : null}
+                    <button
+                      className="ide-button ide-button--primary ide-button--lg workbench-log__empty-action"
+                      disabled={isCreateThreadPending}
+                      onClick={onCreateThread}
+                      type="button"
+                    >
+                      {isCreateThreadPending
+                        ? i18n._({
+                            id: 'Creating thread…',
+                            message: 'Creating thread…',
+                          })
+                        : i18n._({
+                            id: 'Create First Thread',
+                            message: 'Create First Thread',
+                          })}
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
           )}
@@ -342,7 +413,7 @@ export function ThreadWorkbenchSurface({
           </section>
         ) : null}
       </div>
-      {children}
+      {!showCreateThreadEmptyState ? children : null}
     </div>
   )
 }

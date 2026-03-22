@@ -13,9 +13,8 @@ export function useThreadPageDisplayState(input: ThreadPageDisplayStateInput) {
     () => buildThreadPageTurnDisplayState(input),
     [
       input.activePendingTurn,
-      input.liveThreadDetail,
-      input.selectedThread,
-      input.selectedThreadEvents,
+      input.historicalTurns,
+      input.liveThreadDetail?.turns,
       input.selectedThreadId,
     ],
   )

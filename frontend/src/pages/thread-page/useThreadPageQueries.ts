@@ -12,7 +12,6 @@ export function useThreadPageQueries({
   hasPendingTurn,
   isDocumentVisible,
   selectedThreadId,
-  streamState,
   turnLimit,
   workspaceId,
 }: {
@@ -20,7 +19,6 @@ export function useThreadPageQueries({
   hasPendingTurn: boolean
   isDocumentVisible: boolean
   selectedThreadId?: string
-  streamState: string
   turnLimit: number
   workspaceId: string
 }) {
@@ -48,12 +46,12 @@ export function useThreadPageQueries({
     queryFn: () => listThreads(workspaceId),
     enabled: Boolean(workspaceId),
   })
+  const resolvedSelectedThreadId = selectedThreadId ?? threadsQuery.data?.[0]?.id
 
   const loadedThreadsQuery = useQuery({
     queryKey: ['loaded-threads', workspaceId],
     queryFn: () => listLoadedThreadIds(workspaceId),
     enabled: Boolean(workspaceId),
-    refetchInterval: isDocumentVisible && workspaceId && streamState !== 'open' ? 5_000 : false,
     staleTime: 5_000,
   })
 
@@ -72,23 +70,19 @@ export function useThreadPageQueries({
   })
 
   const threadDetailQuery = useQuery({
-    queryKey: ['thread-detail', workspaceId, selectedThreadId, turnLimit],
-    queryFn: () => getThread(workspaceId, selectedThreadId ?? '', { turnLimit }),
-    enabled: Boolean(workspaceId && selectedThreadId),
-    placeholderData: (previous) => previous,
+    queryKey: ['thread-detail', workspaceId, resolvedSelectedThreadId, turnLimit],
+    queryFn: () => getThread(workspaceId, resolvedSelectedThreadId ?? '', { turnLimit }),
+    enabled: Boolean(workspaceId && resolvedSelectedThreadId),
+    placeholderData: (previous) =>
+      previous?.id === resolvedSelectedThreadId ? previous : undefined,
     refetchInterval:
-      isDocumentVisible && selectedThreadId && hasPendingTurn
-        ? 1_000
-        : isDocumentVisible && selectedThreadId && streamState !== 'open'
-          ? 5_000
-          : false,
+      isDocumentVisible && resolvedSelectedThreadId && hasPendingTurn ? 1_000 : false,
   })
 
   const approvalsQuery = useQuery({
     queryKey: ['approvals', workspaceId],
     queryFn: () => listPendingApprovals(workspaceId),
     enabled: Boolean(workspaceId),
-    refetchInterval: isDocumentVisible && workspaceId && streamState !== 'open' ? 4_000 : false,
   })
 
   const fileSearchQuery = useQuery({
@@ -112,6 +106,7 @@ export function useThreadPageQueries({
     fileSearchQuery,
     loadedThreadsQuery,
     modelsQuery,
+    resolvedSelectedThreadId,
     skillsQuery,
     threadDetailQuery,
     threadsQuery,

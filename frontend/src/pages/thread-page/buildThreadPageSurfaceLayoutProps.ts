@@ -41,9 +41,14 @@ export function buildThreadPageSurfaceLayoutProps(
     approvalErrors: input.approvalErrors,
     approvals: input.approvals,
     displayedTurns: input.displayedTurns,
+    createThreadErrorMessage: input.createThreadErrorMessage,
     hasMoreTurnsBefore: input.hasMoreTurnsBefore,
+    hasThreads: input.hasThreads,
     hiddenTurnsCount: input.hiddenTurnsCount,
+    isCreateThreadPending: input.isCreateThreadPending,
     isLoadingOlderTurns: input.isLoadingOlderTurns,
+    isThreadsLoaded: input.isThreadsLoaded,
+    isThreadSelectionLoading: input.isThreadSelectionLoading,
     isMobileViewport: input.isMobileViewport,
     isSurfacePanelResizing: input.isSurfacePanelResizing,
     isThreadPinnedToLatest: input.isThreadPinnedToLatest,
@@ -52,6 +57,7 @@ export function buildThreadPageSurfaceLayoutProps(
     liveTimelineEntries: input.liveTimelineEntries,
     onChangeApprovalAnswer: input.onChangeApprovalAnswer,
     onCloseWorkbenchOverlay: input.onCloseWorkbenchOverlay,
+    onCreateThread: input.onCreateThread,
     onLoadOlderTurns: input.onLoadOlderTurns,
     onRespondApproval: input.onRespondApproval,
     onRetryServerRequest: input.onRetryServerRequest,
@@ -69,6 +75,7 @@ export function buildThreadPageSurfaceLayoutProps(
     threadLogStyle: input.threadLogStyle,
     threadRuntimeNotice: input.threadRuntimeNotice,
     threadViewportRef: input.threadViewportRef,
+    workspaceName: input.workspaceName,
   }
 
   const terminalDockProps: TerminalDockProps | undefined = input.isMobileViewport

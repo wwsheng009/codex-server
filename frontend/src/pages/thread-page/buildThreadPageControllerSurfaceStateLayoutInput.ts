@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/error-utils'
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
 import type { ControllerSurfaceLayoutInput } from './threadPageControllerLayoutInputTypes'
 
@@ -10,10 +11,15 @@ type SurfaceStateLayoutInput = Pick<
   | 'approvalErrors'
   | 'approvals'
   | 'commandSessions'
+  | 'createThreadErrorMessage'
   | 'displayedTurns'
   | 'hasMoreTurnsBefore'
+  | 'hasThreads'
   | 'hiddenTurnsCount'
+  | 'isCreateThreadPending'
   | 'isLoadingOlderTurns'
+  | 'isThreadsLoaded'
+  | 'isThreadSelectionLoading'
   | 'isMobileViewport'
   | 'isSurfacePanelResizing'
   | 'isTerminalDockExpanded'
@@ -38,6 +44,7 @@ type SurfaceStateLayoutInput = Pick<
   | 'threadRuntimeNotice'
   | 'timelineIdentity'
   | 'threadViewportRef'
+  | 'workspaceName'
   | 'workspaceId'
 >
 
@@ -49,6 +56,9 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
   statusState,
   viewportState,
 }: BuildThreadPageControllerLayoutPropsInput): SurfaceStateLayoutInput {
+  const activeSelectedThreadId =
+    dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
+
   return {
     activeCommandCount: statusState.activeCommandCount,
     activePendingTurnPhase: controllerState.activePendingTurn?.phase,
@@ -57,15 +67,25 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     approvalErrors: controllerState.approvalErrors,
     approvals: dataState.approvalsQuery.data,
     commandSessions: dataState.commandSessions,
+    createThreadErrorMessage: mutationState.createThreadMutation.error
+      ? getErrorMessage(mutationState.createThreadMutation.error)
+      : undefined,
     displayedTurns: displayState.displayedTurns,
     hasMoreTurnsBefore:
       controllerState.hasMoreHistoricalTurnsBefore ?? Boolean(dataState.liveThreadDetail?.hasMoreTurns),
+    hasThreads: Boolean(dataState.threadsQuery.data?.length),
     hiddenTurnsCount: Math.max(
       0,
       (dataState.liveThreadDetail?.turnCount ?? displayState.displayedTurns.length) -
         displayState.displayedTurns.length,
     ),
+    isCreateThreadPending: mutationState.createThreadMutation.isPending,
     isLoadingOlderTurns: controllerState.isLoadingOlderTurns,
+    isThreadsLoaded: dataState.threadsQuery.isSuccess,
+    isThreadSelectionLoading:
+      !dataState.selectedThread &&
+      !dataState.resolvedSelectedThreadId &&
+      dataState.threadsQuery.isLoading,
     isMobileViewport: controllerState.isMobileViewport,
     isSurfacePanelResizing: controllerState.isSurfacePanelResizing,
     isTerminalDockExpanded: controllerState.isTerminalDockExpanded,
@@ -77,7 +97,7 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     respondingToApproval: mutationState.respondApprovalMutation.isPending,
     selectedCommandSession: displayState.selectedCommandSession,
     selectedThread: dataState.selectedThread,
-    selectedThreadId: controllerState.selectedThreadId,
+    selectedThreadId: activeSelectedThreadId,
     setIsTerminalDockExpanded: controllerState.setIsTerminalDockExpanded,
     setSurfacePanelSides: controllerState.setSurfacePanelSides,
     stdinValue: controllerState.stdinValue,
@@ -88,8 +108,9 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
     threadLogStyle: viewportState.threadLogStyle,
     threadRuntimeNotice: statusState.threadRuntimeNotice,
-    timelineIdentity: controllerState.selectedThreadId ?? '',
+    timelineIdentity: activeSelectedThreadId ?? '',
     threadViewportRef: viewportState.threadViewportRef,
+    workspaceName: dataState.workspaceQuery.data?.name,
     workspaceId: controllerState.workspaceId,
   }
 }

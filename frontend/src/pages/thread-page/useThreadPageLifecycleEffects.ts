@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 
 import type { ThreadPageLifecycleEffectsInput } from './threadPageEffectTypes'
 
@@ -17,7 +17,7 @@ export function useThreadPageLifecycleEffects({
     setSelectedWorkspace(workspaceId)
   }, [setSelectedWorkspace, workspaceId])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!currentThreads.length) {
       return
     }
@@ -31,7 +31,13 @@ export function useThreadPageLifecycleEffects({
     if (!hasSelectedThread && latestThreadDetailId !== selectedThreadId) {
       setSelectedThread(workspaceId, currentThreads[0].id)
     }
-  }, [currentThreads, latestThreadDetailId, selectedThreadId, setSelectedThread, workspaceId])
+  }, [
+    currentThreads,
+    latestThreadDetailId,
+    selectedThreadId,
+    setSelectedThread,
+    workspaceId,
+  ])
 
   useEffect(() => {
     if (!selectedThreadId || !activePendingTurn?.turnId) {

@@ -16,6 +16,9 @@ export function useThreadPageControllerActions({
   statusState,
   viewportState,
 }: UseThreadPageControllerActionsInput): ThreadPageControllerActions {
+  const activeSelectedThreadId =
+    dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
+
   const composerActions = useThreadComposerActions({
     activeComposerMatchMode: controllerState.activeComposerMatch?.mode,
     applyComposerMessage: controllerState.applyComposerMessage,
@@ -68,9 +71,10 @@ export function useThreadPageControllerActions({
     selectedCommandSession: displayState.selectedCommandSession,
     selectedProcessId: controllerState.selectedProcessId,
     selectedThread: dataState.selectedThread,
-    selectedThreadId: controllerState.selectedThreadId,
+    selectedThreadId: activeSelectedThreadId,
     setActiveComposerPanel: controllerState.setActiveComposerPanel,
     setApprovalAnswers: controllerState.setApprovalAnswers,
+    setAuthRecoveryRequestedAt: controllerState.setAuthRecoveryRequestedAt,
     setComposerCaret: controllerState.setComposerCaret,
     setComposerCommandMenu: controllerState.setComposerCommandMenu,
     setDismissedComposerAutocompleteKey: controllerState.setDismissedComposerAutocompleteKey,

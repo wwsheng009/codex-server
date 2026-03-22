@@ -9,9 +9,10 @@ export function useThreadViewportBottomClearance() {
     DEFAULT_THREAD_BOTTOM_CLEARANCE_PX,
   )
   const composerDockRef = useRef<HTMLFormElement | null>(null)
+  const composerDockMeasureRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    const composerDock = composerDockRef.current
+    const composerDock = composerDockMeasureRef.current
     if (!composerDock) {
       return
     }
@@ -44,6 +45,7 @@ export function useThreadViewportBottomClearance() {
 
   return {
     composerDockRef,
+    composerDockMeasureRef,
     threadBottomClearancePx,
   }
 }

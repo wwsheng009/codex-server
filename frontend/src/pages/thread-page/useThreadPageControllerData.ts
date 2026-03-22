@@ -24,10 +24,11 @@ export function useThreadPageControllerData(
     isDocumentVisible: controllerState.isDocumentVisible,
     normalizedDeferredComposerQuery: controllerState.normalizedDeferredComposerQuery,
     selectedThreadId: controllerState.selectedThreadId,
-    streamState: controllerState.streamState,
     threadTurnWindowSize: controllerState.threadTurnWindowSize,
     workspaceId: controllerState.workspaceId,
   })
+  const activeSelectedThreadId =
+    dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
 
   const railState = useThreadPageRailState({
     isMobileViewport: controllerState.isMobileViewport,
@@ -88,7 +89,7 @@ export function useThreadPageControllerData(
     selectedProcessId: controllerState.selectedProcessId,
     selectedThread: dataState.selectedThread,
     selectedThreadEvents: dataState.selectedThreadEvents,
-    selectedThreadId: controllerState.selectedThreadId,
+    selectedThreadId: activeSelectedThreadId,
     selectedThreadTokenUsage: dataState.selectedThreadTokenUsage,
     setContextCompactionFeedback: controllerState.setContextCompactionFeedback,
     surfacePanelView: controllerState.surfacePanelView,
@@ -98,11 +99,33 @@ export function useThreadPageControllerData(
 
   const viewportState = useThreadViewportState({
     displayedTurnsLength: displayState.displayedTurns.length,
-    selectedThreadId: controllerState.selectedThreadId,
-    settledMessageAutoScrollKey: displayState.settledMessageAutoScrollKey,
+    selectedThreadId: activeSelectedThreadId,
     threadContentKey: displayState.threadContentKey,
+    threadUnreadUpdateKey: displayState.threadUnreadUpdateKey,
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
   })
+
+  useEffect(() => {
+    if (controllerState.authRecoveryRequestedAt === null) {
+      return
+    }
+
+    const latestAccountResultAt = Math.max(
+      dataState.accountQuery.dataUpdatedAt ?? 0,
+      dataState.accountQuery.errorUpdatedAt ?? 0,
+    )
+
+    if (latestAccountResultAt < controllerState.authRecoveryRequestedAt) {
+      return
+    }
+
+    controllerState.setAuthRecoveryRequestedAt(null)
+  }, [
+    controllerState.authRecoveryRequestedAt,
+    controllerState.setAuthRecoveryRequestedAt,
+    dataState.accountQuery.dataUpdatedAt,
+    dataState.accountQuery.errorUpdatedAt,
+  ])
 
   useEffect(() => {
     if (!controllerState.historicalTurns.length) {
@@ -154,8 +177,9 @@ export function useThreadPageControllerData(
     liveThreadStatus: dataState.liveThreadDetail?.status,
     selectedThread: dataState.selectedThread,
     selectedThreadEvents: dataState.selectedThreadEvents,
-    selectedThreadId: controllerState.selectedThreadId,
+    selectedThreadId: activeSelectedThreadId,
     sendError: controllerState.sendError,
+    suppressAuthenticationError: controllerState.authRecoveryRequestedAt !== null,
     streamState: controllerState.streamState,
     surfacePanelView: controllerState.surfacePanelView,
     syncClock: controllerState.syncClock,

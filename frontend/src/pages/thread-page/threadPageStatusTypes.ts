@@ -27,6 +27,7 @@ export type ThreadPageStatusStateInput = {
   selectedThreadEvents: Array<Pick<ServerEvent, 'ts'>>
   selectedThreadId?: string
   sendError: string | null
+  suppressAuthenticationError: boolean
   streamState: string
   surfacePanelView: 'approvals' | 'feed' | null
   syncClock: number
@@ -52,6 +53,7 @@ export type ThreadPageInteractionStatusInput = Pick<
   | 'selectedThread'
   | 'selectedThreadId'
   | 'sendError'
+  | 'suppressAuthenticationError'
   | 'streamState'
 >
 

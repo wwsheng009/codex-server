@@ -1,5 +1,9 @@
 import type { ThreadTurn } from '../../types/api'
-import { latestSettledMessageKey } from '../threadPageUtils'
+import {
+  latestMessageUpdateKey,
+  latestRenderableThreadItemKey,
+  latestSettledMessageKey,
+} from '../threadPageUtils'
 import { buildPendingThreadTurn } from '../threadPageTurnHelpers'
 import { upsertPendingUserMessage } from '../threadLiveState'
 import type { ThreadPageTurnDisplayStateInput } from './threadPageDisplayTypes'
@@ -8,8 +12,6 @@ export function buildThreadPageTurnDisplayState({
   activePendingTurn,
   historicalTurns,
   liveThreadDetail,
-  selectedThread,
-  selectedThreadEvents,
   selectedThreadId,
 }: ThreadPageTurnDisplayStateInput) {
   const turns = mergeThreadTurnHistory(historicalTurns, liveThreadDetail?.turns ?? [])
@@ -22,18 +24,16 @@ export function buildThreadPageTurnDisplayState({
   const latestDisplayedTurn = displayedTurns[displayedTurns.length - 1]
   const turnCount = displayedTurns.length
   const timelineItemCount = displayedTurns.reduce((count, turn) => count + turn.items.length, 0)
-  const latestThreadEventTs = selectedThreadEvents[selectedThreadEvents.length - 1]?.ts ?? ''
+  const latestRenderableItemKey = latestRenderableThreadItemKey(displayedTurns)
   const threadContentKey = [
     selectedThreadId ?? '',
     turnCount,
     timelineItemCount,
     latestDisplayedTurn?.id ?? '',
     latestDisplayedTurn?.status ?? '',
-    latestThreadEventTs,
+    latestRenderableItemKey,
     activePendingTurn?.phase ?? '',
     activePendingTurn?.turnId ?? '',
-    liveThreadDetail?.updatedAt ?? '',
-    selectedThread?.updatedAt ?? '',
   ].join('|')
 
   return {
@@ -41,6 +41,7 @@ export function buildThreadPageTurnDisplayState({
     oldestDisplayedTurnId: displayedTurns[0]?.id,
     latestDisplayedTurn,
     settledMessageAutoScrollKey: latestSettledMessageKey(displayedTurns),
+    threadUnreadUpdateKey: latestMessageUpdateKey(displayedTurns),
     threadContentKey,
     timelineItemCount,
     turnCount,

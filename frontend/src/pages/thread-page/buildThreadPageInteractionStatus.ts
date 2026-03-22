@@ -16,13 +16,17 @@ export function buildThreadPageInteractionStatus({
   selectedThread,
   selectedThreadId,
   sendError,
+  suppressAuthenticationError,
   streamState,
 }: ThreadPageInteractionStatusInput) {
   const isWaitingForThreadData = Boolean(activePendingTurn)
   const isSendingSelectedThread = activePendingTurn?.phase === 'sending'
   const isApprovalDialogOpen = Boolean(activeComposerApproval)
   const requiresOpenAIAuth =
-    account?.status === 'requires_openai_auth' || isAuthenticationError(accountError)
+    !suppressAuthenticationError &&
+    (account?.status === 'requires_openai_auth' ||
+      isAuthenticationError(accountError) ||
+      isAuthenticationError(sendError))
 
   const isThreadInterruptible = Boolean(
     selectedThreadId &&
