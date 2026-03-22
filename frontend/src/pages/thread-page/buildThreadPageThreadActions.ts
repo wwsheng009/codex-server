@@ -1,8 +1,8 @@
 import type { FormEvent } from 'react'
 
-import { resumeThread } from '../../features/threads/api'
+import { getThread, resumeThread } from '../../features/threads/api'
 import { getErrorMessage } from '../../lib/error-utils'
-import type { Thread, TurnResult } from '../../types/api'
+import type { Thread, ThreadTurn, TurnResult } from '../../types/api'
 import {
   createPendingTurn,
   shouldRetryTurnAfterResume,
@@ -22,7 +22,9 @@ export function buildThreadPageThreadActions({
   interruptTurnMutation,
   invalidateThreadQueries,
   isInterruptMode,
+  isLoadingOlderTurns,
   message,
+  oldestDisplayedTurnId,
   queryClient,
   renameThreadMutation,
   requestDeleteSelectedThread,
@@ -35,9 +37,13 @@ export function buildThreadPageThreadActions({
   setComposerCaret,
   setComposerCommandMenu,
   setDismissedComposerAutocompleteKey,
+  setHasMoreHistoricalTurnsBefore,
+  setHistoricalTurns,
+  setIsLoadingOlderTurns,
   setMessage,
   setSendError,
   startTurnMutation,
+  threadDetail,
   unarchiveThreadMutation,
   updatePendingTurn,
   workspaceId,
@@ -208,6 +214,43 @@ export function buildThreadPageThreadActions({
     compactThreadMutation.mutate(selectedThreadId)
   }
 
+  async function handleLoadOlderTurns() {
+    if (
+      !selectedThreadId ||
+      !oldestDisplayedTurnId ||
+      isLoadingOlderTurns
+    ) {
+      return
+    }
+
+    setIsLoadingOlderTurns(true)
+
+    try {
+      const page = await queryClient.fetchQuery({
+        queryKey: [
+          'thread-detail-page',
+          workspaceId,
+          selectedThreadId,
+          oldestDisplayedTurnId,
+          threadDetailPageSize(threadDetail),
+        ],
+        queryFn: () =>
+          getThread(workspaceId, selectedThreadId, {
+            beforeTurnId: oldestDisplayedTurnId,
+            turnLimit: threadDetailPageSize(threadDetail),
+          }),
+        staleTime: 15_000,
+      })
+
+      setHistoricalTurns((current) => mergeHistoricalTurns(page.turns, current))
+      setHasMoreHistoricalTurnsBefore(Boolean(page.hasMoreTurns))
+    } catch (error) {
+      setSendError(getErrorMessage(error, 'Failed to load older turns.'))
+    } finally {
+      setIsLoadingOlderTurns(false)
+    }
+  }
+
   return {
     handleApprovalAnswerChange,
     handleCloseDeleteThreadDialog,
@@ -219,5 +262,26 @@ export function buildThreadPageThreadActions({
     handleSendMessage,
     handleSubmitRenameSelectedThread,
     handleToggleArchiveSelectedThread,
+    handleLoadOlderTurns,
   }
+}
+
+function threadDetailPageSize(threadDetail?: { turns?: ThreadTurn[] }) {
+  return Math.max(threadDetail?.turns?.length ?? 0, 80)
+}
+
+function mergeHistoricalTurns(nextTurns: ThreadTurn[], currentTurns: ThreadTurn[]) {
+  const mergedTurns: ThreadTurn[] = []
+  const seenTurnIds = new Set<string>()
+
+  for (const turn of [...nextTurns, ...currentTurns]) {
+    if (seenTurnIds.has(turn.id)) {
+      continue
+    }
+
+    seenTurnIds.add(turn.id)
+    mergedTurns.push(turn)
+  }
+
+  return mergedTurns
 }

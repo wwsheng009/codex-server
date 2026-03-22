@@ -11,6 +11,9 @@ type SurfaceStateLayoutInput = Pick<
   | 'approvals'
   | 'commandSessions'
   | 'displayedTurns'
+  | 'hasMoreTurnsBefore'
+  | 'hiddenTurnsCount'
+  | 'isLoadingOlderTurns'
   | 'isMobileViewport'
   | 'isSurfacePanelResizing'
   | 'isTerminalDockExpanded'
@@ -33,6 +36,7 @@ type SurfaceStateLayoutInput = Pick<
   | 'threadDetailIsLoading'
   | 'threadLogStyle'
   | 'threadRuntimeNotice'
+  | 'timelineIdentity'
   | 'threadViewportRef'
   | 'workspaceId'
 >
@@ -54,6 +58,14 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     approvals: dataState.approvalsQuery.data,
     commandSessions: dataState.commandSessions,
     displayedTurns: displayState.displayedTurns,
+    hasMoreTurnsBefore:
+      controllerState.hasMoreHistoricalTurnsBefore ?? Boolean(dataState.liveThreadDetail?.hasMoreTurns),
+    hiddenTurnsCount: Math.max(
+      0,
+      (dataState.liveThreadDetail?.turnCount ?? displayState.displayedTurns.length) -
+        displayState.displayedTurns.length,
+    ),
+    isLoadingOlderTurns: controllerState.isLoadingOlderTurns,
     isMobileViewport: controllerState.isMobileViewport,
     isSurfacePanelResizing: controllerState.isSurfacePanelResizing,
     isTerminalDockExpanded: controllerState.isTerminalDockExpanded,
@@ -76,6 +88,7 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
     threadLogStyle: viewportState.threadLogStyle,
     threadRuntimeNotice: statusState.threadRuntimeNotice,
+    timelineIdentity: controllerState.selectedThreadId ?? '',
     threadViewportRef: viewportState.threadViewportRef,
     workspaceId: controllerState.workspaceId,
   }

@@ -4,42 +4,46 @@ import { SettingsGroup, SettingRow, SettingsPageHeader } from '../../components/
 import {
   appearanceThemeOptions,
   colorThemeOptions,
+  areWorkbenchThemeColorsEqual,
+  getAppearancePaletteLabel,
+  getAppearanceColorDefaults,
+  getColorThemeSwatches,
   getAppearanceThemeDescription,
   getAppearanceThemeLabel,
   getColorThemeDescription,
   getColorThemeLabel,
+  getThemeColorCustomizationPalette,
+  getWorkbenchThemeSwatches,
+  isBuiltInColorTheme,
+  normalizeAccentTone,
   resolveAppearanceTheme,
 } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
+import { ColorPicker } from '../../components/ui/ColorPicker'
+import '../../styles/color-picker.css'
+
+import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
-import { Switch } from '../../components/ui/Switch'
 import { Slider } from '../../components/ui/Slider'
+import { Switch } from '../../components/ui/Switch'
+import { ThemeIcon } from '../../components/ui/ThemeIcon'
 
 export function AppearanceSettingsPage() {
   const theme = useSettingsLocalStore((state) => state.theme)
   const setTheme = useSettingsLocalStore((state) => state.setTheme)
   const accentTone = useSettingsLocalStore((state) => state.accentTone)
   const setAccentTone = useSettingsLocalStore((state) => state.setAccentTone)
-  const setUseCustomColors = useSettingsLocalStore((state) => state.setUseCustomColors)
+  const themeColorCustomizations = useSettingsLocalStore((state) => state.themeColorCustomizations)
+  const customThemes = useSettingsLocalStore((state) => state.customThemes)
+  const activeCustomThemeId = useSettingsLocalStore((state) => state.activeCustomThemeId)
+  const setThemeColorCustomization = useSettingsLocalStore((state) => state.setThemeColorCustomization)
+  const selectCustomTheme = useSettingsLocalStore((state) => state.selectCustomTheme)
+  const createCustomTheme = useSettingsLocalStore((state) => state.createCustomTheme)
+  const renameCustomTheme = useSettingsLocalStore((state) => state.renameCustomTheme)
+  const deleteCustomTheme = useSettingsLocalStore((state) => state.deleteCustomTheme)
+  const resetThemePaletteCustomization = useSettingsLocalStore((state) => state.resetThemePaletteCustomization)
 
-  // Custom Colors
-  const accentColorLight = useSettingsLocalStore((state) => state.accentColorLight)
-  const setAccentColorLight = useSettingsLocalStore((state) => state.setAccentColorLight)
-  const accentColorDark = useSettingsLocalStore((state) => state.accentColorDark)
-  const setAccentColorDark = useSettingsLocalStore((state) => state.setAccentColorDark)
-
-  const backgroundColorLight = useSettingsLocalStore((state) => state.backgroundColorLight)
-  const setBackgroundColorLight = useSettingsLocalStore((state) => state.setBackgroundColorLight)
-  const backgroundColorDark = useSettingsLocalStore((state) => state.backgroundColorDark)
-  const setBackgroundColorDark = useSettingsLocalStore((state) => state.setBackgroundColorDark)
-
-  const foregroundColorLight = useSettingsLocalStore((state) => state.foregroundColorLight)
-  const setForegroundColorLight = useSettingsLocalStore((state) => state.setForegroundColorLight)
-  const foregroundColorDark = useSettingsLocalStore((state) => state.foregroundColorDark)
-  const setForegroundColorDark = useSettingsLocalStore((state) => state.setForegroundColorDark)
-
-  // Fonts & Sizes
   const uiFont = useSettingsLocalStore((state) => state.uiFont)
   const setUiFont = useSettingsLocalStore((state) => state.setUiFont)
   const codeFont = useSettingsLocalStore((state) => state.codeFont)
@@ -59,34 +63,77 @@ export function AppearanceSettingsPage() {
 
   const { prefersDark } = useSystemAppearancePreferences()
   const resolvedTheme = resolveAppearanceTheme(theme, prefersDark)
+  const activeAccentTone = normalizeAccentTone(accentTone)
 
   const [editingMode, setEditingMode] = useState<'light' | 'dark'>(resolvedTheme)
+  const builtInThemeOptions = colorThemeOptions.filter((option) => option.value !== 'custom')
+  const activeCustomTheme =
+    customThemes.find((theme) => theme.id === activeCustomThemeId) ?? customThemes[0]
+  const activePaletteCustomization = getThemeColorCustomizationPalette(
+    themeColorCustomizations,
+    activeAccentTone,
+  )
 
   const handleSetAccentTone = (val: typeof accentTone) => {
     setAccentTone(val)
-    setUseCustomColors(false)
   }
 
-  const activeColorTheme = colorThemeOptions.find((option) => option.value === accentTone) || colorThemeOptions[0]
-  const useCustomColors = useSettingsLocalStore((state) => state.useCustomColors)
-  
-  const isLight = editingMode === 'light'
-  const effectiveAccentColor = useCustomColors 
-    ? (isLight ? accentColorLight : accentColorDark)
-    : activeColorTheme.swatches[isLight ? 0 : 1]
+  const activeThemeCustomization = activePaletteCustomization[editingMode]
+  const activeThemeDefaults = getAppearanceColorDefaults(activeAccentTone, editingMode)
+  const accentColor = activeThemeCustomization.accent
+  const backgroundColor = activeThemeCustomization.background
+  const foregroundColor = activeThemeCustomization.foreground
+  const activePaletteLabel =
+    activeAccentTone === 'custom' && activeCustomTheme
+      ? `${activeCustomTheme.name} ${editingMode === 'dark' ? i18n._({ id: 'Dark', message: 'Dark' }) : i18n._({ id: 'Light', message: 'Light' })}`
+      : getAppearancePaletteLabel(activeAccentTone, editingMode)
+  const isModeCustomized = !areWorkbenchThemeColorsEqual(activeThemeCustomization, activeThemeDefaults)
+  const isPaletteCustomized =
+    !areWorkbenchThemeColorsEqual(
+      activePaletteCustomization.light,
+      getAppearanceColorDefaults(activeAccentTone, 'light'),
+    ) ||
+    !areWorkbenchThemeColorsEqual(
+      activePaletteCustomization.dark,
+      getAppearanceColorDefaults(activeAccentTone, 'dark'),
+    )
 
-  const accentColor = isLight ? accentColorLight : accentColorDark
-  const setAccentColor = isLight ? setAccentColorLight : setAccentColorDark
-  const backgroundColor = isLight ? backgroundColorLight : backgroundColorDark
-  const setBackgroundColor = isLight ? setBackgroundColorLight : setBackgroundColorDark
-  const foregroundColor = isLight ? foregroundColorLight : foregroundColorDark
-  const setForegroundColor = isLight ? setForegroundColorLight : setForegroundColorDark
+  const setAccentColor = (value: string) =>
+    setThemeColorCustomization(activeAccentTone, editingMode, 'accent', value)
+  const setBackgroundColor = (value: string) =>
+    setThemeColorCustomization(activeAccentTone, editingMode, 'background', value)
+  const setForegroundColor = (value: string) =>
+    setThemeColorCustomization(activeAccentTone, editingMode, 'foreground', value)
 
   const themePreviewCode = `const themePreview: ThemeConfig = {
-  surface: "${isLight ? 'base' : 'pane'}",
-  accent: "${effectiveAccentColor || 'default'}",
-  contrast: ${contrast},
+  palette: "${activeAccentTone === 'custom' && activeCustomTheme ? activeCustomTheme.name : activeAccentTone}",
+  mode: "${editingMode}",
+  accent: "${accentColor}",
+  background: "${backgroundColor}",
+  foreground: "${foregroundColor}",
 };`
+
+  const handleCreateCustomTheme = () => {
+    createCustomTheme(undefined, activeAccentTone)
+  }
+
+  const handleDuplicateCustomTheme = () => {
+    createCustomTheme(undefined, 'custom')
+  }
+
+  const handleResetCurrentMode = () => {
+    resetThemePaletteCustomization(activeAccentTone, editingMode)
+  }
+
+  const handleResetCurrentPalette = () => {
+    resetThemePaletteCustomization(activeAccentTone)
+  }
+
+  const handleDeleteCustomTheme = () => {
+    if (activeCustomTheme) {
+      deleteCustomTheme(activeCustomTheme.id)
+    }
+  }
 
   return (
     <section className="settings-page" role="main">
@@ -138,20 +185,20 @@ export function AppearanceSettingsPage() {
           title={i18n._({ id: 'Color theme', message: 'Color theme' })}
         >
           <div className="theme-swatch-grid" role="radiogroup">
-            {colorThemeOptions.map((option) => (
+            {builtInThemeOptions.map((option) => (
               <button
                 key={option.value}
-                aria-checked={accentTone === option.value}
+                aria-checked={activeAccentTone === option.value}
                 aria-label={getColorThemeLabel(option.value)}
-                className={accentTone === option.value ? 'theme-swatch theme-swatch--active' : 'theme-swatch'}
+                className={activeAccentTone === option.value ? 'theme-swatch theme-swatch--active' : 'theme-swatch'}
                 onClick={() => handleSetAccentTone(option.value)}
                 role="radio"
                 type="button"
               >
                 <span className="theme-swatch__palette" aria-hidden="true">
-                  {option.swatches.map((swatch) => (
+                  {getColorThemeSwatches(option.value, themeColorCustomizations).map((swatch, index) => (
                     <span
-                      key={swatch}
+                      key={`${option.value}-${swatch}-${index}`}
                       className="theme-swatch__dot"
                       style={{ background: swatch }}
                     />
@@ -163,6 +210,60 @@ export function AppearanceSettingsPage() {
                 </span>
               </button>
             ))}
+          </div>
+        </SettingsGroup>
+
+        <SettingsGroup
+          description={i18n._({
+            id: 'Create, rename, and switch between saved custom palettes.',
+            message: 'Create, rename, and switch between saved custom palettes.',
+          })}
+          title={i18n._({ id: 'Custom themes', message: 'Custom themes' })}
+          meta={
+            <Button intent="secondary" size="sm" onClick={handleCreateCustomTheme}>
+              {i18n._({ id: 'New from Current', message: 'New from Current' })}
+            </Button>
+          }
+        >
+          <div className="theme-swatch-grid theme-swatch-grid--custom" role="radiogroup">
+            {customThemes.map((customTheme) => {
+              const isActive = activeAccentTone === 'custom' && activeCustomTheme?.id === customTheme.id
+
+              return (
+                <button
+                  key={customTheme.id}
+                  aria-checked={isActive}
+                  aria-label={customTheme.name}
+                  className={isActive ? 'theme-swatch theme-swatch--active' : 'theme-swatch'}
+                  onClick={() => selectCustomTheme(customTheme.id)}
+                  role="radio"
+                  type="button"
+                >
+                  <span className="theme-swatch__palette" aria-hidden="true">
+                    {getWorkbenchThemeSwatches(customTheme.colors).map((swatch, index) => (
+                      <span
+                        key={`${customTheme.id}-${swatch}-${index}`}
+                        className="theme-swatch__dot"
+                        style={{ background: swatch }}
+                      />
+                    ))}
+                  </span>
+                  <span className="theme-swatch__copy">
+                    <strong>{customTheme.name}</strong>
+                    <span>
+                      {i18n._({
+                        id: 'Light {lightAccent} · Dark {darkAccent}',
+                        message: 'Light {lightAccent} · Dark {darkAccent}',
+                        values: {
+                          lightAccent: customTheme.colors.light.accent,
+                          darkAccent: customTheme.colors.dark.accent,
+                        },
+                      })}
+                    </span>
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </SettingsGroup>
 
@@ -182,63 +283,138 @@ export function AppearanceSettingsPage() {
 
         <SettingsGroup
           description={i18n._({
-            id: 'Customize colors and typography for {mode} workbench.',
-            message: 'Customize colors and typography for {mode} workbench.',
+            id: 'Customize colors and typography for {palette}. Overrides only apply to this theme variant.',
+            message: 'Customize colors and typography for {palette}. Overrides only apply to this theme variant.',
             values: {
-              mode:
-                editingMode === 'light'
-                  ? i18n._({ id: 'light', message: 'light' })
-                  : i18n._({ id: 'dark', message: 'dark' }),
+              palette: activePaletteLabel,
             },
           })}
           title={i18n._({
-            id: '{mode} workbench',
-            message: '{mode} workbench',
+            id: '{palette} workbench',
+            message: '{palette} workbench',
             values: {
-              mode:
-                editingMode === 'light'
-                  ? i18n._({ id: 'Light', message: 'Light' })
-                  : i18n._({ id: 'Dark', message: 'Dark' }),
+              palette: activePaletteLabel,
             },
           })}
           meta={
-            <div className="segmented-control segmented-control--sm">
-              <button 
-                className={editingMode === 'light' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'}
-                onClick={() => setEditingMode('light')}
-                aria-pressed={editingMode === 'light'}
-              >
-                {i18n._({ id: 'Light', message: 'Light' })}
-              </button>
-              <button 
-                className={editingMode === 'dark' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'}
-                onClick={() => setEditingMode('dark')}
-                aria-pressed={editingMode === 'dark'}
-              >
-                {i18n._({ id: 'Dark', message: 'Dark' })}
-              </button>
+            <div className="appearance-theme-tools">
+              <div className="segmented-control segmented-control--sm">
+                <button
+                  type="button"
+                  className={editingMode === 'light' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'}
+                  onClick={() => setEditingMode('light')}
+                  aria-pressed={editingMode === 'light'}
+                >
+                  {i18n._({ id: 'Light', message: 'Light' })}
+                </button>
+                <button
+                  type="button"
+                  className={editingMode === 'dark' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'}
+                  onClick={() => setEditingMode('dark')}
+                  aria-pressed={editingMode === 'dark'}
+                >
+                  {i18n._({ id: 'Dark', message: 'Dark' })}
+                </button>
+              </div>
+              <div className="appearance-theme-actions">
+                {activeAccentTone !== 'custom' ? (
+                  <Button intent="secondary" size="sm" onClick={handleCreateCustomTheme}>
+                    {i18n._({ id: 'New Custom Theme', message: 'New Custom Theme' })}
+                  </Button>
+                ) : (
+                  <Button intent="secondary" size="sm" onClick={handleDuplicateCustomTheme}>
+                    {i18n._({ id: 'Duplicate Theme', message: 'Duplicate Theme' })}
+                  </Button>
+                )}
+                <Button
+                  disabled={!isModeCustomized}
+                  intent="ghost"
+                  size="sm"
+                  onClick={handleResetCurrentMode}
+                >
+                  {i18n._({
+                    id: 'Reset {mode}',
+                    message: 'Reset {mode}',
+                    values: {
+                      mode:
+                        editingMode === 'light'
+                          ? i18n._({ id: 'Light', message: 'Light' })
+                          : i18n._({ id: 'Dark', message: 'Dark' }),
+                    },
+                  })}
+                </Button>
+                <Button
+                  disabled={!isPaletteCustomized}
+                  intent="ghost"
+                  size="sm"
+                  onClick={handleResetCurrentPalette}
+                >
+                  {activeAccentTone === 'custom'
+                    ? i18n._({ id: 'Reset Custom Theme', message: 'Reset Custom Theme' })
+                    : i18n._({ id: 'Restore Built-in Theme', message: 'Restore Built-in Theme' })}
+                </Button>
+                {activeAccentTone === 'custom' ? (
+                  <Button
+                    className="ide-button--ghost-danger"
+                    intent="ghost"
+                    size="sm"
+                    onClick={handleDeleteCustomTheme}
+                  >
+                    {i18n._({ id: 'Delete Theme', message: 'Delete Theme' })}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           }
         >
+          {!isBuiltInColorTheme(accentTone) ? (
+            <SettingRow
+              title={i18n._({ id: 'Theme name', message: 'Theme name' })}
+              description={i18n._({
+                id: 'This custom theme is editable and scoped to its own saved palette.',
+                message: 'This custom theme is editable and scoped to its own saved palette.',
+              })}
+            >
+              <div className="appearance-custom-theme-control">
+                <Input
+                  aria-label={i18n._({ id: 'Custom theme name', message: 'Custom theme name' })}
+                  value={activeCustomTheme?.name ?? ''}
+                  onChange={(event) => {
+                    if (activeCustomTheme) {
+                      renameCustomTheme(activeCustomTheme.id, event.target.value)
+                    }
+                  }}
+                />
+                <div className="appearance-inline-note">
+                  {i18n._({
+                    id: 'Custom theme colors are scoped to this palette and do not override the built-in themes.',
+                    message:
+                      'Custom theme colors are scoped to this palette and do not override the built-in themes.',
+                  })}
+                </div>
+              </div>
+            </SettingRow>
+          ) : null}
+
           <SettingRow title={i18n._({ id: 'Accent', message: 'Accent' })} description={i18n._({
             id: 'Primary color for buttons, links, and highlights.',
             message: 'Primary color for buttons, links, and highlights.',
           })}>
-            <ColorInput ariaLabel={i18n._({ id: 'Accent color', message: 'Accent color' })} value={accentColor} onChange={setAccentColor} />
+            <ColorPicker value={accentColor} onChange={setAccentColor} />
           </SettingRow>
 
           <SettingRow title={i18n._({ id: 'Background', message: 'Background' })} description={i18n._({
             id: 'Base surface color for the main workbench.',
             message: 'Base surface color for the main workbench.',
           })}>
-            <ColorInput ariaLabel={i18n._({ id: 'Background color', message: 'Background color' })} value={backgroundColor} onChange={setBackgroundColor} />
+            <ColorPicker value={backgroundColor} onChange={setBackgroundColor} />
           </SettingRow>
 
           <SettingRow title={i18n._({ id: 'Foreground', message: 'Foreground' })} description={i18n._({
             id: 'Default text color for primary content.',
             message: 'Default text color for primary content.',
           })}>
-            <ColorInput ariaLabel={i18n._({ id: 'Foreground color', message: 'Foreground color' })} value={foregroundColor} onChange={setForegroundColor} />
+            <ColorPicker value={foregroundColor} onChange={setForegroundColor} />
           </SettingRow>
 
           <SettingRow title={i18n._({ id: 'UI font', message: 'UI font' })} description={i18n._({
@@ -279,14 +455,14 @@ export function AppearanceSettingsPage() {
             id: 'Adjust visual separation between surfaces.',
             message: 'Adjust visual separation between surfaces.',
           })}>
-            <Slider 
+            <Slider
               aria-label={i18n._({ id: 'Contrast adjustment', message: 'Contrast adjustment' })}
-              min="0" 
-              max="100" 
-              value={contrast} 
-              onChange={(e) => setContrast(Number(e.target.value))} 
-            />
-          </SettingRow>
+              min="0"
+              max="100"
+              value={contrast}
+              onChange={(e) => setContrast(Number(e.target.value))}
+              unit="%"
+            />          </SettingRow>
         </SettingsGroup>
 
         <SettingsGroup
@@ -339,38 +515,5 @@ export function AppearanceSettingsPage() {
   )
 }
 
-function ThemeIcon({ mode }: { mode: string }) {
-  if (mode === 'light') {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="18.36" x2="5.64" y2="16.94"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-      </svg>
-    )
-  }
-  if (mode === 'dark') {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-      </svg>
-    )
-  }
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-    </svg>
-  )
-}
-
-function ColorInput({ value, onChange, ariaLabel }: { value: string, onChange: (val: string) => void, ariaLabel?: string }) {
-  return (
-    <div className="color-input-wrapper">
-      <div className="color-swatch" style={{ backgroundColor: value }} aria-hidden="true" />
-      <Input 
-        aria-label={ariaLabel}
-        value={value} 
-        onChange={(e) => onChange(e.target.value)} 
-        className="color-field"
-      />
-    </div>
-  )
-}
+// 确保兼容具名导出和默认导出，以修复 React.lazy 加载失败的问题
+export default AppearanceSettingsPage

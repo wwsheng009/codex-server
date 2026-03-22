@@ -14,6 +14,7 @@ export function useThreadPageControllerEffects({
     chromeState: statusState.chromeState,
     currentThreads: dataState.threadsQuery.data ?? [],
     isHeaderSyncBusy: statusState.isHeaderSyncBusy,
+    isDocumentVisible: controllerState.isDocumentVisible,
     isMobileViewport: controllerState.isMobileViewport,
     isMobileWorkbenchOverlayOpen: statusState.isMobileWorkbenchOverlayOpen,
     isThreadProcessing: statusState.isThreadProcessing,

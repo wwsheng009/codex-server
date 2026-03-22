@@ -5,6 +5,8 @@ import { InlineNotice } from '../components/ui/InlineNotice'
 import { listRemoteSkills, listSkills } from '../features/catalog/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { SelectControl } from '../components/ui/SelectControl'
+import { formatLocaleNumber } from '../i18n/format'
+import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 
 type SkillCardItem = {
@@ -59,10 +61,12 @@ export function SkillsPage() {
     () => filterByQuery(remoteSkillsQuery.data ?? [], normalizedQuery),
     [normalizedQuery, remoteSkillsQuery.data],
   )
-  const workspaceName = useMemo(
-    () => workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ?? 'No workspace',
-    [workspaceId, workspacesQuery.data],
-  )
+  const workspaceName =
+    workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ??
+    i18n._({
+      id: 'No workspace',
+      message: 'No workspace',
+    })
   const filteredCount = localSkills.length + remoteSkills.length
   const workspacesError = workspacesQuery.error ? getErrorMessage(workspacesQuery.error) : null
   const localSkillsError = localSkillsQuery.error ? getErrorMessage(localSkillsQuery.error) : null
@@ -72,18 +76,40 @@ export function SkillsPage() {
     <section className="screen">
       <header className="mode-strip">
         <div className="mode-strip__copy">
-          <div className="mode-strip__eyebrow">Skills</div>
+          <div className="mode-strip__eyebrow">{i18n._({ id: 'Skills', message: 'Skills' })}</div>
           <div className="mode-strip__title-row">
-            <strong>Skill Catalog</strong>
+            <strong>{i18n._({ id: 'Skill Catalog', message: 'Skill Catalog' })}</strong>
           </div>
           <div className="mode-strip__description">
-            Browse installed and remote skills for the active workspace from one tighter directory surface.
+            {i18n._({
+              id: 'Browse installed and remote skills for the active workspace from one tighter directory surface.',
+              message:
+                'Browse installed and remote skills for the active workspace from one tighter directory surface.',
+            })}
           </div>
         </div>
         <div className="mode-strip__actions">
-          <span className="meta-pill">{localSkillsQuery.data?.length ?? 0} installed</span>
-          <span className="meta-pill">{remoteSkillsQuery.data?.length ?? 0} remote</span>
-          <span className="meta-pill">{filteredCount} visible</span>
+          <span className="meta-pill">
+            {i18n._({
+              id: '{count} installed',
+              message: '{count} installed',
+              values: { count: formatLocaleNumber(localSkillsQuery.data?.length ?? 0) },
+            })}
+          </span>
+          <span className="meta-pill">
+            {i18n._({
+              id: '{count} remote',
+              message: '{count} remote',
+              values: { count: formatLocaleNumber(remoteSkillsQuery.data?.length ?? 0) },
+            })}
+          </span>
+          <span className="meta-pill">
+            {i18n._({
+              id: '{count} visible',
+              message: '{count} visible',
+              values: { count: formatLocaleNumber(filteredCount) },
+            })}
+          </span>
         </div>
       </header>
 
@@ -92,14 +118,19 @@ export function SkillsPage() {
           <section className="mode-panel">
             <div className="section-header">
               <div>
-                <h2>Workspace Scope</h2>
-                <p>Skill discovery stays bound to the active runtime root.</p>
+                <h2>{i18n._({ id: 'Workspace Scope', message: 'Workspace Scope' })}</h2>
+                <p>
+                  {i18n._({
+                    id: 'Skill discovery stays bound to the active runtime root.',
+                    message: 'Skill discovery stays bound to the active runtime root.',
+                  })}
+                </p>
               </div>
             </div>
             <label className="field">
-              <span>Workspace</span>
+              <span>{i18n._({ id: 'Workspace', message: 'Workspace' })}</span>
               <SelectControl
-                ariaLabel="Workspace"
+                ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
                 fullWidth
                 onChange={setSelectedWorkspaceId}
                 options={(workspacesQuery.data ?? []).map((workspace) => ({
@@ -110,17 +141,27 @@ export function SkillsPage() {
               />
             </label>
             <label className="field">
-              <span>Search</span>
-              <input onChange={(event) => setQuery(event.target.value)} placeholder="Search skills" value={query} />
+              <span>{i18n._({ id: 'Search', message: 'Search' })}</span>
+              <input
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={i18n._({ id: 'Search skills', message: 'Search skills' })}
+                value={query}
+              />
             </label>
             <div className="detail-list">
               <div className="detail-row">
-                <span>Current Scope</span>
+                <span>{i18n._({ id: 'Current Scope', message: 'Current Scope' })}</span>
                 <strong>{workspaceName}</strong>
               </div>
               <div className="detail-row">
-                <span>Query</span>
-                <strong>{normalizedQuery || 'all skills'}</strong>
+                <span>{i18n._({ id: 'Query', message: 'Query' })}</span>
+                <strong>
+                  {normalizedQuery ||
+                    i18n._({
+                      id: 'all skills',
+                      message: 'all skills',
+                    })}
+                </strong>
               </div>
             </div>
           </section>
@@ -128,22 +169,27 @@ export function SkillsPage() {
           <section className="mode-panel">
             <div className="section-header">
               <div>
-                <h2>Directory Posture</h2>
-                <p>Installed and remote entries are kept in the same explorer-style scan path.</p>
+                <h2>{i18n._({ id: 'Directory Posture', message: 'Directory Posture' })}</h2>
+                <p>
+                  {i18n._({
+                    id: 'Installed and remote entries are kept in the same explorer-style scan path.',
+                    message: 'Installed and remote entries are kept in the same explorer-style scan path.',
+                  })}
+                </p>
               </div>
             </div>
             <div className="mode-metrics">
               <div className="mode-metric">
-                <span>Installed</span>
-                <strong>{localSkillsQuery.data?.length ?? 0}</strong>
+                <span>{i18n._({ id: 'Installed', message: 'Installed' })}</span>
+                <strong>{formatLocaleNumber(localSkillsQuery.data?.length ?? 0)}</strong>
               </div>
               <div className="mode-metric">
-                <span>Remote</span>
-                <strong>{remoteSkillsQuery.data?.length ?? 0}</strong>
+                <span>{i18n._({ id: 'Remote', message: 'Remote' })}</span>
+                <strong>{formatLocaleNumber(remoteSkillsQuery.data?.length ?? 0)}</strong>
               </div>
               <div className="mode-metric">
-                <span>Visible</span>
-                <strong>{filteredCount}</strong>
+                <span>{i18n._({ id: 'Visible', message: 'Visible' })}</span>
+                <strong>{formatLocaleNumber(filteredCount)}</strong>
               </div>
             </div>
           </section>
@@ -155,38 +201,64 @@ export function SkillsPage() {
               dismissible
               noticeKey={`skills-workspaces-${workspacesError}`}
               onRetry={() => void workspacesQuery.refetch()}
-              title="Failed To Load Workspaces"
+              title={i18n._({
+                id: 'Failed To Load Workspaces',
+                message: 'Failed To Load Workspaces',
+              })}
               tone="error"
             >
               {workspacesError}
             </InlineNotice>
           ) : null}
           {!workspacesQuery.isLoading && !workspacesError && !workspaceId ? (
-            <div className="empty-state">Create a workspace first to browse installed and remote skills.</div>
+            <div className="empty-state">
+              {i18n._({
+                id: 'Create a workspace first to browse installed and remote skills.',
+                message: 'Create a workspace first to browse installed and remote skills.',
+              })}
+            </div>
           ) : null}
           <DirectorySection
-            description="Installed skills already available in the selected workspace runtime."
-            emptyMessage="No installed skills available."
+            description={i18n._({
+              id: 'Installed skills already available in the selected workspace runtime.',
+              message: 'Installed skills already available in the selected workspace runtime.',
+            })}
+            emptyMessage={i18n._({
+              id: 'No installed skills available.',
+              message: 'No installed skills available.',
+            })}
             errorMessage={localSkillsError}
             items={localSkills}
             loading={localSkillsQuery.isLoading}
             marker="IN"
             onRetry={() => void localSkillsQuery.refetch()}
-            sourceLabel="Installed"
-            titleError="Failed To Load Installed Skills"
-            title="Installed Skills"
+            sourceLabel={i18n._({ id: 'Installed', message: 'Installed' })}
+            titleError={i18n._({
+              id: 'Failed To Load Installed Skills',
+              message: 'Failed To Load Installed Skills',
+            })}
+            title={i18n._({ id: 'Installed Skills', message: 'Installed Skills' })}
           />
           <DirectorySection
-            description="Remote skills that can be inspected or brought into the current workspace later."
-            emptyMessage="No remote skills available."
+            description={i18n._({
+              id: 'Remote skills that can be inspected or brought into the current workspace later.',
+              message: 'Remote skills that can be inspected or brought into the current workspace later.',
+            })}
+            emptyMessage={i18n._({
+              id: 'No remote skills available.',
+              message: 'No remote skills available.',
+            })}
             errorMessage={remoteSkillsError}
             items={remoteSkills}
             loading={remoteSkillsQuery.isLoading}
             marker="RM"
             onRetry={() => void remoteSkillsQuery.refetch()}
-            sourceLabel="Remote"
-            titleError="Failed To Load Remote Skills"
-            title="Remote Skills"
+            sourceLabel={i18n._({ id: 'Remote', message: 'Remote' })}
+            titleError={i18n._({
+              id: 'Failed To Load Remote Skills',
+              message: 'Failed To Load Remote Skills',
+            })}
+            title={i18n._({ id: 'Remote Skills', message: 'Remote Skills' })}
           />
         </div>
       </div>
@@ -224,11 +296,11 @@ function DirectorySection({
           <div>
             <h2>{title}</h2>
           </div>
-          <div className="section-header__meta">{items.length}</div>
+          <div className="section-header__meta">{formatLocaleNumber(items.length)}</div>
         </div>
         <p className="mode-panel__description">{description}</p>
       </div>
-      {loading ? <div className="notice">Loading…</div> : null}
+      {loading ? <div className="notice">{i18n._({ id: 'Loading…', message: 'Loading…' })}</div> : null}
       {errorMessage ? (
         <InlineNotice
           dismissible
@@ -247,7 +319,13 @@ function DirectorySection({
             <div className="directory-item__icon">{marker}</div>
             <div className="directory-item__body">
               <strong>{item.name}</strong>
-              <p>{item.description || 'No description provided.'}</p>
+              <p>
+                {item.description ||
+                  i18n._({
+                    id: 'No description provided.',
+                    message: 'No description provided.',
+                  })}
+              </p>
             </div>
             <div className="directory-item__meta">
               <span className="meta-pill">{sourceLabel}</span>

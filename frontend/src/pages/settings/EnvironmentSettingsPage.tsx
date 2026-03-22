@@ -8,14 +8,15 @@ import {
   SettingsPageHeader,
   SettingsRecord,
 } from '../../components/settings/SettingsPrimitives'
+import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import { InlineNotice } from '../../components/ui/InlineNotice'
-import { SelectControl } from '../../components/ui/SelectControl'
 import { StatusPill } from '../../components/ui/StatusPill'
 import {
   buildShellEnvironmentDiagnosis,
   createCoreWindowsShellEnvironmentPolicy,
   createInheritAllShellEnvironmentPolicy,
 } from '../../features/settings/shell-environment-diagnostics'
+import { runtimeSensitiveConfigItems } from '../../features/settings/runtime-sensitive-config'
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
 import { readConfig, readRuntimePreferences, writeConfigValue } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
@@ -26,7 +27,6 @@ import { getErrorMessage } from '../../lib/error-utils'
 export function EnvironmentSettingsPage() {
   const queryClient = useQueryClient()
   const {
-    setSelectedWorkspaceId,
     workspaceId,
     workspaceName,
     workspaces,
@@ -42,15 +42,6 @@ export function EnvironmentSettingsPage() {
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === workspaceId),
     [workspaceId, workspaces],
-  )
-
-  const workspaceOptions = useMemo(
-    () =>
-      workspaces.map((workspace) => ({
-        label: workspace.name,
-        value: workspace.id,
-      })),
-    [workspaces],
   )
 
   const runtimePreferencesQuery = useQuery({
@@ -276,16 +267,14 @@ export function EnvironmentSettingsPage() {
             title={i18n._({ id: 'Selected Workspace', message: 'Selected Workspace' })}
           >
             <div className="form-stack">
-              <label className="field">
-                <span>{i18n._({ id: 'Workspace', message: 'Workspace' })}</span>
-                <SelectControl
-                  ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
-                  fullWidth
-                  onChange={(value) => setSelectedWorkspaceId(value)}
-                  options={workspaceOptions}
-                  value={workspaceId ?? ''}
-                />
-              </label>
+              <SettingsWorkspaceScopePanel
+                description={i18n._({
+                  id: 'Choose the workspace whose live runtime config and process state you want to inspect.',
+                  message:
+                    'Choose the workspace whose live runtime config and process state you want to inspect.',
+                })}
+                title={i18n._({ id: 'Workspace Runtime Scope', message: 'Workspace Runtime Scope' })}
+              />
               <div className="header-actions">
                 <span className="meta-pill">
                   {selectedWorkspace?.runtimeStatus ?? i18n._({ id: 'Unknown', message: 'Unknown' })}
@@ -338,6 +327,26 @@ export function EnvironmentSettingsPage() {
                       })}
                 </InlineNotice>
               ) : null}
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            description={i18n._({
+              id: 'These config keys are treated as runtime-sensitive by codex-server. Writing any of them marks the current workspace runtime as potentially stale until restart.',
+              message:
+                'These config keys are treated as runtime-sensitive by codex-server. Writing any of them marks the current workspace runtime as potentially stale until restart.',
+            })}
+            title={i18n._({ id: 'Tracked Runtime-Sensitive Keys', message: 'Tracked Runtime-Sensitive Keys' })}
+          >
+            <div className="settings-record-list">
+              {runtimeSensitiveConfigItems.map((item) => (
+                <SettingsRecord
+                  key={item.keyPath}
+                  marker="RT"
+                  title={item.keyPath}
+                  description={item.description}
+                />
+              ))}
             </div>
           </SettingRow>
 

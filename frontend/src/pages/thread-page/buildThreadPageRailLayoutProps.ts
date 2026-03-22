@@ -1,4 +1,5 @@
 import { getErrorMessage } from '../../lib/error-utils'
+import { i18n } from '../../i18n/runtime'
 import type {
   BuildThreadPageLayoutPropsInput,
   ConfirmDialogProps,
@@ -66,9 +67,14 @@ export function buildThreadPageRailLayoutProps(
 
   const confirmDialogProps: ConfirmDialogProps | null = input.confirmingThreadDelete
     ? {
-        confirmLabel: 'Delete Thread',
-        description:
-          'This removes the thread from this workspace list and clears its active UI state.',
+        confirmLabel: i18n._({
+          id: 'Delete Thread',
+          message: 'Delete Thread',
+        }),
+        description: i18n._({
+          id: 'This removes the thread from this workspace list and clears its active UI state.',
+          message: 'This removes the thread from this workspace list and clears its active UI state.',
+        }),
         error: input.confirmDialogError
           ? getErrorMessage(input.confirmDialogError)
           : null,
@@ -76,7 +82,10 @@ export function buildThreadPageRailLayoutProps(
         onClose: input.onCloseDeleteThreadDialog,
         onConfirm: input.onConfirmDeleteThreadDialog,
         subject: input.confirmingThreadDelete.name,
-        title: 'Delete Thread?',
+        title: i18n._({
+          id: 'Delete Thread?',
+          message: 'Delete Thread?',
+        }),
       }
     : null
 

@@ -13,6 +13,7 @@ export type ThreadPageStatusStateInput = {
   commandSessions: Array<{ status: string }>
   displayedTurnsLength: number
   hasUnreadThreadUpdates: boolean
+  isDocumentVisible: boolean
   interruptPending: boolean
   isInspectorExpanded: boolean
   isMobileViewport: boolean

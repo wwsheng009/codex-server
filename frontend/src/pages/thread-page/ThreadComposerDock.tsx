@@ -405,7 +405,7 @@ export function ThreadComposerDock({
                   </div>
                   <div className="composer-assist-card__fact">
                     <span>{i18n._({ id: 'Runtime', message: 'Runtime' })}</span>
-                    <strong>{runtimeStatus || 'unknown'}</strong>
+                    <strong>{runtimeStatus || i18n._({ id: 'Unknown', message: 'Unknown' })}</strong>
                   </div>
                   <div className="composer-assist-card__fact">
                     <span>{i18n._({ id: 'Context', message: 'Context' })}</span>
@@ -822,7 +822,7 @@ export function ThreadComposerDock({
                         title={i18n._({ id: 'Plan mode', message: 'Plan mode' })}
                         type="button"
                       >
-                        Plan
+                        {i18n._({ id: 'Plan', message: 'Plan' })}
                       </button>
                     </div>
                   </div>

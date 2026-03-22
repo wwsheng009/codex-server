@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -9,6 +9,7 @@ import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { Modal } from '../components/ui/Modal'
+import { StatusPill } from '../components/ui/StatusPill'
 import { AutomationRunLog } from '../features/automations/AutomationRunLog'
 import {
   deleteAutomation,
@@ -19,6 +20,8 @@ import {
   resumeAutomation,
   triggerAutomationRun,
 } from '../features/automations/api'
+import { formatLocaleDateTime, formatLocaleNumber } from '../i18n/format'
+import { i18n } from '../i18n/runtime'
 import { isApiClientErrorCode } from '../lib/api-client'
 import { getErrorMessage } from '../lib/error-utils'
 import type { AutomationRun } from '../types/api'
@@ -136,7 +139,10 @@ export function AutomationDetailPage() {
         <InlineNotice
           dismissible
           noticeKey={`automation-detail-action-${automation.id}-${getErrorMessage(actionError)}`}
-          title="Automation Update Failed"
+          title={i18n._({
+            id: 'Automation Update Failed',
+            message: 'Automation Update Failed',
+          })}
           tone="error"
         >
           {getErrorMessage(actionError)}
@@ -150,39 +156,63 @@ export function AutomationDetailPage() {
               isLoading={triggerMutation.isPending}
               onClick={() => triggerMutation.mutate(automation.id)}
             >
-              Run Now
+              {i18n._({ id: 'Run Now', message: 'Run Now' })}
             </Button>
             <Button
               intent="secondary"
               isLoading={statusMutation.isPending}
               onClick={() => statusMutation.mutate({ automationId: automation.id, status: automation.status })}
             >
-              {automation.status === 'active' ? 'Pause' : 'Resume'}
+              {automation.status === 'active'
+                ? i18n._({ id: 'Pause', message: 'Pause' })
+                : i18n._({ id: 'Resume', message: 'Resume' })}
             </Button>
             <Button onClick={() => navigate(`/workspaces/${automation.workspaceId}`)}>
-              Open Workspace
+              {i18n._({ id: 'Open Workspace', message: 'Open Workspace' })}
             </Button>
             <Button
               intent="secondary"
               className="ide-button--ghost-danger"
               onClick={handleOpenDeleteConfirm}
             >
-              Delete
+              {i18n._({ id: 'Delete', message: 'Delete' })}
             </Button>
           </div>
         }
         description={automation.description}
-        eyebrow="Automation Detail"
+        eyebrow={i18n._({ id: 'Automation Detail', message: 'Automation Detail' })}
         meta={
           <div className="automation-meta-group">
-            <span className={`status-pill status-pill--${automation.status === 'active' ? 'connected' : 'paused'}`}>
-              {automation.status}
+            <StatusPill status={automation.status} />
+            <span className="meta-pill">
+              {i18n._({
+                id: 'Schedule: {schedule}',
+                message: 'Schedule: {schedule}',
+                values: { schedule: formatAutomationScheduleLabel(automation.schedule) },
+              })}
             </span>
-            <span className="meta-pill">Schedule: {automation.scheduleLabel}</span>
-            <span className="meta-pill">Model: {automation.model}</span>
-            <span className="meta-pill">Workspace: {automation.workspaceName}</span>
+            <span className="meta-pill">
+              {i18n._({
+                id: 'Model: {model}',
+                message: 'Model: {model}',
+                values: { model: automation.model },
+              })}
+            </span>
+            <span className="meta-pill">
+              {i18n._({
+                id: 'Workspace: {workspace}',
+                message: 'Workspace: {workspace}',
+                values: { workspace: automation.workspaceName },
+              })}
+            </span>
             {automation.lastRun && (
-              <span className="meta-pill">Last Run: {formatTimestamp(automation.lastRun)}</span>
+              <span className="meta-pill">
+                {i18n._({
+                  id: 'Last Run: {time}',
+                  message: 'Last Run: {time}',
+                  values: { time: formatTimestamp(automation.lastRun) },
+                })}
+              </span>
             )}
           </div>
         }
@@ -193,18 +223,36 @@ export function AutomationDetailPage() {
         <section className="detail-layout__main settings-section">
           <div className="section-header">
             <div>
-              <h2>Recent Runs</h2>
-              <p>Execution history, summarized results, and detailed logs.</p>
+              <h2>{i18n._({ id: 'Recent Runs', message: 'Recent Runs' })}</h2>
+              <p>
+                {i18n._({
+                  id: 'Execution history, summarized results, and detailed logs.',
+                  message: 'Execution history, summarized results, and detailed logs.',
+                })}
+              </p>
             </div>
-            <div className="section-header__meta">{runsQuery.data?.length ?? 0} total</div>
+            <div className="section-header__meta">
+              {i18n._({
+                id: '{count} total',
+                message: '{count} total',
+                values: { count: formatLocaleNumber(runsQuery.data?.length ?? 0) },
+              })}
+            </div>
           </div>
 
-          {runsQuery.isLoading ? <div className="notice">Loading run history…</div> : null}
+          {runsQuery.isLoading ? (
+            <div className="notice">
+              {i18n._({ id: 'Loading run history…', message: 'Loading run history…' })}
+            </div>
+          ) : null}
           {runsQuery.error && (
             <InlineNotice
               dismissible
               noticeKey={`automation-runs-${automation.id}-${getErrorMessage(runsQuery.error)}`}
-              title="Run History Loading Failed"
+              title={i18n._({
+                id: 'Run History Loading Failed',
+                message: 'Run History Loading Failed',
+              })}
               tone="error"
             >
               {getErrorMessage(runsQuery.error)}
@@ -217,38 +265,46 @@ export function AutomationDetailPage() {
                 <div className="automation-run-row" key={run.id}>
                   <div className="automation-run-row__main">
                     <div className="run-identity">
-                      <span className={`status-pill status-pill--${runStatusTone(run.status)}`}>
-                        {run.status}
-                      </span>
+                      <StatusPill status={run.status} />
                       <strong>{formatRunLabel(run)}</strong>
                       <span className="run-meta">{formatTimestamp(run.startedAt)}</span>
-                      <span className="run-trigger">{run.trigger}</span>
+                      <span className="run-trigger">{formatRunTriggerLabel(run.trigger)}</span>
                     </div>
                     {run.summary && <p className="run-brief-summary">{run.summary.slice(0, 100)}...</p>}
                     {run.error && <p className="run-error-text">{run.error}</p>}
                   </div>
                   <div className="automation-run-row__actions">
                     <Button intent="ghost" onClick={() => openRunView(run.id, 'summary')}>
-                      Summary
+                      {formatRunViewModeLabel('summary')}
                     </Button>
                     <Button intent="ghost" onClick={() => openRunView(run.id, 'logs')}>
-                      Logs
+                      {formatRunViewModeLabel('logs')}
                     </Button>
                     <Button intent="ghost" onClick={() => openRunView(run.id, 'details')}>
-                      Details
+                      {formatRunViewModeLabel('details')}
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="notice">No runs yet. Trigger the automation or wait for the scheduler.</div>
+            <div className="notice">
+              {i18n._({
+                id: 'No runs yet. Trigger the automation or wait for the scheduler.',
+                message: 'No runs yet. Trigger the automation or wait for the scheduler.',
+              })}
+            </div>
           )}
 
           <div className="section-header" style={{ marginTop: '2rem' }}>
             <div>
-              <h2>Prompt Configuration</h2>
-              <p>The instructions being executed by the model.</p>
+              <h2>{i18n._({ id: 'Prompt Configuration', message: 'Prompt Configuration' })}</h2>
+              <p>
+                {i18n._({
+                  id: 'The instructions being executed by the model.',
+                  message: 'The instructions being executed by the model.',
+                })}
+              </p>
             </div>
           </div>
           <div className="detail-copy">
@@ -268,35 +324,50 @@ export function AutomationDetailPage() {
                   intent={viewMode === 'summary' ? 'secondary' : 'ghost'} 
                   onClick={() => setViewMode('summary')}
                 >
-                  Summary
+                  {formatRunViewModeLabel('summary')}
                 </Button>
                 <Button 
                   intent={viewMode === 'logs' ? 'secondary' : 'ghost'} 
                   onClick={() => setViewMode('logs')}
                 >
-                  Logs
+                  {formatRunViewModeLabel('logs')}
                 </Button>
                 <Button 
                   intent={viewMode === 'details' ? 'secondary' : 'ghost'} 
                   onClick={() => setViewMode('details')}
                 >
-                  Details
+                  {formatRunViewModeLabel('details')}
                 </Button>
               </div>
               <Button intent="secondary" onClick={() => setSelectedRunId(null)}>
-                Close
+                {i18n._({ id: 'Close', message: 'Close' })}
               </Button>
             </div>
           }
           onClose={() => setSelectedRunId(null)}
-          title={`${selectedRunQuery.data ? formatRunLabel(selectedRunQuery.data) : 'Run'} - ${viewMode.charAt(0).toUpperCase() + viewMode.slice(1)}`}
+          title={i18n._({
+            id: '{run} - {mode}',
+            message: '{run} - {mode}',
+            values: {
+              run:
+                selectedRunQuery.data
+                  ? formatRunLabel(selectedRunQuery.data)
+                  : i18n._({ id: 'Run', message: 'Run' }),
+              mode: formatRunViewModeLabel(viewMode),
+            },
+          })}
         >
-          {selectedRunQuery.isLoading ? <div className="notice">Loading…</div> : null}
+          {selectedRunQuery.isLoading ? (
+            <div className="notice">{i18n._({ id: 'Loading…', message: 'Loading…' })}</div>
+          ) : null}
           {selectedRunQuery.error && (
             <InlineNotice
               dismissible
               noticeKey={`run-error-${selectedRunId}`}
-              title="Failed to Load Run Data"
+              title={i18n._({
+                id: 'Failed to Load Run Data',
+                message: 'Failed to Load Run Data',
+              })}
               tone="error"
             >
               {getErrorMessage(selectedRunQuery.error)}
@@ -312,11 +383,16 @@ export function AutomationDetailPage() {
                       {selectedRunQuery.data.summary}
                     </ReactMarkdown>
                   ) : (
-                    <div className="notice">No summary available for this run.</div>
+                    <div className="notice">
+                      {i18n._({
+                        id: 'No summary available for this run.',
+                        message: 'No summary available for this run.',
+                      })}
+                    </div>
                   )}
                   {selectedRunQuery.data.error && (
                     <div className="run-error-block">
-                      <strong>Execution Error:</strong>
+                      <strong>{i18n._({ id: 'Execution Error:', message: 'Execution Error:' })}</strong>
                       <p>{selectedRunQuery.data.error}</p>
                     </div>
                   )}
@@ -329,12 +405,33 @@ export function AutomationDetailPage() {
 
               {viewMode === 'details' && (
                 <div className="detail-list">
-                  <DetailRow label="ID" value={selectedRunQuery.data.id} />
-                  <DetailRow label="Status" value={selectedRunQuery.data.status} />
-                  <DetailRow label="Trigger" value={selectedRunQuery.data.trigger} />
-                  <DetailRow label="Started At" value={formatTimestamp(selectedRunQuery.data.startedAt)} />
-                  <DetailRow label="Finished At" value={selectedRunQuery.data.finishedAt ? formatTimestamp(selectedRunQuery.data.finishedAt) : 'In progress'} />
-                  {selectedRunQuery.data.turnId && <DetailRow label="Turn ID" value={selectedRunQuery.data.turnId} />}
+                  <DetailRow label={i18n._({ id: 'ID', message: 'ID' })} value={selectedRunQuery.data.id} />
+                  <DetailRow
+                    label={i18n._({ id: 'Status', message: 'Status' })}
+                    value={<StatusPill status={selectedRunQuery.data.status} />}
+                  />
+                  <DetailRow
+                    label={i18n._({ id: 'Trigger', message: 'Trigger' })}
+                    value={formatRunTriggerLabel(selectedRunQuery.data.trigger)}
+                  />
+                  <DetailRow
+                    label={i18n._({ id: 'Started At', message: 'Started At' })}
+                    value={formatTimestamp(selectedRunQuery.data.startedAt)}
+                  />
+                  <DetailRow
+                    label={i18n._({ id: 'Finished At', message: 'Finished At' })}
+                    value={
+                      selectedRunQuery.data.finishedAt
+                        ? formatTimestamp(selectedRunQuery.data.finishedAt)
+                        : i18n._({ id: 'In progress', message: 'In progress' })
+                    }
+                  />
+                  {selectedRunQuery.data.turnId ? (
+                    <DetailRow
+                      label={i18n._({ id: 'Turn ID', message: 'Turn ID' })}
+                      value={selectedRunQuery.data.turnId}
+                    />
+                  ) : null}
                 </div>
               )}
             </div>
@@ -344,14 +441,24 @@ export function AutomationDetailPage() {
 
       {confirmingDelete ? (
         <ConfirmDialog
-          confirmLabel="Delete Automation"
-          description="This permanently removes the automation and its recorded runs. You will be returned to the automation registry."
+          confirmLabel={i18n._({
+            id: 'Delete Automation',
+            message: 'Delete Automation',
+          })}
+          description={i18n._({
+            id: 'This permanently removes the automation and its recorded runs. You will be returned to the automation registry.',
+            message:
+              'This permanently removes the automation and its recorded runs. You will be returned to the automation registry.',
+          })}
           error={deleteMutation.error ? getErrorMessage(deleteMutation.error) : null}
           isPending={deleteMutation.isPending}
           onClose={handleCloseDeleteConfirm}
           onConfirm={() => handleConfirmDelete(automation.id)}
           subject={automation.title}
-          title="Delete Automation?"
+          title={i18n._({
+            id: 'Delete Automation?',
+            message: 'Delete Automation?',
+          })}
         />
       ) : null}
     </section>
@@ -362,26 +469,37 @@ function LoadingState() {
   return (
     <section className="screen screen--centered">
       <section className="empty-card">
-        <p className="page-header__eyebrow">Automation</p>
-        <h1>Loading Automation</h1>
-        <p className="page-header__description">Fetching the latest automation data from the server.</p>
+        <p className="page-header__eyebrow">{i18n._({ id: 'Automation', message: 'Automation' })}</p>
+        <h1>{i18n._({ id: 'Loading Automation', message: 'Loading Automation' })}</h1>
+        <p className="page-header__description">
+          {i18n._({
+            id: 'Fetching the latest automation data from the server.',
+            message: 'Fetching the latest automation data from the server.',
+          })}
+        </p>
       </section>
     </section>
   )
 }
 
-function ErrorState({ error }: { error: any }) {
+function ErrorState({ error }: { error: unknown }) {
   return (
     <section className="screen screen--centered">
       <section className="empty-card">
-        <p className="page-header__eyebrow">Automation</p>
-        <h1>Automation Unavailable</h1>
-        <InlineNotice title="Automation Loading Failed" tone="error">
+        <p className="page-header__eyebrow">{i18n._({ id: 'Automation', message: 'Automation' })}</p>
+        <h1>{i18n._({ id: 'Automation Unavailable', message: 'Automation Unavailable' })}</h1>
+        <InlineNotice
+          title={i18n._({
+            id: 'Automation Loading Failed',
+            message: 'Automation Loading Failed',
+          })}
+          tone="error"
+        >
           {getErrorMessage(error)}
         </InlineNotice>
         <div className="header-actions">
           <Link className="ide-button" to="/automations">
-            Back to Automations
+            {i18n._({ id: 'Back to Automations', message: 'Back to Automations' })}
           </Link>
         </div>
       </section>
@@ -393,12 +511,17 @@ function AutomationNotFound() {
   return (
     <section className="screen screen--centered">
       <section className="empty-card">
-        <p className="page-header__eyebrow">Automation</p>
-        <h1>Automation Not Found</h1>
-        <p className="page-header__description">The requested automation could not be found.</p>
+        <p className="page-header__eyebrow">{i18n._({ id: 'Automation', message: 'Automation' })}</p>
+        <h1>{i18n._({ id: 'Automation Not Found', message: 'Automation Not Found' })}</h1>
+        <p className="page-header__description">
+          {i18n._({
+            id: 'The requested automation could not be found.',
+            message: 'The requested automation could not be found.',
+          })}
+        </p>
         <div className="header-actions">
           <Link className="ide-button" to="/automations">
-            Back to Automations
+            {i18n._({ id: 'Back to Automations', message: 'Back to Automations' })}
           </Link>
         </div>
       </section>
@@ -406,7 +529,7 @@ function AutomationNotFound() {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="detail-row">
       <span>{label}</span>
@@ -416,26 +539,136 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 function formatRunLabel(run: AutomationRun) {
-  return `Run ${run.id.slice(0, 8)}`
+  return i18n._({
+    id: 'Run {id}',
+    message: 'Run {id}',
+    values: { id: run.id.slice(0, 8) },
+  })
 }
 
 function formatTimestamp(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
+  return formatLocaleDateTime(value)
 }
 
-function runStatusTone(status: string) {
-  switch (status) {
-    case 'completed': return 'connected'
-    case 'failed': return 'error'
-    default: return 'paused'
+function formatRunViewModeLabel(mode: RunViewMode) {
+  switch (mode) {
+    case 'summary':
+      return i18n._({ id: 'Summary', message: 'Summary' })
+    case 'logs':
+      return i18n._({ id: 'Logs', message: 'Logs' })
+    default:
+      return i18n._({ id: 'Details', message: 'Details' })
   }
 }
 
 function formatRunDescription(run: AutomationRun | undefined, mode: RunViewMode) {
   if (!run) return ''
-  if (mode === 'summary') return 'AI-generated summary of the execution outcome.'
-  if (mode === 'logs') return 'Real-time captured logs from the model execution.'
-  return 'Detailed technical metadata for this specific run.'
+  if (mode === 'summary') {
+    return i18n._({
+      id: 'AI-generated summary of the execution outcome.',
+      message: 'AI-generated summary of the execution outcome.',
+    })
+  }
+  if (mode === 'logs') {
+    return i18n._({
+      id: 'Real-time captured logs from the model execution.',
+      message: 'Real-time captured logs from the model execution.',
+    })
+  }
+  return i18n._({
+    id: 'Detailed technical metadata for this specific run.',
+    message: 'Detailed technical metadata for this specific run.',
+  })
+}
+
+function formatRunTriggerLabel(trigger: string) {
+  const normalized = trigger.trim().toLowerCase()
+  switch (normalized) {
+    case 'manual':
+      return i18n._({ id: 'Manual', message: 'Manual' })
+    case 'schedule':
+      return i18n._({ id: 'Scheduled', message: 'Scheduled' })
+    default:
+      return trigger
+  }
+}
+
+function formatAutomationScheduleLabel(schedule: string) {
+  const normalized = schedule.trim()
+
+  if (!normalized) {
+    return i18n._({ id: 'Scheduled', message: 'Scheduled' })
+  }
+
+  if (normalized === '0 * * * *') {
+    return i18n._({ id: 'Every hour', message: 'Every hour' })
+  }
+
+  const fields = normalized.split(/\s+/)
+  if (fields.length === 5) {
+    const [minute, hour, dayOfMonth, month, dayOfWeek] = fields
+
+    if (hour !== '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
+      return i18n._({
+        id: 'Daily at {time}',
+        message: 'Daily at {time}',
+        values: { time: formatScheduleTime(hour, minute) },
+      })
+    }
+
+    if (hour !== '*' && dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
+      return i18n._({
+        id: 'Weekly on {day} at {time}',
+        message: 'Weekly on {day} at {time}',
+        values: {
+          day: formatScheduleWeekday(dayOfWeek),
+          time: formatScheduleTime(hour, minute),
+        },
+      })
+    }
+
+    if (hour !== '*' && dayOfMonth !== '*' && month === '*' && dayOfWeek === '*') {
+      return i18n._({
+        id: 'Monthly on day {day} at {time}',
+        message: 'Monthly on day {day} at {time}',
+        values: {
+          day: dayOfMonth,
+          time: formatScheduleTime(hour, minute),
+        },
+      })
+    }
+  }
+
+  return i18n._({
+    id: 'Cron: {schedule}',
+    message: 'Cron: {schedule}',
+    values: { schedule: normalized },
+  })
+}
+
+function formatScheduleTime(hour: string, minute: string) {
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
+}
+
+function formatScheduleWeekday(day: string) {
+  switch (day) {
+    case '0':
+      return i18n._({ id: 'Sunday', message: 'Sunday' })
+    case '1':
+      return i18n._({ id: 'Monday', message: 'Monday' })
+    case '2':
+      return i18n._({ id: 'Tuesday', message: 'Tuesday' })
+    case '3':
+      return i18n._({ id: 'Wednesday', message: 'Wednesday' })
+    case '4':
+      return i18n._({ id: 'Thursday', message: 'Thursday' })
+    case '5':
+      return i18n._({ id: 'Friday', message: 'Friday' })
+    case '6':
+      return i18n._({ id: 'Saturday', message: 'Saturday' })
+    default:
+      return day
+  }
 }

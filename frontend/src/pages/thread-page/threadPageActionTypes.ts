@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { Dispatch, SetStateAction } from 'react'
 
-import type { TurnResult } from '../../types/api'
+import type { ThreadDetail, ThreadTurn, TurnResult } from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type {
   ComposerAssistPanel,
@@ -39,7 +39,9 @@ export type ThreadPageActionsInput = {
   }
   invalidateThreadQueries: () => Promise<unknown>
   isInterruptMode: boolean
+  isLoadingOlderTurns: boolean
   message: string
+  oldestDisplayedTurnId?: string
   queryClient: QueryClient
   removeCommandSession: (workspaceId: string, processId: string) => void
   renameThreadMutation: {
@@ -63,11 +65,16 @@ export type ThreadPageActionsInput = {
   setComposerCaret: (value: number) => void
   setComposerCommandMenu: Dispatch<SetStateAction<ComposerCommandMenu>>
   setDismissedComposerAutocompleteKey: (value: string | null) => void
+  setHasMoreHistoricalTurnsBefore: Dispatch<SetStateAction<boolean | null>>
+  setHistoricalTurns: Dispatch<SetStateAction<ThreadTurn[]>>
   setIsTerminalDockExpanded: (value: boolean) => void
+  setIsLoadingOlderTurns: Dispatch<SetStateAction<boolean>>
   setMessage: (value: string) => void
   setCommandRunMode: Dispatch<SetStateAction<CommandRunMode>>
   setSelectedProcessId: (value: string | undefined) => void
   setSendError: (value: string | null) => void
+  setThreadTurnWindowSize: Dispatch<SetStateAction<number>>
+  threadDetail?: ThreadDetail
   startCommandMutation: {
     mutate: (input: { command: string }) => void
   }
@@ -115,7 +122,9 @@ export type ThreadPageThreadActionsInput = Pick<
   | 'interruptTurnMutation'
   | 'invalidateThreadQueries'
   | 'isInterruptMode'
+  | 'isLoadingOlderTurns'
   | 'message'
+  | 'oldestDisplayedTurnId'
   | 'queryClient'
   | 'renameThreadMutation'
   | 'requestDeleteSelectedThread'
@@ -128,9 +137,14 @@ export type ThreadPageThreadActionsInput = Pick<
   | 'setComposerCaret'
   | 'setComposerCommandMenu'
   | 'setDismissedComposerAutocompleteKey'
+  | 'setHasMoreHistoricalTurnsBefore'
+  | 'setHistoricalTurns'
+  | 'setIsLoadingOlderTurns'
   | 'setMessage'
   | 'setSendError'
+  | 'setThreadTurnWindowSize'
   | 'startTurnMutation'
+  | 'threadDetail'
   | 'unarchiveThreadMutation'
   | 'updatePendingTurn'
   | 'workspaceId'

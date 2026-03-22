@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import {
   SettingsJsonPreview,
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
+import { SettingsJsonDiffPreview } from '../../components/settings/SettingsJsonDiffPreview'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import {
+  batchWriteConfig,
   detectExternalAgentConfig,
   importExternalAgentConfig,
   importRuntimeModelCatalogTemplate,
@@ -18,17 +21,32 @@ import {
   writeConfigValue,
   writeRuntimePreferences,
 } from '../../features/settings/api'
+import {
+  getAdvancedConfigScenarios,
+  getBestMatchingConfigScenario,
+  getConfigScenarioMatch,
+  getConfigScenarioDiff,
+} from '../../features/settings/config-scenarios'
+import {
+  getSuggestedConfigTemplate,
+  getRuntimeSensitiveConfigItem,
+  isRuntimeSensitiveConfigKey,
+  runtimeSensitiveConfigItems,
+} from '../../features/settings/runtime-sensitive-config'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { Input } from '../../components/ui/Input'
 import { TextArea } from '../../components/ui/TextArea'
 import { i18n } from '../../i18n/runtime'
+import { formatLocaleDateTime } from '../../i18n/format'
 import { getErrorMessage } from '../../lib/error-utils'
 import { SelectControl } from '../../components/ui/SelectControl'
 import { activateStoredTab, Tabs } from '../../components/ui/Tabs'
 import { useUIStore } from '../../stores/ui-store'
 import { ContextIcon, FeedIcon, RefreshIcon, SettingsIcon, SparkIcon, TerminalIcon } from '../../components/ui/RailControls'
+import { getWorkspaceRuntimeState, restartWorkspace } from '../../features/workspaces/api'
 
 export function ConfigSettingsPage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { workspaceId, workspaceName } = useSettingsShellContext()
   const pushToast = useUIStore((state) => state.pushToast)
@@ -56,6 +74,25 @@ export function ConfigSettingsPage() {
     queryKey: ['settings-runtime-preferences'],
     queryFn: readRuntimePreferences,
   })
+  const workspaceRuntimeStateQuery = useQuery({
+    queryKey: ['environment-runtime-state', workspaceId],
+    enabled: Boolean(workspaceId),
+    queryFn: () => getWorkspaceRuntimeState(workspaceId!),
+  })
+  const directWriteRuntimeSensitiveItem = getRuntimeSensitiveConfigItem(configKeyPath)
+  const suggestedConfigTemplate = getSuggestedConfigTemplate(configKeyPath)
+  const advancedConfigScenarios = getAdvancedConfigScenarios()
+  const advancedScenarioMatches = useMemo(
+    () =>
+      advancedConfigScenarios.map((scenario) =>
+        getConfigScenarioMatch(configQuery.data?.config, scenario),
+      ),
+    [advancedConfigScenarios, configQuery.data?.config],
+  )
+  const bestMatchingAdvancedScenario = useMemo(
+    () => getBestMatchingConfigScenario(configQuery.data?.config, advancedConfigScenarios),
+    [advancedConfigScenarios, configQuery.data?.config],
+  )
 
   function buildRuntimePreferencesPayload(input?: {
     modelCatalogPath?: string
@@ -80,6 +117,30 @@ export function ConfigSettingsPage() {
     }
   }
 
+  const restartRuntimeMutation = useMutation({
+    mutationFn: () => restartWorkspace(workspaceId!),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['settings-shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['environment-runtime-state', workspaceId] }),
+      ])
+      pushToast({
+        title: i18n._({
+          id: 'Runtime restarted',
+          message: 'Runtime restarted',
+        }),
+        message: i18n._({
+          id: 'The selected workspace runtime has been restarted and will reload tracked config from app-server startup.',
+          message:
+            'The selected workspace runtime has been restarted and will reload tracked config from app-server startup.',
+        }),
+        tone: 'success',
+      })
+    },
+  })
+
   const writeConfigMutation = useMutation({
     mutationFn: () =>
       writeConfigValue(workspaceId!, {
@@ -87,8 +148,57 @@ export function ConfigSettingsPage() {
         mergeStrategy: 'upsert',
         value: parseJsonInput(configValue),
       }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] })
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['settings-shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['environment-runtime-state', workspaceId] }),
+      ])
+      const runtimeSensitiveItem =
+        result.matchedRuntimeSensitiveKey
+          ? getRuntimeSensitiveConfigItem(result.matchedRuntimeSensitiveKey)
+          : null
+      pushToast({
+        title: result.runtimeReloadRequired
+          ? i18n._({
+              id: 'Config saved, restart recommended',
+              message: 'Config saved, restart recommended',
+            })
+          : i18n._({
+              id: 'Config key saved',
+              message: 'Config key saved',
+            }),
+        message: result.runtimeReloadRequired
+          ? i18n._({
+              id: 'Key path {keyPath} matched runtime-sensitive prefix {matchedKey}. The backend marked this write as requiring runtime reload before the live app-server process is guaranteed to reflect the new value.',
+              message:
+                'Key path {keyPath} matched runtime-sensitive prefix {matchedKey}. The backend marked this write as requiring runtime reload before the live app-server process is guaranteed to reflect the new value.',
+              values: {
+                keyPath: configKeyPath,
+                matchedKey:
+                  result.matchedRuntimeSensitiveKey ??
+                  runtimeSensitiveItem?.keyPath ??
+                  i18n._({ id: 'unknown', message: 'unknown' }),
+              },
+            })
+          : i18n._({
+              id: 'The config value was written successfully.',
+              message: 'The config value was written successfully.',
+            }),
+        tone: result.runtimeReloadRequired ? 'info' : 'success',
+        actionLabel: result.runtimeReloadRequired
+          ? i18n._({ id: 'Restart Runtime', message: 'Restart Runtime' })
+          : undefined,
+        onAction: result.runtimeReloadRequired
+          ? () => {
+              if (!workspaceId || restartRuntimeMutation.isPending) {
+                return
+              }
+              restartRuntimeMutation.mutate()
+            }
+          : undefined,
+      })
     },
   })
   const writeShellEnvironmentPolicyMutation = useMutation({
@@ -98,9 +208,12 @@ export function ConfigSettingsPage() {
         mergeStrategy: 'upsert',
         value: parseShellEnvironmentPolicyInput(shellEnvironmentPolicyInput),
       }),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['settings-shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['environment-runtime-state', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['settings-requirements', workspaceId] }),
       ])
       pushToast({
@@ -112,6 +225,59 @@ export function ConfigSettingsPage() {
           id: 'User config now contains an explicit shell_environment_policy override.',
           message: 'User config now contains an explicit shell_environment_policy override.',
         }),
+        tone: 'success',
+        actionLabel: result.runtimeReloadRequired
+          ? i18n._({ id: 'Restart Runtime', message: 'Restart Runtime' })
+          : undefined,
+        onAction: result.runtimeReloadRequired
+          ? () => {
+              if (!workspaceId || restartRuntimeMutation.isPending) {
+                return
+              }
+              restartRuntimeMutation.mutate()
+            }
+          : undefined,
+      })
+    },
+  })
+  const applyConfigScenarioMutation = useMutation({
+    mutationFn: async (scenarioId: string) => {
+      const scenario = advancedConfigScenarios.find((item) => item.id === scenarioId)
+      if (!scenario || !workspaceId) {
+        throw new Error('Scenario or workspace is unavailable.')
+      }
+
+      await batchWriteConfig(workspaceId, {
+        edits: scenario.edits.map((edit) => ({
+          keyPath: edit.keyPath,
+          mergeStrategy: 'upsert',
+          value: edit.value,
+        })),
+        reloadUserConfig: true,
+      })
+
+      return restartWorkspace(workspaceId)
+    },
+    onSuccess: async (_, scenarioId) => {
+      const scenario = advancedConfigScenarios.find((item) => item.id === scenarioId)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['settings-requirements', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['settings-shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['environment-runtime-state', workspaceId] }),
+      ])
+      pushToast({
+        title: i18n._({
+          id: 'Scenario applied and runtime restarted',
+          message: 'Scenario applied and runtime restarted',
+        }),
+        message:
+          scenario?.title ??
+          i18n._({
+            id: 'The selected config scenario was applied and the workspace runtime restarted.',
+            message: 'The selected config scenario was applied and the workspace runtime restarted.',
+          }),
         tone: 'success',
       })
     },
@@ -304,6 +470,7 @@ export function ConfigSettingsPage() {
   const configLayerCount = Array.isArray(configQuery.data?.layers) ? configQuery.data.layers.length : 0
   const shellTypeOptions = getShellTypeOptions()
   const approvalPolicyOptions = getApprovalPolicyOptions()
+  const directWriteRequiresRestart = isRuntimeSensitiveConfigKey(configKeyPath)
   const runtimeSummary = {
     catalogBound: Boolean(runtimePreferencesQuery.data?.effectiveModelCatalogPath),
     defaultShellType:
@@ -321,6 +488,10 @@ export function ConfigSettingsPage() {
     commandSandboxPolicy: formatSandboxPolicyLabel(
       runtimePreferencesQuery.data?.effectiveDefaultCommandSandboxPolicy,
     ),
+    configLoadStatus:
+      workspaceRuntimeStateQuery.data?.configLoadStatus ??
+      i18n._({ id: 'not-tracked', message: 'not-tracked' }),
+    restartRequired: workspaceRuntimeStateQuery.data?.restartRequired ?? false,
   }
 
   function applyExecutionPreset(preset: 'danger-full-access' | 'external-sandbox' | 'inherit') {
@@ -418,11 +589,107 @@ export function ConfigSettingsPage() {
               <div className="status-pill">
                 {i18n._({ id: 'Approval', message: 'Approval' })}: {runtimeSummary.turnApprovalPolicy}
               </div>
+              <div
+                className={
+                  runtimeSummary.restartRequired
+                    ? 'status-pill status-pill--paused'
+                    : 'status-pill status-pill--active'
+                }
+              >
+                {i18n._({ id: 'Config', message: 'Config' })}: {runtimeSummary.configLoadStatus}
+              </div>
             </div>
           </div>
 
           <div className="config-workbench__body">
             <div className="config-workbench__main-panel">
+              <div className="config-card">
+                <div className="config-card__header">
+                  <strong>{i18n._({ id: 'Runtime Actions', message: 'Runtime Actions' })}</strong>
+                  <div className="setting-row__actions">
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={!workspaceId || restartRuntimeMutation.isPending}
+                      onClick={() => restartRuntimeMutation.mutate()}
+                      type="button"
+                    >
+                      {restartRuntimeMutation.isPending
+                        ? i18n._({ id: 'Restarting…', message: 'Restarting…' })
+                        : i18n._({ id: 'Restart Runtime', message: 'Restart Runtime' })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      onClick={() => navigate('/settings/environment')}
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Open Runtime Inspection',
+                        message: 'Open Runtime Inspection',
+                      })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={
+                        !workspaceId ||
+                        applyConfigScenarioMutation.isPending ||
+                        !bestMatchingAdvancedScenario
+                      }
+                      onClick={() =>
+                        bestMatchingAdvancedScenario &&
+                        applyConfigScenarioMutation.mutate(bestMatchingAdvancedScenario.scenario.id)
+                      }
+                      type="button"
+                    >
+                      {applyConfigScenarioMutation.isPending
+                        ? i18n._({ id: 'Applying…', message: 'Applying…' })
+                        : i18n._({
+                            id: 'Apply Nearest Scenario',
+                            message: 'Apply Nearest Scenario',
+                          })}
+                    </button>
+                  </div>
+                </div>
+                <div className="form-stack">
+                  <p className="config-inline-note">
+                    {bestMatchingAdvancedScenario
+                      ? i18n._({
+                          id: 'Nearest built-in scenario: {title} ({matched}/{total} edits matched).',
+                          message:
+                            'Nearest built-in scenario: {title} ({matched}/{total} edits matched).',
+                          values: {
+                            title: bestMatchingAdvancedScenario.scenario.title,
+                            matched: bestMatchingAdvancedScenario.matchedEditCount,
+                            total: bestMatchingAdvancedScenario.totalEditCount,
+                          },
+                        })
+                      : i18n._({
+                          id: 'No built-in scenario currently matches the active config closely enough.',
+                          message:
+                            'No built-in scenario currently matches the active config closely enough.',
+                        })}
+                  </p>
+                  {workspaceRuntimeStateQuery.data ? (
+                    <InlineNotice
+                      noticeKey={`config-runtime-load-status-${workspaceId}-${workspaceRuntimeStateQuery.data.configLoadStatus}`}
+                      title={i18n._({ id: 'Config Load Status', message: 'Config Load Status' })}
+                      tone={workspaceRuntimeStateQuery.data.restartRequired ? 'error' : 'info'}
+                    >
+                      {workspaceRuntimeStateQuery.data.restartRequired
+                        ? i18n._({
+                            id: 'Restart required: the tracked runtime-affecting config changed after the current runtime started.',
+                            message:
+                              'Restart required: the tracked runtime-affecting config changed after the current runtime started.',
+                          })
+                        : i18n._({
+                            id: 'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
+                            message:
+                              'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
+                          })}
+                    </InlineNotice>
+                  ) : null}
+                </div>
+              </div>
+
               <form
                 className="config-card"
                 onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -661,7 +928,7 @@ export function ConfigSettingsPage() {
                     <p>{'{"type":"workspaceWrite","networkAccess":true}'}</p>
                   </article>
                   <article className="config-helper-card">
-                    <strong>Approval</strong>
+                    <strong>{i18n._({ id: 'Approval', message: 'Approval' })}</strong>
                     <p>
                       {i18n._({
                         id: 'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
@@ -874,6 +1141,77 @@ export function ConfigSettingsPage() {
                           />
                         ),
                       },
+                      {
+                        id: 'runtime-state',
+                        label: i18n._({ id: 'Runtime State', message: 'Runtime State' }),
+                        icon: <RefreshIcon />,
+                        content: workspaceRuntimeStateQuery.isLoading ? (
+                          <div className="notice">
+                            {i18n._({
+                              id: 'Loading runtime state…',
+                              message: 'Loading runtime state…',
+                            })}
+                          </div>
+                        ) : workspaceRuntimeStateQuery.data ? (
+                          <div className="form-stack">
+                            <div className="mode-metrics">
+                              <div className="mode-metric">
+                                <span>{i18n._({ id: 'Status', message: 'Status' })}</span>
+                                <strong>{workspaceRuntimeStateQuery.data.status}</strong>
+                              </div>
+                              <div className="mode-metric">
+                                <span>{i18n._({ id: 'Config Load', message: 'Config Load' })}</span>
+                                <strong>{workspaceRuntimeStateQuery.data.configLoadStatus}</strong>
+                              </div>
+                              <div className="mode-metric">
+                                <span>{i18n._({ id: 'Restart Required', message: 'Restart Required' })}</span>
+                                <strong>
+                                  {workspaceRuntimeStateQuery.data.restartRequired
+                                    ? i18n._({ id: 'Yes', message: 'Yes' })
+                                    : i18n._({ id: 'No', message: 'No' })}
+                                </strong>
+                              </div>
+                            </div>
+                            <div className="config-helper-grid config-helper-grid--compact">
+                              <div className="config-helper-card">
+                                <strong>{i18n._({ id: 'Started', message: 'Started' })}</strong>
+                                <p>
+                                  {workspaceRuntimeStateQuery.data.startedAt
+                                    ? formatLocaleDateTime(workspaceRuntimeStateQuery.data.startedAt)
+                                    : i18n._({ id: 'Not started', message: 'Not started' })}
+                                </p>
+                              </div>
+                              <div className="config-helper-card">
+                                <strong>{i18n._({ id: 'Updated', message: 'Updated' })}</strong>
+                                <p>{formatLocaleDateTime(workspaceRuntimeStateQuery.data.updatedAt)}</p>
+                              </div>
+                              <div className="config-helper-card">
+                                <strong>{i18n._({ id: 'Command', message: 'Command' })}</strong>
+                                <p>{workspaceRuntimeStateQuery.data.command || '—'}</p>
+                              </div>
+                            </div>
+                            <SettingsJsonPreview
+                              description={i18n._({
+                                id: 'Observed runtime process state and config load status for the selected workspace.',
+                                message:
+                                  'Observed runtime process state and config load status for the selected workspace.',
+                              })}
+                              title={i18n._({
+                                id: 'Runtime Process State',
+                                message: 'Runtime Process State',
+                              })}
+                              value={workspaceRuntimeStateQuery.data}
+                            />
+                          </div>
+                        ) : (
+                          <div className="empty-state">
+                            {i18n._({
+                              id: 'Runtime state is unavailable for the selected workspace.',
+                              message: 'Runtime state is unavailable for the selected workspace.',
+                            })}
+                          </div>
+                        ),
+                      },
                     ]}
                   />
                 ) : (
@@ -909,11 +1247,23 @@ export function ConfigSettingsPage() {
               >
                 <div className="config-card__header">
                   <strong>{i18n._({ id: 'Direct JSON Write', message: 'Direct JSON Write' })}</strong>
-                  <button className="ide-button ide-button--primary ide-button--sm" disabled={!workspaceId} type="submit">
-                    {writeConfigMutation.isPending
-                      ? i18n._({ id: 'Writing…', message: 'Writing…' })
-                      : i18n._({ id: 'Write Key', message: 'Write Key' })}
-                  </button>
+                  <div className="setting-row__actions">
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={!workspaceId || restartRuntimeMutation.isPending}
+                      onClick={() => restartRuntimeMutation.mutate()}
+                      type="button"
+                    >
+                      {restartRuntimeMutation.isPending
+                        ? i18n._({ id: 'Restarting…', message: 'Restarting…' })
+                        : i18n._({ id: 'Restart Runtime', message: 'Restart Runtime' })}
+                    </button>
+                    <button className="ide-button ide-button--primary ide-button--sm" disabled={!workspaceId} type="submit">
+                      {writeConfigMutation.isPending
+                        ? i18n._({ id: 'Writing…', message: 'Writing…' })
+                        : i18n._({ id: 'Write Key', message: 'Write Key' })}
+                    </button>
+                  </div>
                 </div>
                 <div className="form-stack">
                   <Input
@@ -921,6 +1271,54 @@ export function ConfigSettingsPage() {
                     onChange={(event) => setConfigKeyPath(event.target.value)}
                     value={configKeyPath}
                   />
+                  {suggestedConfigTemplate ? (
+                    <div className="config-card config-card--muted">
+                      <div className="config-card__header">
+                        <strong>{suggestedConfigTemplate.title}</strong>
+                        <button
+                          className="ide-button ide-button--secondary ide-button--sm"
+                          onClick={() =>
+                            setConfigValue(JSON.stringify(suggestedConfigTemplate.value, null, 2))
+                          }
+                          type="button"
+                        >
+                          {i18n._({ id: 'Load Example', message: 'Load Example' })}
+                        </button>
+                      </div>
+                      <p className="config-inline-note">{suggestedConfigTemplate.description}</p>
+                      <SettingsJsonPreview
+                        collapsible={false}
+                        description={i18n._({
+                          id: 'Suggested JSON payload for the current key path.',
+                          message: 'Suggested JSON payload for the current key path.',
+                        })}
+                        title={i18n._({ id: 'Suggested Template', message: 'Suggested Template' })}
+                        value={suggestedConfigTemplate.value}
+                      />
+                    </div>
+                  ) : null}
+                  {directWriteRequiresRestart ? (
+                    <InlineNotice
+                      noticeKey={`runtime-sensitive-key-${configKeyPath}`}
+                      title={i18n._({
+                        id: 'Runtime Restart Likely Required',
+                        message: 'Runtime Restart Likely Required',
+                      })}
+                    >
+                      {directWriteRuntimeSensitiveItem
+                        ? i18n._({
+                            id: 'Key path {keyPath} matches runtime-sensitive prefix {matchedKey}. {description} Saving it will mark the workspace runtime as potentially stale until restart.',
+                            message:
+                              'Key path {keyPath} matches runtime-sensitive prefix {matchedKey}. {description} Saving it will mark the workspace runtime as potentially stale until restart.',
+                            values: {
+                              keyPath: configKeyPath,
+                              matchedKey: directWriteRuntimeSensitiveItem.keyPath,
+                              description: directWriteRuntimeSensitiveItem.description,
+                            },
+                          })
+                        : null}
+                    </InlineNotice>
+                  ) : null}
                   <TextArea
                     label={i18n._({ id: 'Value (JSON)', message: 'Value (JSON)' })}
                     onChange={(event) => setConfigValue(event.target.value)}
@@ -932,21 +1330,133 @@ export function ConfigSettingsPage() {
 
               <div className="config-details-box">
                 <div className="config-card__header">
-                  <strong>{i18n._({ id: 'Common Key Paths', message: 'Common Key Paths' })}</strong>
+                  <strong>{i18n._({ id: 'Write Categories', message: 'Write Categories' })}</strong>
                 </div>
+                <div className="form-stack">
+                  <p className="config-inline-note">
+                    {i18n._({
+                      id: 'Runtime-sensitive keys typically require a runtime restart after write. Immediate/UI keys usually take effect without restarting the app-server process.',
+                      message:
+                        'Runtime-sensitive keys typically require a runtime restart after write. Immediate/UI keys usually take effect without restarting the app-server process.',
+                    })}
+                  </p>
+                  <div className="config-helper-grid config-helper-grid--compact">
+                    {runtimeSensitiveConfigItems.slice(0, 6).map((item) => (
+                      <div className="config-helper-card" key={item.keyPath}>
+                        <code>{item.keyPath}</code>
+                        <small>{item.description}</small>
+                      </div>
+                    ))}
+                    <div className="config-helper-card">
+                      <code>ui.theme</code>
+                      <small>
+                        {i18n._({
+                          id: 'Example of a non-runtime-sensitive key path. This type of config does not usually require runtime restart.',
+                          message:
+                            'Example of a non-runtime-sensitive key path. This type of config does not usually require runtime restart.',
+                        })}
+                      </small>
+                    </div>
+                    <div className="config-helper-card">
+                      <code>notifications.enabled</code>
+                      <small>
+                        {i18n._({
+                          id: 'Another non-runtime-sensitive example for local UI or product behavior toggles.',
+                          message:
+                            'Another non-runtime-sensitive example for local UI or product behavior toggles.',
+                        })}
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="config-details-box">
+                <div className="config-card__header">
+                  <strong>{i18n._({ id: 'Scenario Presets', message: 'Scenario Presets' })}</strong>
+                </div>
+                <p className="config-inline-note">
+                  {bestMatchingAdvancedScenario
+                    ? i18n._({
+                        id: 'Current config is closest to scenario "{title}" ({matched}/{total} edits matched).',
+                        message:
+                          'Current config is closest to scenario "{title}" ({matched}/{total} edits matched).',
+                        values: {
+                          title: bestMatchingAdvancedScenario.scenario.title,
+                          matched: bestMatchingAdvancedScenario.matchedEditCount,
+                          total: bestMatchingAdvancedScenario.totalEditCount,
+                        },
+                      })
+                    : i18n._({
+                        id: 'Current config does not closely match any built-in scenario preset.',
+                        message:
+                          'Current config does not closely match any built-in scenario preset.',
+                      })}
+                </p>
                 <div className="config-helper-grid config-helper-grid--compact">
-                  <div className="config-helper-card">
-                    <code>model</code>
-                    <small>{i18n._({ id: 'Model identifier', message: 'Model identifier' })}</small>
-                  </div>
-                  <div className="config-helper-card">
-                    <code>sandbox_mode</code>
-                    <small>{i18n._({ id: 'local or container', message: 'local or container' })}</small>
-                  </div>
-                  <div className="config-helper-card">
-                    <code>approval_policy</code>
-                    <small>{i18n._({ id: 'Approval logic', message: 'Approval logic' })}</small>
-                  </div>
+                  {advancedScenarioMatches.map((match) => (
+                    <div className="config-helper-card" key={match.scenario.id}>
+                      <div className="config-card__header">
+                        <strong>{match.scenario.title}</strong>
+                        <span
+                          className={
+                            match.exact
+                              ? 'status-pill status-pill--active'
+                              : match.matchedEditCount > 0
+                                ? 'status-pill status-pill--paused'
+                                : 'status-pill'
+                          }
+                        >
+                          {match.exact
+                            ? i18n._({ id: 'Exact', message: 'Exact' })
+                            : match.matchedEditCount > 0
+                              ? i18n._({ id: 'Partial', message: 'Partial' })
+                              : i18n._({ id: 'No match', message: 'No match' })}
+                        </span>
+                      </div>
+                      <p>{match.scenario.description}</p>
+                      <small>
+                        {match.exact
+                          ? i18n._({ id: 'Exact match', message: 'Exact match' })
+                          : i18n._({
+                              id: '{matched}/{total} edits matched',
+                              message: '{matched}/{total} edits matched',
+                              values: {
+                                matched: match.matchedEditCount,
+                                total: match.totalEditCount,
+                              },
+                            })}
+                      </small>
+                      <SettingsJsonPreview
+                        collapsible={false}
+                        description={i18n._({
+                          id: 'Edits that will be written before runtime restart.',
+                          message: 'Edits that will be written before runtime restart.',
+                        })}
+                        title={i18n._({ id: 'Scenario Edits', message: 'Scenario Edits' })}
+                        value={match.scenario.edits}
+                      />
+                      <SettingsJsonDiffPreview
+                        description={i18n._({
+                          id: 'Only keys whose values differ from the current config will change.',
+                          message:
+                            'Only keys whose values differ from the current config will change.',
+                        })}
+                        entries={getConfigScenarioDiff(configQuery.data?.config, match.scenario)}
+                        title={i18n._({ id: 'Scenario Diff', message: 'Scenario Diff' })}
+                      />
+                      <button
+                        className="ide-button ide-button--secondary ide-button--sm"
+                        disabled={!workspaceId || applyConfigScenarioMutation.isPending}
+                        onClick={() => applyConfigScenarioMutation.mutate(match.scenario.id)}
+                        type="button"
+                      >
+                        {applyConfigScenarioMutation.isPending
+                          ? i18n._({ id: 'Applying…', message: 'Applying…' })
+                          : i18n._({ id: 'Apply & Restart', message: 'Apply & Restart' })}
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -959,6 +1469,17 @@ export function ConfigSettingsPage() {
                   tone="error"
                 >
                   {getErrorMessage(writeConfigMutation.error)}
+                </InlineNotice>
+              )}
+              {applyConfigScenarioMutation.error && (
+                <InlineNotice
+                  details={getErrorMessage(applyConfigScenarioMutation.error)}
+                  dismissible
+                  noticeKey="apply-config-scenario-error"
+                  title={i18n._({ id: 'Scenario Apply Failed', message: 'Scenario Apply Failed' })}
+                  tone="error"
+                >
+                  {getErrorMessage(applyConfigScenarioMutation.error)}
                 </InlineNotice>
               )}
             </div>
@@ -1286,20 +1807,24 @@ function getShellTypeOptions() {
       }),
       triggerLabel: i18n._({ id: 'Default', message: 'Default' }),
     },
-    { value: 'default', label: 'Default', triggerLabel: 'Default' },
+    {
+      value: 'default',
+      label: i18n._({ id: 'Default', message: 'Default' }),
+      triggerLabel: i18n._({ id: 'Default', message: 'Default' }),
+    },
     {
       value: 'local',
-      label: 'LocalShell',
+      label: i18n._({ id: 'LocalShell', message: 'LocalShell' }),
       triggerLabel: i18n._({ id: 'Local', message: 'Local' }),
     },
     {
       value: 'shell_command',
-      label: 'ShellCommand',
+      label: i18n._({ id: 'ShellCommand', message: 'ShellCommand' }),
       triggerLabel: i18n._({ id: 'ShellCmd', message: 'ShellCmd' }),
     },
     {
       value: 'unified_exec',
-      label: 'UnifiedExec',
+      label: i18n._({ id: 'UnifiedExec', message: 'UnifiedExec' }),
       triggerLabel: i18n._({ id: 'Unified', message: 'Unified' }),
     },
     {

@@ -120,10 +120,12 @@ export type ThreadTurn = {
 
 export type ThreadDetail = Thread & {
   cwd?: string
+  hasMoreTurns?: boolean
   preview?: string
   path?: string
   source?: string
   tokenUsage?: ThreadTokenUsage | null
+  turnCount?: number
   turns: ThreadTurn[]
 }
 
@@ -240,6 +242,8 @@ export type ConfigWriteResult = {
   status: string
   version: string
   overriddenMetadata?: Record<string, unknown> | null
+  runtimeReloadRequired?: boolean
+  matchedRuntimeSensitiveKey?: string
 }
 
 export type ConfigRequirementsResult = {

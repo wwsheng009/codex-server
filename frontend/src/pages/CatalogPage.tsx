@@ -725,7 +725,13 @@ function RuntimeSection({
             <div className="runtime-item__body">
               <strong>{item.name}</strong>
               {item.value && item.value !== item.name ? <p><code>{item.value}</code></p> : null}
-              {item.shellType ? <p><code>shellType: {item.shellType}</code></p> : null}
+              {item.shellType ? (
+                <p>
+                  <code>
+                    {i18n._({ id: 'Shell type', message: 'Shell type' })}: {item.shellType}
+                  </code>
+                </p>
+              ) : null}
               <p>
                 {item.description ||
                   i18n._({

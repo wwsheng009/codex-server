@@ -7,6 +7,7 @@ type SurfaceActionLayoutInput = Pick<
   | 'onChangeStdinValue'
   | 'onClearCompletedSessions'
   | 'onCloseWorkbenchOverlay'
+  | 'onLoadOlderTurns'
   | 'onRemoveSession'
   | 'onRespondApproval'
   | 'onResizeStart'
@@ -30,6 +31,7 @@ export function buildThreadPageControllerSurfaceActionLayoutInput({
     onChangeStdinValue: controllerState.setStdinValue,
     onClearCompletedSessions: pageActions.handleClearCompletedCommandSessions,
     onCloseWorkbenchOverlay: railState.handleCloseWorkbenchOverlay,
+    onLoadOlderTurns: pageActions.handleLoadOlderTurns,
     onRemoveSession: pageActions.handleRemoveCommandSession,
     onRespondApproval: pageActions.handleRespondApproval,
     onResizeStart: controllerState.handleTerminalResizeStart,

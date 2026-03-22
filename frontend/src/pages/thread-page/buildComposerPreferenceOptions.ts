@@ -27,7 +27,7 @@ export function buildComposerPreferenceOptions({
       {
         value: 'plan',
         label: i18n._({ id: 'Plan mode', message: 'Plan mode' }),
-        triggerLabel: 'Plan',
+        triggerLabel: i18n._({ id: 'Plan', message: 'Plan' }),
         disabled: !supportsPlanMode,
       },
     ],

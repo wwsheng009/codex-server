@@ -8,29 +8,38 @@ const EMPTY_EVENTS: ServerEvent[] = []
 const EMPTY_COMMAND_SESSIONS = {}
 
 export function useThreadPageSessionState({
+  isDocumentVisible,
   selectedThreadId,
   threadDetail,
   workspaceId,
 }: {
+  isDocumentVisible: boolean
   selectedThreadId?: string
   threadDetail?: ThreadDetail
   workspaceId: string
 }) {
-  const allThreadEvents = useSessionStore((state) => state.eventsByThread)
   const selectedThreadEvents = useSessionStore((state) =>
-    selectedThreadId ? state.eventsByThread[selectedThreadId] ?? EMPTY_EVENTS : EMPTY_EVENTS,
+    !isDocumentVisible || !selectedThreadId
+      ? EMPTY_EVENTS
+      : state.eventsByThread[selectedThreadId] ?? EMPTY_EVENTS,
   )
   const selectedThreadTokenUsage = useSessionStore((state) =>
     selectedThreadId ? state.tokenUsageByThread[selectedThreadId] ?? null : null,
   )
   const workspaceEvents = useSessionStore((state) =>
-    workspaceId ? state.workspaceEventsByWorkspace[workspaceId] ?? EMPTY_EVENTS : EMPTY_EVENTS,
+    !isDocumentVisible || !workspaceId
+      ? EMPTY_EVENTS
+      : state.workspaceEventsByWorkspace[workspaceId] ?? EMPTY_EVENTS,
   )
   const workspaceActivityEvents = useSessionStore((state) =>
-    workspaceId ? state.activityEventsByWorkspace[workspaceId] ?? EMPTY_EVENTS : EMPTY_EVENTS,
+    !isDocumentVisible || !workspaceId
+      ? EMPTY_EVENTS
+      : state.activityEventsByWorkspace[workspaceId] ?? EMPTY_EVENTS,
   )
   const workspaceCommandSessions = useSessionStore((state) =>
-    workspaceId
+    !isDocumentVisible || !workspaceId
+      ? (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string])
+      : workspaceId
       ? state.commandSessionsByWorkspace[workspaceId] ??
         (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string])
       : (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string]),
@@ -50,7 +59,6 @@ export function useThreadPageSessionState({
   )
 
   return {
-    allThreadEvents,
     commandSessions,
     liveThreadDetail,
     selectedThreadEvents,

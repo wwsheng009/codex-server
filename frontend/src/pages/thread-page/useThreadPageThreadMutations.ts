@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 
 import { respondServerRequestWithDetails } from '../../features/approvals/api'
+import { i18n } from '../../i18n/runtime'
 import {
   archiveThread,
   compactThread,
@@ -102,7 +103,10 @@ export function useThreadPageThreadMutations({
       setContextCompactionFeedback({
         threadId,
         phase: 'requested',
-        title: 'Queued',
+        title: i18n._({
+          id: 'Queued',
+          message: 'Queued',
+        }),
       })
     },
     onSuccess: async () => {
@@ -116,7 +120,10 @@ export function useThreadPageThreadMutations({
       setContextCompactionFeedback({
         threadId,
         phase: 'failed',
-        title: 'Failed',
+        title: i18n._({
+          id: 'Failed',
+          message: 'Failed',
+        }),
       })
     },
   })

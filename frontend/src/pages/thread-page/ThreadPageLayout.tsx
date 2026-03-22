@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { i18n } from '../../i18n/runtime'
 import { ThreadComposerDock } from './ThreadComposerDock'
 import { ThreadTerminalDock } from './ThreadTerminalDock'
 import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
@@ -39,7 +40,10 @@ export function ThreadPageLayout({
     >
       {isMobileWorkbenchOverlayOpen ? (
         <button
-          aria-label="Close workbench panel"
+          aria-label={i18n._({
+            id: 'Close workbench panel',
+            message: 'Close workbench panel',
+          })}
           className="workbench-mobile-backdrop"
           onClick={closeWorkbenchOverlay}
           type="button"

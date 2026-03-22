@@ -10,14 +10,18 @@ import { getWorkspace, getWorkspaceRuntimeState } from '../../features/workspace
 export function useThreadPageQueries({
   composerFileSearchQuery,
   hasPendingTurn,
+  isDocumentVisible,
   selectedThreadId,
   streamState,
+  turnLimit,
   workspaceId,
 }: {
   composerFileSearchQuery: string
   hasPendingTurn: boolean
+  isDocumentVisible: boolean
   selectedThreadId?: string
   streamState: string
+  turnLimit: number
   workspaceId: string
 }) {
   const workspaceQuery = useQuery({
@@ -49,7 +53,7 @@ export function useThreadPageQueries({
     queryKey: ['loaded-threads', workspaceId],
     queryFn: () => listLoadedThreadIds(workspaceId),
     enabled: Boolean(workspaceId),
-    refetchInterval: workspaceId && streamState !== 'open' ? 5_000 : false,
+    refetchInterval: isDocumentVisible && workspaceId && streamState !== 'open' ? 5_000 : false,
     staleTime: 5_000,
   })
 
@@ -68,13 +72,14 @@ export function useThreadPageQueries({
   })
 
   const threadDetailQuery = useQuery({
-    queryKey: ['thread-detail', workspaceId, selectedThreadId],
-    queryFn: () => getThread(workspaceId, selectedThreadId ?? ''),
+    queryKey: ['thread-detail', workspaceId, selectedThreadId, turnLimit],
+    queryFn: () => getThread(workspaceId, selectedThreadId ?? '', { turnLimit }),
     enabled: Boolean(workspaceId && selectedThreadId),
+    placeholderData: (previous) => previous,
     refetchInterval:
-      selectedThreadId && hasPendingTurn
+      isDocumentVisible && selectedThreadId && hasPendingTurn
         ? 1_000
-        : selectedThreadId && streamState !== 'open'
+        : isDocumentVisible && selectedThreadId && streamState !== 'open'
           ? 5_000
           : false,
   })
@@ -83,7 +88,7 @@ export function useThreadPageQueries({
     queryKey: ['approvals', workspaceId],
     queryFn: () => listPendingApprovals(workspaceId),
     enabled: Boolean(workspaceId),
-    refetchInterval: workspaceId && streamState !== 'open' ? 4_000 : false,
+    refetchInterval: isDocumentVisible && workspaceId && streamState !== 'open' ? 4_000 : false,
   })
 
   const fileSearchQuery = useQuery({

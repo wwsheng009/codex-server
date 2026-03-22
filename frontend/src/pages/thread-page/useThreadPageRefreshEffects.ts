@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { i18n } from '../../i18n/runtime'
 import {
@@ -11,6 +11,7 @@ import type { ThreadPageRefreshEffectsInput } from './threadPageEffectTypes'
 
 export function useThreadPageRefreshEffects({
   contextCompactionFeedback,
+  isDocumentVisible,
   queryClient,
   selectedThreadEvents,
   selectedThreadId,
@@ -19,6 +20,28 @@ export function useThreadPageRefreshEffects({
   workspaceActivityEvents,
   workspaceId,
 }: ThreadPageRefreshEffectsInput) {
+  const wasDocumentVisibleRef = useRef(isDocumentVisible)
+
+  useEffect(() => {
+    const becameVisible = !wasDocumentVisibleRef.current && isDocumentVisible
+    wasDocumentVisibleRef.current = isDocumentVisible
+
+    if (!becameVisible || !workspaceId) {
+      return
+    }
+
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+      selectedThreadId
+        ? queryClient.invalidateQueries({
+            queryKey: ['thread-detail', workspaceId, selectedThreadId],
+          })
+        : Promise.resolve(),
+    ])
+  }, [isDocumentVisible, queryClient, selectedThreadId, workspaceId])
+
   useEffect(() => {
     if (!selectedThreadId || !selectedThreadEvents.length) {
       return

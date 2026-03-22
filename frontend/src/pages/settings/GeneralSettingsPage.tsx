@@ -60,10 +60,24 @@ export function GeneralSettingsPage() {
     mutationFn: () => cancelLoginAccount({ loginId }),
   })
 
-  const accountLabel = accountQuery.data?.email ?? 'No account connected'
-  const lastSyncedLabel = accountQuery.data?.lastSyncedAt
-    ? formatLocaleDateTime(accountQuery.data.lastSyncedAt)
-    : 'Not synced yet'
+  const accountStatus = accountQuery.isLoading ? 'loading' : accountQuery.data?.status ?? 'disconnected'
+  const isAccountConnected =
+    Boolean(accountQuery.data?.email) &&
+    accountQuery.data?.status !== 'disconnected' &&
+    accountQuery.data?.email !== 'not-connected'
+  const accountLabel = isAccountConnected
+    ? accountQuery.data?.email ?? ''
+    : i18n._({
+        id: 'No account connected',
+        message: 'No account connected',
+      })
+  const lastSyncedLabel =
+    isAccountConnected && accountQuery.data?.lastSyncedAt
+      ? formatLocaleDateTime(accountQuery.data.lastSyncedAt)
+      : i18n._({
+          id: 'Not synced yet',
+          message: 'Not synced yet',
+        })
   const pendingLoginId = loginId || loginMutation.data?.loginId || ''
   const rateLimitCount = rateLimitsQuery.data?.length ?? 0
   const localeOptions = useMemo(
@@ -75,10 +89,6 @@ export function GeneralSettingsPage() {
       })),
     [],
   )
-  const accountStatus = useMemo(() => {
-    if (accountQuery.isLoading) return 'Loading'
-    return accountQuery.data?.status ?? 'Signed out'
-  }, [accountQuery.data?.status, accountQuery.isLoading])
   const languageGroupDescription = i18n._({
     id: 'Set the primary locale for translated UI surfaces and locale-aware formatting.',
     message: 'Set the primary locale for translated UI surfaces and locale-aware formatting.',
@@ -104,11 +114,21 @@ export function GeneralSettingsPage() {
   return (
     <section className="settings-page">
       <SettingsPageHeader
-        description="Manage account identity, sign-in methods, and current usage limits from one stable general settings page."
+        description={i18n._({
+          id: 'Manage account identity, sign-in methods, and current usage limits from one stable general settings page.',
+          message:
+            'Manage account identity, sign-in methods, and current usage limits from one stable general settings page.',
+        })}
         meta={
           <>
-            {accountQuery.data ? <StatusPill status={accountQuery.data.status} /> : null}
-            <span className="meta-pill">{rateLimitCount} limits</span>
+            <StatusPill status={accountStatus} />
+            <span className="meta-pill">
+              {i18n._({
+                id: '{count} limits',
+                message: '{count} limits',
+                values: { count: formatLocaleNumber(rateLimitCount) },
+              })}
+            </span>
             <button
               className="ide-button ide-button--secondary"
               onClick={() =>
@@ -119,11 +139,11 @@ export function GeneralSettingsPage() {
               }
               type="button"
             >
-              Refresh
+              {i18n._({ id: 'Refresh', message: 'Refresh' })}
             </button>
           </>
         }
-        title="General"
+        title={i18n._({ id: 'General', message: 'General' })}
       />
 
       <div className="settings-page__stack">
@@ -150,36 +170,48 @@ export function GeneralSettingsPage() {
         </SettingsGroup>
 
         <SettingsGroup
-          description="Current account posture and session state."
-          meta={accountStatus}
-          title="Account"
+          description={i18n._({
+            id: 'Current account posture and session state.',
+            message: 'Current account posture and session state.',
+          })}
+          meta={<StatusPill status={accountStatus} />}
+          title={i18n._({ id: 'Account', message: 'Account' })}
         >
           <SettingRow
-            description="Inspect the currently connected identity and the most recent account sync."
-            title="Connected Account"
+            description={i18n._({
+              id: 'Inspect the currently connected identity and the most recent account sync.',
+              message: 'Inspect the currently connected identity and the most recent account sync.',
+            })}
+            title={i18n._({ id: 'Connected Account', message: 'Connected Account' })}
           >
             <div className="detail-list">
               <div className="detail-row">
-                <span>Identity</span>
+                <span>{i18n._({ id: 'Identity', message: 'Identity' })}</span>
                 <strong>{accountLabel}</strong>
               </div>
               <div className="detail-row">
-                <span>Last Synced</span>
+                <span>{i18n._({ id: 'Last Synced', message: 'Last Synced' })}</span>
                 <strong>{lastSyncedLabel}</strong>
               </div>
               <div className="detail-row">
-                <span>Login Flow</span>
-                <strong>{pendingLoginId ? 'Pending approval' : 'Idle'}</strong>
+                <span>{i18n._({ id: 'Login Flow', message: 'Login Flow' })}</span>
+                <strong>
+                  {pendingLoginId
+                    ? i18n._({ id: 'Pending approval', message: 'Pending approval' })
+                    : i18n._({ id: 'Idle', message: 'Idle' })}
+                </strong>
               </div>
             </div>
             <div className="setting-row__actions">
-              {accountQuery.data ? (
+              {isAccountConnected ? (
                 <button
                   className="ide-button ide-button--secondary"
                   onClick={() => logoutMutation.mutate()}
                   type="button"
                 >
-                  {logoutMutation.isPending ? 'Signing out…' : 'Logout'}
+                  {logoutMutation.isPending
+                    ? i18n._({ id: 'Signing out…', message: 'Signing out…' })
+                    : i18n._({ id: 'Logout', message: 'Logout' })}
                 </button>
               ) : null}
             </div>
@@ -189,7 +221,7 @@ export function GeneralSettingsPage() {
                 dismissible
                 noticeKey={`account-read-${accountQuery.error instanceof Error ? accountQuery.error.message : 'unknown'}`}
                 onRetry={() => void queryClient.invalidateQueries({ queryKey: ['account'] })}
-                title="Failed To Read Account"
+                title={i18n._({ id: 'Failed To Read Account', message: 'Failed To Read Account' })}
                 tone="error"
               >
                 {getErrorMessage(accountQuery.error)}
@@ -199,12 +231,18 @@ export function GeneralSettingsPage() {
         </SettingsGroup>
 
         <SettingsGroup
-          description="Choose a sign-in method that matches how this client should authenticate."
-          title="Login"
+          description={i18n._({
+            id: 'Choose a sign-in method that matches how this client should authenticate.',
+            message: 'Choose a sign-in method that matches how this client should authenticate.',
+          })}
+          title={i18n._({ id: 'Login', message: 'Login' })}
         >
           <SettingRow
-            description="Store a direct API key for runtime requests."
-            title="API Key Login"
+            description={i18n._({
+              id: 'Store a direct API key for runtime requests.',
+              message: 'Store a direct API key for runtime requests.',
+            })}
+            title={i18n._({ id: 'API Key Login', message: 'API Key Login' })}
           >
             <form
               className="form-stack"
@@ -216,7 +254,7 @@ export function GeneralSettingsPage() {
               }}
             >
               <Input
-                label="API Key"
+                label={i18n._({ id: 'API Key', message: 'API Key' })}
                 autoComplete="off"
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder="sk-..."
@@ -225,7 +263,9 @@ export function GeneralSettingsPage() {
               />
               <div className="setting-row__actions">
                 <button className="ide-button" disabled={!apiKey.trim()} type="submit">
-                  {loginMutation.isPending ? 'Signing in…' : 'Login with API Key'}
+                  {loginMutation.isPending
+                    ? i18n._({ id: 'Signing in…', message: 'Signing in…' })
+                    : i18n._({ id: 'Login with API Key', message: 'Login with API Key' })}
                 </button>
               </div>
             </form>
@@ -234,7 +274,7 @@ export function GeneralSettingsPage() {
                 details={getErrorMessage(loginMutation.error)}
                 dismissible
                 noticeKey={`login-${loginMutation.error instanceof Error ? loginMutation.error.message : 'unknown'}`}
-                title="Login Failed"
+                title={i18n._({ id: 'Login Failed', message: 'Login Failed' })}
                 tone="error"
               >
                 {getErrorMessage(loginMutation.error)}
@@ -243,8 +283,11 @@ export function GeneralSettingsPage() {
           </SettingRow>
 
           <SettingRow
-            description="Open the browser-based ChatGPT flow and optionally cancel a pending login session."
-            title="Browser Login"
+            description={i18n._({
+              id: 'Open the browser-based ChatGPT flow and optionally cancel a pending login session.',
+              message: 'Open the browser-based ChatGPT flow and optionally cancel a pending login session.',
+            })}
+            title={i18n._({ id: 'Browser Login', message: 'Browser Login' })}
           >
             <div className="setting-row__actions">
               <button
@@ -252,7 +295,10 @@ export function GeneralSettingsPage() {
                 onClick={() => loginMutation.mutate({ type: 'chatgpt' })}
                 type="button"
               >
-                Continue with ChatGPT
+                {i18n._({
+                  id: 'Continue with ChatGPT',
+                  message: 'Continue with ChatGPT',
+                })}
               </button>
               {pendingLoginId ? (
                 <button
@@ -260,7 +306,12 @@ export function GeneralSettingsPage() {
                   onClick={() => cancelLoginMutation.mutate()}
                   type="button"
                 >
-                  {cancelLoginMutation.isPending ? 'Canceling…' : 'Cancel Pending Login'}
+                  {cancelLoginMutation.isPending
+                    ? i18n._({ id: 'Canceling…', message: 'Canceling…' })
+                    : i18n._({
+                        id: 'Cancel Pending Login',
+                        message: 'Cancel Pending Login',
+                      })}
                 </button>
               ) : null}
             </div>
@@ -274,7 +325,12 @@ export function GeneralSettingsPage() {
                 {loginMutation.data.authUrl}
               </a>
             ) : (
-              <div className="notice">Start the browser flow to receive the authorization URL.</div>
+              <div className="notice">
+                {i18n._({
+                  id: 'Start the browser flow to receive the authorization URL.',
+                  message: 'Start the browser flow to receive the authorization URL.',
+                })}
+              </div>
             )}
             {loginMutation.data?.message ? <div className="notice">{loginMutation.data.message}</div> : null}
             {cancelLoginMutation.error ? (
@@ -282,7 +338,7 @@ export function GeneralSettingsPage() {
                 details={getErrorMessage(cancelLoginMutation.error)}
                 dismissible
                 noticeKey={`cancel-login-${cancelLoginMutation.error instanceof Error ? cancelLoginMutation.error.message : 'unknown'}`}
-                title="Cancel Login Failed"
+                title={i18n._({ id: 'Cancel Login Failed', message: 'Cancel Login Failed' })}
                 tone="error"
               >
                 {getErrorMessage(cancelLoginMutation.error)}
@@ -292,29 +348,44 @@ export function GeneralSettingsPage() {
         </SettingsGroup>
 
         <SettingsGroup
-          description="Current quota posture for the active account."
-          meta={rateLimitCount}
-          title="Usage"
+          description={i18n._({
+            id: 'Current quota posture for the active account.',
+            message: 'Current quota posture for the active account.',
+          })}
+          meta={formatLocaleNumber(rateLimitCount)}
+          title={i18n._({ id: 'Usage', message: 'Usage' })}
         >
           <SettingRow
-            description="Track how much quota remains before the next reset window."
-            title="Rate Limits"
+            description={i18n._({
+              id: 'Track how much quota remains before the next reset window.',
+              message: 'Track how much quota remains before the next reset window.',
+            })}
+            title={i18n._({ id: 'Rate Limits', message: 'Rate Limits' })}
           >
-            {rateLimitsQuery.isLoading ? <div className="notice">Loading rate limits…</div> : null}
+            {rateLimitsQuery.isLoading ? (
+              <div className="notice">
+                {i18n._({ id: 'Loading rate limits…', message: 'Loading rate limits…' })}
+              </div>
+            ) : null}
             {rateLimitsQuery.error ? (
               <InlineNotice
                 details={getErrorMessage(rateLimitsQuery.error)}
                 dismissible
                 noticeKey={`rate-limits-${rateLimitsQuery.error instanceof Error ? rateLimitsQuery.error.message : 'unknown'}`}
                 onRetry={() => void queryClient.invalidateQueries({ queryKey: ['rate-limits'] })}
-                title="Failed To Read Rate Limits"
+                title={i18n._({ id: 'Failed To Read Rate Limits', message: 'Failed To Read Rate Limits' })}
                 tone="error"
               >
                 {getErrorMessage(rateLimitsQuery.error)}
               </InlineNotice>
             ) : null}
             {!rateLimitsQuery.isLoading && !rateLimitCount ? (
-              <div className="empty-state">No rate limit data available.</div>
+              <div className="empty-state">
+                {i18n._({
+                  id: 'No rate limit data available.',
+                  message: 'No rate limit data available.',
+                })}
+              </div>
             ) : null}
             <div className="resource-list resource-list--runtime">
               {rateLimitsQuery.data?.map((limit) => (
@@ -323,8 +394,15 @@ export function GeneralSettingsPage() {
                   <div className="resource-row__body">
                     <strong>{limit.name}</strong>
                     <p>
-                      {formatLocaleNumber(limit.remaining)} / {formatLocaleNumber(limit.limit)} remaining · resets{' '}
-                      {formatLocaleTime(limit.resetsAt)}
+                      {i18n._({
+                        id: '{remaining} / {limit} remaining · resets {time}',
+                        message: '{remaining} / {limit} remaining · resets {time}',
+                        values: {
+                          remaining: formatLocaleNumber(limit.remaining),
+                          limit: formatLocaleNumber(limit.limit),
+                          time: formatLocaleTime(limit.resetsAt),
+                        },
+                      })}
                     </p>
                   </div>
                 </article>

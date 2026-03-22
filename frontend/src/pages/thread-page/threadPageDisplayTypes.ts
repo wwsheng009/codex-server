@@ -6,16 +6,19 @@ import type {
   ServerEvent,
   Thread,
   ThreadDetail,
+  ThreadTurn,
   ThreadTokenUsage,
 } from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ContextCompactionFeedback } from './threadPageComposerShared'
+import type { SurfacePanelView } from '../../lib/layout-config'
 
 export type ThreadPageDisplayStateInput = {
   activePendingTurn: PendingThreadTurn | null
   approvals: PendingApproval[]
   commandSessions: CommandRuntimeSession[]
   contextCompactionFeedback: ContextCompactionFeedback | null
+  historicalTurns: ThreadTurn[]
   liveThreadDetail?: ThreadDetail
   loadedThreadIds?: string[]
   selectedProcessId?: string
@@ -24,6 +27,7 @@ export type ThreadPageDisplayStateInput = {
   selectedThreadId?: string
   selectedThreadTokenUsage: ThreadTokenUsage | null
   setContextCompactionFeedback: Dispatch<SetStateAction<ContextCompactionFeedback | null>>
+  surfacePanelView: SurfacePanelView | null
   workspaceEvents: ServerEvent[]
   workspaceId: string
 }
@@ -31,6 +35,7 @@ export type ThreadPageDisplayStateInput = {
 export type ThreadPageTurnDisplayStateInput = Pick<
   ThreadPageDisplayStateInput,
   | 'activePendingTurn'
+  | 'historicalTurns'
   | 'liveThreadDetail'
   | 'selectedThread'
   | 'selectedThreadEvents'
@@ -42,11 +47,13 @@ export type ThreadPageSelectionDisplayStateInput = Pick<
   | 'approvals'
   | 'commandSessions'
   | 'contextCompactionFeedback'
+  | 'historicalTurns'
   | 'liveThreadDetail'
   | 'loadedThreadIds'
   | 'selectedProcessId'
   | 'selectedThreadEvents'
   | 'selectedThreadId'
   | 'selectedThreadTokenUsage'
+  | 'surfacePanelView'
   | 'workspaceEvents'
 >

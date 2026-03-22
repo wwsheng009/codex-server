@@ -15,11 +15,25 @@ export type CommandRuntimeSession = CommandSession & {
   updatedAt: string
 }
 
+export type ThreadActivitySummary = {
+  latestEventMethod: string
+  latestEventTs: string
+  latestStatus?: string
+  threadId: string
+  workspaceId: string
+}
+
+const ACTIVE_THREAD_EVENT_LIMIT = 80
+const INACTIVE_THREAD_EVENT_LIMIT = 6
+const WORKSPACE_EVENT_LIMIT = 40
+const WORKSPACE_ACTIVITY_EVENT_LIMIT = 60
+
 type SessionState = {
   selectedWorkspaceId?: string
   selectedThreadId?: string
   selectedThreadIdByWorkspace: Record<string, string>
   eventsByThread: Record<string, ServerEvent[]>
+  threadActivityByThread: Record<string, ThreadActivitySummary>
   workspaceEventsByWorkspace: Record<string, ServerEvent[]>
   activityEventsByWorkspace: Record<string, ServerEvent[]>
   connectionByWorkspace: Record<string, string>
@@ -43,6 +57,7 @@ export const useSessionStore = create<SessionState>()(
       selectedThreadId: undefined,
       selectedThreadIdByWorkspace: {},
       eventsByThread: {},
+      threadActivityByThread: {},
       workspaceEventsByWorkspace: {},
       activityEventsByWorkspace: {},
       connectionByWorkspace: {},
@@ -119,13 +134,22 @@ export const useSessionStore = create<SessionState>()(
           const nextCommandSessionsByWorkspace = { ...current.commandSessionsByWorkspace }
           delete nextCommandSessionsByWorkspace[workspaceId]
 
+          const nextThreadActivityByThread = { ...current.threadActivityByThread }
           const nextEventsByThread = { ...current.eventsByThread }
-          if (removedSelectedThreadId) {
-            delete nextEventsByThread[removedSelectedThreadId]
+          const nextTokenUsageByThread = { ...current.tokenUsageByThread }
+
+          for (const [threadId, summary] of Object.entries(current.threadActivityByThread)) {
+            if (summary.workspaceId !== workspaceId) {
+              continue
+            }
+
+            delete nextThreadActivityByThread[threadId]
+            delete nextEventsByThread[threadId]
+            delete nextTokenUsageByThread[threadId]
           }
 
-          const nextTokenUsageByThread = { ...current.tokenUsageByThread }
           if (removedSelectedThreadId) {
+            delete nextEventsByThread[removedSelectedThreadId]
             delete nextTokenUsageByThread[removedSelectedThreadId]
           }
 
@@ -140,6 +164,7 @@ export const useSessionStore = create<SessionState>()(
             connectionByWorkspace: nextConnectionByWorkspace,
             commandSessionsByWorkspace: nextCommandSessionsByWorkspace,
             eventsByThread: nextEventsByThread,
+            threadActivityByThread: nextThreadActivityByThread,
             tokenUsageByThread: nextTokenUsageByThread,
           }
         }),
@@ -153,6 +178,9 @@ export const useSessionStore = create<SessionState>()(
           const nextEventsByThread = { ...current.eventsByThread }
           delete nextEventsByThread[threadId]
 
+          const nextThreadActivityByThread = { ...current.threadActivityByThread }
+          delete nextThreadActivityByThread[threadId]
+
           const nextTokenUsageByThread = { ...current.tokenUsageByThread }
           delete nextTokenUsageByThread[threadId]
 
@@ -163,44 +191,56 @@ export const useSessionStore = create<SessionState>()(
                 : current.selectedThreadId,
             selectedThreadIdByWorkspace: nextSelectedThreadIdByWorkspace,
             eventsByThread: nextEventsByThread,
+            threadActivityByThread: nextThreadActivityByThread,
             tokenUsageByThread: nextTokenUsageByThread,
           }
         }),
       ingestEvent: (event) =>
         set((current) => {
           const nextCommandSessions = applyCommandEvent(current.commandSessionsByWorkspace, event)
+          const nextThreadActivity = applyThreadActivityEvent(
+            current.threadActivityByThread,
+            event,
+          )
           const nextTokenUsage = applyTokenUsageEvent(current.tokenUsageByThread, event)
           const nextActivityEvents = {
             ...current.activityEventsByWorkspace,
             [event.workspaceId]: [
               ...(current.activityEventsByWorkspace[event.workspaceId] ?? []),
               event,
-            ].slice(-150),
+            ].slice(-WORKSPACE_ACTIVITY_EVENT_LIMIT),
           }
           if (!event.threadId) {
             return {
               activityEventsByWorkspace: nextActivityEvents,
               commandSessionsByWorkspace: nextCommandSessions,
+              threadActivityByThread: nextThreadActivity,
               tokenUsageByThread: nextTokenUsage,
               workspaceEventsByWorkspace: {
                 ...current.workspaceEventsByWorkspace,
                 [event.workspaceId]: [
                   ...(current.workspaceEventsByWorkspace[event.workspaceId] ?? []),
                   event,
-                ].slice(-100),
+                ].slice(-WORKSPACE_EVENT_LIMIT),
               },
             }
           }
 
           const currentEvents = current.eventsByThread[event.threadId] ?? []
+          const selectedThreadIdForWorkspace = current.selectedThreadIdByWorkspace[event.workspaceId]
+          const eventLimit =
+            selectedThreadIdForWorkspace === event.threadId
+              ? ACTIVE_THREAD_EVENT_LIMIT
+              : INACTIVE_THREAD_EVENT_LIMIT
 
           return {
             activityEventsByWorkspace: nextActivityEvents,
             commandSessionsByWorkspace: nextCommandSessions,
+            threadActivityByThread: nextThreadActivity,
             tokenUsageByThread: nextTokenUsage,
             eventsByThread: {
               ...current.eventsByThread,
-              [event.threadId]: [...currentEvents, event].slice(-100),
+              [event.threadId]: [...currentEvents, event].slice(-eventLimit),
             },
           }
         }),
@@ -240,6 +280,29 @@ function applyCommandEvent(
       return completeCommandSession(sessionsByWorkspace, event)
     default:
       return sessionsByWorkspace
+  }
+}
+
+function applyThreadActivityEvent(
+  threadActivityByThread: Record<string, ThreadActivitySummary>,
+  event: ServerEvent,
+) {
+  if (!event.threadId) {
+    return threadActivityByThread
+  }
+
+  const nextStatus = readThreadActivityStatus(event)
+  const current = threadActivityByThread[event.threadId]
+
+  return {
+    ...threadActivityByThread,
+    [event.threadId]: {
+      latestEventMethod: event.method,
+      latestEventTs: event.ts,
+      latestStatus: nextStatus || current?.latestStatus,
+      threadId: event.threadId,
+      workspaceId: event.workspaceId,
+    },
   }
 }
 
@@ -445,4 +508,24 @@ function trimOutput(value: string, limit = 32_000) {
 
 function isCommandSession(value: unknown): value is CommandSession {
   return typeof value === 'object' && value !== null && 'id' in value && 'workspaceId' in value
+}
+
+function readThreadActivityStatus(event: ServerEvent) {
+  if (event.method !== 'thread/status/changed') {
+    return ''
+  }
+
+  if (typeof event.payload !== 'object' || event.payload === null) {
+    return ''
+  }
+
+  const payload = event.payload as Record<string, unknown>
+  const status = payload.status
+  if (typeof status !== 'object' || status === null) {
+    return ''
+  }
+
+  return typeof (status as Record<string, unknown>).type === 'string'
+    ? String((status as Record<string, unknown>).type)
+    : ''
 }

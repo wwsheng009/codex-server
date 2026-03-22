@@ -22,6 +22,9 @@ export function ThreadWorkbenchSurface({
   children,
   approvals,
   displayedTurns,
+  hasMoreTurnsBefore,
+  hiddenTurnsCount,
+  isLoadingOlderTurns,
   isMobileViewport,
   isSurfacePanelResizing,
   isThreadPinnedToLatest,
@@ -30,6 +33,7 @@ export function ThreadWorkbenchSurface({
   liveTimelineEntries,
   onChangeApprovalAnswer,
   onCloseWorkbenchOverlay,
+  onLoadOlderTurns,
   onRespondApproval,
   onRetryServerRequest,
   onRetryThreadLoad,
@@ -39,6 +43,7 @@ export function ThreadWorkbenchSurface({
   respondingToApproval,
   selectedThread,
   surfacePanelView,
+  timelineIdentity,
   threadDetailError,
   threadDetailIsLoading,
   threadLoadErrorMessage,
@@ -53,6 +58,9 @@ export function ThreadWorkbenchSurface({
   children?: ReactNode
   approvals?: PendingApproval[]
   displayedTurns: ThreadTurn[]
+  hasMoreTurnsBefore: boolean
+  hiddenTurnsCount: number
+  isLoadingOlderTurns: boolean
   isMobileViewport: boolean
   isSurfacePanelResizing: boolean
   isThreadPinnedToLatest: boolean
@@ -61,6 +69,7 @@ export function ThreadWorkbenchSurface({
   liveTimelineEntries: LiveTimelineEntry[]
   onChangeApprovalAnswer: (requestId: string, questionId: string, value: string) => void
   onCloseWorkbenchOverlay: () => void
+  onLoadOlderTurns: () => void
   onRespondApproval: (input: {
     requestId: string
     action: string
@@ -74,6 +83,7 @@ export function ThreadWorkbenchSurface({
   respondingToApproval: boolean
   selectedThread?: Thread
   surfacePanelView: SurfacePanelView | null
+  timelineIdentity: string
   threadDetailError: unknown
   threadDetailIsLoading: boolean
   threadLoadErrorMessage?: string
@@ -126,7 +136,38 @@ export function ThreadWorkbenchSurface({
                     {threadRuntimeNotice.message}
                   </InlineNotice>
                 ) : null}
-                <TurnTimeline onRetryServerRequest={onRetryServerRequest} turns={displayedTurns} />
+                {hasMoreTurnsBefore ? (
+                  <div className="conversation-history-window">
+                    <button
+                      className="conversation-history-window__button"
+                      disabled={isLoadingOlderTurns}
+                      onClick={onLoadOlderTurns}
+                      type="button"
+                    >
+                      {isLoadingOlderTurns
+                        ? i18n._({
+                            id: 'Loading earlier turns…',
+                            message: 'Loading earlier turns…',
+                          })
+                        : hiddenTurnsCount > 0
+                          ? i18n._({
+                              id: 'Load {count} earlier turns',
+                              message: 'Load {count} earlier turns',
+                              values: { count: hiddenTurnsCount },
+                            })
+                          : i18n._({
+                              id: 'Load earlier turns',
+                              message: 'Load earlier turns',
+                            })}
+                    </button>
+                  </div>
+                ) : null}
+                <TurnTimeline
+                  onRetryServerRequest={onRetryServerRequest}
+                  scrollViewportRef={threadViewportRef}
+                  timelineIdentity={timelineIdentity}
+                  turns={displayedTurns}
+                />
                 {isWaitingForThreadData ? (
                   <div
                     aria-live="polite"

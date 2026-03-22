@@ -84,7 +84,10 @@ export function ThreadWorkbenchRailWorkbenchToolsSection({
           </div>
           <form className="form-stack" onSubmit={onStartCommand}>
             <div
-              aria-label="Command execution mode"
+              aria-label={i18n._({
+                id: 'Command execution mode',
+                message: 'Command execution mode',
+              })}
               className="composer-control-group composer-control-group--active"
               role="group"
             >

@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useSettingsLocalStore } from '../../features/settings/local-store'
+import { useDocumentVisibility } from '../../hooks/useDocumentVisibility'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
 import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
@@ -8,6 +9,7 @@ import { useUIStore } from '../../stores/ui-store'
 
 export function useThreadPageControllerStoreState(workspaceId: string) {
   const queryClient = useQueryClient()
+  const isDocumentVisible = useDocumentVisibility()
   const isMobileViewport = useMediaQuery('(max-width: 900px)')
 
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
@@ -17,7 +19,6 @@ export function useThreadPageControllerStoreState(workspaceId: string) {
   const clearCompletedCommandSessions = useSessionStore(
     (state) => state.clearCompletedCommandSessions,
   )
-  const allThreadEvents = useSessionStore((state) => state.eventsByThread)
   const selectedThreadId = useSessionStore((state) =>
     getSelectedThreadIdForWorkspace(state, workspaceId),
   )
@@ -34,10 +35,10 @@ export function useThreadPageControllerStoreState(workspaceId: string) {
   const reuseBranches = useSettingsLocalStore((state) => state.reuseBranches)
 
   return {
-    allThreadEvents,
     autoPruneDays,
     clearCompletedCommandSessions,
     customInstructions,
+    isDocumentVisible,
     isMobileViewport,
     maxWorktrees,
     mobileThreadToolsOpen,

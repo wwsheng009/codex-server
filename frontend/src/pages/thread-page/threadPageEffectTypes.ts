@@ -15,6 +15,7 @@ export type ThreadPageEffectsInput = {
   contextCompactionFeedback: ContextCompactionFeedback | null
   currentThreads: Array<{ id: string }>
   isHeaderSyncBusy: boolean
+  isDocumentVisible: boolean
   isMobileViewport: boolean
   isMobileWorkbenchOverlayOpen: boolean
   isThreadProcessing: boolean
@@ -77,6 +78,7 @@ export type ThreadPageLifecycleEffectsInput = Pick<
 export type ThreadPageRefreshEffectsInput = Pick<
   ThreadPageEffectsInput,
   | 'contextCompactionFeedback'
+  | 'isDocumentVisible'
   | 'queryClient'
   | 'selectedThreadEvents'
   | 'selectedThreadId'

@@ -11,17 +11,21 @@ export function useThreadPageData({
   activeComposerMatchMode,
   activeComposerPanel,
   hasPendingTurn,
+  isDocumentVisible,
   normalizedDeferredComposerQuery,
   selectedThreadId,
   streamState,
+  threadTurnWindowSize,
   workspaceId,
 }: {
   activeComposerMatchMode?: 'command' | 'mention' | 'skill'
   activeComposerPanel: ComposerAssistPanel | null
   hasPendingTurn: boolean
+  isDocumentVisible: boolean
   normalizedDeferredComposerQuery: string
   selectedThreadId?: string
   streamState: string
+  threadTurnWindowSize: number
   workspaceId: string
 }) {
   const {
@@ -40,8 +44,10 @@ export function useThreadPageData({
     composerFileSearchQuery:
       activeComposerMatchMode === 'mention' ? normalizedDeferredComposerQuery : '',
     hasPendingTurn,
+    isDocumentVisible,
     selectedThreadId,
     streamState,
+    turnLimit: threadTurnWindowSize,
     workspaceId,
   })
 
@@ -58,6 +64,7 @@ export function useThreadPageData({
     workspaceActivityEvents,
     workspaceEvents,
   } = useThreadPageSessionState({
+    isDocumentVisible,
     selectedThreadId,
     threadDetail: threadDetailQuery.data,
     workspaceId,

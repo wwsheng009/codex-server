@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+
 import { useThreadPageComposerPanelState } from './useThreadPageComposerPanelState'
 import { useThreadPageData } from './useThreadPageData'
 import { useThreadPageDisplayState } from './useThreadPageDisplayState'
@@ -19,9 +21,11 @@ export function useThreadPageControllerData(
     hasPendingTurn: Boolean(
       controllerState.pendingTurnsByThread[controllerState.selectedThreadId ?? ''],
     ),
+    isDocumentVisible: controllerState.isDocumentVisible,
     normalizedDeferredComposerQuery: controllerState.normalizedDeferredComposerQuery,
     selectedThreadId: controllerState.selectedThreadId,
     streamState: controllerState.streamState,
+    threadTurnWindowSize: controllerState.threadTurnWindowSize,
     workspaceId: controllerState.workspaceId,
   })
 
@@ -78,6 +82,7 @@ export function useThreadPageControllerData(
     approvals: dataState.approvalsQuery.data ?? [],
     commandSessions: dataState.commandSessions,
     contextCompactionFeedback: controllerState.contextCompactionFeedback,
+    historicalTurns: controllerState.historicalTurns,
     liveThreadDetail: dataState.liveThreadDetail,
     loadedThreadIds: dataState.loadedThreadsQuery.data,
     selectedProcessId: controllerState.selectedProcessId,
@@ -86,6 +91,7 @@ export function useThreadPageControllerData(
     selectedThreadId: controllerState.selectedThreadId,
     selectedThreadTokenUsage: dataState.selectedThreadTokenUsage,
     setContextCompactionFeedback: controllerState.setContextCompactionFeedback,
+    surfacePanelView: controllerState.surfacePanelView,
     workspaceEvents: dataState.workspaceEvents,
     workspaceId: controllerState.workspaceId,
   })
@@ -98,6 +104,33 @@ export function useThreadPageControllerData(
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
   })
 
+  useEffect(() => {
+    if (!controllerState.historicalTurns.length) {
+      return
+    }
+
+    const latestTurnCount =
+      dataState.liveThreadDetail?.turnCount ??
+      dataState.threadDetailQuery.data?.turnCount ??
+      0
+    const latestWindowTurnCount = dataState.liveThreadDetail?.turns.length ?? 0
+
+    if (
+      latestTurnCount > 0 &&
+      latestTurnCount < controllerState.historicalTurns.length + latestWindowTurnCount
+    ) {
+      controllerState.setHistoricalTurns([])
+      controllerState.setHasMoreHistoricalTurnsBefore(null)
+    }
+  }, [
+    controllerState.historicalTurns.length,
+    controllerState.setHasMoreHistoricalTurnsBefore,
+    controllerState.setHistoricalTurns,
+    dataState.liveThreadDetail?.turnCount,
+    dataState.liveThreadDetail?.turns.length,
+    dataState.threadDetailQuery.data?.turnCount,
+  ])
+
   const statusState = useThreadPageStatusState({
     account: dataState.accountQuery.data,
     accountError: dataState.accountQuery.error,
@@ -109,6 +142,7 @@ export function useThreadPageControllerData(
     commandSessions: dataState.commandSessions,
     displayedTurnsLength: displayState.displayedTurns.length,
     hasUnreadThreadUpdates: viewportState.hasUnreadThreadUpdates,
+    isDocumentVisible: controllerState.isDocumentVisible,
     interruptPending: mutationState.interruptTurnMutation.isPending,
     isInspectorExpanded: controllerState.isInspectorExpanded,
     isMobileViewport: controllerState.isMobileViewport,
