@@ -28,6 +28,8 @@ export function buildThreadPageRailLayoutProps(
     liveThreadCwd: input.liveThreadCwd,
     pendingApprovalsCount: input.pendingApprovalsCount,
     rootPath: input.rootPath,
+    runtimeStartedAt: input.runtimeStartedAt,
+    runtimeUpdatedAt: input.runtimeUpdatedAt,
     selectedThread: input.selectedThread,
     shellEnvironmentInfo: input.shellEnvironmentInfo,
     shellEnvironmentSummary: input.shellEnvironmentSummary,

@@ -159,6 +159,8 @@ export type ControllerRailLayoutInput = Pick<
   | 'onToggleWorkbenchToolsExpanded'
   | 'pendingApprovalsCount'
   | 'rootPath'
+  | 'runtimeStartedAt'
+  | 'runtimeUpdatedAt'
   | 'selectedThread'
   | 'shellEnvironmentInfo'
   | 'shellEnvironmentSummary'

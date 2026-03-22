@@ -135,6 +135,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/", server.handleListWorkspaces)
 			r.Post("/", server.handleCreateWorkspace)
 			r.Get("/{workspaceId}", server.handleGetWorkspace)
+			r.Get("/{workspaceId}/runtime-state", server.handleGetWorkspaceRuntimeState)
 			r.Post("/{workspaceId}/name", server.handleRenameWorkspace)
 			r.Post("/{workspaceId}/restart", server.handleRestartWorkspace)
 			r.Delete("/{workspaceId}", server.handleDeleteWorkspace)
@@ -360,6 +361,18 @@ func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, workspace)
+}
+
+func (s *Server) handleGetWorkspaceRuntimeState(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	state, err := s.workspaces.RuntimeState(workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, state)
 }
 
 func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {

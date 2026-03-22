@@ -18,7 +18,7 @@ import {
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
 import { readConfig, readRuntimePreferences, writeConfigValue } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
-import { restartWorkspace } from '../../features/workspaces/api'
+import { getWorkspaceRuntimeState, restartWorkspace } from '../../features/workspaces/api'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 
@@ -52,6 +52,11 @@ export function EnvironmentSettingsPage() {
     enabled: Boolean(workspaceId),
     queryFn: () => readConfig(workspaceId!, { includeLayers: true }),
   })
+  const workspaceRuntimeStateQuery = useQuery({
+    queryKey: ['environment-runtime-state', workspaceId],
+    enabled: Boolean(workspaceId),
+    queryFn: () => getWorkspaceRuntimeState(workspaceId!),
+  })
   const restartWorkspaceMutation = useMutation({
     mutationFn: (selectedId: string) => restartWorkspace(selectedId),
     onSuccess: async (_, selectedId) => {
@@ -60,6 +65,7 @@ export function EnvironmentSettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
         queryClient.invalidateQueries({ queryKey: ['workspace', selectedId] }),
         queryClient.invalidateQueries({ queryKey: ['environment-config', selectedId] }),
+        queryClient.invalidateQueries({ queryKey: ['environment-runtime-state', selectedId] }),
       ])
     },
   })
@@ -295,6 +301,17 @@ export function EnvironmentSettingsPage() {
                     'Changing shell_environment_policy affects new child processes. Restart the workspace runtime to force app-server to reload Codex config.',
                 })}
               </p>
+              {workspaceRuntimeStateQuery.data ? (
+                <SettingsJsonPreview
+                  collapsible={false}
+                  description={i18n._({
+                    id: 'Observed runtime process state for the selected workspace.',
+                    message: 'Observed runtime process state for the selected workspace.',
+                  })}
+                  title={i18n._({ id: 'Runtime State', message: 'Runtime State' })}
+                  value={workspaceRuntimeStateQuery.data}
+                />
+              ) : null}
             </div>
           </SettingRow>
 

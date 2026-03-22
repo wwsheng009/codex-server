@@ -22,10 +22,12 @@ export type ThreadWorkbenchRailProps = {
   liveThreadCwd?: string
   pendingApprovalsCount: number
   rootPath?: string
+  runtimeStartedAt?: string
+  runtimeUpdatedAt?: string
   selectedThread?: Thread
-  shellEnvironmentInfo: string
-  shellEnvironmentWarning: string
-  shellEnvironmentSummary: ShellEnvironmentDiagnosisSummary
+  shellEnvironmentInfo?: string
+  shellEnvironmentWarning?: string
+  shellEnvironmentSummary?: ShellEnvironmentDiagnosisSummary
   startCommandModeDisabled: boolean
   startCommandPending: boolean
   streamState: string

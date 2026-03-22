@@ -1,5 +1,5 @@
 import { apiRequest } from '../../lib/api-client'
-import type { Workspace } from '../../types/api'
+import type { Workspace, WorkspaceRuntimeState } from '../../types/api'
 
 export function listWorkspaces() {
   return apiRequest<Workspace[]>('/api/workspaces')
@@ -7,6 +7,10 @@ export function listWorkspaces() {
 
 export function getWorkspace(workspaceId: string) {
   return apiRequest<Workspace>(`/api/workspaces/${workspaceId}`)
+}
+
+export function getWorkspaceRuntimeState(workspaceId: string) {
+  return apiRequest<WorkspaceRuntimeState>(`/api/workspaces/${workspaceId}/runtime-state`)
 }
 
 export function createWorkspace(input: { name: string; rootPath: string }) {

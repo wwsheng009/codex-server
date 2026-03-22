@@ -2097,13 +2097,17 @@
 }
 
 .input-with-action {
+  position: relative;
   display: flex;
-  gap: 8px;
-  align-items: center;
+  flex-direction: column;
+  width: 100%;
 }
 
-.input-with-action input {
-  flex: 1;
+.input-action-floating {
+  position: absolute;
+  right: 8px;
+  top: 36px;
+  z-index: 10;
 }
 
 .field-group {

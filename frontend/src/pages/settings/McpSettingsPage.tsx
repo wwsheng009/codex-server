@@ -12,6 +12,7 @@ import { InlineNotice } from '../../components/ui/InlineNotice'
 import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import { mcpOauthLogin } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
+import { Input } from '../../components/ui/Input'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 
@@ -74,18 +75,21 @@ export function McpSettingsPage() {
                 }
               }}
             >
-              <label className="field">
-                <span>{i18n._({ id: 'Server Name', message: 'Server Name' })}</span>
-                <input onChange={(event) => setServerName(event.target.value)} value={serverName} />
-              </label>
-              <label className="field">
-                <span>{i18n._({ id: 'Scopes', message: 'Scopes' })}</span>
-                <input onChange={(event) => setScopes(event.target.value)} value={scopes} />
-              </label>
-              <label className="field">
-                <span>{i18n._({ id: 'Timeout Seconds', message: 'Timeout Seconds' })}</span>
-                <input onChange={(event) => setTimeoutSecs(event.target.value)} value={timeoutSecs} />
-              </label>
+              <Input
+                label={i18n._({ id: 'Server Name', message: 'Server Name' })}
+                onChange={(event) => setServerName(event.target.value)}
+                value={serverName}
+              />
+              <Input
+                label={i18n._({ id: 'Scopes', message: 'Scopes' })}
+                onChange={(event) => setScopes(event.target.value)}
+                value={scopes}
+              />
+              <Input
+                label={i18n._({ id: 'Timeout Seconds', message: 'Timeout Seconds' })}
+                onChange={(event) => setTimeoutSecs(event.target.value)}
+                value={timeoutSecs}
+              />
               <div className="setting-row__actions">
                 <button className="ide-button" disabled={!workspaceId || !serverName.trim()} type="submit">
                   {mcpOauthMutation.isPending

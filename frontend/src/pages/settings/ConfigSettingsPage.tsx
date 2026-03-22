@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 
 import {
   SettingsJsonPreview,
@@ -19,13 +19,14 @@ import {
   writeRuntimePreferences,
 } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
+import { Input } from '../../components/ui/Input'
+import { TextArea } from '../../components/ui/TextArea'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import { SelectControl } from '../../components/ui/SelectControl'
 import { activateStoredTab, Tabs } from '../../components/ui/Tabs'
 import { useUIStore } from '../../stores/ui-store'
 import { ContextIcon, FeedIcon, RefreshIcon, SettingsIcon, SparkIcon, TerminalIcon } from '../../components/ui/RailControls'
-import { Tooltip } from '../../components/ui/Tooltip'
 
 export function ConfigSettingsPage() {
   const queryClient = useQueryClient()
@@ -301,6 +302,8 @@ export function ConfigSettingsPage() {
   }, [configQuery.data])
 
   const configLayerCount = Array.isArray(configQuery.data?.layers) ? configQuery.data.layers.length : 0
+  const shellTypeOptions = getShellTypeOptions()
+  const approvalPolicyOptions = getApprovalPolicyOptions()
   const runtimeSummary = {
     catalogBound: Boolean(runtimePreferencesQuery.data?.effectiveModelCatalogPath),
     defaultShellType:
@@ -477,58 +480,43 @@ export function ConfigSettingsPage() {
                 </div>
 
                 <div className="form-stack">
-                  <div className="field-group">
-                    <label className="field">
-                      <span>
-                        {i18n._({ id: 'Model Catalog Path', message: 'Model Catalog Path' })}
-                        <FieldHint
-                          label={i18n._({
-                            id: 'Explain model catalog path',
-                            message: 'Explain model catalog path',
-                          })}
-                          text={i18n._({
-                            id: 'Path to the full model catalog JSON file. codex-server uses this file as the source when it needs to rewrite shell_type metadata.',
-                            message:
-                              'Path to the full model catalog JSON file. codex-server uses this file as the source when it needs to rewrite shell_type metadata.',
-                          })}
-                        />
-                      </span>
+                  <p className="config-inline-note">
+                    {i18n._({
+                      id: 'Path to the full model catalog JSON file. codex-server uses this file as the source when it needs to rewrite shell_type metadata.',
+                      message:
+                        'Path to the full model catalog JSON file. codex-server uses this file as the source when it needs to rewrite shell_type metadata.',
+                    })}
+                  </p>
+
+                  <div className="form-row" style={{ gridTemplateColumns: '1fr 200px' }}>
+                    <div className="field-group">
                       <div className="input-with-action">
-                        <input
-                          onChange={(event) => setModelCatalogPath(event.target.value)}
+                        <Input
+                          label={i18n._({ id: 'Catalog Path', message: 'Catalog Path' })}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) => setModelCatalogPath(event.target.value)}
                           placeholder={
                             runtimePreferencesQuery.data?.defaultModelCatalogPath ||
                             'E:/path/to/models.json'
                           }
                           value={modelCatalogPath}
                         />
-                        <button
-                          className="ide-button ide-button--secondary ide-button--sm"
-                          onClick={() => importModelCatalogMutation.mutate()}
-                          type="button"
-                        >
-                          {i18n._({ id: 'Template', message: 'Template' })}
-                        </button>
+                        <div className="input-action-floating">
+                          <button
+                            className="ide-button ide-button--secondary ide-button--sm"
+                            onClick={() => importModelCatalogMutation.mutate()}
+                            type="button"
+                            title={i18n._({ id: 'Load template', message: 'Load template' })}
+                          >
+                            {i18n._({ id: 'Template', message: 'Template' })}
+                          </button>
+                        </div>
                       </div>
-                    </label>
-                  </div>
+                    </div>
 
-                  <div className="form-row">
-                    <label className="field">
-                      <span>
-                        {i18n._({ id: 'Default Shell Type', message: 'Default Shell Type' })}
-                        <FieldHint
-                          label={i18n._({
-                            id: 'Explain default shell type',
-                            message: 'Explain default shell type',
-                          })}
-                          text={i18n._({
-                            id: 'Applies one shell type to the catalog unless a model-specific override replaces it.',
-                            message:
-                              'Applies one shell type to the catalog unless a model-specific override replaces it.',
-                          })}
-                        />
-                      </span>
+                    <div className="field">
+                      <label className="field-label">
+                        {i18n._({ id: 'Shell Type', message: 'Shell Type' })}
+                      </label>
                       <SelectControl
                         ariaLabel={i18n._({
                           id: 'Default shell type',
@@ -539,36 +527,25 @@ export function ConfigSettingsPage() {
                         options={shellTypeOptions}
                         value={defaultShellType}
                       />
-                    </label>
+                    </div>
                   </div>
 
                   <p className="config-inline-note">
                     {i18n._({
-                      id: 'Reset Shell Overrides clears the service-level shell override while keeping the configured catalog path.',
+                      id: 'Default policies for automated turns and manual command execution. Leave blank to follow runtime defaults.',
                       message:
-                        'Reset Shell Overrides clears the service-level shell override while keeping the configured catalog path.',
+                        'Default policies for automated turns and manual command execution. Leave blank to follow runtime defaults.',
                     })}
                   </p>
 
-                  <div className="form-row">
-                    <label className="field">
-                      <span>
+                  <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <div className="field">
+                      <label className="field-label">
                         {i18n._({
-                          id: 'Default Turn Approval Policy',
-                          message: 'Default Turn Approval Policy',
+                          id: 'Approval Policy',
+                          message: 'Approval Policy',
                         })}
-                        <FieldHint
-                          label={i18n._({
-                            id: 'Explain turn approval policy',
-                            message: 'Explain turn approval policy',
-                          })}
-                          text={i18n._({
-                            id: "Optional default approval policy applied to turn/start. Leave blank to follow the runtime's own configuration.",
-                            message:
-                              "Optional default approval policy applied to turn/start. Leave blank to follow the runtime's own configuration.",
-                          })}
-                        />
-                      </span>
+                      </label>
                       <SelectControl
                         ariaLabel={i18n._({
                           id: 'Default turn approval policy',
@@ -579,89 +556,49 @@ export function ConfigSettingsPage() {
                         options={approvalPolicyOptions}
                         value={defaultTurnApprovalPolicy}
                       />
-                    </label>
+                    </div>
                   </div>
 
-                  <label className="field">
-                    <span>
-                      {i18n._({
-                        id: 'Default Turn Sandbox Policy (JSON)',
-                        message: 'Default Turn Sandbox Policy (JSON)',
+                  <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <TextArea
+                      label={i18n._({
+                        id: 'Turn Sandbox (JSON)',
+                        message: 'Turn Sandbox (JSON)',
                       })}
-                      <FieldHint
-                        label={i18n._({
-                          id: 'Explain turn sandbox policy',
-                          message: 'Explain turn sandbox policy',
-                        })}
-                        text={i18n._({
-                          id: 'Optional sandboxPolicy override sent with turn/start. Use this instead of relying on shell_type when you need dangerFullAccess or externalSandbox.',
-                          message:
-                            'Optional sandboxPolicy override sent with turn/start. Use this instead of relying on shell_type when you need dangerFullAccess or externalSandbox.',
-                        })}
-                      />
-                    </span>
-                    <textarea
-                      className="ide-textarea"
-                      onChange={(event) => setDefaultTurnSandboxPolicyInput(event.target.value)}
+                      onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                        setDefaultTurnSandboxPolicyInput(event.target.value)
+                      }
                       placeholder='{"type":"dangerFullAccess"}'
                       rows={4}
                       value={defaultTurnSandboxPolicyInput}
                     />
-                  </label>
 
-                  <label className="field">
-                    <span>
-                      {i18n._({
-                        id: 'Default Command Sandbox Policy (JSON)',
-                        message: 'Default Command Sandbox Policy (JSON)',
+                    <TextArea
+                      label={i18n._({
+                        id: 'Command Sandbox (JSON)',
+                        message: 'Command Sandbox (JSON)',
                       })}
-                      <FieldHint
-                        label={i18n._({
-                          id: 'Explain command sandbox policy',
-                          message: 'Explain command sandbox policy',
-                        })}
-                        text={i18n._({
-                          id: "Optional sandboxPolicy override sent with command/exec. Leave blank to keep codex-server's current default.",
-                          message:
-                            "Optional sandboxPolicy override sent with command/exec. Leave blank to keep codex-server's current default.",
-                        })}
-                      />
-                    </span>
-                    <textarea
-                      className="ide-textarea"
-                      onChange={(event) => setDefaultCommandSandboxPolicyInput(event.target.value)}
+                      onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                        setDefaultCommandSandboxPolicyInput(event.target.value)
+                      }
                       placeholder='{"type":"dangerFullAccess"}'
                       rows={4}
                       value={defaultCommandSandboxPolicyInput}
                     />
-                  </label>
+                  </div>
 
-                  <label className="field">
-                    <span>
-                      {i18n._({
-                        id: 'Model Shell Type Overrides (JSON)',
-                        message: 'Model Shell Type Overrides (JSON)',
-                      })}
-                      <FieldHint
-                        label={i18n._({
-                          id: 'Explain model shell type overrides',
-                          message: 'Explain model shell type overrides',
-                        })}
-                        text={i18n._({
-                          id: 'Optional JSON object for model-specific exceptions. Keys are model ids or slugs and values are shell types such as local, shell_command, unified_exec, default, or disabled.',
-                          message:
-                            'Optional JSON object for model-specific exceptions. Keys are model ids or slugs and values are shell types such as local, shell_command, unified_exec, default, or disabled.',
-                        })}
-                      />
-                    </span>
-                    <textarea
-                      className="ide-textarea"
-                      onChange={(event) => setModelShellTypeOverridesInput(event.target.value)}
-                      placeholder="{}"
-                      rows={5}
-                      value={modelShellTypeOverridesInput}
-                    />
-                  </label>
+                  <TextArea
+                    label={i18n._({
+                      id: 'Model Shell Type Overrides (JSON)',
+                      message: 'Model Shell Type Overrides (JSON)',
+                    })}
+                    onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                      setModelShellTypeOverridesInput(event.target.value)
+                    }
+                    placeholder="{}"
+                    rows={4}
+                    value={modelShellTypeOverridesInput}
+                  />
                 </div>
               </form>
 
@@ -832,29 +769,18 @@ export function ConfigSettingsPage() {
                         'On Windows, `inherit = "core"` can break command resolution unless you also restore variables like `PATHEXT`, `SystemRoot`, and `ComSpec`.',
                     })}
                   </p>
-                  <label className="field">
-                    <span>
-                      shell_environment_policy (JSON)
-                      <FieldHint
-                        label={i18n._({
-                          id: 'Explain shell environment policy',
-                          message: 'Explain shell environment policy',
-                        })}
-                        text={i18n._({
-                          id: 'Writes the shell_environment_policy object into Codex config.toml. Use inherit=all for safest compatibility, or inherit=core with explicit Windows variables when minimizing inherited environment.',
-                          message:
-                            'Writes the shell_environment_policy object into Codex config.toml. Use inherit=all for safest compatibility, or inherit=core with explicit Windows variables when minimizing inherited environment.',
-                        })}
-                      />
-                    </span>
-                    <textarea
-                      className="ide-textarea"
-                      onChange={(event) => setShellEnvironmentPolicyInput(event.target.value)}
-                      placeholder='{"inherit":"all"}'
-                      rows={8}
-                      value={shellEnvironmentPolicyInput}
-                    />
-                  </label>
+                  <TextArea
+                    label={i18n._({
+                      id: 'Policy (JSON)',
+                      message: 'Policy (JSON)',
+                    })}
+                    onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                      setShellEnvironmentPolicyInput(event.target.value)
+                    }
+                    placeholder='{"inherit":"all"}'
+                    rows={8}
+                    value={shellEnvironmentPolicyInput}
+                  />
                 </div>
               </form>
 
@@ -990,19 +916,17 @@ export function ConfigSettingsPage() {
                   </button>
                 </div>
                 <div className="form-stack">
-                  <label className="field">
-                    <span>{i18n._({ id: 'Key Path', message: 'Key Path' })}</span>
-                    <input onChange={(event) => setConfigKeyPath(event.target.value)} value={configKeyPath} />
-                  </label>
-                  <label className="field">
-                    <span>{i18n._({ id: 'Value (JSON)', message: 'Value (JSON)' })}</span>
-                    <textarea
-                      className="ide-textarea"
-                      onChange={(event) => setConfigValue(event.target.value)}
-                      rows={4}
-                      value={configValue}
-                    />
-                  </label>
+                  <Input
+                    label={i18n._({ id: 'Key Path', message: 'Key Path' })}
+                    onChange={(event) => setConfigKeyPath(event.target.value)}
+                    value={configKeyPath}
+                  />
+                  <TextArea
+                    label={i18n._({ id: 'Value (JSON)', message: 'Value (JSON)' })}
+                    onChange={(event) => setConfigValue(event.target.value)}
+                    rows={4}
+                    value={configValue}
+                  />
                 </div>
               </form>
 
@@ -1175,7 +1099,7 @@ export function ConfigSettingsPage() {
                 </summary>
                 <div className="config-helper-grid config-helper-grid--compact">
                   <article className="config-helper-card">
-                    <strong>1. Scan</strong>
+                    <strong>{i18n._({ id: '1. Scan', message: '1. Scan' })}</strong>
                     <p>
                       {i18n._({
                         id: 'Detect artifacts in home & local scopes.',
@@ -1184,7 +1108,7 @@ export function ConfigSettingsPage() {
                     </p>
                   </article>
                   <article className="config-helper-card">
-                    <strong>2. Review</strong>
+                    <strong>{i18n._({ id: '2. Review', message: '2. Review' })}</strong>
                     <p>
                       {i18n._({
                         id: 'Verify detected items in the side panel.',
@@ -1193,7 +1117,7 @@ export function ConfigSettingsPage() {
                     </p>
                   </article>
                   <article className="config-helper-card">
-                    <strong>3. Import</strong>
+                    <strong>{i18n._({ id: '3. Import', message: '3. Import' })}</strong>
                     <p>
                       {i18n._({
                         id: 'Merge items into active workspace.',
@@ -1236,7 +1160,7 @@ export function ConfigSettingsPage() {
                       content: (
                         <div className="config-helper-grid config-helper-grid--compact">
                           <article className="config-helper-card">
-                            <strong>1. Scan</strong>
+                            <strong>{i18n._({ id: '1. Scan', message: '1. Scan' })}</strong>
                             <p>
                               {i18n._({
                                 id: 'Discover candidate artifacts from local and home scopes.',
@@ -1245,7 +1169,7 @@ export function ConfigSettingsPage() {
                             </p>
                           </article>
                           <article className="config-helper-card">
-                            <strong>2. Review</strong>
+                            <strong>{i18n._({ id: '2. Review', message: '2. Review' })}</strong>
                             <p>
                               {i18n._({
                                 id: 'Inspect the detected payload before you import it.',
@@ -1254,7 +1178,7 @@ export function ConfigSettingsPage() {
                             </p>
                           </article>
                           <article className="config-helper-card">
-                            <strong>3. Import</strong>
+                            <strong>{i18n._({ id: '3. Import', message: '3. Import' })}</strong>
                             <p>
                               {i18n._({
                                 id: 'Apply the detected state into the active workspace.',
@@ -1352,22 +1276,72 @@ function parseJsonInput(value: string) {
   }
 }
 
-const shellTypeOptions = [
-  { value: '', label: 'Follow catalog defaults', triggerLabel: '默认' },
-  { value: 'default', label: 'Default', triggerLabel: 'Default' },
-  { value: 'local', label: 'LocalShell', triggerLabel: 'Local' },
-  { value: 'shell_command', label: 'ShellCommand', triggerLabel: 'ShellCmd' },
-  { value: 'unified_exec', label: 'UnifiedExec', triggerLabel: 'Unified' },
-  { value: 'disabled', label: 'Disabled', triggerLabel: 'Off' },
-]
+function getShellTypeOptions() {
+  return [
+    {
+      value: '',
+      label: i18n._({
+        id: 'Follow catalog defaults',
+        message: 'Follow catalog defaults',
+      }),
+      triggerLabel: i18n._({ id: 'Default', message: 'Default' }),
+    },
+    { value: 'default', label: 'Default', triggerLabel: 'Default' },
+    {
+      value: 'local',
+      label: 'LocalShell',
+      triggerLabel: i18n._({ id: 'Local', message: 'Local' }),
+    },
+    {
+      value: 'shell_command',
+      label: 'ShellCommand',
+      triggerLabel: i18n._({ id: 'ShellCmd', message: 'ShellCmd' }),
+    },
+    {
+      value: 'unified_exec',
+      label: 'UnifiedExec',
+      triggerLabel: i18n._({ id: 'Unified', message: 'Unified' }),
+    },
+    {
+      value: 'disabled',
+      label: i18n._({ id: 'Disabled', message: 'Disabled' }),
+      triggerLabel: i18n._({ id: 'Off', message: 'Off' }),
+    },
+  ]
+}
 
-const approvalPolicyOptions = [
-  { value: '', label: 'Follow runtime default', triggerLabel: '默认' },
-  { value: 'untrusted', label: 'Untrusted', triggerLabel: 'Untrusted' },
-  { value: 'on-failure', label: 'On Failure', triggerLabel: 'Failure' },
-  { value: 'on-request', label: 'On Request', triggerLabel: 'Request' },
-  { value: 'never', label: 'Never', triggerLabel: 'Never' },
-]
+function getApprovalPolicyOptions() {
+  return [
+    {
+      value: '',
+      label: i18n._({
+        id: 'Follow runtime default',
+        message: 'Follow runtime default',
+      }),
+      triggerLabel: i18n._({ id: 'Default', message: 'Default' }),
+    },
+    {
+      value: 'untrusted',
+      label: i18n._({ id: 'Untrusted', message: 'Untrusted' }),
+      triggerLabel: i18n._({ id: 'Untrusted', message: 'Untrusted' }),
+    },
+    {
+      value: 'on-failure',
+      label: i18n._({ id: 'On Failure', message: 'On Failure' }),
+      triggerLabel: i18n._({ id: 'Failure', message: 'Failure' }),
+    },
+    {
+      value: 'on-request',
+      label: i18n._({ id: 'On Request', message: 'On Request' }),
+      triggerLabel: i18n._({ id: 'Request', message: 'Request' }),
+    },
+    {
+      value: 'never',
+      label: i18n._({ id: 'Never', message: 'Never' }),
+      triggerLabel: i18n._({ id: 'Never', message: 'Never' }),
+    },
+  ]
+}
 
 function parseShellOverridesInput(value: string) {
   const trimmed = value.trim()
@@ -1377,13 +1351,24 @@ function parseShellOverridesInput(value: string) {
 
   const parsed = JSON.parse(trimmed)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Model Shell Type Overrides must be a JSON object')
+    throw new Error(
+      i18n._({
+        id: 'Model Shell Type Overrides must be a JSON object',
+        message: 'Model Shell Type Overrides must be a JSON object',
+      }),
+    )
   }
 
   const normalized: Record<string, string> = {}
   for (const [key, rawValue] of Object.entries(parsed)) {
     if (typeof rawValue !== 'string') {
-      throw new Error(`Model shell override for "${key}" must be a string`)
+      throw new Error(
+        i18n._({
+          id: 'Model shell override for "{key}" must be a string',
+          message: 'Model shell override for "{key}" must be a string',
+          values: { key },
+        }),
+      )
     }
     normalized[key] = rawValue
   }
@@ -1399,7 +1384,12 @@ function parseSandboxPolicyInput(value: string) {
 
   const parsed = JSON.parse(trimmed)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Sandbox Policy must be a JSON object')
+    throw new Error(
+      i18n._({
+        id: 'Sandbox Policy must be a JSON object',
+        message: 'Sandbox Policy must be a JSON object',
+      }),
+    )
   }
 
   return parsed as Record<string, unknown>
@@ -1413,7 +1403,12 @@ function parseShellEnvironmentPolicyInput(value: string) {
 
   const parsed = JSON.parse(trimmed)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('shell_environment_policy must be a JSON object')
+    throw new Error(
+      i18n._({
+        id: 'shell_environment_policy must be a JSON object',
+        message: 'shell_environment_policy must be a JSON object',
+      }),
+    )
   }
 
   return parsed as Record<string, unknown>
@@ -1430,48 +1425,51 @@ function stringifyJsonInput(value: unknown) {
 function formatApprovalPolicyLabel(value?: string | null) {
   switch ((value ?? '').trim()) {
     case 'untrusted':
-      return 'untrusted'
+      return i18n._({ id: 'untrusted', message: 'untrusted' })
     case 'on-failure':
-      return 'on-failure'
+      return i18n._({ id: 'on-failure', message: 'on-failure' })
     case 'on-request':
-      return 'on-request'
+      return i18n._({ id: 'on-request', message: 'on-request' })
     case 'never':
-      return 'never'
+      return i18n._({ id: 'never', message: 'never' })
     default:
-      return 'inherit'
+      return i18n._({ id: 'inherit', message: 'inherit' })
   }
 }
 
 function formatSandboxPolicyLabel(value?: Record<string, unknown> | null) {
   if (!value || typeof value !== 'object') {
-    return 'inherit'
+    return i18n._({ id: 'inherit', message: 'inherit' })
   }
 
   const rawType = typeof value.type === 'string' ? value.type : ''
   if (!rawType) {
-    return 'inherit'
+    return i18n._({ id: 'inherit', message: 'inherit' })
   }
 
   if (rawType === 'externalSandbox' && typeof value.networkAccess === 'string') {
-    return `externalSandbox:${value.networkAccess}`
+    return i18n._({
+      id: 'externalSandbox:{networkAccess}',
+      message: 'externalSandbox:{networkAccess}',
+      values: { networkAccess: value.networkAccess },
+    })
   }
 
   if (
     (rawType === 'workspaceWrite' || rawType === 'readOnly') &&
     typeof value.networkAccess === 'boolean'
   ) {
-    return `${rawType}:${value.networkAccess ? 'network' : 'offline'}`
+    return i18n._({
+      id: '{type}:{mode}',
+      message: '{type}:{mode}',
+      values: {
+        type: rawType,
+        mode: value.networkAccess
+          ? i18n._({ id: 'network', message: 'network' })
+          : i18n._({ id: 'offline', message: 'offline' }),
+      },
+    })
   }
 
   return rawType
-}
-
-function FieldHint({ label, text }: { label: string; text: string }) {
-  return (
-    <Tooltip content={text} position="top" triggerLabel={label}>
-      <span aria-hidden="true" className="field-hint">
-        ?
-      </span>
-    </Tooltip>
-  )
 }

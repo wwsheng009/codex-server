@@ -16,7 +16,10 @@ import {
 } from '../features/catalog/api'
 import { fuzzyFileSearch, uploadFeedback } from '../features/settings/api'
 import { listWorkspaces } from '../features/workspaces/api'
+import { Input } from '../components/ui/Input'
 import { SelectControl } from '../components/ui/SelectControl'
+import { TextArea } from '../components/ui/TextArea'
+import { Switch } from '../components/ui/Switch'
 import { getActiveLocale, i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { InlineNotice } from '../components/ui/InlineNotice'
@@ -421,10 +424,12 @@ export function CatalogPage() {
                   }
                 }}
               >
-                <label className="field">
-                  <span>{i18n._({ id: 'Hazelnut ID', message: 'Hazelnut ID' })}</span>
-                  <input onChange={(event) => setHazelnutId(event.target.value)} value={hazelnutId} />
-                </label>
+              <Input
+                label={i18n._({ id: 'Hazelnut ID', message: 'Hazelnut ID' })}
+                onChange={(event) => setHazelnutId(event.target.value)}
+                value={hazelnutId}
+              />
+              <div className="setting-row__actions" style={{ marginTop: '10px' }}>
                 <button className="ide-button" disabled={!workspaceId || !hazelnutId.trim()} type="submit">
                   {exportRemoteSkillMutation.isPending
                     ? i18n._({
@@ -436,6 +441,7 @@ export function CatalogPage() {
                         message: 'Export skill',
                       })}
                 </button>
+              </div>
                 {exportRemoteSkillMutation.data ? (
                   <pre className="code-block mode-console__output">{JSON.stringify(exportRemoteSkillMutation.data, null, 2)}</pre>
                 ) : null}
@@ -464,15 +470,17 @@ export function CatalogPage() {
                     }
                   }}
                 >
-                  <label className="field">
-                    <span>{i18n._({ id: 'Marketplace path', message: 'Marketplace path' })}</span>
-                    <input onChange={(event) => setMarketplacePath(event.target.value)} value={marketplacePath} />
-                  </label>
-                  <label className="field">
-                    <span>{i18n._({ id: 'Plugin name', message: 'Plugin name' })}</span>
-                    <input onChange={(event) => setPluginName(event.target.value)} value={pluginName} />
-                  </label>
-                  <div className="header-actions">
+                  <Input
+                    label={i18n._({ id: 'Marketplace path', message: 'Marketplace path' })}
+                    onChange={(event) => setMarketplacePath(event.target.value)}
+                    value={marketplacePath}
+                  />
+                  <Input
+                    label={i18n._({ id: 'Plugin name', message: 'Plugin name' })}
+                    onChange={(event) => setPluginName(event.target.value)}
+                    value={pluginName}
+                  />
+                  <div className="header-actions" style={{ marginTop: '10px' }}>
                     <button className="ide-button" disabled={!workspaceId || !marketplacePath.trim() || !pluginName.trim()} type="submit">
                       {readPluginMutation.isPending
                         ? i18n._({
@@ -519,21 +527,24 @@ export function CatalogPage() {
                     }
                   }}
                 >
-                  <label className="field">
-                    <span>{i18n._({ id: 'Plugin ID', message: 'Plugin ID' })}</span>
-                    <input onChange={(event) => setPluginId(event.target.value)} value={pluginId} />
-                  </label>
-                  <button className="ide-button ide-button--secondary" disabled={!workspaceId || !pluginId.trim()} type="submit">
-                    {uninstallPluginMutation.isPending
-                      ? i18n._({
-                          id: 'Uninstalling…',
-                          message: 'Uninstalling…',
-                        })
-                      : i18n._({
-                          id: 'Uninstall',
-                          message: 'Uninstall',
-                        })}
-                  </button>
+                  <Input
+                    label={i18n._({ id: 'Plugin ID', message: 'Plugin ID' })}
+                    onChange={(event) => setPluginId(event.target.value)}
+                    value={pluginId}
+                  />
+                  <div className="setting-row__actions" style={{ marginTop: '10px' }}>
+                    <button className="ide-button ide-button--secondary" disabled={!workspaceId || !pluginId.trim()} type="submit">
+                      {uninstallPluginMutation.isPending
+                        ? i18n._({
+                            id: 'Uninstalling…',
+                            message: 'Uninstalling…',
+                          })
+                        : i18n._({
+                            id: 'Uninstall',
+                            message: 'Uninstall',
+                          })}
+                    </button>
+                  </div>
                   {uninstallPluginMutation.data ? (
                     <pre className="code-block mode-console__output">{JSON.stringify(uninstallPluginMutation.data, null, 2)}</pre>
                   ) : null}
@@ -564,13 +575,16 @@ export function CatalogPage() {
                     }
                   }}
                 >
-                  <label className="field">
-                    <span>{i18n._({ id: 'Fuzzy search query', message: 'Fuzzy search query' })}</span>
-                    <input onChange={(event) => setSearchQuery(event.target.value)} value={searchQuery} />
-                  </label>
-                  <button className="ide-button" disabled={!workspaceId || !searchQuery.trim()} type="submit">
-                    {i18n._({ id: 'Search files', message: 'Search files' })}
-                  </button>
+                  <Input
+                    label={i18n._({ id: 'Fuzzy search query', message: 'Fuzzy search query' })}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    value={searchQuery}
+                  />
+                  <div className="setting-row__actions" style={{ marginTop: '10px' }}>
+                    <button className="ide-button" disabled={!workspaceId || !searchQuery.trim()} type="submit">
+                      {i18n._({ id: 'Search files', message: 'Search files' })}
+                    </button>
+                  </div>
                   {searchMutation.data ? (
                     <pre className="code-block mode-console__output">{JSON.stringify(searchMutation.data.files, null, 2)}</pre>
                   ) : null}
@@ -600,31 +614,30 @@ export function CatalogPage() {
                     }
                   }}
                 >
-                  <label className="field">
-                    <span>
-                      {i18n._({
-                        id: 'Feedback classification',
-                        message: 'Feedback classification',
-                      })}
-                    </span>
-                    <input onChange={(event) => setFeedbackClassification(event.target.value)} value={feedbackClassification} />
-                  </label>
-                  <label className="field">
-                    <span>{i18n._({ id: 'Reason', message: 'Reason' })}</span>
-                    <textarea
-                      className="ide-textarea"
-                      onChange={(event) => setFeedbackReason(event.target.value)}
-                      rows={4}
-                      value={feedbackReason}
-                    />
-                  </label>
-                  <label className="field field--inline">
-                    <span>{i18n._({ id: 'Include logs', message: 'Include logs' })}</span>
-                    <input checked={includeLogs} onChange={(event) => setIncludeLogs(event.target.checked)} type="checkbox" />
-                  </label>
-                  <button className="ide-button ide-button--secondary" disabled={!workspaceId} type="submit">
-                    {i18n._({ id: 'Upload feedback', message: 'Upload feedback' })}
-                  </button>
+                  <Input
+                    label={i18n._({
+                      id: 'Feedback classification',
+                      message: 'Feedback classification',
+                    })}
+                    onChange={(event) => setFeedbackClassification(event.target.value)}
+                    value={feedbackClassification}
+                  />
+                  <TextArea
+                    label={i18n._({ id: 'Reason', message: 'Reason' })}
+                    onChange={(event) => setFeedbackReason(event.target.value)}
+                    rows={4}
+                    value={feedbackReason}
+                  />
+                  <Switch
+                    label={i18n._({ id: 'Include logs', message: 'Include logs' })}
+                    checked={includeLogs}
+                    onChange={(event) => setIncludeLogs(event.target.checked)}
+                  />
+                  <div className="setting-row__actions" style={{ marginTop: '10px' }}>
+                    <button className="ide-button ide-button--secondary" disabled={!workspaceId} type="submit">
+                      {i18n._({ id: 'Upload feedback', message: 'Upload feedback' })}
+                    </button>
+                  </div>
                   {feedbackMutation.data ? (
                     <pre className="code-block mode-console__output">{JSON.stringify(feedbackMutation.data, null, 2)}</pre>
                   ) : null}

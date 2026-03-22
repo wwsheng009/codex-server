@@ -24,6 +24,8 @@ export function ThreadWorkbenchRail({
   liveThreadCwd,
   pendingApprovalsCount,
   rootPath,
+  runtimeStartedAt,
+  runtimeUpdatedAt,
   selectedThread,
   shellEnvironmentInfo,
   shellEnvironmentSummary,
@@ -158,6 +160,8 @@ export function ThreadWorkbenchRail({
         onOpenSurfacePanel={onOpenSurfacePanel}
         pendingApprovalsCount={pendingApprovalsCount}
         rootPath={rootPath}
+        runtimeStartedAt={runtimeStartedAt}
+        runtimeUpdatedAt={runtimeUpdatedAt}
         selectedThread={selectedThread}
         shellEnvironmentInfo={shellEnvironmentInfo}
         shellEnvironmentSummary={shellEnvironmentSummary}

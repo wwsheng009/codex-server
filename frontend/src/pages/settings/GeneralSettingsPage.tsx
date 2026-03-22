@@ -22,6 +22,7 @@ import { formatLocaleDateTime, formatLocaleNumber, formatLocaleTime } from '../.
 import { localeLabels, type AppLocale } from '../../i18n/config'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
+import { Input } from '../../components/ui/Input'
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient()
@@ -214,16 +215,14 @@ export function GeneralSettingsPage() {
                 }
               }}
             >
-              <label className="field">
-                <span>API Key</span>
-                <input
-                  autoComplete="off"
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="sk-..."
-                  type="password"
-                  value={apiKey}
-                />
-              </label>
+              <Input
+                label="API Key"
+                autoComplete="off"
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="sk-..."
+                type="password"
+                value={apiKey}
+              />
               <div className="setting-row__actions">
                 <button className="ide-button" disabled={!apiKey.trim()} type="submit">
                   {loginMutation.isPending ? 'Signing in…' : 'Login with API Key'}

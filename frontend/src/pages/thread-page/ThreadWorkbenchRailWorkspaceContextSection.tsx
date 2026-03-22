@@ -28,6 +28,8 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   onOpenSurfacePanel,
   pendingApprovalsCount,
   rootPath,
+  runtimeStartedAt,
+  runtimeUpdatedAt,
   selectedThread,
   shellEnvironmentInfo,
   shellEnvironmentSummary,
@@ -47,6 +49,8 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   | 'onOpenSurfacePanel'
   | 'pendingApprovalsCount'
   | 'rootPath'
+  | 'runtimeStartedAt'
+  | 'runtimeUpdatedAt'
   | 'selectedThread'
   | 'shellEnvironmentInfo'
   | 'shellEnvironmentSummary'
@@ -58,6 +62,12 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   | 'turnCount'
   | 'workspaceName'
 >) {
+  const effectiveShellEnvironmentSummary = shellEnvironmentSummary ?? {
+    inherit: 'inherit',
+    windowsCommandResolution: 'unknown',
+    missingWindowsVars: [],
+  }
+
   return (
     <div className="pane-section">
       <div className="section-header section-header--inline">
@@ -115,7 +125,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
       </div>
       {shellEnvironmentWarning ? (
         <InlineNotice
-          noticeKey={`thread-shell-environment-warning-${shellEnvironmentSummary.inherit}`}
+          noticeKey={`thread-shell-environment-warning-${effectiveShellEnvironmentSummary.inherit}`}
           title={i18n._({ id: 'Shell Environment Risk', message: 'Shell Environment Risk' })}
           tone="error"
         >
@@ -123,7 +133,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         </InlineNotice>
       ) : (
         <InlineNotice
-          noticeKey={`thread-shell-environment-info-${shellEnvironmentSummary.inherit}`}
+          noticeKey={`thread-shell-environment-info-${effectiveShellEnvironmentSummary.inherit}`}
           title={i18n._({ id: 'Shell Environment', message: 'Shell Environment' })}
         >
           {shellEnvironmentInfo}
@@ -161,16 +171,32 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         />
         <DetailRow label={i18n._({ id: 'Commands', message: 'Commands' })} value={commandCount} />
         <DetailRow
+          label={i18n._({ id: 'Runtime started', message: 'Runtime started' })}
+          value={
+            runtimeStartedAt
+              ? formatRelativeTimeShort(runtimeStartedAt)
+              : i18n._({ id: 'Not started', message: 'Not started' })
+          }
+        />
+        <DetailRow
+          label={i18n._({ id: 'Runtime updated', message: 'Runtime updated' })}
+          value={
+            runtimeUpdatedAt
+              ? formatRelativeTimeShort(runtimeUpdatedAt)
+              : i18n._({ id: 'Unknown', message: 'Unknown' })
+          }
+        />
+        <DetailRow
           label={i18n._({ id: 'Env inherit', message: 'Env inherit' })}
-          value={shellEnvironmentSummary.inherit}
+          value={effectiveShellEnvironmentSummary.inherit}
         />
         <DetailRow
           label={i18n._({ id: 'Cmd resolution', message: 'Cmd resolution' })}
-          value={shellEnvironmentSummary.windowsCommandResolution}
+          value={effectiveShellEnvironmentSummary.windowsCommandResolution}
         />
         <DetailRow
           label={i18n._({ id: 'Missing vars', message: 'Missing vars' })}
-          value={shellEnvironmentSummary.missingWindowsVars.join(', ') || '—'}
+          value={effectiveShellEnvironmentSummary.missingWindowsVars.join(', ') || '—'}
         />
       </div>
       <div className="header-actions" style={{ marginTop: 12 }}>

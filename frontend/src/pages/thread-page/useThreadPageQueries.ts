@@ -5,7 +5,7 @@ import { listPendingApprovals } from '../../features/approvals/api'
 import { listModels, listSkills } from '../../features/catalog/api'
 import { fuzzyFileSearch, readConfig } from '../../features/settings/api'
 import { getThread, listLoadedThreadIds, listThreads } from '../../features/threads/api'
-import { getWorkspace } from '../../features/workspaces/api'
+import { getWorkspace, getWorkspaceRuntimeState } from '../../features/workspaces/api'
 
 export function useThreadPageQueries({
   composerFileSearchQuery,
@@ -24,6 +24,13 @@ export function useThreadPageQueries({
     queryKey: ['workspace', workspaceId],
     queryFn: () => getWorkspace(workspaceId),
     enabled: Boolean(workspaceId),
+  })
+
+  const workspaceRuntimeStateQuery = useQuery({
+    queryKey: ['workspace-runtime-state', workspaceId],
+    queryFn: () => getWorkspaceRuntimeState(workspaceId),
+    enabled: Boolean(workspaceId),
+    staleTime: 10_000,
   })
 
   const accountQuery = useQuery({
@@ -103,6 +110,7 @@ export function useThreadPageQueries({
     skillsQuery,
     threadDetailQuery,
     threadsQuery,
+    workspaceRuntimeStateQuery,
     workspaceQuery,
   }
 }

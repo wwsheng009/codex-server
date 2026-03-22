@@ -107,6 +107,21 @@ func (s *Service) RestartRuntime(ctx context.Context, workspaceID string) (store
 	return workspace, nil
 }
 
+func (s *Service) RuntimeState(workspaceID string) (runtime.State, error) {
+	workspace, ok := s.store.GetWorkspace(workspaceID)
+	if !ok {
+		return runtime.State{}, store.ErrWorkspaceNotFound
+	}
+
+	state := s.runtimes.State(workspaceID)
+	state.WorkspaceID = workspace.ID
+	if strings.TrimSpace(state.RootPath) == "" {
+		state.RootPath = workspace.RootPath
+	}
+
+	return state, nil
+}
+
 func (s *Service) Delete(_ context.Context, workspaceID string) error {
 	if _, ok := s.store.GetWorkspace(workspaceID); !ok {
 		return store.ErrWorkspaceNotFound

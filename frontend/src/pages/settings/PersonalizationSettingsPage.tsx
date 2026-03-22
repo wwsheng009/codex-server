@@ -1,6 +1,7 @@
 import { SettingsGroup, SettingRow, SettingsPageHeader } from '../../components/settings/SettingsPrimitives'
 import { SelectControl } from '../../components/ui/SelectControl'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
+import { TextArea } from '../../components/ui/TextArea'
 import { i18n } from '../../i18n/runtime'
 
 export function PersonalizationSettingsPage() {
@@ -59,24 +60,22 @@ export function PersonalizationSettingsPage() {
               />
             </label>
           </SettingRow>
-
-          <SettingRow
-            description={i18n._({
-              id: 'Add instructions that should appear as your personal preference baseline for future settings-aware workflows.',
-              message:
-                'Add instructions that should appear as your personal preference baseline for future settings-aware workflows.',
-            })}
-            title={i18n._({ id: 'Custom Instructions', message: 'Custom Instructions' })}
-          >
-            <label className="field">
-              <span>{i18n._({ id: 'Instructions', message: 'Instructions' })}</span>
-              <textarea
-                className="ide-textarea ide-textarea--large"
-                onChange={(event) => setCustomInstructions(event.target.value)}
-                value={customInstructions}
-              />
-            </label>
-            <div className="notice">
+<SettingRow
+  description={i18n._({
+    id: 'Add instructions that should appear as your personal preference baseline for future settings-aware workflows.',
+    message:
+      'Add instructions that should appear as your personal preference baseline for future settings-aware workflows.',
+  })}
+  title={i18n._({ id: 'Custom Instructions', message: 'Custom Instructions' })}
+>
+  <TextArea
+    label={i18n._({ id: 'Instructions', message: 'Instructions' })}
+    onChange={(event) => setCustomInstructions(event.target.value)}
+    value={customInstructions}
+    rows={6}
+  />
+  <div className="notice">
+...
               {i18n._({
                 id: 'Saved locally in this client.',
                 message: 'Saved locally in this client.',

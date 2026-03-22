@@ -15,6 +15,16 @@ export type Workspace = {
   updatedAt: string
 }
 
+export type WorkspaceRuntimeState = {
+  workspaceId: string
+  status: string
+  command: string
+  rootPath: string
+  lastError?: string
+  startedAt?: string | null
+  updatedAt: string
+}
+
 export type Automation = {
   id: string
   title: string

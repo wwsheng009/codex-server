@@ -1,5 +1,7 @@
 import { SettingsGroup, SettingRow, SettingsPageHeader } from '../../components/settings/SettingsPrimitives'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
+import { Switch } from '../../components/ui/Switch'
+import { TextArea } from '../../components/ui/TextArea'
 import { i18n } from '../../i18n/runtime'
 
 export function GitSettingsPage() {
@@ -42,15 +44,12 @@ export function GitSettingsPage() {
             })}
             title={i18n._({ id: 'Commit Template', message: 'Commit Template' })}
           >
-            <label className="field">
-              <span>{i18n._({ id: 'Template', message: 'Template' })}</span>
-              <textarea
-                className="ide-textarea"
-                onChange={(event) => setGitCommitTemplate(event.target.value)}
-                rows={6}
-                value={gitCommitTemplate}
-              />
-            </label>
+            <TextArea
+              label={i18n._({ id: 'Template', message: 'Template' })}
+              onChange={(event) => setGitCommitTemplate(event.target.value)}
+              rows={6}
+              value={gitCommitTemplate}
+            />
           </SettingRow>
 
           <SettingRow
@@ -60,15 +59,12 @@ export function GitSettingsPage() {
             })}
             title={i18n._({ id: 'Pull Request Template', message: 'Pull Request Template' })}
           >
-            <label className="field">
-              <span>{i18n._({ id: 'Template', message: 'Template' })}</span>
-              <textarea
-                className="ide-textarea"
-                onChange={(event) => setGitPullRequestTemplate(event.target.value)}
-                rows={8}
-                value={gitPullRequestTemplate}
-              />
-            </label>
+            <TextArea
+              label={i18n._({ id: 'Template', message: 'Template' })}
+              onChange={(event) => setGitPullRequestTemplate(event.target.value)}
+              rows={8}
+              value={gitPullRequestTemplate}
+            />
           </SettingRow>
         </SettingsGroup>
 
@@ -87,14 +83,11 @@ export function GitSettingsPage() {
             })}
             title={i18n._({ id: 'Confirmation', message: 'Confirmation' })}
           >
-            <label className="field field--inline">
-              <span>{i18n._({ id: 'Confirm Git Actions', message: 'Confirm Git Actions' })}</span>
-              <input
-                checked={confirmGitActions}
-                onChange={(event) => setConfirmGitActions(event.target.checked)}
-                type="checkbox"
-              />
-            </label>
+            <Switch
+              label={i18n._({ id: 'Confirm Git Actions', message: 'Confirm Git Actions' })}
+              checked={confirmGitActions}
+              onChange={(event) => setConfirmGitActions(event.target.checked)}
+            />
           </SettingRow>
         </SettingsGroup>
       </div>

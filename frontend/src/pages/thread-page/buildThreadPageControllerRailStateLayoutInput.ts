@@ -20,6 +20,8 @@ type RailStateLayoutInput = Pick<
   | 'liveThreadCwd'
   | 'pendingApprovalsCount'
   | 'rootPath'
+  | 'runtimeStartedAt'
+  | 'runtimeUpdatedAt'
   | 'selectedThread'
   | 'shellEnvironmentInfo'
   | 'shellEnvironmentSummary'
@@ -59,6 +61,11 @@ export function buildThreadPageControllerRailStateLayoutInput({
     liveThreadCwd: dataState.liveThreadDetail?.cwd,
     pendingApprovalsCount: dataState.approvalsQuery.data?.length ?? 0,
     rootPath: dataState.workspaceQuery.data?.rootPath,
+    runtimeStartedAt: dataState.workspaceRuntimeStateQuery.data?.startedAt ?? undefined,
+    runtimeUpdatedAt:
+      dataState.workspaceRuntimeStateQuery.data?.updatedAt ??
+      dataState.workspaceQuery.data?.updatedAt ??
+      '',
     selectedThread: dataState.selectedThread,
     shellEnvironmentInfo: dataState.shellEnvironmentDiagnosis.info,
     shellEnvironmentSummary: dataState.shellEnvironmentDiagnosis.summary,

@@ -10,6 +10,8 @@ import { InlineNotice } from '../components/ui/InlineNotice'
 import { Modal } from '../components/ui/Modal'
 import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
+import { Input } from '../components/ui/Input'
+import { TextArea } from '../components/ui/TextArea'
 import {
   createAutomation,
   createAutomationTemplate,
@@ -677,40 +679,33 @@ export function AutomationsPage() {
             </div>
 
             <div className="form-row">
-              <label className="field">
-                <span>{i18n._({ id: 'Title', message: 'Title' })}</span>
-                <input
-                  onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                  placeholder={i18n._({ id: 'Daily Sync', message: 'Daily Sync' })}
-                  value={draft.title}
-                />
-              </label>
-              <label className="field">
-                <span>{i18n._({ id: 'Description', message: 'Description' })}</span>
-                <input
-                  onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-                  placeholder={i18n._({
-                    id: "Briefly describe the automation's purpose...",
-                    message: "Briefly describe the automation's purpose...",
-                  })}
-                  value={draft.description}
-                />
-              </label>
+              <Input
+                label={i18n._({ id: 'Title', message: 'Title' })}
+                onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+                placeholder={i18n._({ id: 'Daily Sync', message: 'Daily Sync' })}
+                value={draft.title}
+              />
+              <Input
+                label={i18n._({ id: 'Description', message: 'Description' })}
+                onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+                placeholder={i18n._({
+                  id: "Briefly describe the automation's purpose...",
+                  message: "Briefly describe the automation's purpose...",
+                })}
+                value={draft.description}
+              />
             </div>
 
-            <label className="field">
-              <span>{i18n._({ id: 'Prompt', message: 'Prompt' })}</span>
-              <textarea
-                className="ide-textarea"
-                onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
-                placeholder={i18n._({
-                  id: 'What should the assistant do?',
-                  message: 'What should the assistant do?',
-                })}
-                rows={5}
-                value={draft.prompt}
-              />
-            </label>
+            <TextArea
+              label={i18n._({ id: 'Prompt', message: 'Prompt' })}
+              onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
+              placeholder={i18n._({
+                id: 'What should the assistant do?',
+                message: 'What should the assistant do?',
+              })}
+              rows={5}
+              value={draft.prompt}
+            />
 
             <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
               <div className="field">

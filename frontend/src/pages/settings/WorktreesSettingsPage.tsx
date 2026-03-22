@@ -3,6 +3,8 @@ import { useMemo } from 'react'
 import { SettingsGroup, SettingRow, SettingsPageHeader } from '../../components/settings/SettingsPrimitives'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
+import { Input } from '../../components/ui/Input'
+import { Switch } from '../../components/ui/Switch'
 import { i18n } from '../../i18n/runtime'
 
 export function WorktreesSettingsPage() {
@@ -66,14 +68,12 @@ export function WorktreesSettingsPage() {
             })}
             title={i18n._({ id: 'Maximum Worktrees', message: 'Maximum Worktrees' })}
           >
-            <label className="field">
-              <span>{i18n._({ id: 'Max Worktrees', message: 'Max Worktrees' })}</span>
-              <input
-                onChange={(event) => setMaxWorktrees(Number.parseInt(event.target.value || '0', 10) || 0)}
-                type="number"
-                value={maxWorktrees}
-              />
-            </label>
+            <Input
+              label={i18n._({ id: 'Max Worktrees', message: 'Max Worktrees' })}
+              onChange={(event) => setMaxWorktrees(Number.parseInt(event.target.value || '0', 10) || 0)}
+              type="number"
+              value={maxWorktrees}
+            />
           </SettingRow>
 
           <SettingRow
@@ -83,22 +83,17 @@ export function WorktreesSettingsPage() {
             })}
             title={i18n._({ id: 'Cleanup', message: 'Cleanup' })}
           >
-            <label className="field">
-              <span>{i18n._({ id: 'Auto Prune Days', message: 'Auto Prune Days' })}</span>
-              <input
-                onChange={(event) => setAutoPruneDays(Number.parseInt(event.target.value || '0', 10) || 0)}
-                type="number"
-                value={autoPruneDays}
-              />
-            </label>
-            <label className="field field--inline">
-              <span>{i18n._({ id: 'Reuse Branches', message: 'Reuse Branches' })}</span>
-              <input
-                checked={reuseBranches}
-                onChange={(event) => setReuseBranches(event.target.checked)}
-                type="checkbox"
-              />
-            </label>
+            <Input
+              label={i18n._({ id: 'Auto Prune Days', message: 'Auto Prune Days' })}
+              onChange={(event) => setAutoPruneDays(Number.parseInt(event.target.value || '0', 10) || 0)}
+              type="number"
+              value={autoPruneDays}
+            />
+            <Switch
+              label={i18n._({ id: 'Reuse Branches', message: 'Reuse Branches' })}
+              checked={reuseBranches}
+              onChange={(event) => setReuseBranches(event.target.checked)}
+            />
           </SettingRow>
         </SettingsGroup>
 

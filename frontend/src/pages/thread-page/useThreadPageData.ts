@@ -34,6 +34,7 @@ export function useThreadPageData({
     skillsQuery,
     threadDetailQuery,
     threadsQuery,
+    workspaceRuntimeStateQuery,
     workspaceQuery,
   } = useThreadPageQueries({
     composerFileSearchQuery:
@@ -104,6 +105,7 @@ export function useThreadPageData({
     skillsQuery,
     threadDetailQuery,
     threadsQuery,
+    workspaceRuntimeStateQuery,
     workspaceActivityEvents,
     workspaceEvents,
     workspaceQuery,
