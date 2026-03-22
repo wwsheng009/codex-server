@@ -186,6 +186,24 @@ func (s *MemoryStore) SetWorkspaceName(workspaceID string, name string) (Workspa
 	return workspace, nil
 }
 
+func (s *MemoryStore) SetWorkspaceRuntimeConfigChangedAt(workspaceID string, changedAt time.Time) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[workspaceID]
+	if !ok {
+		return Workspace{}, ErrWorkspaceNotFound
+	}
+
+	changedAt = changedAt.UTC()
+	workspace.RuntimeConfigChangedAt = &changedAt
+	workspace.UpdatedAt = time.Now().UTC()
+	s.workspaces[workspaceID] = workspace
+	s.persistLocked()
+
+	return workspace, nil
+}
+
 func (s *MemoryStore) ListAutomations() []Automation {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

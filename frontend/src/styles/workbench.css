@@ -301,8 +301,8 @@
 }
 
 .workbench-stage__activity-dot--running {
-  background: var(--success);
-  box-shadow: 0 0 0 4px color-mix(in oklch, var(--success) 12%, transparent);
+  background: #2ecc71;
+  box-shadow: 0 0 0 4px rgba(46, 204, 113, 0.12);
   animation: workbench-thread-activity-pulse 1.5s ease-in-out infinite;
 }
 
@@ -310,7 +310,7 @@
   content: '';
   position: absolute;
   inset: -4px;
-  border: 1px solid color-mix(in oklch, var(--success) 35%, transparent);
+  border: 1px solid rgba(46, 204, 113, 0.35);
   border-radius: inherit;
   opacity: 0.42;
   animation: workbench-thread-activity-ring 1.5s ease-out infinite;

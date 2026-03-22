@@ -9,12 +9,13 @@ import (
 )
 
 type Workspace struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	RootPath      string    `json:"rootPath"`
-	RuntimeStatus string    `json:"runtimeStatus"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID                     string     `json:"id"`
+	Name                   string     `json:"name"`
+	RootPath               string     `json:"rootPath"`
+	RuntimeStatus          string     `json:"runtimeStatus"`
+	RuntimeConfigChangedAt *time.Time `json:"runtimeConfigChangedAt,omitempty"`
+	CreatedAt              time.Time  `json:"createdAt"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
 }
 
 type RuntimePreferences struct {

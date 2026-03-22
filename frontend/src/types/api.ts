@@ -11,6 +11,7 @@ export type Workspace = {
   name: string
   rootPath: string
   runtimeStatus: string
+  runtimeConfigChangedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -23,6 +24,9 @@ export type WorkspaceRuntimeState = {
   lastError?: string
   startedAt?: string | null
   updatedAt: string
+  runtimeConfigChangedAt?: string | null
+  configLoadStatus: string
+  restartRequired: boolean
 }
 
 export type Automation = {

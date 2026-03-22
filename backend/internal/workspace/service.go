@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
@@ -12,6 +13,19 @@ import (
 type Service struct {
 	store    *store.MemoryStore
 	runtimes *runtime.Manager
+}
+
+type RuntimeStateResult struct {
+	WorkspaceID            string     `json:"workspaceId"`
+	Status                 string     `json:"status"`
+	Command                string     `json:"command"`
+	RootPath               string     `json:"rootPath"`
+	LastError              string     `json:"lastError,omitempty"`
+	StartedAt              *time.Time `json:"startedAt,omitempty"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
+	RuntimeConfigChangedAt *time.Time `json:"runtimeConfigChangedAt,omitempty"`
+	ConfigLoadStatus       string     `json:"configLoadStatus"`
+	RestartRequired        bool       `json:"restartRequired"`
 }
 
 func NewService(dataStore *store.MemoryStore, runtimeManager *runtime.Manager) *Service {
@@ -107,19 +121,47 @@ func (s *Service) RestartRuntime(ctx context.Context, workspaceID string) (store
 	return workspace, nil
 }
 
-func (s *Service) RuntimeState(workspaceID string) (runtime.State, error) {
+func (s *Service) RuntimeState(workspaceID string) (RuntimeStateResult, error) {
 	workspace, ok := s.store.GetWorkspace(workspaceID)
 	if !ok {
-		return runtime.State{}, store.ErrWorkspaceNotFound
+		return RuntimeStateResult{}, store.ErrWorkspaceNotFound
 	}
 
 	state := s.runtimes.State(workspaceID)
-	state.WorkspaceID = workspace.ID
 	if strings.TrimSpace(state.RootPath) == "" {
 		state.RootPath = workspace.RootPath
 	}
 
-	return state, nil
+	configLoadStatus, restartRequired := runtimeConfigLoadState(state.StartedAt, workspace.RuntimeConfigChangedAt)
+	return RuntimeStateResult{
+		WorkspaceID:            workspace.ID,
+		Status:                 state.Status,
+		Command:                state.Command,
+		RootPath:               state.RootPath,
+		LastError:              state.LastError,
+		StartedAt:              state.StartedAt,
+		UpdatedAt:              state.UpdatedAt,
+		RuntimeConfigChangedAt: workspace.RuntimeConfigChangedAt,
+		ConfigLoadStatus:       configLoadStatus,
+		RestartRequired:        restartRequired,
+	}, nil
+}
+
+func (s *Service) MarkRuntimeConfigChanged(workspaceID string) (store.Workspace, error) {
+	return s.store.SetWorkspaceRuntimeConfigChangedAt(workspaceID, time.Now().UTC())
+}
+
+func runtimeConfigLoadState(startedAt *time.Time, changedAt *time.Time) (string, bool) {
+	if changedAt == nil {
+		return "not-tracked", false
+	}
+	if startedAt == nil {
+		return "restart-required", true
+	}
+	if startedAt.Before(*changedAt) {
+		return "restart-required", true
+	}
+	return "loaded", false
 }
 
 func (s *Service) Delete(_ context.Context, workspaceID string) error {

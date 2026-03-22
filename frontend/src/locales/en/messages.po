@@ -14,106 +14,6 @@ msgstr ""
 "Plural-Forms: \n"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:527
-#~ msgid "Applies one shell type to the catalog unless a model-specific override replaces it."
-#~ msgstr "Applies one shell type to the catalog unless a model-specific override replaces it."
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:621
-#~ msgid "Explain command sandbox policy"
-#~ msgstr "Explain command sandbox policy"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:523
-#~ msgid "Explain default shell type"
-#~ msgstr "Explain default shell type"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:487
-#~ msgid "Explain model catalog path"
-#~ msgstr "Explain model catalog path"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:648
-#~ msgid "Explain model shell type overrides"
-#~ msgstr "Explain model shell type overrides"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:844
-#~ msgid "Explain shell environment policy"
-#~ msgstr "Explain shell environment policy"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:563
-#~ msgid "Explain turn approval policy"
-#~ msgstr "Explain turn approval policy"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:594
-#~ msgid "Explain turn sandbox policy"
-#~ msgstr "Explain turn sandbox policy"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:567
-#~ msgid "Optional default approval policy applied to turn/start. Leave blank to follow the runtime's own configuration."
-#~ msgstr "Optional default approval policy applied to turn/start. Leave blank to follow the runtime's own configuration."
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:652
-#~ msgid "Optional JSON object for model-specific exceptions. Keys are model ids or slugs and values are shell types such as local, shell_command, unified_exec, default, or disabled."
-#~ msgstr "Optional JSON object for model-specific exceptions. Keys are model ids or slugs and values are shell types such as local, shell_command, unified_exec, default, or disabled."
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:625
-#~ msgid "Optional sandboxPolicy override sent with command/exec. Leave blank to keep codex-server's current default."
-#~ msgstr "Optional sandboxPolicy override sent with command/exec. Leave blank to keep codex-server's current default."
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:598
-#~ msgid "Optional sandboxPolicy override sent with turn/start. Use this instead of relying on shell_type when you need dangerFullAccess or externalSandbox."
-#~ msgstr "Optional sandboxPolicy override sent with turn/start. Use this instead of relying on shell_type when you need dangerFullAccess or externalSandbox."
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:573
-#~ msgid "Default Command Sandbox Policy (JSON)"
-#~ msgstr "Default Command Sandbox Policy (JSON)"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:515
-#~ msgid "Default Shell Type"
-#~ msgstr "Default Shell Type"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:541
-#~ msgid "Default Turn Approval Policy"
-#~ msgstr "Default Turn Approval Policy"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:560
-#~ msgid "Default Turn Sandbox Policy (JSON)"
-#~ msgstr "Default Turn Sandbox Policy (JSON)"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:487
-#~ msgid "Model Catalog Path"
-#~ msgstr "Model Catalog Path"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:531
-#~ msgid "Reset Shell Overrides clears the service-level shell override while keeping the configured catalog path."
-#~ msgstr "Reset Shell Overrides clears the service-level shell override while keeping the configured catalog path."
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:768
-#~ msgid "shell_environment_policy (JSON)"
-#~ msgstr "shell_environment_policy (JSON)"
-
-#. js-lingui-explicit-id
-#: src/pages/settings/ConfigSettingsPage.tsx:772
-#~ msgid "Writes the shell_environment_policy object into Codex config.toml. Use inherit=all for safest compatibility, or inherit=core with explicit Windows variables when minimizing inherited environment."
-#~ msgstr "Writes the shell_environment_policy object into Codex config.toml. Use inherit=all for safest compatibility, or inherit=core with explicit Windows variables when minimizing inherited environment."
-
-#. js-lingui-explicit-id
 #: src/lib/route-error.ts:397
 msgid "[Function {name}]"
 msgstr "[Function {name}]"
@@ -617,10 +517,6 @@ msgstr "Available collaboration modes that shape the agent interaction model."
 msgid "Available languages"
 msgstr "Available languages"
 
-#: src/pages/settings/GeneralSettingsPage.tsx:122
-#~ msgid "Available languages"
-#~ msgstr "Available languages"
-
 #. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:702
 #: src/pages/thread-page/threadPageComposerShared.tsx:927
@@ -818,10 +714,6 @@ msgstr "Close assist panel"
 msgid "Close command palette"
 msgstr "Close command palette"
 
-#: src/components/shell/CommandPalette.tsx:196
-#~ msgid "Close command palette"
-#~ msgstr "Close command palette"
-
 #. js-lingui-explicit-id
 #: src/components/shell/AppMenuBar.tsx:617
 #: src/components/shell/AppShell.tsx:1073
@@ -906,20 +798,11 @@ msgstr "Color theme and mode stay synced with Appearance settings."
 msgid "Command"
 msgstr "Command"
 
-#: src/components/shell/AppMenuBar.tsx:424
-#~ msgid "Command"
-#~ msgstr "Command"
-
 #. js-lingui-explicit-id
 #: src/components/shell/AppMenuBar.tsx:552
 #: src/components/shell/CommandPalette.tsx:226
 msgid "Command Palette"
 msgstr "Command Palette"
-
-#: src/components/shell/AppMenuBar.tsx:423
-#: src/components/shell/CommandPalette.tsx:211
-#~ msgid "Command Palette"
-#~ msgstr "Command Palette"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:577
@@ -2007,11 +1890,6 @@ msgstr "Interactive and sizing preferences."
 msgid "Interface language"
 msgstr "Interface language"
 
-#: src/pages/settings/GeneralSettingsPage.tsx:116
-#: src/pages/settings/GeneralSettingsPage.tsx:120
-#~ msgid "Interface language"
-#~ msgstr "Interface language"
-
 #. js-lingui-explicit-id
 #: src/lib/route-error.ts:261
 msgid "Internal: {value}"
@@ -2066,10 +1944,6 @@ msgstr "Key Path"
 #: src/pages/settings/GeneralSettingsPage.tsx:86
 msgid "Language"
 msgstr "Language"
-
-#: src/pages/settings/GeneralSettingsPage.tsx:112
-#~ msgid "Language"
-#~ msgstr "Language"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:1353
@@ -2592,10 +2466,6 @@ msgstr "No live feed entries yet."
 msgid "No matching commands"
 msgstr "No matching commands"
 
-#: src/components/shell/CommandPalette.tsx:279
-#~ msgid "No matching commands"
-#~ msgstr "No matching commands"
-
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:580
 msgid "No matching commands found."
@@ -2777,10 +2647,6 @@ msgstr "Open Automations"
 #: src/components/shell/AppMenuBar.tsx:548
 msgid "Open command palette"
 msgstr "Open command palette"
-
-#: src/components/shell/AppMenuBar.tsx:422
-#~ msgid "Open command palette"
-#~ msgstr "Open command palette"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:263
@@ -3702,10 +3568,6 @@ msgstr "Scroll back to the latest message to resume auto-follow."
 msgid "Search"
 msgstr "Search"
 
-#: src/components/shell/AppMenuBar.tsx:424
-#~ msgid "Search"
-#~ msgstr "Search"
-
 #. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:597
 msgid "Search failed"
@@ -3725,10 +3587,6 @@ msgstr "Search for and import state from external agents on this machine."
 #: src/components/shell/CommandPalette.tsx:229
 msgid "Search navigation, actions, and recent context."
 msgstr "Search navigation, actions, and recent context."
-
-#: src/components/shell/CommandPalette.tsx:214
-#~ msgid "Search navigation, actions, and recent context."
-#~ msgstr "Search navigation, actions, and recent context."
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:535
@@ -3841,10 +3699,6 @@ msgstr "Server Name"
 #: src/pages/settings/GeneralSettingsPage.tsx:82
 msgid "Set the primary locale for translated UI surfaces and locale-aware formatting."
 msgstr "Set the primary locale for translated UI surfaces and locale-aware formatting."
-
-#: src/pages/settings/GeneralSettingsPage.tsx:110
-#~ msgid "Set the primary locale for translated UI surfaces and locale-aware formatting."
-#~ msgstr "Set the primary locale for translated UI surfaces and locale-aware formatting."
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1520
@@ -4306,10 +4160,6 @@ msgstr "This screen crashed while rendering"
 msgid "This selection controls translated shell copy and localized dates, times, and numbers."
 msgstr "This selection controls translated shell copy and localized dates, times, and numbers."
 
-#: src/pages/settings/GeneralSettingsPage.tsx:115
-#~ msgid "This selection controls translated shell copy and localized dates, times, and numbers."
-#~ msgstr "This selection controls translated shell copy and localized dates, times, and numbers."
-
 #. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:1052
 msgid "This thread is archived."
@@ -4465,10 +4315,6 @@ msgstr "Translucent sidebar"
 msgid "Try a page name, workspace, thread, or action keyword."
 msgstr "Try a page name, workspace, thread, or action keyword."
 
-#: src/components/shell/CommandPalette.tsx:282
-#~ msgid "Try a page name, workspace, thread, or action keyword."
-#~ msgstr "Try a page name, workspace, thread, or action keyword."
-
 #. js-lingui-explicit-id
 #: src/components/ui/CronGenerator.tsx:75
 #: src/pages/AutomationsPage.tsx:89
@@ -4504,10 +4350,6 @@ msgstr "Turns"
 #: src/components/shell/CommandPalette.tsx:248
 msgid "Type a command or destination"
 msgstr "Type a command or destination"
-
-#: src/components/shell/CommandPalette.tsx:230
-#~ msgid "Type a command or destination"
-#~ msgstr "Type a command or destination"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:521

@@ -1244,6 +1244,12 @@ func (s *Server) handleConfigWrite(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
+	if configWriteRequiresRuntimeReload(request.KeyPath) {
+		if _, markErr := s.workspaces.MarkRuntimeConfigChanged(workspaceID); markErr != nil {
+			s.writeStoreError(w, markErr)
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusAccepted, result)
 }
@@ -1267,8 +1273,29 @@ func (s *Server) handleConfigBatchWrite(w http.ResponseWriter, r *http.Request) 
 		s.writeStoreError(w, err)
 		return
 	}
+	if configBatchWriteRequiresRuntimeReload(request.Edits) {
+		if _, markErr := s.workspaces.MarkRuntimeConfigChanged(workspaceID); markErr != nil {
+			s.writeStoreError(w, markErr)
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusAccepted, result)
+}
+
+func configWriteRequiresRuntimeReload(keyPath string) bool {
+	normalized := strings.TrimSpace(keyPath)
+	return normalized == "shell_environment_policy" || strings.HasPrefix(normalized, "shell_environment_policy.")
+}
+
+func configBatchWriteRequiresRuntimeReload(edits []map[string]any) bool {
+	for _, edit := range edits {
+		keyPath, _ := edit["keyPath"].(string)
+		if configWriteRequiresRuntimeReload(keyPath) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleFuzzyFileSearch(w http.ResponseWriter, r *http.Request) {

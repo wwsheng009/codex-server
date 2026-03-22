@@ -28,6 +28,9 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   onOpenSurfacePanel,
   pendingApprovalsCount,
   rootPath,
+  runtimeConfigChangedAt,
+  runtimeConfigLoadStatus,
+  runtimeRestartRequired,
   runtimeStartedAt,
   runtimeUpdatedAt,
   selectedThread,
@@ -49,6 +52,9 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   | 'onOpenSurfacePanel'
   | 'pendingApprovalsCount'
   | 'rootPath'
+  | 'runtimeConfigChangedAt'
+  | 'runtimeConfigLoadStatus'
+  | 'runtimeRestartRequired'
   | 'runtimeStartedAt'
   | 'runtimeUpdatedAt'
   | 'selectedThread'
@@ -139,6 +145,23 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           {shellEnvironmentInfo}
         </InlineNotice>
       )}
+      <InlineNotice
+        noticeKey={`thread-runtime-load-status-${runtimeConfigLoadStatus}`}
+        title={i18n._({ id: 'Runtime Config Status', message: 'Runtime Config Status' })}
+        tone={runtimeRestartRequired ? 'error' : 'info'}
+      >
+        {runtimeRestartRequired
+          ? i18n._({
+              id: 'Restart required: the tracked runtime-affecting config changed after this runtime started.',
+              message:
+                'Restart required: the tracked runtime-affecting config changed after this runtime started.',
+            })
+          : i18n._({
+              id: 'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
+              message:
+                'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
+            })}
+      </InlineNotice>
       <div className="detail-list">
         <DetailRow label={i18n._({ id: 'Workspace', message: 'Workspace' })} value={workspaceName ?? '—'} />
         <DetailRow label={i18n._({ id: 'Stream', message: 'Stream' })} value={streamState} />
@@ -185,6 +208,18 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
               ? formatRelativeTimeShort(runtimeUpdatedAt)
               : i18n._({ id: 'Unknown', message: 'Unknown' })
           }
+        />
+        <DetailRow
+          label={i18n._({ id: 'Config changed', message: 'Config changed' })}
+          value={
+            runtimeConfigChangedAt
+              ? formatRelativeTimeShort(runtimeConfigChangedAt)
+              : i18n._({ id: 'Not tracked', message: 'Not tracked' })
+          }
+        />
+        <DetailRow
+          label={i18n._({ id: 'Config load', message: 'Config load' })}
+          value={runtimeConfigLoadStatus}
         />
         <DetailRow
           label={i18n._({ id: 'Env inherit', message: 'Env inherit' })}

@@ -24,6 +24,9 @@ export function ThreadWorkbenchRail({
   liveThreadCwd,
   pendingApprovalsCount,
   rootPath,
+  runtimeConfigChangedAt,
+  runtimeConfigLoadStatus,
+  runtimeRestartRequired,
   runtimeStartedAt,
   runtimeUpdatedAt,
   selectedThread,
@@ -160,6 +163,9 @@ export function ThreadWorkbenchRail({
         onOpenSurfacePanel={onOpenSurfacePanel}
         pendingApprovalsCount={pendingApprovalsCount}
         rootPath={rootPath}
+        runtimeConfigChangedAt={runtimeConfigChangedAt}
+        runtimeConfigLoadStatus={runtimeConfigLoadStatus}
+        runtimeRestartRequired={runtimeRestartRequired}
         runtimeStartedAt={runtimeStartedAt}
         runtimeUpdatedAt={runtimeUpdatedAt}
         selectedThread={selectedThread}

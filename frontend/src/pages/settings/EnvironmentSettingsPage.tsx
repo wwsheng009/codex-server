@@ -9,6 +9,7 @@ import {
   SettingsRecord,
 } from '../../components/settings/SettingsPrimitives'
 import { InlineNotice } from '../../components/ui/InlineNotice'
+import { SelectControl } from '../../components/ui/SelectControl'
 import { StatusPill } from '../../components/ui/StatusPill'
 import {
   buildShellEnvironmentDiagnosis,
@@ -41,6 +42,15 @@ export function EnvironmentSettingsPage() {
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === workspaceId),
     [workspaceId, workspaces],
+  )
+
+  const workspaceOptions = useMemo(
+    () =>
+      workspaces.map((workspace) => ({
+        label: workspace.name,
+        value: workspace.id,
+      })),
+    [workspaces],
   )
 
   const runtimePreferencesQuery = useQuery({
@@ -268,16 +278,13 @@ export function EnvironmentSettingsPage() {
             <div className="form-stack">
               <label className="field">
                 <span>{i18n._({ id: 'Workspace', message: 'Workspace' })}</span>
-                <select
-                  onChange={(event) => setSelectedWorkspaceId(event.target.value)}
+                <SelectControl
+                  ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
+                  fullWidth
+                  onChange={(value) => setSelectedWorkspaceId(value)}
+                  options={workspaceOptions}
                   value={workspaceId ?? ''}
-                >
-                  {workspaces.map((workspace) => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </label>
               <div className="header-actions">
                 <span className="meta-pill">
@@ -311,6 +318,25 @@ export function EnvironmentSettingsPage() {
                   title={i18n._({ id: 'Runtime State', message: 'Runtime State' })}
                   value={workspaceRuntimeStateQuery.data}
                 />
+              ) : null}
+              {workspaceRuntimeStateQuery.data ? (
+                <InlineNotice
+                  noticeKey={`runtime-load-status-${workspaceId}-${workspaceRuntimeStateQuery.data.configLoadStatus}`}
+                  title={i18n._({ id: 'Config Load Status', message: 'Config Load Status' })}
+                  tone={workspaceRuntimeStateQuery.data.restartRequired ? 'error' : 'info'}
+                >
+                  {workspaceRuntimeStateQuery.data.restartRequired
+                    ? i18n._({
+                        id: 'The tracked runtime-affecting config was changed after the current runtime process started. Restart is required to guarantee the live process has loaded the latest configuration.',
+                        message:
+                          'The tracked runtime-affecting config was changed after the current runtime process started. Restart is required to guarantee the live process has loaded the latest configuration.',
+                      })
+                    : i18n._({
+                        id: 'The current runtime process started after the last tracked runtime-affecting config change, or no tracked config change exists.',
+                        message:
+                          'The current runtime process started after the last tracked runtime-affecting config change, or no tracked config change exists.',
+                      })}
+                </InlineNotice>
               ) : null}
             </div>
           </SettingRow>

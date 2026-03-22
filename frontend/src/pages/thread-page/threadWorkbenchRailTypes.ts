@@ -24,6 +24,9 @@ export type ThreadWorkbenchRailProps = {
   rootPath?: string
   runtimeStartedAt?: string
   runtimeUpdatedAt?: string
+  runtimeConfigChangedAt?: string
+  runtimeConfigLoadStatus: string
+  runtimeRestartRequired: boolean
   selectedThread?: Thread
   shellEnvironmentInfo?: string
   shellEnvironmentWarning?: string
