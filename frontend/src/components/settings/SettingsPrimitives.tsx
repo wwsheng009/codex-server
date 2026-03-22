@@ -169,3 +169,25 @@ export function SettingsRecord({
     </article>
   )
 }
+
+type ConfigHelperCardProps = {
+  title: string
+  description: string
+  icon?: ReactNode
+}
+
+export function ConfigHelperCard({
+  title,
+  description,
+  icon,
+}: ConfigHelperCardProps) {
+  return (
+    <div className="config-helper-card">
+      <div className="config-helper-card__header">
+        {icon ? <div className="config-helper-card__icon">{icon}</div> : null}
+        <strong>{title}</strong>
+      </div>
+      <p>{description}</p>
+    </div>
+  )
+}

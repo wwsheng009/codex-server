@@ -65,7 +65,8 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
   const notificationsQuery = useQuery({
     queryKey: ['notifications'],
     queryFn: listNotifications,
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
+    staleTime: 15_000,
   })
   const markReadMutation = useMutation({
     mutationFn: (notificationId: string) => markNotificationRead(notificationId),

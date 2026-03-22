@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
 
-const DEFAULT_ENTRY_OVERSCAN_PX = 720
+const DEFAULT_ENTRY_OVERSCAN_PX = 1800
 const FALLBACK_VIEWPORT_HEIGHT_PX = 720
+const RENDER_WINDOW_NEAR_BOTTOM_FREEZE_PX = 480
 
 type VirtualizedConversationEntriesInput<T> = {
   enabled: boolean
@@ -23,8 +31,18 @@ export function useVirtualizedConversationEntries<T>({
   scrollViewportRef,
 }: VirtualizedConversationEntriesInput<T>) {
   const entryHeightsRef = useRef<Record<string, number>>({})
+  const pendingEntryHeightsRef = useRef<Record<string, number>>({})
   const frameRef = useRef<number | null>(null)
+  const scrollFrameRef = useRef<number | null>(null)
+  const scrollIdleTimeoutRef = useRef<number | null>(null)
   const [entryHeightsVersion, setEntryHeightsVersion] = useState(0)
+  const [isUserScrolling, setIsUserScrolling] = useState(false)
+  const [renderWindow, setRenderWindow] = useState<{
+    endIndex: number
+    paddingBottom: number
+    paddingTop: number
+    startIndex: number
+  } | null>(null)
   const [scrollState, setScrollState] = useState({
     scrollTop: 0,
     viewportHeight: FALLBACK_VIEWPORT_HEIGHT_PX,
@@ -48,25 +66,92 @@ export function useVirtualizedConversationEntries<T>({
       }
 
       const roundedHeight = Math.max(1, Math.ceil(nextHeight))
-      if (entryHeightsRef.current[entryKey] === roundedHeight) {
+      if (
+        entryHeightsRef.current[entryKey] === roundedHeight ||
+        pendingEntryHeightsRef.current[entryKey] === roundedHeight
+      ) {
+        return
+      }
+
+      if (isUserScrolling) {
+        pendingEntryHeightsRef.current[entryKey] = roundedHeight
         return
       }
 
       entryHeightsRef.current[entryKey] = roundedHeight
       scheduleHeightsRefresh()
     },
-    [scheduleHeightsRefresh],
+    [isUserScrolling, scheduleHeightsRefresh],
   )
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
+      if (scrollIdleTimeoutRef.current !== null) {
+        window.clearTimeout(scrollIdleTimeoutRef.current)
+        scrollIdleTimeoutRef.current = null
+      }
+    }
+
     entryHeightsRef.current = {}
+    pendingEntryHeightsRef.current = {}
+    setIsUserScrolling(false)
+    setRenderWindow(null)
+    setScrollState({
+      scrollTop: scrollViewportRef.current?.scrollTop ?? 0,
+      viewportHeight: Math.max(
+        scrollViewportRef.current?.clientHeight ?? 0,
+        FALLBACK_VIEWPORT_HEIGHT_PX,
+      ),
+    })
     setEntryHeightsVersion((current) => current + 1)
-  }, [listIdentity])
+  }, [listIdentity, scrollViewportRef])
+
+  useEffect(() => {
+    if (isUserScrolling) {
+      return
+    }
+
+    const pendingHeights = pendingEntryHeightsRef.current
+    const pendingKeys = Object.keys(pendingHeights)
+    if (!pendingKeys.length) {
+      return
+    }
+
+    let changed = false
+    for (const entryKey of pendingKeys) {
+      const nextHeight = pendingHeights[entryKey]
+      if (entryHeightsRef.current[entryKey] === nextHeight) {
+        continue
+      }
+
+      entryHeightsRef.current[entryKey] = nextHeight
+      changed = true
+    }
+
+    pendingEntryHeightsRef.current = {}
+    if (changed) {
+      scheduleHeightsRefresh()
+    }
+  }, [isUserScrolling, scheduleHeightsRefresh])
 
   useEffect(
     () => () => {
       if (frameRef.current !== null && typeof window !== 'undefined') {
         window.cancelAnimationFrame(frameRef.current)
+      }
+      if (scrollFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(scrollFrameRef.current)
+      }
+      if (scrollIdleTimeoutRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(scrollIdleTimeoutRef.current)
       }
     },
     [],
@@ -86,7 +171,7 @@ export function useVirtualizedConversationEntries<T>({
       return
     }
 
-    const updateViewportState = () => {
+    const syncViewportState = () => {
       const nextScrollTop = viewport.scrollTop
       const nextViewportHeight = Math.max(
         viewport.clientHeight,
@@ -103,7 +188,29 @@ export function useVirtualizedConversationEntries<T>({
       )
     }
 
-    updateViewportState()
+    const updateViewportState = () => {
+      if (scrollFrameRef.current !== null || typeof window === 'undefined') {
+        return
+      }
+
+      if (!isUserScrolling) {
+        setIsUserScrolling(true)
+      }
+      if (scrollIdleTimeoutRef.current !== null) {
+        window.clearTimeout(scrollIdleTimeoutRef.current)
+      }
+      scrollIdleTimeoutRef.current = window.setTimeout(() => {
+        scrollIdleTimeoutRef.current = null
+        setIsUserScrolling(false)
+      }, 140)
+
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null
+        syncViewportState()
+      })
+    }
+
+    syncViewportState()
     viewport.addEventListener('scroll', updateViewportState, { passive: true })
 
     if (typeof ResizeObserver === 'undefined') {
@@ -120,9 +227,17 @@ export function useVirtualizedConversationEntries<T>({
 
     return () => {
       viewport.removeEventListener('scroll', updateViewportState)
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
+      if (scrollIdleTimeoutRef.current !== null) {
+        window.clearTimeout(scrollIdleTimeoutRef.current)
+        scrollIdleTimeoutRef.current = null
+      }
       observer.disconnect()
     }
-  }, [enabled, listIdentity, scrollViewportRef])
+  }, [enabled, isUserScrolling, listIdentity, scrollViewportRef])
 
   const entryLayout = useMemo(() => {
     const offsets = new Array(entries.length)
@@ -147,19 +262,21 @@ export function useVirtualizedConversationEntries<T>({
     }
   }, [entries, entryHeightsVersion, estimateEntryHeight, getEntryKey])
 
-  const visibleRange = useMemo(() => {
+  const targetRange = useMemo(() => {
     if (!enabled || entries.length === 0) {
       return {
+        endIndex: entries.length ? entries.length - 1 : 0,
         isVirtualized: false,
         paddingBottom: 0,
         paddingTop: 0,
-        visibleEntries: entries,
+        startIndex: 0,
       }
     }
 
-    const startOffset = Math.max(0, scrollState.scrollTop - overscanPx)
+    const effectiveOverscanPx = Math.max(overscanPx, scrollState.viewportHeight)
+    const startOffset = Math.max(0, scrollState.scrollTop - effectiveOverscanPx)
     const endOffset =
-      scrollState.scrollTop + scrollState.viewportHeight + overscanPx
+      scrollState.scrollTop + scrollState.viewportHeight + effectiveOverscanPx
     const startIndex = findConversationEntryIndex(
       entryLayout.offsets,
       entryLayout.heights,
@@ -175,10 +292,11 @@ export function useVirtualizedConversationEntries<T>({
       (entryLayout.offsets[endIndex] ?? 0) + (entryLayout.heights[endIndex] ?? 0)
 
     return {
+      endIndex,
       isVirtualized: true,
       paddingBottom: Math.max(0, entryLayout.totalHeight - lastVisibleBottom),
       paddingTop,
-      visibleEntries: entries.slice(startIndex, endIndex + 1),
+      startIndex,
     }
   }, [
     enabled,
@@ -191,13 +309,101 @@ export function useVirtualizedConversationEntries<T>({
     scrollState.viewportHeight,
   ])
 
-  return {
-    isVirtualized: visibleRange.isVirtualized,
-    paddingBottom: visibleRange.paddingBottom,
-    paddingTop: visibleRange.paddingTop,
-    registerEntryHeight,
-    visibleEntries: visibleRange.visibleEntries,
+  useEffect(() => {
+    if (!enabled || entries.length === 0) {
+      setRenderWindow(null)
+      return
+    }
+
+    setRenderWindow((current) => {
+      if (!current) {
+        return {
+          endIndex: targetRange.endIndex,
+          paddingBottom: targetRange.paddingBottom,
+          paddingTop: targetRange.paddingTop,
+          startIndex: targetRange.startIndex,
+        }
+      }
+
+      if (!shouldPreserveExpandedRenderWindow(
+        isUserScrolling,
+        scrollState.scrollTop,
+        entryLayout.totalHeight,
+        scrollState.viewportHeight,
+      )) {
+        return {
+          endIndex: targetRange.endIndex,
+          paddingBottom: targetRange.paddingBottom,
+          paddingTop: targetRange.paddingTop,
+          startIndex: targetRange.startIndex,
+        }
+      }
+
+      const nextStartIndex = Math.min(current.startIndex, targetRange.startIndex)
+      const nextEndIndex = Math.max(current.endIndex, targetRange.endIndex)
+      const nextPaddingTop = entryLayout.offsets[nextStartIndex] ?? 0
+      const nextVisibleBottom =
+        (entryLayout.offsets[nextEndIndex] ?? 0) + (entryLayout.heights[nextEndIndex] ?? 0)
+      const nextPaddingBottom = Math.max(0, entryLayout.totalHeight - nextVisibleBottom)
+
+      if (
+        current.startIndex === nextStartIndex &&
+        current.endIndex === nextEndIndex &&
+        current.paddingTop === nextPaddingTop &&
+        current.paddingBottom === nextPaddingBottom
+      ) {
+        return current
+      }
+
+      return {
+        endIndex: nextEndIndex,
+        paddingBottom: nextPaddingBottom,
+        paddingTop: nextPaddingTop,
+        startIndex: nextStartIndex,
+      }
+    })
+  }, [
+    enabled,
+    entries.length,
+    entryLayout.heights,
+    entryLayout.offsets,
+    entryLayout.totalHeight,
+    isUserScrolling,
+    scrollState.scrollTop,
+    scrollState.viewportHeight,
+    targetRange.endIndex,
+    targetRange.paddingBottom,
+    targetRange.paddingTop,
+    targetRange.startIndex,
+  ])
+
+  const activeRange = renderWindow ?? {
+    endIndex: targetRange.endIndex,
+    paddingBottom: targetRange.paddingBottom,
+    paddingTop: targetRange.paddingTop,
+    startIndex: targetRange.startIndex,
   }
+
+  return {
+    isVirtualized: targetRange.isVirtualized,
+    paddingBottom: activeRange.paddingBottom,
+    paddingTop: activeRange.paddingTop,
+    registerEntryHeight,
+    visibleEntries: entries.slice(activeRange.startIndex, activeRange.endIndex + 1),
+  }
+}
+
+function shouldPreserveExpandedRenderWindow(
+  isUserScrolling: boolean,
+  scrollTop: number,
+  totalHeight: number,
+  viewportHeight: number,
+) {
+  if (isUserScrolling) {
+    return true
+  }
+
+  return totalHeight - (scrollTop + viewportHeight) <= RENDER_WINDOW_NEAR_BOTTOM_FREEZE_PX
 }
 
 function findConversationEntryIndex(

@@ -3,6 +3,7 @@ import { useEffect, useId, useRef } from 'react'
 import { i18n } from '../../i18n/runtime'
 import { Modal } from '../ui/Modal'
 import { InlineNotice } from '../ui/InlineNotice'
+import { Input } from '../ui/Input'
 
 type CreateWorkspaceDialogProps = {
   name: string
@@ -25,6 +26,7 @@ export function CreateWorkspaceDialog({
   onClose,
   onSubmit,
 }: CreateWorkspaceDialogProps) {
+  const formId = useId()
   const nameInputId = useId()
   const nameInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -42,7 +44,7 @@ export function CreateWorkspaceDialog({
       <button className="ide-button ide-button--secondary" onClick={onClose} type="button">
         {i18n._({ id: 'Cancel', message: 'Cancel' })}
       </button>
-      <button className="ide-button" disabled={isSubmitDisabled} type="submit">
+      <button className="ide-button" disabled={isSubmitDisabled} form={formId} type="submit">
         {isPending
           ? i18n._({ id: 'Creating…', message: 'Creating…' })
           : i18n._({ id: 'Register Workspace', message: 'Register Workspace' })}
@@ -63,30 +65,27 @@ export function CreateWorkspaceDialog({
     >
       <form
         className="form-stack"
+        id={formId}
         onSubmit={(event) => {
           event.preventDefault()
           onSubmit()
         }}
       >
-        <label className="field" htmlFor={nameInputId}>
-          <span>{i18n._({ id: 'Name', message: 'Name' })}</span>
-          <input
-            id={nameInputId}
-            onChange={(event) => onNameChange(event.target.value)}
-            placeholder="ai-gateway"
-            ref={nameInputRef}
-            value={name}
-          />
-        </label>
+        <Input
+          id={nameInputId}
+          label={i18n._({ id: 'Name', message: 'Name' })}
+          onChange={(event) => onNameChange(event.target.value)}
+          placeholder="ai-gateway"
+          ref={nameInputRef}
+          value={name}
+        />
 
-        <label className="field">
-          <span>{i18n._({ id: 'Root Path', message: 'Root Path' })}</span>
-          <input
-            onChange={(event) => onRootPathChange(event.target.value)}
-            placeholder="E:/projects/my-app"
-            value={rootPath}
-          />
-        </label>
+        <Input
+          label={i18n._({ id: 'Root Path', message: 'Root Path' })}
+          onChange={(event) => onRootPathChange(event.target.value)}
+          placeholder="E:/projects/my-app"
+          value={rootPath}
+        />
 
         {error ? (
           <InlineNotice

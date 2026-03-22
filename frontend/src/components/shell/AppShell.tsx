@@ -153,6 +153,20 @@ function formatWorkspaceRuntimeStatus(status: string) {
   }
 }
 
+function getWorkspaceRuntimeTone(status: string) {
+  const normalized = status.trim().toLowerCase().replace(/[\s_-]+/g, '')
+
+  if (['ready', 'active', 'connected'].includes(normalized)) {
+    return 'success'
+  }
+
+  if (['restarting', 'starting', 'loading', 'pending', 'unknown'].includes(normalized)) {
+    return 'warning'
+  }
+
+  return 'danger'
+}
+
 export function AppShell() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -1095,6 +1109,15 @@ export function AppShell() {
                   const restartPhase = workspaceRestartStateById[workspace.id]
                   const visualRuntimeStatus =
                     restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
+                  const workspaceStatusLabel = formatWorkspaceRuntimeStatus(visualRuntimeStatus)
+                  const workspaceStatusTone = getWorkspaceRuntimeTone(visualRuntimeStatus)
+                  const workspaceThreadCountLabel = i18n._({
+                    id: '{count} threads',
+                    message: '{count} threads',
+                    values: {
+                      count: threads.length,
+                    },
+                  })
                   const isWorkspaceGroupOpen = isWorkspaceGroupExpanded(workspace.id)
                   const visibleThreadCount =
                     visibleThreadCountByWorkspace[workspace.id] ?? DEFAULT_VISIBLE_THREADS
@@ -1138,38 +1161,44 @@ export function AppShell() {
                           ]
                             .filter(Boolean)
                             .join(' ')}
+                          title={workspace.name}
                           onClick={() => handleWorkspaceClick(workspace.id)}
                           type="button"
                         >
-                          <span
-                            aria-hidden="true"
-                            className={[
-                              'workspace-tree__workspace-icon',
-                              restartPhase === 'restarting'
-                                ? 'workspace-tree__workspace-icon--restarting'
-                                : '',
-                              restartPhase === 'restarted'
-                                ? 'workspace-tree__workspace-icon--restarted'
-                                : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                          >
-                            {isWorkspaceGroupOpen ? <FolderOpenIcon /> : <FolderClosedIcon />}
+                          <span className="workspace-tree__workspace-leading">
+                            <span
+                              aria-hidden="true"
+                              className={[
+                                'workspace-tree__workspace-icon',
+                                restartPhase === 'restarting'
+                                  ? 'workspace-tree__workspace-icon--restarting'
+                                  : '',
+                                restartPhase === 'restarted'
+                                  ? 'workspace-tree__workspace-icon--restarted'
+                                  : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                            >
+                              {isWorkspaceGroupOpen ? <FolderOpenIcon /> : <FolderClosedIcon />}
+                              <span
+                                aria-label={workspaceStatusLabel}
+                                className={`workspace-tree__workspace-status-dot workspace-tree__workspace-status-dot--${workspaceStatusTone}`}
+                                role="img"
+                                title={workspaceStatusLabel}
+                              />
+                            </span>
+                            <span
+                              aria-label={workspaceThreadCountLabel}
+                              className="workspace-tree__workspace-count-badge"
+                              title={workspaceThreadCountLabel}
+                            >
+                              {threads.length}
+                            </span>
                           </span>
-                            <span className="workspace-tree__workspace-copy">
-                              <span className="workspace-tree__workspace-name">{workspace.name}</span>
-                              <span className="workspace-tree__workspace-meta">
-                                {i18n._({
-                                  id: '{count} threads · {status}',
-                                  message: '{count} threads · {status}',
-                                  values: {
-                                    count: threads.length,
-                                    status: formatWorkspaceRuntimeStatus(visualRuntimeStatus),
-                                  },
-                                })}
-                              </span>
-                              {restartPhase || refreshingWorkspaceIds.has(workspace.id) ? (
+                          <span className="workspace-tree__workspace-copy">
+                            <span className="workspace-tree__workspace-name">{workspace.name}</span>
+                            {restartPhase || refreshingWorkspaceIds.has(workspace.id) ? (
                               <span
                                 className={[
                                   'workspace-tree__workspace-runtime',
@@ -1194,7 +1223,11 @@ export function AppShell() {
                           </span>
                         </button>
                         <div
-                          className="workspace-tree__workspace-actions"
+                          className={
+                            isWorkspaceMenuOpen(workspace.id)
+                              ? 'workspace-tree__workspace-actions workspace-tree__workspace-actions--visible'
+                              : 'workspace-tree__workspace-actions'
+                          }
                           ref={isWorkspaceMenuOpen(workspace.id) ? menuRef : undefined}
                         >
                           <button

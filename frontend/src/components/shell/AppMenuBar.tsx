@@ -18,6 +18,7 @@ import {
 } from '../../features/settings/appearance'
 import type { AccentTone, AppearanceTheme } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
+import { localeLabels, type AppLocale } from '../../i18n/config'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
@@ -233,11 +234,13 @@ function getMenuItemLabel(item: (typeof menuItems)[number]) {
 function AppearanceMenu({ compact = false }: { compact?: boolean }) {
   const theme = useSettingsLocalStore((state) => state.theme)
   const accentTone = useSettingsLocalStore((state) => state.accentTone)
+  const locale = useSettingsLocalStore((state) => state.locale)
   const themeColorCustomizations = useSettingsLocalStore((state) => state.themeColorCustomizations)
   const customThemes = useSettingsLocalStore((state) => state.customThemes)
   const activeCustomThemeId = useSettingsLocalStore((state) => state.activeCustomThemeId)
   const setTheme = useSettingsLocalStore((state) => state.setTheme)
   const setAccentTone = useSettingsLocalStore((state) => state.setAccentTone)
+  const setLocale = useSettingsLocalStore((state) => state.setLocale)
   const selectCustomTheme = useSettingsLocalStore((state) => state.selectCustomTheme)
   const { prefersDark } = useSystemAppearancePreferences()
   const resolvedTheme = resolveAppearanceTheme(theme, prefersDark)
@@ -452,6 +455,61 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                     </button>
                   )
                 })}
+              </div>
+            </section>
+
+            <section className="web-ide__appearance-section" aria-labelledby={`${dialogId}-language`}>
+              <div className="web-ide__appearance-section-heading">
+                <span id={`${dialogId}-language`}>
+                  {i18n._({
+                    id: 'Language',
+                    message: 'Language',
+                  })}
+                </span>
+                <span>{localeLabels[locale].nativeLabel}</span>
+              </div>
+              <div
+                aria-label={i18n._({
+                  id: 'Language',
+                  message: 'Language',
+                })}
+                className="web-ide__appearance-mode-group"
+                role="group"
+                style={{ gridTemplateColumns: `repeat(${Object.keys(localeLabels).length}, minmax(0, 1fr))` }}
+              >
+                {(Object.entries(localeLabels) as Array<[AppLocale, (typeof localeLabels)[AppLocale]]>).map(
+                  ([value, labels]) => {
+                    const isActive = locale === value
+                    const optionClassName = isActive
+                      ? 'web-ide__appearance-mode-button web-ide__appearance-mode-button--active'
+                      : 'web-ide__appearance-mode-button'
+
+                    return (
+                      <button
+                        aria-pressed={isActive}
+                        className={optionClassName}
+                        key={value}
+                        onClick={() => setLocale(value)}
+                        title={labels.label}
+                        type="button"
+                      >
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                            color: 'var(--text-faint)',
+                            minWidth: '1.2em',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {labels.shortLabel}
+                        </span>
+                        <span>{labels.nativeLabel}</span>
+                      </button>
+                    )
+                  },
+                )}
               </div>
             </section>
 

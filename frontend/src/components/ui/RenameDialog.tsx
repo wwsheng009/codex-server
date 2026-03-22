@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react'
 
 import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
+import { Input } from './Input'
 
 type RenameDialogProps = {
   title: string
@@ -70,16 +71,14 @@ export function RenameDialog({
           onSubmit()
         }}
       >
-        <label className="field" htmlFor={inputId}>
-          <span>{fieldLabel}</span>
-          <input
-            id={inputId}
-            onChange={(event) => onChange(event.target.value)}
-            placeholder={placeholder}
-            ref={inputRef}
-            value={value}
-          />
-        </label>
+        <Input
+          id={inputId}
+          label={fieldLabel}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          ref={inputRef}
+          value={value}
+        />
 
         {error ? (
           <InlineNotice

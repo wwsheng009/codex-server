@@ -1,16 +1,25 @@
+import type { ReactNode } from 'react'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { i18n } from '../../i18n/runtime'
 import { InlineNotice } from '../ui/InlineNotice'
 import { SelectControl } from '../ui/SelectControl'
 
+export type SettingsSummaryItem = {
+  label: string
+  value: ReactNode
+  tone?: 'active' | 'paused' | 'error' | 'default'
+}
+
 type SettingsWorkspaceScopePanelProps = {
   title?: string
   description?: string
+  extraSummaryItems?: SettingsSummaryItem[]
 }
 
 export function SettingsWorkspaceScopePanel({
   title,
   description,
+  extraSummaryItems = [],
 }: SettingsWorkspaceScopePanelProps) {
   const resolvedTitle = title ?? i18n._({ id: 'Workspace Scope', message: 'Workspace Scope' })
   const resolvedDescription =
@@ -82,6 +91,15 @@ export function SettingsWorkspaceScopePanel({
               : i18n._({ id: 'Required', message: 'Required' })}
           </strong>
         </div>
+        {extraSummaryItems.map((item, index) => (
+          <div
+            className={`settings-scope-panel__summary-item settings-scope-panel__summary-item--${item.tone || 'default'}`}
+            key={`${item.label}-${index}`}
+          >
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
       </div>
     </section>
   )

@@ -58,7 +58,13 @@ export function WorkspaceTreeThreadRow({
     : null
 
   return (
-    <div className="workspace-tree__thread-row">
+    <div
+      className={
+        activeThreadId === thread.id
+          ? 'workspace-tree__thread-row workspace-tree__thread-row--active'
+          : 'workspace-tree__thread-row'
+      }
+    >
       <button
         className={
           activeThreadId === thread.id
@@ -66,8 +72,10 @@ export function WorkspaceTreeThreadRow({
             : 'workspace-tree__thread'
         }
         onClick={onOpenThread}
+        title={thread.name}
         type="button"
       >
+        <span className="workspace-tree__thread-time">{formatRelativeTimeShort(thread.updatedAt)}</span>
         <span className="workspace-tree__thread-title-shell">
           {activityTone ? (
             <span
@@ -81,11 +89,15 @@ export function WorkspaceTreeThreadRow({
           ) : null}
           <span className="workspace-tree__thread-title">{thread.name}</span>
         </span>
-        <span className="workspace-tree__thread-meta">
-          {formatRelativeTimeShort(thread.updatedAt)}
-        </span>
       </button>
-      <div className="workspace-tree__thread-actions" ref={isMenuOpen ? menuRef : undefined}>
+      <div
+        className={
+          isMenuOpen
+            ? 'workspace-tree__thread-actions workspace-tree__thread-actions--visible'
+            : 'workspace-tree__thread-actions'
+        }
+        ref={isMenuOpen ? menuRef : undefined}
+      >
         <button
           aria-expanded={isMenuOpen}
           aria-label={i18n._({

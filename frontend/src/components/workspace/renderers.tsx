@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -18,6 +19,7 @@ import {
 } from '../thread/ThreadContent'
 import { containsAnsiEscapeCode, safeJson } from '../thread/threadRender'
 import { InlineNotice } from '../ui/InlineNotice'
+import { Input } from '../ui/Input'
 import type { LiveTimelineEntry } from './timeline-utils'
 import { useVirtualizedConversationEntries } from './useVirtualizedConversationEntries'
 import type { PendingApproval, ThreadTurn } from '../../types/api'
@@ -619,16 +621,15 @@ function ApprovalDialogQuestion({
           })}
         </div>
       ) : (
-        <div className="field approval-question approval-question--dialog">
-          <label htmlFor={inputId}>{header}</label>
-          <input
-            id={inputId}
-            onChange={(event) => onChangeAnswer(approvalId, questionId, event.target.value)}
-            ref={inputRef}
-            type={isSecret ? 'password' : 'text'}
-            value={value}
-          />
-        </div>
+        <Input
+          className="approval-question approval-question--dialog"
+          id={inputId}
+          label={header}
+          onChange={(event) => onChangeAnswer(approvalId, questionId, event.target.value)}
+          ref={inputRef}
+          type={isSecret ? 'password' : 'text'}
+          value={value}
+        />
       )}
     </div>
   )
@@ -741,34 +742,39 @@ function ApprovalQuestionField({
 
   return (
     <div className="field approval-question">
-      {options.length ? <span>{header}</span> : <label htmlFor={inputId}>{header}</label>}
-      {prompt ? <small>{prompt}</small> : null}
       {options.length ? (
-        <div className="approval-choice-grid" role="listbox" aria-label={header}>
-          {options.map((option, index) => {
-            const optionLabel = stringField(option.label)
-            const optionDescription = stringField(option.description)
-            const selected = value === optionLabel
+        <>
+          <span>{header}</span>
+          {prompt ? <small>{prompt}</small> : null}
+          <div className="approval-choice-grid" role="listbox" aria-label={header}>
+            {options.map((option, index) => {
+              const optionLabel = stringField(option.label)
+              const optionDescription = stringField(option.description)
+              const selected = value === optionLabel
 
-            return (
-              <button
-                aria-pressed={selected}
-                autoFocus={focusFirst && index === 0}
-                className={selected ? 'approval-choice approval-choice--selected' : 'approval-choice'}
-                key={`${questionId}-${optionLabel}`}
-                onClick={() => onChangeAnswer(approvalId, questionId, optionLabel)}
-                type="button"
-              >
-                <strong>{optionLabel}</strong>
-                {optionDescription ? <span>{optionDescription}</span> : null}
-              </button>
-            )
-          })}
-        </div>
+              return (
+                <button
+                  aria-pressed={selected}
+                  autoFocus={focusFirst && index === 0}
+                  className={selected ? 'approval-choice approval-choice--selected' : 'approval-choice'}
+                  key={`${questionId}-${optionLabel}`}
+                  onClick={() => onChangeAnswer(approvalId, questionId, optionLabel)}
+                  type="button"
+                >
+                  <strong>{optionLabel}</strong>
+                  {optionDescription ? <span>{optionDescription}</span> : null}
+                </button>
+              )
+            })}
+          </div>
+        </>
       ) : (
-        <input
+        <Input
           autoFocus={focusFirst}
+          className="approval-question"
+          hint={prompt}
           id={inputId}
+          label={header}
           onChange={(event) => onChangeAnswer(approvalId, questionId, event.target.value)}
           type={isSecret ? 'password' : 'text'}
           value={value}
@@ -2087,7 +2093,7 @@ function MeasuredConversationEntry({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) {
       return
