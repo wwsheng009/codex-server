@@ -4,12 +4,13 @@ import type { ChangeEvent, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import {
+  ConfigHelperCard,
   SettingsJsonPreview,
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
 import { SettingsJsonDiffPreview } from '../../components/settings/SettingsJsonDiffPreview'
 import { InlineNotice } from '../../components/ui/InlineNotice'
-import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
+import { SettingsWorkspaceScopePanel, type SettingsSummaryItem } from '../../components/settings/SettingsWorkspaceScopePanel'
 import {
   batchWriteConfig,
   detectExternalAgentConfig,
@@ -22,6 +23,7 @@ import {
   writeRuntimePreferences,
 } from '../../features/settings/api'
 import {
+  type ConfigScenarioMatch,
   getAdvancedConfigScenarios,
   getBestMatchingConfigScenario,
   getConfigScenarioMatch,
@@ -476,8 +478,8 @@ export function ConfigSettingsPage() {
     defaultShellType:
       runtimePreferencesQuery.data?.effectiveDefaultShellType ||
       i18n._({
-        id: 'catalog default',
-        message: 'catalog default',
+        id: 'runtime default',
+        message: 'runtime default',
       }),
     turnApprovalPolicy: formatApprovalPolicyLabel(
       runtimePreferencesQuery.data?.effectiveDefaultTurnApprovalPolicy,
@@ -490,9 +492,40 @@ export function ConfigSettingsPage() {
     ),
     configLoadStatus:
       workspaceRuntimeStateQuery.data?.configLoadStatus ??
-      i18n._({ id: 'not-tracked', message: 'not-tracked' }),
+      i18n._({ id: 'initial', message: 'initial' }),
     restartRequired: workspaceRuntimeStateQuery.data?.restartRequired ?? false,
   }
+
+  const runtimeSummaryItems: SettingsSummaryItem[] = [
+    {
+      label: i18n._({ id: 'Catalog', message: 'Catalog' }),
+      value: runtimeSummary.catalogBound
+        ? i18n._({ id: 'Attached', message: 'Attached' })
+        : i18n._({ id: 'Missing', message: 'Missing' }),
+      tone: runtimeSummary.catalogBound ? 'active' : 'paused',
+    },
+    {
+      label: i18n._({ id: 'Shell', message: 'Shell' }),
+      value: runtimeSummary.defaultShellType,
+    },
+    {
+      label: i18n._({ id: 'Turn', message: 'Turn' }),
+      value: runtimeSummary.turnSandboxPolicy,
+    },
+    {
+      label: i18n._({ id: 'Command', message: 'Command' }),
+      value: runtimeSummary.commandSandboxPolicy,
+    },
+    {
+      label: i18n._({ id: 'Approval', message: 'Approval' }),
+      value: runtimeSummary.turnApprovalPolicy,
+    },
+    {
+      label: i18n._({ id: 'Config', message: 'Config' }),
+      value: runtimeSummary.configLoadStatus,
+      tone: runtimeSummary.restartRequired ? 'paused' : 'active',
+    },
+  ]
 
   function applyExecutionPreset(preset: 'danger-full-access' | 'external-sandbox' | 'inherit') {
     switch (preset) {
@@ -559,6 +592,68 @@ export function ConfigSettingsPage() {
     }
   }
 
+  const scenarioPresetDefaultTabId =
+    bestMatchingAdvancedScenario?.scenario.id ?? advancedScenarioMatches[0]?.scenario.id
+  const scenarioPresetTabItems = advancedScenarioMatches.map((match) => ({
+    id: match.scenario.id,
+    label: match.scenario.title,
+    badge: `${match.matchedEditCount}/${match.totalEditCount}`,
+    content: (
+      <div className="config-card config-card--muted config-scenario-panel">
+        <div className="config-card__header config-scenario-panel__header">
+          <div className="config-scenario-panel__heading">
+            <strong>{match.scenario.title}</strong>
+            <p className="config-inline-note">{match.scenario.description}</p>
+          </div>
+          <span className={getScenarioMatchStatusClassName(match)}>
+            {getScenarioMatchStatusLabel(match)}
+          </span>
+        </div>
+        <p className="config-inline-note">
+          {match.exact
+            ? i18n._({ id: 'Exact match', message: 'Exact match' })
+            : i18n._({
+                id: '{matched}/{total} edits matched',
+                message: '{matched}/{total} edits matched',
+                values: {
+                  matched: match.matchedEditCount,
+                  total: match.totalEditCount,
+                },
+              })}
+        </p>
+        <SettingsJsonPreview
+          collapsible={false}
+          description={i18n._({
+            id: 'Edits that will be written before runtime restart.',
+            message: 'Edits that will be written before runtime restart.',
+          })}
+          title={i18n._({ id: 'Scenario Edits', message: 'Scenario Edits' })}
+          value={match.scenario.edits}
+        />
+        <SettingsJsonDiffPreview
+          description={i18n._({
+            id: 'Only keys whose values differ from the current config will change.',
+            message: 'Only keys whose values differ from the current config will change.',
+          })}
+          entries={getConfigScenarioDiff(configQuery.data?.config, match.scenario)}
+          title={i18n._({ id: 'Scenario Diff', message: 'Scenario Diff' })}
+        />
+        <div className="setting-row__actions config-scenario-panel__actions">
+          <button
+            className="ide-button ide-button--secondary ide-button--sm"
+            disabled={!workspaceId || applyConfigScenarioMutation.isPending}
+            onClick={() => applyConfigScenarioMutation.mutate(match.scenario.id)}
+            type="button"
+          >
+            {applyConfigScenarioMutation.isPending
+              ? i18n._({ id: 'Applying…', message: 'Applying…' })
+              : i18n._({ id: 'Apply & Restart', message: 'Apply & Restart' })}
+          </button>
+        </div>
+      </div>
+    ),
+  }))
+
   const configTabs = [
     {
       id: 'runtime',
@@ -568,36 +663,7 @@ export function ConfigSettingsPage() {
         <div className="config-workbench">
           <div className="config-workbench__header">
             <div className="config-workbench__header-main">
-              <SettingsWorkspaceScopePanel />
-            </div>
-            <div className="config-workbench__header-status">
-              <div className={`status-pill ${runtimeSummary.catalogBound ? 'status-pill--active' : 'status-pill--paused'}`}>
-                {i18n._({ id: 'Catalog', message: 'Catalog' })}:{' '}
-                {runtimeSummary.catalogBound
-                  ? i18n._({ id: 'Attached', message: 'Attached' })
-                  : i18n._({ id: 'Missing', message: 'Missing' })}
-              </div>
-              <div className="status-pill">
-                {i18n._({ id: 'Shell', message: 'Shell' })}: {runtimeSummary.defaultShellType}
-              </div>
-              <div className="status-pill">
-                {i18n._({ id: 'Turn', message: 'Turn' })}: {runtimeSummary.turnSandboxPolicy}
-              </div>
-              <div className="status-pill">
-                {i18n._({ id: 'Command', message: 'Command' })}: {runtimeSummary.commandSandboxPolicy}
-              </div>
-              <div className="status-pill">
-                {i18n._({ id: 'Approval', message: 'Approval' })}: {runtimeSummary.turnApprovalPolicy}
-              </div>
-              <div
-                className={
-                  runtimeSummary.restartRequired
-                    ? 'status-pill status-pill--paused'
-                    : 'status-pill status-pill--active'
-                }
-              >
-                {i18n._({ id: 'Config', message: 'Config' })}: {runtimeSummary.configLoadStatus}
-              </div>
+              <SettingsWorkspaceScopePanel extraSummaryItems={runtimeSummaryItems} />
             </div>
           </div>
 
@@ -869,6 +935,150 @@ export function ConfigSettingsPage() {
                 </div>
               </form>
 
+              <div className="config-card">
+                <div className="config-card__header">
+                  <strong>{i18n._({ id: 'Status & Inspection', message: 'Status & Inspection' })}</strong>
+                </div>
+                {runtimePreferencesQuery.data ? (
+                  <Tabs
+                    ariaLabel={i18n._({
+                      id: 'Runtime inspection tabs',
+                      message: 'Runtime inspection tabs',
+                    })}
+                    className="config-workbench__panel"
+                    storageKey="settings-config-runtime-side-tabs"
+                    items={[
+                      {
+                        id: 'effective',
+                        label: i18n._({ id: 'Effective', message: 'Effective' }),
+                        icon: <TerminalIcon />,
+                        content: (
+                          <SettingsJsonPreview
+                            description={i18n._({
+                              id: 'Current resolved runtime state.',
+                              message: 'Current resolved runtime state.',
+                            })}
+                            title={i18n._({
+                              id: 'Effective Values',
+                              message: 'Effective Values',
+                            })}
+                            value={{
+                              modelCatalogPath: runtimePreferencesQuery.data.effectiveModelCatalogPath,
+                              defaultShellType: runtimePreferencesQuery.data.effectiveDefaultShellType,
+                              modelShellTypeOverrides: runtimePreferencesQuery.data.effectiveModelShellTypeOverrides,
+                              defaultTurnApprovalPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnApprovalPolicy,
+                              defaultTurnSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnSandboxPolicy,
+                              defaultCommandSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultCommandSandboxPolicy,
+                              command: runtimePreferencesQuery.data.effectiveCommand,
+                            }}
+                          />
+                        ),
+                      },
+                      {
+                        id: 'configured',
+                        label: i18n._({ id: 'Configured', message: 'Configured' }),
+                        icon: <ContextIcon />,
+                        content: (
+                          <SettingsJsonPreview
+                            description={i18n._({
+                              id: 'Values saved in codex-server database.',
+                              message: 'Values saved in codex-server database.',
+                            })}
+                            title={i18n._({ id: 'Saved Values', message: 'Saved Values' })}
+                            value={{
+                              modelCatalogPath: runtimePreferencesQuery.data.configuredModelCatalogPath,
+                              defaultShellType: runtimePreferencesQuery.data.configuredDefaultShellType,
+                              modelShellTypeOverrides: runtimePreferencesQuery.data.configuredModelShellTypeOverrides,
+                              defaultTurnApprovalPolicy: runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy,
+                              defaultTurnSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy,
+                              defaultCommandSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultCommandSandboxPolicy,
+                            }}
+                          />
+                        ),
+                      },
+                      {
+                        id: 'runtime-state',
+                        label: i18n._({ id: 'Runtime State', message: 'Runtime State' }),
+                        icon: <RefreshIcon />,
+                        content: workspaceRuntimeStateQuery.isLoading ? (
+                          <div className="notice">
+                            {i18n._({
+                              id: 'Loading runtime state…',
+                              message: 'Loading runtime state…',
+                            })}
+                          </div>
+                        ) : workspaceRuntimeStateQuery.data ? (
+                          <div className="form-stack">
+                            <div className="mode-metrics">
+                              <div className="mode-metric">
+                                <span>{i18n._({ id: 'Status', message: 'Status' })}</span>
+                                <strong>{workspaceRuntimeStateQuery.data.status}</strong>
+                              </div>
+                              <div className="mode-metric">
+                                <span>{i18n._({ id: 'Config Load', message: 'Config Load' })}</span>
+                                <strong>{workspaceRuntimeStateQuery.data.configLoadStatus}</strong>
+                              </div>
+                              <div className="mode-metric">
+                                <span>{i18n._({ id: 'Restart Required', message: 'Restart Required' })}</span>
+                                <strong>
+                                  {workspaceRuntimeStateQuery.data.restartRequired
+                                    ? i18n._({ id: 'Yes', message: 'Yes' })
+                                    : i18n._({ id: 'No', message: 'No' })}
+                                </strong>
+                              </div>
+                            </div>
+                            <div className="config-helper-grid config-helper-grid--compact">
+                              <ConfigHelperCard
+                                description={
+                                  workspaceRuntimeStateQuery.data.startedAt
+                                    ? formatLocaleDateTime(workspaceRuntimeStateQuery.data.startedAt)
+                                    : i18n._({ id: 'Not started', message: 'Not started' })
+                                }
+                                title={i18n._({ id: 'Started', message: 'Started' })}
+                              />
+                              <ConfigHelperCard
+                                description={formatLocaleDateTime(workspaceRuntimeStateQuery.data.updatedAt)}
+                                title={i18n._({ id: 'Updated', message: 'Updated' })}
+                              />
+                              <ConfigHelperCard
+                                description={workspaceRuntimeStateQuery.data.command || '—'}
+                                title={i18n._({ id: 'Command', message: 'Command' })}
+                              />
+                            </div>
+                            <SettingsJsonPreview
+                              description={i18n._({
+                                id: 'Observed runtime process state and config load status for the selected workspace.',
+                                message:
+                                  'Observed runtime process state and config load status for the selected workspace.',
+                              })}
+                              title={i18n._({
+                                id: 'Runtime Process State',
+                                message: 'Runtime Process State',
+                              })}
+                              value={workspaceRuntimeStateQuery.data}
+                            />
+                          </div>
+                        ) : (
+                          <div className="empty-state">
+                            {i18n._({
+                              id: 'Runtime state is unavailable for the selected workspace.',
+                              message: 'Runtime state is unavailable for the selected workspace.',
+                            })}
+                          </div>
+                        ),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <div className="notice">
+                    {i18n._({
+                      id: 'Loading runtime preferences…',
+                      message: 'Loading runtime preferences…',
+                    })}
+                  </div>
+                )}
+              </div>
+
               <details className="config-details-box">
                 <summary className="config-details-box__summary">
                   <span>{i18n._({ id: 'Strategy Guide', message: 'Strategy Guide' })}</span>
@@ -880,27 +1090,34 @@ export function ConfigSettingsPage() {
                   </small>
                 </summary>
                 <div className="config-helper-grid config-helper-grid--compact">
-                  <article className="config-helper-card">
-                    <strong>local</strong>
-                    <p>
-                      {i18n._({
-                        id: 'Standard local execution.',
-                        message: 'Standard local execution.',
-                      })}
-                    </p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>unified_exec</strong>
-                    <p>{i18n._({ id: 'Streaming output + stdin.', message: 'Streaming output + stdin.' })}</p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>shell_command</strong>
-                    <p>{i18n._({ id: 'Script string wrapper.', message: 'Script string wrapper.' })}</p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>default</strong>
-                    <p>{i18n._({ id: 'Upstream catalog values.', message: 'Upstream catalog values.' })}</p>
-                  </article>
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Standard local execution.',
+                      message: 'Standard local execution.',
+                    })}
+                    title="local"
+                  />
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Streaming output + stdin.',
+                      message: 'Streaming output + stdin.',
+                    })}
+                    title="unified_exec"
+                  />
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Script string wrapper.',
+                      message: 'Script string wrapper.',
+                    })}
+                    title="shell_command"
+                  />
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Upstream catalog values.',
+                      message: 'Upstream catalog values.',
+                    })}
+                    title="default"
+                  />
                 </div>
               </details>
 
@@ -915,28 +1132,26 @@ export function ConfigSettingsPage() {
                   </small>
                 </summary>
                 <div className="config-helper-grid config-helper-grid--compact">
-                  <article className="config-helper-card">
-                    <strong>dangerFullAccess</strong>
-                    <p>{'{"type":"dangerFullAccess"}'}</p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>externalSandbox</strong>
-                    <p>{'{"type":"externalSandbox","networkAccess":"enabled"}'}</p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>workspaceWrite</strong>
-                    <p>{'{"type":"workspaceWrite","networkAccess":true}'}</p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>{i18n._({ id: 'Approval', message: 'Approval' })}</strong>
-                    <p>
-                      {i18n._({
-                        id: 'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
-                        message:
-                          'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
-                      })}
-                    </p>
-                  </article>
+                  <ConfigHelperCard
+                    description='{"type":"dangerFullAccess"}'
+                    title="dangerFullAccess"
+                  />
+                  <ConfigHelperCard
+                    description='{"type":"externalSandbox","networkAccess":"enabled"}'
+                    title="externalSandbox"
+                  />
+                  <ConfigHelperCard
+                    description='{"type":"workspaceWrite","networkAccess":true}'
+                    title="workspaceWrite"
+                  />
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
+                      message:
+                        'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
+                    })}
+                    title={i18n._({ id: 'Approval', message: 'Approval' })}
+                  />
                 </div>
                 <div className="setting-row__actions" style={{ marginTop: 12 }}>
                   <button
@@ -1078,152 +1293,6 @@ export function ConfigSettingsPage() {
                 </InlineNotice>
               )}
             </div>
-
-            <div className="config-workbench__side-panel">
-              <div className="config-card config-card--muted">
-                <div className="config-card__header">
-                  <strong>{i18n._({ id: 'Status & Inspection', message: 'Status & Inspection' })}</strong>
-                </div>
-                {runtimePreferencesQuery.data ? (
-                  <Tabs
-                    ariaLabel={i18n._({
-                      id: 'Runtime inspection tabs',
-                      message: 'Runtime inspection tabs',
-                    })}
-                    className="config-workbench__panel"
-                    storageKey="settings-config-runtime-side-tabs"
-                    items={[
-                      {
-                        id: 'effective',
-                        label: i18n._({ id: 'Effective', message: 'Effective' }),
-                        icon: <TerminalIcon />,
-                        content: (
-                          <SettingsJsonPreview
-                            description={i18n._({
-                              id: 'Current resolved runtime state.',
-                              message: 'Current resolved runtime state.',
-                            })}
-                            title={i18n._({
-                              id: 'Effective Values',
-                              message: 'Effective Values',
-                            })}
-                            value={{
-                              modelCatalogPath: runtimePreferencesQuery.data.effectiveModelCatalogPath,
-                              defaultShellType: runtimePreferencesQuery.data.effectiveDefaultShellType,
-                              modelShellTypeOverrides: runtimePreferencesQuery.data.effectiveModelShellTypeOverrides,
-                              defaultTurnApprovalPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnApprovalPolicy,
-                              defaultTurnSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnSandboxPolicy,
-                              defaultCommandSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultCommandSandboxPolicy,
-                              command: runtimePreferencesQuery.data.effectiveCommand,
-                            }}
-                          />
-                        ),
-                      },
-                      {
-                        id: 'configured',
-                        label: i18n._({ id: 'Configured', message: 'Configured' }),
-                        icon: <ContextIcon />,
-                        content: (
-                          <SettingsJsonPreview
-                            description={i18n._({
-                              id: 'Values saved in codex-server database.',
-                              message: 'Values saved in codex-server database.',
-                            })}
-                            title={i18n._({ id: 'Saved Values', message: 'Saved Values' })}
-                            value={{
-                              modelCatalogPath: runtimePreferencesQuery.data.configuredModelCatalogPath,
-                              defaultShellType: runtimePreferencesQuery.data.configuredDefaultShellType,
-                              modelShellTypeOverrides: runtimePreferencesQuery.data.configuredModelShellTypeOverrides,
-                              defaultTurnApprovalPolicy: runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy,
-                              defaultTurnSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy,
-                              defaultCommandSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultCommandSandboxPolicy,
-                            }}
-                          />
-                        ),
-                      },
-                      {
-                        id: 'runtime-state',
-                        label: i18n._({ id: 'Runtime State', message: 'Runtime State' }),
-                        icon: <RefreshIcon />,
-                        content: workspaceRuntimeStateQuery.isLoading ? (
-                          <div className="notice">
-                            {i18n._({
-                              id: 'Loading runtime state…',
-                              message: 'Loading runtime state…',
-                            })}
-                          </div>
-                        ) : workspaceRuntimeStateQuery.data ? (
-                          <div className="form-stack">
-                            <div className="mode-metrics">
-                              <div className="mode-metric">
-                                <span>{i18n._({ id: 'Status', message: 'Status' })}</span>
-                                <strong>{workspaceRuntimeStateQuery.data.status}</strong>
-                              </div>
-                              <div className="mode-metric">
-                                <span>{i18n._({ id: 'Config Load', message: 'Config Load' })}</span>
-                                <strong>{workspaceRuntimeStateQuery.data.configLoadStatus}</strong>
-                              </div>
-                              <div className="mode-metric">
-                                <span>{i18n._({ id: 'Restart Required', message: 'Restart Required' })}</span>
-                                <strong>
-                                  {workspaceRuntimeStateQuery.data.restartRequired
-                                    ? i18n._({ id: 'Yes', message: 'Yes' })
-                                    : i18n._({ id: 'No', message: 'No' })}
-                                </strong>
-                              </div>
-                            </div>
-                            <div className="config-helper-grid config-helper-grid--compact">
-                              <div className="config-helper-card">
-                                <strong>{i18n._({ id: 'Started', message: 'Started' })}</strong>
-                                <p>
-                                  {workspaceRuntimeStateQuery.data.startedAt
-                                    ? formatLocaleDateTime(workspaceRuntimeStateQuery.data.startedAt)
-                                    : i18n._({ id: 'Not started', message: 'Not started' })}
-                                </p>
-                              </div>
-                              <div className="config-helper-card">
-                                <strong>{i18n._({ id: 'Updated', message: 'Updated' })}</strong>
-                                <p>{formatLocaleDateTime(workspaceRuntimeStateQuery.data.updatedAt)}</p>
-                              </div>
-                              <div className="config-helper-card">
-                                <strong>{i18n._({ id: 'Command', message: 'Command' })}</strong>
-                                <p>{workspaceRuntimeStateQuery.data.command || '—'}</p>
-                              </div>
-                            </div>
-                            <SettingsJsonPreview
-                              description={i18n._({
-                                id: 'Observed runtime process state and config load status for the selected workspace.',
-                                message:
-                                  'Observed runtime process state and config load status for the selected workspace.',
-                              })}
-                              title={i18n._({
-                                id: 'Runtime Process State',
-                                message: 'Runtime Process State',
-                              })}
-                              value={workspaceRuntimeStateQuery.data}
-                            />
-                          </div>
-                        ) : (
-                          <div className="empty-state">
-                            {i18n._({
-                              id: 'Runtime state is unavailable for the selected workspace.',
-                              message: 'Runtime state is unavailable for the selected workspace.',
-                            })}
-                          </div>
-                        ),
-                      },
-                    ]}
-                  />
-                ) : (
-                  <div className="notice">
-                    {i18n._({
-                      id: 'Loading runtime preferences…',
-                      message: 'Loading runtime preferences…',
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       ),
@@ -1326,6 +1395,38 @@ export function ConfigSettingsPage() {
                     value={configValue}
                   />
                 </div>
+
+                <div className="config-details-box" style={{ marginTop: '20px' }}>
+                  <div className="config-card__header">
+                    <strong>{i18n._({ id: 'Current Config Analysis', message: 'Current Config Analysis' })}</strong>
+                  </div>
+                  {configQuery.isLoading ? (
+                    <div className="notice">
+                      {i18n._({
+                        id: 'Loading configuration…',
+                        message: 'Loading configuration…',
+                      })}
+                    </div>
+                  ) : configQuery.data ? (
+                    <SettingsJsonPreview
+                      collapsible
+                      defaultExpanded={false}
+                      description={i18n._({
+                        id: 'Final merged configuration including all layers.',
+                        message: 'Final merged configuration including all layers.',
+                      })}
+                      title={i18n._({ id: 'Effective Config', message: 'Effective Config' })}
+                      value={configQuery.data.config}
+                    />
+                  ) : (
+                    <div className="empty-state">
+                      {i18n._({
+                        id: 'Configuration data is unavailable.',
+                        message: 'Configuration data is unavailable.',
+                      })}
+                    </div>
+                  )}
+                </div>
               </form>
 
               <div className="config-details-box">
@@ -1342,38 +1443,35 @@ export function ConfigSettingsPage() {
                   </p>
                   <div className="config-helper-grid config-helper-grid--compact">
                     {runtimeSensitiveConfigItems.slice(0, 6).map((item) => (
-                      <div className="config-helper-card" key={item.keyPath}>
-                        <code>{item.keyPath}</code>
-                        <small>{item.description}</small>
-                      </div>
+                      <ConfigHelperCard
+                        description={item.description}
+                        key={item.keyPath}
+                        title={item.keyPath}
+                      />
                     ))}
-                    <div className="config-helper-card">
-                      <code>ui.theme</code>
-                      <small>
-                        {i18n._({
-                          id: 'Example of a non-runtime-sensitive key path. This type of config does not usually require runtime restart.',
-                          message:
-                            'Example of a non-runtime-sensitive key path. This type of config does not usually require runtime restart.',
-                        })}
-                      </small>
-                    </div>
-                    <div className="config-helper-card">
-                      <code>notifications.enabled</code>
-                      <small>
-                        {i18n._({
-                          id: 'Another non-runtime-sensitive example for local UI or product behavior toggles.',
-                          message:
-                            'Another non-runtime-sensitive example for local UI or product behavior toggles.',
-                        })}
-                      </small>
-                    </div>
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Example of a non-runtime-sensitive key path. This type of config does not usually require runtime restart.',
+                        message:
+                          'Example of a non-runtime-sensitive key path. This type of config does not usually require runtime restart.',
+                      })}
+                      title="ui.theme"
+                    />
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Another non-runtime-sensitive example for local UI or product behavior toggles.',
+                        message:
+                          'Another non-runtime-sensitive example for local UI or product behavior toggles.',
+                      })}
+                      title="notifications.enabled"
+                    />
                   </div>
                 </div>
               </div>
 
               <div className="config-details-box">
                 <div className="config-card__header">
-                  <strong>{i18n._({ id: 'Scenario Presets', message: 'Scenario Presets' })}</strong>
+                  <strong>{i18n._({ id: 'Scenario Presets & Requirements', message: 'Scenario Presets & Requirements' })}</strong>
                 </div>
                 <p className="config-inline-note">
                   {bestMatchingAdvancedScenario
@@ -1393,71 +1491,48 @@ export function ConfigSettingsPage() {
                           'Current config does not closely match any built-in scenario preset.',
                       })}
                 </p>
-                <div className="config-helper-grid config-helper-grid--compact">
-                  {advancedScenarioMatches.map((match) => (
-                    <div className="config-helper-card" key={match.scenario.id}>
-                      <div className="config-card__header">
-                        <strong>{match.scenario.title}</strong>
-                        <span
-                          className={
-                            match.exact
-                              ? 'status-pill status-pill--active'
-                              : match.matchedEditCount > 0
-                                ? 'status-pill status-pill--paused'
-                                : 'status-pill'
-                          }
-                        >
-                          {match.exact
-                            ? i18n._({ id: 'Exact', message: 'Exact' })
-                            : match.matchedEditCount > 0
-                              ? i18n._({ id: 'Partial', message: 'Partial' })
-                              : i18n._({ id: 'No match', message: 'No match' })}
-                        </span>
-                      </div>
-                      <p>{match.scenario.description}</p>
-                      <small>
-                        {match.exact
-                          ? i18n._({ id: 'Exact match', message: 'Exact match' })
-                          : i18n._({
-                              id: '{matched}/{total} edits matched',
-                              message: '{matched}/{total} edits matched',
-                              values: {
-                                matched: match.matchedEditCount,
-                                total: match.totalEditCount,
-                              },
-                            })}
-                      </small>
-                      <SettingsJsonPreview
-                        collapsible={false}
-                        description={i18n._({
-                          id: 'Edits that will be written before runtime restart.',
-                          message: 'Edits that will be written before runtime restart.',
-                        })}
-                        title={i18n._({ id: 'Scenario Edits', message: 'Scenario Edits' })}
-                        value={match.scenario.edits}
-                      />
-                      <SettingsJsonDiffPreview
-                        description={i18n._({
-                          id: 'Only keys whose values differ from the current config will change.',
-                          message:
-                            'Only keys whose values differ from the current config will change.',
-                        })}
-                        entries={getConfigScenarioDiff(configQuery.data?.config, match.scenario)}
-                        title={i18n._({ id: 'Scenario Diff', message: 'Scenario Diff' })}
-                      />
-                      <button
-                        className="ide-button ide-button--secondary ide-button--sm"
-                        disabled={!workspaceId || applyConfigScenarioMutation.isPending}
-                        onClick={() => applyConfigScenarioMutation.mutate(match.scenario.id)}
-                        type="button"
-                      >
-                        {applyConfigScenarioMutation.isPending
-                          ? i18n._({ id: 'Applying…', message: 'Applying…' })
-                          : i18n._({ id: 'Apply & Restart', message: 'Apply & Restart' })}
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <Tabs
+                  ariaLabel={i18n._({
+                    id: 'Scenario preset and requirement tabs',
+                    message: 'Scenario preset and requirement tabs',
+                  })}
+                  className="config-scenario-tabs"
+                  defaultValue={scenarioPresetDefaultTabId}
+                  items={[
+                    ...scenarioPresetTabItems,
+                    {
+                      id: 'requirements',
+                      label: i18n._({ id: 'Requirements', message: 'Requirements' }),
+                      icon: <FeedIcon />,
+                      content: (
+                        <div className="config-card config-card--muted config-scenario-panel">
+                          <div className="config-card__header">
+                            <strong>{i18n._({ id: 'Runtime Requirements', message: 'Runtime Requirements' })}</strong>
+                          </div>
+                          {requirementsQuery.data ? (
+                            <SettingsJsonPreview
+                              collapsible={false}
+                              description={i18n._({
+                                id: 'Validation status and requirements.',
+                                message: 'Validation status and requirements.',
+                              })}
+                              title={i18n._({ id: 'Requirements', message: 'Requirements' })}
+                              value={requirementsQuery.data.requirements ?? null}
+                            />
+                          ) : (
+                            <div className="empty-state">
+                              {i18n._({
+                                id: 'No requirements payload returned.',
+                                message: 'No requirements payload returned.',
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    }
+                  ]}
+                  storageKey="settings-config-advanced-scenario-tabs"
+                />
               </div>
 
               {writeConfigMutation.error && (
@@ -1482,89 +1557,6 @@ export function ConfigSettingsPage() {
                   {getErrorMessage(applyConfigScenarioMutation.error)}
                 </InlineNotice>
               )}
-            </div>
-
-            <div className="config-workbench__side-panel">
-              <div className="config-card config-card--muted">
-                <div className="config-card__header">
-                  <strong>{i18n._({ id: 'Resolved Analysis', message: 'Resolved Analysis' })}</strong>
-                </div>
-                <Tabs
-                  ariaLabel={i18n._({
-                    id: 'Resolved analysis tabs',
-                    message: 'Resolved analysis tabs',
-                  })}
-                  className="config-workbench__panel"
-                  storageKey="settings-config-advanced-side-tabs"
-                  items={[
-                    {
-                      id: 'config',
-                      label: i18n._({ id: 'Current Config', message: 'Current Config' }),
-                      icon: <ContextIcon />,
-                      content: configQuery.isLoading ? (
-                        <div className="notice">
-                          {i18n._({
-                            id: 'Loading configuration…',
-                            message: 'Loading configuration…',
-                          })}
-                        </div>
-                      ) : configQuery.data ? (
-                        <SettingsJsonPreview
-                          collapsible
-                          defaultExpanded={false}
-                          description={i18n._({
-                            id: 'Final merged configuration including all layers.',
-                            message: 'Final merged configuration including all layers.',
-                          })}
-                          title={i18n._({ id: 'Effective Config', message: 'Effective Config' })}
-                          value={configQuery.data.config}
-                        />
-                      ) : (
-                        <div className="empty-state">
-                          {i18n._({
-                            id: 'Configuration data is unavailable.',
-                            message: 'Configuration data is unavailable.',
-                          })}
-                        </div>
-                      ),
-                    },
-                    {
-                      id: 'requirements',
-                      label: i18n._({ id: 'Requirements', message: 'Requirements' }),
-                      icon: <FeedIcon />,
-                      content: requirementsQuery.data ? (
-                        <SettingsJsonPreview
-                          collapsible
-                          defaultExpanded={false}
-                          description={i18n._({
-                            id: 'Validation status and requirements.',
-                            message: 'Validation status and requirements.',
-                          })}
-                          title={i18n._({ id: 'Requirements', message: 'Requirements' })}
-                          value={requirementsQuery.data.requirements ?? null}
-                        />
-                      ) : (
-                        <div className="empty-state">
-                          {i18n._({
-                            id: 'No requirements payload returned.',
-                            message: 'No requirements payload returned.',
-                          })}
-                        </div>
-                      ),
-                    },
-                  ]}
-                />
-                {configQuery.error && (
-                  <InlineNotice
-                  details={getErrorMessage(configQuery.error)}
-                  onRetry={() => void queryClient.invalidateQueries({ queryKey: ['settings-config', workspaceId] })}
-                  title={i18n._({ id: 'Read Error', message: 'Read Error' })}
-                  tone="error"
-                >
-                    {getErrorMessage(configQuery.error)}
-                  </InlineNotice>
-                )}
-              </div>
             </div>
           </div>
         </div>
@@ -1608,63 +1600,9 @@ export function ConfigSettingsPage() {
                 </p>
               </div>
 
-              <details className="config-details-box">
-                <summary className="config-details-box__summary">
-                  <span>{i18n._({ id: 'Migration Workflow', message: 'Migration Workflow' })}</span>
-                  <small>
-                    {i18n._({
-                      id: 'How to safely migrate your state',
-                      message: 'How to safely migrate your state',
-                    })}
-                  </small>
-                </summary>
-                <div className="config-helper-grid config-helper-grid--compact">
-                  <article className="config-helper-card">
-                    <strong>{i18n._({ id: '1. Scan', message: '1. Scan' })}</strong>
-                    <p>
-                      {i18n._({
-                        id: 'Detect artifacts in home & local scopes.',
-                        message: 'Detect artifacts in home & local scopes.',
-                      })}
-                    </p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>{i18n._({ id: '2. Review', message: '2. Review' })}</strong>
-                    <p>
-                      {i18n._({
-                        id: 'Verify detected items in the side panel.',
-                        message: 'Verify detected items in the side panel.',
-                      })}
-                    </p>
-                  </article>
-                  <article className="config-helper-card">
-                    <strong>{i18n._({ id: '3. Import', message: '3. Import' })}</strong>
-                    <p>
-                      {i18n._({
-                        id: 'Merge items into active workspace.',
-                        message: 'Merge items into active workspace.',
-                      })}
-                    </p>
-                  </article>
-                </div>
-              </details>
-
-              {detectExternalMutation.error && (
-                <InlineNotice
-                  details={getErrorMessage(detectExternalMutation.error)}
-                  onRetry={() => detectExternalMutation.mutate()}
-                  title={i18n._({ id: 'Scan Failed', message: 'Scan Failed' })}
-                  tone="error"
-                >
-                  {getErrorMessage(detectExternalMutation.error)}
-                </InlineNotice>
-              )}
-            </div>
-
-            <div className="config-workbench__side-panel">
-              <div className="config-card config-card--muted">
+              <div className="config-card">
                 <div className="config-card__header">
-                  <strong>{i18n._({ id: 'Detected State', message: 'Detected State' })}</strong>
+                  <strong>{i18n._({ id: 'Detected State & Workflow', message: 'Detected State & Workflow' })}</strong>
                 </div>
                 <Tabs
                   ariaLabel={i18n._({
@@ -1674,42 +1612,6 @@ export function ConfigSettingsPage() {
                   className="config-workbench__panel"
                   storageKey="settings-config-migration-side-tabs"
                   items={[
-                    {
-                      id: 'workflow',
-                      label: i18n._({ id: 'Workflow', message: 'Workflow' }),
-                      icon: <SettingsIcon />,
-                      content: (
-                        <div className="config-helper-grid config-helper-grid--compact">
-                          <article className="config-helper-card">
-                            <strong>{i18n._({ id: '1. Scan', message: '1. Scan' })}</strong>
-                            <p>
-                              {i18n._({
-                                id: 'Discover candidate artifacts from local and home scopes.',
-                                message: 'Discover candidate artifacts from local and home scopes.',
-                              })}
-                            </p>
-                          </article>
-                          <article className="config-helper-card">
-                            <strong>{i18n._({ id: '2. Review', message: '2. Review' })}</strong>
-                            <p>
-                              {i18n._({
-                                id: 'Inspect the detected payload before you import it.',
-                                message: 'Inspect the detected payload before you import it.',
-                              })}
-                            </p>
-                          </article>
-                          <article className="config-helper-card">
-                            <strong>{i18n._({ id: '3. Import', message: '3. Import' })}</strong>
-                            <p>
-                              {i18n._({
-                                id: 'Apply the detected state into the active workspace.',
-                                message: 'Apply the detected state into the active workspace.',
-                              })}
-                            </p>
-                          </article>
-                        </div>
-                      ),
-                    },
                     {
                       id: 'detected',
                       label: i18n._({ id: 'Detected', message: 'Detected' }),
@@ -1734,18 +1636,94 @@ export function ConfigSettingsPage() {
                         </div>
                       ),
                     },
+                    {
+                      id: 'workflow',
+                      label: i18n._({ id: 'Workflow', message: 'Workflow' }),
+                      icon: <SettingsIcon />,
+                      content: (
+                        <div className="config-helper-grid config-helper-grid--compact">
+                          <ConfigHelperCard
+                            description={i18n._({
+                              id: 'Discover candidate artifacts from local and home scopes.',
+                              message: 'Discover candidate artifacts from local and home scopes.',
+                            })}
+                            title={i18n._({ id: '1. Scan', message: '1. Scan' })}
+                          />
+                          <ConfigHelperCard
+                            description={i18n._({
+                              id: 'Inspect the detected payload before you import it.',
+                              message: 'Inspect the detected payload before you import it.',
+                            })}
+                            title={i18n._({ id: '2. Review', message: '2. Review' })}
+                          />
+                          <ConfigHelperCard
+                            description={i18n._({
+                              id: 'Apply the detected state into the active workspace.',
+                              message: 'Apply the detected state into the active workspace.',
+                            })}
+                            title={i18n._({ id: '3. Import', message: '3. Import' })}
+                          />
+                        </div>
+                      ),
+                    },
                   ]}
                 />
-                {importExternalMutation.error && (
-                  <InlineNotice
-                    details={getErrorMessage(importExternalMutation.error)}
-                    title={i18n._({ id: 'Import Failed', message: 'Import Failed' })}
-                    tone="error"
-                  >
-                    {getErrorMessage(importExternalMutation.error)}
-                  </InlineNotice>
-                )}
               </div>
+
+              <details className="config-details-box">
+                <summary className="config-details-box__summary">
+                  <span>{i18n._({ id: 'Migration Workflow', message: 'Migration Workflow' })}</span>
+                  <small>
+                    {i18n._({
+                      id: 'How to safely migrate your state',
+                      message: 'How to safely migrate your state',
+                    })}
+                  </small>
+                </summary>
+                <div className="config-helper-grid config-helper-grid--compact">
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Detect artifacts in home & local scopes.',
+                      message: 'Detect artifacts in home & local scopes.',
+                    })}
+                    title={i18n._({ id: '1. Scan', message: '1. Scan' })}
+                  />
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Verify detected items in the side panel.',
+                      message: 'Verify detected items in the side panel.',
+                    })}
+                    title={i18n._({ id: '2. Review', message: '2. Review' })}
+                  />
+                  <ConfigHelperCard
+                    description={i18n._({
+                      id: 'Merge items into active workspace.',
+                      message: 'Merge items into active workspace.',
+                    })}
+                    title={i18n._({ id: '3. Import', message: '3. Import' })}
+                  />
+                </div>
+              </details>
+
+              {detectExternalMutation.error && (
+                <InlineNotice
+                  details={getErrorMessage(detectExternalMutation.error)}
+                  onRetry={() => detectExternalMutation.mutate()}
+                  title={i18n._({ id: 'Scan Failed', message: 'Scan Failed' })}
+                  tone="error"
+                >
+                  {getErrorMessage(detectExternalMutation.error)}
+                </InlineNotice>
+              )}
+              {importExternalMutation.error && (
+                <InlineNotice
+                  details={getErrorMessage(importExternalMutation.error)}
+                  title={i18n._({ id: 'Import Failed', message: 'Import Failed' })}
+                  tone="error"
+                >
+                  {getErrorMessage(importExternalMutation.error)}
+                </InlineNotice>
+              )}
             </div>
           </div>
         </div>
@@ -1787,6 +1765,30 @@ export function ConfigSettingsPage() {
       />
     </section>
   )
+}
+
+function getScenarioMatchStatusClassName(match: ConfigScenarioMatch) {
+  if (match.exact) {
+    return 'status-pill status-pill--active'
+  }
+
+  if (match.matchedEditCount > 0) {
+    return 'status-pill status-pill--paused'
+  }
+
+  return 'status-pill'
+}
+
+function getScenarioMatchStatusLabel(match: ConfigScenarioMatch) {
+  if (match.exact) {
+    return i18n._({ id: 'Exact', message: 'Exact' })
+  }
+
+  if (match.matchedEditCount > 0) {
+    return i18n._({ id: 'Partial', message: 'Partial' })
+  }
+
+  return i18n._({ id: 'No match', message: 'No match' })
 }
 
 function parseJsonInput(value: string) {

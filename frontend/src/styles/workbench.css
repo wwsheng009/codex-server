@@ -643,6 +643,39 @@
   margin: 0 auto;
 }
 
+.workbench-log__empty .form-stack {
+  align-items: center;
+  gap: 16px;
+  width: min(100%, 360px);
+}
+
+.workbench-log__empty-action {
+  min-width: min(100%, 260px);
+  padding-inline: 24px;
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent) 88%, white 12%),
+      color-mix(in srgb, var(--accent-strong) 90%, black 4%)
+    );
+  box-shadow:
+    0 16px 34px color-mix(in srgb, var(--accent) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  letter-spacing: 0.01em;
+}
+
+.workbench-log__empty-action:hover:not(:disabled) {
+  box-shadow:
+    0 20px 40px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.workbench-log__empty-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
 .workbench-log__panel {
   position: absolute;
   top: 8px;

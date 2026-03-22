@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useRouteError } from 'react-router-dom'
 
 import { i18n } from '../i18n/runtime'
 import { describeRouteError } from '../lib/route-error'
+import { WarningIcon } from '../components/ui/RailControls'
 
 type RouteErrorPageProps = {
   chrome: 'fullscreen' | 'page' | 'panel'
@@ -62,9 +63,11 @@ function RouteErrorPage({ chrome, scopeLabel, homeLabel, homeTo }: RouteErrorPag
           <div className="route-error__copy">
             <div className="route-error__headline">
               <div className="route-error__meta" role="presentation">
-                <span className="route-error__pill route-error__pill--danger">{description.code}</span>
-                <span className="route-error__pill">{scopeLabel}</span>
-                <span className="route-error__pill route-error__pill--route" title={location.pathname || '/'}>
+                <span className="route-error__pill route-error__pill--danger">
+                  <WarningIcon />
+                  {description.code}
+                </span>
+                <span className="route-error__pill">{scopeLabel}</span>                <span className="route-error__pill route-error__pill--route" title={location.pathname || '/'}>
                   {location.pathname || '/'}
                 </span>
               </div>
@@ -75,6 +78,13 @@ function RouteErrorPage({ chrome, scopeLabel, homeLabel, homeTo }: RouteErrorPag
             <button className="ide-button ide-button--sm" onClick={handleRetry} type="button">
               {i18n._({ id: 'Retry', message: 'Retry' })}
             </button>
+            {description.details ? (
+              <button className="ide-button ide-button--secondary ide-button--sm" onClick={() => void handleCopyDetails()} type="button">
+                {copied
+                  ? i18n._({ id: 'Copied', message: 'Copied' })
+                  : i18n._({ id: 'Copy', message: 'Copy' })}
+              </button>
+            ) : null}
             {canGoBack ? (
               <button
                 className="ide-button ide-button--secondary ide-button--sm"
@@ -93,13 +103,6 @@ function RouteErrorPage({ chrome, scopeLabel, homeLabel, homeTo }: RouteErrorPag
         {description.details ? (
           <details className="route-error__debug" open>
             <summary>{i18n._({ id: 'Details', message: 'Details' })}</summary>
-            <div className="route-error__debug-actions">
-              <button className="notice__tool" onClick={() => void handleCopyDetails()} type="button">
-                {copied
-                  ? i18n._({ id: 'Copied', message: 'Copied' })
-                  : i18n._({ id: 'Copy', message: 'Copy' })}
-              </button>
-            </div>
             <pre className="code-block">{description.details}</pre>
           </details>
         ) : null}

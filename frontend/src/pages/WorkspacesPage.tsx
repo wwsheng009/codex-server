@@ -27,6 +27,7 @@ export function WorkspacesPage() {
   const markWorkspaceRestarting = useUIStore((state) => state.markWorkspaceRestarting)
   const markWorkspaceRestarted = useUIStore((state) => state.markWorkspaceRestarted)
   const clearWorkspaceRestartState = useUIStore((state) => state.clearWorkspaceRestartState)
+  const pushToast = useUIStore((state) => state.pushToast)
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
@@ -47,7 +48,7 @@ export function WorkspacesPage() {
 
   const createWorkspaceMutation = useMutation({
     mutationFn: createWorkspace,
-    onSuccess: async () => {
+    onSuccess: async (workspace) => {
       setName('')
       setRootPath('')
       setIsCreatingWorkspace(false)
@@ -56,6 +57,28 @@ export function WorkspacesPage() {
         queryClient.invalidateQueries({ queryKey: ['shell-workspaces'] }),
         queryClient.invalidateQueries({ queryKey: ['shell-threads'] }),
       ])
+      pushToast({
+        title: i18n._({
+          id: 'Workspace registered',
+          message: 'Workspace registered',
+        }),
+        message: i18n._({
+          id: 'Workspace {name} is now available in the registry.',
+          message: 'Workspace {name} is now available in the registry.',
+          values: { name: workspace.name },
+        }),
+        tone: 'success',
+      })
+    },
+    onError: (error) => {
+      pushToast({
+        title: i18n._({
+          id: 'Workspace registration failed',
+          message: 'Workspace registration failed',
+        }),
+        message: getErrorMessage(error),
+        tone: 'error',
+      })
     },
   })
   const deleteWorkspaceMutation = useMutation({

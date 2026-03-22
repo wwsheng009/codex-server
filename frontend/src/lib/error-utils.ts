@@ -35,6 +35,7 @@ export function isAuthenticationError(error: unknown) {
   return (
     message.includes('invalid_api_key') ||
     message.includes('authentication required') ||
+    message.includes('authentication is required') ||
     message.includes('requires openai auth') ||
     (message.includes('401 unauthorized') &&
       (message.includes('api key') || message.includes('openai') || message.includes('auth')))

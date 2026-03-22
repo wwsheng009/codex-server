@@ -13,7 +13,10 @@
 
 .route-error__card {
   min-width: 0;
-  gap: 6px;
+  gap: 12px;
+  border: 1px solid var(--border-danger);
+  background: var(--surface-danger-soft);
+  box-shadow: 0 8px 32px rgba(235, 87, 87, 0.12);
 }
 
 .route-error__card--fullscreen {
@@ -43,9 +46,16 @@
 }
 
 .route-error__pill--danger {
+  gap: 4px;
   border-color: var(--border-danger);
-  background: var(--surface-danger-soft);
+  background: var(--surface-card);
   color: var(--danger-strong);
+}
+
+.route-error__pill--danger svg {
+  width: 14px;
+  height: 14px;
+  color: var(--danger);
 }
 
 .route-error__hero {
@@ -113,19 +123,10 @@
 
 .route-error__debug summary {
   display: block;
-  padding-right: 72px;
   color: var(--text-strong);
   font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
-}
-
-.route-error__debug-actions {
-  position: absolute;
-  top: 4px;
-  right: 9px;
-  display: flex;
-  align-items: center;
 }
 
 .route-error__debug .code-block {
@@ -164,15 +165,5 @@
 
   .route-error__debug {
     padding-top: 12px;
-  }
-
-  .route-error__debug summary {
-    padding-right: 0;
-  }
-
-  .route-error__debug-actions {
-    position: static;
-    justify-content: flex-start;
-    margin-top: 8px;
   }
 }

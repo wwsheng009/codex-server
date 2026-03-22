@@ -62,22 +62,59 @@ export function isViewportNearBottom(
   return scrollHeight - (scrollTop + clientHeight) <= thresholdPx
 }
 
+export function latestMessageUpdateKey(turns: ThreadTurn[]) {
+  return latestThreadMessageKey(turns, { includeStreamingAgentMessages: true })
+}
+
 export function latestSettledMessageKey(turns: ThreadTurn[]) {
+  return latestThreadMessageKey(turns, { includeStreamingAgentMessages: false })
+}
+
+export function latestRenderableThreadItemKey(turns: ThreadTurn[]) {
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = turns[turnIndex]
+
+    if (turn.error !== null && turn.error !== undefined) {
+      return `${turn.id}:error:${serializedValueLength(turn.error)}`
+    }
+
+    for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = turn.items[itemIndex]
+      const key = renderableThreadItemKey(turn.id, item, itemIndex)
+      if (key) {
+        return key
+      }
+    }
+  }
+
+  return ''
+}
+
+function latestThreadMessageKey(
+  turns: ThreadTurn[],
+  options: { includeStreamingAgentMessages: boolean },
+) {
   for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = turns[turnIndex]
 
     for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
       const item = turn.items[itemIndex]
-      const type = typeof item.type === 'string' ? item.type : ''
+      const type = stringField(item.type)
 
       if (type === 'agentMessage') {
-        const text = typeof item.text === 'string' ? item.text : ''
-        const phase = typeof item.phase === 'string' ? item.phase : ''
-        if (!text.trim() || phase === 'streaming') {
+        const text = stringField(item.text)
+        const phase = stringField(item.phase)
+        const hasVisibleStreamingBubble = phase === 'streaming'
+        if (!text.trim() && !hasVisibleStreamingBubble) {
+          continue
+        }
+        if (phase === 'streaming' && !options.includeStreamingAgentMessages) {
           continue
         }
 
-        return `${turn.id}:${String(item.id ?? itemIndex)}:agent:${text.length}`
+        return phase === 'streaming'
+          ? `${turn.id}:${threadItemId(item, itemIndex)}:agent:streaming:${text.length}`
+          : `${turn.id}:${threadItemId(item, itemIndex)}:agent:${text.length}`
       }
 
       if (type === 'userMessage') {
@@ -86,7 +123,7 @@ export function latestSettledMessageKey(turns: ThreadTurn[]) {
           continue
         }
 
-        return `${turn.id}:${String(item.id ?? itemIndex)}:user:${text.length}`
+        return `${turn.id}:${threadItemId(item, itemIndex)}:user:${text.length}`
       }
     }
   }
@@ -111,4 +148,79 @@ function userMessageText(item: Record<string, unknown>) {
     })
     .filter(Boolean)
     .join('\n')
+}
+
+function renderableThreadItemKey(turnId: string, item: Record<string, unknown>, itemIndex: number) {
+  const type = stringField(item.type)
+  const itemId = threadItemId(item, itemIndex)
+
+  switch (type) {
+    case 'userMessage': {
+      const text = userMessageText(item)
+      return text.trim() ? `${turnId}:${itemId}:user:${text.length}` : ''
+    }
+    case 'agentMessage': {
+      const text = stringField(item.text)
+      const phase = stringField(item.phase)
+      const hasVisibleStreamingBubble = phase === 'streaming'
+      if (!text.trim() && !hasVisibleStreamingBubble) {
+        return ''
+      }
+
+      return phase === 'streaming'
+        ? `${turnId}:${itemId}:agent:streaming:${text.length}`
+        : `${turnId}:${itemId}:agent:${text.length}`
+    }
+    case 'commandExecution': {
+      const command = stringField(item.command)
+      const output = stringField(item.aggregatedOutput)
+      const status = stringField(item.status)
+      if (!command && !output && !status) {
+        return ''
+      }
+
+      return `${turnId}:${itemId}:command:${status}:${command.length}:${output.length}`
+    }
+    case 'plan': {
+      const text = stringField(item.text)
+      return text.trim() ? `${turnId}:${itemId}:plan:${text.length}` : ''
+    }
+    case 'fileChange': {
+      const changeCount = Array.isArray(item.changes) ? item.changes.length : 0
+      return changeCount > 0 ? `${turnId}:${itemId}:file:${changeCount}` : ''
+    }
+    case 'reasoning':
+      return ''
+    default: {
+      const text = stringField(item.text) || stringField(item.message)
+      const status = stringField(item.status)
+      const phase = stringField(item.phase)
+      const snapshotLength = serializedValueLength(item)
+      if (!text.trim() && !status && !phase && snapshotLength === 0) {
+        return ''
+      }
+
+      return `${turnId}:${itemId}:${type || 'item'}:${status}:${phase}:${text.length}:${snapshotLength}`
+    }
+  }
+}
+
+function threadItemId(item: Record<string, unknown>, itemIndex: number) {
+  return String(item.id ?? itemIndex)
+}
+
+function serializedValueLength(value: unknown) {
+  if (typeof value === 'string') {
+    return value.length
+  }
+
+  try {
+    return JSON.stringify(value)?.length ?? 0
+  } catch {
+    return 0
+  }
+}
+
+function stringField(value: unknown) {
+  return typeof value === 'string' ? value : ''
 }

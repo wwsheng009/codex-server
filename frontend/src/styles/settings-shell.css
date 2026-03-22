@@ -188,8 +188,8 @@
 }
 
 .settings-shell__content > * {
-  width: min(980px, 100%);
-  margin: 0 auto 0 0;
+  width: 100%;
+  margin: 0;
   min-width: 0;
 }
 

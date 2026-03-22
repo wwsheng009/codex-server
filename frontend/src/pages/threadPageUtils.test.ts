@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   isViewportNearBottom,
+  latestMessageUpdateKey,
+  latestRenderableThreadItemKey,
   latestSettledMessageKey,
   shouldRefreshApprovalsForEvent,
   shouldRefreshThreadDetailForEvent,
@@ -83,5 +85,50 @@ describe('threadPageUtils', () => {
         },
       ]),
     ).toBe('turn-2:assistant-2:agent:11')
+  })
+
+  it('tracks message updates for streaming assistant replies', () => {
+    expect(
+      latestMessageUpdateKey([
+        {
+          id: 'turn-3',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'assistant-3',
+              type: 'agentMessage',
+              text: 'Streaming reply',
+              phase: 'streaming',
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-3:assistant-3:agent:streaming:15')
+  })
+
+  it('tracks the latest renderable timeline item and ignores hidden reasoning deltas', () => {
+    expect(
+      latestRenderableThreadItemKey([
+        {
+          id: 'turn-4',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'command-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1',
+              status: 'inProgress',
+            },
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['internal summary'],
+              content: ['internal detail'],
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-4:command-1:command:inProgress:8:6')
   })
 })

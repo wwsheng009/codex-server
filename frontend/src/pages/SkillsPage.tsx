@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { InlineNotice } from '../components/ui/InlineNotice'
+import { Input } from '../components/ui/Input'
 import { listRemoteSkills, listSkills } from '../features/catalog/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { SelectControl } from '../components/ui/SelectControl'
@@ -140,14 +141,12 @@ export function SkillsPage() {
                 value={workspaceId ?? ''}
               />
             </label>
-            <label className="field">
-              <span>{i18n._({ id: 'Search', message: 'Search' })}</span>
-              <input
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={i18n._({ id: 'Search skills', message: 'Search skills' })}
-                value={query}
-              />
-            </label>
+            <Input
+              label={i18n._({ id: 'Search', message: 'Search' })}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={i18n._({ id: 'Search skills', message: 'Search skills' })}
+              value={query}
+            />
             <div className="detail-list">
               <div className="detail-row">
                 <span>{i18n._({ id: 'Current Scope', message: 'Current Scope' })}</span>

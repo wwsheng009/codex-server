@@ -728,17 +728,15 @@ export function AutomationsPage() {
 
               {/* Dynamic sub-controls based on Frequency */}
               {draft.schedule.startsWith('daily-') && (
-                <div className="field">
-                  <span>{i18n._({ id: 'Run Time', message: 'Run Time' })}</span>
-                  <input
-                    type="time"
-                    onChange={(e) => {
-                      const [hh, mm] = e.target.value.split(':')
-                      setDraft((current) => ({ ...current, schedule: `daily-${hh}${mm}` }))
-                    }}
-                    value={`${draft.schedule.slice(6, 8)}:${draft.schedule.slice(8, 10)}`}
-                  />
-                </div>
+                <Input
+                  label={i18n._({ id: 'Run Time', message: 'Run Time' })}
+                  type="time"
+                  onChange={(e) => {
+                    const [hh, mm] = e.target.value.split(':')
+                    setDraft((current) => ({ ...current, schedule: `daily-${hh}${mm}` }))
+                  }}
+                  value={`${draft.schedule.slice(6, 8)}:${draft.schedule.slice(8, 10)}`}
+                />
               )}
 
               {draft.schedule.startsWith('weekly-') && (
@@ -756,49 +754,43 @@ export function AutomationsPage() {
                       value={draft.schedule.slice(7, 8)}
                     />
                   </div>
-                  <div className="field">
-                    <span>{i18n._({ id: 'Time', message: 'Time' })}</span>
-                    <input
-                      type="time"
-                      onChange={(e) => {
-                        const [hh, mm] = e.target.value.split(':')
-                        const day = draft.schedule.slice(7, 8)
-                        setDraft((current) => ({ ...current, schedule: `weekly-${day}-${hh}${mm}` }))
-                      }}
-                      value={`${draft.schedule.slice(9, 11)}:${draft.schedule.slice(11, 13)}`}
-                    />
-                  </div>
+                  <Input
+                    label={i18n._({ id: 'Time', message: 'Time' })}
+                    type="time"
+                    onChange={(e) => {
+                      const [hh, mm] = e.target.value.split(':')
+                      const day = draft.schedule.slice(7, 8)
+                      setDraft((current) => ({ ...current, schedule: `weekly-${day}-${hh}${mm}` }))
+                    }}
+                    value={`${draft.schedule.slice(9, 11)}:${draft.schedule.slice(11, 13)}`}
+                  />
                 </div>
               )}
 
               {draft.schedule.startsWith('monthly-') && (
                 <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <div className="field">
-                    <span>{i18n._({ id: 'Day of Month', message: 'Day of Month' })}</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="31"
-                      onChange={(e) => {
-                        const day = e.target.value.padStart(2, '0')
-                        const time = draft.schedule.slice(11)
-                        setDraft((current) => ({ ...current, schedule: `monthly-${day}-${time}` }))
-                      }}
-                      value={draft.schedule.slice(8, 10)}
-                    />
-                  </div>
-                  <div className="field">
-                    <span>{i18n._({ id: 'Time', message: 'Time' })}</span>
-                    <input
-                      type="time"
-                      onChange={(e) => {
-                        const [hh, mm] = e.target.value.split(':')
-                        const day = draft.schedule.slice(8, 10)
-                        setDraft((current) => ({ ...current, schedule: `monthly-${day}-${hh}${mm}` }))
-                      }}
-                      value={`${draft.schedule.slice(11, 13)}:${draft.schedule.slice(13, 15)}`}
-                    />
-                  </div>
+                  <Input
+                    label={i18n._({ id: 'Day of Month', message: 'Day of Month' })}
+                    type="number"
+                    min="1"
+                    max="31"
+                    onChange={(e) => {
+                      const day = e.target.value.padStart(2, '0')
+                      const time = draft.schedule.slice(11)
+                      setDraft((current) => ({ ...current, schedule: `monthly-${day}-${time}` }))
+                    }}
+                    value={draft.schedule.slice(8, 10)}
+                  />
+                  <Input
+                    label={i18n._({ id: 'Time', message: 'Time' })}
+                    type="time"
+                    onChange={(e) => {
+                      const [hh, mm] = e.target.value.split(':')
+                      const day = draft.schedule.slice(8, 10)
+                      setDraft((current) => ({ ...current, schedule: `monthly-${day}-${hh}${mm}` }))
+                    }}
+                    value={`${draft.schedule.slice(11, 13)}:${draft.schedule.slice(13, 15)}`}
+                  />
                 </div>
               )}
 
@@ -911,50 +903,41 @@ export function AutomationsPage() {
         >
           <div className="form-stack">
             <div className="form-row">
-              <label className="field">
-                <span>{i18n._({ id: 'Template Title', message: 'Template Title' })}</span>
-                <input
-                  onChange={(event) => setTemplateDraft((current) => ({ ...current, title: event.target.value }))}
-                  placeholder={i18n._({
-                    id: 'e.g. Security Audit',
-                    message: 'e.g. Security Audit',
-                  })}
-                  value={templateDraft.title}
-                />
-              </label>
-              <label className="field">
-                <span>{i18n._({ id: 'Category', message: 'Category' })}</span>
-                <input
-                  onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value }))}
-                  placeholder={i18n._({ id: 'e.g. Security', message: 'e.g. Security' })}
-                  value={templateDraft.category}
-                />
-              </label>
+              <Input
+                label={i18n._({ id: 'Template Title', message: 'Template Title' })}
+                onChange={(event) => setTemplateDraft((current) => ({ ...current, title: event.target.value }))}
+                placeholder={i18n._({
+                  id: 'e.g. Security Audit',
+                  message: 'e.g. Security Audit',
+                })}
+                value={templateDraft.title}
+              />
+              <Input
+                label={i18n._({ id: 'Category', message: 'Category' })}
+                onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value }))}
+                placeholder={i18n._({ id: 'e.g. Security', message: 'e.g. Security' })}
+                value={templateDraft.category}
+              />
             </div>
-            <label className="field">
-              <span>{i18n._({ id: 'Description', message: 'Description' })}</span>
-              <input
-                onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))}
-                placeholder={i18n._({
-                  id: 'What does this pattern do?',
-                  message: 'What does this pattern do?',
-                })}
-                value={templateDraft.description}
-              />
-            </label>
-            <label className="field">
-              <span>{i18n._({ id: 'Template Prompt', message: 'Template Prompt' })}</span>
-              <textarea
-                className="ide-textarea"
-                onChange={(event) => setTemplateDraft((current) => ({ ...current, prompt: event.target.value }))}
-                placeholder={i18n._({
-                  id: 'Define the logic/instructions for this template...',
-                  message: 'Define the logic/instructions for this template...',
-                })}
-                rows={6}
-                value={templateDraft.prompt}
-              />
-            </label>
+            <Input
+              label={i18n._({ id: 'Description', message: 'Description' })}
+              onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))}
+              placeholder={i18n._({
+                id: 'What does this pattern do?',
+                message: 'What does this pattern do?',
+              })}
+              value={templateDraft.description}
+            />
+            <TextArea
+              label={i18n._({ id: 'Template Prompt', message: 'Template Prompt' })}
+              onChange={(event) => setTemplateDraft((current) => ({ ...current, prompt: event.target.value }))}
+              placeholder={i18n._({
+                id: 'Define the logic/instructions for this template...',
+                message: 'Define the logic/instructions for this template...',
+              })}
+              rows={6}
+              value={templateDraft.prompt}
+            />
             {templateError ? (
               <InlineNotice
                 dismissible

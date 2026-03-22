@@ -29,6 +29,7 @@ const WORKSPACE_EVENT_LIMIT = 40
 const WORKSPACE_ACTIVITY_EVENT_LIMIT = 60
 
 type SessionState = {
+  hasHydrated: boolean
   selectedWorkspaceId?: string
   selectedThreadId?: string
   selectedThreadIdByWorkspace: Record<string, string>
@@ -53,6 +54,7 @@ type SessionState = {
 export const useSessionStore = create<SessionState>()(
   persist(
     (set) => ({
+      hasHydrated: false,
       selectedWorkspaceId: undefined,
       selectedThreadId: undefined,
       selectedThreadIdByWorkspace: {},
@@ -247,6 +249,9 @@ export const useSessionStore = create<SessionState>()(
     }),
     {
       name: 'codex-server-session-store',
+      onRehydrateStorage: () => () => {
+        useSessionStore.setState({ hasHydrated: true })
+      },
       storage: createJSONStorage(() => window.localStorage),
       partialize: (state) => ({
         selectedWorkspaceId: state.selectedWorkspaceId,
