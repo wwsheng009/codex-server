@@ -159,7 +159,7 @@ msgid "{count} registered workspaces share this root."
 msgstr "{count} registered workspaces share this root."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:152
+#: src/pages/settings/EnvironmentSettingsPage.tsx:150
 msgid "{count} roots"
 msgstr "{count} roots"
 
@@ -214,7 +214,7 @@ msgid "{mode} workbench"
 msgstr "{mode} workbench"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:231
+#: src/pages/settings/EnvironmentSettingsPage.tsx:229
 msgid "{root} · updated {time}"
 msgstr "{root} · updated {time}"
 
@@ -386,7 +386,7 @@ msgid "App shell"
 msgstr "App shell"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:336
+#: src/pages/settings/EnvironmentSettingsPage.tsx:334
 msgid "App-Server Command"
 msgstr "App-Server Command"
 
@@ -413,12 +413,12 @@ msgid "Apply Changes"
 msgstr "Apply Changes"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:411
+#: src/pages/settings/EnvironmentSettingsPage.tsx:409
 msgid "Apply core+Windows + Restart"
 msgstr "Apply core+Windows + Restart"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:401
+#: src/pages/settings/EnvironmentSettingsPage.tsx:399
 msgid "Apply inherit=all + Restart"
 msgstr "Apply inherit=all + Restart"
 
@@ -439,8 +439,8 @@ msgstr "Apply the detected state into the active workspace."
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:476
-#: src/pages/settings/EnvironmentSettingsPage.tsx:400
-#: src/pages/settings/EnvironmentSettingsPage.tsx:410
+#: src/pages/settings/EnvironmentSettingsPage.tsx:398
+#: src/pages/settings/EnvironmentSettingsPage.tsx:408
 msgid "Applying…"
 msgstr "Applying…"
 
@@ -531,7 +531,7 @@ msgid "Attached"
 msgstr "Attached"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:188
+#: src/pages/settings/EnvironmentSettingsPage.tsx:186
 msgid "Attention"
 msgstr "Attention"
 
@@ -758,7 +758,7 @@ msgid "Cause"
 msgstr "Cause"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:300
+#: src/pages/settings/EnvironmentSettingsPage.tsx:298
 msgid "Changing shell_environment_policy affects new child processes. Restart the workspace runtime to force app-server to reload Codex config."
 msgstr "Changing shell_environment_policy affects new child processes. Restart the workspace runtime to force app-server to reload Codex config."
 
@@ -1345,7 +1345,7 @@ msgid "Detected State"
 msgstr "Detected State"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:373
+#: src/pages/settings/EnvironmentSettingsPage.tsx:371
 msgid "Diagnosis"
 msgstr "Diagnosis"
 
@@ -1413,7 +1413,7 @@ msgid "e.g. Security Audit"
 msgstr "e.g. Security Audit"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:195
+#: src/pages/settings/EnvironmentSettingsPage.tsx:193
 msgid "Each registered workspace acts as an environment root for threads, runtime tools, and settings-scoped actions."
 msgstr "Each registered workspace acts as an environment root for threads, runtime tools, and settings-scoped actions."
 
@@ -1435,7 +1435,7 @@ msgid "Effective"
 msgstr "Effective"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:326
+#: src/pages/settings/EnvironmentSettingsPage.tsx:324
 msgid "Effective Command"
 msgstr "Effective Command"
 
@@ -1445,7 +1445,7 @@ msgid "Effective Config"
 msgstr "Effective Config"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:426
+#: src/pages/settings/EnvironmentSettingsPage.tsx:424
 msgid "Effective shell_environment_policy returned by app-server config/read."
 msgstr "Effective shell_environment_policy returned by app-server config/read."
 
@@ -1480,17 +1480,17 @@ msgid "Env inherit"
 msgstr "Env inherit"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:160
+#: src/pages/settings/EnvironmentSettingsPage.tsx:158
 msgid "Environment"
 msgstr "Environment"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:387
+#: src/pages/settings/EnvironmentSettingsPage.tsx:385
 msgid "Environment Check"
 msgstr "Environment Check"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:228
+#: src/pages/settings/EnvironmentSettingsPage.tsx:226
 msgid "Environment Root"
 msgstr "Environment Root"
 
@@ -1606,7 +1606,7 @@ msgid "Failed To Load Archived Threads"
 msgstr "Failed To Load Archived Threads"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:360
+#: src/pages/settings/EnvironmentSettingsPage.tsx:358
 msgid "Failed To Load Runtime Config"
 msgstr "Failed To Load Runtime Config"
 
@@ -1621,7 +1621,7 @@ msgid "Failed to load thread"
 msgstr "Failed to load thread"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:209
+#: src/pages/settings/EnvironmentSettingsPage.tsx:207
 msgid "Failed To Load Workspaces"
 msgstr "Failed To Load Workspaces"
 
@@ -1772,12 +1772,12 @@ msgid "Git"
 msgstr "Git"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:321
+#: src/pages/settings/EnvironmentSettingsPage.tsx:319
 msgid "Global app-server launch command after codex-server runtime preference resolution."
 msgstr "Global app-server launch command after codex-server runtime preference resolution."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:165
+#: src/pages/settings/EnvironmentSettingsPage.tsx:163
 msgid "Global environment snapshot across all registered workspaces."
 msgstr "Global environment snapshot across all registered workspaces."
 
@@ -1807,7 +1807,7 @@ msgid "Hazelnut ID"
 msgstr "Hazelnut ID"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:184
+#: src/pages/settings/EnvironmentSettingsPage.tsx:182
 msgid "Healthy"
 msgstr "Healthy"
 
@@ -1953,12 +1953,12 @@ msgid "Inspect the detected payload before you import it."
 msgstr "Inspect the detected payload before you import it."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:255
+#: src/pages/settings/EnvironmentSettingsPage.tsx:253
 msgid "Inspect the effective app-server command and the shell environment policy currently resolved for the selected workspace."
 msgstr "Inspect the effective app-server command and the shell environment policy currently resolved for the selected workspace."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:144
+#: src/pages/settings/EnvironmentSettingsPage.tsx:142
 msgid "Inspect the registered project roots and runtime posture for the current client environment."
 msgstr "Inspect the registered project roots and runtime posture for the current client environment."
 
@@ -2092,7 +2092,7 @@ msgid "Layered"
 msgstr "Layered"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:461
+#: src/pages/settings/EnvironmentSettingsPage.tsx:459
 msgid "Layers"
 msgstr "Layers"
 
@@ -2189,7 +2189,7 @@ msgstr "Loading MCP server status…"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:881
-#: src/pages/settings/EnvironmentSettingsPage.tsx:340
+#: src/pages/settings/EnvironmentSettingsPage.tsx:338
 msgid "Loading runtime preferences…"
 msgstr "Loading runtime preferences…"
 
@@ -2204,13 +2204,13 @@ msgid "Loading thread surface…"
 msgstr "Loading thread surface…"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:354
+#: src/pages/settings/EnvironmentSettingsPage.tsx:352
 msgid "Loading workspace config…"
 msgstr "Loading workspace config…"
 
 #. js-lingui-explicit-id
 #: src/components/settings/SettingsWorkspaceScopePanel.tsx:53
-#: src/pages/settings/EnvironmentSettingsPage.tsx:203
+#: src/pages/settings/EnvironmentSettingsPage.tsx:201
 msgid "Loading workspaces…"
 msgstr "Loading workspaces…"
 
@@ -2331,7 +2331,7 @@ msgid "Merge items into active workspace."
 msgstr "Merge items into active workspace."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:456
+#: src/pages/settings/EnvironmentSettingsPage.tsx:454
 msgid "Merged config layers returned by app-server for this workspace."
 msgstr "Merged config layers returned by app-server for this workspace."
 
@@ -2632,7 +2632,7 @@ msgid "No roots available yet."
 msgstr "No roots available yet."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:436
+#: src/pages/settings/EnvironmentSettingsPage.tsx:434
 msgid "No shell_environment_policy key is currently present in the resolved config."
 msgstr "No shell_environment_policy key is currently present in the resolved config."
 
@@ -2652,7 +2652,7 @@ msgid "No workspace"
 msgstr "No workspace"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:217
+#: src/pages/settings/EnvironmentSettingsPage.tsx:215
 msgid "No workspaces registered yet."
 msgstr "No workspaces registered yet."
 
@@ -2698,7 +2698,7 @@ msgid "OAuth Result"
 msgstr "OAuth Result"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:309
+#: src/pages/settings/EnvironmentSettingsPage.tsx:307
 msgid "Observed runtime process state for the selected workspace."
 msgstr "Observed runtime process state for the selected workspace."
 
@@ -2895,12 +2895,12 @@ msgid "OpenAI authentication expired. This thread cannot continue until access i
 msgstr "OpenAI authentication expired. This thread cannot continue until access is restored."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:445
+#: src/pages/settings/EnvironmentSettingsPage.tsx:443
 msgid "Origin entries for shell_environment_policy and its nested keys."
 msgstr "Origin entries for shell_environment_policy and its nested keys."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:450
+#: src/pages/settings/EnvironmentSettingsPage.tsx:448
 msgid "Origins"
 msgstr "Origins"
 
@@ -3026,12 +3026,12 @@ msgid "Policy (JSON)"
 msgstr "Policy (JSON)"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:379
+#: src/pages/settings/EnvironmentSettingsPage.tsx:377
 msgid "Potential Windows Execution Risk"
 msgstr "Potential Windows Execution Risk"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:418
+#: src/pages/settings/EnvironmentSettingsPage.tsx:416
 msgid "Preset Apply Failed"
 msgstr "Preset Apply Failed"
 
@@ -3181,7 +3181,7 @@ msgid "Refreshing..."
 msgstr "Refreshing..."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:200
+#: src/pages/settings/EnvironmentSettingsPage.tsx:198
 #: src/pages/settings/WorktreesSettingsPage.tsx:105
 msgid "Registered Roots"
 msgstr "Registered Roots"
@@ -3326,7 +3326,7 @@ msgid "Resolved analysis tabs"
 msgstr "Resolved analysis tabs"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:345
+#: src/pages/settings/EnvironmentSettingsPage.tsx:343
 msgid "Resolved shell_environment_policy from config/read for the currently selected workspace."
 msgstr "Resolved shell_environment_policy from config/read for the currently selected workspace."
 
@@ -3357,7 +3357,7 @@ msgid "Restart"
 msgstr "Restart"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:296
+#: src/pages/settings/EnvironmentSettingsPage.tsx:294
 msgid "Restart Runtime"
 msgstr "Restart Runtime"
 
@@ -3373,7 +3373,7 @@ msgstr "Restarting runtime"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1327
-#: src/pages/settings/EnvironmentSettingsPage.tsx:295
+#: src/pages/settings/EnvironmentSettingsPage.tsx:293
 msgid "Restarting…"
 msgstr "Restarting…"
 
@@ -3450,7 +3450,7 @@ msgid "Review the current branch diff relative to the base branch."
 msgstr "Review the current branch diff relative to the base branch."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:172
+#: src/pages/settings/EnvironmentSettingsPage.tsx:170
 msgid "Review the current runtime footprint and health across all registered roots."
 msgstr "Review the current runtime footprint and health across all registered roots."
 
@@ -3560,7 +3560,7 @@ msgid "Runtime Error"
 msgstr "Runtime Error"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:260
+#: src/pages/settings/EnvironmentSettingsPage.tsx:258
 msgid "Runtime Inspection"
 msgstr "Runtime Inspection"
 
@@ -3595,7 +3595,7 @@ msgid "Runtime started"
 msgstr "Runtime started"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:313
+#: src/pages/settings/EnvironmentSettingsPage.tsx:311
 msgid "Runtime State"
 msgstr "Runtime State"
 
@@ -3777,7 +3777,7 @@ msgid "Selected thread"
 msgstr "Selected thread"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:268
+#: src/pages/settings/EnvironmentSettingsPage.tsx:266
 msgid "Selected Workspace"
 msgstr "Selected Workspace"
 
@@ -3879,7 +3879,7 @@ msgstr "Shell Environment"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:719
-#: src/pages/settings/EnvironmentSettingsPage.tsx:350
+#: src/pages/settings/EnvironmentSettingsPage.tsx:348
 msgid "Shell Environment Policy"
 msgstr "Shell Environment Policy"
 
@@ -4099,7 +4099,7 @@ msgid "Streaming output + stdin."
 msgstr "Streaming output + stdin."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:368
+#: src/pages/settings/EnvironmentSettingsPage.tsx:366
 msgid "Structured diagnosis derived from the currently resolved shell_environment_policy object."
 msgstr "Structured diagnosis derived from the currently resolved shell_environment_policy object."
 
@@ -4109,7 +4109,7 @@ msgid "Subtle"
 msgstr "Subtle"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:176
+#: src/pages/settings/EnvironmentSettingsPage.tsx:174
 msgid "Summary"
 msgstr "Summary"
 
@@ -4120,7 +4120,7 @@ msgid "Sunday"
 msgstr "Sunday"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:263
+#: src/pages/settings/EnvironmentSettingsPage.tsx:261
 msgid "Switch the focused workspace to inspect its runtime-backed config and restart behavior."
 msgstr "Switch the focused workspace to inspect its runtime-backed config and restart behavior."
 
@@ -4272,7 +4272,7 @@ msgid "This is not yet live git worktree discovery. It is a stable placeholder u
 msgstr "This is not yet live git worktree discovery. It is a stable placeholder using the roots already known to the client."
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:331
+#: src/pages/settings/EnvironmentSettingsPage.tsx:329
 msgid "This is the command codex-server will use when it starts or restarts a workspace runtime."
 msgstr "This is the command codex-server will use when it starts or restarts a workspace runtime."
 
@@ -4450,7 +4450,7 @@ msgid "Tools"
 msgstr "Tools"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:180
+#: src/pages/settings/EnvironmentSettingsPage.tsx:178
 #: src/pages/thread-page/threadPageComposerShared.tsx:1308
 msgid "Total"
 msgstr "Total"
@@ -4570,7 +4570,7 @@ msgstr "Uninstalling…"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:210
-#: src/pages/settings/EnvironmentSettingsPage.tsx:286
+#: src/pages/settings/EnvironmentSettingsPage.tsx:284
 #: src/pages/thread-page/threadPageComposerShared.tsx:496
 #: src/pages/thread-page/threadPageComposerShared.tsx:731
 #: src/pages/thread-page/threadPageComposerShared.tsx:736
@@ -4795,7 +4795,7 @@ msgstr "Workflow"
 #: src/pages/AutomationsPage.tsx:667
 #: src/pages/CatalogPage.tsx:289
 #: src/pages/CatalogPage.tsx:291
-#: src/pages/settings/EnvironmentSettingsPage.tsx:272
+#: src/pages/settings/EnvironmentSettingsPage.tsx:270
 #: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:143
 msgid "Workspace"
 msgstr "Workspace"
@@ -4816,7 +4816,7 @@ msgid "Workspace Name"
 msgstr "Workspace Name"
 
 #. js-lingui-explicit-id
-#: src/pages/settings/EnvironmentSettingsPage.tsx:169
+#: src/pages/settings/EnvironmentSettingsPage.tsx:167
 msgid "Workspace Registry"
 msgstr "Workspace Registry"
 
