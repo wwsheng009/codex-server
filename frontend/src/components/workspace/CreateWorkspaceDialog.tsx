@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react'
 
+import { i18n } from '../../i18n/runtime'
 import { Modal } from '../ui/Modal'
 import { InlineNotice } from '../ui/InlineNotice'
 
@@ -39,21 +40,26 @@ export function CreateWorkspaceDialog({
   const footer = (
     <>
       <button className="ide-button ide-button--secondary" onClick={onClose} type="button">
-        Cancel
+        {i18n._({ id: 'Cancel', message: 'Cancel' })}
       </button>
       <button className="ide-button" disabled={isSubmitDisabled} type="submit">
-        {isPending ? 'Creating…' : 'Register Workspace'}
+        {isPending
+          ? i18n._({ id: 'Creating…', message: 'Creating…' })
+          : i18n._({ id: 'Register Workspace', message: 'Register Workspace' })}
       </button>
     </>
   )
 
   return (
     <Modal
-      description="Register a runtime root to start building threads and automations."
+      description={i18n._({
+        id: 'Register a runtime root to start building threads and automations.',
+        message: 'Register a runtime root to start building threads and automations.',
+      })}
       footer={footer}
       maxWidth="min(520px, 100%)"
       onClose={onClose}
-      title="Create Workspace"
+      title={i18n._({ id: 'Create Workspace', message: 'Create Workspace' })}
     >
       <form
         className="form-stack"
@@ -63,7 +69,7 @@ export function CreateWorkspaceDialog({
         }}
       >
         <label className="field" htmlFor={nameInputId}>
-          <span>Name</span>
+          <span>{i18n._({ id: 'Name', message: 'Name' })}</span>
           <input
             id={nameInputId}
             onChange={(event) => onNameChange(event.target.value)}
@@ -74,7 +80,7 @@ export function CreateWorkspaceDialog({
         </label>
 
         <label className="field">
-          <span>Root Path</span>
+          <span>{i18n._({ id: 'Root Path', message: 'Root Path' })}</span>
           <input
             onChange={(event) => onRootPathChange(event.target.value)}
             placeholder="E:/projects/my-app"
@@ -86,7 +92,7 @@ export function CreateWorkspaceDialog({
           <InlineNotice
             dismissible
             noticeKey="create-workspace-error"
-            title="Setup Failed"
+            title={i18n._({ id: 'Setup Failed', message: 'Setup Failed' })}
             tone="error"
           >
             {error}

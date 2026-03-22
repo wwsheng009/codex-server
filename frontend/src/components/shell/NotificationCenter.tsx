@@ -9,6 +9,8 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '../../features/notifications/api'
+import { formatLocaleDateTime, formatLocaleNumber } from '../../i18n/format'
+import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import type { NotificationItem } from '../../types/api'
 import { Button } from '../ui/Button'
@@ -230,7 +232,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
     isOpen && menuPosition
       ? createPortal(
           <div
-            aria-label="Notifications"
+            aria-label={i18n._({ id: 'Notifications', message: 'Notifications' })}
             className="web-ide__notification-popover"
             id={dialogId}
             ref={popoverRef}
@@ -245,8 +247,13 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
           >
             <div className="web-ide__notification-popover-header">
               <div>
-                <strong>Notifications</strong>
-                <span>Automation runs, failures, and saved outcomes.</span>
+                <strong>{i18n._({ id: 'Notifications', message: 'Notifications' })}</strong>
+                <span>
+                  {i18n._({
+                    id: 'Automation runs, failures, and saved outcomes.',
+                    message: 'Automation runs, failures, and saved outcomes.',
+                  })}
+                </span>
               </div>
               {notifications.length > 0 ? (
                 <div className="web-ide__notification-popover-actions">
@@ -257,7 +264,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                       onClick={() => markAllReadMutation.mutate()}
                       size="sm"
                     >
-                      Mark all read
+                      {i18n._({ id: 'Mark all read', message: 'Mark all read' })}
                     </Button>
                   ) : null}
                   {hasRead ? (
@@ -267,7 +274,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                       onClick={() => clearReadMutation.mutate()}
                       size="sm"
                     >
-                      Clear read
+                      {i18n._({ id: 'Clear read', message: 'Clear read' })}
                     </Button>
                   ) : null}
                 </div>
@@ -278,7 +285,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
               <InlineNotice
                 dismissible
                 noticeKey={`notification-center-${getErrorMessage(notificationsQuery.error)}`}
-                title="Notifications Failed"
+                title={i18n._({ id: 'Notifications Failed', message: 'Notifications Failed' })}
                 tone="error"
               >
                 {getErrorMessage(notificationsQuery.error)}
@@ -301,7 +308,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                     <div className="web-ide__notification-item-header">
                       <strong>{notification.title}</strong>
                       <span className={`status-pill status-pill--${notificationTone(notification.level)}`}>
-                        {notification.level}
+                        {formatNotificationLevel(notification.level)}
                       </span>
                     </div>
                     <p>{notification.message}</p>
@@ -312,7 +319,9 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                   </button>
                 ))
               ) : (
-                <div className="notice">No notifications yet.</div>
+                <div className="notice">
+                  {i18n._({ id: 'No notifications yet.', message: 'No notifications yet.' })}
+                </div>
               )}
             </div>
           </div>,
@@ -345,17 +354,37 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
         aria-controls={dialogId}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        aria-label={`Notifications${unreadCount ? `. ${unreadCount} unread` : ''}`}
+        aria-label={
+          unreadCount
+            ? i18n._({
+                id: 'Notifications. {count} unread',
+                message: 'Notifications. {count} unread',
+                values: { count: formatLocaleNumber(unreadCount) },
+              })
+            : i18n._({ id: 'Notifications', message: 'Notifications' })
+        }
         className={triggerClassName}
         onClick={() => setIsOpen((current) => !current)}
         ref={triggerRef}
-        title={unreadCount ? `${unreadCount} unread notifications` : 'Notifications'}
+        title={
+          unreadCount
+            ? i18n._({
+                id: '{count} unread notifications',
+                message: '{count} unread notifications',
+                values: { count: formatLocaleNumber(unreadCount) },
+              })
+            : i18n._({ id: 'Notifications', message: 'Notifications' })
+        }
         type="button"
       >
         <span className="web-ide__notification-trigger-icon" aria-hidden="true">
           <BellIcon />
         </span>
-        {!compact ? <span className="web-ide__notification-trigger-label">Notifications</span> : null}
+        {!compact ? (
+          <span className="web-ide__notification-trigger-label">
+            {i18n._({ id: 'Notifications', message: 'Notifications' })}
+          </span>
+        ) : null}
         {unreadCount ? <span className="web-ide__notification-badge">{unreadCount}</span> : null}
       </button>
       {popover}
@@ -370,7 +399,22 @@ function formatTimestamp(value: string) {
     return value
   }
 
-  return date.toLocaleString()
+  return formatLocaleDateTime(value)
+}
+
+function formatNotificationLevel(level: string) {
+  switch (level) {
+    case 'success':
+      return i18n._({ id: 'Success', message: 'Success' })
+    case 'warning':
+      return i18n._({ id: 'Warning', message: 'Warning' })
+    case 'error':
+      return i18n._({ id: 'Error', message: 'Error' })
+    case 'info':
+      return i18n._({ id: 'Info', message: 'Info' })
+    default:
+      return level
+  }
 }
 
 function notificationTone(level: string) {

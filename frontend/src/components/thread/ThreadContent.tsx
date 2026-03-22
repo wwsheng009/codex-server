@@ -57,6 +57,20 @@ export function ThreadCodeBlock({
   )
 }
 
+export function ThreadPlainText({
+  content,
+  className,
+}: {
+  content: string
+  className?: string
+}) {
+  if (!content) {
+    return null
+  }
+
+  return <div className={joinClassNames('thread-plain-text', className)}>{content}</div>
+}
+
 export function ThreadTerminalBlock({
   content,
   className,

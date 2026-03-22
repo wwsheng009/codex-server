@@ -13,6 +13,9 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
     const id = useId()
     const sliderId = props.id || id
 
+    const percentage =
+      ((Number(value || 0) - Number(props.min || 0)) / (Number(props.max || 100) - Number(props.min || 0))) * 100
+
     return (
       <div className={['field ide-slider-field', className].filter(Boolean).join(' ')}>
         {label && (
@@ -28,6 +31,7 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
             ref={ref}
             type="range"
             value={value}
+            style={{ '--slider-progress': `${percentage}%` } as React.CSSProperties}
           />
           {showValue && (
             <span className="ide-slider-value" aria-hidden="true">

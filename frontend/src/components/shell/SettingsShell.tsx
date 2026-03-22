@@ -1,13 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 
-import { listWorkspaces } from '../../features/workspaces/api'
+import { getSettingsSections } from '../../features/settings/sections'
+import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
-import { settingsSections } from '../../features/settings/sections'
+import { listWorkspaces } from '../../features/workspaces/api'
 
 export function SettingsShell() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const settingsSections = getSettingsSections()
 
   const workspacesQuery = useQuery({
     queryKey: ['settings-shell-workspaces'],
@@ -21,10 +23,9 @@ export function SettingsShell() {
   }, [selectedWorkspaceId, workspacesQuery.data])
 
   const workspaceId = selectedWorkspaceId || workspacesQuery.data?.[0]?.id
-  const workspaceName = useMemo(
-    () => workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ?? 'No workspace',
-    [workspaceId, workspacesQuery.data],
-  )
+  const workspaceName =
+    workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ??
+    i18n._({ id: 'No workspace', message: 'No workspace' })
 
   return (
     <section className="settings-shell">
@@ -33,10 +34,12 @@ export function SettingsShell() {
           <section className="mode-panel mode-panel--flush settings-shell__nav-panel">
             <div className="mode-panel__body settings-shell__nav-body">
               <NavLink className="settings-shell__back" to="/workspaces">
-                Back to App
+                {i18n._({ id: 'Back to App', message: 'Back to App' })}
               </NavLink>
               <div className="settings-shell__workspace">
-                <span className="settings-shell__workspace-label">Workspace</span>
+                <span className="settings-shell__workspace-label">
+                  {i18n._({ id: 'Workspace', message: 'Workspace' })}
+                </span>
                 <p>{workspaceName}</p>
               </div>
             </div>

@@ -154,9 +154,8 @@ describe('TurnTimeline', () => {
 
     expect(html).toContain('<details')
     expect(html).not.toContain('<details open')
-    expect(html).toContain('thread-code-block--terminal')
-    expect(html).toContain('working tree clean')
-    expect(html).toContain('style="color:')
+    expect(html).not.toContain('thread-code-block--terminal')
+    expect(html).not.toContain('working tree clean')
     expect(html).toContain('1 line')
   })
 
@@ -198,9 +197,9 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Tool Call')
     expect(html).toContain('read_file')
     expect(html).toContain('search_query')
-    expect(html).toContain('Arguments')
-    expect(html).toContain('Result')
-    expect(html).toContain('Output')
+    expect(html).not.toContain('Arguments')
+    expect(html).not.toContain('Result')
+    expect(html).not.toContain('Output')
   })
 
   it('formats structured tool results with terminal output sections', () => {
@@ -227,10 +226,10 @@ describe('TurnTimeline', () => {
 
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
-    expect(html).toContain('Stdout')
-    expect(html).toContain('On branch main')
-    expect(html).toContain('thread-code-block--terminal')
-    expect(html).toContain('&quot;exitCode&quot;: 0')
+    expect(html).toContain('exec_command')
+    expect(html).not.toContain('Stdout')
+    expect(html).not.toContain('On branch main')
+    expect(html).not.toContain('thread-code-block--terminal')
   })
 
   it('renders server requests as collapsed request cards in the timeline', () => {
@@ -286,7 +285,7 @@ describe('TurnTimeline', () => {
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
     expect(html).toContain('conversation-card__status--error')
-    expect(html).toContain('runtime connection was closed')
+    expect(html).not.toContain('runtime connection was closed')
   })
 
   it('shows a retry action for expired server requests when a retry handler is available', () => {
@@ -314,6 +313,29 @@ describe('TurnTimeline', () => {
       <TurnTimeline onRetryServerRequest={() => undefined} turns={turns} />,
     )
 
-    expect(html).toContain('Retry In Composer')
+    expect(html).not.toContain('Retry In Composer')
+  })
+
+  it('renders streaming markdown as plain text until the message settles', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-streaming-markdown',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'agent-streaming-markdown',
+            type: 'agentMessage',
+            text: '**alpha**\n- beta',
+            phase: 'streaming',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('**alpha**')
+    expect(html).not.toContain('<strong>alpha</strong>')
+    expect(html).not.toContain('<li>beta</li>')
   })
 })

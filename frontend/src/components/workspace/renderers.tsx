@@ -1,16 +1,25 @@
 import {
+  memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from 'react'
 
-import { ThreadCodeBlock, ThreadMarkdown, ThreadTerminalBlock } from '../thread/ThreadContent'
+import {
+  ThreadCodeBlock,
+  ThreadMarkdown,
+  ThreadPlainText,
+  ThreadTerminalBlock,
+} from '../thread/ThreadContent'
 import { containsAnsiEscapeCode, safeJson } from '../thread/threadRender'
 import { InlineNotice } from '../ui/InlineNotice'
 import type { LiveTimelineEntry } from './timeline-utils'
+import { useVirtualizedConversationEntries } from './useVirtualizedConversationEntries'
 import type { PendingApproval, ThreadTurn } from '../../types/api'
 
 type ConversationEntry =
@@ -26,6 +35,8 @@ type ConversationEntry =
     }
 
 type CompactSystemStatusTone = 'running' | 'success' | 'error'
+
+const MIN_VIRTUALIZED_CONVERSATION_ENTRY_COUNT = 40
 
 const selectionChangeSubscribers = new Set<() => void>()
 
@@ -66,37 +77,115 @@ function selectionBelongsToContainer(container: HTMLElement | null) {
   return container.contains(selection.getRangeAt(0).commonAncestorContainer)
 }
 
-export function TurnTimeline({
+export const TurnTimeline = memo(function TurnTimeline({
+  scrollViewportRef,
+  timelineIdentity,
   turns,
   onRetryServerRequest,
 }: {
+  scrollViewportRef?: RefObject<HTMLDivElement | null>
+  timelineIdentity?: string
   turns: ThreadTurn[]
   onRetryServerRequest?: (item: Record<string, unknown>) => void
 }) {
-  const entries = buildConversationEntries(turns)
+  const entries = useMemo(() => buildConversationEntries(turns), [turns])
+  const retryServerRequestRef = useRef(onRetryServerRequest)
+  retryServerRequestRef.current = onRetryServerRequest
+
+  const handleRetryServerRequest = useCallback((item: Record<string, unknown>) => {
+    retryServerRequestRef.current?.(item)
+  }, [])
+  const {
+    isVirtualized,
+    paddingBottom,
+    paddingTop,
+    registerEntryHeight,
+    visibleEntries,
+  } = useVirtualizedConversationEntries({
+    enabled:
+      Boolean(scrollViewportRef) &&
+      entries.length > MIN_VIRTUALIZED_CONVERSATION_ENTRY_COUNT,
+    entries,
+    estimateEntryHeight: estimateConversationEntryHeight,
+    getEntryKey: getConversationEntryKey,
+    listIdentity: timelineIdentity ?? '',
+    scrollViewportRef:
+      scrollViewportRef ?? ({ current: null } as RefObject<HTMLDivElement | null>),
+  })
 
   return (
     <div aria-live="polite" className="conversation-stream" role="log">
-      {entries.map((entry) =>
-        entry.kind === 'error' ? (
-          <SystemTimelineCard
-            className="conversation-card--error"
+      {isVirtualized && paddingTop > 0 ? (
+        <div
+          aria-hidden="true"
+          className="conversation-stream__spacer"
+          style={{ height: `${paddingTop}px` }}
+        />
+      ) : null}
+      {visibleEntries.map((entry) =>
+        isVirtualized ? (
+          <MeasuredConversationEntry
+            entryKey={entry.key}
             key={entry.key}
-            statusTone="error"
-            summary={summarizeCompactError(entry.error)}
-            title="Error"
+            onMeasure={registerEntryHeight}
           >
-            <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
-          </SystemTimelineCard>
+            {entry.kind === 'error' ? (
+              <SystemTimelineCard
+                className="conversation-card--error"
+                statusTone="error"
+                summary={summarizeCompactError(entry.error)}
+                title="Error"
+              >
+                <ThreadCodeBlock
+                  className="conversation-card__output"
+                  content={safeJson(entry.error)}
+                />
+              </SystemTimelineCard>
+            ) : (
+              <MemoTimelineItem
+                item={entry.item}
+                onRetryServerRequest={handleRetryServerRequest}
+              />
+            )}
+          </MeasuredConversationEntry>
         ) : (
-          <TimelineItem item={entry.item} key={entry.key} onRetryServerRequest={onRetryServerRequest} />
+          entry.kind === 'error' ? (
+            <SystemTimelineCard
+              className="conversation-card--error"
+              key={entry.key}
+              statusTone="error"
+              summary={summarizeCompactError(entry.error)}
+              title="Error"
+            >
+              <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
+            </SystemTimelineCard>
+          ) : (
+            <MemoTimelineItem
+              item={entry.item}
+              key={entry.key}
+              onRetryServerRequest={handleRetryServerRequest}
+            />
+          )
         ),
       )}
+      {isVirtualized && paddingBottom > 0 ? (
+        <div
+          aria-hidden="true"
+          className="conversation-stream__spacer"
+          style={{ height: `${paddingBottom}px` }}
+        />
+      ) : null}
     </div>
   )
-}
+}, (previous, next) => {
+  return (
+    previous.scrollViewportRef === next.scrollViewportRef &&
+    previous.timelineIdentity === next.timelineIdentity &&
+    previous.turns === next.turns
+  )
+})
 
-export function LiveFeed({ entries }: { entries: LiveTimelineEntry[] }) {
+export const LiveFeed = memo(function LiveFeed({ entries }: { entries: LiveTimelineEntry[] }) {
   return (
     <div className="live-feed">
       {entries.map((entry) =>
@@ -125,7 +214,7 @@ export function LiveFeed({ entries }: { entries: LiveTimelineEntry[] }) {
       )}
     </div>
   )
-}
+}, (previous, next) => previous.entries === next.entries)
 
 export function ApprovalStack({
   approvals,
@@ -912,7 +1001,7 @@ function TimelineItem({
             }
           >
             <CopyableMessageBody className="conversation-bubble__content" source={text} tone="assistant">
-              {text ? <ThreadMarkdown content={text} /> : null}
+              {text ? (isStreaming ? <ThreadPlainText content={text} /> : <ThreadMarkdown content={text} />) : null}
               {isStreaming ? <span aria-hidden="true" className="conversation-bubble__cursor" /> : null}
             </CopyableMessageBody>
           </div>
@@ -931,6 +1020,7 @@ function TimelineItem({
       return (
         <SystemTimelineCard
           className="conversation-card--command"
+          deferDetailsUntilOpen
           meta={outputLineLabel(output) ?? undefined}
           statusTone={statusToneFromValue(status)}
           summary={truncateMiddle(command || 'Command execution', 88)}
@@ -1027,8 +1117,13 @@ function TimelineItem({
   }
 }
 
+const MemoTimelineItem = memo(TimelineItem, (previous, next) => {
+  return previous.item === next.item && previous.onRetryServerRequest === next.onRetryServerRequest
+})
+
 function SystemTimelineCard({
   className,
+  deferDetailsUntilOpen,
   title,
   summary,
   meta,
@@ -1036,15 +1131,28 @@ function SystemTimelineCard({
   children,
 }: {
   className?: string
+  deferDetailsUntilOpen?: boolean
   title: string
   summary: string
   meta?: string
   statusTone?: CompactSystemStatusTone
   children: ReactNode
 }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const shouldRenderDetails = !deferDetailsUntilOpen || isOpen
+
   return (
     <article className="conversation-row conversation-row--system">
-      <details className={className ? `conversation-card conversation-card--compact ${className}` : 'conversation-card conversation-card--compact'}>
+      <details
+        className={
+          className
+            ? `conversation-card conversation-card--compact ${className}`
+            : 'conversation-card conversation-card--compact'
+        }
+        onToggle={(event) =>
+          setIsOpen((event.currentTarget as HTMLDetailsElement).open)
+        }
+      >
         <summary className="conversation-card__summary">
           <div className="conversation-card__summary-copy">
             <strong>{title}</strong>
@@ -1060,7 +1168,7 @@ function SystemTimelineCard({
             <span aria-hidden="true" className="conversation-card__toggle" />
           </div>
         </summary>
-        <div className="conversation-card__details">{children}</div>
+        {shouldRenderDetails ? <div className="conversation-card__details">{children}</div> : null}
       </details>
     </article>
   )
@@ -1138,6 +1246,7 @@ function ToolCallTimelineCard({ item }: { item: Record<string, unknown> }) {
   return (
     <SystemTimelineCard
       className="conversation-card--tool"
+      deferDetailsUntilOpen
       meta={meta || undefined}
       statusTone={statusTone}
       summary={truncateSingleLine([tool, toolCallSummary(item)].filter(Boolean).join(' · '), 112)}
@@ -1209,6 +1318,7 @@ function ServerRequestTimelineCard({
   return (
     <SystemTimelineCard
       className="conversation-card--request"
+      deferDetailsUntilOpen
       meta={compactMetaLabel(metaPills, 1) || undefined}
       statusTone={statusTone}
       summary={summary}
@@ -1964,4 +2074,71 @@ function buildConversationEntries(turns: ThreadTurn[]): ConversationEntry[] {
   })
 
   return entries
+}
+
+function MeasuredConversationEntry({
+  children,
+  entryKey,
+  onMeasure,
+}: {
+  children: ReactNode
+  entryKey: string
+  onMeasure: (entryKey: string, height: number) => void
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) {
+      return
+    }
+
+    const measure = () => {
+      onMeasure(entryKey, container.getBoundingClientRect().height)
+    }
+
+    measure()
+
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const observer = new ResizeObserver(() => {
+      measure()
+    })
+
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [entryKey, onMeasure])
+
+  return (
+    <div className="conversation-stream__item" ref={containerRef}>
+      {children}
+    </div>
+  )
+}
+
+function estimateConversationEntryHeight(entry: ConversationEntry) {
+  if (entry.kind === 'error') {
+    return 120
+  }
+
+  switch (stringField(entry.item.type)) {
+    case 'userMessage':
+    case 'agentMessage':
+      return 96
+    case 'commandExecution':
+      return 72
+    case 'mcpToolCall':
+    case 'dynamicToolCall':
+    case 'collabAgentToolCall':
+    case 'serverRequest':
+      return 84
+    default:
+      return 80
+  }
+}
+
+function getConversationEntryKey(entry: ConversationEntry) {
+  return entry.key
 }

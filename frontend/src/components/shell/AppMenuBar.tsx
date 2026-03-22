@@ -8,8 +8,12 @@ import {
   getAppearanceThemeDescription,
   getColorThemeDescription,
   getColorThemeLabel,
+  getColorThemeSwatches,
+  getThemeColorCustomization,
+  getWorkbenchThemeSwatches,
   appearanceThemeOptions,
   colorThemeOptions,
+  normalizeAccentTone,
   resolveAppearanceTheme,
 } from '../../features/settings/appearance'
 import type { AccentTone, AppearanceTheme } from '../../features/settings/appearance'
@@ -38,21 +42,6 @@ type MenuPosition = {
   width: number
   transformOrigin: string
 }
-
-const colorThemeStyleByValue = colorThemeOptions.reduce(
-  (styles, option) => {
-    const accent = option.swatches[0]
-
-    styles[option.value] = {
-      ['--appearance-theme-accent' as string]: accent,
-      ['--appearance-theme-accent-soft' as string]: `color-mix(in srgb, ${accent} 14%, transparent)`,
-      ['--appearance-theme-border' as string]: `color-mix(in srgb, ${accent} 34%, transparent)`,
-    }
-
-    return styles
-  },
-  {} as Record<AccentTone, CSSProperties>,
-)
 
 function MenuIcon() {
   return (
@@ -244,10 +233,15 @@ function getMenuItemLabel(item: (typeof menuItems)[number]) {
 function AppearanceMenu({ compact = false }: { compact?: boolean }) {
   const theme = useSettingsLocalStore((state) => state.theme)
   const accentTone = useSettingsLocalStore((state) => state.accentTone)
+  const themeColorCustomizations = useSettingsLocalStore((state) => state.themeColorCustomizations)
+  const customThemes = useSettingsLocalStore((state) => state.customThemes)
+  const activeCustomThemeId = useSettingsLocalStore((state) => state.activeCustomThemeId)
   const setTheme = useSettingsLocalStore((state) => state.setTheme)
   const setAccentTone = useSettingsLocalStore((state) => state.setAccentTone)
+  const selectCustomTheme = useSettingsLocalStore((state) => state.selectCustomTheme)
   const { prefersDark } = useSystemAppearancePreferences()
   const resolvedTheme = resolveAppearanceTheme(theme, prefersDark)
+  const activeAccentTone = normalizeAccentTone(accentTone)
   const [isOpen, setIsOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -255,8 +249,36 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const dialogId = useId()
   const activeColorTheme = useMemo(
-    () => colorThemeOptions.find((option) => option.value === accentTone) ?? colorThemeOptions[0],
-    [accentTone],
+    () => colorThemeOptions.find((option) => option.value === activeAccentTone) ?? colorThemeOptions[0],
+    [activeAccentTone],
+  )
+  const builtInColorThemes = useMemo(
+    () => colorThemeOptions.filter((option) => option.value !== 'custom'),
+    [],
+  )
+  const activeCustomTheme =
+    customThemes.find((themeDefinition) => themeDefinition.id === activeCustomThemeId) ?? customThemes[0]
+  const colorThemeStyleByValue = useMemo(
+    () =>
+      colorThemeOptions.reduce(
+        (styles, option) => {
+          const accent = getThemeColorCustomization(
+            themeColorCustomizations,
+            option.value,
+            resolvedTheme,
+          ).accent
+
+          styles[option.value] = {
+            ['--appearance-theme-accent' as string]: accent,
+            ['--appearance-theme-accent-soft' as string]: `color-mix(in srgb, ${accent} 14%, transparent)`,
+            ['--appearance-theme-border' as string]: `color-mix(in srgb, ${accent} 34%, transparent)`,
+          }
+
+          return styles
+        },
+        {} as Record<AccentTone, CSSProperties>,
+      ),
+    [resolvedTheme, themeColorCustomizations],
   )
 
   useEffect(() => {
@@ -348,8 +370,14 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
     ? 'web-ide__appearance-trigger web-ide__appearance-trigger--mobile'
     : 'web-ide__appearance-trigger'
   const activeThemeStyle = colorThemeStyleByValue[activeColorTheme.value]
-  const activeColorThemeLabel = getColorThemeLabel(activeColorTheme.value)
-  const appearancePaletteLabel = getAppearancePaletteLabel(activeColorTheme.value, resolvedTheme)
+  const activeColorThemeLabel =
+    activeAccentTone === 'custom' && activeCustomTheme
+      ? activeCustomTheme.name
+      : getColorThemeLabel(activeColorTheme.value)
+  const appearancePaletteLabel =
+    activeAccentTone === 'custom' && activeCustomTheme
+      ? `${activeCustomTheme.name} ${getResolvedThemeLabel(resolvedTheme)}`
+      : getAppearancePaletteLabel(activeColorTheme.value, resolvedTheme)
 
   const popover =
     isOpen && menuPosition
@@ -438,8 +466,8 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                 <span>{activeColorThemeLabel}</span>
               </div>
               <div className="web-ide__appearance-theme-list">
-                {colorThemeOptions.map((option) => {
-                  const isActive = accentTone === option.value
+                {builtInColorThemes.map((option) => {
+                  const isActive = activeAccentTone === option.value
                   const optionClassName = isActive
                     ? 'web-ide__appearance-theme-option web-ide__appearance-theme-option--active'
                     : 'web-ide__appearance-theme-option'
@@ -455,10 +483,10 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                       type="button"
                     >
                       <span className="web-ide__appearance-theme-palette" aria-hidden="true">
-                        {option.swatches.slice(0, 4).map((swatch) => (
+                        {getColorThemeSwatches(option.value, themeColorCustomizations).map((swatch, index) => (
                           <span
                             className="web-ide__appearance-theme-dot"
-                            key={swatch}
+                            key={`${option.value}-${swatch}-${index}`}
                             style={{ background: swatch }}
                           />
                         ))}
@@ -477,6 +505,58 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
                     </button>
                   )
                 })}
+                {customThemes.length > 0 ? (
+                  <div className="web-ide__appearance-theme-group">
+                    <span className="web-ide__appearance-theme-group-label">
+                      {i18n._({ id: 'Custom themes', message: 'Custom themes' })}
+                    </span>
+                    {customThemes.map((customTheme) => {
+                      const isActive =
+                        activeAccentTone === 'custom' && activeCustomTheme?.id === customTheme.id
+
+                      return (
+                        <button
+                          aria-pressed={isActive}
+                          className={
+                            isActive
+                              ? 'web-ide__appearance-theme-option web-ide__appearance-theme-option--active'
+                              : 'web-ide__appearance-theme-option'
+                          }
+                          key={customTheme.id}
+                          onClick={() => selectCustomTheme(customTheme.id)}
+                          style={{
+                            ['--appearance-theme-accent' as string]: customTheme.colors[resolvedTheme].accent,
+                            ['--appearance-theme-accent-soft' as string]: `color-mix(in srgb, ${customTheme.colors[resolvedTheme].accent} 14%, transparent)`,
+                            ['--appearance-theme-border' as string]: `color-mix(in srgb, ${customTheme.colors[resolvedTheme].accent} 34%, transparent)`,
+                          }}
+                          title={customTheme.name}
+                          type="button"
+                        >
+                          <span className="web-ide__appearance-theme-palette" aria-hidden="true">
+                            {getWorkbenchThemeSwatches(customTheme.colors).map((swatch, index) => (
+                              <span
+                                className="web-ide__appearance-theme-dot"
+                                key={`${customTheme.id}-${swatch}-${index}`}
+                                style={{ background: swatch }}
+                              />
+                            ))}
+                          </span>
+                          <span className="web-ide__appearance-theme-copy">
+                            <strong>{customTheme.name}</strong>
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className={
+                              isActive
+                                ? 'web-ide__appearance-theme-state web-ide__appearance-theme-state--active'
+                                : 'web-ide__appearance-theme-state'
+                            }
+                          />
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
               </div>
             </section>
           </div>,
@@ -506,9 +586,15 @@ function AppearanceMenu({ compact = false }: { compact?: boolean }) {
         type="button"
       >
         <span className="web-ide__appearance-trigger-palette" aria-hidden="true">
-          {activeColorTheme.swatches.slice(0, compact ? 2 : 3).map((swatch) => (
-            <span className="web-ide__appearance-trigger-dot" key={swatch} style={{ background: swatch }} />
-          ))}
+          {getColorThemeSwatches(activeColorTheme.value, themeColorCustomizations)
+            .slice(0, compact ? 2 : 3)
+            .map((swatch, index) => (
+              <span
+                className="web-ide__appearance-trigger-dot"
+                key={`${activeColorTheme.value}-${swatch}-${index}`}
+                style={{ background: swatch }}
+              />
+            ))}
         </span>
         <span className="web-ide__appearance-trigger-copy">
           <span className="web-ide__appearance-trigger-label">

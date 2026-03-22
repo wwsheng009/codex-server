@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 
+import { i18n } from '../../i18n/runtime'
 import { useUIStore } from '../../stores/ui-store'
 
 export function ToastHost() {
@@ -33,7 +34,7 @@ export function ToastHost() {
             ) : null}
           </div>
           <button
-            aria-label="Dismiss notification"
+            aria-label={i18n._({ id: 'Dismiss notification', message: 'Dismiss notification' })}
             className="ui-toast__close"
             onClick={() => dismissToast(toast.id)}
             type="button"

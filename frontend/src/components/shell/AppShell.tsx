@@ -7,6 +7,7 @@ import { CommandPalette, type CommandPaletteItem } from './CommandPalette'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { InlineNotice } from '../ui/InlineNotice'
 import { RenameDialog } from '../ui/RenameDialog'
+import { WorkspaceTreeThreadRow } from './WorkspaceTreeThreadRow'
 import { layoutConfig } from '../../lib/layout-config'
 import { getErrorMessage } from '../../lib/error-utils'
 import {
@@ -39,7 +40,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
 import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
-import type { ServerEvent, Thread, ThreadDetail, Workspace } from '../../types/api'
+import type { Thread, ThreadDetail, Workspace } from '../../types/api'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { AppMenuBar } from './AppMenuBar'
 import { getActiveLocale, i18n } from '../../i18n/runtime'
@@ -106,22 +107,6 @@ type DeleteTarget =
   | null
 
 const DEFAULT_VISIBLE_THREADS = 8
-const RUNNING_THREAD_EVENT_METHODS = new Set([
-  'turn/started',
-  'item/started',
-  'item/agentMessage/delta',
-  'item/plan/delta',
-  'item/reasoning/summaryTextDelta',
-  'item/reasoning/textDelta',
-  'item/commandExecution/outputDelta',
-])
-const STOPPED_THREAD_EVENT_METHODS = new Set([
-  'turn/completed',
-  'thread/closed',
-  'thread/archived',
-  'thread/unarchived',
-])
-
 function updateThreadInList(current: Thread[] | undefined, thread: Thread) {
   if (!current?.length) {
     return current
@@ -147,53 +132,6 @@ function updateWorkspaceInList(current: Workspace[] | undefined, workspace: Work
   }
 
   return current.map((item) => (item.id === workspace.id ? workspace : item))
-}
-
-function statusIsInterruptible(value?: string) {
-  const normalized = (value ?? '').toLowerCase().replace(/[\s_-]+/g, '')
-  return ['running', 'processing', 'sending', 'waiting', 'inprogress', 'started'].includes(normalized)
-}
-
-function stringField(value: unknown) {
-  return typeof value === 'string' ? value : ''
-}
-
-function threadStatusFromEvent(event?: ServerEvent) {
-  if (!event || event.method !== 'thread/status/changed') {
-    return ''
-  }
-
-  if (typeof event.payload !== 'object' || event.payload === null) {
-    return ''
-  }
-
-  const payload = event.payload as Record<string, unknown>
-  const status = payload.status
-  if (typeof status !== 'object' || status === null) {
-    return ''
-  }
-
-  return stringField((status as Record<string, unknown>).type)
-}
-
-function threadIsRunning(thread: Thread, events: ServerEvent[] | undefined) {
-  const latestEvent = events?.[events.length - 1]
-  if (latestEvent) {
-    const nextStatus = threadStatusFromEvent(latestEvent)
-    if (nextStatus) {
-      return statusIsInterruptible(nextStatus)
-    }
-
-    if (STOPPED_THREAD_EVENT_METHODS.has(latestEvent.method)) {
-      return false
-    }
-
-    if (RUNNING_THREAD_EVENT_METHODS.has(latestEvent.method)) {
-      return true
-    }
-  }
-
-  return statusIsInterruptible(thread.status)
 }
 
 function formatWorkspaceRuntimeStatus(status: string) {
@@ -244,7 +182,6 @@ export function AppShell() {
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace)
   const selectedWorkspaceId = useSessionStore((state) => state.selectedWorkspaceId)
   const selectedThreadIdByWorkspace = useSessionStore((state) => state.selectedThreadIdByWorkspace)
-  const eventsByThread = useSessionStore((state) => state.eventsByThread)
   const workspaceRestartStateById = useUIStore((state) => state.workspaceRestartStateById)
   const markWorkspaceRestarting = useUIStore((state) => state.markWorkspaceRestarting)
   const markWorkspaceRestarted = useUIStore((state) => state.markWorkspaceRestarted)
@@ -1365,24 +1302,26 @@ export function AppShell() {
                       {isWorkspaceGroupOpen ? (
                         <div className="workspace-tree__threads" id={`workspace-threads-${workspace.id}`}>
                           {visibleThreads.map((thread) => {
-                            const running = threadIsRunning(thread, eventsByThread[thread.id])
-                            const activityTone = running
-                              ? workspaceRouteActive &&
-                                selectedWorkspaceId === workspace.id &&
-                                activeThreadId === thread.id
-                                ? 'foreground'
-                                : 'background'
-                              : null
-
                             return (
-                            <div className="workspace-tree__thread-row" key={thread.id}>
-                              <button
-                                className={
-                                  activeThreadId === thread.id
-                                    ? 'workspace-tree__thread workspace-tree__thread--active'
-                                    : 'workspace-tree__thread'
+                              <WorkspaceTreeThreadRow
+                                activeThreadId={activeThreadId}
+                                deleteInProgress={
+                                  deleteThreadMutation.isPending &&
+                                  deleteTarget?.kind === 'thread' &&
+                                  deleteTarget.workspaceId === workspace.id &&
+                                  deleteTarget.thread.id === thread.id
                                 }
-                                onClick={() => {
+                                isMenuOpen={isThreadMenuOpen(workspace.id, thread.id)}
+                                isRenameOrDeletePending={
+                                  renameThreadMutation.isPending || deleteThreadMutation.isPending
+                                }
+                                isSelectedWorkspaceRoute={
+                                  workspaceRouteActive && selectedWorkspaceId === workspace.id
+                                }
+                                key={thread.id}
+                                menuRef={menuRef}
+                                onDeleteThread={() => handleDeleteThread(workspace.id, thread)}
+                                onOpenThread={() => {
                                   setSelectedWorkspace(workspace.id)
                                   setSelectedThread(workspace.id, thread.id)
                                   if (isMobileViewport) {
@@ -1390,84 +1329,22 @@ export function AppShell() {
                                   }
                                   navigate(`/workspaces/${workspace.id}`)
                                 }}
-                                type="button"
-                              >
-                                <span className="workspace-tree__thread-title-shell">
-                                  {activityTone ? (
-                                    <span
-                                      aria-hidden="true"
-                                      className={
-                                        activityTone === 'foreground'
-                                          ? 'workspace-tree__thread-activity workspace-tree__thread-activity--foreground'
-                                          : 'workspace-tree__thread-activity workspace-tree__thread-activity--background'
-                                      }
-                                    />
-                                  ) : null}
-                                  <span className="workspace-tree__thread-title">{thread.name}</span>
-                                </span>
-                                <span className="workspace-tree__thread-meta">
-                                  {formatRelativeTimeShort(thread.updatedAt)}
-                                </span>
-                              </button>
-                              <div
-                                className="workspace-tree__thread-actions"
-                                ref={
-                                  isThreadMenuOpen(workspace.id, thread.id) ? menuRef : undefined
+                                onRenameThread={() => handleRenameThread(workspace.id, thread)}
+                                onToggleMenu={() =>
+                                  setOpenMenu((current) =>
+                                    current?.kind === 'thread' &&
+                                    current.workspaceId === workspace.id &&
+                                    current.threadId === thread.id
+                                      ? null
+                                      : {
+                                          kind: 'thread',
+                                          workspaceId: workspace.id,
+                                          threadId: thread.id,
+                                        },
+                                  )
                                 }
-                              >
-                                <button
-                                  aria-expanded={isThreadMenuOpen(workspace.id, thread.id)}
-                                  aria-label={i18n._({
-                                    id: 'Open actions for {name}',
-                                    message: 'Open actions for {name}',
-                                    values: { name: thread.name },
-                                  })}
-                                  className={
-                                    isThreadMenuOpen(workspace.id, thread.id)
-                                      ? 'workspace-tree__menu-trigger workspace-tree__menu-trigger--active'
-                                      : 'workspace-tree__menu-trigger'
-                                  }
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    setOpenMenu((current) =>
-                                      current?.kind === 'thread' &&
-                                      current.workspaceId === workspace.id &&
-                                      current.threadId === thread.id
-                                        ? null
-                                        : { kind: 'thread', workspaceId: workspace.id, threadId: thread.id },
-                                    )
-                                  }}
-                                  type="button"
-                                >
-                                  <MoreActionsIcon />
-                                </button>
-                                {isThreadMenuOpen(workspace.id, thread.id) ? (
-                                  <div className="workspace-tree__menu" role="menu">
-                                    <button
-                                      className="workspace-tree__menu-item"
-                                      disabled={renameThreadMutation.isPending || deleteThreadMutation.isPending}
-                                      onClick={() => handleRenameThread(workspace.id, thread)}
-                                      type="button"
-                                    >
-                                      {i18n._({ id: 'Rename', message: 'Rename' })}
-                                    </button>
-                                    <button
-                                      className="workspace-tree__menu-item workspace-tree__menu-item--danger"
-                                      disabled={renameThreadMutation.isPending || deleteThreadMutation.isPending}
-                                      onClick={() => handleDeleteThread(workspace.id, thread)}
-                                      type="button"
-                                    >
-                                      {deleteThreadMutation.isPending &&
-                                      deleteTarget?.kind === 'thread' &&
-                                      deleteTarget.workspaceId === workspace.id &&
-                                      deleteTarget.thread.id === thread.id
-                                        ? i18n._({ id: 'Deleting…', message: 'Deleting…' })
-                                        : i18n._({ id: 'Delete', message: 'Delete' })}
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
+                                thread={thread}
+                              />
                             )
                           })}
                           {remainingThreadCount > 0 || canShowLessThreads ? (
