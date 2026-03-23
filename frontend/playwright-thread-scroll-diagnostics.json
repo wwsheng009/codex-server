@@ -1,0 +1,796 @@
+{
+  "exportedAt": "2026-03-23T07:48:02.654Z",
+  "knownViewportMutators": [
+    {
+      "file": "frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts",
+      "reason": "Follows new content, thread-open settle, jump-to-latest, and bottom-clearance changes by calling scrollTo(bottom).",
+      "source": "auto-scroll"
+    },
+    {
+      "file": "frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts",
+      "reason": "Restores viewport position after loading older turns through the shared viewport scroll coordinator.",
+      "source": "older-turn-restore"
+    },
+    {
+      "file": "frontend/src/components/workspace/useVirtualizedConversationEntries.ts",
+      "reason": "Does not write scrollTop directly, but measured height and padding updates can change scrollHeight while follow mode is active.",
+      "source": "virtualization-layout"
+    }
+  ],
+  "renderProfile": {
+    "enabled": false,
+    "records": [],
+    "suggestions": [
+      "Scroll the thread or wait for live output to collect a fresh five second window."
+    ],
+    "totalRecentActualDuration": 0,
+    "totalRecentCommitCount": 0,
+    "totalRecentMaxActualDuration": 0,
+    "windowMs": 5000
+  },
+  "scrollDiagnostics": {
+    "enabled": true,
+    "events": [
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": null,
+        "deltaTargetTop": null,
+        "id": 1,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 46,
+          "entryCount": 80,
+          "isUserScrolling": false,
+          "paddingBottom": 8712,
+          "paddingTop": 6006,
+          "startIndex": 29,
+          "totalHeight": 19470
+        },
+        "scrollHeight": 19470,
+        "scrollTop": 7937,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": null,
+        "ts": 2065.100000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 2,
+        "kind": "virtualization-layout",
+        "metadata": {
+          "entryCount": 80,
+          "heightVersion": 4,
+          "isUserScrolling": false,
+          "previousTotalHeight": 19470,
+          "totalHeight": 7920
+        },
+        "scrollHeight": 7920,
+        "scrollTop": 7937,
+        "source": "virtualized-layout",
+        "timeSincePreviousEventMs": 2.899999976158142,
+        "ts": 2068
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 3,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 46,
+          "entryCount": 80,
+          "isUserScrolling": false,
+          "paddingBottom": 8712,
+          "paddingTop": 6006,
+          "startIndex": 29,
+          "totalHeight": 7920
+        },
+        "scrollHeight": 7920,
+        "scrollTop": 7937,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 0,
+        "ts": 2068
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 4,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 79,
+          "entryCount": 80,
+          "isUserScrolling": false,
+          "paddingBottom": 0,
+          "paddingTop": 2871,
+          "startIndex": 29,
+          "totalHeight": 7920
+        },
+        "scrollHeight": 7920,
+        "scrollTop": 7937,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 64.7000000178814,
+        "ts": 2132.7000000178814
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -220,
+        "deltaTargetTop": null,
+        "id": 5,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": true,
+          "manuallyDetachedFromLatest": false,
+          "shouldFollowThread": true
+        },
+        "scrollHeight": 8575,
+        "scrollTop": 7717,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 5.299999982118607,
+        "ts": 2138
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -1200,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 6,
+        "kind": "user-intent",
+        "scrollHeight": 8575,
+        "scrollTop": 6517,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 427.80000001192093,
+        "ts": 2565.800000011921
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 7,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 8575,
+        "scrollTop": 6517,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 146,
+        "ts": 2711.800000011921
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -1200,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 8,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 5317,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 104.40000000596046,
+        "ts": 2816.2000000178814
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 9,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 8795,
+        "scrollTop": 5317,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 2.7999999821186066,
+        "ts": 2819
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -1200,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 10,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 4117,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 63.70000001788139,
+        "ts": 2882.7000000178814
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 11,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 8795,
+        "scrollTop": 4117,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 2.5,
+        "ts": 2885.2000000178814
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -1200,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 12,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 2917,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 47.19999998807907,
+        "ts": 2932.4000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 13,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 8795,
+        "scrollTop": 2917,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 3.0999999940395355,
+        "ts": 2935.5
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -1200,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 14,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 1717,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 63.900000005960464,
+        "ts": 2999.4000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 15,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 8795,
+        "scrollTop": 1717,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 2.7000000178813934,
+        "ts": 3002.100000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -1200,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 16,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 517,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 64,
+        "ts": 3066.100000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 17,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 8795,
+        "scrollTop": 517,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 2.699999988079071,
+        "ts": 3068.800000011921
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -517,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 18,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 63.900000005960464,
+        "ts": 3132.7000000178814
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 19,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 2.199999988079071,
+        "ts": 3134.9000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 20,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 65,
+        "ts": 3199.9000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 21,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 65.2000000178814,
+        "ts": 3265.100000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 22,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 67.09999999403954,
+        "ts": 3332.2000000178814
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 23,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 49.29999998211861,
+        "ts": 3381.5
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 24,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 50.10000002384186,
+        "ts": 3431.600000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 25,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 50.5,
+        "ts": 3482.100000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 26,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 51,
+        "ts": 3533.100000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 27,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 48.79999998211861,
+        "ts": 3581.9000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 28,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 49.400000005960464,
+        "ts": 3631.300000011921
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 29,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 50.30000001192093,
+        "ts": 3681.600000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 30,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 50.69999998807907,
+        "ts": 3732.300000011921
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 31,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 49.599999994039536,
+        "ts": 3781.9000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 32,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 67.30000001192093,
+        "ts": 3849.2000000178814
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 33,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 82.90000000596046,
+        "ts": 3932.100000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 34,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 83.7999999821186,
+        "ts": 4015.9000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 35,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 65.7000000178814,
+        "ts": 4081.600000023842
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 36,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 83.39999997615814,
+        "ts": 4165
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 37,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 83.2000000178814,
+        "ts": 4248.200000017881
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 38,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 66.59999999403954,
+        "ts": 4314.800000011921
+      }
+    ],
+    "summary": {
+      "candidateJitterCount": 0,
+      "enabled": true,
+      "eventCount": 38,
+      "lastEvent": {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 38,
+        "kind": "user-intent",
+        "scrollHeight": 8795,
+        "scrollTop": 0,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 66.59999999403954,
+        "ts": 4314.800000011921
+      },
+      "layoutChangeCount": 4,
+      "maxAbsoluteScrollDelta": 1200,
+      "maxAbsoluteTargetDelta": 0,
+      "programmaticScrollCount": 0,
+      "rapidProgrammaticWriteCount": 0,
+      "recentEvents": [
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 27,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 48.79999998211861,
+          "ts": 3581.9000000059605
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 28,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 49.400000005960464,
+          "ts": 3631.300000011921
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 29,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 50.30000001192093,
+          "ts": 3681.600000023842
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 30,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 50.69999998807907,
+          "ts": 3732.300000011921
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 31,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 49.599999994039536,
+          "ts": 3781.9000000059605
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 32,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 67.30000001192093,
+          "ts": 3849.2000000178814
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 33,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 82.90000000596046,
+          "ts": 3932.100000023842
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 34,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 83.7999999821186,
+          "ts": 4015.9000000059605
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 35,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 65.7000000178814,
+          "ts": 4081.600000023842
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 36,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 83.39999997615814,
+          "ts": 4165
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 37,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 83.2000000178814,
+          "ts": 4248.200000017881
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 38,
+          "kind": "user-intent",
+          "scrollHeight": 8795,
+          "scrollTop": 0,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 66.59999999403954,
+          "ts": 4314.800000011921
+        }
+      ],
+      "suggestions": [
+        "The busiest scroll source in this capture is mark-user-scroll-intent; start the trace review there."
+      ],
+      "topSources": [
+        {
+          "count": 26,
+          "source": "mark-user-scroll-intent"
+        },
+        {
+          "count": 8,
+          "source": "sync-thread-viewport"
+        },
+        {
+          "count": 3,
+          "source": "virtualized-range"
+        },
+        {
+          "count": 1,
+          "source": "virtualized-layout"
+        }
+      ],
+      "userIntentCount": 26,
+      "viewportScrollCount": 8
+    }
+  }
+}

@@ -1,0 +1,552 @@
+{
+  "exportedAt": "2026-03-23T06:36:08.936Z",
+  "knownViewportMutators": [
+    {
+      "file": "frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts",
+      "reason": "Follows new content, thread-open settle, jump-to-latest, and bottom-clearance changes by calling scrollTo(bottom).",
+      "source": "auto-scroll"
+    },
+    {
+      "file": "frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts",
+      "reason": "Restores viewport position after loading older turns through the shared viewport scroll coordinator.",
+      "source": "older-turn-restore"
+    },
+    {
+      "file": "frontend/src/components/workspace/useVirtualizedConversationEntries.ts",
+      "reason": "Does not write scrollTop directly, but measured height and padding updates can change scrollHeight while follow mode is active.",
+      "source": "virtualization-layout"
+    }
+  ],
+  "renderProfile": {
+    "enabled": false,
+    "records": [],
+    "suggestions": [
+      "Scroll the thread or wait for live output to collect a fresh five second window."
+    ],
+    "totalRecentActualDuration": 0,
+    "totalRecentCommitCount": 0,
+    "totalRecentMaxActualDuration": 0,
+    "windowMs": 5000
+  },
+  "scrollDiagnostics": {
+    "enabled": true,
+    "events": [
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": null,
+        "deltaTargetTop": null,
+        "id": 1,
+        "kind": "virtualization-layout",
+        "metadata": {
+          "entryCount": 160,
+          "heightVersion": 4,
+          "isUserScrolling": false,
+          "previousTotalHeight": 55656,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 43601,
+        "source": "virtualized-layout",
+        "timeSincePreviousEventMs": null,
+        "ts": 3415.7999999821186
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 2,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 133,
+          "entryCount": 160,
+          "isUserScrolling": false,
+          "paddingBottom": 9152,
+          "paddingTop": 41576,
+          "startIndex": 120,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 43601,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 0.30000001192092896,
+        "ts": 3416.0999999940395
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 3,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 159,
+          "entryCount": 160,
+          "isUserScrolling": false,
+          "paddingBottom": 0,
+          "paddingTop": 32280,
+          "startIndex": 120,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 43601,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 135.59999999403954,
+        "ts": 3551.699999988079
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -907,
+        "deltaTargetTop": null,
+        "id": 4,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": true,
+          "manuallyDetachedFromLatest": false,
+          "shouldFollowThread": true
+        },
+        "scrollHeight": 43552,
+        "scrollTop": 42694,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 16.30000001192093,
+        "ts": 3568
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -20918,
+        "deltaTargetTop": null,
+        "id": 5,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": false,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 43552,
+        "scrollTop": 21776,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 219.40000000596046,
+        "ts": 3787.4000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 6,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 159,
+          "entryCount": 160,
+          "isUserScrolling": true,
+          "paddingBottom": 0,
+          "paddingTop": 18830,
+          "startIndex": 70,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 21776,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 298.19999998807907,
+        "ts": 4085.5999999940395
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 7,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 90,
+          "entryCount": 160,
+          "isUserScrolling": false,
+          "paddingBottom": 18561,
+          "paddingTop": 19906,
+          "startIndex": 74,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 21776,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 69.80000001192093,
+        "ts": 4155.4000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": -800,
+        "deltaTargetTop": null,
+        "detail": "detach-follow",
+        "id": 8,
+        "kind": "user-intent",
+        "scrollHeight": 43385,
+        "scrollTop": 20976,
+        "source": "mark-user-scroll-intent",
+        "timeSincePreviousEventMs": 53.099999994039536,
+        "ts": 4208.5
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 9,
+        "kind": "viewport-scroll",
+        "metadata": {
+          "isPinnedToLatest": false,
+          "manuallyDetachedFromLatest": true,
+          "shouldFollowThread": false
+        },
+        "scrollHeight": 43385,
+        "scrollTop": 20976,
+        "source": "sync-thread-viewport",
+        "timeSincePreviousEventMs": 64.40000000596046,
+        "ts": 4272.9000000059605
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 10,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 94,
+          "entryCount": 160,
+          "isUserScrolling": true,
+          "paddingBottom": 17485,
+          "paddingTop": 18830,
+          "startIndex": 70,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 20976,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 38.39999997615814,
+        "ts": 4311.299999982119
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 11,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 94,
+          "entryCount": 160,
+          "isUserScrolling": true,
+          "paddingBottom": 17485,
+          "paddingTop": 18023,
+          "startIndex": 67,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 20976,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 23.5,
+        "ts": 4334.799999982119
+      },
+      {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 12,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 87,
+          "entryCount": 160,
+          "isUserScrolling": false,
+          "paddingBottom": 19368,
+          "paddingTop": 19099,
+          "startIndex": 71,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 20976,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 37.60000002384186,
+        "ts": 4372.4000000059605
+      }
+    ],
+    "summary": {
+      "candidateJitterCount": 0,
+      "enabled": true,
+      "eventCount": 12,
+      "lastEvent": {
+        "clientHeight": 858,
+        "deltaScrollTop": 0,
+        "deltaTargetTop": null,
+        "id": 12,
+        "kind": "virtualization-range",
+        "metadata": {
+          "endIndex": 87,
+          "entryCount": 160,
+          "isUserScrolling": false,
+          "paddingBottom": 19368,
+          "paddingTop": 19099,
+          "startIndex": 71,
+          "totalHeight": 43040
+        },
+        "scrollHeight": 43040,
+        "scrollTop": 20976,
+        "source": "virtualized-range",
+        "timeSincePreviousEventMs": 37.60000002384186,
+        "ts": 4372.4000000059605
+      },
+      "layoutChangeCount": 8,
+      "maxAbsoluteScrollDelta": 20918,
+      "maxAbsoluteTargetDelta": 0,
+      "programmaticScrollCount": 0,
+      "rapidProgrammaticWriteCount": 0,
+      "recentEvents": [
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": null,
+          "deltaTargetTop": null,
+          "id": 1,
+          "kind": "virtualization-layout",
+          "metadata": {
+            "entryCount": 160,
+            "heightVersion": 4,
+            "isUserScrolling": false,
+            "previousTotalHeight": 55656,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 43601,
+          "source": "virtualized-layout",
+          "timeSincePreviousEventMs": null,
+          "ts": 3415.7999999821186
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 2,
+          "kind": "virtualization-range",
+          "metadata": {
+            "endIndex": 133,
+            "entryCount": 160,
+            "isUserScrolling": false,
+            "paddingBottom": 9152,
+            "paddingTop": 41576,
+            "startIndex": 120,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 43601,
+          "source": "virtualized-range",
+          "timeSincePreviousEventMs": 0.30000001192092896,
+          "ts": 3416.0999999940395
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 3,
+          "kind": "virtualization-range",
+          "metadata": {
+            "endIndex": 159,
+            "entryCount": 160,
+            "isUserScrolling": false,
+            "paddingBottom": 0,
+            "paddingTop": 32280,
+            "startIndex": 120,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 43601,
+          "source": "virtualized-range",
+          "timeSincePreviousEventMs": 135.59999999403954,
+          "ts": 3551.699999988079
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": -907,
+          "deltaTargetTop": null,
+          "id": 4,
+          "kind": "viewport-scroll",
+          "metadata": {
+            "isPinnedToLatest": true,
+            "manuallyDetachedFromLatest": false,
+            "shouldFollowThread": true
+          },
+          "scrollHeight": 43552,
+          "scrollTop": 42694,
+          "source": "sync-thread-viewport",
+          "timeSincePreviousEventMs": 16.30000001192093,
+          "ts": 3568
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": -20918,
+          "deltaTargetTop": null,
+          "id": 5,
+          "kind": "viewport-scroll",
+          "metadata": {
+            "isPinnedToLatest": false,
+            "manuallyDetachedFromLatest": false,
+            "shouldFollowThread": false
+          },
+          "scrollHeight": 43552,
+          "scrollTop": 21776,
+          "source": "sync-thread-viewport",
+          "timeSincePreviousEventMs": 219.40000000596046,
+          "ts": 3787.4000000059605
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 6,
+          "kind": "virtualization-range",
+          "metadata": {
+            "endIndex": 159,
+            "entryCount": 160,
+            "isUserScrolling": true,
+            "paddingBottom": 0,
+            "paddingTop": 18830,
+            "startIndex": 70,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 21776,
+          "source": "virtualized-range",
+          "timeSincePreviousEventMs": 298.19999998807907,
+          "ts": 4085.5999999940395
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 7,
+          "kind": "virtualization-range",
+          "metadata": {
+            "endIndex": 90,
+            "entryCount": 160,
+            "isUserScrolling": false,
+            "paddingBottom": 18561,
+            "paddingTop": 19906,
+            "startIndex": 74,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 21776,
+          "source": "virtualized-range",
+          "timeSincePreviousEventMs": 69.80000001192093,
+          "ts": 4155.4000000059605
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": -800,
+          "deltaTargetTop": null,
+          "detail": "detach-follow",
+          "id": 8,
+          "kind": "user-intent",
+          "scrollHeight": 43385,
+          "scrollTop": 20976,
+          "source": "mark-user-scroll-intent",
+          "timeSincePreviousEventMs": 53.099999994039536,
+          "ts": 4208.5
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 9,
+          "kind": "viewport-scroll",
+          "metadata": {
+            "isPinnedToLatest": false,
+            "manuallyDetachedFromLatest": true,
+            "shouldFollowThread": false
+          },
+          "scrollHeight": 43385,
+          "scrollTop": 20976,
+          "source": "sync-thread-viewport",
+          "timeSincePreviousEventMs": 64.40000000596046,
+          "ts": 4272.9000000059605
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 10,
+          "kind": "virtualization-range",
+          "metadata": {
+            "endIndex": 94,
+            "entryCount": 160,
+            "isUserScrolling": true,
+            "paddingBottom": 17485,
+            "paddingTop": 18830,
+            "startIndex": 70,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 20976,
+          "source": "virtualized-range",
+          "timeSincePreviousEventMs": 38.39999997615814,
+          "ts": 4311.299999982119
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 11,
+          "kind": "virtualization-range",
+          "metadata": {
+            "endIndex": 94,
+            "entryCount": 160,
+            "isUserScrolling": true,
+            "paddingBottom": 17485,
+            "paddingTop": 18023,
+            "startIndex": 67,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 20976,
+          "source": "virtualized-range",
+          "timeSincePreviousEventMs": 23.5,
+          "ts": 4334.799999982119
+        },
+        {
+          "clientHeight": 858,
+          "deltaScrollTop": 0,
+          "deltaTargetTop": null,
+          "id": 12,
+          "kind": "virtualization-range",
+          "metadata": {
+            "endIndex": 87,
+            "entryCount": 160,
+            "isUserScrolling": false,
+            "paddingBottom": 19368,
+            "paddingTop": 19099,
+            "startIndex": 71,
+            "totalHeight": 43040
+          },
+          "scrollHeight": 43040,
+          "scrollTop": 20976,
+          "source": "virtualized-range",
+          "timeSincePreviousEventMs": 37.60000002384186,
+          "ts": 4372.4000000059605
+        }
+      ],
+      "suggestions": [
+        "The busiest scroll source in this capture is virtualized-range; start the trace review there."
+      ],
+      "topSources": [
+        {
+          "count": 7,
+          "source": "virtualized-range"
+        },
+        {
+          "count": 3,
+          "source": "sync-thread-viewport"
+        },
+        {
+          "count": 1,
+          "source": "mark-user-scroll-intent"
+        },
+        {
+          "count": 1,
+          "source": "virtualized-layout"
+        }
+      ],
+      "userIntentCount": 1,
+      "viewportScrollCount": 3
+    }
+  }
+}
