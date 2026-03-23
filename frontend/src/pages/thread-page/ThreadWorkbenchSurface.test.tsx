@@ -122,4 +122,82 @@ describe('ThreadWorkbenchSurface', () => {
     expect(html).not.toContain('Create First Thread')
     expect(html).toContain('composer-probe')
   })
+
+  it('does not render the pending reply prompt while the thread is waiting', () => {
+    const html = renderToStaticMarkup(
+      <ThreadWorkbenchSurface
+        activePendingTurnPhase="waiting"
+        activeSurfacePanelSide="right"
+        approvalAnswers={{}}
+        approvalErrors={{}}
+        approvals={[]}
+        createThreadErrorMessage={undefined}
+        displayedTurns={[
+          {
+            id: 'turn-1',
+            status: 'inProgress',
+            items: [
+              {
+                id: 'msg-1',
+                type: 'agentMessage',
+                text: 'Partial reply',
+              },
+            ],
+          },
+        ]}
+        hasMoreTurnsBefore={false}
+        hasThreads={true}
+        hiddenTurnsCount={0}
+        isCreateThreadPending={false}
+        isLoadingOlderTurns={false}
+        isThreadsLoaded={true}
+        isThreadSelectionLoading={false}
+        isMobileViewport={false}
+        isSurfacePanelResizing={false}
+        isThreadPinnedToLatest={true}
+        isThreadProcessing={true}
+        isThreadViewportInteracting={false}
+        isWaitingForThreadData={true}
+        liveTimelineEntries={[]}
+        onChangeApprovalAnswer={() => undefined}
+        onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
+        onCreateThread={() => undefined}
+        onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
+        onRespondApproval={() => undefined}
+        onRetryServerRequest={() => undefined}
+        onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
+        onSurfacePanelResizeStart={() => undefined}
+        onThreadViewportScroll={() => undefined}
+        onToggleSurfacePanelSide={() => undefined}
+        respondingToApproval={false}
+        selectedThread={{
+          id: 'thread-1',
+          workspaceId: 'ws-1',
+          name: 'Thread 1',
+          status: 'inProgress',
+          archived: false,
+          createdAt: '2026-03-20T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:00.000Z',
+        }}
+        surfacePanelView={null}
+        threadDetailError={null}
+        threadDetailIsLoading={false}
+        threadLogStyle={{}}
+        threadViewportRef={{ current: null }}
+        timelineIdentity="thread-1"
+        workspaceName="workspace"
+      >
+        <div>composer-probe</div>
+      </ThreadWorkbenchSurface>,
+    )
+
+    expect(html).toContain('Partial reply')
+    expect(html).not.toContain('Generating reply…')
+    expect(html).not.toContain('Sending message…')
+  })
 })

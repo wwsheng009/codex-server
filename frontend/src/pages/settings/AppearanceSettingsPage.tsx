@@ -7,16 +7,20 @@ import {
   areWorkbenchThemeColorsEqual,
   getAppearancePaletteLabel,
   getAppearanceColorDefaults,
+  getMotionPreferenceDescription,
+  getMotionPreferenceLabel,
   getColorThemeSwatches,
   getAppearanceThemeDescription,
   getAppearanceThemeLabel,
   getColorThemeDescription,
   getColorThemeLabel,
+  motionPreferenceOptions,
   getThemeColorCustomizationPalette,
   getWorkbenchThemeSwatches,
   isBuiltInColorTheme,
   normalizeAccentTone,
   resolveAppearanceTheme,
+  resolveMotionPreference,
 } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
@@ -33,6 +37,8 @@ import { ThemeIcon } from '../../components/ui/ThemeIcon'
 export function AppearanceSettingsPage() {
   const theme = useSettingsLocalStore((state) => state.theme)
   const setTheme = useSettingsLocalStore((state) => state.setTheme)
+  const motionPreference = useSettingsLocalStore((state) => state.motionPreference)
+  const setMotionPreference = useSettingsLocalStore((state) => state.setMotionPreference)
   const accentTone = useSettingsLocalStore((state) => state.accentTone)
   const setAccentTone = useSettingsLocalStore((state) => state.setAccentTone)
   const themeColorCustomizations = useSettingsLocalStore((state) => state.themeColorCustomizations)
@@ -70,9 +76,17 @@ export function AppearanceSettingsPage() {
   const usePointerCursor = useSettingsLocalStore((state) => state.usePointerCursor)
   const setUsePointerCursor = useSettingsLocalStore((state) => state.setUsePointerCursor)
 
-  const { prefersDark } = useSystemAppearancePreferences()
+  const { prefersDark, prefersReducedMotion } = useSystemAppearancePreferences()
   const resolvedTheme = resolveAppearanceTheme(theme, prefersDark)
+  const resolvedMotionPreference = resolveMotionPreference(
+    motionPreference,
+    prefersReducedMotion,
+  )
   const activeAccentTone = normalizeAccentTone(accentTone)
+  const motionOptions = motionPreferenceOptions.map((option) => ({
+    value: option.value,
+    label: getMotionPreferenceLabel(option.value),
+  }))
 
   const [editingMode, setEditingMode] = useState<'light' | 'dark'>(resolvedTheme)
   const builtInThemeOptions = colorThemeOptions.filter((option) => option.value !== 'custom')
@@ -496,6 +510,42 @@ export function AppearanceSettingsPage() {
           })}
           title={i18n._({ id: 'Interaction', message: 'Interaction' })}
         >
+          <SettingRow
+            title={i18n._({ id: 'Motion', message: 'Motion' })}
+            description={
+              motionPreference === 'system'
+                ? i18n._({
+                    id: 'Follow the operating system motion preference. The system is currently {mode}.',
+                    message:
+                      'Follow the operating system motion preference. The system is currently {mode}.',
+                    values: {
+                      mode: prefersReducedMotion
+                        ? i18n._({ id: 'set to reduce motion', message: 'set to reduce motion' })
+                        : i18n._({ id: 'set to normal motion', message: 'set to normal motion' }),
+                    },
+                  })
+                : getMotionPreferenceDescription(motionPreference)
+            }
+            meta={
+              <span className="setting-row__meta-note">
+                {i18n._({
+                  id: 'Effective: {mode}',
+                  message: 'Effective: {mode}',
+                  values: {
+                    mode: getMotionPreferenceLabel(resolvedMotionPreference),
+                  },
+                })}
+              </span>
+            }
+          >
+            <SelectControl
+              ariaLabel={i18n._({ id: 'Motion preference', message: 'Motion preference' })}
+              options={motionOptions}
+              onChange={(value) => setMotionPreference(value as typeof motionPreference)}
+              value={motionPreference}
+            />
+          </SettingRow>
+
           <SettingRow title={i18n._({ id: 'Pointer cursor', message: 'Pointer cursor' })} description={i18n._({
             id: 'Use pointing hand cursor for interactive elements.',
             message: 'Use pointing hand cursor for interactive elements.',

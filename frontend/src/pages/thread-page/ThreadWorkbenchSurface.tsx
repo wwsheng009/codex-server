@@ -25,7 +25,7 @@ const OLDER_TURNS_AUTOLOAD_THRESHOLD_PX = 72
 const OLDER_TURNS_AUTOLOAD_IDLE_DELAY_MS = 0
 
 export function ThreadWorkbenchSurface({
-  activePendingTurnPhase,
+  activePendingTurnPhase: _activePendingTurnPhase,
   activeSurfacePanelSide,
   approvalAnswers,
   approvalErrors,
@@ -45,7 +45,7 @@ export function ThreadWorkbenchSurface({
   isThreadPinnedToLatest,
   isThreadProcessing,
   isThreadViewportInteracting,
-  isWaitingForThreadData,
+  isWaitingForThreadData: _isWaitingForThreadData,
   liveTimelineEntries,
   onChangeApprovalAnswer,
   onCloseWorkbenchOverlay,
@@ -298,48 +298,6 @@ export function ThreadWorkbenchSurface({
                     timelineIdentity={timelineIdentity}
                     turns={displayedTurns}
                   />
-                  {isWaitingForThreadData ? (
-                    <div
-                      aria-live="polite"
-                      className={
-                        activePendingTurnPhase === 'sending'
-                          ? 'thread-pending-state thread-pending-state--sending'
-                          : 'thread-pending-state thread-pending-state--waiting'
-                      }
-                      role="status"
-                    >
-                      <span aria-hidden="true" className="thread-pending-state__spinner" />
-                      <div className="thread-pending-state__copy">
-                        <strong>
-                          {activePendingTurnPhase === 'sending'
-                            ? i18n._({
-                                id: 'Sending message…',
-                                message: 'Sending message…',
-                              })
-                            : i18n._({
-                                id: 'Generating reply…',
-                                message: 'Generating reply…',
-                              })}
-                        </strong>
-                        <span>
-                          {activePendingTurnPhase === 'sending'
-                            ? i18n._({
-                                id: 'Your message is staged and the thread is preparing a response.',
-                                message: 'Your message is staged and the thread is preparing a response.',
-                              })
-                            : isThreadPinnedToLatest
-                              ? i18n._({
-                                  id: 'Auto-follow is keeping the newest output in view.',
-                                  message: 'Auto-follow is keeping the newest output in view.',
-                                })
-                              : i18n._({
-                                  id: 'New output is arriving. Jump to latest to keep following it.',
-                                  message: 'New output is arriving. Jump to latest to keep following it.',
-                                })}
-                        </span>
-                      </div>
-                    </div>
-                  ) : null}
                   <div aria-hidden="true" className="workbench-log__bottom-anchor" />
                 </div>
               ) : (

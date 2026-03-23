@@ -11,15 +11,18 @@ import {
   getAppearancePaletteLabel,
   getAppearanceThemeLabel,
   getColorThemeLabel,
+  getMotionPreferenceLabel,
   getMessageSurfaceLabel,
   getQuickToggleTheme,
   getThreadSpacingLabel,
   getUserMessageEmphasisLabel,
   normalizeAccentTone,
   normalizeAppearanceTheme,
+  normalizeMotionPreference,
   normalizeThemeColorCustomizations,
   resetThemeColorCustomization,
   resolveAppearanceTheme,
+  resolveMotionPreference,
 } from './appearance'
 import { activateLocale } from '../../i18n/runtime'
 
@@ -47,10 +50,18 @@ describe('appearance helpers', () => {
 
   it('returns friendly labels for theme controls', () => {
     expect(getAppearanceThemeLabel('system')).toBe('System')
+    expect(getMotionPreferenceLabel('normal')).toBe('Normal motion')
     expect(getColorThemeLabel('mint')).toBe('Mint')
     expect(getThreadSpacingLabel('tight')).toBe('Tight')
     expect(getMessageSurfaceLabel('soft')).toBe('Soft')
     expect(getUserMessageEmphasisLabel('minimal')).toBe('Minimal')
+  })
+
+  it('resolves motion preference against the OS setting', () => {
+    expect(resolveMotionPreference('system', true)).toBe('reduce')
+    expect(resolveMotionPreference('system', false)).toBe('normal')
+    expect(resolveMotionPreference('normal', true)).toBe('normal')
+    expect(resolveMotionPreference('reduce', false)).toBe('reduce')
   })
 
   it('exposes multiple color themes for the settings UI', () => {
@@ -132,6 +143,8 @@ describe('appearance helpers', () => {
   it('normalizes unsupported appearance values to safe defaults', () => {
     expect(normalizeAppearanceTheme('dark')).toBe('dark')
     expect(normalizeAppearanceTheme('sepia')).toBe('system')
+    expect(normalizeMotionPreference('normal')).toBe('normal')
+    expect(normalizeMotionPreference('slow')).toBe('system')
     expect(normalizeAccentTone('graphite')).toBe('graphite')
     expect(normalizeAccentTone('legacy')).toBe('blue')
   })

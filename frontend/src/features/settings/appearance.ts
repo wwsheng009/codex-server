@@ -12,6 +12,18 @@ export const appearanceThemeOptions = [
   },
 ] as const
 
+export const motionPreferenceOptions = [
+  {
+    value: 'system',
+  },
+  {
+    value: 'normal',
+  },
+  {
+    value: 'reduce',
+  },
+] as const
+
 export const builtinColorThemeOptions = [
   {
     value: 'cyan',
@@ -88,6 +100,7 @@ export const userMessageEmphasisOptions = [
 ] as const
 
 export type AppearanceTheme = (typeof appearanceThemeOptions)[number]['value']
+export type MotionPreference = (typeof motionPreferenceOptions)[number]['value']
 export type BuiltinAccentTone = (typeof builtinColorThemeOptions)[number]['value']
 export type AccentTone = (typeof colorThemeOptions)[number]['value']
 export type ThreadSpacing = (typeof threadSpacingOptions)[number]['value']
@@ -153,6 +166,14 @@ export function normalizeAppearanceTheme(value: unknown): AppearanceTheme {
   return isAppearanceTheme(value) ? value : 'system'
 }
 
+export function isMotionPreference(value: unknown): value is MotionPreference {
+  return motionPreferenceOptions.some((option) => option.value === value)
+}
+
+export function normalizeMotionPreference(value: unknown): MotionPreference {
+  return isMotionPreference(value) ? value : 'system'
+}
+
 export function isAccentTone(value: unknown): value is AccentTone {
   return colorThemeOptions.some((option) => option.value === value)
 }
@@ -199,6 +220,17 @@ export function resolveAppearanceTheme(
   return theme
 }
 
+export function resolveMotionPreference(
+  motionPreference: MotionPreference,
+  prefersReducedMotion: boolean,
+): 'normal' | 'reduce' {
+  if (motionPreference === 'system') {
+    return prefersReducedMotion ? 'reduce' : 'normal'
+  }
+
+  return motionPreference
+}
+
 export function getQuickToggleTheme(
   theme: AppearanceTheme,
   prefersDark: boolean,
@@ -237,6 +269,41 @@ export function getAppearanceThemeDescription(theme: AppearanceTheme): string {
       return i18n._({
         id: 'Shift the shell to a darker workbench for long sessions.',
         message: 'Shift the shell to a darker workbench for long sessions.',
+      })
+    default:
+      return ''
+  }
+}
+
+export function getMotionPreferenceLabel(motionPreference: MotionPreference): string {
+  switch (motionPreference) {
+    case 'system':
+      return i18n._({ id: 'Follow system', message: 'Follow system' })
+    case 'normal':
+      return i18n._({ id: 'Normal motion', message: 'Normal motion' })
+    case 'reduce':
+      return i18n._({ id: 'Reduce motion', message: 'Reduce motion' })
+    default:
+      return motionPreference
+  }
+}
+
+export function getMotionPreferenceDescription(motionPreference: MotionPreference): string {
+  switch (motionPreference) {
+    case 'system':
+      return i18n._({
+        id: 'Match the operating system motion preference.',
+        message: 'Match the operating system motion preference.',
+      })
+    case 'normal':
+      return i18n._({
+        id: 'Keep interface animations enabled even if the system prefers less motion.',
+        message: 'Keep interface animations enabled even if the system prefers less motion.',
+      })
+    case 'reduce':
+      return i18n._({
+        id: 'Minimize animations and transitions across the interface.',
+        message: 'Minimize animations and transitions across the interface.',
       })
     default:
       return ''

@@ -5,6 +5,7 @@ import {
   getThemeColorCustomization,
   normalizeAccentTone,
   resolveAppearanceTheme,
+  resolveMotionPreference,
 } from '../features/settings/appearance'
 import { useSettingsLocalStore } from '../features/settings/local-store'
 import { useSystemAppearancePreferences } from '../features/settings/useSystemAppearancePreferences'
@@ -33,7 +34,7 @@ export function AppearanceController() {
   const theme = useSettingsLocalStore((state) => state.theme)
   const accentTone = useSettingsLocalStore((state) => state.accentTone)
   const density = useSettingsLocalStore((state) => state.density)
-  const reduceMotion = useSettingsLocalStore((state) => state.reduceMotion)
+  const motionPreference = useSettingsLocalStore((state) => state.motionPreference)
   const threadSpacing = useSettingsLocalStore((state) => state.threadSpacing)
   const messageSurface = useSettingsLocalStore((state) => state.messageSurface)
   const userMessageEmphasis = useSettingsLocalStore((state) => state.userMessageEmphasis)
@@ -78,7 +79,7 @@ export function AppearanceController() {
     root.dataset.threadSpacing = threadSpacing
     root.dataset.messageSurface = messageSurface
     root.dataset.userMessageEmphasis = userMessageEmphasis
-    root.dataset.motion = reduceMotion || prefersReducedMotion ? 'reduce' : 'normal'
+    root.dataset.motion = resolveMotionPreference(motionPreference, prefersReducedMotion)
     root.dataset.translucentSidebar = String(translucentSidebar)
     root.dataset.pointerCursor = String(usePointerCursor)
 
@@ -161,7 +162,7 @@ export function AppearanceController() {
     prefersReducedMotion,
     accentTone,
     density,
-    reduceMotion,
+    motionPreference,
     threadSpacing,
     messageSurface,
     userMessageEmphasis,

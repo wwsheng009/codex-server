@@ -1106,85 +1106,8 @@
 
 .conversation-stream__spacer,
 .conversation-history-window,
-.thread-pending-state,
 .workbench-log__bottom-anchor {
   overflow-anchor: none;
-}
-
-.thread-pending-state {
-  position: relative;
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: var(--space-3);
-  align-items: center;
-  width: min(72%, 720px);
-  padding: calc(var(--thread-message-padding-y, 6px) + 2px) calc(var(--thread-message-padding-x, 8px) + 2px);
-  border: 0;
-  border-radius: calc(var(--thread-message-radius, 12px) + 1px);
-  background: var(--surface-thread-message-user);
-  box-shadow: none;
-  overflow: hidden;
-  transition:
-    background-color 180ms ease,
-    transform 180ms ease;
-}
-
-.thread-pending-state::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  background: color-mix(in srgb, var(--accent) 46%, transparent);
-}
-
-.thread-pending-state--sending {
-  background: var(--surface-thread-message-user);
-}
-
-.thread-pending-state--waiting {
-  background: color-mix(in srgb, var(--success) 10%, var(--surface-thread-message));
-}
-
-.thread-pending-state--waiting::before {
-  background: color-mix(in srgb, var(--success) 52%, transparent);
-}
-
-.thread-pending-state__spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--border-accent);
-  border-top-color: var(--accent);
-  border-radius: 999px;
-  animation: thread-pending-spin 0.8s linear infinite;
-}
-
-.thread-pending-state__copy {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.thread-pending-state__copy strong {
-  flex: 0 0 auto;
-}
-
-.thread-pending-state__copy span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.thread-pending-state__copy strong {
-  color: var(--text-strong);
-  font-size: 0.88rem;
-}
-
-.thread-pending-state__copy span {
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  line-height: 1.55;
 }
 
 @keyframes thread-pending-spin {
@@ -2337,11 +2260,10 @@
 
 .composer-dock__live-status {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 58px;
+  align-items: flex-start;
+  gap: 8px;
   box-sizing: border-box;
-  padding: 10px 12px 0;
+  padding: 8px 12px 6px;
   border-top: 1px solid var(--border-subtle);
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 55%),
@@ -2357,30 +2279,27 @@
 
 .composer-dock__live-status-dot {
   position: relative;
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
+  margin-top: 3px;
   border-radius: 999px;
   background: var(--accent);
   flex: 0 0 auto;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
 }
 
-.composer-dock__live-status-dot::after {
+.composer-dock__live-status-dot--replying {
+  animation: composer-live-blink 0.95s ease-in-out infinite;
+}
+
+.composer-dock__live-status-dot--replying::after {
   content: '';
   position: absolute;
-  inset: -5px;
+  inset: -6px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-  animation: composer-live-ping 1.6s ease-out infinite;
-}
-
-.composer-dock__live-status-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border-accent);
-  border-top-color: var(--accent);
-  border-radius: 999px;
-  animation: thread-pending-spin 0.8s linear infinite;
-  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  animation: composer-live-blink-halo 1.4s ease-out infinite;
 }
 
 .composer-dock__live-status--interrupt .composer-dock__live-status-dot {
@@ -2388,38 +2307,90 @@
 }
 
 .composer-dock__live-status--interrupt .composer-dock__live-status-dot::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 999px;
   border-color: rgba(235, 87, 87, 0.28);
+  border-style: solid;
+  border-width: 1px;
+  animation: composer-live-ping 1.6s ease-out infinite;
 }
 
 .composer-dock__live-status-copy {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   white-space: nowrap;
 }
 
 .composer-dock__live-status-copy strong {
   color: var(--text-strong);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   flex: 0 0 auto;
+  line-height: 1.35;
 }
 
 .composer-dock__live-status-copy span {
   color: var(--text-muted);
-  font-size: 0.76rem;
-  line-height: 1.45;
+  font-size: 0.74rem;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .composer-dock__live-status-timer {
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   font-family: var(--font-mono);
   margin-left: auto;
   flex: 0 0 auto;
+  line-height: 1.35;
+}
+
+@keyframes composer-live-blink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent),
+      0 0 10px color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+
+  45% {
+    opacity: 0.18;
+    transform: scale(0.9);
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent),
+      0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  70% {
+    opacity: 1;
+    transform: scale(1.08);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent),
+      0 0 14px color-mix(in srgb, var(--accent) 48%, transparent);
+  }
+}
+
+@keyframes composer-live-blink-halo {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+
+  30% {
+    opacity: 0.34;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
 }
 
 @keyframes composer-live-ping {
@@ -3380,9 +3351,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .conversation-bubble__cursor,
-  .thread-pending-state__spinner,
   .workbench-log__jump-indicator::after,
   .composer-dock__surface--live,
+  .composer-dock__live-status-dot--replying,
+  .composer-dock__live-status-dot--replying::after,
   .composer-dock__live-status-dot::after,
   .composer-dock__action--interrupt,
   .composer-dock__action-icon--spinning,

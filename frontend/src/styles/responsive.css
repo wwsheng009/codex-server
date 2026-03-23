@@ -532,8 +532,7 @@
     width: auto;
   }
 
-  .conversation-card,
-  .thread-pending-state {
+  .conversation-card {
     max-width: 100%;
     width: 100%;
   }
@@ -639,7 +638,7 @@
   }
 
   .composer-dock__live-status {
-    padding: 10px 10px 0;
+    padding: 7px 10px 5px;
   }
 
   .composer-dock__surface .composer-dock__footer--mobile {

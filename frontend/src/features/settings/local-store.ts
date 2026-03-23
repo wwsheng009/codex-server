@@ -10,6 +10,7 @@ import {
   hasThemeColorCustomizationOverrides,
   normalizeAccentTone,
   normalizeAppearanceTheme,
+  normalizeMotionPreference,
   normalizeThemeColorCustomizations,
   resetThemeColorCustomization,
   withThemeColorCustomization,
@@ -17,6 +18,7 @@ import {
   type AppearanceTheme,
   type CustomThemeDefinition,
   type MessageSurface,
+  type MotionPreference,
   type ResolvedAppearanceTheme,
   type ThemeColorCustomizations,
   type ThreadSpacing,
@@ -34,7 +36,7 @@ type SettingsLocalState = {
   locale: AppLocale
   theme: AppearanceTheme
   density: DensityMode
-  reduceMotion: boolean
+  motionPreference: MotionPreference
   accentTone: AccentTone
   threadSpacing: ThreadSpacing
   messageSurface: MessageSurface
@@ -65,7 +67,7 @@ type SettingsLocalState = {
   setLocale: (locale: AppLocale) => void
   setTheme: (theme: AppearanceTheme) => void
   setDensity: (density: DensityMode) => void
-  setReduceMotion: (reduceMotion: boolean) => void
+  setMotionPreference: (motionPreference: MotionPreference) => void
   setAccentTone: (accentTone: AccentTone) => void
   setThreadSpacing: (threadSpacing: ThreadSpacing) => void
   setMessageSurface: (messageSurface: MessageSurface) => void
@@ -116,6 +118,7 @@ type LegacyPersistedSettingsState = Partial<
     | 'copyThemePaletteCustomization'
   >
 > & {
+  reduceMotion?: boolean
   accentColorLight?: string
   accentColorDark?: string
   backgroundColorLight?: string
@@ -264,6 +267,7 @@ function normalizePersistedSettingsState(
     backgroundColorDark: _backgroundColorDark,
     foregroundColorLight: _foregroundColorLight,
     foregroundColorDark: _foregroundColorDark,
+    reduceMotion: _reduceMotion,
     themeColorCustomizations: _themeColorCustomizations,
     ...rest
   } = state
@@ -281,6 +285,9 @@ function normalizePersistedSettingsState(
   return {
     ...rest,
     theme: normalizeAppearanceTheme(state.theme),
+    motionPreference: normalizeMotionPreference(
+      state.motionPreference ?? (state.reduceMotion === true ? 'reduce' : 'system'),
+    ),
     accentTone: normalizeAccentTone(state.accentTone),
     themeColorCustomizations: normalizedThemeColorCustomizations,
     customThemes,
@@ -298,46 +305,47 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       const initialCustomTheme = createCustomThemeDefinition(createCustomThemeId(), 'Custom Theme 1')
 
       return {
-      locale: sourceLocale,
-      theme: 'system',
-      density: 'comfortable',
-      reduceMotion: false,
-      accentTone: 'blue',
-      threadSpacing: 'tight',
-      messageSurface: 'soft',
-      userMessageEmphasis: 'minimal',
-      responseTone: 'balanced',
-      customInstructions: '',
-      gitCommitTemplate: 'Summarize code changes, user-visible impact, and follow-up risks.',
-      gitPullRequestTemplate: 'Problem\n\nSolution\n\nVerification\n',
-      confirmGitActions: true,
-      maxWorktrees: 4,
-      autoPruneDays: 14,
-      reuseBranches: true,
-      themeColorCustomizations: {
-        ...createThemeColorCustomizations(),
-        custom: cloneWorkbenchThemeColors(initialCustomTheme.colors),
-      },
-      customThemes: [initialCustomTheme],
-      activeCustomThemeId: initialCustomTheme.id,
-      uiFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-      codeFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
-      terminalFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
-      uiFontSize: 13,
-      codeFontSize: 12,
-      terminalFontSize: 13,
-      terminalLineHeight: 1,
-      terminalRenderer: 'auto',
-      translucentSidebar: true,
-      contrast: 45,
-      usePointerCursor: false,
-      useCustomColors: false,
-      setLocale: (locale) => set({ locale }),
-      setTheme: (theme) => set({ theme: normalizeAppearanceTheme(theme) }),
-      setDensity: (density) => set({ density }),
-      setReduceMotion: (reduceMotion) => set({ reduceMotion }),
-      setAccentTone: (accentTone) =>
-        set((state) => {
+        locale: sourceLocale,
+        theme: 'system',
+        density: 'comfortable',
+        motionPreference: 'system',
+        accentTone: 'blue',
+        threadSpacing: 'tight',
+        messageSurface: 'soft',
+        userMessageEmphasis: 'minimal',
+        responseTone: 'balanced',
+        customInstructions: '',
+        gitCommitTemplate: 'Summarize code changes, user-visible impact, and follow-up risks.',
+        gitPullRequestTemplate: 'Problem\n\nSolution\n\nVerification\n',
+        confirmGitActions: true,
+        maxWorktrees: 4,
+        autoPruneDays: 14,
+        reuseBranches: true,
+        themeColorCustomizations: {
+          ...createThemeColorCustomizations(),
+          custom: cloneWorkbenchThemeColors(initialCustomTheme.colors),
+        },
+        customThemes: [initialCustomTheme],
+        activeCustomThemeId: initialCustomTheme.id,
+        uiFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+        codeFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
+        terminalFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
+        uiFontSize: 13,
+        codeFontSize: 12,
+        terminalFontSize: 13,
+        terminalLineHeight: 1,
+        terminalRenderer: 'auto',
+        translucentSidebar: true,
+        contrast: 45,
+        usePointerCursor: false,
+        useCustomColors: false,
+        setLocale: (locale) => set({ locale }),
+        setTheme: (theme) => set({ theme: normalizeAppearanceTheme(theme) }),
+        setDensity: (density) => set({ density }),
+        setMotionPreference: (motionPreference) =>
+          set({ motionPreference: normalizeMotionPreference(motionPreference) }),
+        setAccentTone: (accentTone) =>
+          set((state) => {
           const nextAccentTone = normalizeAccentTone(accentTone)
 
           if (nextAccentTone !== 'custom') {
@@ -355,20 +363,20 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
             themeColorCustomizations,
             useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
           }
-        }),
-      setThreadSpacing: (threadSpacing) => set({ threadSpacing }),
-      setMessageSurface: (messageSurface) => set({ messageSurface }),
-      setUserMessageEmphasis: (userMessageEmphasis) => set({ userMessageEmphasis }),
-      setResponseTone: (responseTone) => set({ responseTone }),
-      setCustomInstructions: (customInstructions) => set({ customInstructions }),
-      setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
-      setGitPullRequestTemplate: (gitPullRequestTemplate) => set({ gitPullRequestTemplate }),
-      setConfirmGitActions: (confirmGitActions) => set({ confirmGitActions }),
-      setMaxWorktrees: (maxWorktrees) => set({ maxWorktrees }),
-      setAutoPruneDays: (autoPruneDays) => set({ autoPruneDays }),
-      setReuseBranches: (reuseBranches) => set({ reuseBranches }),
-      setThemeColorCustomization: (accentTone, mode, field, value) =>
-        set((state) => {
+          }),
+        setThreadSpacing: (threadSpacing) => set({ threadSpacing }),
+        setMessageSurface: (messageSurface) => set({ messageSurface }),
+        setUserMessageEmphasis: (userMessageEmphasis) => set({ userMessageEmphasis }),
+        setResponseTone: (responseTone) => set({ responseTone }),
+        setCustomInstructions: (customInstructions) => set({ customInstructions }),
+        setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
+        setGitPullRequestTemplate: (gitPullRequestTemplate) => set({ gitPullRequestTemplate }),
+        setConfirmGitActions: (confirmGitActions) => set({ confirmGitActions }),
+        setMaxWorktrees: (maxWorktrees) => set({ maxWorktrees }),
+        setAutoPruneDays: (autoPruneDays) => set({ autoPruneDays }),
+        setReuseBranches: (reuseBranches) => set({ reuseBranches }),
+        setThemeColorCustomization: (accentTone, mode, field, value) =>
+          set((state) => {
           let themeColorCustomizations = withThemeColorCustomization(
             state.themeColorCustomizations,
             accentTone,
@@ -407,7 +415,7 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
             customThemes,
             useCustomColors: hasThemeColorCustomizationOverrides(themeColorCustomizations),
           }
-        }),
+          }),
       selectCustomTheme: (themeId) =>
         set((state) => {
           if (!state.customThemes.some((theme) => theme.id === themeId)) {
@@ -582,12 +590,12 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       setTranslucentSidebar: (translucentSidebar) => set({ translucentSidebar }),
       setContrast: (contrast) => set({ contrast }),
       setUsePointerCursor: (usePointerCursor) => set({ usePointerCursor }),
-      setUseCustomColors: (useCustomColors) => set({ useCustomColors }),
+        setUseCustomColors: (useCustomColors) => set({ useCustomColors }),
       }
     },
     {
       name: 'codex-server-settings-local-store',
-      version: 3,
+      version: 4,
       migrate: (persistedState) => {
         return normalizePersistedSettingsState(persistedState as LegacyPersistedSettingsState)
       },

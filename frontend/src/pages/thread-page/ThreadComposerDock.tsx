@@ -191,7 +191,7 @@ export function ThreadComposerDock({
   isSendBusy,
   isSkillAutocompleteOpen,
   isThreadProcessing,
-  isWaitingForThreadData,
+  isWaitingForThreadData: _isWaitingForThreadData,
   maxWorktrees,
   mcpServerStates,
   mcpServerStatusLoading,
@@ -728,14 +728,17 @@ export function ThreadComposerDock({
               className={
                 interruptPending
                   ? 'composer-dock__live-status composer-dock__live-status--interrupt'
-                  : 'composer-dock__live-status'
+                  : 'composer-dock__live-status composer-dock__live-status--replying'
               }
               role="status"
             >
               {interruptPending ? (
                 <span aria-hidden="true" className="composer-dock__live-status-dot" />
               ) : (
-                <span aria-hidden="true" className="composer-dock__live-status-spinner" />
+                <span
+                  aria-hidden="true"
+                  className="composer-dock__live-status-dot composer-dock__live-status-dot--replying"
+                />
               )}
               <div className="composer-dock__live-status-copy">
                 <strong>{composerActivityTitle}</strong>
@@ -997,14 +1000,6 @@ export function ThreadComposerDock({
                 </div>
                 <div className="composer-dock__meta composer-dock__meta--surface">
                   {composerStatusInfo ? <ComposerStatusIndicator info={composerStatusInfo} /> : null}
-                  {isWaitingForThreadData ? (
-                    <span className="composer-dock__hint">
-                      {i18n._({
-                        id: 'Waiting for backend turn data…',
-                        message: 'Waiting for backend turn data…',
-                      })}
-                    </span>
-                  ) : null}
                 </div>
               </div>
               <div className="composer-dock__actions">
