@@ -20,6 +20,7 @@ import { containsAnsiEscapeCode, safeJson } from '../thread/threadRender'
 import { InlineNotice } from '../ui/InlineNotice'
 import { Input } from '../ui/Input'
 import type { LiveTimelineEntry } from './timeline-utils'
+import { ConversationRenderProfilerBoundary } from './threadConversationProfiler'
 import { useVirtualizedConversationEntries } from './useVirtualizedConversationEntries'
 import type { PendingApproval, ThreadTurn } from '../../types/api'
 
@@ -84,6 +85,8 @@ function selectionBelongsToContainer(container: HTMLElement | null) {
 }
 
 export const TurnTimeline = memo(function TurnTimeline({
+  disableVirtualization = false,
+  freezeVirtualization = false,
   onReleaseFullTurn,
   onRetainFullTurn,
   onRequestFullTurn,
@@ -92,6 +95,8 @@ export const TurnTimeline = memo(function TurnTimeline({
   turns,
   onRetryServerRequest,
 }: {
+  disableVirtualization?: boolean
+  freezeVirtualization?: boolean
   onReleaseFullTurn?: (turnId: string, itemId?: string) => void
   onRetainFullTurn?: (turnId: string, itemId?: string) => void
   onRequestFullTurn?: (turnId: string, itemId?: string) => void
@@ -101,17 +106,22 @@ export const TurnTimeline = memo(function TurnTimeline({
   onRetryServerRequest?: (item: Record<string, unknown>) => void
 }) {
   const entries = useMemo(() => buildConversationEntries(turns), [turns])
+  const isVirtualizedTimeline = shouldVirtualizeTurnTimeline({
+    disableVirtualization,
+    entryCount: entries.length,
+    hasScrollViewportRef: Boolean(scrollViewportRef),
+    timelineIdentity,
+  })
   const {
     paddingBottom,
     paddingTop,
+    registerEntryHeight,
     visibleEntries,
   } = useVirtualizedConversationEntries({
-    enabled:
-      Boolean(scrollViewportRef) &&
-      Boolean(timelineIdentity) &&
-      entries.length >= VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD,
+    enabled: isVirtualizedTimeline,
     entries,
     estimateEntryHeight: estimateConversationEntryHeight,
+    freezeLayout: freezeVirtualization,
     getEntryKey: getConversationEntryKey,
     listIdentity: timelineIdentity ?? '',
     scrollViewportRef:
@@ -124,34 +134,70 @@ export const TurnTimeline = memo(function TurnTimeline({
     retryServerRequestRef.current?.(item)
   }, [])
 
-  return (
-    <div aria-live="polite" className="conversation-stream" role="log">
-      {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
-      {visibleEntries.map((entry) =>
-        entry.kind === 'error' ? (
-          <SystemTimelineCard
-            className="conversation-card--error"
-            key={entry.key}
-            statusTone="error"
-            summary={summarizeCompactError(entry.error)}
-            title="Error"
-          >
-            <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
-          </SystemTimelineCard>
-        ) : (
-          <MemoTimelineItem
-            item={entry.item}
-            key={entry.key}
-            onReleaseFullTurn={onReleaseFullTurn}
-            onRetainFullTurn={onRetainFullTurn}
-            onRequestFullTurn={onRequestFullTurn}
-            onRetryServerRequest={handleRetryServerRequest}
-            turnId={entry.turnId}
-          />
-        ),
+  const renderEntryBody = useCallback((entry: ConversationEntry) => (
+    <ConversationRenderProfilerBoundary id={getConversationEntryProfilerId(entry)}>
+      {entry.kind === 'error' ? (
+        <SystemTimelineCard
+          className="conversation-card--error"
+          statusTone="error"
+          summary={summarizeCompactError(entry.error)}
+          title="Error"
+        >
+          <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
+        </SystemTimelineCard>
+      ) : (
+        <MemoTimelineItem
+          item={entry.item}
+          onReleaseFullTurn={onReleaseFullTurn}
+          onRetainFullTurn={onRetainFullTurn}
+          onRequestFullTurn={onRequestFullTurn}
+          onRetryServerRequest={handleRetryServerRequest}
+          turnId={entry.turnId}
+        />
       )}
-      {paddingBottom > 0 ? <div aria-hidden="true" style={{ height: paddingBottom }} /> : null}
-    </div>
+    </ConversationRenderProfilerBoundary>
+  ), [
+    handleRetryServerRequest,
+    onReleaseFullTurn,
+    onRequestFullTurn,
+    onRetainFullTurn,
+  ])
+
+  return (
+    <ConversationRenderProfilerBoundary id="TurnTimeline">
+      <div aria-live="polite" className="conversation-stream" role="log">
+        {paddingTop > 0 ? (
+          <div
+            aria-hidden="true"
+            className="conversation-stream__spacer"
+            style={{ height: paddingTop }}
+          />
+        ) : null}
+        {visibleEntries.map((entry) =>
+          isVirtualizedTimeline ? (
+            <MeasuredConversationEntry
+              entryKey={entry.key}
+              isMeasurementActive={!freezeVirtualization}
+              key={entry.key}
+              onMeasure={registerEntryHeight}
+            >
+              {renderEntryBody(entry)}
+            </MeasuredConversationEntry>
+          ) : (
+            <ConversationEntryRow key={entry.key}>
+              {renderEntryBody(entry)}
+            </ConversationEntryRow>
+          ),
+        )}
+        {paddingBottom > 0 ? (
+          <div
+            aria-hidden="true"
+            className="conversation-stream__spacer"
+            style={{ height: paddingBottom }}
+          />
+        ) : null}
+      </div>
+    </ConversationRenderProfilerBoundary>
   )
 }, (previous, next) => {
   return (
@@ -161,6 +207,25 @@ export const TurnTimeline = memo(function TurnTimeline({
     previous.turns === next.turns
   )
 })
+
+export function shouldVirtualizeTurnTimeline({
+  disableVirtualization = false,
+  entryCount,
+  hasScrollViewportRef,
+  timelineIdentity,
+}: {
+  disableVirtualization?: boolean
+  entryCount: number
+  hasScrollViewportRef: boolean
+  timelineIdentity?: string
+}) {
+  return (
+    !disableVirtualization &&
+    hasScrollViewportRef &&
+    Boolean(timelineIdentity) &&
+    entryCount >= VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD
+  )
+}
 
 export const LiveFeed = memo(function LiveFeed({ entries }: { entries: LiveTimelineEntry[] }) {
   return (
@@ -2427,8 +2492,78 @@ function buildConversationEntries(turns: ThreadTurn[]): ConversationEntry[] {
   return entries
 }
 
+const ConversationEntryRow = memo(function ConversationEntryRow({
+  children,
+  containerRef,
+}: {
+  children: ReactNode
+  containerRef?: RefObject<HTMLDivElement | null>
+}) {
+  return (
+    <ConversationRenderProfilerBoundary id="ConversationEntryRow">
+      <div className="conversation-stream__item" ref={containerRef}>
+        {children}
+      </div>
+    </ConversationRenderProfilerBoundary>
+  )
+})
+
+const MeasuredConversationEntry = memo(function MeasuredConversationEntry({
+  children,
+  entryKey,
+  isMeasurementActive,
+  onMeasure,
+}: {
+  children: ReactNode
+  entryKey: string
+  isMeasurementActive: boolean
+  onMeasure: (entryKey: string, nextHeight: number) => void
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isMeasurementActive) {
+      return
+    }
+
+    const container = containerRef.current
+    if (!container) {
+      return
+    }
+
+    const measure = () => {
+      onMeasure(entryKey, container.getBoundingClientRect().height)
+    }
+
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const observer = new ResizeObserver(() => {
+      measure()
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [entryKey, isMeasurementActive, onMeasure])
+
+  return (
+    <ConversationEntryRow containerRef={containerRef}>
+      {children}
+    </ConversationEntryRow>
+  )
+})
+
 function getConversationEntryKey(entry: ConversationEntry) {
   return entry.key
+}
+
+function getConversationEntryProfilerId(entry: ConversationEntry) {
+  if (entry.kind === 'error') {
+    return 'TimelineItem:error'
+  }
+
+  return `TimelineItem:${stringField(entry.item.type) || 'message'}`
 }
 
 function estimateConversationEntryHeight(entry: ConversationEntry) {

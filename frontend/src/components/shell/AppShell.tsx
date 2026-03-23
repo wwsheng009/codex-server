@@ -37,6 +37,7 @@ import {
 } from '../ui/RailControls'
 import { createThread, deleteThread, listThreads, renameThread } from '../../features/threads/api'
 import { removeThreadApprovalsFromList } from '../../features/approvals/cache'
+import { refetchApprovalsQueryIfNeeded } from '../../features/approvals/sync'
 import { deleteWorkspace, listWorkspaces, renameWorkspace, restartWorkspace } from '../../features/workspaces/api'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
@@ -198,6 +199,7 @@ export function AppShell() {
   const removeWorkspace = useSessionStore((state) => state.removeWorkspace)
   const selectedWorkspaceId = useSessionStore((state) => state.selectedWorkspaceId)
   const selectedThreadIdByWorkspace = useSessionStore((state) => state.selectedThreadIdByWorkspace)
+  const connectionByWorkspace = useSessionStore((state) => state.connectionByWorkspace)
   const workspaceRestartStateById = useUIStore((state) => state.workspaceRestartStateById)
   const markWorkspaceRestarting = useUIStore((state) => state.markWorkspaceRestarting)
   const markWorkspaceRestarted = useUIStore((state) => state.markWorkspaceRestarted)
@@ -597,7 +599,11 @@ export function AppShell() {
         queryClient.refetchQueries({ queryKey: ['workspace-detail', workspaceId] }),
         queryClient.refetchQueries({ queryKey: ['workspaces'] }),
         queryClient.refetchQueries({ queryKey: ['shell-workspaces'] }),
-        queryClient.refetchQueries({ queryKey: ['approvals', workspaceId] }),
+        refetchApprovalsQueryIfNeeded({
+          connectionState: connectionByWorkspace[workspaceId],
+          queryClient,
+          workspaceId,
+        }),
       ])
     } finally {
       setTimeout(() => {

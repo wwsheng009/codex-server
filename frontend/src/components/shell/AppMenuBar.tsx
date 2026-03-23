@@ -16,6 +16,7 @@ import {
   normalizeAccentTone,
   resolveAppearanceTheme,
 } from '../../features/settings/appearance'
+import { refetchApprovalsQueryIfNeeded } from '../../features/approvals/sync'
 import type { AccentTone, AppearanceTheme } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { localeLabels, type AppLocale } from '../../i18n/config'
@@ -734,6 +735,9 @@ export function AppMenuBar({
   const selectedThreadId = useSessionStore((state) =>
     workspaceId ? state.selectedThreadIdByWorkspace[workspaceId] : undefined,
   )
+  const workspaceConnectionState = useSessionStore((state) =>
+    workspaceId ? state.connectionByWorkspace[workspaceId] ?? 'idle' : 'idle',
+  )
 
   async function handleRefreshThreadChrome() {
     if (!workspaceId) {
@@ -746,7 +750,11 @@ export function AppMenuBar({
       selectedThreadId
         ? queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })
         : Promise.resolve(),
-      queryClient.refetchQueries({ queryKey: ['approvals', workspaceId] }),
+      refetchApprovalsQueryIfNeeded({
+        connectionState: workspaceConnectionState,
+        queryClient,
+        workspaceId,
+      }),
     ])
   }
 

@@ -2,9 +2,44 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { ThreadTurn } from '../../types/api'
-import { TurnTimeline } from './renderers'
+import { shouldVirtualizeTurnTimeline, TurnTimeline } from './renderers'
 
 describe('TurnTimeline', () => {
+  it('only enables virtualization for timelines that exceed the threshold with a viewport ref', () => {
+    expect(
+      shouldVirtualizeTurnTimeline({
+        entryCount: 10,
+        hasScrollViewportRef: true,
+        timelineIdentity: 'thread-1',
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldVirtualizeTurnTimeline({
+        entryCount: 80,
+        hasScrollViewportRef: true,
+        timelineIdentity: 'thread-1',
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldVirtualizeTurnTimeline({
+        entryCount: 120,
+        disableVirtualization: true,
+        hasScrollViewportRef: true,
+        timelineIdentity: 'thread-1',
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldVirtualizeTurnTimeline({
+        entryCount: 120,
+        hasScrollViewportRef: false,
+        timelineIdentity: 'thread-1',
+      }),
+    ).toBe(false)
+  })
+
   it('renders a chat-style stream without the old helper labels', () => {
     const turns: ThreadTurn[] = [
       {

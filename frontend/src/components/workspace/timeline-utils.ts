@@ -84,7 +84,9 @@ function toDeltaAggregate(event: ServerEvent) {
         groupKey: `command:${stringField(payload.processId)}:${stringField(payload.stream)}`,
         title: 'Command Output',
         subtitle: stringField(payload.processId) || undefined,
-        text: decodeBase64(stringField(payload.deltaBase64)),
+        text:
+          stringField(payload.deltaText) ||
+          decodeBase64(stringField(payload.deltaBase64)),
       }
     default:
       return null
