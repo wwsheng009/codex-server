@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -248,6 +250,7 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 	var request struct {
 		ModelCatalogPath            string            `json:"modelCatalogPath"`
 		DefaultShellType            string            `json:"defaultShellType"`
+		DefaultTerminalShell        string            `json:"defaultTerminalShell"`
 		ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides"`
 		DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy"`
 		DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy"`
@@ -262,6 +265,7 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 	result, err := s.runtimePrefs.Write(runtimeprefs.WriteInput{
 		ModelCatalogPath:            request.ModelCatalogPath,
 		DefaultShellType:            request.DefaultShellType,
+		DefaultTerminalShell:        request.DefaultTerminalShell,
 		ModelShellTypeOverrides:     request.ModelShellTypeOverrides,
 		DefaultTurnApprovalPolicy:   request.DefaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:    request.DefaultTurnSandboxPolicy,
@@ -994,6 +998,7 @@ func (s *Server) handleStartCommand(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Command string `json:"command"`
 		Mode    string `json:"mode"`
+		Shell   string `json:"shell"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -1004,6 +1009,7 @@ func (s *Server) handleStartCommand(w http.ResponseWriter, r *http.Request) {
 	session, err := s.execfs.StartCommand(r.Context(), workspaceID, execfs.StartCommandInput{
 		Command: request.Command,
 		Mode:    request.Mode,
+		Shell:   request.Shell,
 	})
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -1015,7 +1021,7 @@ func (s *Server) handleStartCommand(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListCommandSessions(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
-	writeJSON(w, http.StatusOK, s.execfs.ListCommandSessions(workspaceID))
+	writeJSON(w, http.StatusOK, s.execfs.ListCommandSessionsForClient(workspaceID))
 }
 
 func (s *Server) handleClearCompletedCommandSessions(w http.ResponseWriter, r *http.Request) {
@@ -1745,6 +1751,10 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	commandResumeCursors := parseCommandSessionResumeCursors(
+		r.URL.Query().Get("commandResumeState"),
+	)
+
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
@@ -1775,14 +1785,20 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 
 	if err := conn.WriteJSON(store.EventEnvelope{
 		WorkspaceID: workspaceID,
-		Method:      "command/exec/snapshot",
+		Method:      "command/exec/stateSnapshot",
 		Payload: map[string]any{
-			"sessions": s.execfs.ListCommandSessions(workspaceID),
+			"sessions": s.execfs.ListCommandSessionStateSnapshots(workspaceID),
 		},
 		ServerRequestID: nil,
 		TS:              time.Now().UTC(),
 	}); err != nil {
 		return
+	}
+
+	for _, event := range s.execfs.BuildCommandSessionResumeEvents(workspaceID, commandResumeCursors) {
+		if err := conn.WriteJSON(event); err != nil {
+			return
+		}
 	}
 
 	if err := conn.WriteJSON(store.EventEnvelope{
@@ -1811,6 +1827,42 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func parseCommandSessionResumeCursors(raw string) []execfs.CommandSessionResumeCursor {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(trimmed)
+	if err != nil {
+		return nil
+	}
+
+	var payload struct {
+		Sessions []execfs.CommandSessionResumeCursor `json:"sessions"`
+	}
+	if err := json.Unmarshal(decoded, &payload); err != nil {
+		return nil
+	}
+
+	const maxResumeSessions = 16
+	if len(payload.Sessions) > maxResumeSessions {
+		payload.Sessions = payload.Sessions[:maxResumeSessions]
+	}
+
+	for index := range payload.Sessions {
+		if len(payload.Sessions[index].OutputTail) > 1024 {
+			payload.Sessions[index].OutputTail =
+				payload.Sessions[index].OutputTail[len(payload.Sessions[index].OutputTail)-1024:]
+		}
+		if payload.Sessions[index].OutputLength < 0 {
+			payload.Sessions[index].OutputLength = 0
+		}
+	}
+
+	return payload.Sessions
 }
 
 func (s *Server) handleThreadMutation(w http.ResponseWriter, r *http.Request, mutate func(context.Context, string, string) (store.Thread, error)) {

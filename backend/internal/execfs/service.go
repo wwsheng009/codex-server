@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/events"
@@ -38,6 +39,7 @@ var ErrCommandStartCommandRequired = errors.New("command is required")
 
 const shellCommandActivationRetryDelay = 120 * time.Millisecond
 const shellCommandActivationRetryLimit = 10
+const commandSessionResumeChunkBytes = 16 * 1024
 
 type FileResult struct {
 	Path    string `json:"path"`
@@ -77,6 +79,14 @@ type CopyResult struct {
 type StartCommandInput struct {
 	Command string
 	Mode    string
+	Shell   string
+}
+
+type CommandSessionResumeCursor struct {
+	ID           string `json:"id"`
+	OutputLength int    `json:"outputLength,omitempty"`
+	OutputTail   string `json:"outputTail,omitempty"`
+	UpdatedAt    string `json:"updatedAt,omitempty"`
 }
 
 type shellIntegrationTracker struct {
@@ -104,7 +114,7 @@ func NewService(runtimeManager *appRuntime.Manager, eventHub *events.Hub, dataSt
 }
 
 func (s *Service) StartCommand(ctx context.Context, workspaceID string, input StartCommandInput) (store.CommandSession, error) {
-	spec, err := resolveCommandStartSpec(input)
+	spec, err := resolveCommandStartSpecWithTerminalShell(input, s.defaultTerminalShellPreference())
 	if err != nil {
 		return store.CommandSession{}, err
 	}
@@ -233,6 +243,110 @@ func (s *Service) ListCommandSessions(workspaceID string) []store.CommandSession
 	})
 
 	return items
+}
+
+func (s *Service) ListCommandSessionsForClient(workspaceID string) []store.CommandSessionSnapshot {
+	sessions := s.ListCommandSessions(workspaceID)
+	if len(sessions) == 0 {
+		return []store.CommandSessionSnapshot{}
+	}
+
+	items := make([]store.CommandSessionSnapshot, 0, len(sessions))
+	for _, session := range sessions {
+		items = append(items, store.CommandSessionSnapshot{
+			CommandSession: session.CommandSession,
+			Archived:       session.Archived,
+			CombinedOutput: session.CombinedOutput,
+			Stdout:         "",
+			Stderr:         "",
+			ExitCode:       cloneIntPointer(session.ExitCode),
+			Error:          session.Error,
+			Pinned:         session.Pinned,
+			UpdatedAt:      session.UpdatedAt,
+		})
+	}
+
+	return items
+}
+
+func (s *Service) ListCommandSessionStateSnapshots(workspaceID string) []store.CommandSessionSnapshot {
+	sessions := s.ListCommandSessions(workspaceID)
+	if len(sessions) == 0 {
+		return []store.CommandSessionSnapshot{}
+	}
+
+	items := make([]store.CommandSessionSnapshot, 0, len(sessions))
+	for _, session := range sessions {
+		items = append(items, store.CommandSessionSnapshot{
+			CommandSession: session.CommandSession,
+			Archived:       session.Archived,
+			CombinedOutput: "",
+			Stdout:         "",
+			Stderr:         "",
+			ExitCode:       cloneIntPointer(session.ExitCode),
+			Error:          session.Error,
+			Pinned:         session.Pinned,
+			UpdatedAt:      session.UpdatedAt,
+		})
+	}
+
+	return items
+}
+
+func (s *Service) BuildCommandSessionResumeEvents(
+	workspaceID string,
+	cursors []CommandSessionResumeCursor,
+) []store.EventEnvelope {
+	sessions := s.ListCommandSessions(workspaceID)
+	if len(sessions) == 0 {
+		return nil
+	}
+
+	cursorByID := make(map[string]CommandSessionResumeCursor, len(cursors))
+	for _, cursor := range cursors {
+		processID := strings.TrimSpace(cursor.ID)
+		if processID == "" {
+			continue
+		}
+
+		cursorByID[processID] = cursor
+	}
+
+	eventsToPublish := make([]store.EventEnvelope, 0)
+	now := time.Now().UTC()
+	for _, session := range sessions {
+		replaceOutput, delta, replayReason := computeCommandSessionResumeDelta(
+			session,
+			cursorByID[session.ID],
+		)
+		if !replaceOutput && delta == "" {
+			continue
+		}
+
+		chunks := splitCommandSessionReplayOutput(delta, commandSessionResumeChunkBytes)
+		if replaceOutput && len(chunks) == 0 {
+			chunks = []string{""}
+		}
+
+		for index, chunk := range chunks {
+			payload := buildCommandOutputTextPayload(session.ID, "stdout", chunk)
+			payload["replay"] = true
+			payload["replayBytes"] = len([]byte(chunk))
+			payload["replayReason"] = replayReason
+			if replaceOutput && index == 0 {
+				payload["replace"] = true
+			}
+
+			eventsToPublish = append(eventsToPublish, store.EventEnvelope{
+				WorkspaceID: workspaceID,
+				Method:      "command/exec/outputDelta",
+				Payload:     payload,
+				TS:          now,
+			})
+		}
+	}
+
+	return eventsToPublish
 }
 
 func (s *Service) CloseCommandSession(ctx context.Context, workspaceID string, processID string) error {
@@ -703,18 +817,12 @@ func (s *Service) applyCommandOutputDelta(event store.EventEnvelope) {
 		return
 	}
 
-	deltaBase64, ok := payload["deltaBase64"]
-	if !ok {
+	if _, ok := payload["stream"]; !ok {
 		return
 	}
 
-	stream, ok := payload["stream"]
+	decodedDelta, ok := readCommandOutputDelta(payload)
 	if !ok {
-		return
-	}
-
-	delta, err := base64.StdEncoding.DecodeString(strings.TrimSpace(asString(deltaBase64)))
-	if err != nil {
 		return
 	}
 
@@ -732,13 +840,6 @@ func (s *Service) applyCommandOutputDelta(event store.EventEnvelope) {
 		return
 	}
 
-	decodedDelta := string(delta)
-	switch asString(stream) {
-	case "stderr":
-		current.Stderr = trimOutput(current.Stderr + decodedDelta)
-	default:
-		current.Stdout = trimOutput(current.Stdout + decodedDelta)
-	}
 	current.CombinedOutput = trimOutput(current.CombinedOutput + decodedDelta)
 	eventsToPublish := s.applyShellIntegrationDeltaLocked(event.WorkspaceID, processIDString, decodedDelta, &current)
 	current.UpdatedAt = event.TS
@@ -775,15 +876,8 @@ func (s *Service) applyCommandCompleted(event store.EventEnvelope) {
 	stdout := asString(payload["stdout"])
 	stderr := asString(payload["stderr"])
 	errorMessage := asString(payload["error"])
-	stdoutCompletionDelta := completionOutputDelta(current.Stdout, stdout)
-	stderrCompletionDelta := completionOutputDelta(current.Stderr, stderr)
-	if stdoutCompletionDelta != "" {
-		current.Stdout = trimOutput(current.Stdout + stdoutCompletionDelta)
-	}
-	if stderrCompletionDelta != "" {
-		current.Stderr = trimOutput(current.Stderr + stderrCompletionDelta)
-	}
-	completionDelta := stdoutCompletionDelta + stderrCompletionDelta
+	completedOutput := stdout + stderr
+	completionDelta := completionOutputDelta(current.CombinedOutput, completedOutput)
 	current.CombinedOutput = trimOutput(current.CombinedOutput + completionDelta)
 	eventsToPublish := s.applyShellIntegrationDeltaLocked(
 		event.WorkspaceID,
@@ -959,7 +1053,7 @@ func (s *Service) hydrateCommandSessions() {
 }
 
 func trimOutput(value string, limit ...int) string {
-	maxLength := 256000
+	maxLength := 128000
 	if len(limit) > 0 && limit[0] > 0 {
 		maxLength = limit[0]
 	}
@@ -967,6 +1061,76 @@ func trimOutput(value string, limit ...int) string {
 		return value
 	}
 	return value[len(value)-maxLength:]
+}
+
+func computeCommandSessionResumeDelta(
+	session store.CommandSessionSnapshot,
+	cursor CommandSessionResumeCursor,
+) (bool, string, string) {
+	currentOutput := session.CombinedOutput
+	if currentOutput == "" {
+		if cursor.OutputLength > 0 || strings.TrimSpace(cursor.OutputTail) != "" {
+			return true, "", "empty_output"
+		}
+		return false, "", "up_to_date"
+	}
+
+	if strings.TrimSpace(cursor.ID) == "" {
+		return true, currentOutput, "no_cursor"
+	}
+
+	if strings.TrimSpace(cursor.UpdatedAt) == session.UpdatedAt.Format(time.RFC3339Nano) &&
+		cursor.OutputLength == len(currentOutput) {
+		return false, "", "up_to_date"
+	}
+
+	tail := cursor.OutputTail
+	if tail == "" {
+		return true, currentOutput, "tail_missing"
+	}
+
+	if cursor.OutputLength >= len(tail) && cursor.OutputLength <= len(currentOutput) {
+		expectedStart := cursor.OutputLength - len(tail)
+		if expectedStart >= 0 && currentOutput[expectedStart:cursor.OutputLength] == tail {
+			return false, currentOutput[cursor.OutputLength:], "cursor_match"
+		}
+	}
+
+	if overlapIndex := strings.LastIndex(currentOutput, tail); overlapIndex >= 0 {
+		return false, currentOutput[overlapIndex+len(tail):], "tail_overlap"
+	}
+
+	return true, currentOutput, "tail_mismatch"
+}
+
+func splitCommandSessionReplayOutput(output string, maxChunkBytes int) []string {
+	if output == "" {
+		return nil
+	}
+	if maxChunkBytes <= 0 || len(output) <= maxChunkBytes {
+		return []string{output}
+	}
+
+	chunks := make([]string, 0, (len(output)+maxChunkBytes-1)/maxChunkBytes)
+	for len(output) > 0 {
+		if len(output) <= maxChunkBytes {
+			chunks = append(chunks, output)
+			break
+		}
+
+		chunkEnd := maxChunkBytes
+		for chunkEnd > 0 && !utf8.ValidString(output[:chunkEnd]) {
+			chunkEnd -= 1
+		}
+		if chunkEnd == 0 {
+			chunkEnd = maxChunkBytes
+		}
+
+		chunks = append(chunks, output[:chunkEnd])
+		output = output[chunkEnd:]
+	}
+
+	return chunks
 }
 
 func completionOutputDelta(current string, final string) string {
@@ -1000,6 +1164,32 @@ func completionOutputDelta(current string, final string) string {
 	return final
 }
 
+func buildCommandOutputTextPayload(processID string, stream string, delta string) map[string]any {
+	return map[string]any{
+		"deltaText": delta,
+		"processId": processID,
+		"stream":    stream,
+	}
+}
+
+func readCommandOutputDelta(payload map[string]any) (string, bool) {
+	if deltaText := asString(payload["deltaText"]); deltaText != "" || payload["deltaText"] != nil {
+		return deltaText, true
+	}
+
+	deltaBase64, ok := payload["deltaBase64"]
+	if !ok {
+		return "", false
+	}
+
+	delta, err := base64.StdEncoding.DecodeString(strings.TrimSpace(asString(deltaBase64)))
+	if err != nil {
+		return "", false
+	}
+
+	return string(delta), true
+}
+
 func shellCommandArgs(command string) []string {
 	if stdruntime.GOOS == "windows" {
 		return []string{"cmd.exe", "/c", command}
@@ -1016,9 +1206,20 @@ type commandStartSpec struct {
 }
 
 func resolveCommandStartSpec(input StartCommandInput) (commandStartSpec, error) {
+	return resolveCommandStartSpecWithTerminalShell(input, "")
+}
+
+func resolveCommandStartSpecWithTerminalShell(
+	input StartCommandInput,
+	defaultTerminalShell string,
+) (commandStartSpec, error) {
 	switch normalizeCommandStartMode(input.Mode) {
 	case "shell":
-		return defaultShellStartSpec(), nil
+		resolvedTerminalShell, err := resolveTerminalShellSelection(input.Shell, defaultTerminalShell)
+		if err != nil {
+			return commandStartSpec{}, err
+		}
+		return defaultShellStartSpec(resolvedTerminalShell), nil
 	case "command":
 		command := strings.TrimSpace(input.Command)
 		if command == "" {
@@ -1035,6 +1236,20 @@ func resolveCommandStartSpec(input StartCommandInput) (commandStartSpec, error) 
 	}
 }
 
+func resolveTerminalShellSelection(override string, fallback string) (string, error) {
+	trimmedOverride := strings.TrimSpace(override)
+	if trimmedOverride == "" {
+		return normalizeTerminalShellPreference(fallback), nil
+	}
+
+	normalized := normalizeTerminalShellPreference(trimmedOverride)
+	if normalized == "" {
+		return "", errors.New("terminal shell is invalid")
+	}
+
+	return normalized, nil
+}
+
 func normalizeCommandStartMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "command", "oneshot", "one-shot":
@@ -1046,8 +1261,19 @@ func normalizeCommandStartMode(value string) string {
 	}
 }
 
-func defaultShellStartSpec() commandStartSpec {
-	shellPath := defaultShellPath()
+func normalizeTerminalShellPreference(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return ""
+	case "pwsh", "powershell", "cmd", "wsl", "git-bash", "bash", "zsh", "sh":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func defaultShellStartSpec(defaultTerminalShell string) commandStartSpec {
+	shellPath := defaultShellPath(defaultTerminalShell)
 	displayName := filepath.Base(shellPath)
 	if displayName == "." || displayName == string(filepath.Separator) || displayName == "" {
 		displayName = shellPath
@@ -1062,44 +1288,66 @@ func defaultShellStartSpec() commandStartSpec {
 	}
 }
 
-func defaultShellPath() string {
+func defaultShellPath(defaultTerminalShell string) string {
 	if stdruntime.GOOS == "windows" {
-		return preferredWindowsShellPath()
+		return preferredWindowsShellPath(defaultTerminalShell)
 	}
 
-	for _, candidate := range []string{
-		strings.TrimSpace(os.Getenv("SHELL")),
-		"/bin/bash",
-		"/usr/bin/bash",
-		"/bin/zsh",
-		"/bin/sh",
-		"sh",
-	} {
-		if candidate == "" {
-			continue
-		}
-		if filepath.IsAbs(candidate) {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate
-			}
-			continue
-		}
-		if resolved, err := exec.LookPath(candidate); err == nil && strings.TrimSpace(resolved) != "" {
-			return resolved
-		}
-	}
-
-	return "sh"
+	return preferredPosixShellPath(defaultTerminalShell)
 }
 
-func preferredWindowsShellPath() string {
-	return resolvePreferredWindowsShellPath(exec.LookPath, strings.TrimSpace(os.Getenv("ComSpec")))
+func preferredWindowsShellPath(defaultTerminalShell string) string {
+	return resolvePreferredWindowsShellPath(
+		exec.LookPath,
+		strings.TrimSpace(os.Getenv("ComSpec")),
+		defaultTerminalShell,
+	)
 }
 
 func resolvePreferredWindowsShellPath(
 	lookPath func(string) (string, error),
 	comSpec string,
+	defaultTerminalShell string,
 ) string {
+	switch normalizeTerminalShellPreference(defaultTerminalShell) {
+	case "pwsh":
+		for _, candidate := range []string{"pwsh.exe", "pwsh"} {
+			if resolved, err := lookPath(candidate); err == nil && strings.TrimSpace(resolved) != "" {
+				return resolved
+			}
+		}
+		return "pwsh.exe"
+	case "powershell":
+		for _, candidate := range []string{"powershell.exe", "powershell"} {
+			if resolved, err := lookPath(candidate); err == nil && strings.TrimSpace(resolved) != "" {
+				return resolved
+			}
+		}
+		return "powershell.exe"
+	case "cmd":
+		if comSpec != "" {
+			return comSpec
+		}
+		if resolved, err := lookPath("cmd.exe"); err == nil && strings.TrimSpace(resolved) != "" {
+			return resolved
+		}
+		return "cmd.exe"
+	case "wsl":
+		for _, candidate := range []string{"wsl.exe", "wsl"} {
+			if resolved, err := lookPath(candidate); err == nil && strings.TrimSpace(resolved) != "" {
+				return resolved
+			}
+		}
+		return "wsl.exe"
+	case "git-bash":
+		if resolved, ok := resolvePreferredGitBashPath(lookPath); ok {
+			return resolved
+		}
+		return filepath.Clean(`C:\Program Files\Git\bin\bash.exe`)
+	case "bash", "zsh", "sh":
+		return preferredPosixShellPath(defaultTerminalShell)
+	}
+
 	for _, candidate := range []string{"pwsh.exe", "pwsh", "powershell.exe", "powershell"} {
 		if resolved, err := lookPath(candidate); err == nil && strings.TrimSpace(resolved) != "" {
 			return resolved
@@ -1115,6 +1363,90 @@ func resolvePreferredWindowsShellPath(
 	}
 
 	return "cmd.exe"
+}
+
+func resolvePreferredGitBashPath(lookPath func(string) (string, error)) (string, bool) {
+	if gitPath, err := lookPath("git.exe"); err == nil && strings.TrimSpace(gitPath) != "" {
+		gitRoot := filepath.Clean(filepath.Join(filepath.Dir(gitPath), ".."))
+		for _, candidate := range []string{
+			filepath.Join(gitRoot, "bin", "bash.exe"),
+			filepath.Join(gitRoot, "git-bash.exe"),
+			filepath.Join(gitRoot, "usr", "bin", "bash.exe"),
+		} {
+			if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+				return candidate, true
+			}
+		}
+	}
+
+	for _, candidate := range []string{
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files\Git\git-bash.exe`,
+		`C:\Program Files\Git\usr\bin\bash.exe`,
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+
+	return "", false
+}
+
+func preferredPosixShellPath(defaultTerminalShell string) string {
+	preferred := normalizeTerminalShellPreference(defaultTerminalShell)
+	candidates := make([]string, 0, 8)
+
+	switch preferred {
+	case "bash":
+		candidates = append(candidates, "/bin/bash", "/usr/bin/bash", "bash")
+	case "zsh":
+		candidates = append(candidates, "/bin/zsh", "/usr/bin/zsh", "zsh")
+	case "sh":
+		candidates = append(candidates, "/bin/sh", "/usr/bin/sh", "sh")
+	}
+
+	candidates = append(candidates,
+		strings.TrimSpace(os.Getenv("SHELL")),
+		"/bin/bash",
+		"/usr/bin/bash",
+		"/bin/zsh",
+		"/usr/bin/zsh",
+		"/bin/sh",
+		"/usr/bin/sh",
+		"sh",
+	)
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if filepath.IsAbs(candidate) {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate
+			}
+			continue
+		}
+		if resolved, err := exec.LookPath(candidate); err == nil && strings.TrimSpace(resolved) != "" {
+			return resolved
+		}
+	}
+
+	switch preferred {
+	case "bash":
+		return "bash"
+	case "zsh":
+		return "zsh"
+	default:
+		return "sh"
+	}
+}
+
+func (s *Service) defaultTerminalShellPreference() string {
+	if s.store == nil {
+		return ""
+	}
+
+	return normalizeTerminalShellPreference(s.store.GetRuntimePreferences().DefaultTerminalShell)
 }
 
 func wrappedCommandShellPath() string {
@@ -1386,6 +1718,9 @@ func (s *Service) applyShellIntegrationDeltaLocked(
 	if tracker == nil {
 		tracker = &shellIntegrationTracker{}
 		s.shellTrackers[processID] = tracker
+	}
+	if tracker.tail == "" && !strings.Contains(delta, "\x1b]") {
+		return nil
 	}
 
 	buffer := tracker.tail + delta

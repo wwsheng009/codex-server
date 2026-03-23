@@ -309,6 +309,7 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 	defer s.mu.Unlock()
 
 	prefs.ModelCatalogPath = strings.TrimSpace(prefs.ModelCatalogPath)
+	prefs.DefaultTerminalShell = strings.TrimSpace(prefs.DefaultTerminalShell)
 	if len(prefs.LocalShellModels) > 0 {
 		prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
 	} else {
@@ -1326,6 +1327,7 @@ func (s *MemoryStore) persistLocked() {
 	if s.runtimePrefs.ModelCatalogPath != "" ||
 		len(s.runtimePrefs.LocalShellModels) > 0 ||
 		s.runtimePrefs.DefaultShellType != "" ||
+		s.runtimePrefs.DefaultTerminalShell != "" ||
 		len(s.runtimePrefs.ModelShellTypeOverrides) > 0 ||
 		s.runtimePrefs.DefaultTurnApprovalPolicy != "" ||
 		len(s.runtimePrefs.DefaultTurnSandboxPolicy) > 0 ||

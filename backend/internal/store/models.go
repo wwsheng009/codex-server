@@ -22,6 +22,7 @@ type RuntimePreferences struct {
 	ModelCatalogPath            string            `json:"modelCatalogPath"`
 	LocalShellModels            []string          `json:"localShellModels,omitempty"`
 	DefaultShellType            string            `json:"defaultShellType,omitempty"`
+	DefaultTerminalShell        string            `json:"defaultTerminalShell,omitempty"`
 	ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides,omitempty"`
 	DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy,omitempty"`
 	DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`

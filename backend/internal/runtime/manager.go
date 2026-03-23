@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"codex-server/backend/internal/bridge"
 	"codex-server/backend/internal/events"
@@ -22,6 +23,7 @@ var (
 )
 
 const commandOutputBatchWindow = 16 * time.Millisecond
+const commandOutputMaxChunkBytes = 16 * 1024
 
 type State struct {
 	WorkspaceID string     `json:"workspaceId"`
@@ -62,6 +64,7 @@ type instance struct {
 	state                   State
 	activeTurns             map[string]string
 	commandOutputFlushTimer *time.Timer
+	pendingCommandOutputLen int
 	pendingCommandOutput    []pendingCommandOutputChunk
 }
 
@@ -595,8 +598,6 @@ func (r *instance) queueCommandOutputDelta(params json.RawMessage) bool {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	chunkCount := len(r.pendingCommandOutput)
 	if chunkCount > 0 {
 		lastChunk := &r.pendingCommandOutput[chunkCount-1]
@@ -616,11 +617,23 @@ func (r *instance) queueCommandOutputDelta(params json.RawMessage) bool {
 			stream:    stream,
 		})
 	}
+	r.pendingCommandOutputLen += len(delta)
 
 	if r.commandOutputFlushTimer == nil {
 		r.commandOutputFlushTimer = time.AfterFunc(commandOutputBatchWindow, func() {
 			r.flushPendingCommandOutput()
 		})
+	}
+
+	shouldFlushImmediately := r.pendingCommandOutputLen >= commandOutputMaxChunkBytes
+	if shouldFlushImmediately && r.commandOutputFlushTimer != nil {
+		r.commandOutputFlushTimer.Stop()
+		r.commandOutputFlushTimer = nil
+	}
+	r.mu.Unlock()
+
+	if shouldFlushImmediately {
+		r.flushPendingCommandOutput()
 	}
 
 	return true
@@ -638,22 +651,66 @@ func (r *instance) flushPendingCommandOutput() {
 	}
 
 	chunks := append([]pendingCommandOutputChunk(nil), r.pendingCommandOutput...)
+	r.pendingCommandOutputLen = 0
 	r.pendingCommandOutput = nil
 	r.mu.Unlock()
 
 	now := time.Now().UTC()
 	for _, chunk := range chunks {
-		r.manager.events.Publish(store.EventEnvelope{
-			WorkspaceID: r.workspaceID,
-			Method:      "command/exec/outputDelta",
-			Payload: map[string]any{
-				"deltaBase64": base64.StdEncoding.EncodeToString(chunk.delta),
-				"processId":   chunk.processID,
-				"stream":      chunk.stream,
-			},
-			TS: now,
-		})
+		for _, outputChunk := range splitCommandOutputDelta(chunk.delta, commandOutputMaxChunkBytes) {
+			r.manager.events.Publish(store.EventEnvelope{
+				WorkspaceID: r.workspaceID,
+				Method:      "command/exec/outputDelta",
+				Payload:     buildCommandOutputDeltaPayload(chunk.processID, chunk.stream, outputChunk),
+				TS:          now,
+			})
+		}
 	}
+}
+
+func buildCommandOutputDeltaPayload(processID string, stream string, delta []byte) map[string]any {
+	payload := map[string]any{
+		"processId": processID,
+		"stream":    stream,
+	}
+
+	if utf8.Valid(delta) {
+		payload["deltaText"] = string(delta)
+		return payload
+	}
+
+	payload["deltaBase64"] = base64.StdEncoding.EncodeToString(delta)
+	return payload
+}
+
+func splitCommandOutputDelta(delta []byte, maxChunkBytes int) [][]byte {
+	if len(delta) == 0 {
+		return nil
+	}
+	if maxChunkBytes <= 0 || len(delta) <= maxChunkBytes {
+		return [][]byte{delta}
+	}
+
+	chunks := make([][]byte, 0, (len(delta)+maxChunkBytes-1)/maxChunkBytes)
+	for len(delta) > 0 {
+		if len(delta) <= maxChunkBytes {
+			chunks = append(chunks, delta)
+			break
+		}
+
+		chunkEnd := maxChunkBytes
+		for chunkEnd > 0 && !utf8.Valid(delta[:chunkEnd]) {
+			chunkEnd -= 1
+		}
+		if chunkEnd == 0 {
+			chunkEnd = maxChunkBytes
+		}
+
+		chunks = append(chunks, delta[:chunkEnd])
+		delta = delta[chunkEnd:]
+	}
+
+	return chunks
 }
 
 func (m *Manager) expireRequestsForWorkspace(workspaceID string, reason string) {

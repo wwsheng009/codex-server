@@ -1,7 +1,9 @@
 package execfs
 
 import (
+	"encoding/base64"
 	"errors"
+	stdruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +176,201 @@ func TestHydrateCommandSessionsMarksActiveSessionsFailed(t *testing.T) {
 	}
 }
 
+func TestListCommandSessionStateSnapshotsOmitsOutput(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(nil, nil, nil)
+	now := time.Now().UTC()
+
+	service.mu.Lock()
+	service.sessionsByWorkspace["ws-1"] = map[string]store.CommandSessionSnapshot{
+		"proc_001": {
+			CommandSession: store.CommandSession{
+				ID:          "proc_001",
+				WorkspaceID: "ws-1",
+				Command:     "echo test",
+				Status:      "running",
+				CreatedAt:   now.Add(-time.Minute),
+			},
+			CombinedOutput: "hello\r\n",
+			Stdout:         "hello\r\n",
+			UpdatedAt:      now,
+		},
+	}
+	service.mu.Unlock()
+
+	got := service.ListCommandSessionStateSnapshots("ws-1")
+	if len(got) != 1 {
+		t.Fatalf("expected 1 state snapshot, got %#v", got)
+	}
+	if got[0].CombinedOutput != "" || got[0].Stdout != "" || got[0].Stderr != "" {
+		t.Fatalf("expected state snapshot to omit output, got %#v", got[0])
+	}
+}
+
+func TestBuildCommandSessionResumeEventsAppendsOnlyMissingTail(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(nil, nil, nil)
+	now := time.Now().UTC()
+	currentOutput := "line 1\r\nline 2\r\n"
+
+	service.mu.Lock()
+	service.sessionsByWorkspace["ws-1"] = map[string]store.CommandSessionSnapshot{
+		"proc_001": {
+			CommandSession: store.CommandSession{
+				ID:          "proc_001",
+				WorkspaceID: "ws-1",
+				Command:     "echo test",
+				Status:      "running",
+				CreatedAt:   now.Add(-time.Minute),
+			},
+			CombinedOutput: currentOutput,
+			UpdatedAt:      now,
+		},
+	}
+	service.mu.Unlock()
+
+	events := service.BuildCommandSessionResumeEvents("ws-1", []CommandSessionResumeCursor{
+		{
+			ID:           "proc_001",
+			OutputLength: len("line 1\r\n"),
+			OutputTail:   "line 1\r\n",
+			UpdatedAt:    now.Add(-time.Second).Format(time.RFC3339Nano),
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected one resume delta event, got %#v", events)
+	}
+
+	payload, ok := events[0].Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", events[0].Payload)
+	}
+	if _, hasReplace := payload["replace"]; hasReplace {
+		t.Fatalf("expected append-only replay, got %#v", payload)
+	}
+	if payload["replayReason"] != "cursor_match" {
+		t.Fatalf("expected cursor_match replay reason, got %#v", payload["replayReason"])
+	}
+	if payload["replayBytes"] != len([]byte("line 2\r\n")) {
+		t.Fatalf("expected replay byte count for missing tail, got %#v", payload["replayBytes"])
+	}
+
+	decoded := readExecfsTestDeltaPayload(t, payload)
+	if string(decoded) != "line 2\r\n" {
+		t.Fatalf("expected only missing tail, got %q", string(decoded))
+	}
+}
+
+func TestBuildCommandSessionResumeEventsReplacesWhenOverlapMissing(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(nil, nil, nil)
+	now := time.Now().UTC()
+	currentOutput := "line 1\r\nline 2\r\n"
+
+	service.mu.Lock()
+	service.sessionsByWorkspace["ws-1"] = map[string]store.CommandSessionSnapshot{
+		"proc_001": {
+			CommandSession: store.CommandSession{
+				ID:          "proc_001",
+				WorkspaceID: "ws-1",
+				Command:     "echo test",
+				Status:      "running",
+				CreatedAt:   now.Add(-time.Minute),
+			},
+			CombinedOutput: currentOutput,
+			UpdatedAt:      now,
+		},
+	}
+	service.mu.Unlock()
+
+	events := service.BuildCommandSessionResumeEvents("ws-1", []CommandSessionResumeCursor{
+		{
+			ID:           "proc_001",
+			OutputLength: len("stale"),
+			OutputTail:   "stale",
+			UpdatedAt:    now.Add(-time.Second).Format(time.RFC3339Nano),
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected one replace replay event, got %#v", events)
+	}
+
+	payload, ok := events[0].Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", events[0].Payload)
+	}
+	if payload["replace"] != true {
+		t.Fatalf("expected replay replace flag, got %#v", payload)
+	}
+	if payload["replayReason"] != "tail_mismatch" {
+		t.Fatalf("expected tail_mismatch replay reason, got %#v", payload["replayReason"])
+	}
+	if payload["replayBytes"] != len([]byte(currentOutput)) {
+		t.Fatalf("expected replay byte count for replace fallback, got %#v", payload["replayBytes"])
+	}
+
+	decoded := readExecfsTestDeltaPayload(t, payload)
+	if string(decoded) != currentOutput {
+		t.Fatalf("expected full replay output, got %q", string(decoded))
+	}
+}
+
+func readExecfsTestDeltaPayload(t *testing.T, payload map[string]any) []byte {
+	t.Helper()
+
+	if deltaText, ok := payload["deltaText"].(string); ok {
+		return []byte(deltaText)
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(payload["deltaBase64"].(string))
+	if err != nil {
+		t.Fatalf("decode deltaBase64: %v", err)
+	}
+
+	return decoded
+}
+
+func TestListCommandSessionsForClientOmitsSplitStreams(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(nil, nil, nil)
+	now := time.Now().UTC()
+
+	service.mu.Lock()
+	service.sessionsByWorkspace["ws-1"] = map[string]store.CommandSessionSnapshot{
+		"proc_001": {
+			CommandSession: store.CommandSession{
+				ID:          "proc_001",
+				WorkspaceID: "ws-1",
+				Command:     "echo test",
+				Status:      "running",
+				CreatedAt:   now,
+			},
+			CombinedOutput: "combined",
+			Stdout:         "stdout",
+			Stderr:         "stderr",
+			UpdatedAt:      now,
+		},
+	}
+	service.mu.Unlock()
+
+	got := service.ListCommandSessionsForClient("ws-1")
+	if len(got) != 1 {
+		t.Fatalf("expected one client session snapshot, got %#v", got)
+	}
+	if got[0].CombinedOutput != "combined" {
+		t.Fatalf("expected combined output preserved, got %#v", got[0].CombinedOutput)
+	}
+	if got[0].Stdout != "" || got[0].Stderr != "" {
+		t.Fatalf("expected split streams omitted for client snapshot, got %#v", got[0])
+	}
+}
+
 func TestResolveCommandStartSpecUsesWrappedCommandModeByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -228,6 +425,50 @@ func TestResolveCommandStartSpecBuildsDefaultShellMode(t *testing.T) {
 	}
 }
 
+func TestResolveCommandStartSpecHonorsConfiguredTerminalShellOnWindows(t *testing.T) {
+	t.Parallel()
+
+	if stdruntime.GOOS != "windows" {
+		t.Skip("windows-specific terminal shell selection")
+	}
+
+	path := resolvePreferredWindowsShellPath(
+		func(candidate string) (string, error) {
+			switch candidate {
+			case "cmd.exe":
+				return `C:\Windows\System32\cmd.exe`, nil
+			default:
+				return "", errors.New("not found")
+			}
+		},
+		`C:\Windows\System32\cmd.exe`,
+		"cmd",
+	)
+
+	if path != `C:\Windows\System32\cmd.exe` {
+		t.Fatalf("expected configured cmd terminal shell, got %q", path)
+	}
+}
+
+func TestResolvePreferredGitBashPathFindsGitInstallation(t *testing.T) {
+	t.Parallel()
+
+	path, ok := resolvePreferredGitBashPath(
+		func(candidate string) (string, error) {
+			if candidate == "git.exe" {
+				return `C:\Program Files\Git\cmd\git.exe`, nil
+			}
+			return "", errors.New("not found")
+		},
+	)
+
+	if stdruntime.GOOS == "windows" && ok {
+		if !strings.Contains(strings.ToLower(path), `\git\`) {
+			t.Fatalf("expected git bash path from git installation, got %q", path)
+		}
+	}
+}
+
 func TestResolveCommandStartSpecRejectsUnknownMode(t *testing.T) {
 	t.Parallel()
 
@@ -236,6 +477,17 @@ func TestResolveCommandStartSpecRejectsUnknownMode(t *testing.T) {
 		Mode:    "interactive",
 	}); err == nil {
 		t.Fatal("expected unknown command mode to be rejected")
+	}
+}
+
+func TestResolveCommandStartSpecRejectsUnknownTerminalShellOverride(t *testing.T) {
+	t.Parallel()
+
+	if _, err := resolveCommandStartSpecWithTerminalShell(
+		StartCommandInput{Mode: "shell", Shell: "fish"},
+		"",
+	); err == nil {
+		t.Fatal("expected unknown terminal shell override to be rejected")
 	}
 }
 
@@ -315,7 +567,6 @@ func TestApplyCommandCompletedDoesNotDuplicateStreamedOutput(t *testing.T) {
 				CreatedAt:   now.Add(-time.Minute),
 			},
 			CombinedOutput: streamedOutput,
-			Stdout:         streamedOutput,
 			UpdatedAt:      now.Add(-time.Second),
 		},
 	}
@@ -339,8 +590,8 @@ func TestApplyCommandCompletedDoesNotDuplicateStreamedOutput(t *testing.T) {
 	if got[0].CombinedOutput != streamedOutput {
 		t.Fatalf("expected completion to avoid duplicating streamed combined output, got %q", got[0].CombinedOutput)
 	}
-	if got[0].Stdout != streamedOutput {
-		t.Fatalf("expected completion to avoid duplicating streamed stdout, got %q", got[0].Stdout)
+	if got[0].Stdout != "" || got[0].Stderr != "" {
+		t.Fatalf("expected split stream buffers to remain empty, got %#v", got[0])
 	}
 }
 
@@ -363,7 +614,6 @@ func TestApplyCommandCompletedAppendsOnlyMissingCompletionTail(t *testing.T) {
 				CreatedAt:   now.Add(-time.Minute),
 			},
 			CombinedOutput: streamedOutput,
-			Stdout:         streamedOutput,
 			UpdatedAt:      now.Add(-time.Second),
 		},
 	}
@@ -387,8 +637,8 @@ func TestApplyCommandCompletedAppendsOnlyMissingCompletionTail(t *testing.T) {
 	if got[0].CombinedOutput != finalOutput {
 		t.Fatalf("expected completion to append only missing tail, got %q", got[0].CombinedOutput)
 	}
-	if got[0].Stdout != finalOutput {
-		t.Fatalf("expected completion stdout to append only missing tail, got %q", got[0].Stdout)
+	if got[0].Stdout != "" || got[0].Stderr != "" {
+		t.Fatalf("expected split stream buffers to remain empty, got %#v", got[0])
 	}
 }
 
@@ -482,6 +732,7 @@ func TestResolvePreferredWindowsShellPathPrefersPwshBeforeComSpec(t *testing.T) 
 			return "", errors.New("not found")
 		},
 		`C:\Windows\System32\cmd.exe`,
+		"",
 	)
 
 	if path != `C:\Program Files\PowerShell\7\pwsh.exe` {

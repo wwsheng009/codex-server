@@ -3,7 +3,9 @@ package runtimeprefs
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 
 	appconfig "codex-server/backend/internal/config"
@@ -21,18 +23,22 @@ type Service struct {
 type ReadResult struct {
 	ConfiguredModelCatalogPath            string            `json:"configuredModelCatalogPath"`
 	ConfiguredDefaultShellType            string            `json:"configuredDefaultShellType"`
+	ConfiguredDefaultTerminalShell        string            `json:"configuredDefaultTerminalShell"`
+	SupportedTerminalShells               []string          `json:"supportedTerminalShells"`
 	ConfiguredModelShellTypeOverrides     map[string]string `json:"configuredModelShellTypeOverrides"`
 	ConfiguredDefaultTurnApprovalPolicy   string            `json:"configuredDefaultTurnApprovalPolicy"`
 	ConfiguredDefaultTurnSandboxPolicy    map[string]any    `json:"configuredDefaultTurnSandboxPolicy"`
 	ConfiguredDefaultCommandSandboxPolicy map[string]any    `json:"configuredDefaultCommandSandboxPolicy"`
 	DefaultModelCatalogPath               string            `json:"defaultModelCatalogPath"`
 	DefaultDefaultShellType               string            `json:"defaultDefaultShellType"`
+	DefaultDefaultTerminalShell           string            `json:"defaultDefaultTerminalShell"`
 	DefaultModelShellTypeOverrides        map[string]string `json:"defaultModelShellTypeOverrides"`
 	DefaultDefaultTurnApprovalPolicy      string            `json:"defaultDefaultTurnApprovalPolicy"`
 	DefaultDefaultTurnSandboxPolicy       map[string]any    `json:"defaultDefaultTurnSandboxPolicy"`
 	DefaultDefaultCommandSandboxPolicy    map[string]any    `json:"defaultDefaultCommandSandboxPolicy"`
 	EffectiveModelCatalogPath             string            `json:"effectiveModelCatalogPath"`
 	EffectiveDefaultShellType             string            `json:"effectiveDefaultShellType"`
+	EffectiveDefaultTerminalShell         string            `json:"effectiveDefaultTerminalShell"`
 	EffectiveModelShellTypeOverrides      map[string]string `json:"effectiveModelShellTypeOverrides"`
 	EffectiveDefaultTurnApprovalPolicy    string            `json:"effectiveDefaultTurnApprovalPolicy"`
 	EffectiveDefaultTurnSandboxPolicy     map[string]any    `json:"effectiveDefaultTurnSandboxPolicy"`
@@ -43,6 +49,7 @@ type ReadResult struct {
 type WriteInput struct {
 	ModelCatalogPath            string            `json:"modelCatalogPath"`
 	DefaultShellType            string            `json:"defaultShellType"`
+	DefaultTerminalShell        string            `json:"defaultTerminalShell"`
 	ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides"`
 	DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy"`
 	DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy"`
@@ -99,6 +106,7 @@ func (s *Service) Write(input WriteInput) (ReadResult, error) {
 	candidateConfigured := store.RuntimePreferences{
 		ModelCatalogPath:            strings.TrimSpace(input.ModelCatalogPath),
 		DefaultShellType:            strings.TrimSpace(input.DefaultShellType),
+		DefaultTerminalShell:        normalizeTerminalShellPreference(input.DefaultTerminalShell),
 		ModelShellTypeOverrides:     normalizeInputs(input.ModelShellTypeOverrides),
 		DefaultTurnApprovalPolicy:   defaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:    defaultTurnSandboxPolicy,
@@ -141,6 +149,7 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 		ModelCatalogPath:            targetPath,
 		LocalShellModels:            cloneStrings(currentConfigured.LocalShellModels),
 		DefaultShellType:            currentConfigured.DefaultShellType,
+		DefaultTerminalShell:        currentConfigured.DefaultTerminalShell,
 		ModelShellTypeOverrides:     cloneStringMap(currentConfigured.ModelShellTypeOverrides),
 		DefaultTurnApprovalPolicy:   currentConfigured.DefaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:    cloneAnyMap(currentConfigured.DefaultTurnSandboxPolicy),
@@ -235,6 +244,7 @@ func normalizeConfiguredPreferences(input store.RuntimePreferences) (store.Runti
 	}
 
 	input.DefaultTurnApprovalPolicy = defaultTurnApprovalPolicy
+	input.DefaultTerminalShell = normalizeTerminalShellPreference(input.DefaultTerminalShell)
 	input.DefaultTurnSandboxPolicy = defaultTurnSandboxPolicy
 	input.DefaultCommandSandboxPolicy = defaultCommandSandboxPolicy
 	return input, nil
@@ -293,24 +303,144 @@ func (s *Service) buildReadResult(
 	return ReadResult{
 		ConfiguredModelCatalogPath:            configuredPrefs.ModelCatalogPath,
 		ConfiguredDefaultShellType:            configuredPrefs.DefaultShellType,
+		ConfiguredDefaultTerminalShell:        configuredPrefs.DefaultTerminalShell,
+		SupportedTerminalShells:               detectSupportedTerminalShells(),
 		ConfiguredModelShellTypeOverrides:     cloneStringMap(configuredPrefs.ModelShellTypeOverrides),
 		ConfiguredDefaultTurnApprovalPolicy:   configuredPrefs.DefaultTurnApprovalPolicy,
 		ConfiguredDefaultTurnSandboxPolicy:    cloneAnyMap(configuredPrefs.DefaultTurnSandboxPolicy),
 		ConfiguredDefaultCommandSandboxPolicy: cloneAnyMap(configuredPrefs.DefaultCommandSandboxPolicy),
 		DefaultModelCatalogPath:               s.defaultPrefs.ModelCatalogPath,
 		DefaultDefaultShellType:               s.defaultPrefs.DefaultShellType,
+		DefaultDefaultTerminalShell:           "auto",
 		DefaultModelShellTypeOverrides:        cloneStringMap(s.defaultPrefs.ModelShellTypeOverrides),
 		DefaultDefaultTurnApprovalPolicy:      s.defaultPrefs.DefaultTurnApprovalPolicy,
 		DefaultDefaultTurnSandboxPolicy:       cloneAnyMap(s.defaultPrefs.DefaultTurnSandboxPolicy),
 		DefaultDefaultCommandSandboxPolicy:    cloneAnyMap(s.defaultPrefs.DefaultCommandSandboxPolicy),
 		EffectiveModelCatalogPath:             resolved.EffectiveModelCatalogPath,
 		EffectiveDefaultShellType:             resolved.Preferences.DefaultShellType,
+		EffectiveDefaultTerminalShell:         effectiveTerminalShellPreference(configuredPrefs.DefaultTerminalShell),
 		EffectiveModelShellTypeOverrides:      cloneStringMap(resolved.Preferences.ModelShellTypeOverrides),
 		EffectiveDefaultTurnApprovalPolicy:    resolved.Preferences.DefaultTurnApprovalPolicy,
 		EffectiveDefaultTurnSandboxPolicy:     cloneAnyMap(resolved.Preferences.DefaultTurnSandboxPolicy),
 		EffectiveDefaultCommandSandboxPolicy:  cloneAnyMap(resolved.Preferences.DefaultCommandSandboxPolicy),
 		EffectiveCommand:                      resolved.Command,
 	}
+}
+
+func detectSupportedTerminalShells() []string {
+	items := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+
+	add := func(value string) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seen[trimmed]; ok {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		items = append(items, trimmed)
+	}
+
+	if stdruntime.GOOS == "windows" {
+		if shellExists("pwsh.exe", "pwsh") {
+			add("pwsh")
+		}
+		if shellExists("powershell.exe", "powershell") {
+			add("powershell")
+		}
+		if strings.TrimSpace(os.Getenv("ComSpec")) != "" || shellExists("cmd.exe") {
+			add("cmd")
+		}
+		if shellExists("wsl.exe", "wsl") {
+			add("wsl")
+		}
+		if gitBashPath, ok := resolvePreferredGitBashPath(exec.LookPath); ok && strings.TrimSpace(gitBashPath) != "" {
+			add("git-bash")
+		}
+	}
+
+	if stdruntime.GOOS != "windows" && shellExists("bash", "/bin/bash", "/usr/bin/bash") {
+		add("bash")
+	}
+	if shellExists("zsh", "/bin/zsh", "/usr/bin/zsh") {
+		add("zsh")
+	}
+	if shellExists("sh", "/bin/sh", "/usr/bin/sh") {
+		add("sh")
+	}
+
+	return items
+}
+
+func shellExists(candidates ...string) bool {
+	for _, candidate := range candidates {
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" {
+			continue
+		}
+
+		if filepath.IsAbs(trimmed) {
+			if info, err := os.Stat(trimmed); err == nil && !info.IsDir() {
+				return true
+			}
+			continue
+		}
+
+		if resolved, err := exec.LookPath(trimmed); err == nil && strings.TrimSpace(resolved) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func resolvePreferredGitBashPath(lookPath func(string) (string, error)) (string, bool) {
+	if gitPath, err := lookPath("git.exe"); err == nil && strings.TrimSpace(gitPath) != "" {
+		gitRoot := filepath.Clean(filepath.Join(filepath.Dir(gitPath), ".."))
+		for _, candidate := range []string{
+			filepath.Join(gitRoot, "bin", "bash.exe"),
+			filepath.Join(gitRoot, "git-bash.exe"),
+			filepath.Join(gitRoot, "usr", "bin", "bash.exe"),
+		} {
+			if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+				return candidate, true
+			}
+		}
+	}
+
+	for _, candidate := range []string{
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files\Git\git-bash.exe`,
+		`C:\Program Files\Git\usr\bin\bash.exe`,
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+
+	return "", false
+}
+
+func normalizeTerminalShellPreference(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return ""
+	case "pwsh", "powershell", "cmd", "bash", "zsh", "sh":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func effectiveTerminalShellPreference(value string) string {
+	normalized := normalizeTerminalShellPreference(value)
+	if normalized == "" {
+		return "auto"
+	}
+
+	return normalized
 }
 
 func resolveManagedModelCatalogTemplatePaths() (string, string, error) {
