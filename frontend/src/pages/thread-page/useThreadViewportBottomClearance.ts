@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 const MIN_THREAD_BOTTOM_CLEARANCE_PX = 96
 const DEFAULT_THREAD_BOTTOM_CLEARANCE_PX = 180
@@ -13,7 +13,7 @@ export function useThreadViewportBottomClearance() {
   const composerDockMeasureRef = useRef<HTMLDivElement | null>(null)
   const pendingMeasureFrameRef = useRef<number | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let observer: ResizeObserver | null = null
     let observedComposerDock: HTMLDivElement | null = null
 
@@ -30,10 +30,10 @@ export function useThreadViewportBottomClearance() {
         return
       }
 
-      pendingMeasureFrameRef.current = window.requestAnimationFrame(() => {
+      pendingMeasureFrameRef.current = window.setTimeout(() => {
         pendingMeasureFrameRef.current = null
         updateThreadBottomClearance()
-      })
+      }, 0)
     }
 
     const attachObserver = (composerDock: HTMLDivElement) => {
@@ -74,12 +74,12 @@ export function useThreadViewportBottomClearance() {
       )
     }
 
-    scheduleThreadBottomClearanceUpdate()
+    updateThreadBottomClearance()
 
     return () => {
       observer?.disconnect()
       if (pendingMeasureFrameRef.current !== null) {
-        window.cancelAnimationFrame(pendingMeasureFrameRef.current)
+        window.clearTimeout(pendingMeasureFrameRef.current)
       }
     }
   }, [])

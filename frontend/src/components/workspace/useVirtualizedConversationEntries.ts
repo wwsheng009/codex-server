@@ -13,6 +13,7 @@ const DEFAULT_ENTRY_OVERSCAN_PX = 1800
 const FALLBACK_VIEWPORT_HEIGHT_PX = 720
 const RENDER_WINDOW_NEAR_BOTTOM_FREEZE_PX = 480
 const SCROLLING_RENDER_WINDOW_BUFFER_PX = 960
+const VIRTUALIZED_ENTRY_LAYOUT_CACHE_MAX_AGE_MS = 30_000
 
 type VirtualizedConversationEntryLayout<T> = {
   entriesRef: T[]
@@ -48,6 +49,91 @@ type VirtualizedConversationRenderWindow = {
   startIndex: number
 }
 
+type VirtualizedConversationLayoutCacheSnapshot = {
+  entryHeights: Record<string, number>
+  renderWindow: VirtualizedConversationRenderWindow | null
+  updatedAt: number
+}
+
+const virtualizedConversationLayoutCache = new Map<
+  string,
+  VirtualizedConversationLayoutCacheSnapshot
+>()
+
+function cloneVirtualizedConversationEntryHeights(
+  entryHeights: Record<string, number>,
+) {
+  return { ...entryHeights }
+}
+
+function readVirtualizedConversationLayoutCache(
+  listIdentity: string,
+): VirtualizedConversationLayoutCacheSnapshot | null {
+  if (!listIdentity) {
+    return null
+  }
+
+  const cached = virtualizedConversationLayoutCache.get(listIdentity)
+  if (!cached) {
+    return null
+  }
+
+  if (Date.now() - cached.updatedAt > VIRTUALIZED_ENTRY_LAYOUT_CACHE_MAX_AGE_MS) {
+    virtualizedConversationLayoutCache.delete(listIdentity)
+    return null
+  }
+
+  return {
+    entryHeights: cloneVirtualizedConversationEntryHeights(cached.entryHeights),
+    renderWindow: cached.renderWindow,
+    updatedAt: cached.updatedAt,
+  }
+}
+
+function clampVirtualizedConversationRenderWindow(
+  renderWindow: VirtualizedConversationRenderWindow | null,
+  entryCount: number,
+): VirtualizedConversationRenderWindow | null {
+  if (!renderWindow || entryCount <= 0) {
+    return null
+  }
+
+  const endIndex = Math.min(renderWindow.endIndex, entryCount - 1)
+  const startIndex = Math.min(renderWindow.startIndex, endIndex)
+
+  return {
+    endIndex,
+    paddingBottom: Math.max(0, renderWindow.paddingBottom),
+    paddingTop: Math.max(0, renderWindow.paddingTop),
+    startIndex,
+  }
+}
+
+function writeVirtualizedConversationLayoutCache(
+  listIdentity: string,
+  input: {
+    entryHeights?: Record<string, number>
+    renderWindow?: VirtualizedConversationRenderWindow | null
+  },
+) {
+  if (!listIdentity) {
+    return
+  }
+
+  const current = virtualizedConversationLayoutCache.get(listIdentity)
+  virtualizedConversationLayoutCache.set(listIdentity, {
+    entryHeights:
+      input.entryHeights !== undefined
+        ? cloneVirtualizedConversationEntryHeights(input.entryHeights)
+        : cloneVirtualizedConversationEntryHeights(current?.entryHeights ?? {}),
+    renderWindow:
+      input.renderWindow !== undefined
+        ? input.renderWindow
+        : current?.renderWindow ?? null,
+    updatedAt: Date.now(),
+  })
+}
+
 export function useVirtualizedConversationEntries<T>({
   enabled,
   entries,
@@ -58,7 +144,10 @@ export function useVirtualizedConversationEntries<T>({
   overscanPx = DEFAULT_ENTRY_OVERSCAN_PX,
   scrollViewportRef,
 }: VirtualizedConversationEntriesInput<T>) {
-  const entryHeightsRef = useRef<Record<string, number>>({})
+  const initialCacheSnapshot = readVirtualizedConversationLayoutCache(listIdentity)
+  const entryHeightsRef = useRef<Record<string, number>>(
+    initialCacheSnapshot?.entryHeights ?? {},
+  )
   const pendingEntryHeightsRef = useRef<Record<string, number>>({})
   const dirtyEntryKeysRef = useRef<Set<string>>(new Set())
   const previousEntryLayoutRef = useRef<VirtualizedConversationEntryLayout<T> | null>(null)
@@ -78,7 +167,9 @@ export function useVirtualizedConversationEntries<T>({
   const isUserScrollingRef = useRef(false)
   const [entryHeightsVersion, setEntryHeightsVersion] = useState(0)
   const [isUserScrolling, setIsUserScrolling] = useState(false)
-  const [renderWindow, setRenderWindow] = useState<VirtualizedConversationRenderWindow | null>(null)
+  const [renderWindow, setRenderWindow] = useState<VirtualizedConversationRenderWindow | null>(
+    clampVirtualizedConversationRenderWindow(initialCacheSnapshot?.renderWindow ?? null, entries.length),
+  )
   const [scrollState, setScrollState] = useState({
     scrollTop: 0,
     viewportHeight: FALLBACK_VIEWPORT_HEIGHT_PX,
@@ -120,10 +211,13 @@ export function useVirtualizedConversationEntries<T>({
       }
 
       entryHeightsRef.current[entryKey] = roundedHeight
+      writeVirtualizedConversationLayoutCache(listIdentity, {
+        entryHeights: entryHeightsRef.current,
+      })
       dirtyEntryKeysRef.current.add(entryKey)
       scheduleHeightsRefresh()
     },
-    [freezeLayout, scheduleHeightsRefresh],
+    [freezeLayout, listIdentity, scheduleHeightsRefresh],
   )
 
   useEffect(() => {
@@ -142,7 +236,8 @@ export function useVirtualizedConversationEntries<T>({
       }
     }
 
-    entryHeightsRef.current = {}
+    const cachedLayout = readVirtualizedConversationLayoutCache(listIdentity)
+    entryHeightsRef.current = cachedLayout?.entryHeights ?? {}
     pendingEntryHeightsRef.current = {}
     dirtyEntryKeysRef.current = new Set()
     previousEntryLayoutRef.current = null
@@ -152,7 +247,9 @@ export function useVirtualizedConversationEntries<T>({
     previousTotalHeightRef.current = null
     isUserScrollingRef.current = false
     setIsUserScrolling(false)
-    setRenderWindow(null)
+    setRenderWindow(
+      clampVirtualizedConversationRenderWindow(cachedLayout?.renderWindow ?? null, entries.length),
+    )
     setScrollState({
       scrollTop: scrollViewportRef.current?.scrollTop ?? 0,
       viewportHeight: Math.max(
@@ -161,7 +258,7 @@ export function useVirtualizedConversationEntries<T>({
       ),
     })
     setEntryHeightsVersion((current) => current + 1)
-  }, [listIdentity, scrollViewportRef])
+  }, [entries.length, listIdentity, scrollViewportRef])
 
   useEffect(() => {
     if (isUserScrolling || freezeLayout) {
@@ -182,6 +279,9 @@ export function useVirtualizedConversationEntries<T>({
       }
 
       entryHeightsRef.current[entryKey] = nextHeight
+      writeVirtualizedConversationLayoutCache(listIdentity, {
+        entryHeights: entryHeightsRef.current,
+      })
       dirtyEntryKeysRef.current.add(entryKey)
       changed = true
     }
@@ -190,7 +290,7 @@ export function useVirtualizedConversationEntries<T>({
     if (changed) {
       scheduleHeightsRefresh()
     }
-  }, [freezeLayout, isUserScrolling, scheduleHeightsRefresh])
+  }, [freezeLayout, isUserScrolling, listIdentity, scheduleHeightsRefresh])
 
   useEffect(
     () => () => {
@@ -369,6 +469,16 @@ export function useVirtualizedConversationEntries<T>({
         }
       }
 
+      if (
+        current.startIndex === 0 &&
+        current.endIndex >= entries.length - 1 &&
+        current.paddingTop === 0 &&
+        current.paddingBottom === 0
+      ) {
+        // Once the thread has expanded to a full real-DOM window, keep it stable for this list.
+        return current
+      }
+
       if (!shouldPreserveExpandedRenderWindow(
         isUserScrolling || freezeLayout,
         scrollState.scrollTop,
@@ -419,6 +529,13 @@ export function useVirtualizedConversationEntries<T>({
     targetRange.paddingTop,
     targetRange.startIndex,
   ])
+
+  useEffect(() => {
+    writeVirtualizedConversationLayoutCache(listIdentity, {
+      entryHeights: entryHeightsRef.current,
+      renderWindow,
+    })
+  }, [listIdentity, renderWindow])
 
   const activeRange = renderWindow ?? {
     endIndex: targetRange.endIndex,
