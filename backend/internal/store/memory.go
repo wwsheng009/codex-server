@@ -22,45 +22,266 @@ var (
 	ErrNotificationNotFound       = errors.New("notification not found")
 )
 
+const (
+	commandSessionRetentionLimit      = 12
+	commandSessionPinnedArchivedLimit = 24
+	commandSessionCompletedTTL        = 24 * time.Hour
+)
+
 type MemoryStore struct {
-	mu            sync.RWMutex
-	path          string
-	runtimePrefs  RuntimePreferences
-	workspaces    map[string]Workspace
-	automations   map[string]Automation
-	templates     map[string]AutomationTemplate
-	runs          map[string]AutomationRun
-	notifications map[string]Notification
-	threads       map[string]Thread
-	projections   map[string]ThreadProjection
-	deleted       map[string]DeletedThread
-	approvals     map[string]PendingApproval
+	mu              sync.RWMutex
+	path            string
+	runtimePrefs    RuntimePreferences
+	workspaces      map[string]Workspace
+	commandSessions map[string]map[string]CommandSessionSnapshot
+	automations     map[string]Automation
+	templates       map[string]AutomationTemplate
+	runs            map[string]AutomationRun
+	notifications   map[string]Notification
+	threads         map[string]Thread
+	projections     map[string]ThreadProjection
+	deleted         map[string]DeletedThread
+	approvals       map[string]PendingApproval
 }
 
 type storeSnapshot struct {
-	RuntimePreferences  *RuntimePreferences  `json:"runtimePreferences,omitempty"`
-	Workspaces          []Workspace          `json:"workspaces"`
-	Automations         []Automation         `json:"automations,omitempty"`
-	AutomationTemplates []AutomationTemplate `json:"automationTemplates,omitempty"`
-	AutomationRuns      []AutomationRun      `json:"automationRuns,omitempty"`
-	Notifications       []Notification       `json:"notifications,omitempty"`
-	Threads             []Thread             `json:"threads"`
-	ThreadProjections   []ThreadProjection   `json:"threadProjections,omitempty"`
-	DeletedThreads      []DeletedThread      `json:"deletedThreads,omitempty"`
+	RuntimePreferences  *RuntimePreferences      `json:"runtimePreferences,omitempty"`
+	Workspaces          []Workspace              `json:"workspaces"`
+	CommandSessions     []CommandSessionSnapshot `json:"commandSessions,omitempty"`
+	Automations         []Automation             `json:"automations,omitempty"`
+	AutomationTemplates []AutomationTemplate     `json:"automationTemplates,omitempty"`
+	AutomationRuns      []AutomationRun          `json:"automationRuns,omitempty"`
+	Notifications       []Notification           `json:"notifications,omitempty"`
+	Threads             []Thread                 `json:"threads"`
+	ThreadProjections   []ThreadProjection       `json:"threadProjections,omitempty"`
+	DeletedThreads      []DeletedThread          `json:"deletedThreads,omitempty"`
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		workspaces:    make(map[string]Workspace),
-		automations:   make(map[string]Automation),
-		templates:     make(map[string]AutomationTemplate),
-		runs:          make(map[string]AutomationRun),
-		notifications: make(map[string]Notification),
-		threads:       make(map[string]Thread),
-		projections:   make(map[string]ThreadProjection),
-		deleted:       make(map[string]DeletedThread),
-		approvals:     make(map[string]PendingApproval),
+		workspaces:      make(map[string]Workspace),
+		commandSessions: make(map[string]map[string]CommandSessionSnapshot),
+		automations:     make(map[string]Automation),
+		templates:       make(map[string]AutomationTemplate),
+		runs:            make(map[string]AutomationRun),
+		notifications:   make(map[string]Notification),
+		threads:         make(map[string]Thread),
+		projections:     make(map[string]ThreadProjection),
+		deleted:         make(map[string]DeletedThread),
+		approvals:       make(map[string]PendingApproval),
 	}
+}
+
+func (s *MemoryStore) ListCommandSessions(workspaceID string) []CommandSessionSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	workspaceSessions := s.commandSessions[workspaceID]
+	if len(workspaceSessions) == 0 {
+		return []CommandSessionSnapshot{}
+	}
+
+	items := make([]CommandSessionSnapshot, 0, len(workspaceSessions))
+	for _, session := range workspaceSessions {
+		items = append(items, session)
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) UpsertCommandSessionSnapshot(session CommandSessionSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceSessions := s.commandSessions[session.WorkspaceID]
+	if workspaceSessions == nil {
+		workspaceSessions = make(map[string]CommandSessionSnapshot)
+		s.commandSessions[session.WorkspaceID] = workspaceSessions
+	}
+
+	workspaceSessions[session.ID] = session
+	pruneCommandSessionsLocked(workspaceSessions)
+	s.persistLocked()
+}
+
+func (s *MemoryStore) DeleteCommandSession(workspaceID string, processID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceSessions := s.commandSessions[workspaceID]
+	if workspaceSessions == nil {
+		return
+	}
+
+	delete(workspaceSessions, processID)
+	if len(workspaceSessions) == 0 {
+		delete(s.commandSessions, workspaceID)
+	}
+
+	s.persistLocked()
+}
+
+func (s *MemoryStore) SetCommandSessionPinned(
+	workspaceID string,
+	processID string,
+	pinned bool,
+) (CommandSessionSnapshot, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceSessions := s.commandSessions[workspaceID]
+	if workspaceSessions == nil {
+		return CommandSessionSnapshot{}, false
+	}
+
+	session, ok := workspaceSessions[processID]
+	if !ok {
+		return CommandSessionSnapshot{}, false
+	}
+
+	session.Pinned = pinned
+	session.UpdatedAt = time.Now().UTC()
+	workspaceSessions[processID] = session
+	pruneCommandSessionsLocked(workspaceSessions)
+	s.persistLocked()
+
+	return session, true
+}
+
+func (s *MemoryStore) SetCommandSessionArchived(
+	workspaceID string,
+	processID string,
+	archived bool,
+) (CommandSessionSnapshot, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceSessions := s.commandSessions[workspaceID]
+	if workspaceSessions == nil {
+		return CommandSessionSnapshot{}, false
+	}
+
+	session, ok := workspaceSessions[processID]
+	if !ok {
+		return CommandSessionSnapshot{}, false
+	}
+
+	session.Archived = archived
+	session.UpdatedAt = time.Now().UTC()
+	workspaceSessions[processID] = session
+	pruneCommandSessionsLocked(workspaceSessions)
+	s.persistLocked()
+
+	return session, true
+}
+
+func (s *MemoryStore) ClearCompletedCommandSessions(workspaceID string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceSessions := s.commandSessions[workspaceID]
+	if workspaceSessions == nil {
+		return []string{}
+	}
+
+	removed := make([]string, 0)
+	for processID, session := range workspaceSessions {
+		if session.Pinned || session.Archived {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(session.Status)) {
+		case "running", "starting", "processing":
+			continue
+		default:
+			delete(workspaceSessions, processID)
+			removed = append(removed, processID)
+		}
+	}
+
+	if len(workspaceSessions) == 0 {
+		delete(s.commandSessions, workspaceID)
+	}
+
+	if len(removed) > 0 {
+		s.persistLocked()
+	}
+
+	return removed
+}
+
+func (s *MemoryStore) MarkActiveCommandSessionsFailed(reason string) []CommandSessionSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	updated := make([]CommandSessionSnapshot, 0)
+	for workspaceID, workspaceSessions := range s.commandSessions {
+		for processID, session := range workspaceSessions {
+			switch strings.ToLower(strings.TrimSpace(session.Status)) {
+			case "running", "starting", "processing":
+				session.Status = "failed"
+				if session.Error == "" {
+					session.Error = reason
+				}
+				session.UpdatedAt = now
+				workspaceSessions[processID] = session
+				updated = append(updated, session)
+			}
+		}
+		if len(workspaceSessions) == 0 {
+			delete(s.commandSessions, workspaceID)
+		}
+	}
+
+	if len(updated) > 0 {
+		s.persistLocked()
+	}
+
+	sort.Slice(updated, func(i int, j int) bool {
+		return updated[i].UpdatedAt.After(updated[j].UpdatedAt)
+	})
+
+	return updated
+}
+
+func (s *MemoryStore) PruneExpiredCommandSessions(now time.Time) []CommandSessionSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	removed := make([]CommandSessionSnapshot, 0)
+	for workspaceID, workspaceSessions := range s.commandSessions {
+		for processID, session := range workspaceSessions {
+			if session.Pinned || session.Archived {
+				continue
+			}
+			if isCommandSessionActiveStatus(session.Status) {
+				continue
+			}
+			if now.Sub(session.UpdatedAt) < commandSessionCompletedTTL {
+				continue
+			}
+
+			removed = append(removed, session)
+			delete(workspaceSessions, processID)
+		}
+
+		if len(workspaceSessions) == 0 {
+			delete(s.commandSessions, workspaceID)
+			continue
+		}
+
+		pruneCommandSessionsLocked(workspaceSessions)
+	}
+
+	if len(removed) > 0 {
+		s.persistLocked()
+	}
+
+	return removed
 }
 
 func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
@@ -758,6 +979,8 @@ func (s *MemoryStore) UpsertThreadProjectionSnapshot(detail ThreadDetail) {
 		Status:           detail.Status,
 		UpdatedAt:        detail.UpdatedAt,
 		TokenUsage:       cloneThreadTokenUsage(detail.TokenUsage),
+		TurnCount:        detail.TurnCount,
+		MessageCount:     detail.MessageCount,
 		SnapshotComplete: true,
 		Turns:            cloneThreadTurns(detail.Turns),
 	}
@@ -781,9 +1004,11 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	projection := s.projections[key]
 	if projection.ThreadID == "" {
 		projection = ThreadProjection{
-			WorkspaceID: event.WorkspaceID,
-			ThreadID:    event.ThreadID,
-			Turns:       []ThreadTurn{},
+			WorkspaceID:  event.WorkspaceID,
+			ThreadID:     event.ThreadID,
+			TurnCount:    0,
+			MessageCount: 0,
+			Turns:        []ThreadTurn{},
 		}
 	}
 
@@ -875,6 +1100,7 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 			delete(s.notifications, notificationID)
 		}
 	}
+	delete(s.commandSessions, workspaceID)
 
 	for threadID, thread := range s.threads {
 		if thread.WorkspaceID == workspaceID {
@@ -1009,6 +1235,25 @@ func (s *MemoryStore) load() error {
 			maxID = value
 		}
 	}
+	for _, session := range snapshot.CommandSessions {
+		workspaceSessions := s.commandSessions[session.WorkspaceID]
+		if workspaceSessions == nil {
+			workspaceSessions = make(map[string]CommandSessionSnapshot)
+			s.commandSessions[session.WorkspaceID] = workspaceSessions
+		}
+		workspaceSessions[session.ID] = session
+		if value := NumericIDSuffix(session.ID); value > maxID {
+			maxID = value
+		}
+	}
+	prunedCommandSessions := false
+	for _, workspaceSessions := range s.commandSessions {
+		beforeCount := len(workspaceSessions)
+		pruneCommandSessionsLocked(workspaceSessions)
+		if len(workspaceSessions) != beforeCount {
+			prunedCommandSessions = true
+		}
+	}
 
 	for _, automation := range snapshot.Automations {
 		s.automations[automation.ID] = automation
@@ -1055,6 +1300,9 @@ func (s *MemoryStore) load() error {
 	}
 
 	SeedIDCounter(maxID)
+	if prunedCommandSessions {
+		s.persistLocked()
+	}
 	return nil
 }
 
@@ -1065,6 +1313,7 @@ func (s *MemoryStore) persistLocked() {
 
 	snapshot := storeSnapshot{
 		Workspaces:          make([]Workspace, 0, len(s.workspaces)),
+		CommandSessions:     make([]CommandSessionSnapshot, 0),
 		Automations:         make([]Automation, 0, len(s.automations)),
 		AutomationTemplates: make([]AutomationTemplate, 0, len(s.templates)),
 		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
@@ -1100,6 +1349,11 @@ func (s *MemoryStore) persistLocked() {
 	for _, workspace := range s.workspaces {
 		snapshot.Workspaces = append(snapshot.Workspaces, workspace)
 	}
+	for _, workspaceSessions := range s.commandSessions {
+		for _, session := range workspaceSessions {
+			snapshot.CommandSessions = append(snapshot.CommandSessions, session)
+		}
+	}
 	for _, automation := range s.automations {
 		snapshot.Automations = append(snapshot.Automations, automation)
 	}
@@ -1124,6 +1378,12 @@ func (s *MemoryStore) persistLocked() {
 
 	sort.Slice(snapshot.Workspaces, func(i int, j int) bool {
 		return snapshot.Workspaces[i].ID < snapshot.Workspaces[j].ID
+	})
+	sort.Slice(snapshot.CommandSessions, func(i int, j int) bool {
+		if snapshot.CommandSessions[i].WorkspaceID == snapshot.CommandSessions[j].WorkspaceID {
+			return snapshot.CommandSessions[i].ID < snapshot.CommandSessions[j].ID
+		}
+		return snapshot.CommandSessions[i].WorkspaceID < snapshot.CommandSessions[j].WorkspaceID
 	})
 	sort.Slice(snapshot.Automations, func(i int, j int) bool {
 		return snapshot.Automations[i].ID < snapshot.Automations[j].ID
@@ -1223,6 +1483,8 @@ func threadProjectionSnapshotEqual(left ThreadProjection, right ThreadProjection
 		left.Source == right.Source &&
 		left.Status == right.Status &&
 		left.UpdatedAt.Equal(right.UpdatedAt) &&
+		left.TurnCount == right.TurnCount &&
+		left.MessageCount == right.MessageCount &&
 		left.SnapshotComplete == right.SnapshotComplete &&
 		reflect.DeepEqual(left.TokenUsage, right.TokenUsage) &&
 		reflect.DeepEqual(left.Turns, right.Turns)
@@ -1264,5 +1526,60 @@ func cloneAnyValue(value any) any {
 		return cloned
 	default:
 		return typed
+	}
+}
+
+func pruneCommandSessionsLocked(workspaceSessions map[string]CommandSessionSnapshot) {
+	type sessionEntry struct {
+		processID string
+		session   CommandSessionSnapshot
+	}
+
+	regularItems := make([]sessionEntry, 0, len(workspaceSessions))
+	protectedItems := make([]sessionEntry, 0, len(workspaceSessions))
+	for processID, session := range workspaceSessions {
+		if isCommandSessionActiveStatus(session.Status) {
+			continue
+		}
+
+		entry := sessionEntry{
+			processID: processID,
+			session:   session,
+		}
+		if session.Pinned || session.Archived {
+			protectedItems = append(protectedItems, entry)
+			continue
+		}
+
+		regularItems = append(regularItems, entry)
+	}
+
+	if len(regularItems) > commandSessionRetentionLimit {
+		sort.Slice(regularItems, func(i int, j int) bool {
+			return regularItems[i].session.UpdatedAt.After(regularItems[j].session.UpdatedAt)
+		})
+
+		for _, item := range regularItems[commandSessionRetentionLimit:] {
+			delete(workspaceSessions, item.processID)
+		}
+	}
+
+	if len(protectedItems) > commandSessionPinnedArchivedLimit {
+		sort.Slice(protectedItems, func(i int, j int) bool {
+			return protectedItems[i].session.UpdatedAt.After(protectedItems[j].session.UpdatedAt)
+		})
+
+		for _, item := range protectedItems[commandSessionPinnedArchivedLimit:] {
+			delete(workspaceSessions, item.processID)
+		}
+	}
+}
+
+func isCommandSessionActiveStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "running", "starting", "processing":
+		return true
+	default:
+		return false
 	}
 }

@@ -190,12 +190,28 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 	}
 
 	if changed {
+		projection.TurnCount = len(projection.Turns)
+		projection.MessageCount = projectedMessageCount(projection.Turns)
 		if projection.UpdatedAt.IsZero() || event.TS.After(projection.UpdatedAt) {
 			projection.UpdatedAt = event.TS
 		}
 	}
 
 	return changed
+}
+
+func projectedMessageCount(turns []ThreadTurn) int {
+	count := 0
+	for _, turn := range turns {
+		for _, item := range turn.Items {
+			switch stringValue(item["type"]) {
+			case "userMessage", "agentMessage":
+				count += 1
+			}
+		}
+	}
+
+	return count
 }
 
 func updateProjectedTurn(turns *[]ThreadTurn, turnID string, build func(current *ThreadTurn) ThreadTurn) {

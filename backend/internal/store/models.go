@@ -109,6 +109,8 @@ type Thread struct {
 	Name         string    `json:"name"`
 	Status       string    `json:"status"`
 	Archived     bool      `json:"archived"`
+	TurnCount    int       `json:"turnCount,omitempty"`
+	MessageCount int       `json:"messageCount,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -142,14 +144,15 @@ type ThreadTokenUsage struct {
 
 type ThreadDetail struct {
 	Thread
-	Cwd        string            `json:"cwd,omitempty"`
-	Preview    string            `json:"preview,omitempty"`
-	Path       string            `json:"path,omitempty"`
-	Source     string            `json:"source,omitempty"`
-	TokenUsage *ThreadTokenUsage `json:"tokenUsage,omitempty"`
-	TurnCount  int               `json:"turnCount"`
-	HasMoreTurns bool            `json:"hasMoreTurns,omitempty"`
-	Turns      []ThreadTurn      `json:"turns"`
+	Cwd          string            `json:"cwd,omitempty"`
+	Preview      string            `json:"preview,omitempty"`
+	Path         string            `json:"path,omitempty"`
+	Source       string            `json:"source,omitempty"`
+	TokenUsage   *ThreadTokenUsage `json:"tokenUsage,omitempty"`
+	TurnCount    int               `json:"turnCount"`
+	MessageCount int               `json:"messageCount,omitempty"`
+	HasMoreTurns bool              `json:"hasMoreTurns,omitempty"`
+	Turns        []ThreadTurn      `json:"turns"`
 }
 
 type ThreadProjection struct {
@@ -162,6 +165,8 @@ type ThreadProjection struct {
 	Status           string            `json:"status,omitempty"`
 	UpdatedAt        time.Time         `json:"updatedAt"`
 	TokenUsage       *ThreadTokenUsage `json:"tokenUsage,omitempty"`
+	TurnCount        int               `json:"turnCount,omitempty"`
+	MessageCount     int               `json:"messageCount,omitempty"`
 	SnapshotComplete bool              `json:"snapshotComplete,omitempty"`
 	Turns            []ThreadTurn      `json:"turns"`
 }
@@ -193,11 +198,29 @@ type RateLimit struct {
 }
 
 type CommandSession struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspaceId"`
-	Command     string    `json:"command"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID           string    `json:"id"`
+	WorkspaceID  string    `json:"workspaceId"`
+	Command      string    `json:"command"`
+	Mode         string    `json:"mode,omitempty"`
+	ShellPath    string    `json:"shellPath,omitempty"`
+	InitialCwd   string    `json:"initialCwd,omitempty"`
+	CurrentCwd   string    `json:"currentCwd,omitempty"`
+	ShellState   string    `json:"shellState,omitempty"`
+	LastExitCode *int      `json:"lastExitCode,omitempty"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+type CommandSessionSnapshot struct {
+	CommandSession
+	Archived       bool      `json:"archived,omitempty"`
+	CombinedOutput string    `json:"combinedOutput"`
+	Stdout         string    `json:"stdout"`
+	Stderr         string    `json:"stderr"`
+	ExitCode       *int      `json:"exitCode,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	Pinned         bool      `json:"pinned,omitempty"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type EventEnvelope struct {

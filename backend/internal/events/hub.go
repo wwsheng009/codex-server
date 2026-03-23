@@ -32,7 +32,7 @@ func (h *Hub) AttachStore(dataStore interface {
 }
 
 func (h *Hub) Subscribe(workspaceID string) (<-chan store.EventEnvelope, func()) {
-	ch := make(chan store.EventEnvelope, 32)
+	ch := make(chan store.EventEnvelope, 128)
 
 	h.mu.Lock()
 	if _, ok := h.subscribers[workspaceID]; !ok {
@@ -64,7 +64,7 @@ func (h *Hub) Subscribe(workspaceID string) (<-chan store.EventEnvelope, func())
 }
 
 func (h *Hub) SubscribeAll() (<-chan store.EventEnvelope, func()) {
-	ch := make(chan store.EventEnvelope, 64)
+	ch := make(chan store.EventEnvelope, 128)
 
 	h.mu.Lock()
 	h.globalSubscribers[ch] = struct{}{}
@@ -96,10 +96,12 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 	}
 	h.mu.RUnlock()
 
+	overflowedWorkspaceSubscribers := make([]chan store.EventEnvelope, 0)
 	for _, subscriber := range workspaceSubscribers {
 		select {
 		case subscriber <- event:
 		default:
+			overflowedWorkspaceSubscribers = append(overflowedWorkspaceSubscribers, subscriber)
 		}
 	}
 
@@ -112,5 +114,26 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 
 	if dataStore != nil {
 		dataStore.ApplyThreadEvent(event)
+	}
+
+	if len(overflowedWorkspaceSubscribers) == 0 {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	workspaceScopedSubscribers := h.subscribers[event.WorkspaceID]
+	for _, subscriber := range overflowedWorkspaceSubscribers {
+		if _, ok := workspaceScopedSubscribers[subscriber]; !ok {
+			continue
+		}
+
+		delete(workspaceScopedSubscribers, subscriber)
+		close(subscriber)
+	}
+
+	if len(workspaceScopedSubscribers) == 0 {
+		delete(h.subscribers, event.WorkspaceID)
 	}
 }

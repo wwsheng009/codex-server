@@ -172,6 +172,9 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/loaded", server.handleListLoadedThreads)
 				r.Post("/", server.handleCreateThread)
 				r.Get("/{threadId}", server.handleGetThread)
+				r.Get("/{threadId}/turns/{turnId}", server.handleGetThreadTurn)
+				r.Get("/{threadId}/turns/{turnId}/items/{itemId}", server.handleGetThreadTurnItem)
+				r.Get("/{threadId}/turns/{turnId}/items/{itemId}/output", server.handleGetThreadTurnItemOutput)
 				r.Delete("/{threadId}", server.handleDeleteThread)
 				r.Post("/{threadId}/resume", server.handleResumeThread)
 				r.Post("/{threadId}/fork", server.handleForkThread)
@@ -188,7 +191,14 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/{threadId}/review", server.handleReview)
 			})
 
+			r.Get("/{workspaceId}/commands", server.handleListCommandSessions)
+			r.Delete("/{workspaceId}/commands/completed", server.handleClearCompletedCommandSessions)
 			r.Post("/{workspaceId}/commands", server.handleStartCommand)
+			r.Post("/{workspaceId}/commands/{processId}/archive", server.handleArchiveCommandSession)
+			r.Post("/{workspaceId}/commands/{processId}/pin", server.handlePinCommandSession)
+			r.Post("/{workspaceId}/commands/{processId}/unarchive", server.handleUnarchiveCommandSession)
+			r.Post("/{workspaceId}/commands/{processId}/unpin", server.handleUnpinCommandSession)
+			r.Delete("/{workspaceId}/commands/{processId}", server.handleCloseCommandSession)
 			r.Post("/{workspaceId}/commands/{processId}/write", server.handleWriteCommand)
 			r.Post("/{workspaceId}/commands/{processId}/resize", server.handleResizeCommand)
 			r.Post("/{workspaceId}/commands/{processId}/terminate", server.handleTerminateCommand)
@@ -636,6 +646,7 @@ func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	threadID := chi.URLParam(r, "threadId")
 	beforeTurnID := strings.TrimSpace(r.URL.Query().Get("beforeTurnId"))
+	contentMode := strings.TrimSpace(r.URL.Query().Get("contentMode"))
 	turnLimit := 0
 	if value := strings.TrimSpace(r.URL.Query().Get("turnLimit")); value != "" {
 		parsedLimit, err := strconv.Atoi(value)
@@ -652,6 +663,7 @@ func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 		threadID,
 		turnLimit,
 		beforeTurnID,
+		contentMode,
 	)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -659,6 +671,93 @@ func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, thread)
+}
+
+func (s *Server) handleGetThreadTurn(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+	turnID := chi.URLParam(r, "turnId")
+	contentMode := strings.TrimSpace(r.URL.Query().Get("contentMode"))
+
+	turn, err := s.threads.GetTurn(
+		r.Context(),
+		workspaceID,
+		threadID,
+		turnID,
+		contentMode,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, turn)
+}
+
+func (s *Server) handleGetThreadTurnItem(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+	turnID := chi.URLParam(r, "turnId")
+	itemID := chi.URLParam(r, "itemId")
+	contentMode := strings.TrimSpace(r.URL.Query().Get("contentMode"))
+
+	item, err := s.threads.GetTurnItem(
+		r.Context(),
+		workspaceID,
+		threadID,
+		turnID,
+		itemID,
+		contentMode,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) handleGetThreadTurnItemOutput(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+	turnID := chi.URLParam(r, "turnId")
+	itemID := chi.URLParam(r, "itemId")
+	outputMode := strings.TrimSpace(r.URL.Query().Get("outputMode"))
+	beforeLine := 0
+	if value := strings.TrimSpace(r.URL.Query().Get("beforeLine")); value != "" {
+		parsedValue, err := strconv.Atoi(value)
+		if err != nil || parsedValue < 0 {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid beforeLine query")
+			return
+		}
+		beforeLine = parsedValue
+	}
+	tailLines := 0
+	if value := strings.TrimSpace(r.URL.Query().Get("tailLines")); value != "" {
+		parsedValue, err := strconv.Atoi(value)
+		if err != nil || parsedValue < 0 {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid tailLines query")
+			return
+		}
+		tailLines = parsedValue
+	}
+
+	output, err := s.threads.GetTurnItemOutput(
+		r.Context(),
+		workspaceID,
+		threadID,
+		turnID,
+		itemID,
+		outputMode,
+		tailLines,
+		beforeLine,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, output)
 }
 
 func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
@@ -894,6 +993,7 @@ func (s *Server) handleStartCommand(w http.ResponseWriter, r *http.Request) {
 
 	var request struct {
 		Command string `json:"command"`
+		Mode    string `json:"mode"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -901,13 +1001,93 @@ func (s *Server) handleStartCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := s.execfs.StartCommand(r.Context(), workspaceID, request.Command)
+	session, err := s.execfs.StartCommand(r.Context(), workspaceID, execfs.StartCommandInput{
+		Command: request.Command,
+		Mode:    request.Mode,
+	})
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
 
 	writeJSON(w, http.StatusAccepted, session)
+}
+
+func (s *Server) handleListCommandSessions(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	writeJSON(w, http.StatusOK, s.execfs.ListCommandSessions(workspaceID))
+}
+
+func (s *Server) handleClearCompletedCommandSessions(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	removed := s.execfs.ClearCompletedCommandSessions(workspaceID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"removedProcessIds": removed,
+		"status":            "accepted",
+	})
+}
+
+func (s *Server) handleCloseCommandSession(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	processID := chi.URLParam(r, "processId")
+	if err := s.execfs.CloseCommandSession(r.Context(), workspaceID, processID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handlePinCommandSession(w http.ResponseWriter, r *http.Request) {
+	s.handleSetCommandSessionPinned(w, r, true)
+}
+
+func (s *Server) handleArchiveCommandSession(w http.ResponseWriter, r *http.Request) {
+	s.handleSetCommandSessionArchived(w, r, true)
+}
+
+func (s *Server) handleUnpinCommandSession(w http.ResponseWriter, r *http.Request) {
+	s.handleSetCommandSessionPinned(w, r, false)
+}
+
+func (s *Server) handleUnarchiveCommandSession(w http.ResponseWriter, r *http.Request) {
+	s.handleSetCommandSessionArchived(w, r, false)
+}
+
+func (s *Server) handleSetCommandSessionPinned(
+	w http.ResponseWriter,
+	r *http.Request,
+	pinned bool,
+) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	processID := chi.URLParam(r, "processId")
+	if err := s.execfs.SetCommandSessionPinned(workspaceID, processID, pinned); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"pinned": pinned,
+		"status": "accepted",
+	})
+}
+
+func (s *Server) handleSetCommandSessionArchived(
+	w http.ResponseWriter,
+	r *http.Request,
+	archived bool,
+) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	processID := chi.URLParam(r, "processId")
+	if err := s.execfs.SetCommandSessionArchived(workspaceID, processID, archived); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"archived": archived,
+		"status":   "accepted",
+	})
 }
 
 func (s *Server) handleWriteCommand(w http.ResponseWriter, r *http.Request) {
@@ -1593,6 +1773,30 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := conn.WriteJSON(store.EventEnvelope{
+		WorkspaceID: workspaceID,
+		Method:      "command/exec/snapshot",
+		Payload: map[string]any{
+			"sessions": s.execfs.ListCommandSessions(workspaceID),
+		},
+		ServerRequestID: nil,
+		TS:              time.Now().UTC(),
+	}); err != nil {
+		return
+	}
+
+	if err := conn.WriteJSON(store.EventEnvelope{
+		WorkspaceID: workspaceID,
+		Method:      "approvals/snapshot",
+		Payload: map[string]any{
+			"approvals": s.approvals.List(workspaceID),
+		},
+		ServerRequestID: nil,
+		TS:              time.Now().UTC(),
+	}); err != nil {
+		return
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -1655,6 +1859,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "automation_run_not_found", err.Error())
 	case errors.Is(err, store.ErrNotificationNotFound):
 		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
+	case errors.Is(err, execfs.ErrCommandSessionNotFound):
+		writeError(w, http.StatusNotFound, "command_session_not_found", err.Error())
+	case errors.Is(err, execfs.ErrCommandStartCommandRequired), errors.Is(err, execfs.ErrCommandStartModeInvalid):
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, automations.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, automations.ErrImmutableTemplate):

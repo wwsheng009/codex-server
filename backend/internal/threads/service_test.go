@@ -2,6 +2,7 @@ package threads
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -541,11 +542,68 @@ func TestBuildCachedThreadDetailUsesProjectionSnapshot(t *testing.T) {
 	if detail.TurnCount != 2 {
 		t.Fatalf("expected cached detail turn count, got %d", detail.TurnCount)
 	}
+	if detail.MessageCount != 0 {
+		t.Fatalf("expected cached detail message count, got %d", detail.MessageCount)
+	}
 	if len(detail.Turns) != 2 || detail.Turns[0].ID != "turn-1" || detail.Turns[1].ID != "turn-2" {
 		t.Fatalf("unexpected cached turns: %+v", detail.Turns)
 	}
 	if detail.TokenUsage == nil || detail.TokenUsage.ModelContextWindow == nil || *detail.TokenUsage.ModelContextWindow != contextWindow {
 		t.Fatalf("expected cached token usage to survive, got %#v", detail.TokenUsage)
+	}
+}
+
+func TestEnrichThreadListCountsUsesProjectionSnapshot(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+
+	thread := store.Thread{
+		ID:          "thread-1",
+		WorkspaceID: workspace.ID,
+		Name:        "Thread A",
+		Status:      "idle",
+	}
+
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread:       thread,
+		TurnCount:    3,
+		MessageCount: 4,
+		Turns: []store.ThreadTurn{
+			{
+				ID: "turn-1",
+				Items: []map[string]any{
+					{"id": "user-1", "type": "userMessage"},
+					{"id": "assistant-1", "type": "agentMessage"},
+				},
+			},
+			{
+				ID: "turn-2",
+				Items: []map[string]any{
+					{"id": "assistant-2", "type": "agentMessage"},
+				},
+			},
+			{
+				ID: "turn-3",
+				Items: []map[string]any{
+					{"id": "user-2", "type": "userMessage"},
+					{"id": "tool-1", "type": "dynamicToolCall"},
+				},
+			},
+		},
+	})
+
+	items := service.enrichThreadListCounts(workspace.ID, []store.Thread{thread})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 thread, got %d", len(items))
+	}
+	if items[0].TurnCount != 3 {
+		t.Fatalf("expected list thread turn count 3, got %d", items[0].TurnCount)
+	}
+	if items[0].MessageCount != 4 {
+		t.Fatalf("expected list thread message count 4, got %d", items[0].MessageCount)
 	}
 }
 
@@ -564,12 +622,12 @@ func TestGetDetailWindowUsesCachedSnapshotWhenRuntimeIsNotLive(t *testing.T) {
 	}
 	dataStore.UpsertThread(thread)
 	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
-		Thread:     thread,
-		Cwd:        thread.Cwd,
-		Preview:    "cached preview",
-		Path:       `E:\projects\ai\codex-server\.codex\threads\thread-cache.jsonl`,
-		Source:     "cache",
-		TurnCount:  3,
+		Thread:    thread,
+		Cwd:       thread.Cwd,
+		Preview:   "cached preview",
+		Path:      `E:\projects\ai\codex-server\.codex\threads\thread-cache.jsonl`,
+		Source:    "cache",
+		TurnCount: 3,
 		Turns: []store.ThreadTurn{
 			{ID: "turn-1", Status: "completed"},
 			{ID: "turn-2", Status: "completed"},
@@ -578,7 +636,14 @@ func TestGetDetailWindowUsesCachedSnapshotWhenRuntimeIsNotLive(t *testing.T) {
 	})
 
 	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
-	detail, err := service.GetDetailWindow(context.Background(), workspace.ID, thread.ID, 2, "")
+	detail, err := service.GetDetailWindow(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		2,
+		"",
+		threadContentModeFull,
+	)
 	if err != nil {
 		t.Fatalf("GetDetailWindow() error = %v", err)
 	}
@@ -683,6 +748,346 @@ func TestShouldServeCurrentWindowFromCacheRejectsActiveTurns(t *testing.T) {
 	service := NewService(dataStore, runtimeManager)
 	if service.shouldServeCurrentWindowFromCache(workspace.ID, thread.ID) {
 		t.Fatal("expected active thread to bypass current-window cache")
+	}
+}
+
+func TestSummarizeThreadDetailContentTruncatesHeavySystemPayloads(t *testing.T) {
+	t.Parallel()
+
+	longOutput := strings.Repeat("output line\n", 4_000)
+	longReasoning := strings.Repeat("reasoning-", 600)
+	longArgument := strings.Repeat("argument-", 500)
+	longMessage := strings.Repeat("message-", 500)
+
+	detail := store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-summary",
+			WorkspaceID: "ws_1",
+			Name:        "Summary Thread",
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":   "user-1",
+						"type": "userMessage",
+						"content": []any{
+							map[string]any{
+								"type": "inputText",
+								"text": longMessage,
+							},
+						},
+					},
+					{
+						"id":               "cmd-1",
+						"type":             "commandExecution",
+						"command":          "npm test",
+						"aggregatedOutput": longOutput,
+					},
+					{
+						"id":      "reasoning-1",
+						"type":    "reasoning",
+						"summary": []any{longReasoning},
+						"content": []any{longReasoning},
+					},
+					{
+						"id":        "tool-1",
+						"type":      "mcpToolCall",
+						"arguments": map[string]any{"query": longArgument},
+					},
+					{
+						"id":   "assistant-1",
+						"type": "agentMessage",
+						"text": longMessage,
+					},
+				},
+			},
+		},
+	}
+
+	summarized := summarizeThreadDetailContent(detail)
+
+	userContent, _ := summarized.Turns[0].Items[0]["content"].([]any)
+	userEntry, _ := userContent[0].(map[string]any)
+	if len(stringValue(userEntry["text"])) >= len(longMessage) {
+		t.Fatalf("expected user message content to be truncated, got len=%d", len(stringValue(userEntry["text"])))
+	}
+
+	commandOutput := stringValue(summarized.Turns[0].Items[1]["aggregatedOutput"])
+	if len(commandOutput) >= len(longOutput) {
+		t.Fatalf("expected command output to be truncated, got len=%d", len(commandOutput))
+	}
+	if len(commandOutput) > threadSummaryCommandOutputPreviewLimit+5 {
+		t.Fatalf("expected summarized command preview to stay compact, got len=%d", len(commandOutput))
+	}
+	if summarized.Turns[0].Items[1]["summaryTruncated"] != true {
+		t.Fatalf("expected command item to be marked truncated, got %#v", summarized.Turns[0].Items[1]["summaryTruncated"])
+	}
+	if got := int64Value(summarized.Turns[0].Items[1]["outputLineCount"]); got != 4000 {
+		t.Fatalf("expected full output line count to be preserved, got %d", got)
+	}
+
+	reasoningSummary, _ := summarized.Turns[0].Items[2]["summary"].([]any)
+	if len(reasoningSummary) != 1 || len(stringValue(reasoningSummary[0])) >= len(longReasoning) {
+		t.Fatalf("expected reasoning summary to be truncated, got %#v", reasoningSummary)
+	}
+
+	toolArguments, _ := summarized.Turns[0].Items[3]["arguments"].(map[string]any)
+	if len(stringValue(toolArguments["query"])) >= len(longArgument) {
+		t.Fatalf("expected tool arguments to be truncated, got len=%d", len(stringValue(toolArguments["query"])))
+	}
+
+	assistantText := stringValue(summarized.Turns[0].Items[4]["text"])
+	if len(assistantText) >= len(longMessage) {
+		t.Fatalf("expected assistant message text to be truncated, got len=%d", len(assistantText))
+	}
+}
+
+func TestGetTurnItemUsesCachedSnapshotAndSupportsSummaryMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-item",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Thread Item",
+		Status:      "completed",
+		UpdatedAt:   time.Unix(100, 0).UTC(),
+	}
+	longOutput := strings.Repeat("output line\n", 4_000)
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread: thread,
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":               "cmd-1",
+						"type":             "commandExecution",
+						"command":          "npm test",
+						"aggregatedOutput": longOutput,
+					},
+				},
+			},
+		},
+	})
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+
+	fullItem, err := service.GetTurnItem(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		"turn-1",
+		"cmd-1",
+		threadContentModeFull,
+	)
+	if err != nil {
+		t.Fatalf("GetTurnItem(full) error = %v", err)
+	}
+	if got := stringValue(fullItem["aggregatedOutput"]); got != longOutput {
+		t.Fatalf("expected full item output to be preserved, got len=%d", len(got))
+	}
+
+	summaryItem, err := service.GetTurnItem(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		"turn-1",
+		"cmd-1",
+		threadContentModeSummary,
+	)
+	if err != nil {
+		t.Fatalf("GetTurnItem(summary) error = %v", err)
+	}
+	if got := stringValue(summaryItem["aggregatedOutput"]); len(got) >= len(longOutput) {
+		t.Fatalf("expected summarized item output to be truncated, got len=%d", len(got))
+	}
+	if summaryItem["summaryTruncated"] != true {
+		t.Fatalf("expected summarized item to be marked truncated, got %#v", summaryItem["summaryTruncated"])
+	}
+	if got := int64Value(summaryItem["outputLineCount"]); got != 4000 {
+		t.Fatalf("expected summarized item line count to be preserved, got %d", got)
+	}
+}
+
+func TestGetTurnItemOutputUsesCachedSnapshot(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-item-output",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Thread Item Output",
+		Status:      "completed",
+		UpdatedAt:   time.Unix(100, 0).UTC(),
+	}
+	longOutput := strings.Repeat("output line\n", 4_000)
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread: thread,
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":               "cmd-1",
+						"type":             "commandExecution",
+						"command":          "npm test",
+						"aggregatedOutput": longOutput,
+					},
+				},
+			},
+		},
+	})
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+
+	previewOutput, err := service.GetTurnItemOutput(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		"turn-1",
+		"cmd-1",
+		threadContentModeSummary,
+		0,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("GetTurnItemOutput() error = %v", err)
+	}
+	if previewOutput.ItemID != "cmd-1" {
+		t.Fatalf("expected item id cmd-1, got %q", previewOutput.ItemID)
+	}
+	if previewOutput.Command != "npm test" {
+		t.Fatalf("expected command to be included, got %q", previewOutput.Command)
+	}
+	if previewOutput.AggregatedOutput == longOutput {
+		t.Fatal("expected preview mode to truncate the command output")
+	}
+	if previewOutput.OutputContentMode != threadContentModeSummary {
+		t.Fatalf("expected preview content mode, got %q", previewOutput.OutputContentMode)
+	}
+	if !previewOutput.OutputTruncated {
+		t.Fatal("expected preview output to be marked truncated")
+	}
+	if previewOutput.OutputLineCount != 4000 {
+		t.Fatalf("expected preview output line count 4000, got %d", previewOutput.OutputLineCount)
+	}
+
+	tailOutput, err := service.GetTurnItemOutput(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		"turn-1",
+		"cmd-1",
+		threadOutputModeTail,
+		0,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("GetTurnItemOutput(tail) error = %v", err)
+	}
+	if tailOutput.AggregatedOutput == longOutput {
+		t.Fatal("expected tail mode to avoid loading the full command output")
+	}
+	if tailOutput.OutputContentMode != threadOutputModeTail {
+		t.Fatalf("expected tail content mode, got %q", tailOutput.OutputContentMode)
+	}
+	if !tailOutput.OutputTruncated {
+		t.Fatal("expected tail output to be marked truncated")
+	}
+	if tailOutput.OutputStartLine <= 0 {
+		t.Fatalf("expected tail output to include a start line, got %d", tailOutput.OutputStartLine)
+	}
+	if tailOutput.OutputEndLine != 4000 {
+		t.Fatalf("expected tail output end line 4000, got %d", tailOutput.OutputEndLine)
+	}
+	if tailOutput.OutputStartOffset <= 0 {
+		t.Fatalf("expected tail output to include a start offset, got %d", tailOutput.OutputStartOffset)
+	}
+	if tailOutput.OutputEndOffset != trimOutputLineBreakSuffix(longOutput) {
+		t.Fatalf(
+			"expected tail output end offset %d, got %d",
+			trimOutputLineBreakSuffix(longOutput),
+			tailOutput.OutputEndOffset,
+		)
+	}
+	if tailOutput.OutputTotalLength != len(longOutput) {
+		t.Fatalf("expected tail output total length %d, got %d", len(longOutput), tailOutput.OutputTotalLength)
+	}
+	if tailOutput.OutputLineCount != 4000 {
+		t.Fatalf("expected tail output line count 4000, got %d", tailOutput.OutputLineCount)
+	}
+
+	expandedTailOutput, err := service.GetTurnItemOutput(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		"turn-1",
+		"cmd-1",
+		threadOutputModeTail,
+		threadExpandedCommandOutputTailLineLimit,
+		tailOutput.OutputStartLine,
+	)
+	if err != nil {
+		t.Fatalf("GetTurnItemOutput(expanded tail) error = %v", err)
+	}
+	if expandedTailOutput.OutputContentMode != threadOutputModeTail {
+		t.Fatalf("expected expanded tail content mode, got %q", expandedTailOutput.OutputContentMode)
+	}
+	if expandedTailOutput.OutputStartLine >= tailOutput.OutputStartLine {
+		t.Fatalf("expected expanded tail to move the start line earlier, got %d then %d", tailOutput.OutputStartLine, expandedTailOutput.OutputStartLine)
+	}
+	if expandedTailOutput.OutputEndLine != tailOutput.OutputStartLine {
+		t.Fatalf(
+			"expected expanded tail chunk to end where the current tail begins, got %d",
+			expandedTailOutput.OutputEndLine,
+		)
+	}
+	if expandedTailOutput.OutputStartOffset >= tailOutput.OutputStartOffset {
+		t.Fatalf("expected expanded tail to move the start offset earlier, got %d then %d", tailOutput.OutputStartOffset, expandedTailOutput.OutputStartOffset)
+	}
+	if len(expandedTailOutput.AggregatedOutput) == 0 {
+		t.Fatal("expected expanded tail chunk to contain output")
+	}
+	if expandedTailOutput.OutputEndOffset != tailOutput.OutputStartOffset {
+		t.Fatalf("expected expanded tail chunk to end where the current tail begins, got %d", expandedTailOutput.OutputEndOffset)
+	}
+
+	fullOutput, err := service.GetTurnItemOutput(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		"turn-1",
+		"cmd-1",
+		threadContentModeFull,
+		0,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("GetTurnItemOutput(full) error = %v", err)
+	}
+	if fullOutput.AggregatedOutput != longOutput {
+		t.Fatalf("expected full command output, got len=%d", len(fullOutput.AggregatedOutput))
+	}
+	if fullOutput.OutputContentMode != threadContentModeFull {
+		t.Fatalf("expected full content mode, got %q", fullOutput.OutputContentMode)
+	}
+	if fullOutput.OutputTruncated {
+		t.Fatal("expected full output not to be marked truncated")
+	}
+	if fullOutput.OutputLineCount != 4000 {
+		t.Fatalf("expected full output line count 4000, got %d", fullOutput.OutputLineCount)
 	}
 }
 

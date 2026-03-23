@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"codex-server/backend/internal/bridge"
 	appconfig "codex-server/backend/internal/config"
@@ -19,10 +20,39 @@ type Service struct {
 	runtimes *runtime.Manager
 }
 
+const (
+	threadContentModeFull    = "full"
+	threadContentModeSummary = "summary"
+	threadOutputModeTail     = "tail"
+
+	threadSummaryPreviewLimit                = 400
+	threadSummaryPlanTextLimit               = 1_200
+	threadSummaryCommandLimit                = 400
+	threadSummaryCommandOutputPreviewLimit   = 800
+	threadExpandedCommandOutputPreviewLimit  = 8_000
+	threadExpandedCommandOutputTailLineLimit = 1_200
+	threadSummaryMessageTextLimit            = 1_600
+	threadSummaryNestedStringLimit           = 1_200
+)
+
 type CreateInput struct {
 	Name             string
 	Model            string
 	PermissionPreset string
+}
+
+type ThreadTurnItemOutput struct {
+	ItemID            string `json:"itemId"`
+	Command           string `json:"command,omitempty"`
+	AggregatedOutput  string `json:"aggregatedOutput"`
+	OutputLineCount   int    `json:"outputLineCount,omitempty"`
+	OutputContentMode string `json:"outputContentMode,omitempty"`
+	OutputStartLine   int    `json:"outputStartLine,omitempty"`
+	OutputEndLine     int    `json:"outputEndLine,omitempty"`
+	OutputStartOffset int    `json:"outputStartOffset,omitempty"`
+	OutputEndOffset   int    `json:"outputEndOffset,omitempty"`
+	OutputTotalLength int    `json:"outputTotalLength,omitempty"`
+	OutputTruncated   bool   `json:"outputTruncated,omitempty"`
 }
 
 func NewService(dataStore *store.MemoryStore, runtimeManager *runtime.Manager) *Service {
@@ -47,6 +77,7 @@ func (s *Service) List(ctx context.Context, workspaceID string) ([]store.Thread,
 	items := append(activeThreads, archivedThreads...)
 	items = mergeThreads(items, filterStoredThreads(s.store.ListThreads(workspaceID), rootPath))
 	items = filterDeletedThreads(items, workspaceID, s.store)
+	items = s.enrichThreadListCounts(workspaceID, items)
 	sort.Slice(items, func(i int, j int) bool {
 		return items[i].UpdatedAt.After(items[j].UpdatedAt)
 	})
@@ -176,7 +207,150 @@ func (s *Service) Get(ctx context.Context, workspaceID string, threadID string) 
 }
 
 func (s *Service) GetDetail(ctx context.Context, workspaceID string, threadID string) (store.ThreadDetail, error) {
-	return s.GetDetailWindow(ctx, workspaceID, threadID, 0, "")
+	return s.GetDetailWindow(ctx, workspaceID, threadID, 0, "", threadContentModeFull)
+}
+
+func (s *Service) GetTurn(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	turnID string,
+	contentMode string,
+) (store.ThreadTurn, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return store.ThreadTurn{}, err
+	}
+
+	contentMode = normalizeThreadContentMode(contentMode)
+	if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+		if turn, found := findThreadTurnByID(cachedDetail.Turns, turnID); found {
+			if contentMode == threadContentModeSummary {
+				return summarizeThreadTurn(turn), nil
+			}
+			return cloneThreadTurn(turn), nil
+		}
+	}
+
+	detail, err := s.GetDetailWindow(ctx, workspaceID, threadID, 0, "", threadContentModeFull)
+	if err != nil {
+		return store.ThreadTurn{}, err
+	}
+
+	turn, found := findThreadTurnByID(detail.Turns, turnID)
+	if !found {
+		return store.ThreadTurn{}, store.ErrThreadNotFound
+	}
+
+	if contentMode == threadContentModeSummary {
+		return summarizeThreadTurn(turn), nil
+	}
+
+	return cloneThreadTurn(turn), nil
+}
+
+func (s *Service) GetTurnItem(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	turnID string,
+	itemID string,
+	contentMode string,
+) (map[string]any, error) {
+	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
+		return nil, err
+	}
+
+	contentMode = normalizeThreadContentMode(contentMode)
+	if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+		if turn, found := findThreadTurnByID(cachedDetail.Turns, turnID); found {
+			if item, itemFound := findThreadTurnItemByID(turn.Items, itemID); itemFound {
+				if contentMode == threadContentModeSummary {
+					return summarizeThreadItem(item), nil
+				}
+				return cloneItem(item), nil
+			}
+		}
+	}
+
+	detail, err := s.GetDetailWindow(ctx, workspaceID, threadID, 0, "", threadContentModeFull)
+	if err != nil {
+		return nil, err
+	}
+
+	turn, found := findThreadTurnByID(detail.Turns, turnID)
+	if !found {
+		return nil, store.ErrThreadNotFound
+	}
+
+	item, found := findThreadTurnItemByID(turn.Items, itemID)
+	if !found {
+		return nil, store.ErrThreadNotFound
+	}
+
+	if contentMode == threadContentModeSummary {
+		return summarizeThreadItem(item), nil
+	}
+
+	return cloneItem(item), nil
+}
+
+func (s *Service) GetTurnItemOutput(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	turnID string,
+	itemID string,
+	outputMode string,
+	tailLines int,
+	beforeLine int,
+) (ThreadTurnItemOutput, error) {
+	item, err := s.GetTurnItem(
+		ctx,
+		workspaceID,
+		threadID,
+		turnID,
+		itemID,
+		threadContentModeFull,
+	)
+	if err != nil {
+		return ThreadTurnItemOutput{}, err
+	}
+
+	if stringValue(item["type"]) != "commandExecution" {
+		return ThreadTurnItemOutput{}, store.ErrThreadNotFound
+	}
+
+	outputMode = normalizeThreadOutputContentMode(outputMode)
+	output := stringValue(item["aggregatedOutput"])
+	result := ThreadTurnItemOutput{
+		ItemID:            itemID,
+		Command:           stringValue(item["command"]),
+		AggregatedOutput:  output,
+		OutputLineCount:   countOutputLines(output),
+		OutputContentMode: threadContentModeFull,
+		OutputStartLine:   0,
+		OutputEndLine:     countOutputLines(output),
+		OutputStartOffset: 0,
+		OutputEndOffset:   len(output),
+		OutputTotalLength: len(output),
+	}
+
+	if outputMode == threadContentModeSummary {
+		if preview, truncated := truncateMiddleSummaryString(output, threadExpandedCommandOutputPreviewLimit); truncated {
+			result.AggregatedOutput = preview
+			result.OutputContentMode = threadContentModeSummary
+			result.OutputTruncated = true
+		}
+	} else if outputMode == threadOutputModeTail {
+		result = buildTailThreadTurnItemOutput(
+			result,
+			output,
+			normalizeThreadOutputTailLines(tailLines),
+			normalizeThreadOutputBeforeLine(beforeLine, result.OutputLineCount),
+		)
+	}
+
+	return result, nil
 }
 
 func (s *Service) GetDetailWindow(
@@ -185,26 +359,28 @@ func (s *Service) GetDetailWindow(
 	threadID string,
 	turnLimit int,
 	beforeTurnID string,
+	contentMode string,
 ) (store.ThreadDetail, error) {
+	contentMode = normalizeThreadContentMode(contentMode)
 	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
 		return store.ThreadDetail{}, err
 	}
 
 	if beforeTurnID != "" {
 		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok && threadDetailHasTurnID(cachedDetail, beforeTurnID) {
-			return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+			return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 		}
 	}
 
 	if turnLimit > 0 && beforeTurnID == "" && s.shouldServeCurrentWindowFromCache(workspaceID, threadID) {
 		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
-			return sliceThreadDetailTurns(cachedDetail, turnLimit, ""), nil
+			return finalizeThreadDetailResponse(cachedDetail, turnLimit, "", contentMode), nil
 		}
 	}
 
 	if turnLimit > 0 && !runtimeStateIsLive(s.runtimes.State(workspaceID).Status) {
 		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
-			return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+			return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 		}
 	}
 
@@ -212,7 +388,7 @@ func (s *Service) GetDetailWindow(
 	if err != nil {
 		if !isThreadTurnsUnavailableBeforeFirstUserMessage(err) {
 			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
-				return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+				return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 			}
 			return store.ThreadDetail{}, err
 		}
@@ -220,7 +396,7 @@ func (s *Service) GetDetailWindow(
 		threadData, err = s.readThread(ctx, workspaceID, threadID, false)
 		if err != nil {
 			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
-				return sliceThreadDetailTurns(cachedDetail, turnLimit, beforeTurnID), nil
+				return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 			}
 			return store.ThreadDetail{}, err
 		}
@@ -245,19 +421,34 @@ func (s *Service) GetDetailWindow(
 		Source:       stringValue(threadData["source"]),
 		TokenUsage:   mapThreadTokenUsage(threadData["tokenUsage"]),
 		TurnCount:    len(turns),
+		MessageCount: countThreadMessages(turns),
 		HasMoreTurns: false,
 		Turns:        turns,
 	}
 
 	projectedDetail := applyStoredProjection(detail, s.store, s.runtimes, workspaceID, threadID)
 	projectedDetail.TurnCount = len(projectedDetail.Turns)
+	projectedDetail.MessageCount = countThreadMessages(projectedDetail.Turns)
 	s.store.UpsertThreadProjectionSnapshot(projectedDetail)
 
+	return finalizeThreadDetailResponse(projectedDetail, turnLimit, beforeTurnID, contentMode), nil
+}
+
+func finalizeThreadDetailResponse(
+	detail store.ThreadDetail,
+	turnLimit int,
+	beforeTurnID string,
+	contentMode string,
+) store.ThreadDetail {
 	if turnLimit > 0 {
-		projectedDetail = sliceThreadDetailTurns(projectedDetail, turnLimit, beforeTurnID)
+		detail = sliceThreadDetailTurns(detail, turnLimit, beforeTurnID)
 	}
 
-	return projectedDetail, nil
+	if contentMode == threadContentModeSummary {
+		detail = summarizeThreadDetailContent(detail)
+	}
+
+	return detail
 }
 
 func (s *Service) cachedThreadDetail(workspaceID string, threadID string) (store.ThreadDetail, bool) {
@@ -280,6 +471,7 @@ func (s *Service) cachedThreadDetail(workspaceID string, threadID string) (store
 	detail := buildCachedThreadDetail(thread, projection)
 	detail.Turns = reconcileServerRequestStatuses(detail.Turns, s.runtimes)
 	detail.TurnCount = len(detail.Turns)
+	detail.MessageCount = countThreadMessages(detail.Turns)
 	return detail, true
 }
 
@@ -328,9 +520,17 @@ func buildCachedThreadDetail(thread store.Thread, projection store.ThreadProject
 		Path:         projection.Path,
 		Source:       projection.Source,
 		TokenUsage:   cloneThreadTokenUsageLocal(projection.TokenUsage),
-		TurnCount:    len(projection.Turns),
+		TurnCount:    projection.TurnCount,
+		MessageCount: projection.MessageCount,
 		HasMoreTurns: false,
 		Turns:        cloneThreadTurnsLocal(projection.Turns),
+	}
+
+	if detail.TurnCount == 0 && len(projection.Turns) > 0 {
+		detail.TurnCount = len(projection.Turns)
+	}
+	if detail.MessageCount == 0 && len(projection.Turns) > 0 {
+		detail.MessageCount = countThreadMessages(projection.Turns)
 	}
 
 	if projection.Status != "" {
@@ -1136,6 +1336,26 @@ func cloneThreadTurn(turn store.ThreadTurn) store.ThreadTurn {
 	}
 }
 
+func findThreadTurnByID(turns []store.ThreadTurn, turnID string) (store.ThreadTurn, bool) {
+	for _, turn := range turns {
+		if turn.ID == turnID {
+			return turn, true
+		}
+	}
+
+	return store.ThreadTurn{}, false
+}
+
+func findThreadTurnItemByID(items []map[string]any, itemID string) (map[string]any, bool) {
+	for _, item := range items {
+		if stringValue(item["id"]) == itemID {
+			return item, true
+		}
+	}
+
+	return nil, false
+}
+
 func cloneItems(items []map[string]any) []map[string]any {
 	if len(items) == 0 {
 		return []map[string]any{}
@@ -1160,6 +1380,355 @@ func cloneItem(item map[string]any) map[string]any {
 	return cloned
 }
 
+func normalizeThreadContentMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case threadContentModeSummary:
+		return threadContentModeSummary
+	default:
+		return threadContentModeFull
+	}
+}
+
+func normalizeThreadOutputContentMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case threadContentModeSummary:
+		return threadContentModeSummary
+	case threadOutputModeTail:
+		return threadOutputModeTail
+	default:
+		return threadContentModeFull
+	}
+}
+
+func normalizeThreadOutputTailLines(value int) int {
+	if value <= 0 {
+		return threadExpandedCommandOutputTailLineLimit
+	}
+
+	return value
+}
+
+func normalizeThreadOutputBeforeLine(value int, totalLines int) int {
+	if totalLines <= 0 {
+		return 0
+	}
+
+	if value <= 0 || value > totalLines {
+		return totalLines
+	}
+
+	return value
+}
+
+func buildTailThreadTurnItemOutput(
+	result ThreadTurnItemOutput,
+	fullOutput string,
+	tailLines int,
+	beforeLine int,
+) ThreadTurnItemOutput {
+	lineRanges := buildOutputLineRanges(fullOutput)
+	totalLines := len(lineRanges)
+	if totalLines == 0 {
+		result.OutputContentMode = threadContentModeFull
+		return result
+	}
+
+	endLine := beforeLine
+	if endLine <= 0 || endLine > totalLines {
+		endLine = totalLines
+	}
+	startLine := endLine - tailLines
+	if startLine < 0 {
+		startLine = 0
+	}
+
+	startOffset := lineRanges[startLine].start
+	endOffset := lineRanges[endLine-1].end
+
+	result.OutputStartLine = startLine
+	result.OutputEndLine = endLine
+	result.OutputStartOffset = startOffset
+	result.OutputEndOffset = endOffset
+	result.AggregatedOutput = fullOutput[startOffset:endOffset]
+	if startLine == 0 && endLine == totalLines {
+		result.OutputContentMode = threadContentModeFull
+		return result
+	}
+
+	result.OutputContentMode = threadOutputModeTail
+	result.OutputTruncated = true
+	return result
+}
+
+type outputLineRange struct {
+	start int
+	end   int
+}
+
+func buildOutputLineRanges(value string) []outputLineRange {
+	displayEnd := trimOutputLineBreakSuffix(value)
+	if displayEnd <= 0 {
+		return nil
+	}
+
+	ranges := make([]outputLineRange, 0, strings.Count(value[:displayEnd], "\n")+1)
+	lineStart := 0
+	for index := 0; index < displayEnd; index += 1 {
+		if value[index] != '\n' {
+			continue
+		}
+
+		ranges = append(ranges, outputLineRange{
+			start: lineStart,
+			end:   index + 1,
+		})
+		lineStart = index + 1
+	}
+
+	if lineStart < displayEnd {
+		ranges = append(ranges, outputLineRange{
+			start: lineStart,
+			end:   displayEnd,
+		})
+	}
+
+	return ranges
+}
+
+func trimOutputLineBreakSuffix(value string) int {
+	end := len(value)
+	for end > 0 {
+		switch value[end-1] {
+		case '\n', '\r':
+			end -= 1
+		default:
+			return end
+		}
+	}
+
+	return end
+}
+
+func summarizeThreadDetailContent(detail store.ThreadDetail) store.ThreadDetail {
+	next := detail
+	next.Preview, _ = truncateSummaryString(detail.Preview, threadSummaryPreviewLimit)
+	next.Turns = summarizeThreadTurns(detail.Turns)
+	return next
+}
+
+func summarizeThreadTurns(turns []store.ThreadTurn) []store.ThreadTurn {
+	if len(turns) == 0 {
+		return []store.ThreadTurn{}
+	}
+
+	nextTurns := cloneThreadTurnsLocal(turns)
+	for turnIndex := range nextTurns {
+		nextTurns[turnIndex] = summarizeThreadTurn(nextTurns[turnIndex])
+	}
+
+	return nextTurns
+}
+
+func summarizeThreadTurn(turn store.ThreadTurn) store.ThreadTurn {
+	nextTurn := cloneThreadTurn(turn)
+	for itemIndex := range nextTurn.Items {
+		nextTurn.Items[itemIndex] = summarizeThreadItem(nextTurn.Items[itemIndex])
+	}
+
+	return nextTurn
+}
+
+func summarizeThreadItem(item map[string]any) map[string]any {
+	if item == nil {
+		return map[string]any{}
+	}
+
+	next := cloneItem(item)
+	summaryTruncated := false
+
+	switch stringValue(next["type"]) {
+	case "userMessage":
+		if content, truncated := summarizeUserMessageContent(next["content"]); truncated {
+			next["content"] = content
+			summaryTruncated = true
+		}
+	case "agentMessage":
+		if text, truncated := truncateSummaryString(
+			stringValue(next["text"]),
+			threadSummaryMessageTextLimit,
+		); truncated {
+			next["text"] = text
+			summaryTruncated = true
+		}
+	case "commandExecution":
+		output := stringValue(next["aggregatedOutput"])
+		if outputPreview, truncated := truncateMiddleSummaryString(
+			output,
+			threadSummaryCommandOutputPreviewLimit,
+		); truncated {
+			next["aggregatedOutput"] = outputPreview
+			if outputLineCount := countOutputLines(output); outputLineCount > 0 {
+				next["outputLineCount"] = outputLineCount
+			}
+			summaryTruncated = true
+		}
+		if command, truncated := truncateSummaryString(
+			stringValue(next["command"]),
+			threadSummaryCommandLimit,
+		); truncated {
+			next["command"] = command
+			summaryTruncated = true
+		}
+	case "reasoning":
+		if summary, truncated := summarizeStringSlice(next["summary"]); truncated {
+			next["summary"] = summary
+			summaryTruncated = true
+		}
+		if content, truncated := summarizeStringSlice(next["content"]); truncated {
+			next["content"] = content
+			summaryTruncated = true
+		}
+	case "plan":
+		if text, truncated := truncateSummaryString(
+			stringValue(next["text"]),
+			threadSummaryPlanTextLimit,
+		); truncated {
+			next["text"] = text
+			summaryTruncated = true
+		}
+	case "serverRequest":
+		var truncated bool
+		next["details"], truncated = summarizeNestedValue(next["details"])
+		summaryTruncated = summaryTruncated || truncated
+		next["error"], truncated = summarizeNestedValue(next["error"])
+		summaryTruncated = summaryTruncated || truncated
+	case "mcpToolCall", "dynamicToolCall", "collabAgentToolCall":
+		for _, key := range []string{"arguments", "result", "contentItems", "agentsStates", "error"} {
+			value, truncated := summarizeNestedValue(next[key])
+			next[key] = value
+			summaryTruncated = summaryTruncated || truncated
+		}
+	default:
+		for _, key := range []string{"error", "message"} {
+			value, truncated := summarizeNestedValue(next[key])
+			next[key] = value
+			summaryTruncated = summaryTruncated || truncated
+		}
+	}
+
+	if summaryTruncated {
+		next["summaryTruncated"] = true
+	}
+
+	return next
+}
+
+func summarizeStringSlice(value any) ([]any, bool) {
+	rawItems, ok := value.([]any)
+	if !ok || len(rawItems) == 0 {
+		return rawItems, false
+	}
+
+	nextItems := make([]any, len(rawItems))
+	truncated := false
+	for index, rawItem := range rawItems {
+		text, didTruncate := truncateSummaryString(stringValue(rawItem), threadSummaryNestedStringLimit)
+		nextItems[index] = text
+		truncated = truncated || didTruncate
+	}
+
+	return nextItems, truncated
+}
+
+func summarizeUserMessageContent(value any) ([]any, bool) {
+	rawItems, ok := value.([]any)
+	if !ok || len(rawItems) == 0 {
+		return rawItems, false
+	}
+
+	nextItems := make([]any, len(rawItems))
+	truncated := false
+	for index, rawItem := range rawItems {
+		entry, ok := rawItem.(map[string]any)
+		if !ok {
+			nextItems[index] = rawItem
+			continue
+		}
+
+		nextEntry := cloneItem(entry)
+		if text, didTruncate := truncateSummaryString(
+			stringValue(nextEntry["text"]),
+			threadSummaryMessageTextLimit,
+		); didTruncate {
+			nextEntry["text"] = text
+			truncated = true
+		}
+		nextItems[index] = nextEntry
+	}
+
+	return nextItems, truncated
+}
+
+func summarizeNestedValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case string:
+		return truncateSummaryString(typed, threadSummaryNestedStringLimit)
+	case []any:
+		nextItems := make([]any, len(typed))
+		truncated := false
+		for index, item := range typed {
+			nextItems[index], truncated = summarizeNestedValueTracked(item, truncated)
+		}
+		return nextItems, truncated
+	case map[string]any:
+		next := make(map[string]any, len(typed))
+		truncated := false
+		for key, item := range typed {
+			next[key], truncated = summarizeNestedValueTracked(item, truncated)
+		}
+		return next, truncated
+	default:
+		return value, false
+	}
+}
+
+func summarizeNestedValueTracked(value any, truncated bool) (any, bool) {
+	nextValue, didTruncate := summarizeNestedValue(value)
+	return nextValue, truncated || didTruncate
+}
+
+func truncateSummaryString(value string, maxLen int) (string, bool) {
+	if len(value) <= maxLen || maxLen <= 0 {
+		return value, false
+	}
+
+	return value[:maxLen] + "…", true
+}
+
+func truncateMiddleSummaryString(value string, maxLen int) (string, bool) {
+	if len(value) <= maxLen || maxLen <= 0 {
+		return value, false
+	}
+
+	if maxLen < 80 {
+		return value[:maxLen] + "…", true
+	}
+
+	headLen := maxLen / 2
+	tailLen := maxLen - headLen
+	return value[:headLen] + "\n…\n" + value[len(value)-tailLen:], true
+}
+
+func countOutputLines(value string) int {
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	trimmed := strings.TrimRightFunc(normalized, unicode.IsSpace)
+	if trimmed == "" {
+		return 0
+	}
+
+	return strings.Count(trimmed, "\n") + 1
+}
+
 func mapThread(workspaceID string, raw map[string]any, archived bool) store.Thread {
 	return store.Thread{
 		ID:           stringValue(raw["id"]),
@@ -1169,9 +1738,51 @@ func mapThread(workspaceID string, raw map[string]any, archived bool) store.Thre
 		Name:         threadDisplayName(raw),
 		Status:       nestedType(raw["status"]),
 		Archived:     archived,
+		TurnCount:    int(int64Value(raw["turnCount"])),
+		MessageCount: int(int64Value(raw["messageCount"])),
 		CreatedAt:    unixSeconds(raw["createdAt"]),
 		UpdatedAt:    unixSeconds(raw["updatedAt"]),
 	}
+}
+
+func (s *Service) enrichThreadListCounts(workspaceID string, items []store.Thread) []store.Thread {
+	if len(items) == 0 {
+		return items
+	}
+
+	nextItems := append([]store.Thread{}, items...)
+	for index := range nextItems {
+		projection, ok := s.store.GetThreadProjection(workspaceID, nextItems[index].ID)
+		if !ok || !projection.SnapshotComplete {
+			continue
+		}
+
+		nextItems[index].TurnCount = projection.TurnCount
+		nextItems[index].MessageCount = projection.MessageCount
+
+		if nextItems[index].TurnCount == 0 && len(projection.Turns) > 0 {
+			nextItems[index].TurnCount = len(projection.Turns)
+		}
+		if nextItems[index].MessageCount == 0 && len(projection.Turns) > 0 {
+			nextItems[index].MessageCount = countThreadMessages(projection.Turns)
+		}
+	}
+
+	return nextItems
+}
+
+func countThreadMessages(turns []store.ThreadTurn) int {
+	count := 0
+	for _, turn := range turns {
+		for _, item := range turn.Items {
+			switch stringValue(item["type"]) {
+			case "userMessage", "agentMessage":
+				count += 1
+			}
+		}
+	}
+
+	return count
 }
 
 func threadDisplayName(raw map[string]any) string {

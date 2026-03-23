@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPersistentStoreRoundTrip(t *testing.T) {
@@ -324,6 +325,145 @@ func TestThreadProjectionPersistsServerRequests(t *testing.T) {
 	}
 	if got := projection.Turns[0].Items[0]["status"]; got != "resolved" {
 		t.Fatalf("expected resolved request status, got %#v", got)
+	}
+}
+
+func TestPersistentStorePersistsCommandSessions(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	firstStore.UpsertCommandSessionSnapshot(CommandSessionSnapshot{
+		CommandSession: CommandSession{
+			ID:          "proc_001",
+			WorkspaceID: workspace.ID,
+			Command:     "echo hello",
+			Mode:        "command",
+			ShellPath:   "cmd.exe",
+			InitialCwd:  workspace.RootPath,
+			CurrentCwd:  workspace.RootPath,
+			Status:      "completed",
+			CreatedAt:   time.Now().UTC().Add(-time.Minute),
+		},
+		CombinedOutput: "hello\r\n",
+		Stdout:         "hello\r\n",
+		UpdatedAt:      time.Now().UTC(),
+	})
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	sessions := secondStore.ListCommandSessions(workspace.ID)
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 command session after reload, got %d", len(sessions))
+	}
+	if sessions[0].CombinedOutput != "hello\r\n" {
+		t.Fatalf("expected persisted combined output, got %q", sessions[0].CombinedOutput)
+	}
+	if sessions[0].Mode != "command" || sessions[0].ShellPath != "cmd.exe" {
+		t.Fatalf("expected persisted command session metadata, got %#v", sessions[0])
+	}
+	if sessions[0].CurrentCwd != workspace.RootPath {
+		t.Fatalf("expected persisted command session cwd, got %q", sessions[0].CurrentCwd)
+	}
+}
+
+func TestCommandSessionRetentionAndTTL(t *testing.T) {
+	t.Parallel()
+
+	dataStore := NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	now := time.Now().UTC()
+
+	for index := 0; index < 10; index += 1 {
+		dataStore.UpsertCommandSessionSnapshot(CommandSessionSnapshot{
+			CommandSession: CommandSession{
+				ID:          "proc_" + string(rune('a'+index)),
+				WorkspaceID: workspace.ID,
+				Command:     "echo test",
+				Status:      "completed",
+				CreatedAt:   now.Add(-time.Duration(index) * time.Minute),
+			},
+			UpdatedAt: now.Add(-time.Duration(index) * time.Minute),
+		})
+	}
+
+	sessions := dataStore.ListCommandSessions(workspace.ID)
+	if len(sessions) != 10 {
+		t.Fatalf("expected 10 command sessions before retention overflow, got %d", len(sessions))
+	}
+
+	dataStore.UpsertCommandSessionSnapshot(CommandSessionSnapshot{
+		CommandSession: CommandSession{
+			ID:          "proc_expired",
+			WorkspaceID: workspace.ID,
+			Command:     "echo old",
+			Status:      "completed",
+			CreatedAt:   now.Add(-48 * time.Hour),
+		},
+		UpdatedAt: now.Add(-48 * time.Hour),
+	})
+
+	removed := dataStore.PruneExpiredCommandSessions(now)
+	if len(removed) == 0 {
+		t.Fatal("expected expired command session to be pruned")
+	}
+
+	for index := 10; index < 16; index += 1 {
+		dataStore.UpsertCommandSessionSnapshot(CommandSessionSnapshot{
+			CommandSession: CommandSession{
+				ID:          "proc_" + string(rune('a'+index)),
+				WorkspaceID: workspace.ID,
+				Command:     "echo test",
+				Status:      "completed",
+				CreatedAt:   now.Add(-time.Duration(index) * time.Minute),
+			},
+			UpdatedAt: now.Add(-time.Duration(index) * time.Minute),
+		})
+	}
+
+	sessions = dataStore.ListCommandSessions(workspace.ID)
+	if len(sessions) != commandSessionRetentionLimit {
+		t.Fatalf("expected retention limit %d after overflow, got %d", commandSessionRetentionLimit, len(sessions))
+	}
+}
+
+func TestPinnedAndArchivedCommandSessionsAreCapped(t *testing.T) {
+	t.Parallel()
+
+	dataStore := NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	now := time.Now().UTC()
+
+	for index := 0; index < commandSessionPinnedArchivedLimit+6; index += 1 {
+		dataStore.UpsertCommandSessionSnapshot(CommandSessionSnapshot{
+			CommandSession: CommandSession{
+				ID:          "proc_pinned_" + string(rune('a'+index)),
+				WorkspaceID: workspace.ID,
+				Command:     "echo pinned",
+				Status:      "completed",
+				CreatedAt:   now.Add(-time.Duration(index) * time.Minute),
+			},
+			Pinned:    true,
+			UpdatedAt: now.Add(-time.Duration(index) * time.Minute),
+		})
+	}
+
+	sessions := dataStore.ListCommandSessions(workspace.ID)
+	if len(sessions) != commandSessionPinnedArchivedLimit {
+		t.Fatalf(
+			"expected pinned/archived retention limit %d after overflow, got %d",
+			commandSessionPinnedArchivedLimit,
+			len(sessions),
+		)
 	}
 }
 

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -19,6 +20,8 @@ var (
 	ErrServerRequestNotFound = errors.New("server request not found")
 	ErrNoActiveTurn          = errors.New("no active turn")
 )
+
+const commandOutputBatchWindow = 16 * time.Millisecond
 
 type State struct {
 	WorkspaceID string     `json:"workspaceId"`
@@ -50,14 +53,22 @@ type Manager struct {
 }
 
 type instance struct {
-	mu          sync.RWMutex
-	manager     *Manager
-	workspaceID string
-	rootPath    string
-	client      *bridge.Client
-	expectClose bool
-	state       State
-	activeTurns map[string]string
+	mu                      sync.RWMutex
+	manager                 *Manager
+	workspaceID             string
+	rootPath                string
+	client                  *bridge.Client
+	expectClose             bool
+	state                   State
+	activeTurns             map[string]string
+	commandOutputFlushTimer *time.Timer
+	pendingCommandOutput    []pendingCommandOutputChunk
+}
+
+type pendingCommandOutputChunk struct {
+	delta     []byte
+	processID string
+	stream    string
 }
 
 func NewManager(command string, eventHub *events.Hub) *Manager {
@@ -410,6 +421,12 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 }
 
 func (r *instance) HandleNotification(method string, params json.RawMessage) {
+	if method == "command/exec/outputDelta" && r.queueCommandOutputDelta(params) {
+		return
+	}
+
+	r.flushPendingCommandOutput()
+
 	payload := decodePayload(params)
 	threadID, turnID := extractContext(payload)
 
@@ -426,6 +443,8 @@ func (r *instance) HandleNotification(method string, params json.RawMessage) {
 }
 
 func (r *instance) HandleRequest(id json.RawMessage, method string, params json.RawMessage) {
+	r.flushPendingCommandOutput()
+
 	payload := decodePayload(params)
 	threadID, turnID := extractContext(payload)
 
@@ -464,6 +483,8 @@ func (r *instance) HandleStderr(line string) {
 }
 
 func (r *instance) HandleClosed(err error) {
+	r.flushPendingCommandOutput()
+
 	r.manager.expireRequestsForWorkspace(r.workspaceID, "runtime_closed")
 
 	r.mu.Lock()
@@ -551,6 +572,87 @@ func stringValue(value any) string {
 		return typed
 	default:
 		return ""
+	}
+}
+
+func (r *instance) queueCommandOutputDelta(params json.RawMessage) bool {
+	payloadAny := decodePayload(params)
+	payload, ok := payloadAny.(map[string]any)
+	if !ok {
+		return false
+	}
+
+	processID := stringValue(payload["processId"])
+	stream := stringValue(payload["stream"])
+	deltaBase64 := stringValue(payload["deltaBase64"])
+	if processID == "" || stream == "" || deltaBase64 == "" {
+		return false
+	}
+
+	delta, err := base64.StdEncoding.DecodeString(strings.TrimSpace(deltaBase64))
+	if err != nil {
+		return false
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	chunkCount := len(r.pendingCommandOutput)
+	if chunkCount > 0 {
+		lastChunk := &r.pendingCommandOutput[chunkCount-1]
+		if lastChunk.processID == processID && lastChunk.stream == stream {
+			lastChunk.delta = append(lastChunk.delta, delta...)
+		} else {
+			r.pendingCommandOutput = append(r.pendingCommandOutput, pendingCommandOutputChunk{
+				delta:     append([]byte(nil), delta...),
+				processID: processID,
+				stream:    stream,
+			})
+		}
+	} else {
+		r.pendingCommandOutput = append(r.pendingCommandOutput, pendingCommandOutputChunk{
+			delta:     append([]byte(nil), delta...),
+			processID: processID,
+			stream:    stream,
+		})
+	}
+
+	if r.commandOutputFlushTimer == nil {
+		r.commandOutputFlushTimer = time.AfterFunc(commandOutputBatchWindow, func() {
+			r.flushPendingCommandOutput()
+		})
+	}
+
+	return true
+}
+
+func (r *instance) flushPendingCommandOutput() {
+	r.mu.Lock()
+	if r.commandOutputFlushTimer != nil {
+		r.commandOutputFlushTimer.Stop()
+		r.commandOutputFlushTimer = nil
+	}
+	if len(r.pendingCommandOutput) == 0 {
+		r.mu.Unlock()
+		return
+	}
+
+	chunks := append([]pendingCommandOutputChunk(nil), r.pendingCommandOutput...)
+	r.pendingCommandOutput = nil
+	r.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, chunk := range chunks {
+		r.manager.events.Publish(store.EventEnvelope{
+			WorkspaceID: r.workspaceID,
+			Method:      "command/exec/outputDelta",
+			Payload: map[string]any{
+				"deltaBase64": base64.StdEncoding.EncodeToString(chunk.delta),
+				"processId":   chunk.processID,
+				"stream":      chunk.stream,
+			},
+			TS: now,
+		})
 	}
 }
 
