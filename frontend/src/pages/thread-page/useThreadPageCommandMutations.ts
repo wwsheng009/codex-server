@@ -18,6 +18,7 @@ export function useThreadPageCommandMutations({
   setSelectedProcessId,
   setSendError,
   setStdinValue,
+  streamState,
   workspaceId,
 }: ThreadPageCommandMutationsInput) {
   const startCommandMutation = useMutation({
@@ -28,7 +29,10 @@ export function useThreadPageCommandMutations({
       setIsTerminalDockVisible(true)
       setIsTerminalDockExpanded(true)
       setCommand('')
-      void queryClient.invalidateQueries({ queryKey: ['command-sessions', workspaceId] })
+
+      if (streamState !== 'open' && streamState !== 'connecting') {
+        void queryClient.invalidateQueries({ queryKey: ['command-sessions', workspaceId] })
+      }
     },
     onError: (error, variables) => {
       setSendError(

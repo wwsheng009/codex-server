@@ -89,8 +89,11 @@ export function buildThreadPageCommandActions({
     })
   }
 
-  function handleStartTerminalShellSession() {
-    startCommandMutation.mutate({ mode: 'shell' })
+  function handleStartTerminalShellSession(shell?: string) {
+    startCommandMutation.mutate({
+      mode: 'shell',
+      ...(shell ? { shell } : {}),
+    })
   }
 
   function handleSendStdin(event: FormEvent<HTMLFormElement>) {
@@ -121,9 +124,7 @@ export function buildThreadPageCommandActions({
       !Number.isFinite(cols) ||
       !Number.isFinite(rows) ||
       cols <= 0 ||
-      rows <= 0 ||
-      (selectedCommandSession.mode === 'shell' &&
-        (selectedCommandSession.shellState ?? '').toLowerCase() === 'starting')
+      rows <= 0
     ) {
       return
     }

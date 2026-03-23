@@ -26,11 +26,10 @@ export function useThreadPageDisplayState(input: ThreadPageDisplayStateInput) {
     () => buildThreadPageSelectionDisplayState(input),
     [
       input.approvals,
-      input.commandSessions,
       input.contextCompactionFeedback,
       input.liveThreadDetail,
       input.loadedThreadIds,
-      input.selectedProcessId,
+      input.selectedCommandSession,
       input.selectedThreadEvents,
       input.selectedThreadId,
       input.selectedThreadTokenUsage,

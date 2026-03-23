@@ -38,6 +38,7 @@ export type ThreadPageMutationsInput = {
   setSelectedThread: (workspaceId: string, threadId?: string) => void
   setSendError: (value: string | null) => void
   setStdinValue: (value: string) => void
+  streamState: string
   workspaceId: string
 }
 
@@ -68,5 +69,6 @@ export type ThreadPageCommandMutationsInput = Pick<
   | 'setSelectedProcessId'
   | 'setSendError'
   | 'setStdinValue'
+  | 'streamState'
   | 'workspaceId'
 >

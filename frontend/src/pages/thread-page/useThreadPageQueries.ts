@@ -139,10 +139,13 @@ export function useThreadPageQueries({
     refetchOnWindowFocus: false,
   })
 
+  const shouldUseCommandSessionsFallbackQuery =
+    streamState === 'closed' || streamState === 'error'
+
   const commandSessionsQuery = useQuery({
     queryKey: ['command-sessions', workspaceId],
     queryFn: () => listCommandSessions(workspaceId),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && shouldUseCommandSessionsFallbackQuery,
     staleTime: 30_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

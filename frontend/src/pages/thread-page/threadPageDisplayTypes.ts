@@ -16,7 +16,6 @@ import type { SurfacePanelView } from '../../lib/layout-config'
 export type ThreadPageDisplayStateInput = {
   activePendingTurn: PendingThreadTurn | null
   approvals: PendingApproval[]
-  commandSessions: CommandRuntimeSession[]
   contextCompactionFeedback: ContextCompactionFeedback | null
   fullTurnItemContentOverridesById: Record<string, Record<string, unknown>>
   fullTurnItemOverridesById: Record<string, Record<string, unknown>>
@@ -24,7 +23,7 @@ export type ThreadPageDisplayStateInput = {
   historicalTurns: ThreadTurn[]
   liveThreadDetail?: ThreadDetail
   loadedThreadIds?: string[]
-  selectedProcessId?: string
+  selectedCommandSession?: CommandRuntimeSession
   selectedThread?: Thread
   selectedThreadEvents: ServerEvent[]
   selectedThreadId?: string
@@ -49,12 +48,11 @@ export type ThreadPageTurnDisplayStateInput = Pick<
 export type ThreadPageSelectionDisplayStateInput = Pick<
   ThreadPageDisplayStateInput,
   | 'approvals'
-  | 'commandSessions'
   | 'contextCompactionFeedback'
   | 'historicalTurns'
   | 'liveThreadDetail'
   | 'loadedThreadIds'
-  | 'selectedProcessId'
+  | 'selectedCommandSession'
   | 'selectedThreadEvents'
   | 'selectedThreadId'
   | 'selectedThreadTokenUsage'

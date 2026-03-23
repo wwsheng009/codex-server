@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from 'react'
+import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 import { i18n } from '../../i18n/runtime'
 
@@ -12,6 +12,7 @@ export type ThreadTerminalToolbarProps = {
   launcherMode: 'shell' | 'command'
   isSelectedSessionArchived: boolean
   isSelectedSessionPinned: boolean
+  shellLauncherControl?: ReactNode
   shellActionLabel: string
   shellActionTitle: string
   onArchiveSelectedSession: () => void
@@ -41,6 +42,7 @@ export function ThreadTerminalToolbar({
   launcherMode,
   isSelectedSessionArchived,
   isSelectedSessionPinned,
+  shellLauncherControl,
   shellActionLabel,
   shellActionTitle,
   onArchiveSelectedSession,
@@ -61,6 +63,7 @@ export function ThreadTerminalToolbar({
 }: ThreadTerminalToolbarProps) {
   return (
     <div className="terminal-dock__toolbar">
+      {shellLauncherControl}
       <TerminalToolbarActionButton
         aria-label={shellActionTitle}
         data-active={isLauncherOpen && launcherMode === 'shell' ? 'true' : undefined}

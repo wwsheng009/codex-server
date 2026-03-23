@@ -6,11 +6,10 @@ const EMPTY_LIVE_TIMELINE_ENTRIES: ReturnType<typeof buildLiveTimelineEntries> =
 
 export function buildThreadPageSelectionDisplayState({
   approvals,
-  commandSessions,
   contextCompactionFeedback,
   liveThreadDetail,
   loadedThreadIds,
-  selectedProcessId,
+  selectedCommandSession,
   selectedThreadEvents,
   selectedThreadId,
   selectedThreadTokenUsage,
@@ -21,9 +20,6 @@ export function buildThreadPageSelectionDisplayState({
     surfacePanelView === 'feed'
       ? buildLiveTimelineEntries(mergeEventsByTimestamp(workspaceEvents, selectedThreadEvents))
       : EMPTY_LIVE_TIMELINE_ENTRIES
-
-  const selectedCommandSession =
-    commandSessions.find((session) => session.id === selectedProcessId) ?? commandSessions[0]
 
   const resolvedThreadTokenUsage = liveThreadDetail?.tokenUsage ?? selectedThreadTokenUsage
   const contextUsage = computeContextUsage(resolvedThreadTokenUsage)

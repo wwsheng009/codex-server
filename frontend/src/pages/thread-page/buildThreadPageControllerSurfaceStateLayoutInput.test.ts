@@ -57,6 +57,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       },
       viewportState: {
         isThreadPinnedToLatest: true,
+        isThreadViewportInteracting: false,
         threadLogStyle: 'conversation',
         threadViewportRef: { current: null },
       },
@@ -115,6 +116,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       },
       viewportState: {
         isThreadPinnedToLatest: true,
+        isThreadViewportInteracting: false,
         threadLogStyle: 'conversation',
         threadViewportRef: { current: null },
       },
@@ -178,6 +180,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       },
       viewportState: {
         isThreadPinnedToLatest: true,
+        isThreadViewportInteracting: false,
         threadLogStyle: 'conversation',
         threadViewportRef: { current: null },
       },

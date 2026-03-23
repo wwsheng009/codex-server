@@ -11,3 +11,7 @@ export type ThreadViewportStateInput = {
 export type ThreadViewportAutoScrollInput = ThreadViewportStateInput & {
   threadBottomClearancePx: number
 }
+
+export type ThreadViewportScrollInput = {
+  isLoadingOlderTurns?: boolean
+}

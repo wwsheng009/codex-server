@@ -4,6 +4,11 @@ import type { ThreadContentSignature } from './threadContentSignature'
 
 const THREAD_VIEWPORT_ENTER_PIN_THRESHOLD_PX = 12
 const THREAD_VIEWPORT_EXIT_PIN_THRESHOLD_PX = 96
+const THREAD_VIEWPORT_SCROLL_RETRY_MS = 32
+
+export type ThreadViewportProgrammaticScrollPolicy =
+  | 'follow-latest'
+  | 'preserve-position'
 
 export type ResolveThreadViewportAutoScrollChangeInput = {
   displayedTurnsLength: number
@@ -130,4 +135,60 @@ export function computeThreadPinnedToLatest(
       ? THREAD_VIEWPORT_EXIT_PIN_THRESHOLD_PX
       : THREAD_VIEWPORT_ENTER_PIN_THRESHOLD_PX,
   )
+}
+
+export function resolveThreadViewportScrollDeferState({
+  isThreadViewportInteracting,
+  nowMs,
+  policy,
+  userScrollLockUntilMs,
+}: {
+  isThreadViewportInteracting: boolean
+  nowMs: number
+  policy: ThreadViewportProgrammaticScrollPolicy
+  userScrollLockUntilMs: number
+}) {
+  if (isThreadViewportInteracting) {
+    return {
+      delayMs: THREAD_VIEWPORT_SCROLL_RETRY_MS,
+      shouldDefer: true,
+    }
+  }
+
+  if (policy === 'preserve-position') {
+    return {
+      delayMs: 0,
+      shouldDefer: false,
+    }
+  }
+
+  const remainingUserScrollLockMs = userScrollLockUntilMs - nowMs
+  if (remainingUserScrollLockMs > 0) {
+    return {
+      delayMs: Math.max(THREAD_VIEWPORT_SCROLL_RETRY_MS, remainingUserScrollLockMs),
+      shouldDefer: true,
+    }
+  }
+
+  return {
+    delayMs: 0,
+    shouldDefer: false,
+  }
+}
+
+export function resolveOlderTurnsRestoreTarget({
+  anchorScrollHeight,
+  anchorScrollTop,
+  currentScrollHeight,
+}: {
+  anchorScrollHeight: number
+  anchorScrollTop: number
+  currentScrollHeight: number
+}) {
+  const scrollHeightDelta = currentScrollHeight - anchorScrollHeight
+  if (scrollHeightDelta <= 0) {
+    return null
+  }
+
+  return anchorScrollTop + scrollHeightDelta
 }

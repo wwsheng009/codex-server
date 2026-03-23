@@ -4,6 +4,7 @@ import { CollapsiblePanel } from '../../components/ui/CollapsiblePanel'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { Tooltip } from '../../components/ui/Tooltip'
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
+import { ConversationRenderProfilerRailToggle } from '../../components/workspace/threadConversationProfiler'
 import { i18n } from '../../i18n/runtime'
 import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
 
@@ -574,6 +575,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           </h2>
         </div>
         <div className="header-actions workbench-pane__panel-actions">
+          {selectedThread ? <ConversationRenderProfilerRailToggle /> : null}
           <button
             className={
               surfacePanelView === 'feed'

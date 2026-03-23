@@ -27,6 +27,7 @@ type SurfaceStateLayoutInput = Pick<
   | 'isTerminalWindowMaximized'
   | 'isThreadPinnedToLatest'
   | 'isThreadProcessing'
+  | 'isThreadViewportInteracting'
   | 'isWaitingForThreadData'
   | 'liveTimelineEntries'
   | 'placement'
@@ -104,6 +105,7 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     isTerminalWindowMaximized: controllerState.isTerminalWindowMaximized,
     isThreadPinnedToLatest: viewportState.isThreadPinnedToLatest,
     isThreadProcessing: statusState.isThreadProcessing,
+    isThreadViewportInteracting: viewportState.isThreadViewportInteracting,
     isWaitingForThreadData: statusState.isWaitingForThreadData,
     liveTimelineEntries: displayState.liveTimelineEntries,
     placement: controllerState.terminalDockPlacement,

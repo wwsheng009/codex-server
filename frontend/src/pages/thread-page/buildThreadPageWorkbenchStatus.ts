@@ -5,7 +5,8 @@ import {
 import type { ThreadPageWorkbenchStatusInput } from './threadPageStatusTypes'
 
 export function buildThreadPageWorkbenchStatus({
-  commandSessions,
+  activeCommandCount,
+  commandSessionCount,
   composerStatusInfo,
   displayedTurnsLength,
   isInspectorExpanded,
@@ -26,9 +27,6 @@ export function buildThreadPageWorkbenchStatus({
   syncLabel,
   workspaceEvents,
 }: ThreadPageWorkbenchStatusInput) {
-  const activeCommandCount = commandSessions.filter((session) =>
-    ['running', 'starting'].includes(session.status),
-  ).length
   const lastTimelineEventTs =
     selectedThreadEvents[selectedThreadEvents.length - 1]?.ts ??
     workspaceEvents[workspaceEvents.length - 1]?.ts
@@ -38,7 +36,7 @@ export function buildThreadPageWorkbenchStatus({
     'terminal-dock--attached',
     `terminal-dock--${terminalDockPlacement}`,
     !isTerminalDockVisible ? 'terminal-dock--hidden' : '',
-    !commandSessions.length ? 'terminal-dock--empty' : '',
+    !commandSessionCount ? 'terminal-dock--empty' : '',
     !isTerminalDockExpanded ? 'terminal-dock--collapsed' : '',
     isTerminalDockResizing ? 'terminal-dock--resizing' : '',
     isTerminalWindowDragging ? 'terminal-dock--dragging' : '',

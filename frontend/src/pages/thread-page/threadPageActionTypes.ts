@@ -99,7 +99,7 @@ export type ThreadPageActionsInput = {
   setThreadTurnWindowSize: Dispatch<SetStateAction<number>>
   threadDetail?: ThreadDetail
   startCommandMutation: {
-    mutate: (input: { command?: string; mode?: 'command' | 'shell' }) => void
+    mutate: (input: { command?: string; mode?: 'command' | 'shell'; shell?: string }) => void
   }
   threadShellCommandMutation: {
     isPending: boolean

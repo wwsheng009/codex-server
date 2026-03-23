@@ -14,6 +14,7 @@ export function useThreadPageData({
   hasPendingTurn,
   isDocumentVisible,
   normalizedDeferredComposerQuery,
+  selectedProcessId,
   selectedThreadId,
   streamState,
   threadTurnWindowSize,
@@ -24,6 +25,7 @@ export function useThreadPageData({
   hasPendingTurn: boolean
   isDocumentVisible: boolean
   normalizedDeferredComposerQuery: string
+  selectedProcessId?: string
   selectedThreadId?: string
   streamState: string
   threadTurnWindowSize: number
@@ -60,14 +62,18 @@ export function useThreadPageData({
   })
 
   const {
+    activeCommandCount,
+    commandSessionCount,
     commandSessions,
     liveThreadDetail,
+    selectedCommandSession,
     selectedThreadEvents,
     selectedThreadTokenUsage,
     workspaceActivityEvents,
     workspaceEvents,
   } = useThreadPageSessionState({
     isDocumentVisible,
+    selectedProcessId,
     selectedThreadId: resolvedSelectedThreadId,
     threadDetail: threadDetailQuery.data,
     workspaceId,
@@ -107,8 +113,10 @@ export function useThreadPageData({
   }, [commandSessionsQuery.data, commandSessionsQuery.isSuccess, workspaceId])
 
   return {
+    activeCommandCount,
     accountQuery,
     approvalsQuery,
+    commandSessionCount,
     commandSessions,
     environmentConfigQuery,
     fileSearchQuery,
@@ -118,6 +126,7 @@ export function useThreadPageData({
     modelsQuery,
     rateLimitsQuery,
     resolvedSelectedThreadId,
+    selectedCommandSession,
     selectedThread,
     selectedThreadEvents,
     selectedThreadTokenUsage,

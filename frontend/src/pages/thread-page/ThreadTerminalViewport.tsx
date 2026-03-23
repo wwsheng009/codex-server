@@ -9,6 +9,11 @@ import {
   useRef,
 } from 'react'
 
+import {
+  useSettingsLocalStore,
+  type TerminalRendererPreference,
+} from '../../features/settings/local-store'
+
 const TERMINAL_THEME = {
   background: '#0c1117',
   cursor: '#4ec6ff',
@@ -16,8 +21,10 @@ const TERMINAL_THEME = {
   selectionBackground: 'rgba(255, 255, 255, 0.18)',
 } as const
 
-const TERMINAL_FONT_FAMILY =
-  "var(--font-code-custom, var(--font-code, 'Cascadia Mono', 'SFMono-Regular', ui-monospace, monospace))"
+const DEFAULT_TERMINAL_FONT_FAMILY =
+  "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace"
+const DEFAULT_TERMINAL_FONT_SIZE = 12
+const TERMINAL_LINE_HEIGHT = 1
 
 const WINDOWS_PTY_OPTIONS = {
   backend: 'conpty',
@@ -57,6 +64,7 @@ export type ThreadTerminalLauncherHandle = {
 
 export const TERMINAL_VIEWPORT_SCROLLBACK = 5000
 export const TERMINAL_LAUNCHER_SCROLLBACK = 100
+const TERMINAL_WRITE_CHUNK_SIZE = 16_384
 
 type ThreadTerminalViewportProps = {
   className?: string
@@ -81,6 +89,7 @@ type ThreadTerminalLauncherViewportProps = {
   onSelectionChange?: (hasSelection: boolean) => void
   onRunCommand: (command: string) => void
   pending: boolean
+  shellLabel?: string
   visible: boolean
 }
 
@@ -101,6 +110,13 @@ export const ThreadTerminalViewport = forwardRef<
   },
   ref,
 ) {
+  const terminalFont = useSettingsLocalStore((state) => state.terminalFont)
+  const terminalFontSizeSetting = useSettingsLocalStore((state) => state.terminalFontSize)
+  const terminalLineHeightSetting = useSettingsLocalStore((state) => state.terminalLineHeight)
+  const terminalRenderer = useSettingsLocalStore((state) => state.terminalRenderer)
+  const terminalFontFamily = resolveTerminalFontFamily(terminalFont)
+  const terminalFontSize = resolveTerminalFontSize(terminalFontSizeSetting)
+  const terminalLineHeight = resolveTerminalLineHeight(terminalLineHeightSetting)
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -208,9 +224,9 @@ export const ThreadTerminalViewport = forwardRef<
       cursorBlink: true,
       cursorInactiveStyle: 'bar',
       disableStdin: !latestInteractiveRef.current,
-      fontFamily: TERMINAL_FONT_FAMILY,
-      fontSize: 13,
-      lineHeight: 1.45,
+      fontFamily: terminalFontFamily,
+      fontSize: terminalFontSize,
+      lineHeight: terminalLineHeight,
       scrollback: TERMINAL_VIEWPORT_SCROLLBACK,
       theme: TERMINAL_THEME,
       ...(windowsPty ? { windowsPty: WINDOWS_PTY_OPTIONS } : {}),
@@ -220,7 +236,7 @@ export const ThreadTerminalViewport = forwardRef<
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(searchAddon)
     terminal.open(host)
-    void installWebglRenderer(terminal, webglAddonRef)
+    void syncTerminalRenderer(terminal, webglAddonRef, terminalRenderer)
     terminal.attachCustomKeyEventHandler((event) => {
       if (shouldCopyTerminalSelection(event, terminal.getSelection())) {
         void copyTerminalSelection(terminal)
@@ -287,17 +303,23 @@ export const ThreadTerminalViewport = forwardRef<
         return
       }
 
-      queuedWriteFrameRef.current = window.requestAnimationFrame(() => {
+      const flushQueuedWrite = () => {
         queuedWriteFrameRef.current = undefined
-        const nextChunk = queuedWriteRef.current
-        queuedWriteRef.current = ''
+        const nextChunk = queuedWriteRef.current.slice(0, TERMINAL_WRITE_CHUNK_SIZE)
+        queuedWriteRef.current = queuedWriteRef.current.slice(nextChunk.length)
         if (!nextChunk) {
           return
         }
 
         terminal.write(nextChunk)
         recordTerminalWriteSample(flushCountRef, lastChunkSizeRef, writeSamplesRef, nextChunk.length)
-      })
+
+        if (queuedWriteRef.current) {
+          queuedWriteFrameRef.current = window.requestAnimationFrame(flushQueuedWrite)
+        }
+      }
+
+      queuedWriteFrameRef.current = window.requestAnimationFrame(flushQueuedWrite)
     }
 
     function handleBrowserCopy(event: ClipboardEvent) {
@@ -397,6 +419,20 @@ export const ThreadTerminalViewport = forwardRef<
   }, [])
 
   useEffect(() => {
+    applyTerminalTypographySettings(
+      terminalRef.current,
+      terminalFontFamily,
+      terminalFontSize,
+      terminalLineHeight,
+    )
+    requestFitRef.current()
+  }, [terminalFontFamily, terminalFontSize, terminalLineHeight])
+
+  useEffect(() => {
+    void syncTerminalRenderer(terminalRef.current, webglAddonRef, terminalRenderer)
+  }, [terminalRenderer])
+
+  useEffect(() => {
     const terminal = terminalRef.current
     if (!terminal) {
       return
@@ -478,9 +514,27 @@ export const ThreadTerminalLauncherViewport = forwardRef<
   ThreadTerminalLauncherHandle,
   ThreadTerminalLauncherViewportProps
 >(function ThreadTerminalLauncherViewport(
-  { className, history, mode, onClose, onRunCommand, onSelectionChange, onStartShell, pending, visible },
+  {
+    className,
+    history,
+    mode,
+    onClose,
+    onRunCommand,
+    onSelectionChange,
+    onStartShell,
+    pending,
+    shellLabel,
+    visible,
+  },
   ref,
 ) {
+  const terminalFont = useSettingsLocalStore((state) => state.terminalFont)
+  const terminalFontSizeSetting = useSettingsLocalStore((state) => state.terminalFontSize)
+  const terminalLineHeightSetting = useSettingsLocalStore((state) => state.terminalLineHeight)
+  const terminalRenderer = useSettingsLocalStore((state) => state.terminalRenderer)
+  const terminalFontFamily = resolveTerminalFontFamily(terminalFont)
+  const terminalFontSize = resolveTerminalFontSize(terminalFontSizeSetting)
+  const terminalLineHeight = resolveTerminalLineHeight(terminalLineHeightSetting)
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
@@ -554,16 +608,16 @@ export const ThreadTerminalLauncherViewport = forwardRef<
       cursorBlink: true,
       cursorStyle: 'bar',
       disableStdin: false,
-      fontFamily: TERMINAL_FONT_FAMILY,
-      fontSize: 13,
-      lineHeight: 1.45,
+      fontFamily: terminalFontFamily,
+      fontSize: terminalFontSize,
+      lineHeight: terminalLineHeight,
       scrollback: TERMINAL_LAUNCHER_SCROLLBACK,
       theme: TERMINAL_THEME,
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(host)
-    void installWebglRenderer(terminal, webglAddonRef)
+    void syncTerminalRenderer(terminal, webglAddonRef, terminalRenderer)
     terminal.attachCustomKeyEventHandler((event) => {
       if (shouldCopyTerminalSelection(event, terminal.getSelection())) {
         void copyTerminalSelection(terminal)
@@ -648,6 +702,25 @@ export const ThreadTerminalLauncherViewport = forwardRef<
   }, [])
 
   useEffect(() => {
+    const terminal = terminalRef.current
+    if (!terminal) {
+      return
+    }
+
+    applyTerminalTypographySettings(
+      terminal,
+      terminalFontFamily,
+      terminalFontSize,
+      terminalLineHeight,
+    )
+    fitAddonRef.current?.fit()
+  }, [terminalFontFamily, terminalFontSize, terminalLineHeight])
+
+  useEffect(() => {
+    void syncTerminalRenderer(terminalRef.current, webglAddonRef, terminalRenderer)
+  }, [terminalRenderer])
+
+  useEffect(() => {
     if (!visible) {
       return
     }
@@ -667,7 +740,7 @@ export const ThreadTerminalLauncherViewport = forwardRef<
     }
 
     resetLauncher()
-  }, [mode, visible])
+  }, [mode, shellLabel, visible])
 
   useEffect(() => {
     if (pendingRef.current || !awaitingRunRef.current || pending) {
@@ -724,7 +797,7 @@ export const ThreadTerminalLauncherViewport = forwardRef<
 
     if (modeRef.current === 'shell') {
       writeLauncherOutput(
-        '\x1b[90mnew shell session  enter start  ctrl/cmd+k command launcher  esc back\x1b[0m\r\n',
+        `\x1b[90mnew ${shellLabel ?? 'shell'} session  enter start  ctrl/cmd+k command launcher  esc back\x1b[0m\r\n`,
       )
     } else {
       writeLauncherOutput(
@@ -757,7 +830,7 @@ export const ThreadTerminalLauncherViewport = forwardRef<
 
     const prompt =
       modeRef.current === 'shell'
-        ? '[enter] start workspace shell'
+        ? `[enter] start ${shellLabel ?? 'shell'}`
         : `$ ${sanitizeLauncherText(currentInputRef.current)}`
     writeLauncherOutput(`${forceNewLine ? '' : '\r'}\x1b[2K\r${prompt}`)
   }
@@ -891,6 +964,52 @@ function sanitizeLauncherText(value: string) {
 
 function sanitizeLauncherPasteText(value: string) {
   return value.replace(/\r\n?/g, ' ').replace(/\n/g, ' ').replace(/\x1b/g, '')
+}
+
+function resolveTerminalFontFamily(value?: string) {
+  const trimmed = value?.trim()
+  return trimmed || DEFAULT_TERMINAL_FONT_FAMILY
+}
+
+function resolveTerminalFontSize(value?: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_TERMINAL_FONT_SIZE
+  }
+
+  return Math.max(10, value)
+}
+
+function resolveTerminalLineHeight(value?: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return TERMINAL_LINE_HEIGHT
+  }
+
+  return Math.min(2, Math.max(1, value))
+}
+
+function applyTerminalTypographySettings(
+  terminal: Terminal | null,
+  fontFamily: string,
+  fontSize: number,
+  lineHeight: number,
+) {
+  if (!terminal) {
+    return
+  }
+
+  const fontFamilyChanged = terminal.options.fontFamily !== fontFamily
+  const fontSizeChanged = terminal.options.fontSize !== fontSize
+  const lineHeightChanged = terminal.options.lineHeight !== lineHeight
+  if (!fontFamilyChanged && !fontSizeChanged && !lineHeightChanged) {
+    return
+  }
+
+  terminal.options.fontFamily = fontFamily
+  terminal.options.fontSize = fontSize
+  terminal.options.lineHeight = lineHeight
+  if (fontFamilyChanged || fontSizeChanged) {
+    terminal.clearTextureAtlas()
+  }
 }
 
 function shouldCopyTerminalSelection(event: KeyboardEvent, selection: string) {
@@ -1060,11 +1179,22 @@ function getTerminalPerformanceInfo(
   }
 }
 
-async function installWebglRenderer(
-  terminal: Terminal,
+async function syncTerminalRenderer(
+  terminal: Terminal | null,
   webglAddonRef: { current: { dispose: () => void } | null },
+  rendererPreference: TerminalRendererPreference,
 ) {
-  if (typeof window === 'undefined') {
+  if (!terminal || typeof window === 'undefined') {
+    return
+  }
+
+  if (rendererPreference === 'dom') {
+    webglAddonRef.current?.dispose()
+    webglAddonRef.current = null
+    return
+  }
+
+  if (webglAddonRef.current) {
     return
   }
 

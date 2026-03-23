@@ -29,10 +29,12 @@ describe('ThreadWorkbenchSurface', () => {
         isSurfacePanelResizing={false}
         isThreadPinnedToLatest={true}
         isThreadProcessing={false}
+        isThreadViewportInteracting={false}
         isWaitingForThreadData={false}
         liveTimelineEntries={[]}
         onChangeApprovalAnswer={() => undefined}
         onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
         onCreateThread={() => undefined}
         onLoadOlderTurns={() => undefined}
         onReleaseFullTurn={() => undefined}
@@ -41,6 +43,7 @@ describe('ThreadWorkbenchSurface', () => {
         onRespondApproval={() => undefined}
         onRetryServerRequest={() => undefined}
         onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
         onSurfacePanelResizeStart={() => undefined}
         onThreadViewportScroll={() => undefined}
         onToggleSurfacePanelSide={() => undefined}
@@ -83,10 +86,12 @@ describe('ThreadWorkbenchSurface', () => {
         isSurfacePanelResizing={false}
         isThreadPinnedToLatest={true}
         isThreadProcessing={false}
+        isThreadViewportInteracting={false}
         isWaitingForThreadData={false}
         liveTimelineEntries={[]}
         onChangeApprovalAnswer={() => undefined}
         onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
         onCreateThread={() => undefined}
         onLoadOlderTurns={() => undefined}
         onReleaseFullTurn={() => undefined}
@@ -95,6 +100,7 @@ describe('ThreadWorkbenchSurface', () => {
         onRespondApproval={() => undefined}
         onRetryServerRequest={() => undefined}
         onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
         onSurfacePanelResizeStart={() => undefined}
         onThreadViewportScroll={() => undefined}
         onToggleSurfacePanelSide={() => undefined}

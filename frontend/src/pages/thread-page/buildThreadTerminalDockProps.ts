@@ -19,10 +19,6 @@ export function buildThreadTerminalDockProps(
 
     if (!input.commandSessions.length) {
       input.setIsTerminalDockExpanded(true)
-
-      if (!input.startTerminalCommandPending) {
-        input.onStartTerminalShellSession()
-      }
     }
   }
 

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { buildThreadTerminalDockProps } from './buildThreadTerminalDockProps'
 
 describe('buildThreadTerminalDockProps', () => {
-  it('starts a shell when showing an empty terminal dock', () => {
+  it('opens the launcher when showing an empty terminal dock', () => {
     const onShowTerminalDock = vi.fn()
     const onStartTerminalShellSession = vi.fn()
     const setIsTerminalDockExpanded = vi.fn()
@@ -52,10 +52,10 @@ describe('buildThreadTerminalDockProps', () => {
 
     expect(onShowTerminalDock).toHaveBeenCalledTimes(1)
     expect(setIsTerminalDockExpanded).toHaveBeenCalledWith(true)
-    expect(onStartTerminalShellSession).toHaveBeenCalledTimes(1)
+    expect(onStartTerminalShellSession).not.toHaveBeenCalled()
   })
 
-  it('does not start another shell while a terminal session is already starting', () => {
+  it('does not auto-start a shell while a terminal session is already starting', () => {
     const onStartTerminalShellSession = vi.fn()
 
     const props = buildThreadTerminalDockProps({

@@ -23,6 +23,7 @@ export function useThreadPageControllerData(
     ),
     isDocumentVisible: controllerState.isDocumentVisible,
     normalizedDeferredComposerQuery: controllerState.normalizedDeferredComposerQuery,
+    selectedProcessId: controllerState.selectedProcessId,
     selectedThreadId: controllerState.selectedThreadId,
     streamState: controllerState.streamState,
     threadTurnWindowSize: controllerState.threadTurnWindowSize,
@@ -57,6 +58,7 @@ export function useThreadPageControllerData(
     setSelectedThread: controllerState.setSelectedThread,
     setSendError: controllerState.setSendError,
     setStdinValue: controllerState.setStdinValue,
+    streamState: controllerState.streamState,
     workspaceId: controllerState.workspaceId,
   })
 
@@ -83,7 +85,6 @@ export function useThreadPageControllerData(
   const displayState = useThreadPageDisplayState({
     activePendingTurn: controllerState.activePendingTurn,
     approvals: dataState.approvalsQuery.data ?? [],
-    commandSessions: dataState.commandSessions,
     contextCompactionFeedback: controllerState.contextCompactionFeedback,
     fullTurnItemContentOverridesById: controllerState.fullTurnItemContentOverridesById,
     fullTurnItemOverridesById: controllerState.fullTurnItemOverridesById,
@@ -91,7 +92,7 @@ export function useThreadPageControllerData(
     historicalTurns: controllerState.historicalTurns,
     liveThreadDetail: dataState.liveThreadDetail,
     loadedThreadIds: dataState.loadedThreadsQuery.data,
-    selectedProcessId: controllerState.selectedProcessId,
+    selectedCommandSession: dataState.selectedCommandSession,
     selectedThread: dataState.selectedThread,
     selectedThreadEvents: dataState.selectedThreadEvents,
     selectedThreadId: activeSelectedThreadId,
@@ -192,7 +193,8 @@ export function useThreadPageControllerData(
     activePendingTurn: controllerState.activePendingTurn,
     approvalsDataUpdatedAt: dataState.approvalsQuery.dataUpdatedAt,
     approvalsIsFetching: dataState.approvalsQuery.isFetching,
-    commandSessions: dataState.commandSessions,
+    activeCommandCount: dataState.activeCommandCount,
+    commandSessionCount: dataState.commandSessionCount,
     displayedTurnsLength: displayState.displayedTurns.length,
     hasUnreadThreadUpdates: viewportState.hasUnreadThreadUpdates,
     isDocumentVisible: controllerState.isDocumentVisible,

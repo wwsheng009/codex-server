@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { buildThreadContentSignature } from './threadContentSignature'
 import {
   computeThreadPinnedToLatest,
+  resolveOlderTurnsRestoreTarget,
   resolveThreadViewportAutoScrollChange,
   resolveThreadViewportPinnedState,
+  resolveThreadViewportScrollDeferState,
 } from './threadViewportAutoScrollUtils'
 
 function buildTestThreadContentSignature(suffix: string) {
@@ -173,5 +175,65 @@ describe('resolveThreadViewportAutoScrollChange', () => {
   it('uses a wider threshold while already pinned to latest', () => {
     expect(computeThreadPinnedToLatest(604, 1_200, 500, true)).toBe(true)
     expect(computeThreadPinnedToLatest(604, 1_200, 500, false)).toBe(false)
+  })
+
+  it('defers follow-latest writes while the user scroll lock is active', () => {
+    expect(
+      resolveThreadViewportScrollDeferState({
+        isThreadViewportInteracting: false,
+        nowMs: 1_000,
+        policy: 'follow-latest',
+        userScrollLockUntilMs: 1_150,
+      }),
+    ).toMatchObject({
+      shouldDefer: true,
+    })
+  })
+
+  it('defers position-preserving writes during active user interaction', () => {
+    expect(
+      resolveThreadViewportScrollDeferState({
+        isThreadViewportInteracting: true,
+        nowMs: 1_000,
+        policy: 'preserve-position',
+        userScrollLockUntilMs: 2_000,
+      }),
+    ).toMatchObject({
+      shouldDefer: true,
+    })
+  })
+
+  it('allows position-preserving writes once interaction has ended', () => {
+    expect(
+      resolveThreadViewportScrollDeferState({
+        isThreadViewportInteracting: false,
+        nowMs: 1_000,
+        policy: 'preserve-position',
+        userScrollLockUntilMs: 2_000,
+      }),
+    ).toEqual({
+      delayMs: 0,
+      shouldDefer: false,
+    })
+  })
+
+  it('restores older-turn anchors using the added scroll height delta', () => {
+    expect(
+      resolveOlderTurnsRestoreTarget({
+        anchorScrollHeight: 1_200,
+        anchorScrollTop: 240,
+        currentScrollHeight: 1_520,
+      }),
+    ).toBe(560)
+  })
+
+  it('skips older-turn restoration when the scroll height did not grow', () => {
+    expect(
+      resolveOlderTurnsRestoreTarget({
+        anchorScrollHeight: 1_200,
+        anchorScrollTop: 240,
+        currentScrollHeight: 1_200,
+      }),
+    ).toBeNull()
   })
 })

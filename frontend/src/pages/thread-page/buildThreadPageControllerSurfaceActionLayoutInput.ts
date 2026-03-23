@@ -4,6 +4,7 @@ import type { ControllerSurfaceLayoutInput } from './threadPageControllerLayoutI
 type SurfaceActionLayoutInput = Pick<
   ControllerSurfaceLayoutInput,
   | 'onChangeApprovalAnswer'
+  | 'onCaptureOlderTurnsAnchor'
   | 'onChangePlacement'
   | 'onClearCompletedSessions'
   | 'onCloseWorkbenchOverlay'
@@ -17,6 +18,7 @@ type SurfaceActionLayoutInput = Pick<
   | 'onRemoveSession'
   | 'onResizeTerminal'
   | 'onRespondApproval'
+  | 'onRestoreOlderTurnsViewport'
   | 'onResizeStart'
   | 'onRetryServerRequest'
   | 'onSelectSession'
@@ -44,6 +46,7 @@ export function buildThreadPageControllerSurfaceActionLayoutInput({
 }: BuildThreadPageControllerLayoutPropsInput): SurfaceActionLayoutInput {
   return {
     onChangeApprovalAnswer: pageActions.handleApprovalAnswerChange,
+    onCaptureOlderTurnsAnchor: viewportState.captureOlderTurnsAnchor,
     onChangePlacement: controllerState.handleChangeTerminalDockPlacement,
     onClearCompletedSessions: pageActions.handleClearCompletedCommandSessions,
     onCloseWorkbenchOverlay: railState.handleCloseWorkbenchOverlay,
@@ -60,6 +63,7 @@ export function buildThreadPageControllerSurfaceActionLayoutInput({
     onRemoveSession: pageActions.handleRemoveCommandSession,
     onResizeTerminal: pageActions.handleResizeTerminal,
     onRespondApproval: pageActions.handleRespondApproval,
+    onRestoreOlderTurnsViewport: viewportState.restoreOlderTurnsViewport,
     onResizeStart: controllerState.handleTerminalResizeStart,
     onRetryServerRequest: composerActions.handleRetryServerRequest,
     onSelectSession: controllerState.setSelectedProcessId,

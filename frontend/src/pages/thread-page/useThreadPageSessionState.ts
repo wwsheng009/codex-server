@@ -9,11 +9,13 @@ const EMPTY_COMMAND_SESSIONS = {}
 
 export function useThreadPageSessionState({
   isDocumentVisible,
+  selectedProcessId,
   selectedThreadId,
   threadDetail,
   workspaceId,
 }: {
   isDocumentVisible: boolean
+  selectedProcessId?: string
   selectedThreadId?: string
   threadDetail?: ThreadDetail
   workspaceId: string
@@ -53,23 +55,49 @@ export function useThreadPageSessionState({
   const commandSessions = useMemo(
     () =>
       Object.values(workspaceCommandSessions).sort(
-        (left, right) => {
-          if (Boolean(left.pinned) !== Boolean(right.pinned)) {
-            return left.pinned ? -1 : 1
-          }
-
-          return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-        },
+        compareCommandSessionsByPriority,
       ),
     [workspaceCommandSessions],
   )
 
+  const selectedCommandSession = useMemo(
+    () => commandSessions.find((session) => session.id === selectedProcessId) ?? commandSessions[0],
+    [commandSessions, selectedProcessId],
+  )
+  const commandSessionCount = commandSessions.length
+  const activeCommandCount = useMemo(
+    () =>
+      commandSessions.reduce(
+        (total, session) => total + (['running', 'starting'].includes(session.status) ? 1 : 0),
+        0,
+      ),
+    [commandSessions],
+  )
+
   return {
+    activeCommandCount,
+    commandSessionCount,
     commandSessions,
     liveThreadDetail,
+    selectedCommandSession,
     selectedThreadEvents,
     selectedThreadTokenUsage,
     workspaceActivityEvents,
     workspaceEvents,
   }
+}
+
+function compareCommandSessionsByPriority(
+  left: { pinned?: boolean; updatedAt: string },
+  right: { pinned?: boolean; updatedAt: string },
+) {
+  if (Boolean(left.pinned) !== Boolean(right.pinned)) {
+    return left.pinned ? -1 : 1
+  }
+
+  if (left.updatedAt === right.updatedAt) {
+    return 0
+  }
+
+  return left.updatedAt < right.updatedAt ? 1 : -1
 }

@@ -1,11 +1,14 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ResizeHandle } from '../../components/ui/RailControls'
 import { ThreadTerminalBlock } from '../../components/thread/ThreadContent'
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
+import { readRuntimePreferences } from '../../features/settings/api'
 import { i18n } from '../../i18n/runtime'
 import { COMMAND_SESSION_OUTPUT_LIMIT } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
+import { SelectControl, type SelectOption } from '../../components/ui/SelectControl'
 import { ThreadTerminalToolbar } from './ThreadTerminalToolbar'
 import type { TerminalDockPlacement } from '../../lib/layout-config'
 import {
@@ -117,6 +120,17 @@ function formatShellDisplayName(shellPath?: string, fallback?: string) {
     })
   }
 
+  if (isGitBashShell(normalized)) {
+    return i18n._({
+      id: 'Git Bash',
+      message: 'Git Bash',
+    })
+  }
+
+  if (isWslShimShell(normalized)) {
+    return 'WSL'
+  }
+
   if (normalized.includes('zsh')) {
     return 'zsh'
   }
@@ -171,6 +185,93 @@ function formatDefaultShellLauncherName(rootPath?: string) {
   })
 }
 
+function formatTerminalShellLauncherName(rootPath?: string, shell?: string) {
+  switch ((shell ?? '').trim().toLowerCase()) {
+    case 'pwsh':
+      return i18n._({
+        id: 'PowerShell 7 (pwsh)',
+        message: 'PowerShell 7 (pwsh)',
+      })
+    case 'powershell':
+      return i18n._({
+        id: 'Windows PowerShell',
+        message: 'Windows PowerShell',
+      })
+    case 'cmd':
+      return i18n._({
+        id: 'Command Prompt',
+        message: 'Command Prompt',
+      })
+    case 'wsl':
+      return 'WSL'
+    case 'git-bash':
+      return i18n._({
+        id: 'Git Bash',
+        message: 'Git Bash',
+      })
+    case 'bash':
+      return 'bash'
+    case 'zsh':
+      return 'zsh'
+    case 'sh':
+      return 'sh'
+    default:
+      return formatDefaultShellLauncherName(rootPath)
+  }
+}
+
+function buildTerminalShellOptions(
+  supportedShells: string[],
+  currentShell?: string,
+): SelectOption[] {
+  const options: SelectOption[] = [
+    {
+      value: '',
+      label: i18n._({
+        id: 'Auto select shell',
+        message: 'Auto select shell',
+      }),
+      triggerLabel: i18n._({ id: 'Auto', message: 'Auto' }),
+    },
+  ]
+
+  for (const shell of supportedShells) {
+    options.push({
+      value: shell,
+      label: formatTerminalShellLauncherName(undefined, shell),
+      triggerLabel:
+        shell === 'pwsh' || shell === 'cmd' || shell === 'wsl'
+          ? shell.toUpperCase() === 'CMD'
+            ? 'cmd'
+            : shell === 'pwsh'
+              ? 'pwsh'
+              : 'WSL'
+          : formatTerminalShellLauncherName(undefined, shell),
+    })
+  }
+
+  const normalizedCurrentShell = (currentShell ?? '').trim().toLowerCase()
+  if (
+    normalizedCurrentShell &&
+    !options.some((option) => option.value === normalizedCurrentShell)
+  ) {
+    options.push({
+      value: normalizedCurrentShell,
+      label: i18n._({
+        id: '{shell} (saved, unavailable)',
+        message: '{shell} (saved, unavailable)',
+        values: {
+          shell: formatTerminalShellLauncherName(undefined, normalizedCurrentShell),
+        },
+      }),
+      triggerLabel: formatTerminalShellLauncherName(undefined, normalizedCurrentShell),
+      disabled: true,
+    })
+  }
+
+  return options
+}
+
 function formatCommandSessionTitle(
   session: ThreadTerminalDockProps['selectedCommandSession'],
 ) {
@@ -199,7 +300,23 @@ function hasLimitedShellIntegration(
   }
 
   const normalized = `${session.shellPath ?? ''} ${session.command ?? ''}`.toLowerCase()
-  return normalized.includes('cmd.exe') || normalized.includes('command prompt')
+  return normalized.includes('cmd.exe') ||
+    normalized.includes('command prompt') ||
+    isWslShimShell(normalized)
+}
+
+function isGitBashShell(normalizedValue: string) {
+  return normalizedValue.includes('\\program files\\git\\') ||
+    normalizedValue.includes('/program files/git/') ||
+    normalizedValue.includes('git-bash.exe')
+}
+
+function isWslShimShell(normalizedValue: string) {
+  return normalizedValue.includes('wsl.exe') ||
+    normalizedValue.includes('\\windows\\system32\\bash.exe') ||
+    normalizedValue.includes('/windows/system32/bash.exe') ||
+    normalizedValue === 'wsl' ||
+    normalizedValue === 'bash.exe'
 }
 
 function formatShellSessionActivity(value?: string) {
@@ -316,6 +433,22 @@ function getChunkDebugTone(lastChunkSize: number): DebugTone {
   }
 
   return 'neutral'
+}
+
+function getReplayAppendDebugTone(replayAppendCount: number): DebugTone {
+  if (replayAppendCount > 0) {
+    return 'good'
+  }
+
+  return 'neutral'
+}
+
+function getReplayReplaceDebugTone(replayReplaceCount: number): DebugTone {
+  if (replayReplaceCount > 0) {
+    return 'warn'
+  }
+
+  return 'good'
 }
 
 function buildTerminalDebugSuggestions(input: {
@@ -671,6 +804,7 @@ export function ThreadTerminalDockWorkspace({
   const [showArchivedSessions, setShowArchivedSessions] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [launcherHistory, setLauncherHistory] = useState<string[]>([])
+  const [launcherShell, setLauncherShell] = useState('')
   const [launcherHasSelection, setLauncherHasSelection] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFeedback, setSearchFeedback] = useState<'idle' | 'not-found'>('idle')
@@ -681,6 +815,11 @@ export function ThreadTerminalDockWorkspace({
   const [stressCompareBaselineId, setStressCompareBaselineId] = useState('')
 
   const pushToast = useUIStore((state) => state.pushToast)
+  const runtimePreferencesQuery = useQuery({
+    queryKey: ['settings-runtime-preferences'],
+    queryFn: readRuntimePreferences,
+    staleTime: 30_000,
+  })
   const launcherRef = useRef<ThreadTerminalLauncherHandle | null>(null)
   const viewportRefs = useRef<Record<string, ThreadTerminalViewportHandle | null>>({})
   const workspaceRef = useRef<HTMLDivElement | null>(null)
@@ -694,12 +833,29 @@ export function ThreadTerminalDockWorkspace({
   )
   const isInteractive = canCommandSessionInteract(selectedCommandSession)
   const selectedSessionHasLimitedIntegration = hasLimitedShellIntegration(selectedCommandSession)
-  const defaultShellLauncherName = formatDefaultShellLauncherName(rootPath)
+  const terminalShellOptions = useMemo(
+    () =>
+      buildTerminalShellOptions(
+        runtimePreferencesQuery.data?.supportedTerminalShells ?? [],
+        launcherShell,
+      ),
+    [launcherShell, runtimePreferencesQuery.data?.supportedTerminalShells],
+  )
+  const defaultShellLauncherName = formatTerminalShellLauncherName(rootPath, launcherShell)
   const newShellSessionTitle = i18n._({
     id: 'New {shellName} session',
     message: 'New {shellName} session',
     values: { shellName: defaultShellLauncherName },
   })
+
+  useEffect(() => {
+    const configuredShell = (runtimePreferencesQuery.data?.configuredDefaultTerminalShell ?? '').trim()
+    if (!configuredShell) {
+      return
+    }
+
+    setLauncherShell((current) => current || configuredShell)
+  }, [runtimePreferencesQuery.data?.configuredDefaultTerminalShell])
 
   useEffect(() => {
     if (!activeSessions.length && !archivedSessions.length) {
@@ -864,13 +1020,12 @@ export function ThreadTerminalDockWorkspace({
   function handleStartShellSessionDirect() {
     setLauncherMode('shell')
     setIsSearchOpen(false)
-    setSuppressAutoShellLauncher(true)
-    setIsLauncherOpen(false)
-    onStartShellSession()
+    setSuppressAutoShellLauncher(false)
+    setIsLauncherOpen(true)
   }
 
   function handleStartShellFromLauncher() {
-    onStartShellSession()
+    onStartShellSession(launcherShell || undefined)
   }
 
   function handleFitViewport() {
@@ -1280,93 +1435,21 @@ export function ThreadTerminalDockWorkspace({
               }
             >
               {visibleSessions.map((session) => (
-                <div
-                  className={
-                    session.id === selectedCommandSession?.id && !isLauncherOpen
-                      ? 'terminal-dock__tab terminal-dock__tab--active'
-                      : 'terminal-dock__tab'
-                  }
+                <ThreadTerminalSessionTab
+                  archived={Boolean(session.archived)}
+                  command={session.command}
+                  isActive={session.id === selectedCommandSession?.id && !isLauncherOpen}
                   key={session.id}
-                >
-                  <button
-                    className="terminal-dock__tab-select"
-                    onClick={() => handleSelectSession(session.id)}
-                    type="button"
-                  >
-                    <div className="terminal-dock__tab-row">
-                      <span
-                        className={`terminal-dock__status-dot terminal-dock__status-dot--${getCommandSessionTone(
-                          session.status,
-                        )}`}
-                      />
-                      <strong>{formatCommandSessionTitle(session)}</strong>
-                    </div>
-                    <span>
-                      {formatCommandSessionStatus(session.status)}
-                      {session.updatedAt ? ` · ${formatRelativeTimeShort(session.updatedAt)}` : ''}
-                    </span>
-                  </button>
-                  <button
-                    aria-label={
-                      session.pinned
-                        ? i18n._({
-                            id: 'Unpin {command}',
-                            message: 'Unpin {command}',
-                            values: { command: session.command },
-                          })
-                        : i18n._({
-                            id: 'Pin {command}',
-                            message: 'Pin {command}',
-                            values: { command: session.command },
-                          })
-                    }
-                    className={
-                      session.pinned
-                        ? 'terminal-dock__tab-pin terminal-dock__tab-pin--active'
-                        : 'terminal-dock__tab-pin'
-                    }
-                    onClick={() => onTogglePinnedSession(session.id)}
-                    type="button"
-                  >
-                    <PinToolIcon />
-                  </button>
-                  <button
-                    aria-label={
-                      session.archived
-                        ? i18n._({
-                            id: 'Unarchive {command}',
-                            message: 'Unarchive {command}',
-                            values: { command: session.command },
-                          })
-                        : i18n._({
-                            id: 'Archive {command}',
-                            message: 'Archive {command}',
-                            values: { command: session.command },
-                          })
-                    }
-                    className={
-                      session.archived
-                        ? 'terminal-dock__tab-archive terminal-dock__tab-archive--active'
-                        : 'terminal-dock__tab-archive'
-                    }
-                    onClick={() => onToggleArchivedSession(session.id)}
-                    type="button"
-                  >
-                    <ArchiveToolIcon />
-                  </button>
-                  <button
-                    aria-label={i18n._({
-                      id: 'Close {command}',
-                      message: 'Close {command}',
-                      values: { command: session.command },
-                    })}
-                    className="terminal-dock__tab-close"
-                    onClick={() => onRemoveSession(session.id)}
-                    type="button"
-                  >
-                    ×
-                  </button>
-                </div>
+                  onArchiveSession={onToggleArchivedSession}
+                  onPinSession={onTogglePinnedSession}
+                  onRemoveSession={onRemoveSession}
+                  onSelectSession={handleSelectSession}
+                  pinned={Boolean(session.pinned)}
+                  sessionId={session.id}
+                  status={session.status}
+                  title={formatCommandSessionTitle(session)}
+                  updatedAt={session.updatedAt}
+                />
               ))}
             </div>
           ) : null}
@@ -1475,6 +1558,22 @@ export function ThreadTerminalDockWorkspace({
                   launcherMode={launcherMode}
                   isSelectedSessionArchived={Boolean(selectedCommandSession?.archived)}
                   isSelectedSessionPinned={Boolean(selectedCommandSession?.pinned)}
+                  shellLauncherControl={
+                    isLauncherOpen && launcherMode === 'shell' ? (
+                      <div className="terminal-dock__toolbar-shell-select">
+                        <SelectControl
+                          ariaLabel={i18n._({
+                            id: 'Terminal launcher shell',
+                            message: 'Terminal launcher shell',
+                          })}
+                          className="terminal-dock__toolbar-select"
+                          onChange={setLauncherShell}
+                          options={terminalShellOptions}
+                          value={launcherShell}
+                        />
+                      </div>
+                    ) : undefined
+                  }
                   shellActionLabel={defaultShellLauncherName}
                   shellActionTitle={newShellSessionTitle}
                   onArchiveSelectedSession={() => {
@@ -1635,6 +1734,26 @@ export function ThreadTerminalDockWorkspace({
                       )}`}
                     >
                       {`output:${selectedCommandSession?.combinedOutput?.length ?? 0}`}
+                    </span>
+                    <span
+                      className={`terminal-dock__debug-chip terminal-dock__debug-chip--${getReplayAppendDebugTone(
+                        selectedCommandSession?.replayAppendCount ?? 0,
+                      )}`}
+                    >
+                      {`replay+:${selectedCommandSession?.replayAppendCount ?? 0}`}
+                    </span>
+                    <span
+                      className={`terminal-dock__debug-chip terminal-dock__debug-chip--${getReplayReplaceDebugTone(
+                        selectedCommandSession?.replayReplaceCount ?? 0,
+                      )}`}
+                    >
+                      {`replace:${selectedCommandSession?.replayReplaceCount ?? 0}`}
+                    </span>
+                    <span className="terminal-dock__debug-chip terminal-dock__debug-chip--neutral">
+                      {`resumeB:${selectedCommandSession?.replayByteCount ?? 0}`}
+                    </span>
+                    <span className="terminal-dock__debug-chip terminal-dock__debug-chip--neutral">
+                      {`reason:${selectedCommandSession?.lastReplayReason ?? 'n/a'}`}
                     </span>
                     <span className="terminal-dock__debug-chip terminal-dock__debug-chip--neutral">
                       {`flush:${activePerformanceInfo.flushCount}`}
@@ -1856,6 +1975,7 @@ export function ThreadTerminalDockWorkspace({
                     onRunCommand={handleStartLauncherCommand}
                     pending={startCommandPending}
                     ref={launcherRef}
+                    shellLabel={defaultShellLauncherName}
                     visible={isLauncherOpen}
                   />
                   {activeRenderableSession ? (
@@ -1916,9 +2036,9 @@ export function ThreadTerminalDockWorkspace({
                         })
                     : selectedSessionHasLimitedIntegration
                       ? i18n._({
-                          id: 'Command Prompt is attached with basic prompt and cwd integration only. PowerShell provides richer command state tracking.',
+                          id: 'This shell is attached with basic prompt and cwd integration only. PowerShell provides richer command state tracking.',
                           message:
-                            'Command Prompt is attached with basic prompt and cwd integration only. PowerShell provides richer command state tracking.',
+                            'This shell is attached with basic prompt and cwd integration only. PowerShell provides richer command state tracking.',
                         })
                     : isInteractive
                       ? i18n._({
@@ -1957,6 +2077,111 @@ export function ThreadTerminalDockWorkspace({
     </>
   )
 }
+
+const ThreadTerminalSessionTab = memo(function ThreadTerminalSessionTab({
+  archived,
+  command,
+  isActive,
+  onArchiveSession,
+  onPinSession,
+  onRemoveSession,
+  onSelectSession,
+  pinned,
+  sessionId,
+  status,
+  title,
+  updatedAt,
+}: {
+  archived: boolean
+  command: string
+  isActive: boolean
+  onArchiveSession: (processId: string) => void
+  onPinSession: (processId: string) => void
+  onRemoveSession: (processId: string) => void
+  onSelectSession: (processId: string) => void
+  pinned: boolean
+  sessionId: string
+  status: string
+  title: string
+  updatedAt?: string
+}) {
+  return (
+    <div className={isActive ? 'terminal-dock__tab terminal-dock__tab--active' : 'terminal-dock__tab'}>
+      <button
+        className="terminal-dock__tab-select"
+        onClick={() => onSelectSession(sessionId)}
+        type="button"
+      >
+        <div className="terminal-dock__tab-row">
+          <span
+            className={`terminal-dock__status-dot terminal-dock__status-dot--${getCommandSessionTone(
+              status,
+            )}`}
+          />
+          <strong>{title}</strong>
+        </div>
+        <span>
+          {formatCommandSessionStatus(status)}
+          {updatedAt ? ` · ${formatRelativeTimeShort(updatedAt)}` : ''}
+        </span>
+      </button>
+      <button
+        aria-label={
+          pinned
+            ? i18n._({
+                id: 'Unpin {command}',
+                message: 'Unpin {command}',
+                values: { command },
+              })
+            : i18n._({
+                id: 'Pin {command}',
+                message: 'Pin {command}',
+                values: { command },
+              })
+        }
+        className={pinned ? 'terminal-dock__tab-pin terminal-dock__tab-pin--active' : 'terminal-dock__tab-pin'}
+        onClick={() => onPinSession(sessionId)}
+        type="button"
+      >
+        <PinToolIcon />
+      </button>
+      <button
+        aria-label={
+          archived
+            ? i18n._({
+                id: 'Unarchive {command}',
+                message: 'Unarchive {command}',
+                values: { command },
+              })
+            : i18n._({
+                id: 'Archive {command}',
+                message: 'Archive {command}',
+                values: { command },
+              })
+        }
+        className={
+          archived ? 'terminal-dock__tab-archive terminal-dock__tab-archive--active' : 'terminal-dock__tab-archive'
+        }
+        onClick={() => onArchiveSession(sessionId)}
+        type="button"
+      >
+        <ArchiveToolIcon />
+      </button>
+      <button
+        aria-label={i18n._({
+          id: 'Close {command}',
+          message: 'Close {command}',
+          values: { command },
+        })}
+        className="terminal-dock__tab-close"
+        onClick={() => onRemoveSession(sessionId)}
+        type="button"
+      >
+        ×
+      </button>
+    </div>
+  )
+})
 
 function getActiveViewport(
   sessionId: string | undefined,

@@ -9,9 +9,10 @@ export type ThreadPageStatusStateInput = {
   activeComposerApproval: PendingApproval | null
   activeContextCompactionFeedback: ContextCompactionFeedback | null
   activePendingTurn: PendingThreadTurn | null
+  activeCommandCount: number
   approvalsDataUpdatedAt: number
   approvalsIsFetching: boolean
-  commandSessions: Array<{ status: string }>
+  commandSessionCount: number
   displayedTurnsLength: number
   hasUnreadThreadUpdates: boolean
   isDocumentVisible: boolean
@@ -80,7 +81,8 @@ export type ThreadPageSyncStatusInput = Pick<
 
 export type ThreadPageWorkbenchStatusInput = Pick<
   ThreadPageStatusStateInput,
-  | 'commandSessions'
+  | 'activeCommandCount'
+  | 'commandSessionCount'
   | 'displayedTurnsLength'
   | 'isInspectorExpanded'
   | 'isMobileViewport'
