@@ -25,6 +25,7 @@ import '../../styles/color-picker.css'
 
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
+import { SelectControl } from '../../components/ui/SelectControl'
 import { Slider } from '../../components/ui/Slider'
 import { Switch } from '../../components/ui/Switch'
 import { ThemeIcon } from '../../components/ui/ThemeIcon'
@@ -48,10 +49,18 @@ export function AppearanceSettingsPage() {
   const setUiFont = useSettingsLocalStore((state) => state.setUiFont)
   const codeFont = useSettingsLocalStore((state) => state.codeFont)
   const setCodeFont = useSettingsLocalStore((state) => state.setCodeFont)
+  const terminalFont = useSettingsLocalStore((state) => state.terminalFont)
+  const setTerminalFont = useSettingsLocalStore((state) => state.setTerminalFont)
   const uiFontSize = useSettingsLocalStore((state) => state.uiFontSize)
   const setUiFontSize = useSettingsLocalStore((state) => state.setUiFontSize)
   const codeFontSize = useSettingsLocalStore((state) => state.codeFontSize)
   const setCodeFontSize = useSettingsLocalStore((state) => state.setCodeFontSize)
+  const terminalFontSize = useSettingsLocalStore((state) => state.terminalFontSize)
+  const setTerminalFontSize = useSettingsLocalStore((state) => state.setTerminalFontSize)
+  const terminalLineHeight = useSettingsLocalStore((state) => state.terminalLineHeight)
+  const setTerminalLineHeight = useSettingsLocalStore((state) => state.setTerminalLineHeight)
+  const terminalRenderer = useSettingsLocalStore((state) => state.terminalRenderer)
+  const setTerminalRenderer = useSettingsLocalStore((state) => state.setTerminalRenderer)
 
   // Toggles
   const translucentSidebar = useSettingsLocalStore((state) => state.translucentSidebar)
@@ -134,6 +143,21 @@ export function AppearanceSettingsPage() {
       deleteCustomTheme(activeCustomTheme.id)
     }
   }
+
+  const terminalRendererOptions = [
+    {
+      value: 'auto',
+      label: i18n._({ id: 'Auto', message: 'Auto' }),
+    },
+    {
+      value: 'webgl',
+      label: i18n._({ id: 'WebGL', message: 'WebGL' }),
+    },
+    {
+      value: 'dom',
+      label: i18n._({ id: 'DOM', message: 'DOM' }),
+    },
+  ]
 
   return (
     <section className="settings-page" role="main">
@@ -430,8 +454,8 @@ export function AppearanceSettingsPage() {
           </SettingRow>
 
           <SettingRow title={i18n._({ id: 'Code font', message: 'Code font' })} description={i18n._({
-            id: 'Monospace typeface for editors and terminal outputs.',
-            message: 'Monospace typeface for editors and terminal outputs.',
+            id: 'Monospace typeface for editors, diffs, and code blocks.',
+            message: 'Monospace typeface for editors, diffs, and code blocks.',
           })}>
             <Input 
               aria-label={i18n._({ id: 'Code font family', message: 'Code font family' })}
@@ -507,6 +531,76 @@ export function AppearanceSettingsPage() {
               onChange={(e) => setCodeFontSize(Number(e.target.value))} 
               className="field--inline"
               hint="px"
+            />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup
+          description={i18n._({
+            id: 'Configure terminal typography and renderer behavior separately from editor code styling.',
+            message:
+              'Configure terminal typography and renderer behavior separately from editor code styling.',
+          })}
+          title={i18n._({ id: 'Terminal', message: 'Terminal' })}
+        >
+          <SettingRow title={i18n._({ id: 'Terminal font', message: 'Terminal font' })} description={i18n._({
+            id: 'Monospace typeface used inside terminal sessions.',
+            message: 'Monospace typeface used inside terminal sessions.',
+          })}>
+            <Input
+              aria-label={i18n._({ id: 'Terminal font family', message: 'Terminal font family' })}
+              value={terminalFont}
+              onChange={(e) => setTerminalFont(e.target.value)}
+              placeholder={i18n._({ id: 'Monospace default', message: 'Monospace default' })}
+            />
+          </SettingRow>
+
+          <SettingRow title={i18n._({ id: 'Terminal font size', message: 'Terminal font size' })} description={i18n._({
+            id: 'Font size used by the embedded terminal.',
+            message: 'Font size used by the embedded terminal.',
+          })}>
+            <Input
+              aria-label={i18n._({ id: 'Terminal font size', message: 'Terminal font size' })}
+              type="number"
+              min="10"
+              max="32"
+              value={terminalFontSize}
+              onChange={(e) => setTerminalFontSize(Number(e.target.value))}
+              className="field--inline"
+              hint="px"
+            />
+          </SettingRow>
+
+          <SettingRow title={i18n._({ id: 'Terminal line height', message: 'Terminal line height' })} description={i18n._({
+            id: 'Vertical spacing between terminal rows. Lower values feel denser.',
+            message: 'Vertical spacing between terminal rows. Lower values feel denser.',
+          })}>
+            <Input
+              aria-label={i18n._({ id: 'Terminal line height', message: 'Terminal line height' })}
+              type="number"
+              min="1"
+              max="2"
+              step="0.05"
+              value={terminalLineHeight}
+              onChange={(e) => setTerminalLineHeight(Number(e.target.value))}
+              className="field--inline"
+              hint={i18n._({ id: 'row multiplier', message: 'row multiplier' })}
+            />
+          </SettingRow>
+
+          <SettingRow title={i18n._({ id: 'Terminal renderer', message: 'Terminal renderer' })} description={i18n._({
+            id: 'Auto prefers WebGL when available. Switch to DOM if terminal glyphs look wrong.',
+            message: 'Auto prefers WebGL when available. Switch to DOM if terminal glyphs look wrong.',
+          })}>
+            <SelectControl
+              ariaLabel={i18n._({ id: 'Terminal renderer', message: 'Terminal renderer' })}
+              options={terminalRendererOptions}
+              onChange={(value) => {
+                if (value === 'auto' || value === 'webgl' || value === 'dom') {
+                  setTerminalRenderer(value)
+                }
+              }}
+              value={terminalRenderer}
             />
           </SettingRow>
         </SettingsGroup>

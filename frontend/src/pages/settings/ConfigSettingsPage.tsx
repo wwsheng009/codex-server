@@ -41,7 +41,7 @@ import { TextArea } from '../../components/ui/TextArea'
 import { i18n } from '../../i18n/runtime'
 import { formatLocaleDateTime } from '../../i18n/format'
 import { getErrorMessage } from '../../lib/error-utils'
-import { SelectControl } from '../../components/ui/SelectControl'
+import { SelectControl, type SelectOption } from '../../components/ui/SelectControl'
 import { activateStoredTab, Tabs } from '../../components/ui/Tabs'
 import { useUIStore } from '../../stores/ui-store'
 import { ContextIcon, FeedIcon, RefreshIcon, SettingsIcon, SparkIcon, TerminalIcon } from '../../components/ui/RailControls'
@@ -56,6 +56,7 @@ export function ConfigSettingsPage() {
   const [configValue, setConfigValue] = useState('"gpt-5.4"')
   const [modelCatalogPath, setModelCatalogPath] = useState('')
   const [defaultShellType, setDefaultShellType] = useState('')
+  const [defaultTerminalShell, setDefaultTerminalShell] = useState('')
   const [modelShellTypeOverridesInput, setModelShellTypeOverridesInput] = useState('{}')
   const [defaultTurnApprovalPolicy, setDefaultTurnApprovalPolicy] = useState('')
   const [defaultTurnSandboxPolicyInput, setDefaultTurnSandboxPolicyInput] = useState('')
@@ -99,6 +100,7 @@ export function ConfigSettingsPage() {
   function buildRuntimePreferencesPayload(input?: {
     modelCatalogPath?: string
     defaultShellType?: string
+    defaultTerminalShell?: string
     modelShellTypeOverrides?: Record<string, string>
     defaultTurnApprovalPolicy?: string
     defaultTurnSandboxPolicy?: Record<string, unknown>
@@ -107,6 +109,7 @@ export function ConfigSettingsPage() {
     return {
       modelCatalogPath: (input?.modelCatalogPath ?? modelCatalogPath).trim(),
       defaultShellType: input?.defaultShellType ?? defaultShellType,
+      defaultTerminalShell: input?.defaultTerminalShell ?? defaultTerminalShell,
       modelShellTypeOverrides:
         input?.modelShellTypeOverrides ??
         parseShellOverridesInput(modelShellTypeOverridesInput),
@@ -288,6 +291,7 @@ export function ConfigSettingsPage() {
     mutationFn: async (input?: {
       modelCatalogPath?: string
       defaultShellType?: string
+      defaultTerminalShell?: string
       modelShellTypeOverrides?: Record<string, string>
       defaultTurnApprovalPolicy?: string
       defaultTurnSandboxPolicy?: Record<string, unknown>
@@ -296,6 +300,7 @@ export function ConfigSettingsPage() {
     onSuccess: async (result) => {
       setModelCatalogPath(result.configuredModelCatalogPath)
       setDefaultShellType(result.configuredDefaultShellType)
+      setDefaultTerminalShell(result.configuredDefaultTerminalShell)
       setModelShellTypeOverridesInput(
         JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
       )
@@ -312,21 +317,19 @@ export function ConfigSettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['models'] }),
       ])
       const shellLabel =
-        result.effectiveDefaultShellType ||
-        i18n._({
-          id: 'catalog default',
-          message: 'catalog default',
-        })
+        result.effectiveDefaultShellType || i18n._({ id: 'catalog default', message: 'catalog default' })
+      const terminalLabel = formatTerminalShellLabel(result.effectiveDefaultTerminalShell)
       pushToast({
         title: i18n._({
           id: 'Runtime overrides applied',
           message: 'Runtime overrides applied',
         }),
         message: i18n._({
-          id: 'Shell: {shell}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}.',
-          message: 'Shell: {shell}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}.',
+          id: 'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}.',
+          message: 'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}.',
           values: {
             shell: shellLabel,
+            terminal: terminalLabel,
             turnSandbox: formatSandboxPolicyLabel(result.effectiveDefaultTurnSandboxPolicy),
             commandSandbox: formatSandboxPolicyLabel(result.effectiveDefaultCommandSandboxPolicy),
           },
@@ -402,6 +405,7 @@ export function ConfigSettingsPage() {
     onSuccess: async (result) => {
       setModelCatalogPath(result.configuredModelCatalogPath)
       setDefaultShellType(result.configuredDefaultShellType)
+      setDefaultTerminalShell(result.configuredDefaultTerminalShell)
       setModelShellTypeOverridesInput(
         JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
       )
@@ -447,6 +451,7 @@ export function ConfigSettingsPage() {
 
     setModelCatalogPath(runtimePreferencesQuery.data.configuredModelCatalogPath)
     setDefaultShellType(runtimePreferencesQuery.data.configuredDefaultShellType)
+    setDefaultTerminalShell(runtimePreferencesQuery.data.configuredDefaultTerminalShell)
     setModelShellTypeOverridesInput(
       JSON.stringify(runtimePreferencesQuery.data.configuredModelShellTypeOverrides ?? {}, null, 2),
     )
@@ -471,6 +476,10 @@ export function ConfigSettingsPage() {
 
   const configLayerCount = Array.isArray(configQuery.data?.layers) ? configQuery.data.layers.length : 0
   const shellTypeOptions = getShellTypeOptions()
+  const terminalShellOptions = getTerminalShellOptions(
+    runtimePreferencesQuery.data?.supportedTerminalShells ?? [],
+    defaultTerminalShell,
+  )
   const approvalPolicyOptions = getApprovalPolicyOptions()
   const directWriteRequiresRestart = isRuntimeSensitiveConfigKey(configKeyPath)
   const runtimeSummary = {
@@ -481,6 +490,9 @@ export function ConfigSettingsPage() {
         id: 'runtime default',
         message: 'runtime default',
       }),
+    defaultTerminalShell: formatTerminalShellLabel(
+      runtimePreferencesQuery.data?.effectiveDefaultTerminalShell,
+    ),
     turnApprovalPolicy: formatApprovalPolicyLabel(
       runtimePreferencesQuery.data?.effectiveDefaultTurnApprovalPolicy,
     ),
@@ -507,6 +519,10 @@ export function ConfigSettingsPage() {
     {
       label: i18n._({ id: 'Shell', message: 'Shell' }),
       value: runtimeSummary.defaultShellType,
+    },
+    {
+      label: i18n._({ id: 'Terminal', message: 'Terminal' }),
+      value: runtimeSummary.defaultTerminalShell,
     },
     {
       label: i18n._({ id: 'Turn', message: 'Turn' }),
@@ -777,6 +793,7 @@ export function ConfigSettingsPage() {
                       onClick={() =>
                         writeRuntimePreferencesMutation.mutate({
                           defaultShellType: '',
+                          defaultTerminalShell: '',
                           modelShellTypeOverrides: {},
                         })
                       }
@@ -821,7 +838,7 @@ export function ConfigSettingsPage() {
                     })}
                   </p>
 
-                  <div className="form-row" style={{ gridTemplateColumns: '1fr 200px' }}>
+                  <div className="form-row" style={{ gridTemplateColumns: '1fr 200px 220px' }}>
                     <div className="field-group">
                       <div className="input-with-action">
                         <Input
@@ -861,7 +878,31 @@ export function ConfigSettingsPage() {
                         value={defaultShellType}
                       />
                     </div>
+
+                    <div className="field">
+                      <label className="field-label">
+                        {i18n._({ id: 'Terminal Shell', message: 'Terminal Shell' })}
+                      </label>
+                      <SelectControl
+                        ariaLabel={i18n._({
+                          id: 'Default terminal shell',
+                          message: 'Default terminal shell',
+                        })}
+                        fullWidth
+                        onChange={setDefaultTerminalShell}
+                        options={terminalShellOptions}
+                        value={defaultTerminalShell}
+                      />
+                    </div>
                   </div>
+
+                  <p className="config-inline-note">
+                    {i18n._({
+                      id: 'Choose which backend shell opens when you start a terminal session. Availability depends on the backend machine and PATH.',
+                      message:
+                        'Choose which backend shell opens when you start a terminal session. Availability depends on the backend machine and PATH.',
+                    })}
+                  </p>
 
                   <p className="config-inline-note">
                     {i18n._({
@@ -965,6 +1006,7 @@ export function ConfigSettingsPage() {
                             value={{
                               modelCatalogPath: runtimePreferencesQuery.data.effectiveModelCatalogPath,
                               defaultShellType: runtimePreferencesQuery.data.effectiveDefaultShellType,
+                              defaultTerminalShell: runtimePreferencesQuery.data.effectiveDefaultTerminalShell,
                               modelShellTypeOverrides: runtimePreferencesQuery.data.effectiveModelShellTypeOverrides,
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnSandboxPolicy,
@@ -988,6 +1030,7 @@ export function ConfigSettingsPage() {
                             value={{
                               modelCatalogPath: runtimePreferencesQuery.data.configuredModelCatalogPath,
                               defaultShellType: runtimePreferencesQuery.data.configuredDefaultShellType,
+                              defaultTerminalShell: runtimePreferencesQuery.data.configuredDefaultTerminalShell,
                               modelShellTypeOverrides: runtimePreferencesQuery.data.configuredModelShellTypeOverrides,
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy,
@@ -1837,6 +1880,105 @@ function getShellTypeOptions() {
   ]
 }
 
+function getTerminalShellOptions(supportedValues: string[], currentValue?: string): SelectOption[] {
+  const options: SelectOption[] = [
+    {
+      value: '',
+      label: i18n._({
+        id: 'Follow backend automatic shell selection',
+        message: 'Follow backend automatic shell selection',
+      }),
+      triggerLabel: i18n._({ id: 'Auto', message: 'Auto' }),
+    },
+  ]
+
+  for (const value of supportedValues) {
+    options.push(createTerminalShellOption(value))
+  }
+
+  const normalizedCurrentValue = (currentValue ?? '').trim().toLowerCase()
+  if (
+    normalizedCurrentValue &&
+    !options.some((option) => option.value === normalizedCurrentValue)
+  ) {
+    options.push({
+      ...createTerminalShellOption(normalizedCurrentValue),
+      label: i18n._({
+        id: '{shell} (currently saved, unavailable)',
+        message: '{shell} (currently saved, unavailable)',
+        values: {
+          shell: formatTerminalShellLabel(normalizedCurrentValue),
+        },
+      }),
+      disabled: true,
+    })
+  }
+
+  return options
+}
+
+function createTerminalShellOption(value: string) {
+  switch (value) {
+    case 'pwsh':
+      return {
+        value,
+        label: i18n._({
+          id: 'PowerShell 7 (pwsh)',
+          message: 'PowerShell 7 (pwsh)',
+        }),
+        triggerLabel: 'pwsh',
+      }
+    case 'powershell':
+      return {
+        value,
+        label: i18n._({
+          id: 'Windows PowerShell',
+          message: 'Windows PowerShell',
+        }),
+        triggerLabel: i18n._({ id: 'PowerShell', message: 'PowerShell' }),
+      }
+    case 'cmd':
+      return {
+        value,
+        label: i18n._({
+          id: 'Command Prompt',
+          message: 'Command Prompt',
+        }),
+        triggerLabel: 'cmd',
+      }
+    case 'wsl':
+      return {
+        value,
+        label: 'WSL',
+        triggerLabel: 'WSL',
+      }
+    case 'git-bash':
+      return {
+        value,
+        label: i18n._({
+          id: 'Git Bash',
+          message: 'Git Bash',
+        }),
+        triggerLabel: i18n._({
+          id: 'Git Bash',
+          message: 'Git Bash',
+        }),
+      }
+    case 'bash':
+      return { value, label: 'bash', triggerLabel: 'bash' }
+    case 'zsh':
+      return { value, label: 'zsh', triggerLabel: 'zsh' }
+    case 'sh':
+      return { value, label: 'sh', triggerLabel: 'sh' }
+    default:
+      return {
+        value,
+        label: formatTerminalShellLabel(value),
+        triggerLabel: value,
+      }
+  }
+}
+
 function getApprovalPolicyOptions() {
   return [
     {
@@ -1999,4 +2141,39 @@ function formatSandboxPolicyLabel(value?: Record<string, unknown> | null) {
   }
 
   return rawType
+}
+
+function formatTerminalShellLabel(value?: string | null) {
+  switch ((value ?? '').trim()) {
+    case 'pwsh':
+      return i18n._({
+        id: 'PowerShell 7 (pwsh)',
+        message: 'PowerShell 7 (pwsh)',
+      })
+    case 'powershell':
+      return i18n._({
+        id: 'Windows PowerShell',
+        message: 'Windows PowerShell',
+      })
+    case 'cmd':
+      return i18n._({
+        id: 'Command Prompt',
+        message: 'Command Prompt',
+      })
+    case 'wsl':
+      return 'WSL'
+    case 'git-bash':
+      return i18n._({
+        id: 'Git Bash',
+        message: 'Git Bash',
+      })
+    case 'bash':
+      return 'bash'
+    case 'zsh':
+      return 'zsh'
+    case 'sh':
+      return 'sh'
+    default:
+      return i18n._({ id: 'Auto', message: 'Auto' })
+  }
 }

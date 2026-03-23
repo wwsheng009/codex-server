@@ -6653,3 +6653,99 @@ msgstr "Your message is staged and the thread is preparing a response."
 #: src/pages/thread-page/buildThreadPageInteractionStatus.ts:117
 msgid "Your message is staged. The primary action will switch to Stop as soon as the turn is live."
 msgstr "Your message is staged. The primary action will switch to Stop as soon as the turn is live."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "Choose which backend shell opens when you start a terminal session. Availability depends on the backend machine and PATH."
+msgstr "Choose which backend shell opens when you start a terminal session. Availability depends on the backend machine and PATH."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx
+msgid "Configure terminal typography and renderer behavior separately from editor code styling."
+msgstr "Configure terminal typography and renderer behavior separately from editor code styling."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "Default terminal shell"
+msgstr "Default terminal shell"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "Follow backend automatic shell selection"
+msgstr "Follow backend automatic shell selection"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "PowerShell 7 (pwsh)"
+msgstr "PowerShell 7 (pwsh)"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "Windows PowerShell"
+msgstr "Windows PowerShell"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "Command Prompt"
+msgstr "Command Prompt"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}."
+msgstr "Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}."
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "Terminal Shell"
+msgstr "Terminal Shell"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx
+msgid "Terminal font"
+msgstr "Terminal font"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx
+msgid "Terminal font size"
+msgstr "Terminal font size"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx
+msgid "Terminal line height"
+msgstr "Terminal line height"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/AppearanceSettingsPage.tsx
+msgid "Terminal renderer"
+msgstr "Terminal renderer"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+msgid "{shell} (currently saved, unavailable)"
+msgstr "{shell} (currently saved, unavailable)"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx
+msgid "Auto select shell"
+msgstr "Auto select shell"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx
+msgid "{shell} (saved, unavailable)"
+msgstr "{shell} (saved, unavailable)"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx
+msgid "This shell is attached with basic prompt and cwd integration only. PowerShell provides richer command state tracking."
+msgstr "This shell is attached with basic prompt and cwd integration only. PowerShell provides richer command state tracking."
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx
+msgid "Terminal launcher shell"
+msgstr "Terminal launcher shell"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/ConfigSettingsPage.tsx
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx
+msgid "Git Bash"
+msgstr "Git Bash"

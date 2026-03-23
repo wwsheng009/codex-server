@@ -11,18 +11,21 @@
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px 24px;
   align-items: flex-start;
 }
 
 .page-header__copy {
   min-width: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
 }
 
 .page-header__eyebrow {
-  margin: 0 0 8px;
+  margin: 0;
   color: var(--text-faint);
   font-size: var(--text-meta-size);
   font-weight: var(--text-meta-weight);
@@ -31,20 +34,23 @@
   text-transform: uppercase;
 }
 
-.page-header h1 {
+.page-header__title {
   margin: 0;
   color: var(--text-strong);
   font-size: var(--text-h1-size);
   font-weight: var(--text-h1-weight);
   line-height: var(--text-h1-line-height);
   letter-spacing: var(--text-h1-spacing);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
 .page-header__description {
-  margin: 10px 0 0;
+  margin: 0;
   color: var(--text-secondary);
-  max-width: 70ch;
+  max-width: min(72ch, 100%);
   line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .page-header__meta,
@@ -57,8 +63,11 @@
 
 .page-header__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   align-items: flex-start;
+  justify-content: flex-end;
+  align-self: start;
 }
 
 .meta-pill,

@@ -95,8 +95,7 @@
     display: flex;
   }
 
-  .mode-strip__description,
-  .page-header__description {
+  .mode-strip__description {
     display: none;
   }
 
@@ -431,6 +430,56 @@
     align-self: auto;
   }
 
+  .page-header {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .page-header__copy {
+    gap: 8px;
+  }
+
+  .page-header__description {
+    display: block;
+    max-width: 100%;
+    font-size: 0.94rem;
+  }
+
+  .page-header__actions {
+    justify-content: flex-start;
+  }
+
+  .conversation-profiler {
+    left: 12px;
+    right: 12px;
+    top: 12px;
+  }
+
+  .conversation-profiler__card {
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - 24px);
+  }
+
+  .conversation-profiler__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .conversation-profiler__actions {
+    min-width: 0;
+    justify-items: stretch;
+  }
+
+  .conversation-profiler__action-row {
+    justify-content: flex-start;
+  }
+
+  .conversation-profiler__action {
+    flex: 1 1 140px;
+    justify-content: center;
+  }
+
   .mode-strip {
     flex-direction: column;
     align-items: stretch;
@@ -550,11 +599,12 @@
   }
 
   .composer-dock--workbench {
-    padding: 12px 8px 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0 8px env(safe-area-inset-bottom, 0px);
     background: transparent;
     overflow: visible;
-    display: flex;
-    justify-content: center;
   }
 
   .composer-dock__shell {
