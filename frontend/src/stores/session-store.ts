@@ -31,7 +31,9 @@ export type ThreadActivitySummary = {
   workspaceId: string
 }
 
-const ACTIVE_THREAD_EVENT_LIMIT = 40
+// Active threads need a deeper buffer because the thread page projects the live
+// reply from recent delta events between snapshot refreshes.
+const ACTIVE_THREAD_EVENT_LIMIT = 160
 const INACTIVE_THREAD_EVENT_LIMIT = 4
 const WORKSPACE_EVENT_LIMIT = 20
 const WORKSPACE_ACTIVITY_EVENT_LIMIT = 30

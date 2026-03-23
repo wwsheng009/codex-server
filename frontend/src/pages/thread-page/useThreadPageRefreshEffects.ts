@@ -106,7 +106,6 @@ export function useThreadPageRefreshEffects({
       !selectedThreadId ||
       !activePendingTurn ||
       !isDocumentVisible ||
-      streamState === 'open' ||
       !isThreadPinnedToLatest ||
       isThreadViewportInteracting
     ) {
@@ -117,7 +116,7 @@ export function useThreadPageRefreshEffects({
       void queryClient.invalidateQueries({
         queryKey: ['thread-detail', workspaceId, selectedThreadId],
       })
-    }, 1_000)
+    }, streamState === 'open' ? 400 : 1_000)
 
     return () => {
       window.clearInterval(intervalId)

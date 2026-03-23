@@ -1,5 +1,18 @@
 import type { ServerEvent, ThreadDetail, ThreadTurn } from '../types/api'
 
+export function resolveLiveThreadDetail({
+  currentLiveDetail,
+  events,
+  threadDetail,
+}: {
+  currentLiveDetail?: ThreadDetail
+  events: ServerEvent[]
+  threadDetail?: ThreadDetail
+}) {
+  const baseDetail = selectLiveThreadDetailBase(currentLiveDetail, threadDetail)
+  return applyLiveThreadEvents(baseDetail, events)
+}
+
 export function applyLiveThreadEvents(
   detail: ThreadDetail | undefined,
   events: ServerEvent[],
@@ -445,6 +458,35 @@ function parseTimestamp(value: string | undefined) {
 
   const parsed = Date.parse(value)
   return Number.isNaN(parsed) ? null : parsed
+}
+
+function selectLiveThreadDetailBase(
+  currentLiveDetail: ThreadDetail | undefined,
+  threadDetail: ThreadDetail | undefined,
+) {
+  if (!currentLiveDetail) {
+    return threadDetail
+  }
+
+  if (!threadDetail) {
+    return currentLiveDetail
+  }
+
+  if (currentLiveDetail.id !== threadDetail.id) {
+    return threadDetail
+  }
+
+  const currentMs = parseTimestamp(currentLiveDetail.updatedAt)
+  const snapshotMs = parseTimestamp(threadDetail.updatedAt)
+  if (currentMs === null) {
+    return threadDetail
+  }
+
+  if (snapshotMs === null) {
+    return currentLiveDetail
+  }
+
+  return snapshotMs >= currentMs ? threadDetail : currentLiveDetail
 }
 
 function isServerRequestMethod(method: string) {

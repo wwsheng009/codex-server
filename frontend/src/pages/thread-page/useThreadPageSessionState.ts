@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { applyLiveThreadEvents } from '../threadLiveState'
+import { resolveLiveThreadDetail } from '../threadLiveState'
 import { useSessionStore } from '../../stores/session-store'
 import type { ServerEvent, ThreadDetail } from '../../types/api'
 
@@ -47,9 +47,35 @@ export function useThreadPageSessionState({
       : (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string]),
   )
 
+  const [liveThreadDetailState, setLiveThreadDetailState] = useState<ThreadDetail | undefined>(
+    () =>
+      resolveLiveThreadDetail({
+        currentLiveDetail: undefined,
+        events: selectedThreadEvents,
+        threadDetail,
+      }),
+  )
+
+  useEffect(() => {
+    setLiveThreadDetailState((current) =>
+      resolveLiveThreadDetail({
+        currentLiveDetail: current?.id === selectedThreadId ? current : undefined,
+        events: selectedThreadEvents,
+        threadDetail,
+      }),
+    )
+  }, [selectedThreadEvents, selectedThreadId, threadDetail])
+
   const liveThreadDetail = useMemo(
-    () => applyLiveThreadEvents(threadDetail, selectedThreadEvents),
-    [selectedThreadEvents, threadDetail],
+    () =>
+      liveThreadDetailState?.id === (selectedThreadId ?? threadDetail?.id)
+        ? liveThreadDetailState
+        : resolveLiveThreadDetail({
+            currentLiveDetail: undefined,
+            events: selectedThreadEvents,
+            threadDetail,
+          }),
+    [liveThreadDetailState, selectedThreadEvents, selectedThreadId, threadDetail],
   )
 
   const commandSessions = useMemo(

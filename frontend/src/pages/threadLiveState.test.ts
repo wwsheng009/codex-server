@@ -5,6 +5,7 @@ import {
   applyLiveThreadEvents,
   applyThreadEventToDetail,
   applyThreadEventsToDetail,
+  resolveLiveThreadDetail,
   upsertPendingUserMessage,
 } from './threadLiveState'
 
@@ -29,6 +30,22 @@ function makeEvent(method: string, payload: unknown): ServerEvent {
     method,
     payload,
     ts: '2026-03-20T00:00:01.000Z',
+  }
+}
+
+function makeAgentDeltaEvent(index: number, delta: string): ServerEvent {
+  return {
+    workspaceId: 'ws-1',
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    method: 'item/agentMessage/delta',
+    payload: {
+      delta,
+      itemId: 'item-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+    },
+    ts: `2026-03-20T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
   }
 }
 
@@ -256,6 +273,58 @@ describe('threadLiveState', () => {
       id: 'item-1',
       type: 'agentMessage',
       text: 'Hello world',
+    })
+  })
+
+  it('keeps accumulated streaming text when a refreshed snapshot lags behind the live state', () => {
+    const chunks = Array.from({ length: 240 }, (_, index) => `chunk-${index.toString().padStart(3, '0')} `)
+    const allEvents = chunks.map((chunk, index) => makeAgentDeltaEvent(index + 1, chunk))
+    const firstBatch = allEvents.slice(0, 80)
+    const lastBufferedBatch = allEvents.slice(-160)
+    const staleSnapshot = applyThreadEventsToDetail(makeDetail(), allEvents.slice(0, 40))
+
+    const liveAfterFirstBatch = resolveLiveThreadDetail({
+      currentLiveDetail: undefined,
+      events: firstBatch,
+      threadDetail: makeDetail(),
+    })
+    const liveAfterStaleRefresh = resolveLiveThreadDetail({
+      currentLiveDetail: liveAfterFirstBatch,
+      events: lastBufferedBatch,
+      threadDetail: staleSnapshot,
+    })
+
+    expect(applyLiveThreadEvents(staleSnapshot, lastBufferedBatch)?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: `${chunks.slice(0, 40).join('')}${chunks.slice(80).join('')}`,
+    })
+    expect(liveAfterStaleRefresh?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: chunks.join(''),
+      phase: 'streaming',
+    })
+  })
+
+  it('rebases to a newer snapshot once the backend catches up', () => {
+    const chunks = Array.from({ length: 120 }, (_, index) => `chunk-${index.toString().padStart(3, '0')} `)
+    const events = chunks.map((chunk, index) => makeAgentDeltaEvent(index + 1, chunk))
+    const liveDetail = applyThreadEventsToDetail(makeDetail(), events.slice(0, 60))
+    const refreshedSnapshot = applyThreadEventsToDetail(makeDetail(), events)
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail: liveDetail,
+      events,
+      threadDetail: refreshedSnapshot,
+    })
+
+    expect(resolved?.updatedAt).toBe(refreshedSnapshot?.updatedAt)
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: chunks.join(''),
+      phase: 'streaming',
     })
   })
 
