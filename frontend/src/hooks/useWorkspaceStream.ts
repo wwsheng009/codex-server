@@ -7,6 +7,8 @@ import type { ServerEvent } from '../types/api'
 const workspaceStreams = new Map<string, WorkspaceStream>()
 const reconnectDelaysMs = [1_000, 2_000, 5_000]
 const streamBatchFlushDelayMs = 16
+const commandResumeSessionLimit = 16
+const commandResumeTailLength = 512
 
 type ConnectionStateSetter = (workspaceId: string, state: string) => void
 
@@ -114,7 +116,9 @@ function openWorkspaceStream(
     stream.reconnectTimer = undefined
   }
 
-  const socket = new WebSocket(buildApiWebSocketUrl(`/api/workspaces/${workspaceId}/stream`))
+  const socket = new WebSocket(
+    buildApiWebSocketUrl(buildWorkspaceStreamPath(workspaceId)),
+  )
   stream.socket = socket
 
   setConnectionState(workspaceId, 'connecting')
@@ -172,6 +176,51 @@ function openWorkspaceStream(
     setConnectionState(workspaceId, 'closed')
     scheduleReconnect(workspaceId, stream, setConnectionState)
   }
+}
+
+function buildWorkspaceStreamPath(workspaceId: string) {
+  const resumeState = buildCommandResumeStateParam(workspaceId)
+  if (!resumeState) {
+    return `/api/workspaces/${workspaceId}/stream`
+  }
+
+  return `/api/workspaces/${workspaceId}/stream?commandResumeState=${encodeURIComponent(resumeState)}`
+}
+
+function buildCommandResumeStateParam(workspaceId: string) {
+  const workspaceSessions =
+    useSessionStore.getState().commandSessionsByWorkspace[workspaceId] ?? {}
+  const sessions = Object.values(workspaceSessions)
+    .filter((session) => (session.combinedOutput ?? '').length > 0)
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+    .slice(0, commandResumeSessionLimit)
+    .map((session) => ({
+      id: session.id,
+      outputLength: new TextEncoder().encode(session.combinedOutput ?? '').length,
+      outputTail: (session.combinedOutput ?? '').slice(-commandResumeTailLength),
+      updatedAt: session.updatedAt,
+    }))
+
+  if (!sessions.length) {
+    return ''
+  }
+
+  return encodeWebSocketResumeState(JSON.stringify({ sessions }))
+}
+
+function encodeWebSocketResumeState(value: string) {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+
+  return window
+    .btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
 }
 
 function scheduleReconnect(

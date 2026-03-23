@@ -4,6 +4,7 @@ import type { CommandSession, CommandSessionSnapshot } from '../../types/api'
 export type StartCommandInput = {
   command?: string
   mode?: 'command' | 'shell'
+  shell?: string
 }
 
 export function listCommandSessions(workspaceId: string) {

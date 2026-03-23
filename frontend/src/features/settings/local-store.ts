@@ -28,6 +28,7 @@ import { sourceLocale, type AppLocale } from '../../i18n/config'
 
 type DensityMode = 'comfortable' | 'compact'
 type ResponseTone = 'balanced' | 'direct' | 'detailed'
+export type TerminalRendererPreference = 'auto' | 'webgl' | 'dom'
 
 type SettingsLocalState = {
   locale: AppLocale
@@ -51,8 +52,12 @@ type SettingsLocalState = {
   activeCustomThemeId: string
   uiFont: string
   codeFont: string
+  terminalFont: string
   uiFontSize: number
   codeFontSize: number
+  terminalFontSize: number
+  terminalLineHeight: number
+  terminalRenderer: TerminalRendererPreference
   translucentSidebar: boolean
   contrast: number
   usePointerCursor: boolean
@@ -87,8 +92,12 @@ type SettingsLocalState = {
   copyThemePaletteCustomization: (sourceAccentTone: AccentTone, targetAccentTone: AccentTone) => void
   setUiFont: (font: string) => void
   setCodeFont: (font: string) => void
+  setTerminalFont: (font: string) => void
   setUiFontSize: (size: number) => void
   setCodeFontSize: (size: number) => void
+  setTerminalFontSize: (size: number) => void
+  setTerminalLineHeight: (value: number) => void
+  setTerminalRenderer: (value: TerminalRendererPreference) => void
   setTranslucentSidebar: (enabled: boolean) => void
   setContrast: (value: number) => void
   setUsePointerCursor: (enabled: boolean) => void
@@ -313,8 +322,12 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       activeCustomThemeId: initialCustomTheme.id,
       uiFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       codeFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
+      terminalFont: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace",
       uiFontSize: 13,
       codeFontSize: 12,
+      terminalFontSize: 13,
+      terminalLineHeight: 1,
+      terminalRenderer: 'auto',
       translucentSidebar: true,
       contrast: 45,
       usePointerCursor: false,
@@ -560,8 +573,12 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
         }),
       setUiFont: (uiFont) => set({ uiFont }),
       setCodeFont: (codeFont) => set({ codeFont }),
+      setTerminalFont: (terminalFont) => set({ terminalFont }),
       setUiFontSize: (uiFontSize) => set({ uiFontSize }),
       setCodeFontSize: (codeFontSize) => set({ codeFontSize }),
+      setTerminalFontSize: (terminalFontSize) => set({ terminalFontSize }),
+      setTerminalLineHeight: (terminalLineHeight) => set({ terminalLineHeight }),
+      setTerminalRenderer: (terminalRenderer) => set({ terminalRenderer }),
       setTranslucentSidebar: (translucentSidebar) => set({ translucentSidebar }),
       setContrast: (contrast) => set({ contrast }),
       setUsePointerCursor: (usePointerCursor) => set({ usePointerCursor }),

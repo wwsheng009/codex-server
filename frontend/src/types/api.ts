@@ -270,18 +270,22 @@ export type ConfigRequirementsResult = {
 export type RuntimePreferencesResult = {
   configuredModelCatalogPath: string
   configuredDefaultShellType: string
+  configuredDefaultTerminalShell: string
+  supportedTerminalShells: string[]
   configuredModelShellTypeOverrides: Record<string, string>
   configuredDefaultTurnApprovalPolicy: string
   configuredDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   configuredDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   defaultModelCatalogPath: string
   defaultDefaultShellType: string
+  defaultDefaultTerminalShell: string
   defaultModelShellTypeOverrides: Record<string, string>
   defaultDefaultTurnApprovalPolicy: string
   defaultDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   defaultDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   effectiveModelCatalogPath: string
   effectiveDefaultShellType: string
+  effectiveDefaultTerminalShell: string
   effectiveModelShellTypeOverrides: Record<string, string>
   effectiveDefaultTurnApprovalPolicy: string
   effectiveDefaultTurnSandboxPolicy?: Record<string, unknown> | null

@@ -12,9 +12,16 @@ import type {
   ThreadTokenUsage,
 } from '../types/api'
 
-export type CommandRuntimeSession = CommandSessionSnapshot
+export type CommandRuntimeSession = CommandSessionSnapshot & {
+  lastReplayMode?: 'append' | 'replace' | null
+  lastReplayReason?: string | null
+  replayAppendCount?: number
+  replayByteCount?: number
+  replayReplaceCount?: number
+}
 
 export const COMMAND_SESSION_OUTPUT_LIMIT = 128_000
+const COMMAND_SESSION_OUTPUT_UPDATED_AT_INTERVAL_MS = 500
 
 export type ThreadActivitySummary = {
   latestEventMethod: string
@@ -127,6 +134,11 @@ export const useSessionStore = create<SessionState>()(
             sanitizeCommandSnapshot({
               ...session,
               combinedOutput: '',
+              lastReplayMode: null,
+              lastReplayReason: null,
+              replayAppendCount: 0,
+              replayByteCount: 0,
+              replayReplaceCount: 0,
               stdout: '',
               stderr: '',
               updatedAt: new Date().toISOString(),
@@ -278,42 +290,74 @@ function applySessionEvents(
   let nextActivityEvents = current.activityEventsByWorkspace
   let nextWorkspaceEvents = current.workspaceEventsByWorkspace
   let nextEventsByThread = current.eventsByThread
+  let activityEventsCloned = false
+  let workspaceEventsCloned = false
+  let threadEventsCloned = false
+  let pendingCommandOutputEvents: ServerEvent[] = []
 
-  for (const event of events) {
-    nextCommandSessions = applyCommandEvent(nextCommandSessions, event)
-    nextThreadActivity = applyThreadActivityEvent(nextThreadActivity, event)
-    nextTokenUsage = applyTokenUsageEvent(nextTokenUsage, event)
-    nextActivityEvents = {
-      ...nextActivityEvents,
-      [event.workspaceId]: [
-        ...(nextActivityEvents[event.workspaceId] ?? []),
-        event,
-      ].slice(-WORKSPACE_ACTIVITY_EVENT_LIMIT),
+  function flushPendingCommandOutputEvents() {
+    if (pendingCommandOutputEvents.length === 0) {
+      return
     }
 
+    nextCommandSessions = appendCommandOutputEvents(
+      nextCommandSessions,
+      pendingCommandOutputEvents,
+    )
+    pendingCommandOutputEvents = []
+  }
+
+  for (const event of events) {
+    if (event.method === 'command/exec/outputDelta') {
+      pendingCommandOutputEvents.push(event)
+    } else {
+      flushPendingCommandOutputEvents()
+      nextCommandSessions = applyCommandEvent(nextCommandSessions, event)
+    }
+    nextThreadActivity = applyThreadActivityEvent(nextThreadActivity, event)
+    nextTokenUsage = applyTokenUsageEvent(nextTokenUsage, event)
+
+    if (!activityEventsCloned) {
+      nextActivityEvents = { ...nextActivityEvents }
+      activityEventsCloned = true
+    }
+    nextActivityEvents[event.workspaceId] = appendEventWithLimit(
+      nextActivityEvents[event.workspaceId],
+      event,
+      WORKSPACE_ACTIVITY_EVENT_LIMIT,
+    )
+
     if (!event.threadId) {
-      nextWorkspaceEvents = {
-        ...nextWorkspaceEvents,
-        [event.workspaceId]: [
-          ...(nextWorkspaceEvents[event.workspaceId] ?? []),
-          event,
-        ].slice(-WORKSPACE_EVENT_LIMIT),
+      if (!workspaceEventsCloned) {
+        nextWorkspaceEvents = { ...nextWorkspaceEvents }
+        workspaceEventsCloned = true
       }
+      nextWorkspaceEvents[event.workspaceId] = appendEventWithLimit(
+        nextWorkspaceEvents[event.workspaceId],
+        event,
+        WORKSPACE_EVENT_LIMIT,
+      )
       continue
     }
 
-    const currentEvents = nextEventsByThread[event.threadId] ?? []
+    if (!threadEventsCloned) {
+      nextEventsByThread = { ...nextEventsByThread }
+      threadEventsCloned = true
+    }
     const selectedThreadIdForWorkspace = current.selectedThreadIdByWorkspace[event.workspaceId]
     const eventLimit =
       selectedThreadIdForWorkspace === event.threadId
         ? ACTIVE_THREAD_EVENT_LIMIT
         : INACTIVE_THREAD_EVENT_LIMIT
 
-    nextEventsByThread = {
-      ...nextEventsByThread,
-      [event.threadId]: [...currentEvents, event].slice(-eventLimit),
-    }
+    nextEventsByThread[event.threadId] = appendEventWithLimit(
+      nextEventsByThread[event.threadId],
+      event,
+      eventLimit,
+    )
   }
+
+  flushPendingCommandOutputEvents()
 
   return {
     activityEventsByWorkspace: nextActivityEvents,
@@ -323,6 +367,18 @@ function applySessionEvents(
     tokenUsageByThread: nextTokenUsage,
     workspaceEventsByWorkspace: nextWorkspaceEvents,
   }
+}
+
+function appendEventWithLimit<T>(current: T[] | undefined, value: T, limit: number) {
+  if (!current || current.length === 0) {
+    return [value]
+  }
+
+  if (current.length < limit) {
+    return [...current, value]
+  }
+
+  return [...current.slice(current.length - limit + 1), value]
 }
 
 function applyCommandEvent(
@@ -339,6 +395,11 @@ function applyCommandEvent(
         sanitizeCommandSnapshot({
           ...event.payload,
           combinedOutput: '',
+          lastReplayMode: null,
+          lastReplayReason: null,
+          replayAppendCount: 0,
+          replayByteCount: 0,
+          replayReplaceCount: 0,
           stdout: '',
           stderr: '',
           updatedAt: event.ts,
@@ -346,6 +407,8 @@ function applyCommandEvent(
       )
     case 'command/exec/outputDelta':
       return appendCommandOutput(sessionsByWorkspace, event)
+    case 'command/exec/stateSnapshot':
+      return syncCommandSessionStatesFromEvent(sessionsByWorkspace, event)
     case 'command/exec/snapshot':
       return syncCommandSessionsFromEvent(sessionsByWorkspace, event)
     case 'command/exec/completed':
@@ -439,17 +502,18 @@ function hydrateCommandSessions(
   const nextWorkspaceSessions = { ...workspaceSessions }
 
   for (const session of sessions) {
-    const current = nextWorkspaceSessions[session.id]
+    const sanitizedSession = sanitizeCommandSnapshot(session)
+    const current = nextWorkspaceSessions[sanitizedSession.id]
     if (
       current &&
-      Date.parse(current.updatedAt) > Date.parse(session.updatedAt)
+      Date.parse(current.updatedAt) > Date.parse(sanitizedSession.updatedAt)
     ) {
       continue
     }
 
-    nextWorkspaceSessions[session.id] = {
+    nextWorkspaceSessions[sanitizedSession.id] = {
       ...current,
-      ...session,
+      ...sanitizedSession,
     }
   }
 
@@ -468,6 +532,8 @@ function syncCommandSessions(
     return sessionsByWorkspace
   }
 
+  const sanitizedSessions = sessions.map(sanitizeCommandSnapshot)
+
   if (sessions.length === 0) {
     if (!sessionsByWorkspace[workspaceId]) {
       return sessionsByWorkspace
@@ -479,7 +545,41 @@ function syncCommandSessions(
   }
 
   const nextWorkspaceSessions = Object.fromEntries(
-    sessions.map((session) => [session.id, session]),
+    sanitizedSessions.map((session) => [session.id, session]),
+  )
+
+  return {
+    ...sessionsByWorkspace,
+    [workspaceId]: nextWorkspaceSessions,
+  }
+}
+
+function syncCommandSessionStates(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  workspaceId: string,
+  sessions: CommandSessionSnapshot[],
+) {
+  if (!workspaceId) {
+    return sessionsByWorkspace
+  }
+
+  if (sessions.length === 0) {
+    if (!sessionsByWorkspace[workspaceId]) {
+      return sessionsByWorkspace
+    }
+
+    const nextSessionsByWorkspace = { ...sessionsByWorkspace }
+    delete nextSessionsByWorkspace[workspaceId]
+    return nextSessionsByWorkspace
+  }
+
+  const currentWorkspaceSessions = sessionsByWorkspace[workspaceId] ?? {}
+  const nextWorkspaceSessions = Object.fromEntries(
+    sessions.map((session) => {
+      const current = currentWorkspaceSessions[session.id]
+      const sanitizedSession = sanitizeCommandStateSnapshot(session, current)
+      return [sanitizedSession.id, sanitizedSession]
+    }),
   )
 
   return {
@@ -659,33 +759,213 @@ function appendCommandOutput(
     typeof payload !== 'object' ||
     payload === null ||
     !('processId' in payload) ||
-    !('deltaBase64' in payload) ||
+    !('deltaBase64' in payload) &&
+    !('deltaText' in payload) ||
     !('stream' in payload)
   ) {
     return sessionsByWorkspace
   }
 
-  const processId = String(payload.processId)
-  const delta = decodeBase64(String(payload.deltaBase64))
-  const workspaceSessions = sessionsByWorkspace[event.workspaceId] ?? {}
-  const current = workspaceSessions[processId]
+  return appendCommandOutputEvents(sessionsByWorkspace, [event])
+}
 
-  if (!current) {
+function appendCommandOutputEvents(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  events: ServerEvent[],
+) {
+  if (events.length === 0) {
     return sessionsByWorkspace
   }
 
-  return {
-    ...sessionsByWorkspace,
-    [event.workspaceId]: {
-      ...workspaceSessions,
-      [processId]: sanitizeCommandSnapshot({
-        ...current,
-        status: 'running',
-        combinedOutput: trimOutput(current.combinedOutput + delta),
-        updatedAt: event.ts,
-      }),
-    },
+  let nextSessionsByWorkspace = sessionsByWorkspace
+  let sessionsByWorkspaceCloned = false
+  const workspaceSessionsDrafts: Record<string, Record<string, CommandRuntimeSession>> = {}
+  let pendingUpdate: CommandOutputBatchUpdate | null = null
+
+  function getWorkspaceSessionsDraft(workspaceId: string) {
+    const existingDraft = workspaceSessionsDrafts[workspaceId]
+    if (existingDraft) {
+      return existingDraft
+    }
+
+    const currentWorkspaceSessions = nextSessionsByWorkspace[workspaceId]
+    if (!currentWorkspaceSessions) {
+      return null
+    }
+
+    const nextWorkspaceSessions = { ...currentWorkspaceSessions }
+    workspaceSessionsDrafts[workspaceId] = nextWorkspaceSessions
+    if (!sessionsByWorkspaceCloned) {
+      nextSessionsByWorkspace = { ...nextSessionsByWorkspace }
+      sessionsByWorkspaceCloned = true
+    }
+    nextSessionsByWorkspace[workspaceId] = nextWorkspaceSessions
+    return nextWorkspaceSessions
   }
+
+  function flushPendingUpdate() {
+    if (!pendingUpdate) {
+      return
+    }
+
+    const workspaceSessions = getWorkspaceSessionsDraft(pendingUpdate.workspaceId)
+    const current = workspaceSessions?.[pendingUpdate.processId]
+    if (workspaceSessions && current) {
+      const nextCombinedOutput = trimOutput(
+        `${pendingUpdate.replaceOutput ? '' : current.combinedOutput}${pendingUpdate.delta}`,
+      )
+      const nextReplayAppendCount =
+        pendingUpdate.replayOutput && !pendingUpdate.replaceOutput
+          ? (current.replayAppendCount ?? 0) + pendingUpdate.replayAppendCount
+          : current.replayAppendCount
+      const nextReplayByteCount =
+        pendingUpdate.replayOutput
+          ? (current.replayByteCount ?? 0) + pendingUpdate.replayBytes
+          : current.replayByteCount
+      const nextReplayReplaceCount =
+        pendingUpdate.replayOutput && pendingUpdate.replaceOutput
+          ? (current.replayReplaceCount ?? 0) + pendingUpdate.replayReplaceCount
+          : current.replayReplaceCount
+
+      workspaceSessions[pendingUpdate.processId] = sanitizeCommandSnapshot({
+        ...current,
+        status: pendingUpdate.replayOutput ? current.status : 'running',
+        combinedOutput: nextCombinedOutput,
+        lastReplayMode: pendingUpdate.replayOutput
+          ? pendingUpdate.replaceOutput
+            ? 'replace'
+            : 'append'
+          : current.lastReplayMode,
+        lastReplayReason: pendingUpdate.replayOutput
+          ? pendingUpdate.replayReason
+          : current.lastReplayReason,
+        replayAppendCount: nextReplayAppendCount,
+        replayByteCount: nextReplayByteCount,
+        replayReplaceCount: nextReplayReplaceCount,
+        updatedAt: shouldRefreshCommandSessionUpdatedAt(current.updatedAt, pendingUpdate.updatedAt)
+          ? pendingUpdate.updatedAt
+          : current.updatedAt,
+      })
+    }
+
+    pendingUpdate = null
+  }
+
+  for (const event of events) {
+    const payload = event.payload
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      !('processId' in payload) ||
+      (!('deltaBase64' in payload) && !('deltaText' in payload)) ||
+      !('stream' in payload)
+    ) {
+      continue
+    }
+
+    const processId = String(payload.processId)
+    const workspaceSessions = getWorkspaceSessionsDraft(event.workspaceId)
+    const current = workspaceSessions?.[processId]
+    if (!workspaceSessions || !current) {
+      continue
+    }
+
+    const delta = readCommandOutputDeltaText(payload)
+    const replaceOutput = Boolean((payload as Record<string, unknown>).replace)
+    const replayOutput = Boolean((payload as Record<string, unknown>).replay)
+    const replayReason =
+      replayOutput && typeof (payload as Record<string, unknown>).replayReason === 'string'
+        ? String((payload as Record<string, unknown>).replayReason)
+        : current.lastReplayReason
+    const replayBytes =
+      replayOutput && typeof (payload as Record<string, unknown>).replayBytes === 'number'
+        ? Number((payload as Record<string, unknown>).replayBytes)
+        : 0
+
+    const canMergeIntoPendingUpdate =
+      pendingUpdate &&
+      pendingUpdate.workspaceId === event.workspaceId &&
+      pendingUpdate.processId === processId &&
+      pendingUpdate.replaceOutput === replaceOutput &&
+      pendingUpdate.replayOutput === replayOutput &&
+      pendingUpdate.replayReason === replayReason
+
+    if (!canMergeIntoPendingUpdate) {
+      flushPendingUpdate()
+      pendingUpdate = {
+        delta,
+        processId,
+        replayAppendCount: replayOutput && !replaceOutput ? 1 : 0,
+        replayBytes,
+        replayOutput,
+        replayReason,
+        replayReplaceCount: replayOutput && replaceOutput ? 1 : 0,
+        replaceOutput,
+        updatedAt: event.ts,
+        workspaceId: event.workspaceId,
+      }
+      continue
+    }
+
+    const currentPendingUpdate: CommandOutputBatchUpdate | null = pendingUpdate
+    if (!currentPendingUpdate) {
+      continue
+    }
+
+    pendingUpdate = {
+      ...currentPendingUpdate,
+      delta: `${currentPendingUpdate.delta}${delta}`,
+      replayAppendCount:
+        currentPendingUpdate.replayAppendCount + (replayOutput && !replaceOutput ? 1 : 0),
+      replayBytes: currentPendingUpdate.replayBytes + replayBytes,
+      replayReplaceCount:
+        currentPendingUpdate.replayReplaceCount + (replayOutput && replaceOutput ? 1 : 0),
+      updatedAt: event.ts,
+    }
+  }
+
+  flushPendingUpdate()
+
+  return nextSessionsByWorkspace
+}
+
+type CommandOutputBatchUpdate = {
+  delta: string
+  processId: string
+  replayAppendCount: number
+  replayBytes: number
+  replayOutput: boolean
+  replayReason?: string | null
+  replayReplaceCount: number
+  replaceOutput: boolean
+  updatedAt: string
+  workspaceId: string
+}
+
+function shouldRefreshCommandSessionUpdatedAt(
+  currentUpdatedAt: string | undefined,
+  nextUpdatedAt: string,
+) {
+  const currentTime = currentUpdatedAt ? Date.parse(currentUpdatedAt) : NaN
+  const nextTime = Date.parse(nextUpdatedAt)
+
+  if (!Number.isFinite(nextTime)) {
+    return false
+  }
+
+  if (!Number.isFinite(currentTime)) {
+    return true
+  }
+
+  return nextTime-currentTime >= COMMAND_SESSION_OUTPUT_UPDATED_AT_INTERVAL_MS
+}
+
+function readCommandOutputDeltaText(payload: Record<string, unknown>) {
+  if (typeof payload.deltaText === 'string') {
+    return payload.deltaText
+  }
+
+  return decodeBase64(String(payload.deltaBase64))
 }
 
 function syncCommandSessionsFromEvent(
@@ -711,6 +991,31 @@ function syncCommandSessionsFromEvent(
   )
 
   return syncCommandSessions(sessionsByWorkspace, event.workspaceId, sessions)
+}
+
+function syncCommandSessionStatesFromEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  const payload = event.payload
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('sessions' in payload) ||
+    !Array.isArray((payload as Record<string, unknown>).sessions)
+  ) {
+    return sessionsByWorkspace
+  }
+
+  const sessions = ((payload as Record<string, unknown>).sessions as unknown[]).filter(
+    (session): session is CommandSessionSnapshot =>
+      typeof session === 'object' &&
+      session !== null &&
+      'id' in session &&
+      'workspaceId' in session,
+  )
+
+  return syncCommandSessionStates(sessionsByWorkspace, event.workspaceId, sessions)
 }
 
 function applyCommandShellPromptEvent(
@@ -882,9 +1187,28 @@ function isCommandSession(value: unknown): value is CommandSession {
 function sanitizeCommandSnapshot<T extends CommandRuntimeSession>(session: T): T {
   return {
     ...session,
+    combinedOutput: trimOutput(session.combinedOutput ?? ''),
     stderr: '',
     stdout: '',
   }
+}
+
+function sanitizeCommandStateSnapshot(
+  session: CommandSessionSnapshot,
+  current?: CommandRuntimeSession,
+) {
+  return sanitizeCommandSnapshot({
+    ...current,
+    ...session,
+    combinedOutput: current?.combinedOutput ?? '',
+    lastReplayMode: current?.lastReplayMode ?? null,
+    lastReplayReason: current?.lastReplayReason ?? null,
+    replayAppendCount: current?.replayAppendCount ?? 0,
+    replayByteCount: current?.replayByteCount ?? 0,
+    replayReplaceCount: current?.replayReplaceCount ?? 0,
+    stderr: '',
+    stdout: '',
+  })
 }
 
 function readThreadActivityStatus(event: ServerEvent) {

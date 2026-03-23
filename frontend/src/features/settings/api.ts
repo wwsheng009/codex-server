@@ -23,6 +23,7 @@ export function readRuntimePreferences() {
 export function writeRuntimePreferences(input: {
   modelCatalogPath: string
   defaultShellType: string
+  defaultTerminalShell: string
   modelShellTypeOverrides: Record<string, string>
   defaultTurnApprovalPolicy?: string
   defaultTurnSandboxPolicy?: Record<string, unknown>
