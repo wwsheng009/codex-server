@@ -2,18 +2,19 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { decodeBase64 } from '../components/thread/threadRender'
+import { getCompletedCommandOutputDelta } from '../lib/command-output'
 import { readThreadTokenUsageFromEvent } from '../lib/thread-token-usage'
 import { getSelectedThreadIdForWorkspace } from './session-store-utils'
-import type { CommandSession, ServerEvent, ThreadTokenUsage } from '../types/api'
+import type {
+  CommandSession,
+  CommandSessionSnapshot,
+  ServerEvent,
+  ThreadTokenUsage,
+} from '../types/api'
 
-export type CommandRuntimeSession = CommandSession & {
-  combinedOutput: string
-  stdout: string
-  stderr: string
-  exitCode?: number | null
-  error?: string | null
-  updatedAt: string
-}
+export type CommandRuntimeSession = CommandSessionSnapshot
+
+export const COMMAND_SESSION_OUTPUT_LIMIT = 128_000
 
 export type ThreadActivitySummary = {
   latestEventMethod: string
@@ -23,10 +24,10 @@ export type ThreadActivitySummary = {
   workspaceId: string
 }
 
-const ACTIVE_THREAD_EVENT_LIMIT = 80
-const INACTIVE_THREAD_EVENT_LIMIT = 6
-const WORKSPACE_EVENT_LIMIT = 40
-const WORKSPACE_ACTIVITY_EVENT_LIMIT = 60
+const ACTIVE_THREAD_EVENT_LIMIT = 40
+const INACTIVE_THREAD_EVENT_LIMIT = 4
+const WORKSPACE_EVENT_LIMIT = 20
+const WORKSPACE_ACTIVITY_EVENT_LIMIT = 30
 
 type SessionState = {
   hasHydrated: boolean
@@ -44,9 +45,17 @@ type SessionState = {
   setSelectedThread: (workspaceId?: string, threadId?: string) => void
   setConnectionState: (workspaceId: string, state: string) => void
   ingestEvent: (event: ServerEvent) => void
+  ingestEvents: (events: ServerEvent[]) => void
+  hydrateCommandSessions: (workspaceId: string, sessions: CommandSessionSnapshot[]) => void
+  syncCommandSessions: (workspaceId: string, sessions: CommandSessionSnapshot[]) => void
   upsertCommandSession: (session: CommandSession) => void
   removeCommandSession: (workspaceId: string, processId: string) => void
   clearCompletedCommandSessions: (workspaceId: string) => void
+  updateCommandSession: (
+    workspaceId: string,
+    processId: string,
+    patch: Partial<CommandRuntimeSession>,
+  ) => void
   removeWorkspace: (workspaceId: string) => void
   removeThread: (workspaceId: string, threadId: string) => void
 }
@@ -93,15 +102,36 @@ export const useSessionStore = create<SessionState>()(
             [workspaceId]: state,
           },
         })),
+      ingestEvents: (events) =>
+        set((current) => applySessionEvents(current, events)),
+      hydrateCommandSessions: (workspaceId, sessions) =>
+        set((current) => ({
+          commandSessionsByWorkspace: hydrateCommandSessions(
+            current.commandSessionsByWorkspace,
+            workspaceId,
+            sessions,
+          ),
+        })),
+      syncCommandSessions: (workspaceId, sessions) =>
+        set((current) => ({
+          commandSessionsByWorkspace: syncCommandSessions(
+            current.commandSessionsByWorkspace,
+            workspaceId,
+            sessions.map(sanitizeCommandSnapshot),
+          ),
+        })),
       upsertCommandSession: (session) =>
         set((current) => ({
-          commandSessionsByWorkspace: mergeCommandSession(current.commandSessionsByWorkspace, {
-            ...session,
-            combinedOutput: '',
-            stdout: '',
-            stderr: '',
-            updatedAt: new Date().toISOString(),
-          }),
+          commandSessionsByWorkspace: mergeCommandSession(
+            current.commandSessionsByWorkspace,
+            sanitizeCommandSnapshot({
+              ...session,
+              combinedOutput: '',
+              stdout: '',
+              stderr: '',
+              updatedAt: new Date().toISOString(),
+            }),
+          ),
         })),
       removeCommandSession: (workspaceId, processId) =>
         set((current) => ({
@@ -116,6 +146,15 @@ export const useSessionStore = create<SessionState>()(
           commandSessionsByWorkspace: clearCompletedCommandSessions(
             current.commandSessionsByWorkspace,
             workspaceId,
+          ),
+        })),
+      updateCommandSession: (workspaceId, processId, patch) =>
+        set((current) => ({
+          commandSessionsByWorkspace: updateCommandSession(
+            current.commandSessionsByWorkspace,
+            workspaceId,
+            processId,
+            patch,
           ),
         })),
       removeWorkspace: (workspaceId) =>
@@ -198,54 +237,7 @@ export const useSessionStore = create<SessionState>()(
           }
         }),
       ingestEvent: (event) =>
-        set((current) => {
-          const nextCommandSessions = applyCommandEvent(current.commandSessionsByWorkspace, event)
-          const nextThreadActivity = applyThreadActivityEvent(
-            current.threadActivityByThread,
-            event,
-          )
-          const nextTokenUsage = applyTokenUsageEvent(current.tokenUsageByThread, event)
-          const nextActivityEvents = {
-            ...current.activityEventsByWorkspace,
-            [event.workspaceId]: [
-              ...(current.activityEventsByWorkspace[event.workspaceId] ?? []),
-              event,
-            ].slice(-WORKSPACE_ACTIVITY_EVENT_LIMIT),
-          }
-          if (!event.threadId) {
-            return {
-              activityEventsByWorkspace: nextActivityEvents,
-              commandSessionsByWorkspace: nextCommandSessions,
-              threadActivityByThread: nextThreadActivity,
-              tokenUsageByThread: nextTokenUsage,
-              workspaceEventsByWorkspace: {
-                ...current.workspaceEventsByWorkspace,
-                [event.workspaceId]: [
-                  ...(current.workspaceEventsByWorkspace[event.workspaceId] ?? []),
-                  event,
-                ].slice(-WORKSPACE_EVENT_LIMIT),
-              },
-            }
-          }
-
-          const currentEvents = current.eventsByThread[event.threadId] ?? []
-          const selectedThreadIdForWorkspace = current.selectedThreadIdByWorkspace[event.workspaceId]
-          const eventLimit =
-            selectedThreadIdForWorkspace === event.threadId
-              ? ACTIVE_THREAD_EVENT_LIMIT
-              : INACTIVE_THREAD_EVENT_LIMIT
-
-          return {
-            activityEventsByWorkspace: nextActivityEvents,
-            commandSessionsByWorkspace: nextCommandSessions,
-            threadActivityByThread: nextThreadActivity,
-            tokenUsageByThread: nextTokenUsage,
-            eventsByThread: {
-              ...current.eventsByThread,
-              [event.threadId]: [...currentEvents, event].slice(-eventLimit),
-            },
-          }
-        }),
+        set((current) => applySessionEvents(current, [event])),
     }),
     {
       name: 'codex-server-session-store',
@@ -263,6 +255,76 @@ export const useSessionStore = create<SessionState>()(
   ),
 )
 
+function applySessionEvents(
+  current: Pick<
+    SessionState,
+    | 'activityEventsByWorkspace'
+    | 'commandSessionsByWorkspace'
+    | 'eventsByThread'
+    | 'selectedThreadIdByWorkspace'
+    | 'threadActivityByThread'
+    | 'tokenUsageByThread'
+    | 'workspaceEventsByWorkspace'
+  >,
+  events: ServerEvent[],
+) {
+  if (events.length === 0) {
+    return current
+  }
+
+  let nextCommandSessions = current.commandSessionsByWorkspace
+  let nextThreadActivity = current.threadActivityByThread
+  let nextTokenUsage = current.tokenUsageByThread
+  let nextActivityEvents = current.activityEventsByWorkspace
+  let nextWorkspaceEvents = current.workspaceEventsByWorkspace
+  let nextEventsByThread = current.eventsByThread
+
+  for (const event of events) {
+    nextCommandSessions = applyCommandEvent(nextCommandSessions, event)
+    nextThreadActivity = applyThreadActivityEvent(nextThreadActivity, event)
+    nextTokenUsage = applyTokenUsageEvent(nextTokenUsage, event)
+    nextActivityEvents = {
+      ...nextActivityEvents,
+      [event.workspaceId]: [
+        ...(nextActivityEvents[event.workspaceId] ?? []),
+        event,
+      ].slice(-WORKSPACE_ACTIVITY_EVENT_LIMIT),
+    }
+
+    if (!event.threadId) {
+      nextWorkspaceEvents = {
+        ...nextWorkspaceEvents,
+        [event.workspaceId]: [
+          ...(nextWorkspaceEvents[event.workspaceId] ?? []),
+          event,
+        ].slice(-WORKSPACE_EVENT_LIMIT),
+      }
+      continue
+    }
+
+    const currentEvents = nextEventsByThread[event.threadId] ?? []
+    const selectedThreadIdForWorkspace = current.selectedThreadIdByWorkspace[event.workspaceId]
+    const eventLimit =
+      selectedThreadIdForWorkspace === event.threadId
+        ? ACTIVE_THREAD_EVENT_LIMIT
+        : INACTIVE_THREAD_EVENT_LIMIT
+
+    nextEventsByThread = {
+      ...nextEventsByThread,
+      [event.threadId]: [...currentEvents, event].slice(-eventLimit),
+    }
+  }
+
+  return {
+    activityEventsByWorkspace: nextActivityEvents,
+    commandSessionsByWorkspace: nextCommandSessions,
+    eventsByThread: nextEventsByThread,
+    threadActivityByThread: nextThreadActivity,
+    tokenUsageByThread: nextTokenUsage,
+    workspaceEventsByWorkspace: nextWorkspaceEvents,
+  }
+}
+
 function applyCommandEvent(
   sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
   event: ServerEvent,
@@ -272,17 +334,36 @@ function applyCommandEvent(
       if (!isCommandSession(event.payload)) {
         return sessionsByWorkspace
       }
-      return mergeCommandSession(sessionsByWorkspace, {
-        ...event.payload,
-        combinedOutput: '',
-        stdout: '',
-        stderr: '',
-        updatedAt: event.ts,
-      })
+      return mergeCommandSession(
+        sessionsByWorkspace,
+        sanitizeCommandSnapshot({
+          ...event.payload,
+          combinedOutput: '',
+          stdout: '',
+          stderr: '',
+          updatedAt: event.ts,
+        }),
+      )
     case 'command/exec/outputDelta':
       return appendCommandOutput(sessionsByWorkspace, event)
+    case 'command/exec/snapshot':
+      return syncCommandSessionsFromEvent(sessionsByWorkspace, event)
     case 'command/exec/completed':
       return completeCommandSession(sessionsByWorkspace, event)
+    case 'command/exec/prompt':
+      return applyCommandShellPromptEvent(sessionsByWorkspace, event)
+    case 'command/exec/commandStarted':
+      return applyCommandShellStartedEvent(sessionsByWorkspace, event)
+    case 'command/exec/commandFinished':
+      return applyCommandShellFinishedEvent(sessionsByWorkspace, event)
+    case 'command/exec/cwdChanged':
+      return applyCommandCwdChangedEvent(sessionsByWorkspace, event)
+    case 'command/exec/archived':
+      return archiveCommandSessionFromEvent(sessionsByWorkspace, event)
+    case 'command/exec/pinned':
+      return pinCommandSessionFromEvent(sessionsByWorkspace, event)
+    case 'command/exec/removed':
+      return removeCommandSessionFromEvent(sessionsByWorkspace, event)
     default:
       return sessionsByWorkspace
   }
@@ -345,6 +426,68 @@ function mergeCommandSession(
   }
 }
 
+function hydrateCommandSessions(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  workspaceId: string,
+  sessions: CommandSessionSnapshot[],
+) {
+  if (!workspaceId || sessions.length === 0) {
+    return sessionsByWorkspace
+  }
+
+  const workspaceSessions = sessionsByWorkspace[workspaceId] ?? {}
+  const nextWorkspaceSessions = { ...workspaceSessions }
+
+  for (const session of sessions) {
+    const current = nextWorkspaceSessions[session.id]
+    if (
+      current &&
+      Date.parse(current.updatedAt) > Date.parse(session.updatedAt)
+    ) {
+      continue
+    }
+
+    nextWorkspaceSessions[session.id] = {
+      ...current,
+      ...session,
+    }
+  }
+
+  return {
+    ...sessionsByWorkspace,
+    [workspaceId]: nextWorkspaceSessions,
+  }
+}
+
+function syncCommandSessions(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  workspaceId: string,
+  sessions: CommandSessionSnapshot[],
+) {
+  if (!workspaceId) {
+    return sessionsByWorkspace
+  }
+
+  if (sessions.length === 0) {
+    if (!sessionsByWorkspace[workspaceId]) {
+      return sessionsByWorkspace
+    }
+
+    const nextSessionsByWorkspace = { ...sessionsByWorkspace }
+    delete nextSessionsByWorkspace[workspaceId]
+    return nextSessionsByWorkspace
+  }
+
+  const nextWorkspaceSessions = Object.fromEntries(
+    sessions.map((session) => [session.id, session]),
+  )
+
+  return {
+    ...sessionsByWorkspace,
+    [workspaceId]: nextWorkspaceSessions,
+  }
+}
+
 function removeCommandSession(
   sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
   workspaceId: string,
@@ -397,6 +540,116 @@ function clearCompletedCommandSessions(
   }
 }
 
+function updateCommandSession(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  workspaceId: string,
+  processId: string,
+  patch: Partial<CommandRuntimeSession>,
+) {
+  const workspaceSessions = sessionsByWorkspace[workspaceId]
+  const current = workspaceSessions?.[processId]
+  if (!workspaceSessions || !current) {
+    return sessionsByWorkspace
+  }
+
+  return {
+    ...sessionsByWorkspace,
+    [workspaceId]: {
+      ...workspaceSessions,
+      [processId]: {
+        ...current,
+        ...patch,
+      },
+    },
+  }
+}
+
+function removeCommandSessionFromEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  const payload = event.payload
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('processId' in payload)
+  ) {
+    return sessionsByWorkspace
+  }
+
+  return removeCommandSession(
+    sessionsByWorkspace,
+    event.workspaceId,
+    String(payload.processId),
+  )
+}
+
+function pinCommandSessionFromEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  const payload = event.payload
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('processId' in payload)
+  ) {
+    return sessionsByWorkspace
+  }
+
+  const processId = String(payload.processId)
+  const workspaceSessions = sessionsByWorkspace[event.workspaceId] ?? {}
+  const current = workspaceSessions[processId]
+  if (!current) {
+    return sessionsByWorkspace
+  }
+
+  return {
+    ...sessionsByWorkspace,
+    [event.workspaceId]: {
+      ...workspaceSessions,
+      [processId]: {
+        ...current,
+        pinned: Boolean((payload as Record<string, unknown>).pinned),
+        updatedAt: event.ts,
+      },
+    },
+  }
+}
+
+function archiveCommandSessionFromEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  const payload = event.payload
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('processId' in payload)
+  ) {
+    return sessionsByWorkspace
+  }
+
+  const processId = String(payload.processId)
+  const workspaceSessions = sessionsByWorkspace[event.workspaceId] ?? {}
+  const current = workspaceSessions[processId]
+  if (!current) {
+    return sessionsByWorkspace
+  }
+
+  return {
+    ...sessionsByWorkspace,
+    [event.workspaceId]: {
+      ...workspaceSessions,
+      [processId]: {
+        ...current,
+        archived: Boolean((payload as Record<string, unknown>).archived),
+        updatedAt: event.ts,
+      },
+    },
+  }
+}
+
 function appendCommandOutput(
   sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
   event: ServerEvent,
@@ -414,7 +667,6 @@ function appendCommandOutput(
 
   const processId = String(payload.processId)
   const delta = decodeBase64(String(payload.deltaBase64))
-  const stream = String(payload.stream)
   const workspaceSessions = sessionsByWorkspace[event.workspaceId] ?? {}
   const current = workspaceSessions[processId]
 
@@ -426,16 +678,97 @@ function appendCommandOutput(
     ...sessionsByWorkspace,
     [event.workspaceId]: {
       ...workspaceSessions,
-      [processId]: {
+      [processId]: sanitizeCommandSnapshot({
         ...current,
         status: 'running',
-        stdout: stream === 'stdout' ? trimOutput(current.stdout + delta) : current.stdout,
-        stderr: stream === 'stderr' ? trimOutput(current.stderr + delta) : current.stderr,
         combinedOutput: trimOutput(current.combinedOutput + delta),
         updatedAt: event.ts,
-      },
+      }),
     },
   }
+}
+
+function syncCommandSessionsFromEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  const payload = event.payload
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('sessions' in payload) ||
+    !Array.isArray((payload as Record<string, unknown>).sessions)
+  ) {
+    return sessionsByWorkspace
+  }
+
+  const sessions = ((payload as Record<string, unknown>).sessions as unknown[]).filter(
+    (session): session is CommandSessionSnapshot =>
+      typeof session === 'object' &&
+      session !== null &&
+      'id' in session &&
+      'workspaceId' in session,
+  )
+
+  return syncCommandSessions(sessionsByWorkspace, event.workspaceId, sessions)
+}
+
+function applyCommandShellPromptEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  return updateCommandSessionFromPayload(sessionsByWorkspace, event, (current, payload) => ({
+    ...current,
+    shellState:
+      typeof payload.shellState === 'string' && payload.shellState
+        ? payload.shellState
+        : 'prompt',
+    updatedAt: event.ts,
+  }))
+}
+
+function applyCommandShellStartedEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  return updateCommandSessionFromPayload(sessionsByWorkspace, event, (current, payload) => ({
+    ...current,
+    shellState:
+      typeof payload.shellState === 'string' && payload.shellState
+        ? payload.shellState
+        : 'running',
+    updatedAt: event.ts,
+  }))
+}
+
+function applyCommandShellFinishedEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  return updateCommandSessionFromPayload(sessionsByWorkspace, event, (current, payload) => ({
+    ...current,
+    lastExitCode:
+      typeof payload.exitCode === 'number' ? payload.exitCode : current.lastExitCode ?? null,
+    shellState:
+      typeof payload.shellState === 'string' && payload.shellState
+        ? payload.shellState
+        : 'prompt',
+    updatedAt: event.ts,
+  }))
+}
+
+function applyCommandCwdChangedEvent(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+) {
+  return updateCommandSessionFromPayload(sessionsByWorkspace, event, (current, payload) => ({
+    ...current,
+    currentCwd:
+      typeof payload.currentCwd === 'string' && payload.currentCwd
+        ? payload.currentCwd
+        : current.currentCwd,
+    updatedAt: event.ts,
+  }))
 }
 
 function completeCommandSession(
@@ -473,15 +806,15 @@ function completeCommandSession(
   const stderr =
     typeof typedPayload.stderr === 'string' && typedPayload.stderr ? typedPayload.stderr : ''
   const error = typeof typedPayload.error === 'string' ? typedPayload.error : null
-  const nextCombinedOutput = trimOutput(
-    current.combinedOutput + (stdout ? stdout : '') + (stderr ? stderr : ''),
-  )
+  const completedOutput = stdout + stderr
+  const completionDelta = getCompletedCommandOutputDelta(current.combinedOutput, completedOutput)
+  const nextCombinedOutput = trimOutput(current.combinedOutput + completionDelta)
 
   return {
     ...sessionsByWorkspace,
     [event.workspaceId]: {
       ...workspaceSessions,
-      [processId]: {
+      [processId]: sanitizeCommandSnapshot({
         ...current,
         status:
           typeof typedPayload.status === 'string'
@@ -489,8 +822,6 @@ function completeCommandSession(
             : error
               ? 'failed'
               : 'completed',
-        stdout: trimOutput(current.stdout + stdout),
-        stderr: trimOutput(current.stderr + stderr),
         combinedOutput: nextCombinedOutput,
         exitCode:
           typeof typedPayload.exitCode === 'number'
@@ -498,12 +829,45 @@ function completeCommandSession(
             : current.exitCode ?? null,
         error,
         updatedAt: event.ts,
-      },
+      }),
     },
   }
 }
 
-function trimOutput(value: string, limit = 32_000) {
+function updateCommandSessionFromPayload(
+  sessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>,
+  event: ServerEvent,
+  updater: (
+    current: CommandRuntimeSession,
+    payload: Record<string, unknown>,
+  ) => CommandRuntimeSession,
+) {
+  const payload = event.payload
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('processId' in payload)
+  ) {
+    return sessionsByWorkspace
+  }
+
+  const processId = String(payload.processId)
+  const workspaceSessions = sessionsByWorkspace[event.workspaceId] ?? {}
+  const current = workspaceSessions[processId]
+  if (!current) {
+    return sessionsByWorkspace
+  }
+
+  return {
+    ...sessionsByWorkspace,
+    [event.workspaceId]: {
+      ...workspaceSessions,
+      [processId]: updater(current, payload as Record<string, unknown>),
+    },
+  }
+}
+
+function trimOutput(value: string, limit = COMMAND_SESSION_OUTPUT_LIMIT) {
   if (value.length <= limit) {
     return value
   }
@@ -513,6 +877,14 @@ function trimOutput(value: string, limit = 32_000) {
 
 function isCommandSession(value: unknown): value is CommandSession {
   return typeof value === 'object' && value !== null && 'id' in value && 'workspaceId' in value
+}
+
+function sanitizeCommandSnapshot<T extends CommandRuntimeSession>(session: T): T {
+  return {
+    ...session,
+    stderr: '',
+    stdout: '',
+  }
 }
 
 function readThreadActivityStatus(event: ServerEvent) {

@@ -19,6 +19,7 @@ import {
 import type { AccentTone, AppearanceTheme } from '../../features/settings/appearance'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { localeLabels, type AppLocale } from '../../i18n/config'
+import { parseWorkspaceThreadRoute } from '../../lib/thread-routes'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
@@ -727,8 +728,7 @@ export function AppMenuBar({
   const mobileThreadRefreshBusy = useUIStore((state) => state.mobileThreadRefreshBusy)
   const mobileThreadToolsOpen = useUIStore((state) => state.mobileThreadToolsOpen)
   const setMobileThreadToolsOpen = useUIStore((state) => state.setMobileThreadToolsOpen)
-  const threadRouteMatch = location.pathname.match(/^\/workspaces\/([^/]+)$/)
-  const workspaceId = threadRouteMatch?.[1] ?? ''
+  const { workspaceId = '' } = parseWorkspaceThreadRoute(location.pathname)
   const isThreadRoute = Boolean(workspaceId)
   const shouldShowThreadChrome = isThreadRoute && mobileThreadChromeVisible
   const selectedThreadId = useSessionStore((state) =>
@@ -746,7 +746,7 @@ export function AppMenuBar({
       selectedThreadId
         ? queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] })
         : Promise.resolve(),
-      queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+      queryClient.refetchQueries({ queryKey: ['approvals', workspaceId] }),
     ])
   }
 

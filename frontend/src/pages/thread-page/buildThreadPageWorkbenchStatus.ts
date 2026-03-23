@@ -10,8 +10,13 @@ export function buildThreadPageWorkbenchStatus({
   displayedTurnsLength,
   isInspectorExpanded,
   isMobileViewport,
+  isTerminalDockVisible,
   isTerminalDockExpanded,
   isTerminalDockResizing,
+  isTerminalWindowDragging,
+  isTerminalWindowMaximized,
+  isTerminalWindowResizing,
+  terminalDockPlacement,
   isThreadPinnedToLatest,
   mobileStatus,
   selectedThread,
@@ -21,7 +26,9 @@ export function buildThreadPageWorkbenchStatus({
   syncLabel,
   workspaceEvents,
 }: ThreadPageWorkbenchStatusInput) {
-  const activeCommandCount = commandSessions.filter((session) => session.status === 'running').length
+  const activeCommandCount = commandSessions.filter((session) =>
+    ['running', 'starting'].includes(session.status),
+  ).length
   const lastTimelineEventTs =
     selectedThreadEvents[selectedThreadEvents.length - 1]?.ts ??
     workspaceEvents[workspaceEvents.length - 1]?.ts
@@ -29,9 +36,14 @@ export function buildThreadPageWorkbenchStatus({
   const terminalDockClassName = [
     'terminal-dock',
     'terminal-dock--attached',
+    `terminal-dock--${terminalDockPlacement}`,
+    !isTerminalDockVisible ? 'terminal-dock--hidden' : '',
     !commandSessions.length ? 'terminal-dock--empty' : '',
     !isTerminalDockExpanded ? 'terminal-dock--collapsed' : '',
     isTerminalDockResizing ? 'terminal-dock--resizing' : '',
+    isTerminalWindowDragging ? 'terminal-dock--dragging' : '',
+    isTerminalWindowMaximized ? 'terminal-dock--maximized' : '',
+    isTerminalWindowResizing ? 'terminal-dock--window-resizing' : '',
   ]
     .filter(Boolean)
     .join(' ')

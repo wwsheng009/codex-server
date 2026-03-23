@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { buildShellEnvironmentDiagnosis } from '../../features/settings/shell-environment-diagnostics'
+import { useSessionStore } from '../../stores/session-store'
 import { useThreadPagePanelQueries } from './useThreadPagePanelQueries'
 import { useThreadPageQueries } from './useThreadPageQueries'
 import { useThreadPageSelectedThread } from './useThreadPageSelectedThread'
@@ -14,6 +15,7 @@ export function useThreadPageData({
   isDocumentVisible,
   normalizedDeferredComposerQuery,
   selectedThreadId,
+  streamState,
   threadTurnWindowSize,
   workspaceId,
 }: {
@@ -23,12 +25,14 @@ export function useThreadPageData({
   isDocumentVisible: boolean
   normalizedDeferredComposerQuery: string
   selectedThreadId?: string
+  streamState: string
   threadTurnWindowSize: number
   workspaceId: string
 }) {
   const {
     accountQuery,
     approvalsQuery,
+    commandSessionsQuery,
     environmentConfigQuery,
     fileSearchQuery,
     loadedThreadsQuery,
@@ -45,6 +49,7 @@ export function useThreadPageData({
     hasPendingTurn,
     isDocumentVisible,
     selectedThreadId,
+    streamState,
     turnLimit: threadTurnWindowSize,
     workspaceId,
   })
@@ -90,6 +95,16 @@ export function useThreadPageData({
     () => buildShellEnvironmentDiagnosis(shellEnvironmentPolicy),
     [shellEnvironmentPolicy],
   )
+
+  useEffect(() => {
+    if (!workspaceId || !commandSessionsQuery.isSuccess) {
+      return
+    }
+
+    useSessionStore
+      .getState()
+      .syncCommandSessions(workspaceId, commandSessionsQuery.data ?? [])
+  }, [commandSessionsQuery.data, commandSessionsQuery.isSuccess, workspaceId])
 
   return {
     accountQuery,

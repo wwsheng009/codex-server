@@ -1,7 +1,9 @@
+import type { ThreadContentSignature } from './threadContentSignature'
+
 export type ThreadViewportStateInput = {
   displayedTurnsLength: number
   selectedThreadId?: string
-  threadContentKey: string
+  threadContentSignature: ThreadContentSignature
   threadUnreadUpdateKey: string
   threadDetailIsLoading: boolean
 }

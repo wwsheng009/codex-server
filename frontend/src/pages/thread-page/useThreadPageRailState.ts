@@ -83,6 +83,16 @@ export function useThreadPageRailState({
     setIsWorkbenchToolsExpanded((current) => !current)
   }
 
+  function handleOpenWorkbenchTools() {
+    setSurfacePanelView(null)
+    setIsInspectorExpanded(true)
+    setIsWorkbenchToolsExpanded(true)
+
+    if (isMobileViewport) {
+      setMobileThreadToolsOpen(true)
+    }
+  }
+
   return {
     confirmingThreadDelete,
     editingThreadId,
@@ -94,6 +104,7 @@ export function useThreadPageRailState({
     handleDeleteSelectedThread,
     handleHideSurfacePanel,
     handleOpenInspector,
+    handleOpenWorkbenchTools,
     handleOpenSurfacePanel,
     handleToggleThreadToolsExpanded,
     handleToggleWorkbenchToolsExpanded,

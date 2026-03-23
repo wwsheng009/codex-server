@@ -16,7 +16,11 @@ type RailStateLayoutInput = Pick<
   | 'isResizing'
   | 'isThreadToolsExpanded'
   | 'isWorkbenchToolsExpanded'
+  | 'latestTurnStatus'
   | 'lastTimelineEventTs'
+  | 'loadedAssistantMessageCount'
+  | 'loadedMessageCount'
+  | 'loadedTurnCount'
   | 'liveThreadCwd'
   | 'pendingApprovalsCount'
   | 'rootPath'
@@ -25,6 +29,9 @@ type RailStateLayoutInput = Pick<
   | 'runtimeRestartRequired'
   | 'runtimeStartedAt'
   | 'runtimeUpdatedAt'
+  | 'contextUsagePercent'
+  | 'contextWindow'
+  | 'loadedUserMessageCount'
   | 'selectedThread'
   | 'shellEnvironmentInfo'
   | 'shellEnvironmentSummary'
@@ -32,6 +39,9 @@ type RailStateLayoutInput = Pick<
   | 'startCommandModeDisabled'
   | 'startCommandPending'
   | 'streamState'
+  | 'totalMessageCount'
+  | 'totalTokens'
+  | 'totalTurnCount'
   | 'threadCount'
   | 'timelineItemCount'
   | 'turnCount'
@@ -48,6 +58,16 @@ export function buildThreadPageControllerRailStateLayoutInput({
 }: BuildThreadPageControllerLayoutPropsInput): RailStateLayoutInput {
   const activeSelectedThreadId =
     dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
+  const totalTurnCount =
+    dataState.liveThreadDetail?.turnCount ??
+    dataState.threadDetailQuery.data?.turnCount ??
+    dataState.selectedThread?.turnCount ??
+    displayState.turnCount
+  const totalMessageCount =
+    dataState.liveThreadDetail?.messageCount ??
+    dataState.threadDetailQuery.data?.messageCount ??
+    dataState.selectedThread?.messageCount ??
+    displayState.loadedMessageCount
 
   return {
     command: controllerState.command,
@@ -63,7 +83,14 @@ export function buildThreadPageControllerRailStateLayoutInput({
     isResizing: controllerState.isInspectorResizing,
     isThreadToolsExpanded: railState.isThreadToolsExpanded,
     isWorkbenchToolsExpanded: railState.isWorkbenchToolsExpanded,
+    latestTurnStatus: displayState.latestDisplayedTurn?.status ?? dataState.selectedThread?.status,
     lastTimelineEventTs: statusState.lastTimelineEventTs,
+    loadedAssistantMessageCount: displayState.loadedAssistantMessageCount,
+    contextUsagePercent: displayState.contextUsage.percent,
+    contextWindow: displayState.contextUsage.contextWindow,
+    loadedMessageCount: displayState.loadedMessageCount,
+    loadedTurnCount: displayState.turnCount,
+    loadedUserMessageCount: displayState.loadedUserMessageCount,
     liveThreadCwd: dataState.liveThreadDetail?.cwd,
     pendingApprovalsCount: dataState.approvalsQuery.data?.length ?? 0,
     rootPath: dataState.workspaceQuery.data?.rootPath,
@@ -88,6 +115,9 @@ export function buildThreadPageControllerRailStateLayoutInput({
       mutationState.startCommandMutation.isPending ||
       mutationState.threadShellCommandMutation.isPending,
     streamState: controllerState.streamState,
+    totalMessageCount,
+    totalTokens: displayState.contextUsage.totalTokens,
+    totalTurnCount,
     threadCount: dataState.threadsQuery.data?.length ?? 0,
     timelineItemCount: displayState.timelineItemCount,
     turnCount: displayState.turnCount,

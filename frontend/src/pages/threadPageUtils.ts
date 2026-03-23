@@ -2,14 +2,15 @@ import type { ThreadTurn } from '../types/api'
 
 const threadQueryRefreshMethods = new Set([
   'thread/started',
-  'thread/status/changed',
   'thread/archived',
   'thread/unarchived',
-  'thread/closed',
   'thread/name/updated',
   'thread/compacted',
-  'turn/started',
-  'turn/completed',
+])
+
+const loadedThreadQueryRefreshMethods = new Set([
+  'thread/started',
+  'thread/closed',
 ])
 
 const threadDetailRefreshMethods = new Set([
@@ -32,9 +33,39 @@ const threadDetailStreamingMethods = new Set([
 ])
 
 const THREAD_VIEWPORT_NEAR_BOTTOM_THRESHOLD_PX = 72
+export type ThreadDisplayMetrics = {
+  latestRenderableItemKey: string
+  loadedAssistantMessageCount: number
+  loadedMessageCount: number
+  loadedUserMessageCount: number
+  settledMessageAutoScrollKey: string
+  threadUnreadUpdateKey: string
+  timelineItemCount: number
+}
+
+const threadDisplayMetricsCache = new WeakMap<ThreadTurn[], ThreadDisplayMetrics>()
+type ThreadItemDisplayMetrics = {
+  loadedAssistantMessageCount: number
+  loadedMessageCount: number
+  loadedUserMessageCount: number
+  renderableKeySuffix: string
+  settledMessageKeySuffix: string
+  threadUnreadKeySuffix: string
+}
+const threadTurnDisplayMetricsCache = new WeakMap<ThreadTurn, ThreadDisplayMetrics>()
+const threadItemDisplayMetricsCache = new WeakMap<
+  Record<string, unknown>,
+  ThreadItemDisplayMetrics
+>()
+const serializedValueLengthCache = new WeakMap<object, number>()
+const userMessageTextCache = new WeakMap<Record<string, unknown>, string>()
 
 export function shouldRefreshThreadsForEvent(method?: string) {
   return typeof method === 'string' && threadQueryRefreshMethods.has(method)
+}
+
+export function shouldRefreshLoadedThreadsForEvent(method?: string) {
+  return typeof method === 'string' && loadedThreadQueryRefreshMethods.has(method)
 }
 
 export function shouldRefreshThreadDetailForEvent(method?: string) {
@@ -63,80 +94,193 @@ export function isViewportNearBottom(
 }
 
 export function latestMessageUpdateKey(turns: ThreadTurn[]) {
-  return latestThreadMessageKey(turns, { includeStreamingAgentMessages: true })
+  return collectThreadDisplayMetrics(turns).threadUnreadUpdateKey
 }
 
 export function latestSettledMessageKey(turns: ThreadTurn[]) {
-  return latestThreadMessageKey(turns, { includeStreamingAgentMessages: false })
+  return collectThreadDisplayMetrics(turns).settledMessageAutoScrollKey
 }
 
 export function latestRenderableThreadItemKey(turns: ThreadTurn[]) {
-  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
-    const turn = turns[turnIndex]
-
-    if (turn.error !== null && turn.error !== undefined) {
-      return `${turn.id}:error:${serializedValueLength(turn.error)}`
-    }
-
-    for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = turn.items[itemIndex]
-      const key = renderableThreadItemKey(turn.id, item, itemIndex)
-      if (key) {
-        return key
-      }
-    }
-  }
-
-  return ''
+  return collectThreadDisplayMetrics(turns).latestRenderableItemKey
 }
 
-function latestThreadMessageKey(
-  turns: ThreadTurn[],
-  options: { includeStreamingAgentMessages: boolean },
-) {
+export function collectThreadDisplayMetrics(turns: ThreadTurn[]) {
+  const cached = threadDisplayMetricsCache.get(turns)
+  if (cached) {
+    return cached
+  }
+
+  const metrics = computeThreadDisplayMetrics(turns)
+  threadDisplayMetricsCache.set(turns, metrics)
+  return metrics
+}
+
+function computeThreadDisplayMetrics(turns: ThreadTurn[]) {
+  let latestRenderableItemKey = ''
+  let loadedAssistantMessageCount = 0
+  let loadedMessageCount = 0
+  let loadedUserMessageCount = 0
+  let settledMessageAutoScrollKey = ''
+  let threadUnreadUpdateKey = ''
+  let timelineItemCount = 0
+
   for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
-    const turn = turns[turnIndex]
+    const turnMetrics = collectThreadTurnDisplayMetrics(turns[turnIndex])
+    timelineItemCount += turnMetrics.timelineItemCount
+    loadedAssistantMessageCount += turnMetrics.loadedAssistantMessageCount
+    loadedMessageCount += turnMetrics.loadedMessageCount
+    loadedUserMessageCount += turnMetrics.loadedUserMessageCount
 
-    for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = turn.items[itemIndex]
-      const type = stringField(item.type)
-
-      if (type === 'agentMessage') {
-        const text = stringField(item.text)
-        const phase = stringField(item.phase)
-        const hasVisibleStreamingBubble = phase === 'streaming'
-        if (!text.trim() && !hasVisibleStreamingBubble) {
-          continue
-        }
-        if (phase === 'streaming' && !options.includeStreamingAgentMessages) {
-          continue
-        }
-
-        return phase === 'streaming'
-          ? `${turn.id}:${threadItemId(item, itemIndex)}:agent:streaming:${text.length}`
-          : `${turn.id}:${threadItemId(item, itemIndex)}:agent:${text.length}`
-      }
-
-      if (type === 'userMessage') {
-        const text = userMessageText(item)
-        if (!text.trim()) {
-          continue
-        }
-
-        return `${turn.id}:${threadItemId(item, itemIndex)}:user:${text.length}`
-      }
+    if (!latestRenderableItemKey && turnMetrics.latestRenderableItemKey) {
+      latestRenderableItemKey = turnMetrics.latestRenderableItemKey
+    }
+    if (!settledMessageAutoScrollKey && turnMetrics.settledMessageAutoScrollKey) {
+      settledMessageAutoScrollKey = turnMetrics.settledMessageAutoScrollKey
+    }
+    if (!threadUnreadUpdateKey && turnMetrics.threadUnreadUpdateKey) {
+      threadUnreadUpdateKey = turnMetrics.threadUnreadUpdateKey
     }
   }
 
-  return ''
+  return {
+    latestRenderableItemKey,
+    loadedAssistantMessageCount,
+    loadedMessageCount,
+    loadedUserMessageCount,
+    settledMessageAutoScrollKey,
+    threadUnreadUpdateKey,
+    timelineItemCount,
+  }
+}
+
+export function primeThreadDisplayMetrics(turns: ThreadTurn[], metrics: ThreadDisplayMetrics) {
+  threadDisplayMetricsCache.set(turns, metrics)
+  return metrics
+}
+
+export function primeThreadDisplayMetricsForTurnReplacements(
+  turns: ThreadTurn[],
+  nextTurns: ThreadTurn[],
+  replacements: Array<{ turnIndex: number; turnRef: ThreadTurn }>,
+) {
+  const baseMetrics = collectThreadDisplayMetrics(turns)
+  let loadedAssistantMessageCount = baseMetrics.loadedAssistantMessageCount
+  let loadedMessageCount = baseMetrics.loadedMessageCount
+  let loadedUserMessageCount = baseMetrics.loadedUserMessageCount
+  let timelineItemCount = baseMetrics.timelineItemCount
+  const replacementMetricsByIndex = new Map<number, ThreadDisplayMetrics>()
+
+  for (const { turnIndex, turnRef } of replacements) {
+    const previousTurn = turns[turnIndex]
+    const previousMetrics = collectThreadTurnDisplayMetrics(previousTurn)
+    const nextMetrics = collectThreadTurnDisplayMetrics(turnRef)
+    loadedAssistantMessageCount +=
+      nextMetrics.loadedAssistantMessageCount - previousMetrics.loadedAssistantMessageCount
+    loadedMessageCount += nextMetrics.loadedMessageCount - previousMetrics.loadedMessageCount
+    loadedUserMessageCount +=
+      nextMetrics.loadedUserMessageCount - previousMetrics.loadedUserMessageCount
+    timelineItemCount += nextMetrics.timelineItemCount - previousMetrics.timelineItemCount
+    replacementMetricsByIndex.set(turnIndex, nextMetrics)
+  }
+
+  let latestRenderableItemKey = ''
+  let settledMessageAutoScrollKey = ''
+  let threadUnreadUpdateKey = ''
+  for (let turnIndex = nextTurns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turnMetrics =
+      replacementMetricsByIndex.get(turnIndex) ??
+      collectThreadTurnDisplayMetrics(nextTurns[turnIndex])
+
+    if (!latestRenderableItemKey && turnMetrics.latestRenderableItemKey) {
+      latestRenderableItemKey = turnMetrics.latestRenderableItemKey
+    }
+    if (!settledMessageAutoScrollKey && turnMetrics.settledMessageAutoScrollKey) {
+      settledMessageAutoScrollKey = turnMetrics.settledMessageAutoScrollKey
+    }
+    if (!threadUnreadUpdateKey && turnMetrics.threadUnreadUpdateKey) {
+      threadUnreadUpdateKey = turnMetrics.threadUnreadUpdateKey
+    }
+
+    if (latestRenderableItemKey && settledMessageAutoScrollKey && threadUnreadUpdateKey) {
+      break
+    }
+  }
+
+  return primeThreadDisplayMetrics(nextTurns, {
+    latestRenderableItemKey,
+    loadedAssistantMessageCount,
+    loadedMessageCount,
+    loadedUserMessageCount,
+    settledMessageAutoScrollKey,
+    threadUnreadUpdateKey,
+    timelineItemCount,
+  })
+}
+
+function collectThreadTurnDisplayMetrics(turn: ThreadTurn) {
+  const cached = threadTurnDisplayMetricsCache.get(turn)
+  if (cached) {
+    return cached
+  }
+
+  const metrics = computeThreadTurnDisplayMetrics(turn)
+  threadTurnDisplayMetricsCache.set(turn, metrics)
+  return metrics
+}
+
+function computeThreadTurnDisplayMetrics(turn: ThreadTurn) {
+  let latestRenderableItemKey =
+    turn.error !== null && turn.error !== undefined
+      ? `${turn.id}:error:${serializedValueLength(turn.error)}`
+      : ''
+  let loadedAssistantMessageCount = 0
+  let loadedMessageCount = 0
+  let loadedUserMessageCount = 0
+  let settledMessageAutoScrollKey = ''
+  let threadUnreadUpdateKey = ''
+
+  for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+    const item = turn.items[itemIndex]
+    const itemMetrics = collectThreadItemDisplayMetrics(item)
+    const itemKeyPrefix = `${turn.id}:${threadItemId(item, itemIndex)}`
+    loadedAssistantMessageCount += itemMetrics.loadedAssistantMessageCount
+    loadedMessageCount += itemMetrics.loadedMessageCount
+    loadedUserMessageCount += itemMetrics.loadedUserMessageCount
+
+    if (!threadUnreadUpdateKey && itemMetrics.threadUnreadKeySuffix) {
+      threadUnreadUpdateKey = `${itemKeyPrefix}:${itemMetrics.threadUnreadKeySuffix}`
+    }
+    if (!settledMessageAutoScrollKey && itemMetrics.settledMessageKeySuffix) {
+      settledMessageAutoScrollKey = `${itemKeyPrefix}:${itemMetrics.settledMessageKeySuffix}`
+    }
+    if (!latestRenderableItemKey && itemMetrics.renderableKeySuffix) {
+      latestRenderableItemKey = `${itemKeyPrefix}:${itemMetrics.renderableKeySuffix}`
+    }
+  }
+
+  return {
+    latestRenderableItemKey,
+    loadedAssistantMessageCount,
+    loadedMessageCount,
+    loadedUserMessageCount,
+    settledMessageAutoScrollKey,
+    threadUnreadUpdateKey,
+    timelineItemCount: turn.items.length,
+  }
 }
 
 function userMessageText(item: Record<string, unknown>) {
+  const cached = userMessageTextCache.get(item)
+  if (cached !== undefined) {
+    return cached
+  }
+
   if (!Array.isArray(item.content)) {
     return ''
   }
 
-  return item.content
+  const text = item.content
     .map((entry) => {
       if (typeof entry !== 'object' || entry === null) {
         return ''
@@ -148,16 +292,77 @@ function userMessageText(item: Record<string, unknown>) {
     })
     .filter(Boolean)
     .join('\n')
+  userMessageTextCache.set(item, text)
+  return text
 }
 
-function renderableThreadItemKey(turnId: string, item: Record<string, unknown>, itemIndex: number) {
+function collectThreadItemDisplayMetrics(item: Record<string, unknown>) {
+  const cached = threadItemDisplayMetricsCache.get(item)
+  if (cached) {
+    return cached
+  }
+
+  const metrics = computeThreadItemDisplayMetrics(item)
+  threadItemDisplayMetricsCache.set(item, metrics)
+  return metrics
+}
+
+function computeThreadItemDisplayMetrics(item: Record<string, unknown>) {
   const type = stringField(item.type)
-  const itemId = threadItemId(item, itemIndex)
+
+  switch (type) {
+    case 'agentMessage': {
+      const text = stringField(item.text)
+      const phase = stringField(item.phase)
+      const hasVisibleStreamingBubble = phase === 'streaming'
+      const messageKeySuffix =
+        text.trim() || hasVisibleStreamingBubble
+          ? phase === 'streaming'
+            ? `agent:streaming:${text.length}`
+            : `agent:${text.length}`
+          : ''
+
+      return {
+        loadedAssistantMessageCount: 1,
+        loadedMessageCount: 1,
+        loadedUserMessageCount: 0,
+        renderableKeySuffix: messageKeySuffix,
+        settledMessageKeySuffix: phase !== 'streaming' ? messageKeySuffix : '',
+        threadUnreadKeySuffix: messageKeySuffix,
+      }
+    }
+    case 'userMessage': {
+      const text = userMessageText(item)
+      const messageKeySuffix = text.trim() ? `user:${text.length}` : ''
+
+      return {
+        loadedAssistantMessageCount: 0,
+        loadedMessageCount: 1,
+        loadedUserMessageCount: 1,
+        renderableKeySuffix: messageKeySuffix,
+        settledMessageKeySuffix: messageKeySuffix,
+        threadUnreadKeySuffix: messageKeySuffix,
+      }
+    }
+    default:
+      return {
+        loadedAssistantMessageCount: 0,
+        loadedMessageCount: 0,
+        loadedUserMessageCount: 0,
+        renderableKeySuffix: renderableThreadItemKeySuffix(item),
+        settledMessageKeySuffix: '',
+        threadUnreadKeySuffix: '',
+      }
+  }
+}
+
+function renderableThreadItemKeySuffix(item: Record<string, unknown>) {
+  const type = stringField(item.type)
 
   switch (type) {
     case 'userMessage': {
       const text = userMessageText(item)
-      return text.trim() ? `${turnId}:${itemId}:user:${text.length}` : ''
+      return text.trim() ? `user:${text.length}` : ''
     }
     case 'agentMessage': {
       const text = stringField(item.text)
@@ -168,26 +373,27 @@ function renderableThreadItemKey(turnId: string, item: Record<string, unknown>, 
       }
 
       return phase === 'streaming'
-        ? `${turnId}:${itemId}:agent:streaming:${text.length}`
-        : `${turnId}:${itemId}:agent:${text.length}`
+        ? `agent:streaming:${text.length}`
+        : `agent:${text.length}`
     }
     case 'commandExecution': {
       const command = stringField(item.command)
       const output = stringField(item.aggregatedOutput)
+      const outputLineCount = numberField(item.outputLineCount) ?? 0
       const status = stringField(item.status)
       if (!command && !output && !status) {
         return ''
       }
 
-      return `${turnId}:${itemId}:command:${status}:${command.length}:${output.length}`
+      return `command:${status}:${command.length}:${output.length}:${outputLineCount}`
     }
     case 'plan': {
       const text = stringField(item.text)
-      return text.trim() ? `${turnId}:${itemId}:plan:${text.length}` : ''
+      return text.trim() ? `plan:${text.length}` : ''
     }
     case 'fileChange': {
       const changeCount = Array.isArray(item.changes) ? item.changes.length : 0
-      return changeCount > 0 ? `${turnId}:${itemId}:file:${changeCount}` : ''
+      return changeCount > 0 ? `file:${changeCount}` : ''
     }
     case 'reasoning':
       return ''
@@ -200,7 +406,7 @@ function renderableThreadItemKey(turnId: string, item: Record<string, unknown>, 
         return ''
       }
 
-      return `${turnId}:${itemId}:${type || 'item'}:${status}:${phase}:${text.length}:${snapshotLength}`
+      return `${type || 'item'}:${status}:${phase}:${text.length}:${snapshotLength}`
     }
   }
 }
@@ -214,6 +420,21 @@ function serializedValueLength(value: unknown) {
     return value.length
   }
 
+  if (typeof value === 'object' && value !== null) {
+    const cached = serializedValueLengthCache.get(value)
+    if (typeof cached === 'number') {
+      return cached
+    }
+
+    try {
+      const length = JSON.stringify(value)?.length ?? 0
+      serializedValueLengthCache.set(value, length)
+      return length
+    } catch {
+      return 0
+    }
+  }
+
   try {
     return JSON.stringify(value)?.length ?? 0
   } catch {
@@ -223,4 +444,8 @@ function serializedValueLength(value: unknown) {
 
 function stringField(value: unknown) {
   return typeof value === 'string' ? value : ''
+}
+
+function numberField(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }

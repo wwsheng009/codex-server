@@ -5,15 +5,18 @@ import {
   resolveThreadViewportAutoScrollChange,
   resolveThreadViewportPinnedState,
 } from './threadViewportAutoScrollUtils'
+import type { ThreadContentSignature } from './threadContentSignature'
 import type { ThreadViewportAutoScrollInput } from './threadViewportTypes'
 
 const THREAD_VIEWPORT_INTERACTION_LOCK_MS = 220
+const THREAD_OPEN_SETTLE_MAX_MS = 600
+const THREAD_OPEN_SETTLE_STABLE_FRAME_COUNT = 2
 
 export function useThreadViewportAutoScroll({
   displayedTurnsLength,
   selectedThreadId,
   threadBottomClearancePx,
-  threadContentKey,
+  threadContentSignature,
   threadUnreadUpdateKey,
   threadDetailIsLoading,
 }: ThreadViewportAutoScrollInput) {
@@ -22,10 +25,11 @@ export function useThreadViewportAutoScroll({
   const [isThreadViewportInteracting, setIsThreadViewportInteracting] = useState(false)
 
   const threadViewportRef = useRef<HTMLDivElement | null>(null)
-  const threadContentKeyRef = useRef('')
+  const threadContentSignatureRef = useRef<ThreadContentSignature | null>(null)
   const threadUnreadUpdateKeyRef = useRef('')
   const threadBottomClearancePxRef = useRef<number | null>(null)
   const pendingAutoScrollFrameRef = useRef<number | null>(null)
+  const pendingViewportSyncFrameRef = useRef<number | null>(null)
   const pendingBottomClearanceAutoScrollRef = useRef(false)
   const pendingThreadOpenSettleFrameRef = useRef<number | null>(null)
   const lastViewportScrollTopRef = useRef(0)
@@ -61,6 +65,15 @@ export function useThreadViewportAutoScroll({
     pendingAutoScrollFrameRef.current = null
   }
 
+  function cancelPendingViewportSyncFrame() {
+    if (pendingViewportSyncFrameRef.current === null) {
+      return
+    }
+
+    window.cancelAnimationFrame(pendingViewportSyncFrameRef.current)
+    pendingViewportSyncFrameRef.current = null
+  }
+
   function cancelPendingThreadOpenSettleFrame() {
     if (pendingThreadOpenSettleFrameRef.current === null) {
       return
@@ -85,6 +98,7 @@ export function useThreadViewportAutoScroll({
   function markUserScrollIntent(releaseFollow = false) {
     userScrollLockUntilRef.current = Date.now() + 600
     cancelPendingAutoScrollFrame()
+    cancelPendingViewportSyncFrame()
     cancelPendingThreadOpenSettleFrame()
     stopViewportAutoScrollAnimation()
 
@@ -124,53 +138,59 @@ export function useThreadViewportAutoScroll({
 
   function finalizeThreadOpenScroll(nextSelectedThreadId: string) {
     cancelPendingThreadOpenSettleFrame()
-    scheduleScrollThreadViewportToBottom('auto', () => {
-      const settleStartMs = performance.now()
-      let pinnedSinceMs: number | null = null
+    const settleStartMs = performance.now()
+    let lastScrollHeight = -1
+    let stableFrameCount = 0
 
-      const settleToBottom = () => {
-        if (pendingThreadOpenScrollRef.current !== nextSelectedThreadId) {
-          return
-        }
+    const settleToBottom = () => {
+      pendingThreadOpenSettleFrameRef.current = null
+      if (pendingThreadOpenScrollRef.current !== nextSelectedThreadId) {
+        return
+      }
 
-        scrollThreadViewportToBottom('auto')
+      const viewport = threadViewportRef.current
+      if (!viewport) {
+        pendingThreadOpenScrollRef.current = null
+        return
+      }
 
-        const viewport = threadViewportRef.current
-        const pinnedToLatest = viewport
-          ? computeThreadPinnedToLatest(
-              viewport.scrollTop,
-              viewport.scrollHeight,
-              viewport.clientHeight,
-              true,
-            )
-          : true
+      const currentScrollHeight = viewport.scrollHeight
+      scrollThreadViewportToBottom('auto')
 
-        const nowMs = performance.now()
-        if (pinnedToLatest) {
-          pinnedSinceMs = pinnedSinceMs ?? nowMs
-        } else {
-          pinnedSinceMs = null
-        }
+      const pinnedToLatest = computeThreadPinnedToLatest(
+        viewport.scrollTop,
+        viewport.scrollHeight,
+        viewport.clientHeight,
+        true,
+      )
 
-        const stableAtBottom =
-          pinnedSinceMs !== null && nowMs - pinnedSinceMs >= 240
-        const exceededSettleBudget = nowMs - settleStartMs >= 2_000
-        if (stableAtBottom || exceededSettleBudget) {
-          pendingThreadOpenScrollRef.current = null
-          pendingThreadOpenSettleFrameRef.current = null
-          return
-        }
+      if (pinnedToLatest && currentScrollHeight === lastScrollHeight) {
+        stableFrameCount += 1
+      } else {
+        stableFrameCount = 0
+      }
 
-        pendingThreadOpenSettleFrameRef.current = window.requestAnimationFrame(settleToBottom)
+      lastScrollHeight = currentScrollHeight
+
+      const exceededSettleBudget = performance.now() - settleStartMs >= THREAD_OPEN_SETTLE_MAX_MS
+      if (
+        stableFrameCount >= THREAD_OPEN_SETTLE_STABLE_FRAME_COUNT ||
+        exceededSettleBudget
+      ) {
+        pendingThreadOpenScrollRef.current = null
+        return
       }
 
       pendingThreadOpenSettleFrameRef.current = window.requestAnimationFrame(settleToBottom)
-    })
+    }
+
+    pendingThreadOpenSettleFrameRef.current = window.requestAnimationFrame(settleToBottom)
   }
 
   useEffect(() => {
     pendingThreadOpenScrollRef.current = selectedThreadId ?? null
     cancelPendingAutoScrollFrame()
+    cancelPendingViewportSyncFrame()
     lastViewportScrollTopRef.current = 0
     touchStartYRef.current = null
     manuallyDetachedFromLatestRef.current = false
@@ -181,7 +201,7 @@ export function useThreadViewportAutoScroll({
     }
     cancelPendingThreadOpenSettleFrame()
     shouldFollowThreadRef.current = true
-    threadContentKeyRef.current = ''
+    threadContentSignatureRef.current = null
     threadUnreadUpdateKeyRef.current = ''
     threadBottomClearancePxRef.current = null
     pendingBottomClearanceAutoScrollRef.current = false
@@ -200,7 +220,7 @@ export function useThreadViewportAutoScroll({
 
   useEffect(() => {
     if (!selectedThreadId) {
-      threadContentKeyRef.current = ''
+      threadContentSignatureRef.current = null
       threadUnreadUpdateKeyRef.current = ''
       threadBottomClearancePxRef.current = null
       pendingBottomClearanceAutoScrollRef.current = false
@@ -222,21 +242,23 @@ export function useThreadViewportAutoScroll({
       displayedTurnsLength,
       pendingThreadOpenThreadId: pendingThreadOpenScrollRef.current,
       pinnedToLatest,
-      previousThreadContentKey: threadContentKeyRef.current,
+      previousThreadContentSignature: threadContentSignatureRef.current,
       previousThreadUnreadKey: threadUnreadUpdateKeyRef.current,
       selectedThreadId,
       shouldFollowThread: shouldFollowThreadRef.current,
-      threadContentKey,
+      threadContentSignature,
       threadDetailIsLoading,
       threadUnreadUpdateKey,
       userScrollLockActive,
     })
 
     if (!change.contentChanged && !change.unreadKeyChanged) {
+      threadContentSignatureRef.current = threadContentSignature
+      threadUnreadUpdateKeyRef.current = threadUnreadUpdateKey
       return
     }
 
-    threadContentKeyRef.current = threadContentKey
+    threadContentSignatureRef.current = threadContentSignature
     threadUnreadUpdateKeyRef.current = threadUnreadUpdateKey
 
     if (change.shouldAutoScroll) {
@@ -255,7 +277,7 @@ export function useThreadViewportAutoScroll({
   }, [
     displayedTurnsLength,
     selectedThreadId,
-    threadContentKey,
+    threadContentSignature,
     threadUnreadUpdateKey,
     threadDetailIsLoading,
   ])
@@ -274,13 +296,13 @@ export function useThreadViewportAutoScroll({
 
     finalizeThreadOpenScroll(selectedThreadId)
 
-    return () => cancelPendingAutoScrollFrame()
+    return () => cancelPendingThreadOpenSettleFrame()
   }, [
     displayedTurnsLength,
     isThreadViewportInteracting,
     selectedThreadId,
     threadDetailIsLoading,
-    threadContentKey,
+    threadContentSignature,
   ])
 
   useEffect(() => {
@@ -432,7 +454,14 @@ export function useThreadViewportAutoScroll({
   }
 
   function handleThreadViewportScroll() {
-    syncThreadViewportState()
+    if (pendingViewportSyncFrameRef.current !== null) {
+      return
+    }
+
+    pendingViewportSyncFrameRef.current = window.requestAnimationFrame(() => {
+      pendingViewportSyncFrameRef.current = null
+      syncThreadViewportState()
+    })
   }
 
   function handleJumpToLatest() {
@@ -442,6 +471,7 @@ export function useThreadViewportAutoScroll({
   useEffect(
     () => () => {
       cancelPendingAutoScrollFrame()
+      cancelPendingViewportSyncFrame()
       cancelPendingThreadOpenSettleFrame()
       if (viewportInteractionTimeoutRef.current !== null) {
         window.clearTimeout(viewportInteractionTimeoutRef.current)

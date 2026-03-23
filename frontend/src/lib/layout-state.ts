@@ -10,6 +10,8 @@ import {
   layoutConfig,
   type SurfacePanelSide,
   type SurfacePanelView,
+  type TerminalDockPlacement,
+  type TerminalWindowBounds,
 } from './layout-config'
 
 export function readLeftSidebarCollapsed() {
@@ -74,4 +76,57 @@ export function readSurfacePanelSides() {
 
 export function writeSurfacePanelSides(value: Record<SurfacePanelView, SurfacePanelSide>) {
   writeJsonPreference('surfacePanelSides', value)
+}
+
+export function readTerminalDockPlacement(): TerminalDockPlacement {
+  const placement = readJsonPreference<TerminalDockPlacement>(
+    'terminalDockPlacement',
+    layoutConfig.workbench.terminalDock.defaultPlacement,
+  )
+
+  if (placement === 'right' || placement === 'floating') {
+    return placement
+  }
+
+  return 'bottom'
+}
+
+export function writeTerminalDockPlacement(value: TerminalDockPlacement) {
+  writeJsonPreference('terminalDockPlacement', value)
+}
+
+export function readTerminalDockVisible() {
+  return readBooleanPreference('terminalDockVisible', true)
+}
+
+export function writeTerminalDockVisible(value: boolean) {
+  writeBooleanPreference('terminalDockVisible', value)
+}
+
+export function readTerminalWindowBounds(): TerminalWindowBounds | null {
+  const value = readJsonPreference<TerminalWindowBounds | null>('terminalWindowBounds', null)
+
+  if (
+    !value ||
+    !Number.isFinite(value.x) ||
+    !Number.isFinite(value.y) ||
+    !Number.isFinite(value.width) ||
+    !Number.isFinite(value.height)
+  ) {
+    return null
+  }
+
+  return value
+}
+
+export function writeTerminalWindowBounds(value: TerminalWindowBounds) {
+  writeJsonPreference('terminalWindowBounds', value)
+}
+
+export function readTerminalWindowMaximized() {
+  return readBooleanPreference('terminalWindowMaximized', false)
+}
+
+export function writeTerminalWindowMaximized(value: boolean) {
+  writeBooleanPreference('terminalWindowMaximized', value)
 }

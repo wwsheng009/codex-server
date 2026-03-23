@@ -22,21 +22,27 @@ type SurfaceStateLayoutInput = Pick<
   | 'isThreadSelectionLoading'
   | 'isMobileViewport'
   | 'isSurfacePanelResizing'
+  | 'isTerminalDockVisible'
   | 'isTerminalDockExpanded'
+  | 'isTerminalWindowMaximized'
   | 'isThreadPinnedToLatest'
   | 'isThreadProcessing'
   | 'isWaitingForThreadData'
   | 'liveTimelineEntries'
+  | 'placement'
   | 'queryClient'
   | 'respondingToApproval'
+  | 'rootPath'
   | 'selectedCommandSession'
   | 'selectedThread'
   | 'selectedThreadId'
   | 'setIsTerminalDockExpanded'
+  | 'setIsTerminalDockVisible'
   | 'setSurfacePanelSides'
-  | 'stdinValue'
+  | 'startTerminalCommandPending'
   | 'surfacePanelView'
   | 'terminalDockClassName'
+  | 'terminalWindowBounds'
   | 'terminateDisabled'
   | 'threadDetailError'
   | 'threadDetailIsLoading'
@@ -58,6 +64,11 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
 }: BuildThreadPageControllerLayoutPropsInput): SurfaceStateLayoutInput {
   const activeSelectedThreadId =
     dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
+  const isTerminableCommandSession =
+    displayState.selectedCommandSession &&
+    ['running', 'starting', 'processing'].includes(
+      (displayState.selectedCommandSession.status ?? '').toLowerCase(),
+    )
 
   return {
     activeCommandCount: statusState.activeCommandCount,
@@ -88,22 +99,29 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
       dataState.threadsQuery.isLoading,
     isMobileViewport: controllerState.isMobileViewport,
     isSurfacePanelResizing: controllerState.isSurfacePanelResizing,
+    isTerminalDockVisible: controllerState.isTerminalDockVisible,
     isTerminalDockExpanded: controllerState.isTerminalDockExpanded,
+    isTerminalWindowMaximized: controllerState.isTerminalWindowMaximized,
     isThreadPinnedToLatest: viewportState.isThreadPinnedToLatest,
     isThreadProcessing: statusState.isThreadProcessing,
     isWaitingForThreadData: statusState.isWaitingForThreadData,
     liveTimelineEntries: displayState.liveTimelineEntries,
+    placement: controllerState.terminalDockPlacement,
     queryClient: controllerState.queryClient,
     respondingToApproval: mutationState.respondApprovalMutation.isPending,
+    rootPath: dataState.workspaceQuery.data?.rootPath,
     selectedCommandSession: displayState.selectedCommandSession,
     selectedThread: dataState.selectedThread,
     selectedThreadId: activeSelectedThreadId,
     setIsTerminalDockExpanded: controllerState.setIsTerminalDockExpanded,
+    setIsTerminalDockVisible: controllerState.setIsTerminalDockVisible,
     setSurfacePanelSides: controllerState.setSurfacePanelSides,
-    stdinValue: controllerState.stdinValue,
+    startTerminalCommandPending: mutationState.startCommandMutation.isPending,
     surfacePanelView: controllerState.surfacePanelView,
     terminalDockClassName: statusState.terminalDockClassName,
-    terminateDisabled: !displayState.selectedCommandSession?.id,
+    terminalWindowBounds: controllerState.terminalWindowBounds,
+    terminateDisabled:
+      mutationState.terminateCommandMutation.isPending || !isTerminableCommandSession,
     threadDetailError: dataState.threadDetailQuery.error,
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
     threadLogStyle: viewportState.threadLogStyle,

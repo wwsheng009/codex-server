@@ -2,7 +2,6 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -29,6 +28,7 @@ type ConversationEntry =
       kind: 'item'
       key: string
       item: Record<string, unknown>
+      turnId: string
     }
   | {
       kind: 'error'
@@ -37,8 +37,12 @@ type ConversationEntry =
     }
 
 type CompactSystemStatusTone = 'running' | 'success' | 'error'
-
-const MIN_VIRTUALIZED_CONVERSATION_ENTRY_COUNT = 40
+const EXPANDABLE_MESSAGE_THRESHOLD_CHARS = 4_000
+const EXPANDABLE_MESSAGE_PREVIEW_CHARS = 1_200
+const FULL_TURN_OVERRIDE_TTL_MS = 30_000
+const VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD = 80
+const conversationEntriesCache = new WeakMap<ThreadTurn[], ConversationEntry[]>()
+const turnConversationEntriesCache = new WeakMap<ThreadTurn, ConversationEntry[]>()
 
 const selectionChangeSubscribers = new Set<() => void>()
 
@@ -80,109 +84,80 @@ function selectionBelongsToContainer(container: HTMLElement | null) {
 }
 
 export const TurnTimeline = memo(function TurnTimeline({
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
   scrollViewportRef,
   timelineIdentity,
   turns,
   onRetryServerRequest,
 }: {
+  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
+  onRetainFullTurn?: (turnId: string, itemId?: string) => void
+  onRequestFullTurn?: (turnId: string, itemId?: string) => void
   scrollViewportRef?: RefObject<HTMLDivElement | null>
   timelineIdentity?: string
   turns: ThreadTurn[]
   onRetryServerRequest?: (item: Record<string, unknown>) => void
 }) {
   const entries = useMemo(() => buildConversationEntries(turns), [turns])
+  const {
+    paddingBottom,
+    paddingTop,
+    visibleEntries,
+  } = useVirtualizedConversationEntries({
+    enabled:
+      Boolean(scrollViewportRef) &&
+      Boolean(timelineIdentity) &&
+      entries.length >= VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD,
+    entries,
+    estimateEntryHeight: estimateConversationEntryHeight,
+    getEntryKey: getConversationEntryKey,
+    listIdentity: timelineIdentity ?? '',
+    scrollViewportRef:
+      scrollViewportRef as RefObject<HTMLElement | null>,
+  })
   const retryServerRequestRef = useRef(onRetryServerRequest)
   retryServerRequestRef.current = onRetryServerRequest
 
   const handleRetryServerRequest = useCallback((item: Record<string, unknown>) => {
     retryServerRequestRef.current?.(item)
   }, [])
-  const {
-    isVirtualized,
-    paddingBottom,
-    paddingTop,
-    registerEntryHeight,
-    visibleEntries,
-  } = useVirtualizedConversationEntries({
-    enabled:
-      Boolean(scrollViewportRef) &&
-      entries.length > MIN_VIRTUALIZED_CONVERSATION_ENTRY_COUNT,
-    entries,
-    estimateEntryHeight: estimateConversationEntryHeight,
-    getEntryKey: getConversationEntryKey,
-    listIdentity: timelineIdentity ?? '',
-    scrollViewportRef:
-      scrollViewportRef ?? ({ current: null } as RefObject<HTMLDivElement | null>),
-  })
 
   return (
     <div aria-live="polite" className="conversation-stream" role="log">
-      {isVirtualized && paddingTop > 0 ? (
-        <div
-          aria-hidden="true"
-          className="conversation-stream__spacer"
-          style={{ height: `${paddingTop}px` }}
-        />
-      ) : null}
+      {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
       {visibleEntries.map((entry) =>
-        isVirtualized ? (
-          <MeasuredConversationEntry
-            entryKey={entry.key}
+        entry.kind === 'error' ? (
+          <SystemTimelineCard
+            className="conversation-card--error"
             key={entry.key}
-            onMeasure={registerEntryHeight}
+            statusTone="error"
+            summary={summarizeCompactError(entry.error)}
+            title="Error"
           >
-            {entry.kind === 'error' ? (
-              <SystemTimelineCard
-                className="conversation-card--error"
-                statusTone="error"
-                summary={summarizeCompactError(entry.error)}
-                title="Error"
-              >
-                <ThreadCodeBlock
-                  className="conversation-card__output"
-                  content={safeJson(entry.error)}
-                />
-              </SystemTimelineCard>
-            ) : (
-              <MemoTimelineItem
-                item={entry.item}
-                onRetryServerRequest={handleRetryServerRequest}
-              />
-            )}
-          </MeasuredConversationEntry>
+            <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
+          </SystemTimelineCard>
         ) : (
-          entry.kind === 'error' ? (
-            <SystemTimelineCard
-              className="conversation-card--error"
-              key={entry.key}
-              statusTone="error"
-              summary={summarizeCompactError(entry.error)}
-              title="Error"
-            >
-              <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
-            </SystemTimelineCard>
-          ) : (
-            <MemoTimelineItem
-              item={entry.item}
-              key={entry.key}
-              onRetryServerRequest={handleRetryServerRequest}
-            />
-          )
+          <MemoTimelineItem
+            item={entry.item}
+            key={entry.key}
+            onReleaseFullTurn={onReleaseFullTurn}
+            onRetainFullTurn={onRetainFullTurn}
+            onRequestFullTurn={onRequestFullTurn}
+            onRetryServerRequest={handleRetryServerRequest}
+            turnId={entry.turnId}
+          />
         ),
       )}
-      {isVirtualized && paddingBottom > 0 ? (
-        <div
-          aria-hidden="true"
-          className="conversation-stream__spacer"
-          style={{ height: `${paddingBottom}px` }}
-        />
-      ) : null}
+      {paddingBottom > 0 ? <div aria-hidden="true" style={{ height: paddingBottom }} /> : null}
     </div>
   )
 }, (previous, next) => {
   return (
-    previous.scrollViewportRef === next.scrollViewportRef &&
-    previous.timelineIdentity === next.timelineIdentity &&
+    previous.onReleaseFullTurn === next.onReleaseFullTurn &&
+    previous.onRequestFullTurn === next.onRequestFullTurn &&
+    previous.onRetainFullTurn === next.onRetainFullTurn &&
     previous.turns === next.turns
   )
 })
@@ -891,6 +866,129 @@ function CopyMessageStatusIcon({ state }: { state: 'idle' | 'copied' | 'error' }
   return <CopyMessageIcon />
 }
 
+function ExpandableThreadMessage({
+  content,
+  onReleaseFullContent,
+  onRetainFullContent,
+  onRequestFullContent,
+  summaryTruncated,
+  tone,
+}: {
+  content: string
+  onReleaseFullContent?: () => void
+  onRetainFullContent?: () => void
+  onRequestFullContent?: () => void
+  summaryTruncated?: boolean
+  tone: 'user' | 'assistant'
+}) {
+  const shouldCollapse = summaryTruncated || content.length > EXPANDABLE_MESSAGE_THRESHOLD_CHARS
+  const [isExpanded, setIsExpanded] = useState(!shouldCollapse)
+  const [isRequestingFullContent, setIsRequestingFullContent] = useState(false)
+  const previousContentRef = useRef(content)
+  const retainedFullContentRef = useRef(false)
+
+  function releaseRetainedFullContent() {
+    if (!retainedFullContentRef.current) {
+      return
+    }
+
+    retainedFullContentRef.current = false
+    onReleaseFullContent?.()
+  }
+
+  function handleCollapse() {
+    setIsExpanded(false)
+    setIsRequestingFullContent(false)
+    releaseRetainedFullContent()
+  }
+
+  useEffect(() => {
+    const contentChanged = previousContentRef.current !== content
+    previousContentRef.current = content
+
+    if (isRequestingFullContent && !summaryTruncated && contentChanged) {
+      setIsExpanded(true)
+      setIsRequestingFullContent(false)
+      return
+    }
+
+    if (!contentChanged) {
+      return
+    }
+
+    setIsExpanded(!shouldCollapse)
+  }, [content, isRequestingFullContent, shouldCollapse, summaryTruncated])
+
+  useEffect(() => {
+    if (!summaryTruncated) {
+      setIsRequestingFullContent(false)
+    }
+  }, [summaryTruncated])
+
+  async function handleExpand() {
+    if (summaryTruncated && onRequestFullContent) {
+      if (!retainedFullContentRef.current) {
+        retainedFullContentRef.current = true
+        onRetainFullContent?.()
+      }
+      setIsRequestingFullContent(true)
+      onRequestFullContent()
+      return
+    }
+
+    setIsExpanded(true)
+  }
+
+  useEffect(() => {
+    if (!isExpanded || !retainedFullContentRef.current) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      handleCollapse()
+    }, FULL_TURN_OVERRIDE_TTL_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [isExpanded])
+
+  useEffect(
+    () => () => {
+      releaseRetainedFullContent()
+    },
+    [],
+  )
+
+  if (!shouldCollapse) {
+    return <ThreadMarkdown content={content} />
+  }
+
+  const preview = `${content.slice(0, EXPANDABLE_MESSAGE_PREVIEW_CHARS).trimEnd()}\n…`
+
+  return (
+    <div className="conversation-message-preview">
+      {isExpanded ? <ThreadMarkdown content={content} /> : <ThreadPlainText content={preview} />}
+      <button
+        className={
+          tone === 'user'
+            ? 'conversation-message-preview__toggle conversation-message-preview__toggle--user'
+            : 'conversation-message-preview__toggle'
+        }
+        disabled={isRequestingFullContent}
+        onClick={() => void (isExpanded ? handleCollapse() : handleExpand())}
+        type="button"
+      >
+        {isExpanded
+          ? 'Show less'
+          : isRequestingFullContent
+            ? 'Loading full message…'
+            : 'Show full message'}
+      </button>
+    </div>
+  )
+}
+
 function CopyMessageIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
@@ -963,12 +1061,22 @@ function CompactSystemStatusIcon({ tone }: { tone: CompactSystemStatusTone }) {
 
 function TimelineItem({
   item,
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
   onRetryServerRequest,
+  turnId,
 }: {
   item: Record<string, unknown>
+  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
+  onRetainFullTurn?: (turnId: string, itemId?: string) => void
+  onRequestFullTurn?: (turnId: string, itemId?: string) => void
   onRetryServerRequest?: (item: Record<string, unknown>) => void
+  turnId: string
 }) {
   const type = stringField(item.type)
+  const itemId = stringField(item.id) || undefined
+  const summaryTruncated = booleanField(item.summaryTruncated) === true
 
   switch (type) {
     case 'userMessage': {
@@ -982,7 +1090,20 @@ function TimelineItem({
         <article className="conversation-row conversation-row--user">
           <div className="conversation-bubble conversation-bubble--user">
             <CopyableMessageBody className="conversation-bubble__content" source={text} tone="user">
-              <ThreadMarkdown content={text} />
+              <ExpandableThreadMessage
+                content={text}
+                onReleaseFullContent={
+                  summaryTruncated ? () => onReleaseFullTurn?.(turnId, itemId) : undefined
+                }
+                onRetainFullContent={
+                  summaryTruncated ? () => onRetainFullTurn?.(turnId, itemId) : undefined
+                }
+                onRequestFullContent={
+                  summaryTruncated ? () => onRequestFullTurn?.(turnId, itemId) : undefined
+                }
+                summaryTruncated={summaryTruncated}
+                tone="user"
+              />
             </CopyableMessageBody>
           </div>
         </article>
@@ -1007,7 +1128,26 @@ function TimelineItem({
             }
           >
             <CopyableMessageBody className="conversation-bubble__content" source={text} tone="assistant">
-              {text ? (isStreaming ? <ThreadPlainText content={text} /> : <ThreadMarkdown content={text} />) : null}
+              {text ? (
+                isStreaming ? (
+                  <ThreadPlainText content={text} />
+                ) : (
+                  <ExpandableThreadMessage
+                    content={text}
+                    onReleaseFullContent={
+                      summaryTruncated ? () => onReleaseFullTurn?.(turnId, itemId) : undefined
+                    }
+                    onRetainFullContent={
+                      summaryTruncated ? () => onRetainFullTurn?.(turnId, itemId) : undefined
+                    }
+                    onRequestFullContent={
+                      summaryTruncated ? () => onRequestFullTurn?.(turnId, itemId) : undefined
+                    }
+                    summaryTruncated={summaryTruncated}
+                    tone="assistant"
+                  />
+                )
+              ) : null}
               {isStreaming ? <span aria-hidden="true" className="conversation-bubble__cursor" /> : null}
             </CopyableMessageBody>
           </div>
@@ -1017,7 +1157,26 @@ function TimelineItem({
     case 'commandExecution': {
       const command = stringField(item.command)
       const output = stringField(item.aggregatedOutput)
+      const outputContentMode = stringField(item.outputContentMode)
+      const outputStartLine = integerField(item.outputStartLine)
+      const outputEndLine = integerField(item.outputEndLine)
+      const outputTotalLength = integerField(item.outputTotalLength)
+      const outputLineCount = integerField(item.outputLineCount)
       const status = stringField(item.status)
+      const showLoadLatestOutput =
+        summaryTruncated && outputContentMode === 'summary' && itemId
+      const showLoadFullOutput =
+        summaryTruncated && outputContentMode === 'tail' && itemId
+      const remainingOutputLines =
+        typeof outputStartLine === 'number' && outputStartLine > 0
+          ? outputStartLine
+          : 0
+      const loadedOutputLines =
+        typeof outputStartLine === 'number' &&
+        typeof outputEndLine === 'number' &&
+        outputEndLine >= outputStartLine
+          ? outputEndLine - outputStartLine
+          : outputLineCount ?? countOutputLines(output)
 
       if (!command && !output && !status) {
         return null
@@ -1027,8 +1186,18 @@ function TimelineItem({
         <SystemTimelineCard
           className="conversation-card--command"
           deferDetailsUntilOpen
-          meta={outputLineLabel(output) ?? undefined}
+          meta={outputLineLabel(output, outputLineCount) ?? undefined}
+          onReleaseFullContent={
+            summaryTruncated ? () => onReleaseFullTurn?.(turnId, itemId) : undefined
+          }
+          onRetainFullContent={
+            summaryTruncated ? () => onRetainFullTurn?.(turnId, itemId) : undefined
+          }
+          onRequestFullContent={
+            summaryTruncated ? () => onRequestFullTurn?.(turnId, itemId) : undefined
+          }
           statusTone={statusToneFromValue(status)}
+          summaryTruncated={summaryTruncated}
           summary={truncateMiddle(command || 'Command execution', 88)}
           title="Command"
         >
@@ -1041,6 +1210,42 @@ function TimelineItem({
           ) : (
             <div className="conversation-card__placeholder">Waiting for output.</div>
           )}
+          {showLoadLatestOutput ? (
+            <>
+              <div className="conversation-card__placeholder">
+                Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result.
+              </div>
+              <div className="conversation-tool-call__actions">
+                <button
+                  className="ide-button ide-button--secondary"
+                  onClick={() => onRequestFullTurn?.(turnId, itemId)}
+                  type="button"
+                >
+                  Load latest output
+                </button>
+              </div>
+            </>
+          ) : null}
+          {showLoadFullOutput ? (
+            <>
+              <div className="conversation-card__placeholder">
+                {remainingOutputLines > 0
+                  ? `Showing ${formatApproximateCount(loadedOutputLines)} recent lines. Load earlier output to reveal ${formatApproximateCount(remainingOutputLines)} more lines.`
+                  : outputTotalLength && output.length < outputTotalLength
+                    ? 'Showing the latest output window. Load earlier output to reveal more command history.'
+                    : 'Showing the latest output window.'}
+              </div>
+              <div className="conversation-tool-call__actions">
+                <button
+                  className="ide-button ide-button--secondary"
+                  onClick={() => onRequestFullTurn?.(turnId, itemId)}
+                  type="button"
+                >
+                  Load earlier output
+                </button>
+              </div>
+            </>
+          ) : null}
         </SystemTimelineCard>
       )
     }
@@ -1097,9 +1302,26 @@ function TimelineItem({
     case 'mcpToolCall':
     case 'dynamicToolCall':
     case 'collabAgentToolCall':
-      return <ToolCallTimelineCard item={item} />
+      return (
+        <ToolCallTimelineCard
+          item={item}
+          onReleaseFullTurn={onReleaseFullTurn}
+          onRetainFullTurn={onRetainFullTurn}
+          onRequestFullTurn={onRequestFullTurn}
+          turnId={turnId}
+        />
+      )
     case 'serverRequest':
-      return <ServerRequestTimelineCard item={item} onRetry={onRetryServerRequest} />
+      return (
+        <ServerRequestTimelineCard
+          item={item}
+          onReleaseFullTurn={onReleaseFullTurn}
+          onRetainFullTurn={onRetainFullTurn}
+          onRequestFullTurn={onRequestFullTurn}
+          onRetry={onRetryServerRequest}
+          turnId={turnId}
+        />
+      )
     case 'reasoning':
       return null
     default: {
@@ -1124,12 +1346,23 @@ function TimelineItem({
 }
 
 const MemoTimelineItem = memo(TimelineItem, (previous, next) => {
-  return previous.item === next.item && previous.onRetryServerRequest === next.onRetryServerRequest
+  return (
+    previous.item === next.item &&
+    previous.onReleaseFullTurn === next.onReleaseFullTurn &&
+    previous.onRequestFullTurn === next.onRequestFullTurn &&
+    previous.onRetainFullTurn === next.onRetainFullTurn &&
+    previous.onRetryServerRequest === next.onRetryServerRequest &&
+    previous.turnId === next.turnId
+  )
 })
 
 function SystemTimelineCard({
   className,
   deferDetailsUntilOpen,
+  onReleaseFullContent,
+  onRetainFullContent,
+  onRequestFullContent,
+  summaryTruncated,
   title,
   summary,
   meta,
@@ -1138,6 +1371,10 @@ function SystemTimelineCard({
 }: {
   className?: string
   deferDetailsUntilOpen?: boolean
+  onReleaseFullContent?: () => void
+  onRetainFullContent?: () => void
+  onRequestFullContent?: () => void
+  summaryTruncated?: boolean
   title: string
   summary: string
   meta?: string
@@ -1145,7 +1382,58 @@ function SystemTimelineCard({
   children: ReactNode
 }) {
   const [isOpen, setIsOpen] = useState(false)
+  const detailsRef = useRef<HTMLDetailsElement | null>(null)
+  const requestedFullContentRef = useRef(false)
   const shouldRenderDetails = !deferDetailsUntilOpen || isOpen
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !summaryTruncated ||
+      !onRequestFullContent ||
+      requestedFullContentRef.current
+    ) {
+      return
+    }
+
+    requestedFullContentRef.current = true
+    onRetainFullContent?.()
+    onRequestFullContent()
+  }, [isOpen, onRequestFullContent, onRetainFullContent, summaryTruncated])
+
+  useEffect(() => {
+    if (!summaryTruncated) {
+      requestedFullContentRef.current = false
+    }
+  }, [summaryTruncated])
+
+  useEffect(() => {
+    if (isOpen || !onReleaseFullContent || !requestedFullContentRef.current) {
+      return
+    }
+
+    requestedFullContentRef.current = false
+    onReleaseFullContent()
+  }, [isOpen, onReleaseFullContent])
+
+  useEffect(() => {
+    if (!isOpen || !requestedFullContentRef.current) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (detailsRef.current) {
+        detailsRef.current.open = false
+      }
+      requestedFullContentRef.current = false
+      onReleaseFullContent?.()
+      setIsOpen(false)
+    }, FULL_TURN_OVERRIDE_TTL_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [isOpen, onReleaseFullContent])
 
   return (
     <article className="conversation-row conversation-row--system">
@@ -1155,6 +1443,7 @@ function SystemTimelineCard({
             ? `conversation-card conversation-card--compact ${className}`
             : 'conversation-card conversation-card--compact'
         }
+        ref={detailsRef}
         onToggle={(event) =>
           setIsOpen((event.currentTarget as HTMLDetailsElement).open)
         }
@@ -1180,7 +1469,19 @@ function SystemTimelineCard({
   )
 }
 
-function ToolCallTimelineCard({ item }: { item: Record<string, unknown> }) {
+function ToolCallTimelineCard({
+  item,
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
+  turnId,
+}: {
+  item: Record<string, unknown>
+  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
+  onRetainFullTurn?: (turnId: string, itemId?: string) => void
+  onRequestFullTurn?: (turnId: string, itemId?: string) => void
+  turnId: string
+}) {
   const type = stringField(item.type)
   const tool = stringField(item.tool) || humanizeItemType(type)
   const status = stringField(item.status)
@@ -1204,6 +1505,8 @@ function ToolCallTimelineCard({ item }: { item: Record<string, unknown> }) {
     [server, model, durationMs !== null ? `${durationMs} ms` : '', reasoningEffort].filter(Boolean),
     2,
   )
+  const itemId = stringField(item.id) || undefined
+  const summaryTruncated = booleanField(item.summaryTruncated) === true
 
   const detailSections: ToolCallSection[] = [
     {
@@ -1254,7 +1557,17 @@ function ToolCallTimelineCard({ item }: { item: Record<string, unknown> }) {
       className="conversation-card--tool"
       deferDetailsUntilOpen
       meta={meta || undefined}
+      onReleaseFullContent={
+        summaryTruncated ? () => onReleaseFullTurn?.(turnId, itemId) : undefined
+      }
+      onRetainFullContent={
+        summaryTruncated ? () => onRetainFullTurn?.(turnId, itemId) : undefined
+      }
+      onRequestFullContent={
+        summaryTruncated ? () => onRequestFullTurn?.(turnId, itemId) : undefined
+      }
       statusTone={statusTone}
+      summaryTruncated={summaryTruncated}
       summary={truncateSingleLine([tool, toolCallSummary(item)].filter(Boolean).join(' · '), 112)}
       title={title}
     >
@@ -1307,10 +1620,18 @@ function ToolCallTimelineCard({ item }: { item: Record<string, unknown> }) {
 
 function ServerRequestTimelineCard({
   item,
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
   onRetry,
+  turnId,
 }: {
   item: Record<string, unknown>
+  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
+  onRetainFullTurn?: (turnId: string, itemId?: string) => void
+  onRequestFullTurn?: (turnId: string, itemId?: string) => void
   onRetry?: (item: Record<string, unknown>) => void
+  turnId: string
 }) {
   const requestKind = stringField(item.requestKind)
   const status = stringField(item.status) || 'pending'
@@ -1320,13 +1641,25 @@ function ServerRequestTimelineCard({
   const summary = summarizeServerRequest(requestKind, details)
   const metaPills = serverRequestMetaPills(requestKind, details)
   const statusTone = status === 'resolved' ? 'success' : status === 'expired' ? 'error' : 'running'
+  const itemId = stringField(item.id) || undefined
+  const summaryTruncated = booleanField(item.summaryTruncated) === true
 
   return (
     <SystemTimelineCard
       className="conversation-card--request"
       deferDetailsUntilOpen
       meta={compactMetaLabel(metaPills, 1) || undefined}
+      onReleaseFullContent={
+        summaryTruncated ? () => onReleaseFullTurn?.(turnId, itemId) : undefined
+      }
+      onRetainFullContent={
+        summaryTruncated ? () => onRetainFullTurn?.(turnId, itemId) : undefined
+      }
+      onRequestFullContent={
+        summaryTruncated ? () => onRequestFullTurn?.(turnId, itemId) : undefined
+      }
       statusTone={statusTone}
+      summaryTruncated={summaryTruncated}
       summary={summary}
       title={serverRequestTitle(requestKind)}
     >
@@ -1908,8 +2241,11 @@ function compactMetaLabel(values: string[], limit = 2) {
     .join(' · ')
 }
 
-function outputLineLabel(output: string) {
-  const lineCount = countOutputLines(output)
+function outputLineLabel(output: string, lineCountOverride?: number | null) {
+  const lineCount =
+    typeof lineCountOverride === 'number' && lineCountOverride > 0
+      ? lineCountOverride
+      : countOutputLines(output)
   if (!lineCount) {
     return null
   }
@@ -1949,6 +2285,18 @@ function truncateSingleLine(value: string, maxLength: number) {
   }
 
   return `${compact.slice(0, Math.max(0, maxLength - 1))}…`
+}
+
+function formatApproximateCount(value: number) {
+  if (value < 1_000) {
+    return `${value}`
+  }
+
+  if (value < 100_000) {
+    return `${Math.round(value / 100) / 10}k`
+  }
+
+  return `${Math.round(value / 1_000)}k`
 }
 
 function statusToneFromValue(value: string): CompactSystemStatusTone | undefined {
@@ -2059,69 +2407,28 @@ function hasMeaningfulValue(value: unknown) {
 }
 
 function buildConversationEntries(turns: ThreadTurn[]): ConversationEntry[] {
-  const entries: ConversationEntry[] = []
+  const cached = conversationEntriesCache.get(turns)
+  if (cached) {
+    return cached
+  }
 
-  turns.forEach((turn) => {
-    turn.items.forEach((item, itemIndex) => {
-      entries.push({
-        kind: 'item',
-        key: `${turn.id}-${itemIndex}`,
-        item,
-      })
-    })
-
-    if (turn.error) {
-      entries.push({
-        kind: 'error',
-        key: `${turn.id}-error`,
-        error: turn.error,
-      })
+  const perTurnEntries = turns.map((turn) => collectTurnConversationEntries(turn))
+  const totalEntryCount = perTurnEntries.reduce((count, entries) => count + entries.length, 0)
+  const entries = new Array<ConversationEntry>(totalEntryCount)
+  let offset = 0
+  for (const entriesForTurn of perTurnEntries) {
+    for (let index = 0; index < entriesForTurn.length; index += 1) {
+      entries[offset] = entriesForTurn[index]
+      offset += 1
     }
-  })
+  }
 
+  conversationEntriesCache.set(turns, entries)
   return entries
 }
 
-function MeasuredConversationEntry({
-  children,
-  entryKey,
-  onMeasure,
-}: {
-  children: ReactNode
-  entryKey: string
-  onMeasure: (entryKey: string, height: number) => void
-}) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-
-  useLayoutEffect(() => {
-    const container = containerRef.current
-    if (!container) {
-      return
-    }
-
-    const measure = () => {
-      onMeasure(entryKey, container.getBoundingClientRect().height)
-    }
-
-    measure()
-
-    if (typeof ResizeObserver === 'undefined') {
-      return
-    }
-
-    const observer = new ResizeObserver(() => {
-      measure()
-    })
-
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [entryKey, onMeasure])
-
-  return (
-    <div className="conversation-stream__item" ref={containerRef}>
-      {children}
-    </div>
-  )
+function getConversationEntryKey(entry: ConversationEntry) {
+  return entry.key
 }
 
 function estimateConversationEntryHeight(entry: ConversationEntry) {
@@ -2129,22 +2436,64 @@ function estimateConversationEntryHeight(entry: ConversationEntry) {
     return 120
   }
 
-  switch (stringField(entry.item.type)) {
+  const type = stringField(entry.item.type)
+  switch (type) {
     case 'userMessage':
+      return estimateTextEntryHeight(userMessageText(entry.item), 72)
     case 'agentMessage':
-      return 96
-    case 'commandExecution':
-      return 72
-    case 'mcpToolCall':
-    case 'dynamicToolCall':
-    case 'collabAgentToolCall':
+      return estimateTextEntryHeight(stringField(entry.item.text), 88)
+    case 'commandExecution': {
+      const output = stringField(entry.item.aggregatedOutput)
+      const lineCount = integerField(entry.item.outputLineCount) ?? countOutputLines(output)
+      return 140 + Math.min(lineCount, 12) * 18
+    }
+    case 'plan':
+      return estimateTextEntryHeight(stringField(entry.item.text), 112)
+    case 'fileChange':
+      return 136
     case 'serverRequest':
-      return 84
+      return 156
     default:
-      return 80
+      return 132
   }
 }
 
-function getConversationEntryKey(entry: ConversationEntry) {
-  return entry.key
+function estimateTextEntryHeight(text: string, baseHeight: number) {
+  if (!text) {
+    return baseHeight
+  }
+
+  const lineCount = countOutputLines(text)
+  const wrappedLineCount = Math.ceil(text.length / 90)
+  return baseHeight + Math.min(Math.max(lineCount, wrappedLineCount), 12) * 22
+}
+
+function collectTurnConversationEntries(turn: ThreadTurn) {
+  const cached = turnConversationEntriesCache.get(turn)
+  if (cached) {
+    return cached
+  }
+
+  const entries = new Array<ConversationEntry>(turn.items.length + (turn.error ? 1 : 0))
+  let nextIndex = 0
+  for (let itemIndex = 0; itemIndex < turn.items.length; itemIndex += 1) {
+    entries[nextIndex] = {
+      kind: 'item',
+      key: `${turn.id}-${itemIndex}`,
+      item: turn.items[itemIndex],
+      turnId: turn.id,
+    }
+    nextIndex += 1
+  }
+
+  if (turn.error) {
+    entries[nextIndex] = {
+      kind: 'error',
+      key: `${turn.id}-error`,
+      error: turn.error,
+    }
+  }
+
+  turnConversationEntriesCache.set(turn, entries)
+  return entries
 }

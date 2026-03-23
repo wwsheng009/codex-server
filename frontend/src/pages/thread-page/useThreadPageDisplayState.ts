@@ -13,6 +13,9 @@ export function useThreadPageDisplayState(input: ThreadPageDisplayStateInput) {
     () => buildThreadPageTurnDisplayState(input),
     [
       input.activePendingTurn,
+      input.fullTurnItemContentOverridesById,
+      input.fullTurnItemOverridesById,
+      input.fullTurnOverridesById,
       input.historicalTurns,
       input.liveThreadDetail?.turns,
       input.selectedThreadId,

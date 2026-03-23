@@ -1,4 +1,5 @@
 import { getErrorMessage } from '../../lib/error-utils'
+import { buildThreadTerminalDockProps } from './buildThreadTerminalDockProps'
 import type {
   BuildThreadPageLayoutPropsInput,
   SurfaceProps,
@@ -30,10 +31,6 @@ export function buildThreadPageSurfaceLayoutProps(
     }))
   }
 
-  function handleToggleTerminalDockExpanded() {
-    input.setIsTerminalDockExpanded((current) => !current)
-  }
-
   const surfaceProps: SurfaceProps = {
     activePendingTurnPhase: input.activePendingTurnPhase,
     activeSurfacePanelSide: input.activeSurfacePanelSide,
@@ -59,6 +56,9 @@ export function buildThreadPageSurfaceLayoutProps(
     onCloseWorkbenchOverlay: input.onCloseWorkbenchOverlay,
     onCreateThread: input.onCreateThread,
     onLoadOlderTurns: input.onLoadOlderTurns,
+    onReleaseFullTurn: input.onReleaseFullTurn,
+    onRetainFullTurn: input.onRetainFullTurn,
+    onRequestFullTurn: input.onRequestFullTurn,
     onRespondApproval: input.onRespondApproval,
     onRetryServerRequest: input.onRetryServerRequest,
     onRetryThreadLoad: handleRetryThreadLoad,
@@ -78,25 +78,7 @@ export function buildThreadPageSurfaceLayoutProps(
     workspaceName: input.workspaceName,
   }
 
-  const terminalDockProps: TerminalDockProps | undefined = input.isMobileViewport
-    ? undefined
-    : {
-        activeCommandCount: input.activeCommandCount,
-        className: input.terminalDockClassName,
-        commandSessions: input.commandSessions,
-        isExpanded: input.isTerminalDockExpanded,
-        onChangeStdinValue: input.onChangeStdinValue,
-        onClearCompletedSessions: input.onClearCompletedSessions,
-        onRemoveSession: input.onRemoveSession,
-        onResizeStart: input.onResizeStart,
-        onSelectSession: input.onSelectSession,
-        onSubmitStdin: input.onSubmitStdin,
-        onTerminateSelectedSession: input.onTerminateSelectedSession,
-        onToggleExpanded: handleToggleTerminalDockExpanded,
-        selectedCommandSession: input.selectedCommandSession,
-        stdinValue: input.stdinValue,
-        terminateDisabled: input.terminateDisabled,
-      }
+  const terminalDockProps: TerminalDockProps | undefined = buildThreadTerminalDockProps(input)
 
   return {
     surfaceProps,

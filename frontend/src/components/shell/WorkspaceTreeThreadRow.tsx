@@ -51,6 +51,7 @@ export function WorkspaceTreeThreadRow({
 }: WorkspaceTreeThreadRowProps) {
   const activity = useSessionStore((state) => state.threadActivityByThread[thread.id])
   const running = threadIsRunning(thread, activity)
+  const activityTs = activity?.latestEventTs || thread.updatedAt
   const activityTone = running
     ? isSelectedWorkspaceRoute && activeThreadId === thread.id
       ? 'foreground'
@@ -75,7 +76,7 @@ export function WorkspaceTreeThreadRow({
         title={thread.name}
         type="button"
       >
-        <span className="workspace-tree__thread-time">{formatRelativeTimeShort(thread.updatedAt)}</span>
+        <span className="workspace-tree__thread-time">{formatRelativeTimeShort(activityTs)}</span>
         <span className="workspace-tree__thread-title-shell">
           {activityTone ? (
             <span

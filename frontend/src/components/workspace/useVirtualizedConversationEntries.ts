@@ -35,6 +35,7 @@ export function useVirtualizedConversationEntries<T>({
   const frameRef = useRef<number | null>(null)
   const scrollFrameRef = useRef<number | null>(null)
   const scrollIdleTimeoutRef = useRef<number | null>(null)
+  const isUserScrollingRef = useRef(false)
   const [entryHeightsVersion, setEntryHeightsVersion] = useState(0)
   const [isUserScrolling, setIsUserScrolling] = useState(false)
   const [renderWindow, setRenderWindow] = useState<{
@@ -73,7 +74,7 @@ export function useVirtualizedConversationEntries<T>({
         return
       }
 
-      if (isUserScrolling) {
+      if (isUserScrollingRef.current) {
         pendingEntryHeightsRef.current[entryKey] = roundedHeight
         return
       }
@@ -81,7 +82,7 @@ export function useVirtualizedConversationEntries<T>({
       entryHeightsRef.current[entryKey] = roundedHeight
       scheduleHeightsRefresh()
     },
-    [isUserScrolling, scheduleHeightsRefresh],
+    [scheduleHeightsRefresh],
   )
 
   useEffect(() => {
@@ -102,6 +103,7 @@ export function useVirtualizedConversationEntries<T>({
 
     entryHeightsRef.current = {}
     pendingEntryHeightsRef.current = {}
+    isUserScrollingRef.current = false
     setIsUserScrolling(false)
     setRenderWindow(null)
     setScrollState({
@@ -153,6 +155,7 @@ export function useVirtualizedConversationEntries<T>({
       if (scrollIdleTimeoutRef.current !== null && typeof window !== 'undefined') {
         window.clearTimeout(scrollIdleTimeoutRef.current)
       }
+      isUserScrollingRef.current = false
     },
     [],
   )
@@ -193,7 +196,8 @@ export function useVirtualizedConversationEntries<T>({
         return
       }
 
-      if (!isUserScrolling) {
+      if (!isUserScrollingRef.current) {
+        isUserScrollingRef.current = true
         setIsUserScrolling(true)
       }
       if (scrollIdleTimeoutRef.current !== null) {
@@ -201,6 +205,7 @@ export function useVirtualizedConversationEntries<T>({
       }
       scrollIdleTimeoutRef.current = window.setTimeout(() => {
         scrollIdleTimeoutRef.current = null
+        isUserScrollingRef.current = false
         setIsUserScrolling(false)
       }, 140)
 
@@ -237,7 +242,7 @@ export function useVirtualizedConversationEntries<T>({
       }
       observer.disconnect()
     }
-  }, [enabled, isUserScrolling, listIdentity, scrollViewportRef])
+  }, [enabled, listIdentity, scrollViewportRef])
 
   const entryLayout = useMemo(() => {
     const offsets = new Array(entries.length)

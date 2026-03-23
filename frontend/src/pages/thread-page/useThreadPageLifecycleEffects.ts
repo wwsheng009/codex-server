@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect } from 'react'
 
+import { buildWorkspaceThreadRoute } from '../../lib/thread-routes'
 import type { ThreadPageLifecycleEffectsInput } from './threadPageEffectTypes'
 
 export function useThreadPageLifecycleEffects({
@@ -8,6 +9,8 @@ export function useThreadPageLifecycleEffects({
   currentThreads,
   latestThreadDetailId,
   liveThreadTurns,
+  navigate,
+  routeThreadId,
   selectedThreadId,
   setSelectedThread,
   setSelectedWorkspace,
@@ -17,23 +20,47 @@ export function useThreadPageLifecycleEffects({
     setSelectedWorkspace(workspaceId)
   }, [setSelectedWorkspace, workspaceId])
 
+  useEffect(() => {
+    if (workspaceId && routeThreadId) {
+      setSelectedThread(workspaceId, routeThreadId)
+    }
+  }, [routeThreadId, setSelectedThread, workspaceId])
+
   useLayoutEffect(() => {
+    if (!workspaceId) {
+      return
+    }
+
     if (!currentThreads.length) {
+      if (routeThreadId) {
+        setSelectedThread(workspaceId, undefined)
+        navigate(buildWorkspaceThreadRoute(workspaceId), { replace: true })
+      }
       return
     }
 
-    if (!selectedThreadId) {
-      setSelectedThread(workspaceId, currentThreads[0].id)
-      return
+    let nextThreadId = selectedThreadId
+    if (!nextThreadId) {
+      nextThreadId = currentThreads[0].id
+    } else {
+      const hasSelectedThread = currentThreads.some((thread) => thread.id === nextThreadId)
+      if (!hasSelectedThread && latestThreadDetailId !== nextThreadId) {
+        nextThreadId = currentThreads[0].id
+      }
     }
 
-    const hasSelectedThread = currentThreads.some((thread) => thread.id === selectedThreadId)
-    if (!hasSelectedThread && latestThreadDetailId !== selectedThreadId) {
-      setSelectedThread(workspaceId, currentThreads[0].id)
+    if (nextThreadId !== selectedThreadId) {
+      setSelectedThread(workspaceId, nextThreadId)
+    }
+
+    if (nextThreadId && routeThreadId !== nextThreadId) {
+      navigate(buildWorkspaceThreadRoute(workspaceId, nextThreadId), { replace: true })
     }
   }, [
     currentThreads,
     latestThreadDetailId,
+    navigate,
+    routeThreadId,
     selectedThreadId,
     setSelectedThread,
     workspaceId,

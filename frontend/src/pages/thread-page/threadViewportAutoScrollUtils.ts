@@ -1,4 +1,6 @@
 import { isViewportNearBottom } from '../threadPageUtils'
+import { didThreadContentChange } from './threadContentSignature'
+import type { ThreadContentSignature } from './threadContentSignature'
 
 const THREAD_VIEWPORT_ENTER_PIN_THRESHOLD_PX = 12
 const THREAD_VIEWPORT_EXIT_PIN_THRESHOLD_PX = 96
@@ -7,12 +9,12 @@ export type ResolveThreadViewportAutoScrollChangeInput = {
   displayedTurnsLength: number
   pendingThreadOpenThreadId: string | null
   pinnedToLatest: boolean
-  previousThreadContentKey: string
+  previousThreadContentSignature: ThreadContentSignature | null
   previousThreadUnreadKey: string
   selectedThreadId?: string
   shouldFollowThread: boolean
   threadDetailIsLoading: boolean
-  threadContentKey: string
+  threadContentSignature: ThreadContentSignature
   threadUnreadUpdateKey: string
   userScrollLockActive: boolean
 }
@@ -21,16 +23,19 @@ export function resolveThreadViewportAutoScrollChange({
   displayedTurnsLength,
   pendingThreadOpenThreadId,
   pinnedToLatest,
-  previousThreadContentKey,
+  previousThreadContentSignature,
   previousThreadUnreadKey,
   selectedThreadId,
   shouldFollowThread,
   threadDetailIsLoading,
-  threadContentKey,
+  threadContentSignature,
   threadUnreadUpdateKey,
   userScrollLockActive,
 }: ResolveThreadViewportAutoScrollChangeInput) {
-  const contentChanged = previousThreadContentKey !== threadContentKey
+  const contentChanged = didThreadContentChange(
+    previousThreadContentSignature,
+    threadContentSignature,
+  )
   const unreadKeyChanged =
     Boolean(threadUnreadUpdateKey) && previousThreadUnreadKey !== threadUnreadUpdateKey
 
@@ -43,7 +48,7 @@ export function resolveThreadViewportAutoScrollChange({
     }
   }
 
-  const isInitialPaintForThread = !previousThreadContentKey
+  const isInitialPaintForThread = previousThreadContentSignature === null
   const shouldAutoScrollForThreadOpen =
     pendingThreadOpenThreadId === selectedThreadId &&
     (!threadDetailIsLoading || displayedTurnsLength > 0)

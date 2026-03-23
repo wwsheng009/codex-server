@@ -6,6 +6,7 @@ type ComposerStateLayoutInput = Pick<
   | 'accountEmail'
   | 'activeComposerApproval'
   | 'activeComposerPanel'
+  | 'activePendingTurn'
   | 'approvalsCount'
   | 'autoPruneDays'
   | 'compactDisabledReason'
@@ -73,6 +74,7 @@ export function buildThreadPageControllerComposerStateLayoutInput({
     accountEmail: dataState.accountQuery.data?.email,
     activeComposerApproval: displayState.activeComposerApproval,
     activeComposerPanel: controllerState.activeComposerPanel,
+    activePendingTurn: statusState.activePendingTurn,
     approvalsCount: dataState.approvalsQuery.data?.length ?? 0,
     autoPruneDays: controllerState.autoPruneDays,
     compactDisabledReason: statusState.compactDisabledReason,

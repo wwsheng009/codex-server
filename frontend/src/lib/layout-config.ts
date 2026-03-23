@@ -1,5 +1,12 @@
 export type SurfacePanelView = 'approvals' | 'feed'
 export type SurfacePanelSide = 'left' | 'right'
+export type TerminalDockPlacement = 'bottom' | 'right' | 'floating'
+export type TerminalWindowBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 export const layoutConfig = {
   shell: {
@@ -14,9 +21,21 @@ export const layoutConfig = {
   workbench: {
     terminalDock: {
       defaultHeight: 168,
+      defaultPlacement: 'bottom' as TerminalDockPlacement,
       limits: {
         min: 120,
         max: 320,
+      },
+      floating: {
+        defaultWidth: 920,
+        defaultHeight: 560,
+        limits: {
+          minWidth: 540,
+          maxWidth: 1400,
+          minHeight: 320,
+          maxHeight: 960,
+        },
+        viewportMargin: 20,
       },
     },
     rightRail: {

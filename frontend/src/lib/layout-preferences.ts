@@ -6,6 +6,10 @@ const KEYS = {
   rightRailWidth: 'codex-server:right-rail-width',
   surfacePanelWidths: 'codex-server:surface-panel-widths',
   surfacePanelSides: 'codex-server:surface-panel-sides',
+  terminalDockPlacement: 'codex-server:terminal-dock-placement',
+  terminalDockVisible: 'codex-server:terminal-dock-visible',
+  terminalWindowBounds: 'codex-server:terminal-window-bounds',
+  terminalWindowMaximized: 'codex-server:terminal-window-maximized',
 } as const
 
 function canUseStorage() {

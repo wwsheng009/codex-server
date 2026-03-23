@@ -4,20 +4,34 @@ import type { ControllerSurfaceLayoutInput } from './threadPageControllerLayoutI
 type SurfaceActionLayoutInput = Pick<
   ControllerSurfaceLayoutInput,
   | 'onChangeApprovalAnswer'
-  | 'onChangeStdinValue'
+  | 'onChangePlacement'
   | 'onClearCompletedSessions'
   | 'onCloseWorkbenchOverlay'
   | 'onCreateThread'
+  | 'onHideTerminalDock'
   | 'onLoadOlderTurns'
+  | 'onReleaseFullTurn'
+  | 'onRetainFullTurn'
+  | 'onResetTerminalWindowBounds'
+  | 'onRequestFullTurn'
   | 'onRemoveSession'
+  | 'onResizeTerminal'
   | 'onRespondApproval'
   | 'onResizeStart'
   | 'onRetryServerRequest'
   | 'onSelectSession'
-  | 'onSubmitStdin'
+  | 'onShowTerminalDock'
+  | 'onStartTerminalShellSession'
+  | 'onStartTerminalCommandLine'
+  | 'onStartTerminalWindowDrag'
+  | 'onStartTerminalWindowResize'
+  | 'onToggleArchivedSession'
+  | 'onTogglePinnedSession'
+  | 'onToggleTerminalWindowMaximized'
   | 'onSurfacePanelResizeStart'
   | 'onTerminateSelectedSession'
   | 'onThreadViewportScroll'
+  | 'onWriteTerminalData'
 >
 
 export function buildThreadPageControllerSurfaceActionLayoutInput({
@@ -30,22 +44,36 @@ export function buildThreadPageControllerSurfaceActionLayoutInput({
 }: BuildThreadPageControllerLayoutPropsInput): SurfaceActionLayoutInput {
   return {
     onChangeApprovalAnswer: pageActions.handleApprovalAnswerChange,
-    onChangeStdinValue: controllerState.setStdinValue,
+    onChangePlacement: controllerState.handleChangeTerminalDockPlacement,
     onClearCompletedSessions: pageActions.handleClearCompletedCommandSessions,
     onCloseWorkbenchOverlay: railState.handleCloseWorkbenchOverlay,
     onCreateThread: () => {
       mutationState.createThreadMutation.reset()
       mutationState.createThreadMutation.mutate()
     },
+    onHideTerminalDock: controllerState.handleHideTerminalDock,
     onLoadOlderTurns: pageActions.handleLoadOlderTurns,
+    onReleaseFullTurn: pageActions.handleReleaseFullTurn,
+    onRetainFullTurn: pageActions.handleRetainFullTurn,
+    onResetTerminalWindowBounds: controllerState.handleResetTerminalWindowBounds,
+    onRequestFullTurn: pageActions.handleLoadFullTurn,
     onRemoveSession: pageActions.handleRemoveCommandSession,
+    onResizeTerminal: pageActions.handleResizeTerminal,
     onRespondApproval: pageActions.handleRespondApproval,
     onResizeStart: controllerState.handleTerminalResizeStart,
     onRetryServerRequest: composerActions.handleRetryServerRequest,
     onSelectSession: controllerState.setSelectedProcessId,
-    onSubmitStdin: pageActions.handleSendStdin,
+    onShowTerminalDock: controllerState.handleShowTerminalDock,
+    onStartTerminalShellSession: pageActions.handleStartTerminalShellSession,
+    onStartTerminalCommandLine: pageActions.handleStartTerminalCommandLine,
+    onStartTerminalWindowDrag: controllerState.handleTerminalWindowDragStart,
+    onStartTerminalWindowResize: controllerState.handleTerminalWindowResizeStart,
+    onToggleArchivedSession: pageActions.handleToggleArchivedCommandSession,
+    onTogglePinnedSession: pageActions.handleTogglePinnedCommandSession,
+    onToggleTerminalWindowMaximized: controllerState.handleToggleTerminalWindowMaximized,
     onSurfacePanelResizeStart: controllerState.handleSurfacePanelResizeStart,
     onTerminateSelectedSession: pageActions.handleTerminateSelectedCommandSession,
     onThreadViewportScroll: viewportState.handleThreadViewportScroll,
+    onWriteTerminalData: pageActions.handleWriteTerminalData,
   }
 }

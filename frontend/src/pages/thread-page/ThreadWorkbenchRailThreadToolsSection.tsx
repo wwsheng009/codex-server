@@ -1,3 +1,4 @@
+import { CollapsiblePanel } from '../../components/ui/CollapsiblePanel'
 import { i18n } from '../../i18n/runtime'
 import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
 
@@ -34,35 +35,15 @@ export function ThreadWorkbenchRailThreadToolsSection({
   const isEditingSelectedThread = Boolean(selectedThread && editingThreadId === selectedThread.id)
 
   return (
-    <div className="pane-section">
-      <div className="section-header section-header--inline">
-        <div>
-          <h2>
-            {i18n._({
-              id: 'Thread tools',
-              message: 'Thread tools',
-            })}
-          </h2>
-          <p>
-            {i18n._({
-              id: 'Low-frequency thread management stays folded unless you need it.',
-              message: 'Low-frequency thread management stays folded unless you need it.',
-            })}
-          </p>
-        </div>
-        <button className="pane-section__toggle" onClick={onToggleThreadToolsExpanded} type="button">
-          {isThreadToolsExpanded
-            ? i18n._({
-                id: 'Hide',
-                message: 'Hide',
-              })
-            : i18n._({
-                id: 'Show',
-                message: 'Show',
-              })}
-        </button>
-      </div>
-      {isThreadToolsExpanded && selectedThread ? (
+    <CollapsiblePanel
+      expanded={isThreadToolsExpanded}
+      onToggle={onToggleThreadToolsExpanded}
+      title={i18n._({
+        id: 'Thread tools',
+        message: 'Thread tools',
+      })}
+    >
+      {selectedThread ? (
         <>
           <div className="header-actions">
             <button
@@ -143,6 +124,6 @@ export function ThreadWorkbenchRailThreadToolsSection({
           ) : null}
         </>
       ) : null}
-    </div>
+    </CollapsiblePanel>
   )
 }

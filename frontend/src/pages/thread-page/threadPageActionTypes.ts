@@ -19,7 +19,7 @@ export type ThreadPageActionsInput = {
   closeDeleteThreadDialog: () => void
   command: string
   commandRunMode: CommandRunMode
-  commandSessions: Array<{ id: string; status: string }>
+  commandSessions: Array<{ archived?: boolean; id: string; pinned?: boolean; status: string }>
   compactDisabledReason: string | null
   compactThreadMutation: {
     isPending: boolean
@@ -44,6 +44,11 @@ export type ThreadPageActionsInput = {
   oldestDisplayedTurnId?: string
   queryClient: QueryClient
   removeCommandSession: (workspaceId: string, processId: string) => void
+  updateCommandSession: (
+    workspaceId: string,
+    processId: string,
+    patch: Partial<{ archived?: boolean; pinned?: boolean; updatedAt?: string }>,
+  ) => void
   renameThreadMutation: {
     mutate: (input: { threadId: string; name: string }) => void
   }
@@ -55,8 +60,20 @@ export type ThreadPageActionsInput = {
       answers?: Record<string, string[]>
     }) => void
   }
+  fullTurnOverridesById: Record<string, ThreadTurn>
+  fullTurnItemContentOverridesById: Record<string, Record<string, unknown>>
+  fullTurnItemOverridesById: Record<string, Record<string, unknown>>
+  fullTurnItemRetainCountById: Record<string, number>
+  fullTurnRetainCountById: Record<string, number>
+  historicalTurns: ThreadTurn[]
   scrollThreadToLatest: (behavior?: ScrollBehavior) => void
-  selectedCommandSession?: { id: string }
+  selectedCommandSession?: {
+    id: string
+    mode?: string
+    pinned?: boolean
+    shellState?: string
+    status?: string
+  }
   selectedProcessId?: string
   selectedThread?: { id: string; archived: boolean }
   selectedThreadId?: string
@@ -66,8 +83,13 @@ export type ThreadPageActionsInput = {
   setComposerCaret: (value: number) => void
   setComposerCommandMenu: Dispatch<SetStateAction<ComposerCommandMenu>>
   setDismissedComposerAutocompleteKey: (value: string | null) => void
+  setFullTurnItemContentOverridesById: Dispatch<SetStateAction<Record<string, Record<string, unknown>>>>
+  setFullTurnItemOverridesById: Dispatch<SetStateAction<Record<string, Record<string, unknown>>>>
+  setFullTurnItemRetainCountById: Dispatch<SetStateAction<Record<string, number>>>
   setHasMoreHistoricalTurnsBefore: Dispatch<SetStateAction<boolean | null>>
   setHistoricalTurns: Dispatch<SetStateAction<ThreadTurn[]>>
+  setFullTurnOverridesById: Dispatch<SetStateAction<Record<string, ThreadTurn>>>
+  setFullTurnRetainCountById: Dispatch<SetStateAction<Record<string, number>>>
   setIsTerminalDockExpanded: (value: boolean) => void
   setIsLoadingOlderTurns: Dispatch<SetStateAction<boolean>>
   setMessage: (value: string) => void
@@ -77,7 +99,7 @@ export type ThreadPageActionsInput = {
   setThreadTurnWindowSize: Dispatch<SetStateAction<number>>
   threadDetail?: ThreadDetail
   startCommandMutation: {
-    mutate: (input: { command: string }) => void
+    mutate: (input: { command?: string; mode?: 'command' | 'shell' }) => void
   }
   threadShellCommandMutation: {
     isPending: boolean
@@ -120,6 +142,12 @@ export type ThreadPageThreadActionsInput = Pick<
   | 'confirmingThreadDelete'
   | 'deleteThreadMutation'
   | 'editingThreadName'
+  | 'fullTurnItemContentOverridesById'
+  | 'fullTurnItemOverridesById'
+  | 'fullTurnItemRetainCountById'
+  | 'fullTurnOverridesById'
+  | 'fullTurnRetainCountById'
+  | 'historicalTurns'
   | 'interruptTurnMutation'
   | 'invalidateThreadQueries'
   | 'isInterruptMode'
@@ -139,6 +167,11 @@ export type ThreadPageThreadActionsInput = Pick<
   | 'setComposerCaret'
   | 'setComposerCommandMenu'
   | 'setDismissedComposerAutocompleteKey'
+  | 'setFullTurnItemContentOverridesById'
+  | 'setFullTurnItemOverridesById'
+  | 'setFullTurnItemRetainCountById'
+  | 'setFullTurnOverridesById'
+  | 'setFullTurnRetainCountById'
   | 'setHasMoreHistoricalTurnsBefore'
   | 'setHistoricalTurns'
   | 'setIsLoadingOlderTurns'
@@ -159,8 +192,10 @@ export type ThreadPageCommandActionsInput = Pick<
   | 'commandRunMode'
   | 'commandSessions'
   | 'removeCommandSession'
+  | 'updateCommandSession'
   | 'selectedCommandSession'
   | 'selectedThreadId'
+  | 'setSendError'
   | 'setCommandRunMode'
   | 'selectedProcessId'
   | 'setIsTerminalDockExpanded'

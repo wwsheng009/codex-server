@@ -159,6 +159,30 @@ describe('TurnTimeline', () => {
     expect(html).toContain('1 line')
   })
 
+  it('uses summarized command line-count metadata when the output preview is condensed', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-command-summary',
+        status: 'completed',
+        items: [
+          {
+            id: 'cmd-summary',
+            type: 'commandExecution',
+            command: 'npm test',
+            aggregatedOutput: 'line 1\n…\nline 1200',
+            outputLineCount: 1200,
+            summaryTruncated: true,
+            status: 'completed',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('1200 lines')
+  })
+
   it('renders tool calls as collapsed detail cards in the chat timeline', () => {
     const turns: ThreadTurn[] = [
       {
@@ -337,5 +361,35 @@ describe('TurnTimeline', () => {
     expect(html).toContain('**alpha**')
     expect(html).not.toContain('<strong>alpha</strong>')
     expect(html).not.toContain('<li>beta</li>')
+  })
+
+  it('reuses cached conversation entries across new turn arrays that share turn refs', () => {
+    let itemsAccessCount = 0
+    const item = {
+      id: 'agent-1',
+      type: 'agentMessage',
+      text: 'Stable reply',
+    }
+    const items = {
+      get length() {
+        itemsAccessCount += 1
+        return 1
+      },
+      get 0() {
+        itemsAccessCount += 1
+        return item
+      },
+    } as unknown as ThreadTurn['items']
+    const sharedTurn = {
+      id: 'turn-cached',
+      status: 'completed',
+      items,
+    } as ThreadTurn
+
+    renderToStaticMarkup(<TurnTimeline turns={[sharedTurn]} />)
+    const accessesAfterFirstRender = itemsAccessCount
+    renderToStaticMarkup(<TurnTimeline turns={[sharedTurn]} />)
+
+    expect(itemsAccessCount).toBe(accessesAfterFirstRender)
   })
 })

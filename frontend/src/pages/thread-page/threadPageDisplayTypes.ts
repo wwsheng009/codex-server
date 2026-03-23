@@ -18,6 +18,9 @@ export type ThreadPageDisplayStateInput = {
   approvals: PendingApproval[]
   commandSessions: CommandRuntimeSession[]
   contextCompactionFeedback: ContextCompactionFeedback | null
+  fullTurnItemContentOverridesById: Record<string, Record<string, unknown>>
+  fullTurnItemOverridesById: Record<string, Record<string, unknown>>
+  fullTurnOverridesById: Record<string, ThreadTurn>
   historicalTurns: ThreadTurn[]
   liveThreadDetail?: ThreadDetail
   loadedThreadIds?: string[]
@@ -35,6 +38,9 @@ export type ThreadPageDisplayStateInput = {
 export type ThreadPageTurnDisplayStateInput = Pick<
   ThreadPageDisplayStateInput,
   | 'activePendingTurn'
+  | 'fullTurnItemContentOverridesById'
+  | 'fullTurnItemOverridesById'
+  | 'fullTurnOverridesById'
   | 'historicalTurns'
   | 'liveThreadDetail'
   | 'selectedThreadId'

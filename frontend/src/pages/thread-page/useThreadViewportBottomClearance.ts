@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 const MIN_THREAD_BOTTOM_CLEARANCE_PX = 96
 const DEFAULT_THREAD_BOTTOM_CLEARANCE_PX = 180
 const THREAD_BOTTOM_CLEARANCE_GAP_PX = 16
+const THREAD_BOTTOM_CLEARANCE_UPDATE_THRESHOLD_PX = 12
+const THREAD_BOTTOM_CLEARANCE_SHRINK_DELAY_MS = 420
 
 export function useThreadViewportBottomClearance() {
   const [threadBottomClearancePx, setThreadBottomClearancePx] = useState(
@@ -10,6 +12,9 @@ export function useThreadViewportBottomClearance() {
   )
   const composerDockRef = useRef<HTMLFormElement | null>(null)
   const composerDockMeasureRef = useRef<HTMLDivElement | null>(null)
+  const pendingMeasureFrameRef = useRef<number | null>(null)
+  const pendingShrinkTimeoutRef = useRef<number | null>(null)
+  const lastMeasuredClearanceRef = useRef(DEFAULT_THREAD_BOTTOM_CLEARANCE_PX)
 
   useEffect(() => {
     const composerDock = composerDockMeasureRef.current
@@ -23,24 +28,80 @@ export function useThreadViewportBottomClearance() {
         Math.ceil(composerDock.getBoundingClientRect().height) + THREAD_BOTTOM_CLEARANCE_GAP_PX,
       )
 
-      setThreadBottomClearancePx((current) =>
-        current === nextClearance ? current : nextClearance,
-      )
+      lastMeasuredClearanceRef.current = nextClearance
+
+      setThreadBottomClearancePx((current) => {
+        const clearanceDelta = nextClearance - current
+        if (Math.abs(clearanceDelta) < THREAD_BOTTOM_CLEARANCE_UPDATE_THRESHOLD_PX) {
+          return current
+        }
+
+        if (clearanceDelta > 0) {
+          if (pendingShrinkTimeoutRef.current !== null) {
+            window.clearTimeout(pendingShrinkTimeoutRef.current)
+            pendingShrinkTimeoutRef.current = null
+          }
+
+          return nextClearance
+        }
+
+        if (pendingShrinkTimeoutRef.current !== null) {
+          return current
+        }
+
+        pendingShrinkTimeoutRef.current = window.setTimeout(() => {
+          pendingShrinkTimeoutRef.current = null
+          setThreadBottomClearancePx((latest) => {
+            const settledClearance = lastMeasuredClearanceRef.current
+            return Math.abs(latest - settledClearance) < THREAD_BOTTOM_CLEARANCE_UPDATE_THRESHOLD_PX
+              ? latest
+              : settledClearance
+          })
+        }, THREAD_BOTTOM_CLEARANCE_SHRINK_DELAY_MS)
+
+        return current
+      })
     }
 
-    updateThreadBottomClearance()
+    const scheduleThreadBottomClearanceUpdate = () => {
+      if (pendingMeasureFrameRef.current !== null) {
+        return
+      }
+
+      pendingMeasureFrameRef.current = window.requestAnimationFrame(() => {
+        pendingMeasureFrameRef.current = null
+        updateThreadBottomClearance()
+      })
+    }
+
+    scheduleThreadBottomClearanceUpdate()
 
     if (typeof ResizeObserver === 'undefined') {
-      return
+      return () => {
+        if (pendingMeasureFrameRef.current !== null) {
+          window.cancelAnimationFrame(pendingMeasureFrameRef.current)
+        }
+        if (pendingShrinkTimeoutRef.current !== null) {
+          window.clearTimeout(pendingShrinkTimeoutRef.current)
+        }
+      }
     }
 
     const observer = new ResizeObserver(() => {
-      updateThreadBottomClearance()
+      scheduleThreadBottomClearanceUpdate()
     })
 
     observer.observe(composerDock)
 
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      if (pendingMeasureFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingMeasureFrameRef.current)
+      }
+      if (pendingShrinkTimeoutRef.current !== null) {
+        window.clearTimeout(pendingShrinkTimeoutRef.current)
+      }
+    }
   }, [])
 
   return {

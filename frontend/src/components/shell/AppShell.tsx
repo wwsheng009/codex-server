@@ -10,6 +10,7 @@ import { RenameDialog } from '../ui/RenameDialog'
 import { WorkspaceTreeThreadRow } from './WorkspaceTreeThreadRow'
 import { layoutConfig } from '../../lib/layout-config'
 import { getErrorMessage } from '../../lib/error-utils'
+import { buildWorkspaceThreadRoute } from '../../lib/thread-routes'
 import {
   readLeftSidebarCollapsed,
   readLeftSidebarWidth,
@@ -35,12 +36,13 @@ import {
   TerminalIcon,
 } from '../ui/RailControls'
 import { createThread, deleteThread, listThreads, renameThread } from '../../features/threads/api'
+import { removeThreadApprovalsFromList } from '../../features/approvals/cache'
 import { deleteWorkspace, listWorkspaces, renameWorkspace, restartWorkspace } from '../../features/workspaces/api'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
 import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
-import type { Thread, ThreadDetail, Workspace } from '../../types/api'
+import type { PendingApproval, Thread, ThreadDetail, Workspace } from '../../types/api'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { AppMenuBar } from './AppMenuBar'
 import { getActiveLocale, i18n } from '../../i18n/runtime'
@@ -208,7 +210,7 @@ export function AppShell() {
 
   const threadQueries = useQueries({
     queries: (workspacesQuery.data ?? []).map((workspace) => ({
-      queryKey: ['shell-threads', workspace.id],
+      queryKey: ['threads', workspace.id],
       queryFn: () => listThreads(workspace.id),
       enabled: Boolean(workspacesQuery.data?.length) && !isSettingsRoute,
     })),
@@ -357,7 +359,6 @@ export function AppShell() {
       queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId] }),
-      queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
     ])
   }
 
@@ -416,6 +417,7 @@ export function AppShell() {
         updateWorkspaceInList(current, workspace),
       )
       queryClient.setQueryData<Workspace>(['workspace', workspace.id], workspace)
+      queryClient.setQueryData<PendingApproval[]>(['approvals', workspace.id], [])
     },
     onError: (_, workspaceId) => {
       clearWorkspaceRestartState(workspaceId)
@@ -452,7 +454,7 @@ export function AppShell() {
       if (isMobileViewport) {
         setIsMobileSidebarOpen(false)
       }
-      navigate(`/workspaces/${thread.workspaceId}`)
+      navigate(buildWorkspaceThreadRoute(thread.workspaceId, thread.id))
     },
   })
 
@@ -500,6 +502,11 @@ export function AppShell() {
       queryClient.setQueryData<Thread[]>(['shell-threads', variables.workspaceId], remainingThreads)
       queryClient.setQueryData<Thread[]>(['threads', variables.workspaceId], (current) =>
         (current ?? []).filter((thread) => thread.id !== variables.threadId),
+      )
+      queryClient.setQueryData<PendingApproval[]>(
+        ['approvals', variables.workspaceId],
+        (current: PendingApproval[] | undefined) =>
+          removeThreadApprovalsFromList(current, variables.threadId),
       )
       queryClient.removeQueries({ queryKey: ['thread-detail', variables.workspaceId, variables.threadId] })
 
@@ -919,7 +926,18 @@ export function AppShell() {
           priority: currentSection === 'workspaces' ? 2 : 16,
           onSelect: () => {
             setSelectedWorkspace(selectedWorkspace.id)
-            navigate(`/workspaces/${selectedWorkspace.id}`)
+            navigate(
+              buildWorkspaceThreadRoute(
+                selectedWorkspace.id,
+                getSelectedThreadIdForWorkspace(
+                  {
+                    selectedWorkspaceId,
+                    selectedThreadIdByWorkspace,
+                  },
+                  selectedWorkspace.id,
+                ),
+              ),
+            )
           },
         },
       )
@@ -939,7 +957,18 @@ export function AppShell() {
         priority: 100 + index,
         onSelect: () => {
           setSelectedWorkspace(workspace.id)
-          navigate(`/workspaces/${workspace.id}`)
+          navigate(
+            buildWorkspaceThreadRoute(
+              workspace.id,
+              getSelectedThreadIdForWorkspace(
+                {
+                  selectedWorkspaceId,
+                  selectedThreadIdByWorkspace,
+                },
+                workspace.id,
+              ),
+            ),
+          )
         },
       })
     })
@@ -965,7 +994,7 @@ export function AppShell() {
         onSelect: () => {
           setSelectedWorkspace(workspace.id)
           setSelectedThread(workspace.id, thread.id)
-          navigate(`/workspaces/${workspace.id}`)
+          navigate(buildWorkspaceThreadRoute(workspace.id, thread.id))
         },
       })
     })
@@ -1360,7 +1389,7 @@ export function AppShell() {
                                   if (isMobileViewport) {
                                     setIsMobileSidebarOpen(false)
                                   }
-                                  navigate(`/workspaces/${workspace.id}`)
+                                  navigate(buildWorkspaceThreadRoute(workspace.id, thread.id))
                                 }}
                                 onRenameThread={() => handleRenameThread(workspace.id, thread)}
                                 onToggleMenu={() =>

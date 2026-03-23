@@ -51,6 +51,7 @@ export function useThreadPageStatusState(input: ThreadPageStatusStateInput) {
 
   return {
     ...interactionStatus,
+    activePendingTurn: input.activePendingTurn,
     composerStatusInfo,
     ...syncStatus,
     ...workbenchStatus,

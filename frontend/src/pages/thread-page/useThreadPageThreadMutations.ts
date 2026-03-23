@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 
+import { removeApprovalFromList, removeThreadApprovalsFromList } from '../../features/approvals/cache'
 import { respondServerRequestWithDetails } from '../../features/approvals/api'
 import { i18n } from '../../i18n/runtime'
 import {
@@ -12,7 +13,7 @@ import {
   unarchiveThread,
 } from '../../features/threads/api'
 import { interruptTurn, startTurn } from '../../features/turns/api'
-import type { Thread, TurnResult } from '../../types/api'
+import type { PendingApproval, Thread, TurnResult } from '../../types/api'
 import type { ThreadPageThreadMutationsInput } from './threadPageMutationTypes'
 
 export function useThreadPageThreadMutations({
@@ -110,10 +111,10 @@ export function useThreadPageThreadMutations({
         setSelectedThread(workspaceId, remainingThreads[0]?.id)
       }
 
-      await Promise.all([
-        invalidateThreadQueries(),
-        queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
-      ])
+      queryClient.setQueryData<PendingApproval[]>(['approvals', workspaceId], (current: PendingApproval[] | undefined) =>
+        removeThreadApprovalsFromList(current, threadId),
+      )
+      await invalidateThreadQueries()
     },
   })
 
@@ -194,7 +195,7 @@ export function useThreadPageThreadMutations({
       action: string
       answers?: Record<string, string[]>
     }) => respondServerRequestWithDetails(requestId, { action, answers }),
-    onSuccess: async (_, variables) => {
+    onSuccess: (_, variables) => {
       setApprovalAnswers((current) => {
         const next = { ...current }
         delete next[variables.requestId]
@@ -205,7 +206,9 @@ export function useThreadPageThreadMutations({
         delete next[variables.requestId]
         return next
       })
-      await queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] })
+      queryClient.setQueryData<PendingApproval[]>(['approvals', workspaceId], (current: PendingApproval[] | undefined) =>
+        removeApprovalFromList(current, variables.requestId),
+      )
     },
   })
 

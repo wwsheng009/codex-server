@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { i18n } from '../../i18n/runtime'
 import {
-  shouldRefreshApprovalsForEvent,
+  shouldRefreshLoadedThreadsForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
@@ -10,6 +10,7 @@ import {
 import type { ThreadPageRefreshEffectsInput } from './threadPageEffectTypes'
 
 export function useThreadPageRefreshEffects({
+  activePendingTurn,
   contextCompactionFeedback,
   isDocumentVisible,
   isThreadPinnedToLatest,
@@ -18,14 +19,18 @@ export function useThreadPageRefreshEffects({
   selectedThreadEvents,
   selectedThreadId,
   setContextCompactionFeedback,
+  streamState,
   threadListRefreshTimerRef,
   threadDetailRefreshTimerRef,
   workspaceActivityEvents,
   workspaceId,
 }: ThreadPageRefreshEffectsInput) {
   const wasDocumentVisibleRef = useRef(isDocumentVisible)
+  const previousStreamStateRef = useRef(streamState)
   const lastProcessedThreadEventKeyRef = useRef('')
   const lastProcessedWorkspaceActivityEventKeyRef = useRef('')
+  const pendingThreadListRefreshRef = useRef(false)
+  const pendingLoadedThreadRefreshRef = useRef(false)
 
   useEffect(() => {
     lastProcessedThreadEventKeyRef.current = ''
@@ -35,16 +40,34 @@ export function useThreadPageRefreshEffects({
     lastProcessedWorkspaceActivityEventKeyRef.current = ''
   }, [workspaceId])
 
-  function scheduleThreadListRefresh(delayMs = 120) {
+  function scheduleThreadQueryRefresh(options: {
+    delayMs?: number
+    loadedThreads?: boolean
+    threads?: boolean
+  }) {
+    const { delayMs = 120, loadedThreads = false, threads = false } = options
+    pendingThreadListRefreshRef.current = pendingThreadListRefreshRef.current || threads
+    pendingLoadedThreadRefreshRef.current =
+      pendingLoadedThreadRefreshRef.current || loadedThreads
+
     if (threadListRefreshTimerRef.current) {
       window.clearTimeout(threadListRefreshTimerRef.current)
     }
 
     threadListRefreshTimerRef.current = window.setTimeout(() => {
       threadListRefreshTimerRef.current = null
+      const refreshThreads = pendingThreadListRefreshRef.current
+      const refreshLoadedThreads = pendingLoadedThreadRefreshRef.current
+      pendingThreadListRefreshRef.current = false
+      pendingLoadedThreadRefreshRef.current = false
+
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
-        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+        refreshThreads
+          ? queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] })
+          : Promise.resolve(),
+        refreshLoadedThreads
+          ? queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] })
+          : Promise.resolve(),
       ])
     }, delayMs)
   }
@@ -66,6 +89,50 @@ export function useThreadPageRefreshEffects({
     }, delayMs)
   }
 
+  function shouldReconcileThreadDetailWithSnapshot(method?: string) {
+    if (typeof method !== 'string') {
+      return false
+    }
+
+    if (streamState !== 'open') {
+      return true
+    }
+
+    return ['thread/compacted', 'thread/closed'].includes(method)
+  }
+
+  useEffect(() => {
+    if (
+      !selectedThreadId ||
+      !activePendingTurn ||
+      !isDocumentVisible ||
+      streamState === 'open' ||
+      !isThreadPinnedToLatest ||
+      isThreadViewportInteracting
+    ) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      void queryClient.invalidateQueries({
+        queryKey: ['thread-detail', workspaceId, selectedThreadId],
+      })
+    }, 1_000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [
+    activePendingTurn,
+    isDocumentVisible,
+    isThreadPinnedToLatest,
+    isThreadViewportInteracting,
+    queryClient,
+    selectedThreadId,
+    streamState,
+    workspaceId,
+  ])
+
   useEffect(() => {
     const becameVisible = !wasDocumentVisibleRef.current && isDocumentVisible
     wasDocumentVisibleRef.current = isDocumentVisible
@@ -74,17 +141,46 @@ export function useThreadPageRefreshEffects({
       return
     }
 
+    if (streamState === 'open') {
+      return
+    }
+
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['command-sessions', workspaceId] }),
       selectedThreadId
         ? queryClient.invalidateQueries({
             queryKey: ['thread-detail', workspaceId, selectedThreadId],
           })
         : Promise.resolve(),
     ])
-  }, [isDocumentVisible, queryClient, selectedThreadId, workspaceId])
+  }, [isDocumentVisible, queryClient, selectedThreadId, streamState, workspaceId])
+
+  useEffect(() => {
+    const previousStreamState = previousStreamStateRef.current
+    previousStreamStateRef.current = streamState
+
+    if (
+      streamState !== 'open' ||
+      previousStreamState === 'open' ||
+      !workspaceId ||
+      !isDocumentVisible
+    ) {
+      return
+    }
+
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+      selectedThreadId
+        ? queryClient.invalidateQueries({
+            queryKey: ['thread-detail', workspaceId, selectedThreadId],
+          })
+        : Promise.resolve(),
+    ])
+  }, [isDocumentVisible, queryClient, selectedThreadId, streamState, workspaceId])
 
   useEffect(() => {
     if (!selectedThreadId || !selectedThreadEvents.length) {
@@ -100,7 +196,11 @@ export function useThreadPageRefreshEffects({
     lastProcessedThreadEventKeyRef.current = latestEventKey
 
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
-      scheduleThreadListRefresh()
+      scheduleThreadQueryRefresh({ threads: true })
+    }
+
+    if (shouldRefreshLoadedThreadsForEvent(latestEvent.method)) {
+      scheduleThreadQueryRefresh({ loadedThreads: true })
     }
 
     if (!shouldRefreshThreadDetailForEvent(latestEvent.method)) {
@@ -111,6 +211,10 @@ export function useThreadPageRefreshEffects({
       return
     }
 
+    if (!shouldReconcileThreadDetailWithSnapshot(latestEvent.method)) {
+      return
+    }
+
     if (shouldThrottleThreadDetailRefreshForEvent(latestEvent.method)) {
       scheduleThreadDetailRefresh(360)
       return
@@ -118,11 +222,13 @@ export function useThreadPageRefreshEffects({
 
     scheduleThreadDetailRefresh(80)
   }, [
+    activePendingTurn,
     queryClient,
     isThreadPinnedToLatest,
     isThreadViewportInteracting,
     selectedThreadEvents,
     selectedThreadId,
+    streamState,
     threadListRefreshTimerRef,
     threadDetailRefreshTimerRef,
     workspaceId,
@@ -168,11 +274,11 @@ export function useThreadPageRefreshEffects({
     lastProcessedWorkspaceActivityEventKeyRef.current = latestEventKey
 
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
-      scheduleThreadListRefresh()
+      scheduleThreadQueryRefresh({ threads: true })
     }
 
-    if (shouldRefreshApprovalsForEvent(latestEvent.method, latestEvent.serverRequestId)) {
-      void queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] })
+    if (shouldRefreshLoadedThreadsForEvent(latestEvent.method)) {
+      scheduleThreadQueryRefresh({ loadedThreads: true })
     }
   }, [queryClient, threadListRefreshTimerRef, workspaceActivityEvents, workspaceId])
 

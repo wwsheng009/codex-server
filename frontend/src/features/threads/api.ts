@@ -1,5 +1,5 @@
 import { apiRequest } from '../../lib/api-client'
-import type { Thread, ThreadDetail } from '../../types/api'
+import type { Thread, ThreadDetail, ThreadTurn, ThreadTurnItemOutput } from '../../types/api'
 
 export function listThreads(workspaceId: string) {
   return apiRequest<Thread[]>(`/api/workspaces/${workspaceId}/threads`)
@@ -24,11 +24,14 @@ export function listLoadedThreadIds(workspaceId: string) {
 export function getThread(
   workspaceId: string,
   threadId: string,
-  input?: { beforeTurnId?: string; turnLimit?: number },
+  input?: { beforeTurnId?: string; contentMode?: 'full' | 'summary'; turnLimit?: number },
 ) {
   const query = new URLSearchParams()
   if (input?.beforeTurnId) {
     query.set('beforeTurnId', input.beforeTurnId)
+  }
+  if (input?.contentMode) {
+    query.set('contentMode', input.contentMode)
   }
   if (input?.turnLimit && input.turnLimit > 0) {
     query.set('turnLimit', String(input.turnLimit))
@@ -36,6 +39,65 @@ export function getThread(
 
   const suffix = query.size ? `?${query.toString()}` : ''
   return apiRequest<ThreadDetail>(`/api/workspaces/${workspaceId}/threads/${threadId}${suffix}`)
+}
+
+export function getThreadTurn(
+  workspaceId: string,
+  threadId: string,
+  turnId: string,
+  input?: { contentMode?: 'full' | 'summary' },
+) {
+  const query = new URLSearchParams()
+  if (input?.contentMode) {
+    query.set('contentMode', input.contentMode)
+  }
+
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return apiRequest<ThreadTurn>(
+    `/api/workspaces/${workspaceId}/threads/${threadId}/turns/${turnId}${suffix}`,
+  )
+}
+
+export function getThreadTurnItem(
+  workspaceId: string,
+  threadId: string,
+  turnId: string,
+  itemId: string,
+  input?: { contentMode?: 'full' | 'summary' },
+) {
+  const query = new URLSearchParams()
+  if (input?.contentMode) {
+    query.set('contentMode', input.contentMode)
+  }
+
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return apiRequest<Record<string, unknown>>(
+    `/api/workspaces/${workspaceId}/threads/${threadId}/turns/${turnId}/items/${itemId}${suffix}`,
+  )
+}
+
+export function getThreadTurnItemOutput(
+  workspaceId: string,
+  threadId: string,
+  turnId: string,
+  itemId: string,
+  input?: { outputMode?: 'full' | 'summary' | 'tail'; tailLines?: number; beforeLine?: number },
+) {
+  const query = new URLSearchParams()
+  if (input?.outputMode) {
+    query.set('outputMode', input.outputMode)
+  }
+  if (input?.beforeLine && input.beforeLine > 0) {
+    query.set('beforeLine', String(input.beforeLine))
+  }
+  if (input?.tailLines && input.tailLines > 0) {
+    query.set('tailLines', String(input.tailLines))
+  }
+
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return apiRequest<ThreadTurnItemOutput>(
+    `/api/workspaces/${workspaceId}/threads/${threadId}/turns/${turnId}/items/${itemId}/output${suffix}`,
+  )
 }
 
 export function createThread(

@@ -1,5 +1,6 @@
 import { ResizeHandle } from '../../components/ui/RailControls'
 import { i18n } from '../../i18n/runtime'
+import { ThreadTerminalDock } from './ThreadTerminalDock'
 import { ThreadWorkbenchRailCollapsed } from './ThreadWorkbenchRailCollapsed'
 import { ThreadWorkbenchRailMobileQuickActions } from './ThreadWorkbenchRailMobileQuickActions'
 import { ThreadWorkbenchRailThreadToolsSection } from './ThreadWorkbenchRailThreadToolsSection'
@@ -20,8 +21,15 @@ export function ThreadWorkbenchRail({
   isResizing,
   isThreadToolsExpanded,
   isWorkbenchToolsExpanded,
+  latestTurnStatus,
   lastTimelineEventTs,
+  loadedAssistantMessageCount,
+  contextUsagePercent,
+  contextWindow,
+  loadedMessageCount,
+  loadedTurnCount,
   liveThreadCwd,
+  loadedUserMessageCount,
   pendingApprovalsCount,
   rootPath,
   runtimeConfigChangedAt,
@@ -37,6 +45,10 @@ export function ThreadWorkbenchRail({
   startCommandPending,
   streamState,
   surfacePanelView,
+  terminalDockProps,
+  totalTokens,
+  totalMessageCount,
+  totalTurnCount,
   threadCount,
   timelineItemCount,
   turnCount,
@@ -157,8 +169,16 @@ export function ThreadWorkbenchRail({
 
       <ThreadWorkbenchRailWorkspaceContextSection
         commandCount={commandCount}
+        contextUsagePercent={contextUsagePercent}
+        contextWindow={contextWindow}
+        isMobileViewport={isMobileViewport}
         lastTimelineEventTs={lastTimelineEventTs}
+        latestTurnStatus={latestTurnStatus}
+        loadedAssistantMessageCount={loadedAssistantMessageCount}
+        loadedMessageCount={loadedMessageCount}
+        loadedTurnCount={loadedTurnCount}
         liveThreadCwd={liveThreadCwd}
+        loadedUserMessageCount={loadedUserMessageCount}
         onHideSurfacePanel={onHideSurfacePanel}
         onOpenSurfacePanel={onOpenSurfacePanel}
         pendingApprovalsCount={pendingApprovalsCount}
@@ -174,6 +194,9 @@ export function ThreadWorkbenchRail({
         shellEnvironmentWarning={shellEnvironmentWarning}
         streamState={streamState}
         surfacePanelView={surfacePanelView}
+        totalTokens={totalTokens}
+        totalMessageCount={totalMessageCount}
+        totalTurnCount={totalTurnCount}
         threadCount={threadCount}
         timelineItemCount={timelineItemCount}
         turnCount={turnCount}
@@ -192,6 +215,8 @@ export function ThreadWorkbenchRail({
         startCommandModeDisabled={startCommandModeDisabled}
         startCommandPending={startCommandPending}
       />
+
+      {terminalDockProps ? <ThreadTerminalDock {...terminalDockProps} /> : null}
     </aside>
   )
 }

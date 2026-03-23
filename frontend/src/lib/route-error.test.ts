@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { i18n } from '../i18n/runtime'
 import { describeRouteError } from './route-error'
 
 describe('describeRouteError', () => {
+  beforeAll(() => {
+    i18n.loadAndActivate({ locale: 'en', messages: {} })
+  })
+
   it('maps route error responses into clear 404 copy', () => {
     const description = describeRouteError({
       data: 'Workspace missing',

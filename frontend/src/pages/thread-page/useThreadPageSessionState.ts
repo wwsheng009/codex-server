@@ -53,7 +53,13 @@ export function useThreadPageSessionState({
   const commandSessions = useMemo(
     () =>
       Object.values(workspaceCommandSessions).sort(
-        (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+        (left, right) => {
+          if (Boolean(left.pinned) !== Boolean(right.pinned)) {
+            return left.pinned ? -1 : 1
+          }
+
+          return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+        },
       ),
     [workspaceCommandSessions],
   )

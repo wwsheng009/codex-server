@@ -4,6 +4,7 @@ import type { SurfacePanelView } from '../../lib/layout-config'
 import type { Thread } from '../../types/api'
 import type { ShellEnvironmentDiagnosisSummary } from '../../features/settings/shell-environment-diagnostics'
 import type { CommandRunMode } from './threadPageActionTypes'
+import type { ThreadTerminalDockProps } from './threadTerminalDockTypes'
 
 export type ThreadWorkbenchRailProps = {
   command: string
@@ -18,8 +19,11 @@ export type ThreadWorkbenchRailProps = {
   isResizing: boolean
   isThreadToolsExpanded: boolean
   isWorkbenchToolsExpanded: boolean
+  latestTurnStatus?: string
   lastTimelineEventTs?: string
+  loadedAssistantMessageCount: number
   liveThreadCwd?: string
+  loadedUserMessageCount: number
   pendingApprovalsCount: number
   rootPath?: string
   runtimeStartedAt?: string
@@ -35,6 +39,14 @@ export type ThreadWorkbenchRailProps = {
   startCommandPending: boolean
   streamState: string
   surfacePanelView: SurfacePanelView | null
+  terminalDockProps?: ThreadTerminalDockProps
+  contextUsagePercent: number | null
+  contextWindow: number
+  loadedMessageCount: number
+  loadedTurnCount: number
+  totalTokens: number
+  totalMessageCount: number
+  totalTurnCount: number
   threadCount: number
   timelineItemCount: number
   turnCount: number

@@ -35,6 +35,9 @@ describe('ThreadWorkbenchSurface', () => {
         onCloseWorkbenchOverlay={() => undefined}
         onCreateThread={() => undefined}
         onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
         onRespondApproval={() => undefined}
         onRetryServerRequest={() => undefined}
         onRetryThreadLoad={() => undefined}
@@ -86,6 +89,9 @@ describe('ThreadWorkbenchSurface', () => {
         onCloseWorkbenchOverlay={() => undefined}
         onCreateThread={() => undefined}
         onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
         onRespondApproval={() => undefined}
         onRetryServerRequest={() => undefined}
         onRetryThreadLoad={() => undefined}

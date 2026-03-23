@@ -1,6 +1,8 @@
+import { useEffect, useRef } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 
 import { InlineNotice } from '../../components/ui/InlineNotice'
+import { LoadingState } from '../../components/ui/LoadingState'
 import { ApprovalStack, LiveFeed, TurnTimeline } from '../../components/workspace/renderers'
 import type { LiveTimelineEntry } from '../../components/workspace/timeline-utils'
 import { i18n } from '../../i18n/runtime'
@@ -13,6 +15,8 @@ type ThreadRuntimeNotice = {
   summary: string
   noticeKey: string
 }
+
+const OLDER_TURNS_AUTOLOAD_THRESHOLD_PX = 72
 
 export function ThreadWorkbenchSurface({
   activePendingTurnPhase,
@@ -40,6 +44,9 @@ export function ThreadWorkbenchSurface({
   onCloseWorkbenchOverlay,
   onCreateThread,
   onLoadOlderTurns,
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
   onRespondApproval,
   onRetryServerRequest,
   onRetryThreadLoad,
@@ -83,6 +90,9 @@ export function ThreadWorkbenchSurface({
   onCloseWorkbenchOverlay: () => void
   onCreateThread: () => void
   onLoadOlderTurns: () => void
+  onReleaseFullTurn: (turnId: string, itemId?: string) => void
+  onRetainFullTurn: (turnId: string, itemId?: string) => void
+  onRequestFullTurn: (turnId: string, itemId?: string) => void
   onRespondApproval: (input: {
     requestId: string
     action: string
@@ -105,6 +115,58 @@ export function ThreadWorkbenchSurface({
   threadViewportRef: RefObject<HTMLDivElement | null>
   workspaceName?: string
 }) {
+  const pendingOlderTurnsAnchorRef = useRef<{
+    scrollHeight: number
+    scrollTop: number
+  } | null>(null)
+  const previousOlderTurnsLoadingRef = useRef(isLoadingOlderTurns)
+
+  useEffect(() => {
+    const wasLoadingOlderTurns = previousOlderTurnsLoadingRef.current
+    previousOlderTurnsLoadingRef.current = isLoadingOlderTurns
+
+    if (!wasLoadingOlderTurns || isLoadingOlderTurns) {
+      return
+    }
+
+    const anchor = pendingOlderTurnsAnchorRef.current
+    const viewport = threadViewportRef.current
+    pendingOlderTurnsAnchorRef.current = null
+
+    if (!anchor || !viewport) {
+      return
+    }
+
+    const scrollHeightDelta = viewport.scrollHeight - anchor.scrollHeight
+    if (scrollHeightDelta <= 0) {
+      return
+    }
+
+    viewport.scrollTo({
+      top: anchor.scrollTop + scrollHeightDelta,
+      behavior: 'auto',
+    })
+  }, [isLoadingOlderTurns, threadViewportRef])
+
+  function handleViewportScroll() {
+    const viewport = threadViewportRef.current
+    if (
+      viewport &&
+      hasMoreTurnsBefore &&
+      !isLoadingOlderTurns &&
+      pendingOlderTurnsAnchorRef.current === null &&
+      viewport.scrollTop <= OLDER_TURNS_AUTOLOAD_THRESHOLD_PX
+    ) {
+      pendingOlderTurnsAnchorRef.current = {
+        scrollHeight: viewport.scrollHeight,
+        scrollTop: viewport.scrollTop,
+      }
+      onLoadOlderTurns()
+    }
+
+    onThreadViewportScroll()
+  }
+
   const showCreateThreadEmptyState =
     !selectedThread && !isThreadSelectionLoading && isThreadsLoaded && !hasThreads
   const showThreadsLoadingState =
@@ -116,17 +178,17 @@ export function ThreadWorkbenchSurface({
         <div
           aria-busy={isThreadProcessing}
           className="workbench-log__viewport"
-          onScroll={onThreadViewportScroll}
+          onScroll={handleViewportScroll}
           ref={threadViewportRef}
         >
           {selectedThread ? (
             threadDetailIsLoading && !displayedTurns.length ? (
-              <div className="notice">
-                {i18n._({
+              <LoadingState
+                message={i18n._({
                   id: 'Loading thread surface…',
                   message: 'Loading thread surface…',
                 })}
-              </div>
+              />
             ) : threadDetailError && !displayedTurns.length ? (
               <InlineNotice
                 details={threadLoadErrorMessage}
@@ -182,6 +244,9 @@ export function ThreadWorkbenchSurface({
                   </div>
                 ) : null}
                 <TurnTimeline
+                  onReleaseFullTurn={onReleaseFullTurn}
+                  onRetainFullTurn={onRetainFullTurn}
+                  onRequestFullTurn={onRequestFullTurn}
                   onRetryServerRequest={onRetryServerRequest}
                   scrollViewportRef={threadViewportRef}
                   timelineIdentity={timelineIdentity}

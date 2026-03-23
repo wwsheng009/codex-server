@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { StatusPill } from '../components/ui/StatusPill'
 import { CreateWorkspaceDialog } from '../components/workspace/CreateWorkspaceDialog'
+import type { PendingApproval, Workspace } from '../types/api'
 import { formatRelativeTimeShort } from '../components/workspace/timeline-utils'
 import { getErrorMessage } from '../lib/error-utils'
 import { createWorkspace, deleteWorkspace, listWorkspaces, restartWorkspace } from '../features/workspaces/api'
@@ -14,7 +15,6 @@ import { formatLocaleNumber } from '../i18n/format'
 import { i18n } from '../i18n/runtime'
 import { useSessionStore } from '../stores/session-store'
 import { useUIStore } from '../stores/ui-store'
-import type { Workspace } from '../types/api'
 
 export function WorkspacesPage() {
   const queryClient = useQueryClient()
@@ -107,6 +107,7 @@ export function WorkspacesPage() {
     },
     onSuccess: (workspace) => {
       markWorkspaceRestarted(workspace.id)
+      queryClient.setQueryData<PendingApproval[]>(['approvals', workspace.id], [])
     },
     onError: (_, workspaceId) => {
       clearWorkspaceRestartState(workspaceId)
@@ -119,7 +120,6 @@ export function WorkspacesPage() {
         queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId] }),
-        queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
       ])
     },
   })

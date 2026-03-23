@@ -11,7 +11,7 @@ import {
 } from '../../stores/session-store-utils'
 import { useUIStore } from '../../stores/ui-store'
 
-export function useThreadPageControllerStoreState(workspaceId: string) {
+export function useThreadPageControllerStoreState(workspaceId: string, routeThreadId?: string) {
   const queryClient = useQueryClient()
   const isDocumentVisible = useDocumentVisibility()
   const isMobileViewport = useMediaQuery('(max-width: 900px)')
@@ -24,11 +24,13 @@ export function useThreadPageControllerStoreState(workspaceId: string) {
   const setSelectedThread = useSessionStore((state) => state.setSelectedThread)
   const removeThreadFromSession = useSessionStore((state) => state.removeThread)
   const removeCommandSession = useSessionStore((state) => state.removeCommandSession)
+  const updateCommandSession = useSessionStore((state) => state.updateCommandSession)
   const clearCompletedCommandSessions = useSessionStore(
     (state) => state.clearCompletedCommandSessions,
   )
   const selectedThreadId = useSessionStore((state) =>
-    getSelectedThreadIdForWorkspace(state, workspaceId) ??
+    routeThreadId ??
+      getSelectedThreadIdForWorkspace(state, workspaceId) ??
       getSelectedThreadIdForWorkspace(persistedSelectionSnapshot, workspaceId),
   )
 
@@ -56,11 +58,13 @@ export function useThreadPageControllerStoreState(workspaceId: string) {
     removeThreadFromSession,
     resetMobileThreadChrome,
     responseTone,
+    routeThreadId,
     reuseBranches,
     selectedThreadId,
     setMobileThreadChrome,
     setMobileThreadToolsOpen,
     setSelectedThread,
     setSelectedWorkspace,
+    updateCommandSession,
   }
 }

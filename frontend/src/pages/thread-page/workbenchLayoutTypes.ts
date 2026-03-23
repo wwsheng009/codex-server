@@ -1,4 +1,8 @@
-import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config'
+import type {
+  SurfacePanelSide,
+  SurfacePanelView,
+  TerminalWindowBounds,
+} from '../../lib/layout-config'
 import { readSurfacePanelWidths } from '../../lib/layout-state'
 
 export type SurfacePanelWidths = ReturnType<typeof readSurfacePanelWidths>
@@ -19,4 +23,16 @@ export type WorkbenchSurfacePanelResizeState = {
 export type WorkbenchTerminalDockResizeState = {
   startY: number
   startHeight: number
+}
+
+export type WorkbenchTerminalWindowDragState = {
+  startX: number
+  startY: number
+  startBounds: TerminalWindowBounds
+}
+
+export type WorkbenchTerminalWindowResizeState = {
+  startX: number
+  startY: number
+  startBounds: TerminalWindowBounds
 }

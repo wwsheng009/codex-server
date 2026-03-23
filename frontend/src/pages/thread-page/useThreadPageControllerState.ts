@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import {
   DEFAULT_THREAD_TURN_WINDOW_SIZE,
@@ -9,16 +9,27 @@ import { useThreadPageControllerRuntimeState } from './useThreadPageControllerRu
 import { useThreadPageControllerStoreState } from './useThreadPageControllerStoreState'
 
 export function useThreadPageControllerState() {
-  const { workspaceId = '' } = useParams()
+  const navigate = useNavigate()
+  const { workspaceId = '', threadId } = useParams()
   const localState = useThreadPageControllerLocalState()
-  const storeState = useThreadPageControllerStoreState(workspaceId)
+  const storeState = useThreadPageControllerStoreState(workspaceId, threadId)
 
   useEffect(() => {
+    localState.setFullTurnItemContentOverridesById({})
+    localState.setFullTurnItemRetainCountById({})
+    localState.setFullTurnItemOverridesById({})
+    localState.setFullTurnRetainCountById({})
+    localState.setFullTurnOverridesById({})
     localState.setHistoricalTurns([])
     localState.setHasMoreHistoricalTurnsBefore(null)
     localState.setIsLoadingOlderTurns(false)
     localState.setThreadTurnWindowSize(DEFAULT_THREAD_TURN_WINDOW_SIZE)
   }, [
+    localState.setFullTurnItemContentOverridesById,
+    localState.setFullTurnItemOverridesById,
+    localState.setFullTurnItemRetainCountById,
+    localState.setFullTurnOverridesById,
+    localState.setFullTurnRetainCountById,
     localState.setHasMoreHistoricalTurnsBefore,
     localState.setHistoricalTurns,
     localState.setIsLoadingOlderTurns,
@@ -38,6 +49,8 @@ export function useThreadPageControllerState() {
     ...localState,
     ...runtimeState,
     ...storeState,
+    navigate,
+    routeThreadId: threadId,
     workspaceId,
   }
 }

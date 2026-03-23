@@ -12,6 +12,8 @@ export function buildThreadPageRailLayoutProps(
   confirmDialogProps: ConfirmDialogProps | null
   railProps: RailProps
 } {
+  const terminalDockProps = undefined
+
   const railProps: RailProps = {
     command: input.command,
     commandRunMode: input.commandRunMode,
@@ -25,8 +27,15 @@ export function buildThreadPageRailLayoutProps(
     isResizing: input.isResizing,
     isThreadToolsExpanded: input.isThreadToolsExpanded,
     isWorkbenchToolsExpanded: input.isWorkbenchToolsExpanded,
+    latestTurnStatus: input.latestTurnStatus,
     lastTimelineEventTs: input.lastTimelineEventTs,
+    loadedAssistantMessageCount: input.loadedAssistantMessageCount,
+    contextUsagePercent: input.contextUsagePercent,
+    contextWindow: input.contextWindow,
+    loadedMessageCount: input.loadedMessageCount,
+    loadedTurnCount: input.loadedTurnCount,
     liveThreadCwd: input.liveThreadCwd,
+    loadedUserMessageCount: input.loadedUserMessageCount,
     pendingApprovalsCount: input.pendingApprovalsCount,
     rootPath: input.rootPath,
     runtimeConfigChangedAt: input.runtimeConfigChangedAt,
@@ -44,6 +53,10 @@ export function buildThreadPageRailLayoutProps(
     surfacePanelView: input.surfacePanelView,
     threadCount: input.threadCount,
     timelineItemCount: input.timelineItemCount,
+    totalTokens: input.totalTokens,
+    totalMessageCount: input.totalMessageCount,
+    totalTurnCount: input.totalTurnCount,
+    terminalDockProps,
     turnCount: input.turnCount,
     workspaceName: input.workspaceName,
     onArchiveToggle: input.onArchiveToggle,

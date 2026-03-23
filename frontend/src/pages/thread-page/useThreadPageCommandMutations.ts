@@ -1,23 +1,44 @@
 import { useMutation } from '@tanstack/react-query'
 
-import { startCommand, terminateCommand, writeCommand } from '../../features/commands/api'
+import {
+  startCommand,
+  terminateCommand,
+  type StartCommandInput,
+  writeCommand,
+} from '../../features/commands/api'
+import { getErrorMessage } from '../../lib/error-utils'
 import { useSessionStore } from '../../stores/session-store'
 import type { ThreadPageCommandMutationsInput } from './threadPageMutationTypes'
 
 export function useThreadPageCommandMutations({
+  queryClient,
   setCommand,
   setIsTerminalDockExpanded,
+  setIsTerminalDockVisible,
   setSelectedProcessId,
+  setSendError,
   setStdinValue,
   workspaceId,
 }: ThreadPageCommandMutationsInput) {
   const startCommandMutation = useMutation({
-    mutationFn: (input: { command: string }) => startCommand(workspaceId, input),
+    mutationFn: (input: StartCommandInput) => startCommand(workspaceId, input),
     onSuccess: (session) => {
       useSessionStore.getState().upsertCommandSession(session)
       setSelectedProcessId(session.id)
+      setIsTerminalDockVisible(true)
       setIsTerminalDockExpanded(true)
       setCommand('')
+      void queryClient.invalidateQueries({ queryKey: ['command-sessions', workspaceId] })
+    },
+    onError: (error, variables) => {
+      setSendError(
+        getErrorMessage(
+          error,
+          variables.mode === 'shell'
+            ? 'Failed to start shell session.'
+            : 'Failed to start command session.',
+        ),
+      )
     },
   })
 
@@ -27,10 +48,16 @@ export function useThreadPageCommandMutations({
     onSuccess: () => {
       setStdinValue('')
     },
+    onError: (error) => {
+      setSendError(getErrorMessage(error, 'Failed to send terminal input.'))
+    },
   })
 
   const terminateCommandMutation = useMutation({
     mutationFn: (processId: string) => terminateCommand(workspaceId, processId),
+    onError: (error) => {
+      setSendError(getErrorMessage(error, 'Failed to stop terminal session.'))
+    },
   })
 
   return {

@@ -10,6 +10,7 @@ export function buildThreadPageComposerDockProps(
     accountEmail: input.accountEmail,
     activeComposerApproval: input.activeComposerApproval,
     activeComposerPanel: input.activeComposerPanel,
+    activePendingTurn: input.activePendingTurn,
     approvalAnswers: input.approvalAnswers,
     approvalErrors: input.approvalErrors,
     approvalsCount: input.approvalsCount,

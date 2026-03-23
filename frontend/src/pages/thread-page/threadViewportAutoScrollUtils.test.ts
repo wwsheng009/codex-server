@@ -1,10 +1,24 @@
 import { describe, expect, it } from 'vitest'
 
+import { buildThreadContentSignature } from './threadContentSignature'
 import {
   computeThreadPinnedToLatest,
   resolveThreadViewportAutoScrollChange,
   resolveThreadViewportPinnedState,
 } from './threadViewportAutoScrollUtils'
+
+function buildTestThreadContentSignature(suffix: string) {
+  return buildThreadContentSignature({
+    latestRenderableItemKey: `renderable-${suffix}`,
+    latestTurnId: `turn-${suffix}`,
+    latestTurnStatus: 'completed',
+    pendingPhase: '',
+    pendingTurnId: '',
+    selectedThreadId: 'thread-1',
+    timelineItemCount: 3,
+    turnCount: 1,
+  })
+}
 
 describe('resolveThreadViewportAutoScrollChange', () => {
   it('auto-scrolls followed content changes without marking unread', () => {
@@ -13,11 +27,11 @@ describe('resolveThreadViewportAutoScrollChange', () => {
         displayedTurnsLength: 3,
         pendingThreadOpenThreadId: null,
         pinnedToLatest: true,
-        previousThreadContentKey: 'thread-1|before',
+        previousThreadContentSignature: buildTestThreadContentSignature('before'),
         previousThreadUnreadKey: 'msg-1',
         selectedThreadId: 'thread-1',
         shouldFollowThread: true,
-        threadContentKey: 'thread-1|after',
+        threadContentSignature: buildTestThreadContentSignature('after'),
         threadDetailIsLoading: false,
         threadUnreadUpdateKey: 'msg-1',
         userScrollLockActive: false,
@@ -36,11 +50,11 @@ describe('resolveThreadViewportAutoScrollChange', () => {
         displayedTurnsLength: 3,
         pendingThreadOpenThreadId: null,
         pinnedToLatest: false,
-        previousThreadContentKey: 'thread-1|before',
+        previousThreadContentSignature: buildTestThreadContentSignature('before'),
         previousThreadUnreadKey: 'msg-1',
         selectedThreadId: 'thread-1',
         shouldFollowThread: false,
-        threadContentKey: 'thread-1|after',
+        threadContentSignature: buildTestThreadContentSignature('after'),
         threadDetailIsLoading: false,
         threadUnreadUpdateKey: 'msg-2',
         userScrollLockActive: false,
@@ -59,11 +73,11 @@ describe('resolveThreadViewportAutoScrollChange', () => {
         displayedTurnsLength: 3,
         pendingThreadOpenThreadId: null,
         pinnedToLatest: false,
-        previousThreadContentKey: 'thread-1|before',
+        previousThreadContentSignature: buildTestThreadContentSignature('before'),
         previousThreadUnreadKey: 'msg-1',
         selectedThreadId: 'thread-1',
         shouldFollowThread: false,
-        threadContentKey: 'thread-1|after',
+        threadContentSignature: buildTestThreadContentSignature('after'),
         threadDetailIsLoading: false,
         threadUnreadUpdateKey: 'msg-1',
         userScrollLockActive: false,
@@ -82,11 +96,11 @@ describe('resolveThreadViewportAutoScrollChange', () => {
         displayedTurnsLength: 1,
         pendingThreadOpenThreadId: 'thread-1',
         pinnedToLatest: false,
-        previousThreadContentKey: '',
+        previousThreadContentSignature: null,
         previousThreadUnreadKey: '',
         selectedThreadId: 'thread-1',
         shouldFollowThread: false,
-        threadContentKey: 'thread-1|after',
+        threadContentSignature: buildTestThreadContentSignature('after'),
         threadDetailIsLoading: true,
         threadUnreadUpdateKey: 'msg-1',
         userScrollLockActive: false,
@@ -96,6 +110,29 @@ describe('resolveThreadViewportAutoScrollChange', () => {
       shouldAutoScroll: true,
       shouldMarkUnread: false,
       unreadKeyChanged: true,
+    })
+  })
+
+  it('treats structurally identical signatures as unchanged', () => {
+    expect(
+      resolveThreadViewportAutoScrollChange({
+        displayedTurnsLength: 1,
+        pendingThreadOpenThreadId: null,
+        pinnedToLatest: true,
+        previousThreadContentSignature: buildTestThreadContentSignature('same'),
+        previousThreadUnreadKey: 'msg-1',
+        selectedThreadId: 'thread-1',
+        shouldFollowThread: true,
+        threadContentSignature: buildTestThreadContentSignature('same'),
+        threadDetailIsLoading: false,
+        threadUnreadUpdateKey: 'msg-1',
+        userScrollLockActive: false,
+      }),
+    ).toMatchObject({
+      contentChanged: false,
+      shouldAutoScroll: false,
+      shouldMarkUnread: false,
+      unreadKeyChanged: false,
     })
   })
 

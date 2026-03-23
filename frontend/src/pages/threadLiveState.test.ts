@@ -119,6 +119,39 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('applies turn completion payloads without requiring a follow-up thread refresh', () => {
+    const detail = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('turn/completed', {
+        turn: {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'assistant-1',
+              type: 'agentMessage',
+              text: 'Finished',
+            },
+          ],
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(detail?.turns[0]).toMatchObject({
+      id: 'turn-1',
+      status: 'completed',
+      items: [
+        {
+          id: 'assistant-1',
+          type: 'agentMessage',
+          text: 'Finished',
+        },
+      ],
+    })
+  })
+
   it('reapplies live events over a stale thread/read payload so tool calls do not disappear', () => {
     const baseDetail = makeDetail()
     const events: ServerEvent[] = [

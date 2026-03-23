@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -9,6 +9,7 @@ import { SelectControl, type SelectOption } from '../../components/ui/SelectCont
 import { SendIcon, StopIcon } from '../../components/ui/RailControls'
 import { ApprovalDialog } from '../../components/workspace/renderers'
 import type { PendingApproval, RateLimit, Thread, ThreadTokenUsage } from '../../types/api'
+import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import {
   type ComposerAssistPanel,
   type ComposerAutocompleteItem,
@@ -38,6 +39,7 @@ type ThreadComposerDockProps = {
   accountEmail?: string
   activeComposerApproval?: PendingApproval | null
   activeComposerPanel: ComposerAssistPanel | null
+  activePendingTurn?: PendingThreadTurn | null
   approvalAnswers: Record<string, Record<string, string>>
   approvalErrors: Record<string, string>
   approvalsCount: number
@@ -122,10 +124,40 @@ type ThreadComposerDockProps = {
   workspaceId: string
 }
 
+function WorkingTimer({ startTime, isInterruptible }: { startTime: number; isInterruptible: boolean }) {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const elapsed = Math.max(0, Math.floor((now - startTime) / 1000))
+  const minutes = Math.floor(elapsed / 60)
+  const seconds = elapsed % 60
+  const timeString = `${minutes}m ${seconds}s`
+
+  return (
+    <span>
+      {i18n._({
+        id: 'Working ({time}{interrupt})',
+        message: 'Working ({time}{interrupt})',
+        values: {
+          time: timeString,
+          interrupt: isInterruptible
+            ? ` • ${i18n._({ id: 'esc to interrupt', message: 'esc to interrupt' })}`
+            : '',
+        },
+      })}
+    </span>
+  )
+}
+
 export function ThreadComposerDock({
   accountEmail,
   activeComposerApproval,
   activeComposerPanel,
+  activePendingTurn,
   approvalAnswers,
   approvalErrors,
   approvalsCount,
@@ -214,6 +246,19 @@ export function ThreadComposerDock({
   const modelLabel = i18n._({ id: 'Model', message: 'Model' })
   const reasoningLabel = i18n._({ id: 'Reasoning', message: 'Reasoning' })
 
+  const processingStartTimeRef = useRef<number | null>(null)
+  if (isThreadProcessing) {
+    if (processingStartTimeRef.current === null) {
+      processingStartTimeRef.current = Date.now()
+    }
+  } else {
+    processingStartTimeRef.current = null
+  }
+
+  const timerStartTime = activePendingTurn?.submittedAt
+    ? new Date(activePendingTurn.submittedAt).getTime()
+    : processingStartTimeRef.current
+
   useLayoutEffect(() => {
     const textarea = composerInputRef.current
     if (!textarea) {
@@ -237,7 +282,20 @@ export function ThreadComposerDock({
 
   function handleComposerInputKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     onComposerKeyDown(event)
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.key !== 'Enter') {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) {
+      return
+    }
+
+    if (event.key === 'Escape' && isInterruptMode) {
+      if (!selectedThreadId || interruptPending) {
+        return
+      }
+
+      onPrimaryComposerAction()
+      return
+    }
+
+    if (event.key !== 'Enter') {
       return
     }
 
@@ -674,10 +732,22 @@ export function ThreadComposerDock({
               }
               role="status"
             >
-              <span aria-hidden="true" className="composer-dock__live-status-dot" />
+              {interruptPending ? (
+                <span aria-hidden="true" className="composer-dock__live-status-dot" />
+              ) : (
+                <span aria-hidden="true" className="composer-dock__live-status-spinner" />
+              )}
               <div className="composer-dock__live-status-copy">
                 <strong>{composerActivityTitle}</strong>
                 <span>{composerActivityDetail}</span>
+                {timerStartTime ? (
+                  <div className="composer-dock__live-status-timer">
+                    <WorkingTimer
+                      isInterruptible={isInterruptMode}
+                      startTime={timerStartTime}
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

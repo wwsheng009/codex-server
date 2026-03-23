@@ -41,6 +41,20 @@ function getGroupLabel(group: CommandPaletteItem['group']) {
   }
 }
 
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 20 20">
+      <path
+        d="m13.5 6.5-7 7M6.5 6.5l7 7"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+    </svg>
+  )
+}
+
 export function CommandPalette({
   isOpen,
   items,
@@ -232,7 +246,17 @@ export function CommandPalette({
                   />
                 </span>
               </div>
-              <span className="command-palette__shortcut">{shortcutLabel}</span>
+              <div className="command-palette__header-actions">
+                <span className="command-palette__shortcut">{shortcutLabel}</span>
+                <button
+                  aria-label={i18n._({ id: 'Close', message: 'Close' })}
+                  className="command-palette__close-button"
+                  onClick={onClose}
+                  type="button"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
             </div>
 
           <div className="command-palette__search">

@@ -33,6 +33,7 @@ export type ThreadPageMutationsInput = {
   ) => void
   setEditingThreadName: (value: string) => void
   setIsTerminalDockExpanded: (value: boolean) => void
+  setIsTerminalDockVisible: (value: boolean) => void
   setSelectedProcessId: (value: string | undefined) => void
   setSelectedThread: (workspaceId: string, threadId?: string) => void
   setSendError: (value: string | null) => void
@@ -60,9 +61,12 @@ export type ThreadPageThreadMutationsInput = Pick<
 
 export type ThreadPageCommandMutationsInput = Pick<
   ThreadPageMutationsInput,
+  | 'queryClient'
   | 'setCommand'
   | 'setIsTerminalDockExpanded'
+  | 'setIsTerminalDockVisible'
   | 'setSelectedProcessId'
+  | 'setSendError'
   | 'setStdinValue'
   | 'workspaceId'
 >

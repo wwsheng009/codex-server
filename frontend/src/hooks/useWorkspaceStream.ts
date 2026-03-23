@@ -6,10 +6,13 @@ import type { ServerEvent } from '../types/api'
 
 const workspaceStreams = new Map<string, WorkspaceStream>()
 const reconnectDelaysMs = [1_000, 2_000, 5_000]
+const streamBatchFlushDelayMs = 16
 
 type ConnectionStateSetter = (workspaceId: string, state: string) => void
 
 type WorkspaceStream = {
+  eventQueue: ServerEvent[]
+  flushTimer?: number
   subscribers: number
   socket: WebSocket | null
   reconnectTimer?: number
@@ -46,6 +49,14 @@ export function parseWorkspaceStreamEvent(messageData: unknown): ServerEvent | n
   }
 }
 
+function isBatchableWorkspaceEvent(method?: string) {
+  if (typeof method !== 'string' || method === '') {
+    return false
+  }
+
+  return method.endsWith('Delta') || method.endsWith('/delta')
+}
+
 function subscribeWorkspaceStream(workspaceId: string, setConnectionState: ConnectionStateSetter) {
   const stream = getWorkspaceStream(workspaceId)
   stream.subscribers += 1
@@ -78,6 +89,7 @@ function getWorkspaceStream(workspaceId: string) {
   let stream = workspaceStreams.get(workspaceId)
   if (!stream) {
     stream = {
+      eventQueue: [],
       subscribers: 0,
       socket: null,
       reconnectAttempt: 0,
@@ -122,7 +134,14 @@ function openWorkspaceStream(
       return
     }
 
-    useSessionStore.getState().ingestEvent(event)
+    if (!isBatchableWorkspaceEvent(event.method)) {
+      flushWorkspaceStreamEvents(stream)
+      useSessionStore.getState().ingestEvent(event)
+      return
+    }
+
+    stream.eventQueue.push(event)
+    scheduleWorkspaceStreamFlush(stream)
   }
 
   socket.onerror = () => {
@@ -137,6 +156,12 @@ function openWorkspaceStream(
     if (stream.socket === socket) {
       stream.socket = null
     }
+
+    if (stream.flushTimer) {
+      window.clearTimeout(stream.flushTimer)
+      stream.flushTimer = undefined
+    }
+    flushWorkspaceStreamEvents(stream)
 
     if (stream.subscribers === 0) {
       setConnectionState(workspaceId, 'idle')
@@ -179,6 +204,12 @@ function disposeWorkspaceStream(
     window.clearTimeout(stream.reconnectTimer)
     stream.reconnectTimer = undefined
   }
+  if (stream.flushTimer) {
+    window.clearTimeout(stream.flushTimer)
+    stream.flushTimer = undefined
+  }
+
+  flushWorkspaceStreamEvents(stream)
 
   const socket = stream.socket
   stream.socket = null
@@ -197,6 +228,27 @@ function disposeWorkspaceStream(
 
 function isSocketActive(socket: WebSocket) {
   return socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN
+}
+
+function scheduleWorkspaceStreamFlush(stream: WorkspaceStream) {
+  if (stream.flushTimer) {
+    return
+  }
+
+  stream.flushTimer = window.setTimeout(() => {
+    stream.flushTimer = undefined
+    flushWorkspaceStreamEvents(stream)
+  }, streamBatchFlushDelayMs)
+}
+
+function flushWorkspaceStreamEvents(stream: WorkspaceStream) {
+  if (!stream.eventQueue.length) {
+    return
+  }
+
+  const queuedEvents = stream.eventQueue
+  stream.eventQueue = []
+  useSessionStore.getState().ingestEvents(queuedEvents)
 }
 
 function isServerEvent(value: unknown): value is ServerEvent {

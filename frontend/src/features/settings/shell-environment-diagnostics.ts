@@ -1,3 +1,5 @@
+import { i18n } from '../../i18n/runtime'
+
 export type ShellEnvironmentDiagnosisSummary = {
   inherit: string
   explicitSetCount: number
@@ -59,8 +61,11 @@ export function buildShellEnvironmentDiagnosis(
 
   if (!value) {
     return {
-      info:
-        'No explicit shell_environment_policy key is present in the resolved config. App-server defaults still apply until you write an override.',
+      info: i18n._({
+        id: 'No explicit shell_environment_policy key is present in the resolved config. App-server defaults still apply until you write an override.',
+        message:
+          'No explicit shell_environment_policy key is present in the resolved config. App-server defaults still apply until you write an override.',
+      }),
       summary,
       warning: '',
     }
@@ -70,22 +75,39 @@ export function buildShellEnvironmentDiagnosis(
     return {
       info: '',
       summary,
-      warning: `inherit="core" is active, but ${missingWindowsVars.join(', ')} ${missingWindowsVars.length === 1 ? 'is' : 'are'} not explicitly restored in shell_environment_policy.set. On Windows this can break command resolution for cmd/node/npm style invocations.`,
+      warning: i18n._({
+        id: 'inherit="core" is active, but {vars} {verb} not explicitly restored in shell_environment_policy.set. On Windows this can break command resolution for cmd/node/npm style invocations.',
+        message:
+          'inherit="core" is active, but {vars} {verb} not explicitly restored in shell_environment_policy.set. On Windows this can break command resolution for cmd/node/npm style invocations.',
+        values: {
+          vars: missingWindowsVars.join(', '),
+          verb:
+            missingWindowsVars.length === 1
+              ? i18n._({ id: 'is', message: 'is' })
+              : i18n._({ id: 'are', message: 'are' }),
+        },
+      }),
     }
   }
 
   if (inherit === 'core') {
     return {
-      info:
-        'inherit="core" is active and the common Windows command-resolution variables are explicitly restored.',
+      info: i18n._({
+        id: 'inherit="core" is active and the common Windows command-resolution variables are explicitly restored.',
+        message:
+          'inherit="core" is active and the common Windows command-resolution variables are explicitly restored.',
+      }),
       summary,
       warning: '',
     }
   }
 
   return {
-    info:
-      'The current shell_environment_policy does not indicate the specific Windows core-mode risk pattern.',
+    info: i18n._({
+      id: 'The current shell_environment_policy does not indicate the specific Windows core-mode risk pattern.',
+      message:
+        'The current shell_environment_policy does not indicate the specific Windows core-mode risk pattern.',
+    }),
     summary,
     warning: '',
   }

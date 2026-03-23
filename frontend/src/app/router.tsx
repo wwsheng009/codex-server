@@ -110,6 +110,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate replace to="/workspaces" /> },
           { path: 'workspaces', element: lazyElement(WorkspacesPage) },
           { path: 'workspaces/:workspaceId', element: lazyElement(ThreadPage) },
+          { path: 'workspaces/:workspaceId/threads/:threadId', element: lazyElement(ThreadPage) },
           { path: 'automations', element: lazyElement(AutomationsPage) },
           { path: 'automations/:automationId', element: lazyElement(AutomationDetailPage) },
           { path: 'skills', element: lazyElement(SkillsPage) },

@@ -24,6 +24,7 @@ export function useThreadPageControllerData(
     isDocumentVisible: controllerState.isDocumentVisible,
     normalizedDeferredComposerQuery: controllerState.normalizedDeferredComposerQuery,
     selectedThreadId: controllerState.selectedThreadId,
+    streamState: controllerState.streamState,
     threadTurnWindowSize: controllerState.threadTurnWindowSize,
     workspaceId: controllerState.workspaceId,
   })
@@ -51,6 +52,7 @@ export function useThreadPageControllerData(
     setEditingThreadId: railState.setEditingThreadId,
     setEditingThreadName: railState.setEditingThreadName,
     setIsTerminalDockExpanded: controllerState.setIsTerminalDockExpanded,
+    setIsTerminalDockVisible: controllerState.setIsTerminalDockVisible,
     setSelectedProcessId: controllerState.setSelectedProcessId,
     setSelectedThread: controllerState.setSelectedThread,
     setSendError: controllerState.setSendError,
@@ -83,6 +85,9 @@ export function useThreadPageControllerData(
     approvals: dataState.approvalsQuery.data ?? [],
     commandSessions: dataState.commandSessions,
     contextCompactionFeedback: controllerState.contextCompactionFeedback,
+    fullTurnItemContentOverridesById: controllerState.fullTurnItemContentOverridesById,
+    fullTurnItemOverridesById: controllerState.fullTurnItemOverridesById,
+    fullTurnOverridesById: controllerState.fullTurnOverridesById,
     historicalTurns: controllerState.historicalTurns,
     liveThreadDetail: dataState.liveThreadDetail,
     loadedThreadIds: dataState.loadedThreadsQuery.data,
@@ -100,10 +105,35 @@ export function useThreadPageControllerData(
   const viewportState = useThreadViewportState({
     displayedTurnsLength: displayState.displayedTurns.length,
     selectedThreadId: activeSelectedThreadId,
-    threadContentKey: displayState.threadContentKey,
+    threadContentSignature: displayState.threadContentSignature,
     threadUnreadUpdateKey: displayState.threadUnreadUpdateKey,
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
   })
+
+  useEffect(() => {
+    const queryCache = controllerState.queryClient.getQueryCache()
+
+    for (const query of queryCache.getAll()) {
+      const queryKey = query.queryKey
+      if (!Array.isArray(queryKey) || queryKey.length < 2) {
+        continue
+      }
+
+      const [scope, queryWorkspaceId, queryThreadId] = queryKey
+      if (
+        queryWorkspaceId !== controllerState.workspaceId ||
+        (scope !== 'thread-detail' && scope !== 'thread-detail-page')
+      ) {
+        continue
+      }
+
+      if (queryThreadId === activeSelectedThreadId) {
+        continue
+      }
+
+      controllerState.queryClient.removeQueries({ queryKey })
+    }
+  }, [activeSelectedThreadId, controllerState.queryClient, controllerState.workspaceId])
 
   useEffect(() => {
     if (controllerState.authRecoveryRequestedAt === null) {
@@ -169,9 +199,14 @@ export function useThreadPageControllerData(
     interruptPending: mutationState.interruptTurnMutation.isPending,
     isInspectorExpanded: controllerState.isInspectorExpanded,
     isMobileViewport: controllerState.isMobileViewport,
+    isTerminalDockVisible: controllerState.isTerminalDockVisible,
     isSelectedThreadLoaded: displayState.isSelectedThreadLoaded,
     isTerminalDockExpanded: controllerState.isTerminalDockExpanded,
     isTerminalDockResizing: controllerState.isTerminalDockResizing,
+    isTerminalWindowDragging: controllerState.isTerminalWindowDragging,
+    isTerminalWindowMaximized: controllerState.isTerminalWindowMaximized,
+    isTerminalWindowResizing: controllerState.isTerminalWindowResizing,
+    terminalDockPlacement: controllerState.terminalDockPlacement,
     isThreadPinnedToLatest: viewportState.isThreadPinnedToLatest,
     latestDisplayedTurn: displayState.latestDisplayedTurn,
     liveThreadStatus: dataState.liveThreadDetail?.status,

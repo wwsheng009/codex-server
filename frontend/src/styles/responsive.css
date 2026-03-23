@@ -416,11 +416,19 @@
   .workbench-log__header,
   .workbench-log__panel-header,
   .terminal-dock__bar,
-  .terminal-dock__launch,
   .modal-card__header,
   .terminal-dock__input {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .terminal-dock--floating .terminal-dock__bar {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .terminal-dock--floating .terminal-dock__bar-meta {
+    align-self: auto;
   }
 
   .mode-strip {

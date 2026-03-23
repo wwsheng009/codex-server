@@ -4,8 +4,8 @@ import type { ThreadTurn } from '../../types/api'
 import { type ContextCompactionFeedback } from './threadPageComposerShared'
 import type { CommandRunMode } from './threadPageActionTypes'
 
-export const DEFAULT_THREAD_TURN_WINDOW_SIZE = 80
-export const THREAD_TURN_WINDOW_INCREMENT = 80
+export const DEFAULT_THREAD_TURN_WINDOW_SIZE = 20
+export const THREAD_TURN_WINDOW_INCREMENT = 20
 
 export function useThreadPageControllerLocalState() {
   const [contextCompactionFeedback, setContextCompactionFeedback] =
@@ -20,6 +20,17 @@ export function useThreadPageControllerLocalState() {
   const [threadTurnWindowSize, setThreadTurnWindowSize] = useState(
     DEFAULT_THREAD_TURN_WINDOW_SIZE,
   )
+  const [fullTurnRetainCountById, setFullTurnRetainCountById] = useState<Record<string, number>>({})
+  const [fullTurnOverridesById, setFullTurnOverridesById] = useState<Record<string, ThreadTurn>>({})
+  const [fullTurnItemRetainCountById, setFullTurnItemRetainCountById] = useState<
+    Record<string, number>
+  >({})
+  const [fullTurnItemOverridesById, setFullTurnItemOverridesById] = useState<
+    Record<string, Record<string, unknown>>
+  >({})
+  const [fullTurnItemContentOverridesById, setFullTurnItemContentOverridesById] = useState<
+    Record<string, Record<string, unknown>>
+  >({})
   const [historicalTurns, setHistoricalTurns] = useState<ThreadTurn[]>([])
   const [hasMoreHistoricalTurnsBefore, setHasMoreHistoricalTurnsBefore] =
     useState<boolean | null>(null)
@@ -34,6 +45,11 @@ export function useThreadPageControllerLocalState() {
     commandRunMode,
     composerInputRef,
     contextCompactionFeedback,
+    fullTurnItemContentOverridesById,
+    fullTurnItemOverridesById,
+    fullTurnItemRetainCountById,
+    fullTurnOverridesById,
+    fullTurnRetainCountById,
     hasMoreHistoricalTurnsBefore,
     historicalTurns,
     isLoadingOlderTurns,
@@ -43,6 +59,11 @@ export function useThreadPageControllerLocalState() {
     setCommand,
     setCommandRunMode,
     setContextCompactionFeedback,
+    setFullTurnItemContentOverridesById,
+    setFullTurnItemOverridesById,
+    setFullTurnItemRetainCountById,
+    setFullTurnOverridesById,
+    setFullTurnRetainCountById,
     setHasMoreHistoricalTurnsBefore,
     setHistoricalTurns,
     setIsLoadingOlderTurns,

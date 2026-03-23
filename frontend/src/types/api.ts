@@ -107,6 +107,8 @@ export type Thread = {
   name: string
   status: string
   archived: boolean
+  turnCount?: number
+  messageCount?: number
   createdAt: string
   updatedAt: string
 }
@@ -121,12 +123,27 @@ export type ThreadTurn = {
 export type ThreadDetail = Thread & {
   cwd?: string
   hasMoreTurns?: boolean
+  messageCount?: number
   preview?: string
   path?: string
   source?: string
   tokenUsage?: ThreadTokenUsage | null
   turnCount?: number
   turns: ThreadTurn[]
+}
+
+export type ThreadTurnItemOutput = {
+  itemId: string
+  command?: string
+  aggregatedOutput: string
+  outputLineCount?: number
+  outputContentMode?: string
+  outputStartLine?: number
+  outputEndLine?: number
+  outputStartOffset?: number
+  outputEndOffset?: number
+  outputTotalLength?: number
+  outputTruncated?: boolean
 }
 
 export type PendingApproval = {
@@ -322,6 +339,23 @@ export type CommandSession = {
   id: string
   workspaceId: string
   command: string
+  mode?: string
+  shellPath?: string
+  initialCwd?: string
+  currentCwd?: string
+  shellState?: string
+  lastExitCode?: number | null
   status: string
   createdAt: string
+}
+
+export type CommandSessionSnapshot = CommandSession & {
+  archived?: boolean
+  combinedOutput: string
+  stdout: string
+  stderr: string
+  exitCode?: number | null
+  error?: string | null
+  pinned?: boolean
+  updatedAt: string
 }

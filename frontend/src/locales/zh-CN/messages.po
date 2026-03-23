@@ -104,6 +104,66 @@ msgstr ""
 #~ msgstr "解析结果标签"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:108
+#~ msgid "{count} active"
+#~ msgstr "{count} 个活动会话"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:76
+#~ msgid "{count} running"
+#~ msgstr "{count} 个运行中"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:69
+#~ msgid "{count} sessions"
+#~ msgstr "{count} 个会话"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:113
+#~ msgid "{count} stored"
+#~ msgstr "{count} 个已存会话"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:47
+#~ msgid "Low-frequency thread management stays folded unless you need it."
+#~ msgstr "低频线程管理默认折叠，按需展开。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:88
+#~ msgid "Persistent context stays in the rail. Feed and approvals open as lighter in-surface panels."
+#~ msgstr "持久上下文保留在侧栏中，动态和审批以更轻量的面板形式在工作区内打开。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:276
+#~ msgid "Run a command to mount the dock. Sessions stay attached to the workspace and can be revisited from this bottom panel."
+#~ msgstr "运行一条命令以挂载终端停靠区。会话会保持附着在工作区上，并可从底部面板再次查看。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:233
+#~ msgid "Run a command to see output."
+#~ msgstr "运行一条命令以查看输出。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:171
+#~ msgid "Selected thread"
+#~ msgstr "已选线程"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:243
+#~ msgid "Send stdin to selected process"
+#~ msgstr "向选中进程发送 stdin"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:84
+#~ msgid "updated {time}"
+#~ msgstr "更新于 {time}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:82
+#~ msgid "Workspace context"
+#~ msgstr "工作区上下文"
+
+#. js-lingui-explicit-id
 #: src/components/settings/SettingsJsonDiffPreview.tsx:25
 msgid "(missing)"
 msgstr ""
@@ -117,11 +177,6 @@ msgstr "[函数 {name}]"
 #: src/components/settings/SettingsJsonDiffPreview.tsx:96
 msgid "{added} added, {removed} removed"
 msgstr ""
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:108
-msgid "{count} active"
-msgstr "{count} 个活动会话"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ArchivedThreadsSettingsPage.tsx:69
@@ -154,6 +209,11 @@ msgid "{count} models"
 msgstr "{count} 个模型"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:130
+msgid "{count} pending"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:244
 msgid "{count} plugins"
 msgstr "{count} 个插件"
@@ -177,21 +237,6 @@ msgstr "远程 {count} 项"
 #: src/pages/settings/EnvironmentSettingsPage.tsx:151
 msgid "{count} roots"
 msgstr "{count} 个根目录"
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:76
-msgid "{count} running"
-msgstr "{count} 个运行中"
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:69
-msgid "{count} sessions"
-msgstr "{count} 个会话"
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:113
-msgid "{count} stored"
-msgstr "{count} 个已存会话"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1114
@@ -229,6 +274,11 @@ msgid "{days} days"
 msgstr "{days} 天"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:244
+msgid "{label} help"
+msgstr "{label} 帮助"
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:915
 msgid "{label} reasoning effort"
 msgstr "{label} 推理强度"
@@ -262,6 +312,11 @@ msgstr "{root} · 更新于 {time}"
 #: src/pages/AutomationDetailPage.tsx:348
 msgid "{run} - {mode}"
 msgstr "{run} · {mode}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:137
+msgid "{sessions} sessions · {active} active"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1989
@@ -351,6 +406,7 @@ msgstr "操作"
 #: src/components/shell/AppShell.tsx:144
 #: src/components/ui/StatusPill.tsx:25
 #: src/pages/AutomationsPage.tsx:468
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:283
 msgid "Active"
 msgstr "活跃"
 
@@ -360,7 +416,7 @@ msgid "Active Automations"
 msgstr "活跃自动化"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:185
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:769
 #: src/pages/WorkspacesPage.tsx:195
 msgid "Activity"
 msgstr "活动"
@@ -408,6 +464,7 @@ msgstr "AI 生成的执行结果摘要。"
 #. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:147
 #: src/pages/CatalogPage.tsx:314
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:381
 msgid "All"
 msgstr "全部"
 
@@ -467,15 +524,15 @@ msgid "App-Server Command"
 msgstr "App-Server 命令"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:386
-#: src/components/shell/AppMenuBar.tsx:606
+#: src/components/shell/AppMenuBar.tsx:389
+#: src/components/shell/AppMenuBar.tsx:664
 #: src/features/settings/sections.ts:14
 #: src/pages/settings/AppearanceSettingsPage.tsx:146
 msgid "Appearance"
 msgstr "外观"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:573
+#: src/components/shell/AppMenuBar.tsx:631
 msgid "Appearance menu. {colorTheme}. {mode}."
 msgstr "外观菜单。{colorTheme}。{mode}。"
 
@@ -552,8 +609,9 @@ msgstr "审批状态"
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:69
 #: src/pages/thread-page/ThreadWorkbenchRailMobileQuickActions.tsx:50
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:125
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:329
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:606
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:736
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:401
 msgid "Approvals"
 msgstr "审批"
 
@@ -569,9 +627,14 @@ msgid "April"
 msgstr "四月"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:88
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:69
 msgid "Archive"
 msgstr "归档"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:580
+msgid "Archive {command}"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ArchivedThreadsSettingsPage.tsx:85
@@ -579,9 +642,16 @@ msgid "Archive Registry"
 msgstr "归档列表"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:215
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:227
+msgid "Archive session"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/components/ui/StatusPill.tsx:53
 #: src/pages/thread-page/threadPageComposerShared.tsx:636
 #: src/pages/thread-page/threadPageComposerShared.tsx:1047
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:315
 msgid "Archived"
 msgstr "已归档"
 
@@ -607,9 +677,19 @@ msgid "Archived Threads"
 msgstr "已归档线程"
 
 #. js-lingui-explicit-id
+#: src/features/settings/shell-environment-diagnostics.ts:87
+msgid "are"
+msgstr "已"
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:654
 msgid "Ask Codex anything, use @ for files, $ for skills, and / for commands"
 msgstr "向 Codex 提问，使用 @ 引用文件、$ 引用技能、/ 输入命令"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:398
+msgid "At risk"
+msgstr "有风险"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:503
@@ -647,7 +727,7 @@ msgid "Authorize an MCP server against the selected workspace context."
 msgstr "在所选工作区上下文中为 MCP 服务器授权。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:148
+#: src/components/shell/AppMenuBar.tsx:149
 msgid "Auto"
 msgstr "自动"
 
@@ -662,12 +742,12 @@ msgid "Auto Prune Days"
 msgstr "自动清理天数"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:119
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:123
 msgid "Auto-follow is keeping the latest output in view."
 msgstr "自动跟随会保持最新输出在视图中。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:213
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:285
 msgid "Auto-follow is keeping the newest output in view."
 msgstr "自动跟随会保持最新输出显示在视图中。"
 
@@ -727,7 +807,7 @@ msgstr "自动化更新失败"
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:57
 #: src/pages/AutomationsPage.tsx:452
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:67
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:47
 msgid "Automations"
 msgstr "自动化"
 
@@ -740,6 +820,11 @@ msgstr "可用的协作模式，用于定义代理交互模型。"
 #: src/pages/settings/GeneralSettingsPage.tsx:109
 msgid "Available languages"
 msgstr "可用语言"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:864
+msgid "Avg msgs/turn"
+msgstr "平均消息/轮"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:702
@@ -767,6 +852,12 @@ msgstr "返回自动化"
 #: src/pages/thread-page/ThreadComposerDock.tsx:617
 msgid "Back to latest"
 msgstr "返回最新"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:253
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:258
+msgid "Back to session"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/NotFoundPage.tsx:18
@@ -804,6 +895,11 @@ msgstr "Codex 界面的基础字号。"
 #: src/pages/settings/AppearanceSettingsPage.tsx:406
 msgid "Base surface color for the main workbench."
 msgstr "主工作台的基础表面颜色。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:958
+msgid "Bottom"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:425
@@ -844,7 +940,7 @@ msgstr "内置"
 #: src/components/workspace/CreateWorkspaceDialog.tsx:45
 #: src/pages/AutomationsPage.tsx:413
 #: src/pages/AutomationsPage.tsx:434
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:136
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:117
 msgid "Cancel"
 msgstr "取消"
 
@@ -909,6 +1005,11 @@ msgid "Cause"
 msgstr "原因"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:171
+msgid "Center"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:294
 msgid "Changing shell_environment_policy affects new child processes. Restart the workspace runtime to force app-server to reload Codex config."
 msgstr "更改 shell_environment_policy 会影响新的子进程。重启工作区 Runtime 可强制 app-server 重新加载 Codex 配置。"
@@ -945,6 +1046,8 @@ msgstr "清理"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1226
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:135
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:740
 msgid "Clear"
 msgstr "清除"
 
@@ -954,7 +1057,7 @@ msgid "Clear Execution Preset"
 msgstr "清除执行预设"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:98
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:799
 msgid "Clear finished"
 msgstr "清除已完成项"
 
@@ -964,14 +1067,22 @@ msgid "Clear read"
 msgstr "清除已读"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:166
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:171
+msgid "Clear viewport"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/components/shell/CommandPalette.tsx:252
 #: src/pages/AutomationDetailPage.tsx:343
-#: src/pages/thread-page/ThreadWorkbenchRail.tsx:123
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:369
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:772
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:135
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:441
 msgid "Close"
 msgstr "关闭"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:200
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:597
 msgid "Close {command}"
 msgstr "关闭 {command}"
 
@@ -981,12 +1092,12 @@ msgid "Close assist panel"
 msgstr "关闭辅助面板"
 
 #. js-lingui-explicit-id
-#: src/components/shell/CommandPalette.tsx:208
+#: src/components/shell/CommandPalette.tsx:222
 msgid "Close command palette"
 msgstr "关闭命令面板"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:703
+#: src/components/shell/AppMenuBar.tsx:761
 #: src/components/shell/AppShell.tsx:1024
 #: src/components/shell/AppShell.tsx:1445
 #: src/components/shell/AppShell.tsx:1461
@@ -994,7 +1105,7 @@ msgid "Close navigation"
 msgstr "关闭导航"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:820
+#: src/components/shell/AppMenuBar.tsx:878
 msgid "Close thread tools"
 msgstr "关闭线程工具"
 
@@ -1004,7 +1115,12 @@ msgid "Close workbench panel"
 msgstr "关闭工作台面板"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:229
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:313
+msgid "Closed"
+msgstr "已关闭"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:942
 msgid "Cmd resolution"
 msgstr "命令解析"
 
@@ -1035,7 +1151,7 @@ msgid "Code Review"
 msgstr "代码审查"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:101
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:105
 msgid "Codex is replying…"
 msgstr "Codex 正在回复…"
 
@@ -1048,6 +1164,7 @@ msgstr "协作模式"
 
 #. js-lingui-explicit-id
 #: src/components/settings/SettingsPrimitives.tsx:134
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:190
 msgid "Collapse"
 msgstr "收起"
 
@@ -1058,31 +1175,32 @@ msgid "Collapse sidebar"
 msgstr "收起侧边栏"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:461
+#: src/components/shell/AppMenuBar.tsx:519
 #: src/pages/settings/AppearanceSettingsPage.tsx:185
 msgid "Color theme"
 msgstr "配色主题"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:405
+#: src/components/shell/AppMenuBar.tsx:408
 msgid "Color theme and mode stay synced with Appearance settings."
 msgstr "配色主题和模式会与外观设置保持同步。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:660
+#: src/components/shell/AppMenuBar.tsx:718
 #: src/pages/settings/ConfigSettingsPage.tsx:516
 #: src/pages/settings/ConfigSettingsPage.tsx:1045
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:91
 msgid "Command"
 msgstr "命令"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:87
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:67
 msgid "Command execution mode"
 msgstr "命令执行模式"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:638
-#: src/components/shell/CommandPalette.tsx:226
+#: src/components/shell/AppMenuBar.tsx:696
+#: src/components/shell/CommandPalette.tsx:240
 msgid "Command Palette"
 msgstr "命令面板"
 
@@ -1092,12 +1210,13 @@ msgid "Command Sandbox (JSON)"
 msgstr "命令沙箱（JSON）"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:111
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:91
 msgid "command/exec"
 msgstr "command/exec"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:195
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:746
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:767
 msgid "Commands"
 msgstr "命令"
 
@@ -1117,19 +1236,20 @@ msgid "Compact older thread context"
 msgstr "压缩旧线程上下文"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/useThreadPageRefreshEffects.ts:150
+#: src/pages/thread-page/useThreadPageRefreshEffects.ts:202
 msgid "Compacted"
 msgstr "已压缩"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:43
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:47
 msgid "Compaction is already running. This panel will update when the runtime confirms it."
 msgstr "上下文压缩已在运行。运行时确认后此面板会更新。"
 
 #. js-lingui-explicit-id
 #: src/components/ui/StatusPill.tsx:49
 #: src/pages/thread-page/threadPageComposerShared.tsx:712
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:23
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:44
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:287
 msgid "Completed"
 msgstr "已完成"
 
@@ -1146,7 +1266,7 @@ msgid "Config"
 msgstr "配置"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:213
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:919
 msgid "Config changed"
 msgstr "配置变更"
 
@@ -1156,7 +1276,7 @@ msgid "Config key saved"
 msgstr "配置项已保存"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:221
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:927
 msgid "Config load"
 msgstr "配置加载"
 
@@ -1214,6 +1334,7 @@ msgstr "确认"
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:146
 #: src/components/ui/StatusPill.tsx:27
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:285
 msgid "Connected"
 msgstr "已连接"
 
@@ -1241,8 +1362,15 @@ msgstr "连接错误"
 #: src/pages/thread-page/ThreadComposerDock.tsx:413
 #: src/pages/thread-page/threadPageComposerShared.tsx:1288
 #: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:41
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:719
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:724
 msgid "Context"
 msgstr "上下文"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:529
+msgid "Context shows total tokens currently tracked for the thread against the model context window when available."
+msgstr "上下文显示当前线程已跟踪的总 token 数，并在可用时对照模型上下文窗口。"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:1204
@@ -1291,6 +1419,17 @@ msgid "Copy"
 msgstr "复制"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:124
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:130
+msgid "Copy selection"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:383
+msgid "Core"
+msgstr "核心"
+
+#. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:879
 msgid "Create a reusable automation pattern that can be used across different workspaces."
 msgstr "创建可在不同工作区复用的自动化模式。"
@@ -1311,7 +1450,7 @@ msgid "Create Automation"
 msgstr "创建自动化"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:289
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:361
 msgid "Create First Thread"
 msgstr "创建第一个线程"
 
@@ -1342,7 +1481,7 @@ msgid "Create, rename, and switch between saved custom palettes."
 msgstr ""
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:285
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:357
 msgid "Creating thread…"
 msgstr "正在创建线程…"
 
@@ -1434,7 +1573,7 @@ msgid "Custom theme name"
 msgstr ""
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:511
+#: src/components/shell/AppMenuBar.tsx:569
 #: src/pages/settings/AppearanceSettingsPage.tsx:221
 msgid "Custom themes"
 msgstr ""
@@ -1445,7 +1584,7 @@ msgid "Customize colors and typography for {palette}. Overrides only apply to th
 msgstr ""
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:174
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:816
 msgid "CWD"
 msgstr "当前工作目录"
 
@@ -1470,9 +1609,9 @@ msgid "Daily Sync"
 msgstr "每日同步"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:158
-#: src/components/shell/AppMenuBar.tsx:180
-#: src/components/shell/AppMenuBar.tsx:191
+#: src/components/shell/AppMenuBar.tsx:159
+#: src/components/shell/AppMenuBar.tsx:181
+#: src/components/shell/AppMenuBar.tsx:192
 #: src/features/settings/appearance.ts:218
 #: src/features/settings/appearance.ts:410
 #: src/pages/settings/AppearanceSettingsPage.tsx:88
@@ -1572,7 +1711,7 @@ msgstr "定义此模板的逻辑/指令…"
 #: src/pages/AutomationDetailPage.tsx:178
 #: src/pages/AutomationsPage.tsx:562
 #: src/pages/AutomationsPage.tsx:615
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:104
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:85
 msgid "Delete"
 msgstr "删除"
 
@@ -1595,21 +1734,26 @@ msgstr ""
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1539
-#: src/pages/thread-page/buildThreadPageRailLayoutProps.ts:70
+#: src/pages/thread-page/buildThreadPageRailLayoutProps.ts:83
 msgid "Delete Thread"
 msgstr "删除线程"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1573
-#: src/pages/thread-page/buildThreadPageRailLayoutProps.ts:85
+#: src/pages/thread-page/buildThreadPageRailLayoutProps.ts:98
 msgid "Delete Thread?"
 msgstr "删除线程？"
 
 #. js-lingui-explicit-id
 #: src/components/shell/WorkspaceTreeThreadRow.tsx:138
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:100
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:81
 msgid "Deleting…"
 msgstr "删除中…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:331
+msgid "Denied"
+msgstr "已拒绝"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:689
@@ -1703,7 +1847,7 @@ msgid "Discover candidate artifacts from local and home scopes."
 msgstr "从本地和 home 作用域发现候选工件。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:141
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:145
 msgid "Dismiss error"
 msgstr "忽略错误"
 
@@ -1718,12 +1862,12 @@ msgid "Distinct roots currently represented by the registered workspace list."
 msgstr "当前注册工作区列表中代表的不同根目录。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:354
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:426
 msgid "Dock left"
 msgstr "停靠到左侧"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:358
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:430
 msgid "Dock right"
 msgstr "停靠到右侧"
 
@@ -1748,7 +1892,7 @@ msgid "Each registered workspace acts as an environment root for threads, runtim
 msgstr "每个已注册工作区都作为线程、Runtime 工具和设置作用域操作的环境根目录。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:209
+#: src/components/shell/AppMenuBar.tsx:210
 #: src/pages/AutomationsPage.tsx:607
 #: src/pages/AutomationsPage.tsx:803
 msgid "Edit"
@@ -1810,7 +1954,7 @@ msgid "Enter a new name for this workspace folder."
 msgstr "为此工作区文件夹输入新名称。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:225
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:938
 msgid "Env inherit"
 msgstr "环境继承"
 
@@ -1838,7 +1982,8 @@ msgstr "环境根目录"
 #: src/pages/thread-page/threadPageComposerShared.tsx:969
 #: src/pages/thread-page/threadPageComposerShared.tsx:986
 #: src/pages/thread-page/threadPageComposerShared.tsx:1012
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:29
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:50
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:323
 msgid "Error"
 msgstr "错误"
 
@@ -1898,7 +2043,7 @@ msgid "Execution history, summarized results, and detailed logs."
 msgstr "执行历史、摘要结果与详细日志。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:95
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:75
 msgid "Execution mode"
 msgstr "执行模式"
 
@@ -1908,12 +2053,13 @@ msgid "Execution models currently discoverable in the active runtime."
 msgstr "当前活动运行时中可发现的执行模型。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:220
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:683
 msgid "exit {exitCode}"
 msgstr "退出码 {exitCode}"
 
 #. js-lingui-explicit-id
 #: src/components/settings/SettingsPrimitives.tsx:135
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:194
 msgid "Expand"
 msgstr "展开"
 
@@ -1922,6 +2068,11 @@ msgstr "展开"
 #: src/components/shell/AppShell.tsx:1463
 msgid "Expand sidebar"
 msgstr "展开侧边栏"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:327
+msgid "Expired"
+msgstr "已过期"
 
 #. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:410
@@ -1960,13 +2111,14 @@ msgstr "超高"
 
 #. js-lingui-explicit-id
 #: src/components/ui/StatusPill.tsx:45
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:325
 #: src/pages/thread-page/useThreadPageThreadMutations.ts:143
 msgid "Failed"
 msgstr "失败"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1098
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:269
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:341
 msgid "Failed To Create Thread"
 msgstr "创建线程失败"
 
@@ -2001,7 +2153,7 @@ msgid "Failed to load runtime inventory"
 msgstr "加载运行时清单失败"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:129
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:198
 msgid "Failed to load thread"
 msgstr "加载线程失败"
 
@@ -2044,7 +2196,7 @@ msgstr "二月"
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadWorkbenchRailCollapsed.tsx:55
 #: src/pages/thread-page/ThreadWorkbenchRailMobileQuickActions.tsx:36
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:107
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:588
 msgid "Feed"
 msgstr "动态"
 
@@ -2069,7 +2221,7 @@ msgid "Fetching the latest automation data from the server."
 msgstr "正在从服务器获取最新自动化数据。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:204
+#: src/components/shell/AppMenuBar.tsx:205
 msgid "File"
 msgstr "文件"
 
@@ -2095,9 +2247,26 @@ msgid "Finished At"
 msgstr "结束时间"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:98
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:103
+msgid "Fit terminal"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:538
 msgid "Fix"
 msgstr "修复"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:988
+msgid "Float"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:111
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:116
+msgid "Focus terminal"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1806
@@ -2175,7 +2344,7 @@ msgid "General"
 msgstr "通用"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:201
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:273
 msgid "Generating reply…"
 msgstr "正在生成回复…"
 
@@ -2196,7 +2365,7 @@ msgid "Global environment snapshot across all registered workspaces."
 msgstr "所有已注册工作区的全局环境快照。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:41
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:40
 msgid "Global shortcuts and ad-hoc commands stay collapsed by default."
 msgstr "全局快捷操作和临时命令默认保持折叠。"
 
@@ -2227,19 +2396,23 @@ msgid "Healthy"
 msgstr "健康"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:224
+#: src/components/shell/AppMenuBar.tsx:225
 msgid "Help"
 msgstr "帮助"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:127
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:55
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:53
+#: src/components/ui/CollapsiblePanel.tsx:60
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:201
 msgid "Hide"
 msgstr "隐藏"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRail.tsx:127
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:620
+msgid "Hide archived ({count})"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:139
 msgid "Hide rail"
 msgstr "隐藏侧边栏"
 
@@ -2291,9 +2464,9 @@ msgstr "身份"
 #: src/pages/settings/GeneralSettingsPage.tsx:201
 #: src/pages/thread-page/threadPageComposerShared.tsx:648
 #: src/pages/thread-page/threadPageComposerShared.tsx:721
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:35
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:91
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:189
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:56
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:311
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:773
 msgid "Idle"
 msgstr "空闲"
 
@@ -2314,6 +2487,7 @@ msgstr "已导入 {count} 项；后端状态：{status}。"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationDetailPage.tsx:426
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:297
 msgid "In progress"
 msgstr "进行中"
 
@@ -2333,6 +2507,21 @@ msgstr "信息"
 #: src/pages/settings/ConfigSettingsPage.tsx:1974
 msgid "inherit"
 msgstr "继承"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:389
+msgid "Inherit"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/features/settings/shell-environment-diagnostics.ts:95
+msgid "inherit=\"core\" is active and the common Windows command-resolution variables are explicitly restored."
+msgstr "当前启用了 `inherit=\"core\"`，并且常见的 Windows 命令解析变量已被显式恢复。"
+
+#. js-lingui-explicit-id
+#: src/features/settings/shell-environment-diagnostics.ts:78
+msgid "inherit=\"core\" is active, but {vars} {verb} not explicitly restored in shell_environment_policy.set. On Windows this can break command resolution for cmd/node/npm style invocations."
+msgstr "当前启用了 `inherit=\"core\"`，但 {vars} 未在 shell_environment_policy.set 中显式恢复。在 Windows 上，这可能导致 cmd/node/npm 这类调用的命令解析失败。"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:495
@@ -2380,7 +2569,7 @@ msgid "Inspect MCP service status for the current workspace."
 msgstr "查看当前工作区的 MCP 服务状态。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:336
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:408
 msgid "Inspect recent live activity without opening the full side rail."
 msgstr "无需打开完整侧栏即可查看最近实时活动。"
 
@@ -2496,6 +2685,21 @@ msgid "Inventory entries"
 msgstr "清单条目"
 
 #. js-lingui-explicit-id
+#: src/features/settings/shell-environment-diagnostics.ts:86
+msgid "is"
+msgstr "已"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:559
+msgid "Items per loaded turn is the average number of loaded timeline items inside each currently loaded turn."
+msgstr "每个已加载轮次的条目数，是当前每个已加载轮次中时间线条目的平均数量。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:889
+msgid "Items/loaded turn"
+msgstr "条目/已加载轮次"
+
+#. js-lingui-explicit-id
 #: src/components/ui/CronGenerator.tsx:52
 msgid "January"
 msgstr "一月"
@@ -2541,6 +2745,13 @@ msgid "Key path {keyPath} matches runtime-sensitive prefix {matchedKey}. {descri
 msgstr "键路径 {keyPath} 命中运行时敏感前缀 {matchedKey}。{description} 保存后会将工作区 runtime 标记为可能过期，直到重启为止。"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:884
+msgid "Keyboard input is attached to the active terminal session. Use Ctrl/Cmd+F to search."
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:464
+#: src/components/shell/AppMenuBar.tsx:472
 #: src/pages/settings/GeneralSettingsPage.tsx:96
 msgid "Language"
 msgstr "语言"
@@ -2566,6 +2777,16 @@ msgid "Latest error"
 msgstr "最近错误"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:811
+msgid "Latest turn"
+msgstr "最新轮次"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:534
+msgid "Latest turn is the status of the newest loaded turn in the selected thread window."
+msgstr "最新轮次表示当前所选线程窗口中最新已加载轮次的状态。"
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:867
 msgid "Latest turn status"
 msgstr "最近 Turn 状态"
@@ -2581,9 +2802,9 @@ msgid "Layers"
 msgstr "层级"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:153
-#: src/components/shell/AppMenuBar.tsx:175
-#: src/components/shell/AppMenuBar.tsx:195
+#: src/components/shell/AppMenuBar.tsx:154
+#: src/components/shell/AppMenuBar.tsx:176
+#: src/components/shell/AppMenuBar.tsx:196
 #: src/features/settings/appearance.ts:216
 #: src/features/settings/appearance.ts:410
 #: src/pages/settings/AppearanceSettingsPage.tsx:88
@@ -2613,7 +2834,7 @@ msgid "Live connection"
 msgstr "实时连接"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:325
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:397
 msgid "Live feed"
 msgstr "实时动态"
 
@@ -2623,7 +2844,7 @@ msgid "Live look at current theme configuration."
 msgstr "实时预览当前主题配置。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:165
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:234
 msgid "Load {count} earlier turns"
 msgstr ""
 
@@ -2638,7 +2859,7 @@ msgid "Load DangerFullAccess"
 msgstr "加载 DangerFullAccess"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:170
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:239
 msgid "Load earlier turns"
 msgstr ""
 
@@ -2668,6 +2889,28 @@ msgid "Loaded"
 msgstr "已加载"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:682
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:829
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:834
+msgid "Loaded coverage"
+msgstr "已加载覆盖率"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:539
+msgid "Loaded coverage compares turns currently rendered in the page against the total turns known for the selected thread."
+msgstr "已加载覆盖率用于比较当前页面中已渲染的轮次与所选线程已知总轮次之间的比例。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:841
+msgid "Loaded messages"
+msgstr "已加载消息"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:818
+msgid "Loaded turns"
+msgstr "已加载轮次"
+
+#. js-lingui-explicit-id
 #: src/components/ui/StatusPill.tsx:19
 msgid "Loading"
 msgstr "加载中"
@@ -2693,7 +2936,7 @@ msgid "Loading configuration…"
 msgstr "正在加载配置…"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:160
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:229
 msgid "Loading earlier turns…"
 msgstr ""
 
@@ -2734,7 +2977,12 @@ msgid "Loading skills…"
 msgstr "正在加载技能…"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:118
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:811
+msgid "Loading terminal…"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:187
 msgid "Loading thread surface…"
 msgstr "正在加载线程视图…"
 
@@ -2744,7 +2992,7 @@ msgid "Loading workspace config…"
 msgstr "正在加载工作区配置…"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:240
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:312
 msgid "Loading workspace threads…"
 msgstr "正在加载工作区线程…"
 
@@ -2755,6 +3003,7 @@ msgid "Loading workspaces…"
 msgstr "正在加载工作区…"
 
 #. js-lingui-explicit-id
+#: src/components/ui/LoadingState.tsx:10
 #: src/pages/AutomationDetailPage.tsx:361
 #: src/pages/CatalogPage.tsx:711
 #: src/pages/SkillsPage.tsx:302
@@ -2825,11 +3074,6 @@ msgid "Low"
 msgstr "低"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:47
-msgid "Low-frequency thread management stays folded unless you need it."
-msgstr "低频线程管理默认折叠，按需展开。"
-
-#. js-lingui-explicit-id
 #: src/pages/settings/GeneralSettingsPage.tsx:117
 msgid "Manage account identity, sign-in methods, and current usage limits from one stable general settings page."
 msgstr "在一个稳定的通用设置页中管理账户身份、登录方式和当前使用限额。"
@@ -2882,6 +3126,11 @@ msgid "Max Worktrees"
 msgstr "最大工作树数"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:161
+msgid "Maximize"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/settings/WorktreesSettingsPage.tsx:69
 msgid "Maximum Worktrees"
 msgstr "最大工作树数"
@@ -2920,9 +3169,24 @@ msgid "Merged config layers returned by app-server for this workspace."
 msgstr "app-server 为该工作区返回的合并配置层。"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:544
+msgid "Message coverage compares loaded user and assistant messages against the total user and assistant messages known for the selected thread."
+msgstr "消息覆盖率用于比较已加载的用户和助手消息，与所选线程已知的用户和助手消息总数之间的比例。"
+
+#. js-lingui-explicit-id
 #: src/lib/route-error.ts:290
 msgid "Message: {message}"
 msgstr "消息：{message}"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:700
+msgid "Messages"
+msgstr "消息"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:524
+msgid "Messages count only user and assistant messages. Tool calls, approvals, and other system items are excluded."
+msgstr "消息数只统计用户和助手消息，不包含工具调用、审批和其他系统项。"
 
 #. js-lingui-explicit-id
 #: src/lib/route-error.ts:302
@@ -2971,7 +3235,7 @@ msgid "Missing"
 msgstr "缺失"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:233
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:946
 msgid "Missing vars"
 msgstr "缺失变量"
 
@@ -3086,6 +3350,19 @@ msgid "Move back to a stable area of the app or retry after checking the URL and
 msgstr "返回应用中的稳定区域，或在检查 URL 和资源状态后重试。"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:118
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:125
+msgid "Move terminal window"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:705
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:852
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:857
+msgid "Msg coverage"
+msgstr "消息覆盖率"
+
+#. js-lingui-explicit-id
 #: src/components/workspace/CreateWorkspaceDialog.tsx:76
 msgid "Name"
 msgstr "名称"
@@ -3104,6 +3381,11 @@ msgstr "导航"
 #: src/pages/settings/ConfigSettingsPage.tsx:721
 msgid "Nearest built-in scenario: {title} ({matched}/{total} edits matched)."
 msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:739
+msgid "Needs review"
+msgstr "待审查"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1995
@@ -3153,14 +3435,26 @@ msgid "New messages below"
 msgstr "下方有新消息"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:217
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:289
 msgid "New output is arriving. Jump to latest to keep following it."
 msgstr "新输出正在到达。跳转到最新可继续跟随。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:124
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:128
 msgid "New output is available below. Jump to latest to follow it."
 msgstr "下方有新输出。跳转到最新可继续跟随。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:649
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:61
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:68
+msgid "New shell session"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:873
+msgid "New shell starts a long-lived PTY session. It stays open until the shell exits or you stop it."
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:578
@@ -3180,6 +3474,7 @@ msgstr "新建工作区"
 #. js-lingui-explicit-id
 #: src/components/settings/SettingsJsonDiffPreview.tsx:147
 #: src/components/settings/SettingsJsonDiffPreview.tsx:190
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:748
 msgid "Next"
 msgstr ""
 
@@ -3226,22 +3521,28 @@ msgid "No entries available."
 msgstr "暂无条目。"
 
 #. js-lingui-explicit-id
+#: src/features/settings/shell-environment-diagnostics.ts:64
+msgid "No explicit shell_environment_policy key is present in the resolved config. App-server defaults still apply until you write an override."
+msgstr "当前解析后的配置中没有显式的 shell_environment_policy 键。在你写入覆盖配置之前，app-server 默认值仍然会继续生效。"
+
+#. js-lingui-explicit-id
 #: src/pages/SkillsPage.tsx:225
 msgid "No installed skills available."
 msgstr "没有可用的已安装技能。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:382
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:454
 msgid "No live feed entries yet."
 msgstr "暂无实时动态。"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1791
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:779
 msgid "No match"
 msgstr ""
 
 #. js-lingui-explicit-id
-#: src/components/shell/CommandPalette.tsx:300
+#: src/components/shell/CommandPalette.tsx:324
 msgid "No matching commands"
 msgstr "没有匹配的命令"
 
@@ -3271,7 +3572,7 @@ msgid "No notifications yet."
 msgstr "暂无通知。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:399
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:471
 msgid "No pending approvals in this workspace."
 msgstr "此工作区暂无待审批项。"
 
@@ -3334,9 +3635,19 @@ msgid "No workspaces registered yet."
 msgstr "尚未注册工作区。"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:385
+msgid "None"
+msgstr "无"
+
+#. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:654
 msgid "None (Start from scratch)"
 msgstr "无（从头开始）"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:402
+msgid "Normal"
+msgstr "正常"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:800
@@ -3344,8 +3655,14 @@ msgid "Not connected"
 msgstr "未连接"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:387
+msgid "Not explicit"
+msgstr "未显式设置"
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:726
 #: src/pages/thread-page/threadPageComposerShared.tsx:844
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:317
 msgid "Not loaded"
 msgstr "未加载"
 
@@ -3356,7 +3673,7 @@ msgstr "未设置"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1035
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:201
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:907
 msgid "Not started"
 msgstr "未启动"
 
@@ -3366,7 +3683,8 @@ msgid "Not synced yet"
 msgstr "尚未同步"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:217
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:321
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:923
 msgid "Not tracked"
 msgstr "未跟踪"
 
@@ -3455,6 +3773,11 @@ msgid "on-request"
 msgstr "按请求"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:672
+msgid "One-shot command session. Enter runs, Up/Down reuses history, Esc goes back."
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:631
 msgid "Online"
 msgstr "在线"
@@ -3468,6 +3791,11 @@ msgstr ""
 #: src/pages/thread-page/ThreadWorkbenchRailMobileQuickActions.tsx:19
 msgid "Only open side panels when you need them."
 msgstr "仅在需要时打开侧面板。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:293
+msgid "Open"
+msgstr "开启"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:912
@@ -3491,7 +3819,7 @@ msgid "Open Automations"
 msgstr "打开自动化"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:634
+#: src/components/shell/AppMenuBar.tsx:692
 msgid "Open command palette"
 msgstr "打开命令面板"
 
@@ -3526,7 +3854,7 @@ msgid "Open MCP settings"
 msgstr "打开 MCP 设置"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:707
+#: src/components/shell/AppMenuBar.tsx:765
 msgid "Open navigation"
 msgstr "打开导航"
 
@@ -3547,7 +3875,7 @@ msgstr "打开 Runtime"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:691
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:239
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:952
 msgid "Open Runtime Inspection"
 msgstr "打开 Runtime 检查"
 
@@ -3583,7 +3911,7 @@ msgid "Open the rhythm up when you want a calmer reading pace."
 msgstr "当你想要更从容的阅读节奏时，增大间距。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:824
+#: src/components/shell/AppMenuBar.tsx:882
 msgid "Open thread tools"
 msgstr "打开线程工具"
 
@@ -3644,6 +3972,17 @@ msgid "Partial"
 msgstr ""
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:138
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:144
+msgid "Paste clipboard"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:400
+msgid "Patched"
+msgstr "已修复"
+
+#. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:817
 msgid "Path to the full model catalog JSON file. codex-server uses this file as the source when it needs to rewrite shell_type metadata."
 msgstr "完整模型目录 JSON 文件的路径。codex-server 在需要重写 shell_type 元数据时会将此文件作为来源。"
@@ -3656,6 +3995,7 @@ msgstr "暂停"
 
 #. js-lingui-explicit-id
 #: src/components/ui/StatusPill.tsx:43
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:309
 msgid "Paused"
 msgstr "已暂停"
 
@@ -3670,7 +4010,7 @@ msgid "Pending approval"
 msgstr "待审批"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:181
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:764
 msgid "Pending approvals"
 msgstr "待审批"
 
@@ -3692,9 +4032,14 @@ msgid "Permission range"
 msgstr "权限范围"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:88
-msgid "Persistent context stays in the rail. Feed and approvals open as lighter in-surface panels."
-msgstr "持久上下文保留在侧栏中，动态和审批以更轻量的面板形式在工作区内打开。"
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:570
+msgid "Persistent context"
+msgstr "持久上下文"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:667
+msgid "Persistent PTY shell. Enter starts it, Ctrl/Cmd+K switches to one-shot commands, Esc goes back."
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/features/settings/sections.ts:26
@@ -3703,6 +4048,17 @@ msgstr "持久上下文保留在侧栏中，动态和审批以更轻量的面板
 #: src/pages/thread-page/threadPageComposerShared.tsx:208
 msgid "Personalization"
 msgstr "个性化"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:556
+msgid "Pin {command}"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:186
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:198
+msgid "Pin session"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:30
@@ -3783,6 +4139,11 @@ msgid "Preset Apply Failed"
 msgstr "预设应用失败"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:758
+msgid "Prev"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/components/ui/CronGenerator.tsx:85
 msgid "Preview:"
 msgstr "预览："
@@ -3801,7 +4162,8 @@ msgstr "标签、菜单和控件使用的主字体。"
 #: src/pages/thread-page/threadPageComposerShared.tsx:623
 #: src/pages/thread-page/threadPageComposerShared.tsx:685
 #: src/pages/thread-page/threadPageComposerShared.tsx:948
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:18
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:39
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:299
 msgid "Processing"
 msgstr "处理中"
 
@@ -3885,6 +4247,7 @@ msgstr "读取中…"
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:142
 #: src/components/ui/StatusPill.tsx:23
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:281
 msgid "Ready"
 msgstr "就绪"
 
@@ -3940,7 +4303,7 @@ msgid "Refresh {workspace}"
 msgstr "刷新 {workspace}"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:137
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:141
 msgid "Refresh status"
 msgstr "刷新状态"
 
@@ -3969,6 +4332,11 @@ msgstr "注册工作区"
 #: src/pages/settings/WorktreesSettingsPage.tsx:105
 msgid "Registered Roots"
 msgstr "已注册根目录"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:329
+msgid "Rejected"
+msgstr "已驳回"
 
 #. js-lingui-explicit-id
 #: src/features/settings/appearance.ts:308
@@ -4043,12 +4411,12 @@ msgstr "移除中..."
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1311
 #: src/components/shell/WorkspaceTreeThreadRow.tsx:129
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:73
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:54
 msgid "Rename"
 msgstr "重命名"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:114
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:95
 msgid "Rename thread"
 msgstr "重命名线程"
 
@@ -4104,12 +4472,12 @@ msgid "Reset Shell Overrides"
 msgstr "重置 Shell 覆盖"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRail.tsx:111
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:123
 msgid "Reset width"
 msgstr "重置宽度"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRail.tsx:87
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:99
 msgid "Resize side rail"
 msgstr "调整侧边栏宽度"
 
@@ -4119,19 +4487,30 @@ msgid "Resize sidebar"
 msgstr "调整侧边栏宽度"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:312
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:384
 msgid "Resize surface panel"
 msgstr "调整工作区面板大小"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:168
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:502
 msgid "Resize terminal dock"
 msgstr "调整终端停靠区大小"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:901
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:907
+msgid "Resize terminal window"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:649
 msgid "Resolve the approval request above to continue this thread."
 msgstr "先处理上方审批请求，线程才能继续。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:291
+msgid "Resolved"
+msgstr "已处理"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:378
@@ -4176,7 +4555,7 @@ msgid "Restart required: the tracked runtime-affecting config changed after the 
 msgstr ""
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:154
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:650
 msgid "Restart required: the tracked runtime-affecting config changed after this runtime started."
 msgstr "需要重启：已跟踪的运行时敏感配置在此 runtime 启动后发生了变更。"
 
@@ -4207,6 +4586,11 @@ msgstr "正在重启 Runtime"
 #: src/pages/settings/EnvironmentSettingsPage.tsx:289
 msgid "Restarting…"
 msgstr "重启中…"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:157
+msgid "Restore"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/settings/AppearanceSettingsPage.tsx:354
@@ -4277,7 +4661,7 @@ msgid "Review local modifications in the current workspace that have not been co
 msgstr "审查当前工作区中尚未提交的本地修改。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:340
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:412
 msgid "Review pending approvals as a smaller in-surface panel."
 msgstr "以更小的工作区内面板查看待审批项。"
 
@@ -4302,12 +4686,17 @@ msgid "Review worktree retention policy and root reuse behavior. Current worktre
 msgstr "查看 worktree 保留策略和根目录复用行为。当前 worktree 数据基于已注册工作区根目录进行近似。"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:973
+msgid "Right"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/settings/WorktreesSettingsPage.tsx:113
 msgid "Root Overview"
 msgstr "根目录概览"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:169
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:901
 msgid "Root path"
 msgstr "根路径"
 
@@ -4338,25 +4727,20 @@ msgid "Run {id}"
 msgstr "运行 {id}"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:276
-msgid "Run a command to mount the dock. Sessions stay attached to the workspace and can be revisited from this bottom panel."
-msgstr "运行一条命令以挂载终端停靠区。会话会保持附着在工作区上，并可从底部面板再次查看。"
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:233
-msgid "Run a command to see output."
-msgstr "运行一条命令以查看输出。"
-
-#. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1632
 msgid "Run a scan to see migration items."
 msgstr "运行扫描以查看迁移项。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:141
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:184
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:121
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:164
 msgid "Run command"
 msgstr "运行命令"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:878
+msgid "Run command starts a standalone process session. Use Up/Down to reuse command history."
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationDetailPage.tsx:252
@@ -4364,7 +4748,7 @@ msgid "Run History Loading Failed"
 msgstr "运行历史加载失败"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:180
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:160
 msgid "Run in thread"
 msgstr "在线程中运行"
 
@@ -4379,7 +4763,14 @@ msgid "Run Now"
 msgstr "立即运行"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:137
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:653
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:79
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:86
+msgid "Run one-shot command"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:117
 msgid "Run shell command in thread"
 msgstr "在线程中运行 shell 命令"
 
@@ -4390,16 +4781,17 @@ msgstr "运行时间"
 
 #. js-lingui-explicit-id
 #: src/components/ui/StatusPill.tsx:41
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:295
 msgid "Running"
 msgstr "运行中"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:158
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:138
 msgid "Runs a single shell command through thread/shellCommand. It is unsandboxed with full access and streams back into the thread, not the terminal dock."
 msgstr "通过 thread/shellCommand 运行单条 shell 命令。它不受沙箱限制，拥有完全访问权限，输出会回流到线程而不是终端停靠区。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:163
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:143
 msgid "Runs a standalone command/exec session using the configured command sandbox policy and attaches output to the terminal dock."
 msgstr "使用配置好的命令沙箱策略运行独立的 command/exec 会话，并将输出附加到终端停靠区。"
 
@@ -4413,7 +4805,7 @@ msgstr "每小时整点运行一次。"
 #: src/pages/CatalogPage.tsx:222
 #: src/pages/settings/ConfigSettingsPage.tsx:660
 #: src/pages/thread-page/ThreadComposerDock.tsx:409
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:79
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:59
 msgid "Runtime"
 msgstr "运行时"
 
@@ -4423,7 +4815,8 @@ msgid "Runtime Actions"
 msgstr ""
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:150
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:642
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:646
 msgid "Runtime Config Status"
 msgstr "运行时配置状态"
 
@@ -4449,7 +4842,7 @@ msgstr "Runtime 检查标签"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:749
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:159
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:655
 msgid "Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists."
 msgstr "运行时与最近一次已跟踪的运行时敏感配置变更保持一致，或当前不存在已跟踪变更。"
 
@@ -4494,7 +4887,7 @@ msgid "Runtime snapshot"
 msgstr "运行时快照"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:197
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:903
 msgid "Runtime started"
 msgstr "Runtime 已启动"
 
@@ -4510,12 +4903,17 @@ msgid "Runtime state is unavailable for the selected workspace."
 msgstr ""
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:899
+msgid "Runtime Stats"
+msgstr "运行时统计"
+
+#. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:225
 msgid "Runtime tools"
 msgstr "运行时工具"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:205
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:911
 msgid "Runtime updated"
 msgstr "Runtime 已更新"
 
@@ -4542,7 +4940,7 @@ msgid "Saturday"
 msgstr "星期六"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:126
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:107
 msgid "Save"
 msgstr "保存"
 
@@ -4653,12 +5051,12 @@ msgid "Script string wrapper."
 msgstr "脚本字符串包装器。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:128
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:132
 msgid "Scroll back to the latest message to resume auto-follow."
 msgstr "滚回最新消息以恢复自动跟随。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:659
+#: src/components/shell/AppMenuBar.tsx:717
 #: src/pages/SkillsPage.tsx:145
 #: src/pages/thread-page/threadPageComposerShared.tsx:376
 #: src/pages/thread-page/threadPageComposerShared.tsx:482
@@ -4681,7 +5079,7 @@ msgid "Search for and import state from external agents on this machine."
 msgstr "在此机器上搜索并导入外部 agent 的状态。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/CommandPalette.tsx:229
+#: src/components/shell/CommandPalette.tsx:243
 msgid "Search navigation, actions, and recent context."
 msgstr "搜索导航、动作和最近上下文。"
 
@@ -4689,6 +5087,17 @@ msgstr "搜索导航、动作和最近上下文。"
 #: src/pages/SkillsPage.tsx:147
 msgid "Search skills"
 msgstr "搜索技能"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:152
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:158
+msgid "Search terminal"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:741
+msgid "Search terminal output"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:537
@@ -4701,7 +5110,7 @@ msgid "Select a template"
 msgstr "选择模板"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:257
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:329
 msgid "Select a thread from the left sidebar to start working in this workspace."
 msgstr "从左侧边栏选择一个线程，开始在此工作区中工作。"
 
@@ -4711,7 +5120,7 @@ msgid "Select a thread to activate the workspace composer."
 msgstr "选择一个线程以启用工作区输入框。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:38
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:42
 msgid "Select a thread to compact its context."
 msgstr "选择一个线程以压缩其上下文。"
 
@@ -4732,9 +5141,9 @@ msgid "Select model"
 msgstr "选择模型"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:171
-msgid "Selected thread"
-msgstr "已选线程"
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:784
+msgid "Selected Thread"
+msgstr "当前线程"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:267
@@ -4742,8 +5151,7 @@ msgid "Selected Workspace"
 msgstr "已选工作区"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:82
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:254
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:86
 msgid "Send"
 msgstr "发送"
 
@@ -4758,27 +5166,27 @@ msgid "Send failed"
 msgstr "发送失败"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:243
-msgid "Send stdin to selected process"
-msgstr "向选中进程发送 stdin"
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:229
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:301
 msgid "Send the first message to start this thread."
 msgstr "发送第一条消息以开始此线程。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:96
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:301
+msgid "Sending"
+msgstr "发送中"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:100
 msgid "Sending message to Codex…"
 msgstr "正在向 Codex 发送消息…"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:197
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:269
 msgid "Sending message…"
 msgstr "正在发送消息…"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:73
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:77
 msgid "Sending…"
 msgstr "发送中…"
 
@@ -4825,6 +5233,7 @@ msgstr "设置失败"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:508
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:73
 msgid "Shell"
 msgstr "Shell"
 
@@ -4834,7 +5243,8 @@ msgid "Shell & Execution Configuration"
 msgstr "Shell 与执行配置"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:143
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:619
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:633
 msgid "Shell Environment"
 msgstr "Shell 环境"
 
@@ -4855,9 +5265,15 @@ msgid "Shell environment policy updated"
 msgstr "Shell 环境策略已更新"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:135
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:618
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:625
 msgid "Shell Environment Risk"
 msgstr "Shell 环境风险"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:935
+msgid "Shell Stats"
+msgstr "Shell 统计"
 
 #. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:731
@@ -4895,9 +5311,7 @@ msgid "Shift the shell to a darker workbench for long sessions."
 msgstr "切换到更深色的工作台，适合长时间使用。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:131
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:59
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:57
+#: src/components/ui/CollapsiblePanel.tsx:64
 msgid "Show"
 msgstr "显示"
 
@@ -4905,6 +5319,11 @@ msgstr "显示"
 #: src/components/shell/AppShell.tsx:1391
 msgid "Show {count} more"
 msgstr "再显示 {count} 个"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:625
+msgid "Show archived ({count})"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1406
@@ -4922,12 +5341,17 @@ msgid "Show Templates"
 msgstr "显示模板"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDock.tsx:59
+msgid "Show terminal"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:268
 msgid "Show thread ID, context usage, and quota status"
 msgstr "显示线程 ID、上下文使用情况和额度状态"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRail.tsx:103
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:115
 msgid "Side rail"
 msgstr "侧边栏"
 
@@ -4961,7 +5385,7 @@ msgstr "技能发现保持绑定到当前活动的 runtime 根目录。"
 #: src/pages/SkillsPage.tsx:80
 #: src/pages/thread-page/threadPageComposerShared.tsx:380
 #: src/pages/thread-page/threadPageComposerShared.tsx:477
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:73
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:53
 msgid "Skills"
 msgstr "技能"
 
@@ -5043,13 +5467,19 @@ msgstr "开始时间"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:1216
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:12
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:33
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:305
 msgid "Starting"
 msgstr "启动中"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:868
+msgid "Starting terminal session…"
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/settings/McpSettingsPage.tsx:96
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:175
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:155
 msgid "Starting…"
 msgstr "启动中…"
 
@@ -5058,6 +5488,7 @@ msgstr "启动中…"
 #: src/pages/settings/ConfigSettingsPage.tsx:1014
 #: src/pages/thread-page/ThreadComposerDock.tsx:313
 #: src/pages/thread-page/threadPageComposerShared.tsx:264
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:793
 msgid "Status"
 msgstr "状态"
 
@@ -5076,10 +5507,15 @@ msgid "Status: {status}"
 msgstr "状态：{status}"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:78
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:265
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:82
 msgid "Stop"
 msgstr "停止"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:238
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:244
+msgid "Stop session"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/components/ui/StatusPill.tsx:55
@@ -5089,12 +5525,12 @@ msgid "Stopped"
 msgstr "已停止"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:91
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:95
 msgid "Stopping current reply…"
 msgstr "正在停止当前回复…"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:68
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:72
 msgid "Stopping…"
 msgstr "停止中…"
 
@@ -5114,9 +5550,15 @@ msgid "Strategy Guide"
 msgstr "策略指南"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:167
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:664
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:759
 msgid "Stream"
 msgstr "流状态"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:307
+msgid "Streaming"
+msgstr "流式输出中"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1101
@@ -5140,6 +5582,7 @@ msgstr "轻微"
 
 #. js-lingui-explicit-id
 #: src/components/shell/NotificationCenter.tsx:409
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:289
 msgid "Success"
 msgstr "成功"
 
@@ -5172,7 +5615,7 @@ msgid "Switch the focused workspace to inspect its runtime-backed config and res
 msgstr "切换焦点工作区，以查看其 Runtime 配置和重启行为。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:642
+#: src/components/shell/AppMenuBar.tsx:700
 msgid "Sync thread now"
 msgstr "立即同步线程"
 
@@ -5187,7 +5630,7 @@ msgid "Syncing…"
 msgstr "同步中…"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:170
+#: src/components/shell/AppMenuBar.tsx:171
 #: src/features/settings/appearance.ts:214
 msgid "System"
 msgstr "系统"
@@ -5236,9 +5679,15 @@ msgid "Templates"
 msgstr "模板"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:63
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:134
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:658
 msgid "Terminal"
 msgstr "终端"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:941
+msgid "Terminal position"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/features/settings/appearance.ts:282
@@ -5259,6 +5708,11 @@ msgstr "配置值已成功写入。"
 #: src/pages/settings/EnvironmentSettingsPage.tsx:323
 msgid "The current runtime process started after the last tracked runtime-affecting config change, or no tracked config change exists."
 msgstr "当前 runtime 进程启动于最近一次已跟踪的运行时敏感配置变更之后，或当前不存在已跟踪的配置变更。"
+
+#. js-lingui-explicit-id
+#: src/features/settings/shell-environment-diagnostics.ts:106
+msgid "The current shell_environment_policy does not indicate the specific Windows core-mode risk pattern."
+msgstr "当前 shell_environment_policy 未显示特定的 Windows core 模式风险特征。"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationDetailPage.tsx:303
@@ -5286,7 +5740,7 @@ msgid "The route returned an unexpected response and could not complete renderin
 msgstr "此路由返回了意外响应，无法完成渲染。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:108
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:112
 msgid "The runtime is stopping the active turn. The thread will settle in place when it completes."
 msgstr "运行时正在停止当前轮次。完成后线程会稳定到最终状态。"
 
@@ -5328,13 +5782,13 @@ msgid "The tracked runtime-affecting config was changed after the current runtim
 msgstr "已跟踪的运行时敏感配置在当前 runtime 进程启动后发生了变更。需要重启，才能确保实时进程已加载最新配置。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:602
+#: src/components/shell/AppMenuBar.tsx:660
 msgid "Theme"
 msgstr "主题"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:415
-#: src/components/shell/AppMenuBar.tsx:423
+#: src/components/shell/AppMenuBar.tsx:418
+#: src/components/shell/AppMenuBar.tsx:426
 msgid "Theme mode"
 msgstr "主题模式"
 
@@ -5379,7 +5833,7 @@ msgid "This permanently removes the automation and its recorded runs. You will b
 msgstr "这将永久删除该自动化及其运行记录。随后你会返回自动化列表。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageRailLayoutProps.ts:74
+#: src/pages/thread-page/buildThreadPageRailLayoutProps.ts:87
 msgid "This removes the thread from this workspace list and clears its active UI state."
 msgstr "这会将线程从当前工作区列表中移除，并清除其当前 UI 状态。"
 
@@ -5419,6 +5873,11 @@ msgid "This selection controls translated shell copy and localized dates, times,
 msgstr "此选项控制壳层文案翻译，以及日期、时间和数字的本地化格式。"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:889
+msgid "This terminal session is read-only because the process has already exited."
+msgstr ""
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/threadPageComposerShared.tsx:1052
 msgid "This thread is archived."
 msgstr "当前线程已归档。"
@@ -5444,12 +5903,13 @@ msgid "This will remove the thread from the current workspace list."
 msgstr "这会将线程从当前工作区列表中移除。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:251
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:323
 msgid "this workspace"
 msgstr "当前工作区"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:399
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:788
 msgid "Thread"
 msgstr "线程"
 
@@ -5464,7 +5924,12 @@ msgid "Thread execution was interrupted."
 msgstr "线程执行已被中断。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:650
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:797
+msgid "Thread ID"
+msgstr "线程 ID"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppMenuBar.tsx:708
 msgid "Thread idle"
 msgstr "线程空闲"
 
@@ -5479,7 +5944,7 @@ msgid "Thread Name"
 msgstr "线程名称"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:646
+#: src/components/shell/AppMenuBar.tsx:704
 msgid "Thread running"
 msgstr "线程运行中"
 
@@ -5495,18 +5960,19 @@ msgid "Thread send error"
 msgstr "线程发送异常"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:654
+#: src/components/shell/AppMenuBar.tsx:712
 #: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:41
 msgid "Thread tools"
 msgstr "线程工具"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:127
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:107
 msgid "thread/shellCommand"
 msgstr "thread/shellCommand"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:168
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:669
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:762
 msgid "Threads"
 msgstr "线程"
 
@@ -5529,9 +5995,14 @@ msgid "Time"
 msgstr "时间"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:177
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:880
 msgid "Timeline items"
 msgstr "时间线项"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:554
+msgid "Timeline items count every loaded item in the conversation stream, including tools, approvals, and system cards."
+msgstr "时间线条目统计会话流中所有已加载项目，包括工具、审批和系统卡片。"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/McpSettingsPage.tsx:89
@@ -5571,9 +6042,29 @@ msgid "Total"
 msgstr "总量"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:845
+msgid "Total messages"
+msgstr "总消息数"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:519
+msgid "Total thread turns currently known for the selected thread. Loaded coverage shows how much of that history is present in the active viewport window."
+msgstr "总轮次数表示当前所选线程已知的全部轮次。已加载覆盖率表示这些历史中有多少已出现在当前视口窗口。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:822
+msgid "Total turns"
+msgstr "总轮次数"
+
+#. js-lingui-explicit-id
 #: src/pages/settings/GeneralSettingsPage.tsx:359
 msgid "Track how much quota remains before the next reset window."
 msgstr "跟踪下一个重置窗口到来前还剩多少配额。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:747
+msgid "Tracked"
+msgstr "已跟踪"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:339
@@ -5591,7 +6082,7 @@ msgid "Trigger"
 msgstr "触发方式"
 
 #. js-lingui-explicit-id
-#: src/components/shell/CommandPalette.tsx:306
+#: src/components/shell/CommandPalette.tsx:330
 msgid "Try a page name, workspace, thread, or action keyword."
 msgstr "试试输入页面名、工作区、线程或动作关键字。"
 
@@ -5628,12 +6119,12 @@ msgid "Turn Sandbox (JSON)"
 msgstr "回合沙箱（JSON）"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:175
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:677
 msgid "Turns"
 msgstr "轮次"
 
 #. js-lingui-explicit-id
-#: src/components/shell/CommandPalette.tsx:248
+#: src/components/shell/CommandPalette.tsx:272
 msgid "Type a command or destination"
 msgstr "输入命令或目标位置"
 
@@ -5665,14 +6156,25 @@ msgstr "无法读取该值"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ArchivedThreadsSettingsPage.tsx:135
-#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:84
+#: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:65
 msgid "Unarchive"
 msgstr "取消归档"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:575
+msgid "Unarchive {command}"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ArchivedThreadsSettingsPage.tsx:157
 msgid "Unarchive Failed"
 msgstr "取消归档失败"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:211
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:223
+msgid "Unarchive session"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:416
@@ -5720,7 +6222,9 @@ msgstr "未知"
 #: src/pages/thread-page/threadPageComposerShared.tsx:731
 #: src/pages/thread-page/threadPageComposerShared.tsx:736
 #: src/pages/thread-page/threadPageComposerShared.tsx:835
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:209
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:319
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:404
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:915
 msgid "Unknown"
 msgstr "未知"
 
@@ -5729,6 +6233,17 @@ msgstr "未知"
 #: src/lib/route-error.ts:193
 msgid "Unknown Error"
 msgstr "未知错误"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalDockSections.tsx:551
+msgid "Unpin {command}"
+msgstr ""
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:182
+#: src/pages/thread-page/ThreadTerminalToolbar.tsx:194
+msgid "Unpin session"
+msgstr ""
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1955
@@ -5760,11 +6275,6 @@ msgstr "更新这个可复用的自动化模式。"
 #: src/pages/settings/ConfigSettingsPage.tsx:1041
 msgid "Updated"
 msgstr ""
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadTerminalDockSections.tsx:84
-msgid "updated {time}"
-msgstr "更新于 {time}"
 
 #. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:638
@@ -5837,6 +6347,16 @@ msgid "User messages stay only faintly tinted so both sides read almost the same
 msgstr "用户消息仅保留很淡的着色，让双方内容的阅读权重更接近。"
 
 #. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:871
+msgid "User/assistant"
+msgstr "用户/助手"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:549
+msgid "User/assistant ratio is based on loaded messages only, shown as user messages to assistant messages."
+msgstr "用户/助手比例仅基于已加载消息，显示格式为用户消息数 : 助手消息数。"
+
+#. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1515
 msgid "Validation status and requirements."
 msgstr "校验状态与要求。"
@@ -5863,7 +6383,7 @@ msgid "Verify detected items in the side panel."
 msgstr "在侧边栏中核验检测到的项目。"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:214
+#: src/components/shell/AppMenuBar.tsx:215
 msgid "View"
 msgstr "视图"
 
@@ -5873,9 +6393,14 @@ msgid "Visible"
 msgstr "可见"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:48
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:52
 msgid "Wait until the current reply finishes before compacting this thread."
 msgstr "请等当前回复完成后再压缩此线程。"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:303
+msgid "Waiting"
+msgstr "等待中"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:932
@@ -5935,19 +6460,19 @@ msgid "Which shell type should you choose?"
 msgstr "你应该选择哪种 shell 类型？"
 
 #. js-lingui-explicit-id
-#: src/components/shell/AppMenuBar.tsx:219
+#: src/components/shell/AppMenuBar.tsx:220
 #: src/pages/thread-page/threadPageComposerShared.tsx:1317
 msgid "Window"
 msgstr "窗口"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRail.tsx:99
+#: src/pages/thread-page/ThreadWorkbenchRail.tsx:111
 #: src/pages/WorkspacesPage.tsx:170
 msgid "Workbench"
 msgstr "工作台"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:35
+#: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:36
 msgid "Workbench tools"
 msgstr "工作台工具"
 
@@ -5970,13 +6495,13 @@ msgstr "工作流"
 #: src/pages/CatalogPage.tsx:291
 #: src/pages/SkillsPage.tsx:132
 #: src/pages/SkillsPage.tsx:134
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:166
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:757
 #: src/pages/WorkspacesPage.tsx:168
 msgid "Workspace"
 msgstr "工作区"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:245
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:317
 msgid "Workspace {name} does not have any threads yet."
 msgstr "工作区 {name} 还没有任何线程。"
 
@@ -5989,11 +6514,6 @@ msgstr "工作区 {name} 现已出现在注册列表中。"
 #: src/pages/RouteErrorPage.tsx:131
 msgid "Workspace area"
 msgstr "工作区区域"
-
-#. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:82
-msgid "Workspace context"
-msgstr "工作区上下文"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1509
@@ -6041,6 +6561,16 @@ msgstr "工作区作用域"
 #: src/components/settings/SettingsWorkspaceScopePanel.tsx:68
 msgid "Workspace Scope Unavailable"
 msgstr "工作区作用域不可用"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:755
+msgid "Workspace Stats"
+msgstr "工作区统计"
+
+#. js-lingui-explicit-id
+#: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:670
+msgid "Workspace total"
+msgstr "工作区总计"
 
 #. js-lingui-explicit-id
 #: src/pages/CatalogPage.tsx:558
@@ -6115,11 +6645,11 @@ msgid "Your editable palette."
 msgstr ""
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:208
+#: src/pages/thread-page/ThreadWorkbenchSurface.tsx:280
 msgid "Your message is staged and the thread is preparing a response."
 msgstr "你的消息已暂存，线程正在准备回复。"
 
 #. js-lingui-explicit-id
-#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:113
+#: src/pages/thread-page/buildThreadPageInteractionStatus.ts:117
 msgid "Your message is staged. The primary action will switch to Stop as soon as the turn is live."
 msgstr "你的消息已暂存，一旦轮次进入运行状态，主操作会切换为停止。"

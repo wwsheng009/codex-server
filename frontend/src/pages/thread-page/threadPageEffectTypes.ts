@@ -1,5 +1,8 @@
+import type { QueryClient } from '@tanstack/react-query'
 import type { MutableRefObject } from 'react'
+import type { NavigateFunction } from 'react-router-dom'
 
+import type { ServerEvent } from '../../types/api'
 import type { ContextCompactionFeedback } from './threadPageComposerShared'
 
 export type ThreadPageEffectsInput = {
@@ -24,10 +27,10 @@ export type ThreadPageEffectsInput = {
   latestThreadDetailId?: string
   liveThreadTurns?: Array<{ id: string }>
   mobileThreadToolsOpen: boolean
-  queryClient: {
-    invalidateQueries: (input: { queryKey: unknown[] }) => Promise<unknown>
-  }
+  navigate: NavigateFunction
+  queryClient: Pick<QueryClient, 'invalidateQueries' | 'setQueryData'>
   resetMobileThreadChrome: () => void
+  routeThreadId?: string
   selectedThread?: { id: string; name: string }
   selectedThreadEvents: Array<{ method: string; ts: string }>
   selectedThreadId?: string
@@ -55,7 +58,7 @@ export type ThreadPageEffectsInput = {
   setSyncClock: (value: number) => void
   streamState: string
   syncTitle: string
-  workspaceActivityEvents: Array<{ method: string; serverRequestId?: string | null }>
+  workspaceActivityEvents: ServerEvent[]
   workspaceId: string
   chromeState: {
     statusLabel: string
@@ -71,6 +74,8 @@ export type ThreadPageLifecycleEffectsInput = Pick<
   | 'currentThreads'
   | 'latestThreadDetailId'
   | 'liveThreadTurns'
+  | 'navigate'
+  | 'routeThreadId'
   | 'selectedThreadId'
   | 'setSelectedThread'
   | 'setSelectedWorkspace'
@@ -79,8 +84,10 @@ export type ThreadPageLifecycleEffectsInput = Pick<
 
 export type ThreadPageRefreshEffectsInput = Pick<
   ThreadPageEffectsInput,
+  | 'activePendingTurn'
   | 'contextCompactionFeedback'
   | 'isDocumentVisible'
+  | 'streamState'
   | 'queryClient'
   | 'selectedThreadEvents'
   | 'selectedThreadId'

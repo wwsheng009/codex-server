@@ -1,4 +1,5 @@
 import type { Account, PendingApproval, ServerEvent, Thread, ThreadTurn } from '../../types/api'
+import type { TerminalDockPlacement } from '../../lib/layout-config'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ComposerStatusInfo, ContextCompactionFeedback } from './threadPageComposerShared'
 
@@ -17,9 +18,14 @@ export type ThreadPageStatusStateInput = {
   interruptPending: boolean
   isInspectorExpanded: boolean
   isMobileViewport: boolean
+  isTerminalDockVisible: boolean
   isSelectedThreadLoaded: boolean | null
   isTerminalDockExpanded: boolean
   isTerminalDockResizing: boolean
+  isTerminalWindowDragging: boolean
+  isTerminalWindowMaximized: boolean
+  isTerminalWindowResizing: boolean
+  terminalDockPlacement: TerminalDockPlacement
   isThreadPinnedToLatest: boolean
   latestDisplayedTurn?: ThreadTurn
   liveThreadStatus?: string
@@ -78,8 +84,13 @@ export type ThreadPageWorkbenchStatusInput = Pick<
   | 'displayedTurnsLength'
   | 'isInspectorExpanded'
   | 'isMobileViewport'
+  | 'isTerminalDockVisible'
   | 'isTerminalDockExpanded'
   | 'isTerminalDockResizing'
+  | 'isTerminalWindowDragging'
+  | 'isTerminalWindowMaximized'
+  | 'isTerminalWindowResizing'
+  | 'terminalDockPlacement'
   | 'isThreadPinnedToLatest'
   | 'selectedThread'
   | 'selectedThreadEvents'
