@@ -7,6 +7,7 @@ import {
   shouldRefetchApprovalsQuery,
   syncApprovalQueriesFromWorkspaceActivity,
 } from './sync'
+import type { ApprovalSyncQueryClient } from './approvalTypes'
 import type { PendingApproval, ServerEvent } from '../../types/api'
 
 describe('approval workspace sync', () => {
@@ -59,11 +60,11 @@ describe('approval workspace sync', () => {
 
     try {
       const invalidateSpy = vi.fn().mockResolvedValue(undefined)
-      const queryClient = {
+      const queryClient: ApprovalSyncQueryClient = {
         invalidateQueries: invalidateSpy,
         isFetching: vi.fn().mockReturnValue(0),
         setQueryData: vi.fn(),
-      } as unknown as Pick<QueryClient, 'invalidateQueries' | 'isFetching' | 'setQueryData'>
+      }
       const lastProcessedEventKeyByWorkspace = new Map<string, string>()
       const pendingInvalidationByWorkspace = new Map()
 
@@ -127,11 +128,11 @@ describe('approval workspace sync', () => {
             invalidateControl.resolve = resolve
           }),
       )
-      const queryClient = {
+      const queryClient: ApprovalSyncQueryClient = {
         invalidateQueries: invalidateSpy,
         isFetching: vi.fn().mockReturnValue(0),
         setQueryData: vi.fn(),
-      } as unknown as Pick<QueryClient, 'invalidateQueries' | 'isFetching' | 'setQueryData'>
+      }
       const lastProcessedEventKeyByWorkspace = new Map<string, string>()
       const pendingInvalidationByWorkspace = new Map()
       const firstEvent: ServerEvent = {

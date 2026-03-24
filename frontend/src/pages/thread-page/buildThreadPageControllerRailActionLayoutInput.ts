@@ -1,33 +1,10 @@
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
-import type { ControllerRailLayoutInput } from './threadPageControllerLayoutInputTypes'
-
-type RailActionLayoutInput = Pick<
-  ControllerRailLayoutInput,
-  | 'onArchiveToggle'
-  | 'onBeginRenameThread'
-  | 'onCancelRenameThread'
-  | 'onChangeCommand'
-  | 'onChangeCommandRunMode'
-  | 'onChangeEditingThreadName'
-  | 'onCloseDeleteThreadDialog'
-  | 'onConfirmDeleteThreadDialog'
-  | 'onDeleteThread'
-  | 'onHideSurfacePanel'
-  | 'onInspectorResizeStart'
-  | 'onOpenInspector'
-  | 'onOpenSurfacePanel'
-  | 'onResetInspectorWidth'
-  | 'onStartCommand'
-  | 'onSubmitRenameThread'
-  | 'onToggleThreadToolsExpanded'
-  | 'onToggleWorkbenchToolsExpanded'
->
 
 export function buildThreadPageControllerRailActionLayoutInput({
   controllerState,
   pageActions,
   railState,
-}: BuildThreadPageControllerLayoutPropsInput): RailActionLayoutInput {
+}: BuildThreadPageControllerLayoutPropsInput) {
   return {
     onArchiveToggle: pageActions.handleToggleArchiveSelectedThread,
     onBeginRenameThread: railState.handleBeginRenameSelectedThread,

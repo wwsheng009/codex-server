@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   compareTerminalStressRuns,
+  type CompletedTerminalStressRun,
+} from './threadTerminalStressDomain'
+import {
   createTerminalStressExport,
   parseTerminalStressHistory,
   serializeTerminalStressHistory,
-  type CompletedTerminalStressRun,
-} from './threadTerminalStressUtils'
+} from './threadTerminalStressStorage'
 
 function buildCompletedRun(
   overrides: Partial<CompletedTerminalStressRun> = {},

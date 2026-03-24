@@ -1,6 +1,5 @@
 import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 
-import type { ThreadTerminalDockProps } from '../../features/thread-terminal'
 import type { SurfacePanelView } from '../../lib/layout-config'
 import type { Thread } from '../../types/api'
 import type { ShellEnvironmentDiagnosisSummary } from '../../features/settings/shell-environment-diagnostics'
@@ -39,7 +38,6 @@ export type ThreadWorkbenchRailProps = {
   startCommandPending: boolean
   streamState: string
   surfacePanelView: SurfacePanelView | null
-  terminalDockProps?: ThreadTerminalDockProps
   contextUsagePercent: number | null
   contextWindow: number
   loadedMessageCount: number
@@ -68,4 +66,84 @@ export type ThreadWorkbenchRailProps = {
   onStartCommand: (event: FormEvent<HTMLFormElement>) => void
   onToggleThreadToolsExpanded: () => void
   onToggleWorkbenchToolsExpanded: () => void
+}
+
+export type ThreadWorkbenchRailCollapsedProps = {
+  onOpenInspector: () => void
+  onOpenSurfacePanel: (view: SurfacePanelView) => void
+}
+
+export type ThreadWorkbenchRailMobileQuickActionsProps = {
+  onOpenSurfacePanel: (view: SurfacePanelView) => void
+  surfacePanelView: SurfacePanelView | null
+}
+
+export type ThreadWorkbenchRailInfoLabelProps = {
+  help?: string
+  label: string
+}
+
+export type ThreadWorkbenchRailThreadToolsSectionProps = {
+  deletePending: boolean
+  deletingThreadId?: string
+  editingThreadId?: string
+  editingThreadName: string
+  isThreadToolsExpanded: boolean
+  onArchiveToggle: () => void
+  onBeginRenameThread: () => void
+  onCancelRenameThread: () => void
+  onChangeEditingThreadName: (value: string) => void
+  onDeleteThread: () => void
+  onSubmitRenameThread: (event: FormEvent<HTMLFormElement>) => void
+  onToggleThreadToolsExpanded: () => void
+  selectedThread?: Thread
+}
+
+export type ThreadWorkbenchRailWorkbenchToolsSectionProps = {
+  command: string
+  commandRunMode: CommandRunMode
+  isWorkbenchToolsExpanded: boolean
+  onChangeCommand: (value: string) => void
+  onChangeCommandRunMode: (value: CommandRunMode) => void
+  onStartCommand: (event: FormEvent<HTMLFormElement>) => void
+  onToggleWorkbenchToolsExpanded: () => void
+  selectedThread?: Thread
+  startCommandModeDisabled: boolean
+  startCommandPending: boolean
+}
+
+export type ThreadWorkbenchRailWorkspaceContextSectionProps = {
+  commandCount: number
+  contextUsagePercent: number | null
+  contextWindow: number
+  isMobileViewport: boolean
+  lastTimelineEventTs?: string
+  latestTurnStatus?: string
+  loadedAssistantMessageCount: number
+  loadedMessageCount: number
+  loadedTurnCount: number
+  loadedUserMessageCount: number
+  liveThreadCwd?: string
+  onHideSurfacePanel: () => void
+  onOpenSurfacePanel: (view: SurfacePanelView) => void
+  pendingApprovalsCount: number
+  rootPath?: string
+  runtimeConfigChangedAt?: string
+  runtimeConfigLoadStatus: string
+  runtimeRestartRequired: boolean
+  runtimeStartedAt?: string
+  runtimeUpdatedAt?: string
+  selectedThread?: Thread
+  shellEnvironmentInfo?: string
+  shellEnvironmentSummary?: ShellEnvironmentDiagnosisSummary
+  shellEnvironmentWarning?: string
+  streamState: string
+  surfacePanelView: SurfacePanelView | null
+  threadCount: number
+  timelineItemCount: number
+  totalMessageCount: number
+  totalTokens: number
+  totalTurnCount: number
+  turnCount: number
+  workspaceName?: string
 }

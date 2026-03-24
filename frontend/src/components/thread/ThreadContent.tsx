@@ -4,6 +4,8 @@ import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import type { ThreadContentBlockProps } from './threadContentTypes'
+
 const markdownComponents: Components = {
   a({ node: _node, href, rel, ...props }) {
     const isLocalAnchor = typeof href === 'string' && href.startsWith('#')
@@ -22,10 +24,7 @@ const markdownComponents: Components = {
 export function ThreadMarkdown({
   content,
   className,
-}: {
-  content: string
-  className?: string
-}) {
+}: ThreadContentBlockProps) {
   if (!content.trim()) {
     return null
   }
@@ -42,10 +41,7 @@ export function ThreadMarkdown({
 export function ThreadCodeBlock({
   content,
   className,
-}: {
-  content: string
-  className?: string
-}) {
+}: ThreadContentBlockProps) {
   if (!content) {
     return null
   }
@@ -60,10 +56,7 @@ export function ThreadCodeBlock({
 export function ThreadPlainText({
   content,
   className,
-}: {
-  content: string
-  className?: string
-}) {
+}: ThreadContentBlockProps) {
   if (!content) {
     return null
   }
@@ -74,10 +67,7 @@ export function ThreadPlainText({
 export function ThreadTerminalBlock({
   content,
   className,
-}: {
-  content: string
-  className?: string
-}) {
+}: ThreadContentBlockProps) {
   const html = useMemo(() => renderAnsiHtml(content), [content])
 
   if (!content) {

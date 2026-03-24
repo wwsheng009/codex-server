@@ -69,6 +69,16 @@ type SessionState = {
   removeThread: (workspaceId: string, threadId: string) => void
 }
 
+type ApplySessionEventsState = {
+  activityEventsByWorkspace: Record<string, ServerEvent[]>
+  commandSessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>
+  eventsByThread: Record<string, ServerEvent[]>
+  selectedThreadIdByWorkspace: Record<string, string>
+  threadActivityByThread: Record<string, ThreadActivitySummary>
+  tokenUsageByThread: Record<string, ThreadTokenUsage>
+  workspaceEventsByWorkspace: Record<string, ServerEvent[]>
+}
+
 export const useSessionStore = create<SessionState>()(
   persist(
     (set) => ({
@@ -270,16 +280,7 @@ export const useSessionStore = create<SessionState>()(
 )
 
 function applySessionEvents(
-  current: Pick<
-    SessionState,
-    | 'activityEventsByWorkspace'
-    | 'commandSessionsByWorkspace'
-    | 'eventsByThread'
-    | 'selectedThreadIdByWorkspace'
-    | 'threadActivityByThread'
-    | 'tokenUsageByThread'
-    | 'workspaceEventsByWorkspace'
-  >,
+  current: ApplySessionEventsState,
   events: ServerEvent[],
 ) {
   if (events.length === 0) {

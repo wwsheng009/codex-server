@@ -1,65 +1,4 @@
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
-import type { ControllerComposerLayoutInput } from './threadPageControllerLayoutInputTypes'
-
-type ComposerStateLayoutInput = Pick<
-  ControllerComposerLayoutInput,
-  | 'accountEmail'
-  | 'activeComposerApproval'
-  | 'activeComposerPanel'
-  | 'activePendingTurn'
-  | 'approvalsCount'
-  | 'autoPruneDays'
-  | 'compactDisabledReason'
-  | 'compactFeedback'
-  | 'compactPending'
-  | 'composerActivityDetail'
-  | 'composerActivityTitle'
-  | 'composerAutocompleteIndex'
-  | 'composerAutocompleteSectionGroups'
-  | 'composerDockRef'
-  | 'composerDockMeasureRef'
-  | 'composerInputRef'
-  | 'composerPreferences'
-  | 'composerStatusInfo'
-  | 'composerStatusMessage'
-  | 'composerStatusRetryLabel'
-  | 'contextWindow'
-  | 'customInstructions'
-  | 'desktopModelOptions'
-  | 'fileSearchIsFetching'
-  | 'hasUnreadThreadUpdates'
-  | 'interruptPending'
-  | 'isApprovalDialogOpen'
-  | 'isCommandAutocompleteOpen'
-  | 'isComposerLocked'
-  | 'isInterruptMode'
-  | 'isMentionAutocompleteOpen'
-  | 'isSendBusy'
-  | 'isSkillAutocompleteOpen'
-  | 'maxWorktrees'
-  | 'mcpServerStates'
-  | 'mcpServerStatusLoading'
-  | 'message'
-  | 'mobileCollaborationModeOptions'
-  | 'mobileModelOptions'
-  | 'mobilePermissionOptions'
-  | 'mobileReasoningOptions'
-  | 'modelsLoading'
-  | 'percent'
-  | 'rateLimits'
-  | 'rateLimitsError'
-  | 'rateLimitsLoading'
-  | 'resolvedThreadTokenUsage'
-  | 'responseTone'
-  | 'reuseBranches'
-  | 'runtimeStatus'
-  | 'sendButtonLabel'
-  | 'shouldShowComposerSpinner'
-  | 'showJumpToLatestButton'
-  | 'showMentionSearchHint'
-  | 'showSkillSearchLoading'
-  | 'totalTokens'
->
 
 export function buildThreadPageControllerComposerStateLayoutInput({
   controllerState,
@@ -69,7 +8,7 @@ export function buildThreadPageControllerComposerStateLayoutInput({
   panelState,
   statusState,
   viewportState,
-}: BuildThreadPageControllerLayoutPropsInput): ComposerStateLayoutInput {
+}: BuildThreadPageControllerLayoutPropsInput) {
   return {
     accountEmail: dataState.accountQuery.data?.email,
     activeComposerApproval: displayState.activeComposerApproval,

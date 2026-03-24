@@ -10,8 +10,7 @@ import {
   writeTerminalWindowBounds,
   writeTerminalWindowMaximized,
 } from '../../lib/layout-state'
-import type { SurfacePanelSides, SurfacePanelWidths } from './workbenchLayoutTypes'
-import type { TerminalDockPlacement, TerminalWindowBounds } from '../../lib/layout-config'
+import type { UseWorkbenchLayoutPersistenceInput } from './workbenchLayoutTypes'
 
 export function useWorkbenchLayoutPersistence({
   inspectorWidth,
@@ -22,16 +21,7 @@ export function useWorkbenchLayoutPersistence({
   isTerminalDockVisible,
   terminalWindowBounds,
   isTerminalWindowMaximized,
-}: {
-  inspectorWidth: number
-  isInspectorExpanded: boolean
-  surfacePanelSides: SurfacePanelSides
-  surfacePanelWidths: SurfacePanelWidths
-  terminalDockPlacement: TerminalDockPlacement
-  isTerminalDockVisible: boolean
-  terminalWindowBounds: TerminalWindowBounds
-  isTerminalWindowMaximized: boolean
-}) {
+}: UseWorkbenchLayoutPersistenceInput) {
   useEffect(() => {
     writeRightRailExpanded(isInspectorExpanded)
   }, [isInspectorExpanded])

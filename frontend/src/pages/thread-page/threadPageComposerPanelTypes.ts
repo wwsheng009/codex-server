@@ -1,7 +1,5 @@
 import type { CatalogItem } from '../../types/api'
-import type {
-  ComposerAutocompleteMode,
-} from '../../lib/composer-autocomplete'
+import type { ComposerAutocompleteMode } from '../../lib/composer-autocomplete'
 import type {
   ComposerCommandDefinition,
   ComposerCommandMenu,
@@ -29,20 +27,18 @@ export type ThreadPageComposerPanelStateInput = {
   supportsPlanMode: boolean
 }
 
-export type BuildComposerAvailableModelsInput = Pick<
-  ThreadPageComposerPanelStateInput,
-  'composerPreferences' | 'models'
->
+export type BuildComposerAvailableModelsInput = {
+  composerPreferences: ComposerPreferences
+  models: CatalogItem[]
+}
 
-export type BuildComposerPanelFlagsInput = Pick<
-  ThreadPageComposerPanelStateInput,
-  | 'fileSearchIsFetching'
-  | 'isMentionAutocompleteOpen'
-  | 'isSkillAutocompleteOpen'
-  | 'normalizedDeferredComposerQuery'
-  | 'skillsIsFetching'
-> & {
+export type BuildComposerPanelFlagsInput = {
   composerAutocompleteItemsLength: number
+  fileSearchIsFetching: boolean
+  isMentionAutocompleteOpen: boolean
+  isSkillAutocompleteOpen: boolean
+  normalizedDeferredComposerQuery: string
+  skillsIsFetching: boolean
 }
 
 export type BuildComposerPreferenceOptionsInput = {

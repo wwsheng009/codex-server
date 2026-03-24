@@ -6,17 +6,64 @@ import { Tooltip } from '../../components/ui/Tooltip'
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
 import { ConversationRenderProfilerRailToggle } from '../../components/workspace/threadConversationProfiler'
 import { i18n } from '../../i18n/runtime'
-import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+import type { ThreadWorkbenchRailWorkspaceContextSectionProps } from './threadWorkbenchRailTypes'
+
+type DetailRowProps = {
+  emphasis?: boolean
+  label: React.ReactNode
+  value: React.ReactNode
+}
+
+type SummaryStatTone = 'default' | 'success' | 'warning'
+
+type SummaryStatProps = {
+  label: React.ReactNode
+  value: React.ReactNode
+  meta?: React.ReactNode
+  footer?: React.ReactNode
+  tone?: SummaryStatTone
+}
+
+type StatusBadgeProps = {
+  value?: string | null
+}
+
+type PendingApprovalsBadgeProps = {
+  count: number
+  compact?: boolean
+}
+
+type ProgressTone = 'accent' | 'warning' | 'danger' | 'neutral'
+
+type ProgressMeterLayout = 'inline' | 'block'
+
+type ProgressMeterProps = {
+  ariaLabel: string
+  layout?: ProgressMeterLayout
+  metaLabel?: string
+  percent: number | null
+  showSummary?: boolean
+  tone?: ProgressTone
+  width?: 'default' | 'full'
+}
+
+type CoverageMeterProps = {
+  ariaLabel: string
+  current: number
+  layout?: ProgressMeterLayout
+  total: number
+}
+
+type InfoLabelProps = {
+  help?: string
+  label: string
+}
 
 function DetailRow({
   emphasis = false,
   label,
   value,
-}: {
-  emphasis?: boolean
-  label: React.ReactNode
-  value: React.ReactNode
-}) {
+}: DetailRowProps) {
   return (
     <div className={emphasis ? 'detail-row detail-row--emphasis' : 'detail-row'}>
       <span>{label}</span>
@@ -31,13 +78,7 @@ function SummaryStat({
   meta,
   footer,
   tone = 'default',
-}: {
-  label: React.ReactNode
-  value: React.ReactNode
-  meta?: React.ReactNode
-  footer?: React.ReactNode
-  tone?: 'default' | 'success' | 'warning'
-}) {
+}: SummaryStatProps) {
   return (
     <article
       className={
@@ -56,7 +97,7 @@ function SummaryStat({
   )
 }
 
-function StatusBadge({ value }: { value?: string | null }) {
+function StatusBadge({ value }: StatusBadgeProps) {
   return (
     <span className={`detail-badge detail-badge--${statusTone(value)}`}>
       {formatStatusLabel(value)}
@@ -67,10 +108,7 @@ function StatusBadge({ value }: { value?: string | null }) {
 function PendingApprovalsBadge({
   count,
   compact = false,
-}: {
-  count: number
-  compact?: boolean
-}) {
+}: PendingApprovalsBadgeProps) {
   if (compact) {
     return (
       <span
@@ -101,8 +139,6 @@ function PendingApprovalsBadge({
   )
 }
 
-type ProgressTone = 'accent' | 'warning' | 'danger' | 'neutral'
-
 function ProgressMeter({
   ariaLabel,
   layout = 'inline',
@@ -111,15 +147,7 @@ function ProgressMeter({
   showSummary = true,
   tone = 'accent',
   width = 'default',
-}: {
-  ariaLabel: string
-  layout?: 'inline' | 'block'
-  metaLabel?: string
-  percent: number | null
-  showSummary?: boolean
-  tone?: ProgressTone
-  width?: 'default' | 'full'
-}) {
+}: ProgressMeterProps) {
   const safePercent = percent === null ? null : Math.max(0, Math.min(100, percent))
   const valueLabel = safePercent === null ? '—' : `${safePercent}%`
 
@@ -169,12 +197,7 @@ function CoverageMeter({
   current,
   layout = 'inline',
   total,
-}: {
-  ariaLabel: string
-  current: number
-  layout?: 'inline' | 'block'
-  total: number
-}) {
+}: CoverageMeterProps) {
   const safeCurrent = Math.max(0, total > 0 ? Math.min(current, total) : current)
   const percent = total > 0 ? Math.round((safeCurrent / total) * 100) : null
   const countsLabel = `${safeCurrent} / ${total}`
@@ -192,10 +215,7 @@ function CoverageMeter({
 function InfoLabel({
   help,
   label,
-}: {
-  help?: string
-  label: string
-}) {
+}: InfoLabelProps) {
   if (!help) {
     return <span className="info-label">{label}</span>
   }
@@ -406,42 +426,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   timelineItemCount,
   turnCount,
   workspaceName,
-}: Pick<
-  ThreadWorkbenchRailProps,
-  | 'commandCount'
-  | 'contextUsagePercent'
-  | 'contextWindow'
-  | 'isMobileViewport'
-  | 'lastTimelineEventTs'
-  | 'latestTurnStatus'
-  | 'loadedAssistantMessageCount'
-  | 'loadedMessageCount'
-  | 'loadedTurnCount'
-  | 'liveThreadCwd'
-  | 'loadedUserMessageCount'
-  | 'onHideSurfacePanel'
-  | 'onOpenSurfacePanel'
-  | 'pendingApprovalsCount'
-  | 'rootPath'
-  | 'runtimeConfigChangedAt'
-  | 'runtimeConfigLoadStatus'
-  | 'runtimeRestartRequired'
-  | 'runtimeStartedAt'
-  | 'runtimeUpdatedAt'
-  | 'selectedThread'
-  | 'shellEnvironmentInfo'
-  | 'shellEnvironmentSummary'
-  | 'shellEnvironmentWarning'
-  | 'streamState'
-  | 'surfacePanelView'
-  | 'totalTokens'
-  | 'totalMessageCount'
-  | 'totalTurnCount'
-  | 'threadCount'
-  | 'timelineItemCount'
-  | 'turnCount'
-  | 'workspaceName'
->) {
+}: ThreadWorkbenchRailWorkspaceContextSectionProps) {
   const effectiveShellEnvironmentSummary = shellEnvironmentSummary ?? {
     inherit: 'inherit',
     windowsCommandResolution: 'unknown',

@@ -1,14 +1,16 @@
 import type { ServerEvent, ThreadDetail, ThreadTurn } from '../types/api'
 
+export type ResolveLiveThreadDetailInput = {
+  currentLiveDetail?: ThreadDetail
+  events: ServerEvent[]
+  threadDetail?: ThreadDetail
+}
+
 export function resolveLiveThreadDetail({
   currentLiveDetail,
   events,
   threadDetail,
-}: {
-  currentLiveDetail?: ThreadDetail
-  events: ServerEvent[]
-  threadDetail?: ThreadDetail
-}) {
+}: ResolveLiveThreadDetailInput) {
   const baseDetail = selectLiveThreadDetailBase(currentLiveDetail, threadDetail)
   return applyLiveThreadEvents(baseDetail, events)
 }

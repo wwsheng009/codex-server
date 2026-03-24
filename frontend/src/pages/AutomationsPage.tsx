@@ -22,6 +22,7 @@ import {
   listAutomationTemplates,
   pauseAutomation,
   resumeAutomation,
+  type TemplateInput,
   updateAutomationTemplate,
 } from '../features/automations/api'
 import {
@@ -48,6 +49,16 @@ type TemplateDraft = {
   description: string
   prompt: string
   category: string
+}
+
+type AutomationActionInput = {
+  id: string
+  action: 'pause' | 'resume' | 'fix'
+}
+
+type UpdateAutomationTemplateInput = {
+  templateId: string
+  input: TemplateInput
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -177,7 +188,7 @@ export function AutomationsPage() {
     },
   })
   const automationActionMutation = useMutation({
-    mutationFn: async (input: { id: string; action: 'pause' | 'resume' | 'fix' }) => {
+    mutationFn: async (input: AutomationActionInput) => {
       switch (input.action) {
         case 'pause':
           return pauseAutomation(input.id)
@@ -212,7 +223,7 @@ export function AutomationsPage() {
     },
   })
   const updateTemplateMutation = useMutation({
-    mutationFn: ({ templateId, input }: { templateId: string; input: { category: string; title: string; description: string; prompt: string } }) =>
+    mutationFn: ({ templateId, input }: UpdateAutomationTemplateInput) =>
       updateAutomationTemplate(templateId, input),
     onSuccess: async () => {
       setTemplateModalOpen(false)

@@ -1,16 +1,12 @@
 import { useMemo } from 'react'
 
-import type { Thread, ThreadDetail } from '../../types/api'
+import type { UseThreadPageSelectedThreadInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageSelectedThread({
   selectedThreadId,
   threadDetail,
   threads,
-}: {
-  selectedThreadId?: string
-  threadDetail?: ThreadDetail
-  threads?: Thread[]
-}) {
+}: UseThreadPageSelectedThreadInput) {
   return useMemo(
     () =>
       (threadDetail?.id === selectedThreadId ? threadDetail : undefined) ??

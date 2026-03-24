@@ -1,15 +1,15 @@
 import { DetailGroup } from '../../components/ui/DetailGroup'
 import { i18n } from '../../i18n/runtime'
 import { Tooltip } from '../../components/ui/Tooltip'
-import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+import type {
+  ThreadWorkbenchRailInfoLabelProps,
+  ThreadWorkbenchRailThreadToolsSectionProps,
+} from './threadWorkbenchRailTypes'
 
 function InfoLabel({
   help,
   label,
-}: {
-  help?: string
-  label: string
-}) {
+}: ThreadWorkbenchRailInfoLabelProps) {
   if (!help) {
     return <span className="info-label">{label}</span>
   }
@@ -48,22 +48,7 @@ export function ThreadWorkbenchRailThreadToolsSection({
   onSubmitRenameThread,
   onToggleThreadToolsExpanded,
   selectedThread,
-}: Pick<
-  ThreadWorkbenchRailProps,
-  | 'deletePending'
-  | 'deletingThreadId'
-  | 'editingThreadId'
-  | 'editingThreadName'
-  | 'isThreadToolsExpanded'
-  | 'onArchiveToggle'
-  | 'onBeginRenameThread'
-  | 'onCancelRenameThread'
-  | 'onChangeEditingThreadName'
-  | 'onDeleteThread'
-  | 'onSubmitRenameThread'
-  | 'onToggleThreadToolsExpanded'
-  | 'selectedThread'
->) {
+}: ThreadWorkbenchRailThreadToolsSectionProps) {
   const isEditingSelectedThread = Boolean(selectedThread && editingThreadId === selectedThread.id)
 
   return (

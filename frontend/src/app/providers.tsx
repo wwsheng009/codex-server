@@ -16,7 +16,11 @@ const queryClient = new QueryClient({
   },
 })
 
-export function Providers({ children }: { children: ReactNode }) {
+type ProvidersProps = {
+  children: ReactNode
+}
+
+export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <LinguiClientProvider>

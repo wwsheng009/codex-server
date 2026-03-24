@@ -3,10 +3,8 @@ import { useEffect, useMemo } from 'react'
 import { buildComposerAutocompleteSections } from './threadPageComposerShared'
 import type {
   ComposerAutocompleteItem,
-  ComposerCommandDefinition,
-  ComposerCommandMenu,
 } from './threadPageComposerShared'
-import type { CatalogItem } from '../../types/api'
+import type { UseThreadComposerAutocompleteInput } from './threadPageRuntimeTypes'
 
 export function useThreadComposerAutocomplete({
   activeComposerMode,
@@ -20,19 +18,7 @@ export function useThreadComposerAutocomplete({
   query,
   setComposerAutocompleteIndex,
   skills,
-}: {
-  activeComposerMode?: 'command' | 'mention' | 'skill'
-  commandDefinitions: ComposerCommandDefinition[]
-  commandMenu: ComposerCommandMenu
-  composerAutocompleteIndex: number
-  isCommandAutocompleteOpen: boolean
-  isMentionAutocompleteOpen: boolean
-  isSkillAutocompleteOpen: boolean
-  mentionFiles: Array<{ path: string; name: string; directory: string }>
-  query: string
-  setComposerAutocompleteIndex: (value: number | ((current: number) => number)) => void
-  skills: CatalogItem[]
-}) {
+}: UseThreadComposerAutocompleteInput) {
   const composerAutocompleteSections = useMemo(() => {
     if (isCommandAutocompleteOpen) {
       return buildComposerAutocompleteSections({

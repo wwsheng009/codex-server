@@ -7,7 +7,10 @@ import {
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
 } from '../threadPageUtils'
-import type { ThreadPageRefreshEffectsInput } from './threadPageEffectTypes'
+import type {
+  ThreadPageQueryRefreshRequest,
+  ThreadPageRefreshEffectsInput,
+} from './threadPageEffectTypes'
 
 export function useThreadPageRefreshEffects({
   activePendingTurn,
@@ -40,11 +43,7 @@ export function useThreadPageRefreshEffects({
     lastProcessedWorkspaceActivityEventKeyRef.current = ''
   }, [workspaceId])
 
-  function scheduleThreadQueryRefresh(options: {
-    delayMs?: number
-    loadedThreads?: boolean
-    threads?: boolean
-  }) {
+  function scheduleThreadQueryRefresh(options: ThreadPageQueryRefreshRequest) {
     const { delayMs = 120, loadedThreads = false, threads = false } = options
     pendingThreadListRefreshRef.current = pendingThreadListRefreshRef.current || threads
     pendingLoadedThreadRefreshRef.current =

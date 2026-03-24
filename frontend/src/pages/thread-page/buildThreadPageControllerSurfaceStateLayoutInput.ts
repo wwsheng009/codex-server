@@ -1,59 +1,5 @@
 import { getErrorMessage } from '../../lib/error-utils'
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
-import type { ControllerSurfaceLayoutInput } from './threadPageControllerLayoutInputTypes'
-
-type SurfaceStateLayoutInput = Pick<
-  ControllerSurfaceLayoutInput,
-  | 'activeCommandCount'
-  | 'activePendingTurnPhase'
-  | 'activeSurfacePanelSide'
-  | 'approvalAnswers'
-  | 'approvalErrors'
-  | 'approvals'
-  | 'commandSessions'
-  | 'createThreadErrorMessage'
-  | 'displayedTurns'
-  | 'hasMoreTurnsBefore'
-  | 'hasThreads'
-  | 'hiddenTurnsCount'
-  | 'isCreateThreadPending'
-  | 'isLoadingOlderTurns'
-  | 'isThreadsLoaded'
-  | 'isThreadSelectionLoading'
-  | 'isMobileViewport'
-  | 'isSurfacePanelResizing'
-  | 'isTerminalDockVisible'
-  | 'isTerminalDockExpanded'
-  | 'isTerminalWindowMaximized'
-  | 'isThreadPinnedToLatest'
-  | 'isThreadProcessing'
-  | 'isThreadViewportInteracting'
-  | 'isWaitingForThreadData'
-  | 'liveTimelineEntries'
-  | 'placement'
-  | 'queryClient'
-  | 'respondingToApproval'
-  | 'rootPath'
-  | 'selectedCommandSession'
-  | 'selectedThread'
-  | 'selectedThreadId'
-  | 'setIsTerminalDockExpanded'
-  | 'setIsTerminalDockVisible'
-  | 'setSurfacePanelSides'
-  | 'startTerminalCommandPending'
-  | 'surfacePanelView'
-  | 'terminalDockClassName'
-  | 'terminalWindowBounds'
-  | 'terminateDisabled'
-  | 'threadDetailError'
-  | 'threadDetailIsLoading'
-  | 'threadLogStyle'
-  | 'threadRuntimeNotice'
-  | 'timelineIdentity'
-  | 'threadViewportRef'
-  | 'workspaceName'
-  | 'workspaceId'
->
 
 export function buildThreadPageControllerSurfaceStateLayoutInput({
   controllerState,
@@ -62,7 +8,7 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
   mutationState,
   statusState,
   viewportState,
-}: BuildThreadPageControllerLayoutPropsInput): SurfaceStateLayoutInput {
+}: BuildThreadPageControllerLayoutPropsInput) {
   const activeSelectedThreadId =
     dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
   const isTerminableCommandSession =
@@ -116,7 +62,6 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     selectedThread: dataState.selectedThread,
     selectedThreadId: activeSelectedThreadId,
     setIsTerminalDockExpanded: controllerState.setIsTerminalDockExpanded,
-    setIsTerminalDockVisible: controllerState.setIsTerminalDockVisible,
     setSurfacePanelSides: controllerState.setSurfacePanelSides,
     startTerminalCommandPending: mutationState.startCommandMutation.isPending,
     surfacePanelView: controllerState.surfacePanelView,
@@ -128,7 +73,6 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
     threadLogStyle: viewportState.threadLogStyle,
     threadRuntimeNotice: statusState.threadRuntimeNotice,
-    timelineIdentity: activeSelectedThreadId ?? '',
     threadViewportRef: viewportState.threadViewportRef,
     workspaceName: dataState.workspaceQuery.data?.name,
     workspaceId: controllerState.workspaceId,

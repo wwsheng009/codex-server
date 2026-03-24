@@ -1,40 +1,4 @@
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
-import type { ControllerSurfaceLayoutInput } from './threadPageControllerLayoutInputTypes'
-
-type SurfaceActionLayoutInput = Pick<
-  ControllerSurfaceLayoutInput,
-  | 'onChangeApprovalAnswer'
-  | 'onCaptureOlderTurnsAnchor'
-  | 'onChangePlacement'
-  | 'onClearCompletedSessions'
-  | 'onCloseWorkbenchOverlay'
-  | 'onCreateThread'
-  | 'onHideTerminalDock'
-  | 'onLoadOlderTurns'
-  | 'onReleaseFullTurn'
-  | 'onRetainFullTurn'
-  | 'onResetTerminalWindowBounds'
-  | 'onRequestFullTurn'
-  | 'onRemoveSession'
-  | 'onResizeTerminal'
-  | 'onRespondApproval'
-  | 'onRestoreOlderTurnsViewport'
-  | 'onResizeStart'
-  | 'onRetryServerRequest'
-  | 'onSelectSession'
-  | 'onShowTerminalDock'
-  | 'onStartTerminalShellSession'
-  | 'onStartTerminalCommandLine'
-  | 'onStartTerminalWindowDrag'
-  | 'onStartTerminalWindowResize'
-  | 'onToggleArchivedSession'
-  | 'onTogglePinnedSession'
-  | 'onToggleTerminalWindowMaximized'
-  | 'onSurfacePanelResizeStart'
-  | 'onTerminateSelectedSession'
-  | 'onThreadViewportScroll'
-  | 'onWriteTerminalData'
->
 
 export function buildThreadPageControllerSurfaceActionLayoutInput({
   composerActions,
@@ -43,7 +7,7 @@ export function buildThreadPageControllerSurfaceActionLayoutInput({
   pageActions,
   railState,
   viewportState,
-}: BuildThreadPageControllerLayoutPropsInput): SurfaceActionLayoutInput {
+}: BuildThreadPageControllerLayoutPropsInput) {
   return {
     onChangeApprovalAnswer: pageActions.handleApprovalAnswerChange,
     onCaptureOlderTurnsAnchor: viewportState.captureOlderTurnsAnchor,

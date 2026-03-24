@@ -143,6 +143,25 @@ export type ComposerAutocompleteSection = {
   items: ComposerAutocompleteItem[]
 }
 
+export type ComposerAutocompleteFileEntry = {
+  directory: string
+  name: string
+  path: string
+}
+
+export type ComposerOptionGlyphProps = {
+  icon: ComposerOptionIcon
+}
+
+export type BuildComposerAutocompleteSectionsInput = {
+  commandMenu: ComposerCommandMenu
+  commands: ComposerCommandDefinition[]
+  files: ComposerAutocompleteFileEntry[]
+  mode: 'command' | 'mention' | 'skill'
+  query: string
+  skills: CatalogItem[]
+}
+
 function getFeedbackPrompt() {
   return i18n._({
     id: 'Please help me draft a product feedback report with a summary, reproduction steps, expected result, actual result, and impact scope:',
@@ -362,14 +381,7 @@ function matchesComposerQuery(query: string, values: string[]) {
   return values.some((value) => value.toLowerCase().includes(normalizedQuery))
 }
 
-export function buildComposerAutocompleteSections(input: {
-  mode: 'command' | 'mention' | 'skill'
-  commands: ComposerCommandDefinition[]
-  commandMenu: ComposerCommandMenu
-  query: string
-  skills: CatalogItem[]
-  files: Array<{ path: string; name: string; directory: string }>
-}) {
+export function buildComposerAutocompleteSections(input: BuildComposerAutocompleteSectionsInput) {
   const { commands, commandMenu, files, mode, query, skills } = input
   const sections: ComposerAutocompleteSection[] = []
   const reviewShortcuts = getReviewShortcuts()
@@ -577,7 +589,7 @@ function ComposerFileIcon() {
   )
 }
 
-export function ComposerOptionGlyph({ icon }: { icon: ComposerOptionIcon }) {
+export function ComposerOptionGlyph({ icon }: ComposerOptionGlyphProps) {
   switch (icon) {
     case 'mcp':
       return <TerminalIcon />
@@ -666,6 +678,21 @@ export type ComposerStatusInfo = {
   detailRows: ComposerStatusDetailRow[]
   noticeTitle?: string
   noticeMessage?: string
+}
+
+export type BuildComposerStatusInfoInput = {
+  approvalSummary?: string
+  isApprovalDialogOpen: boolean
+  isThreadInterruptible: boolean
+  isThreadLoaded: boolean | null
+  isWaitingForThreadData: boolean
+  latestTurnError?: unknown
+  latestTurnStatus?: string
+  pendingPhase?: 'sending' | 'waiting'
+  rawThreadStatus?: string
+  requiresOpenAIAuth: boolean
+  sendError?: string | null
+  streamState: string
 }
 
 function normalizeStatusValue(value?: string) {
@@ -804,20 +831,7 @@ function describeStreamState(value: string) {
   }
 }
 
-export function buildComposerStatusInfo(input: {
-  streamState: string
-  rawThreadStatus?: string
-  latestTurnStatus?: string
-  latestTurnError?: unknown
-  sendError?: string | null
-  requiresOpenAIAuth: boolean
-  isApprovalDialogOpen: boolean
-  approvalSummary?: string
-  isWaitingForThreadData: boolean
-  pendingPhase?: 'sending' | 'waiting'
-  isThreadInterruptible: boolean
-  isThreadLoaded: boolean | null
-}) {
+export function buildComposerStatusInfo(input: BuildComposerStatusInfoInput) {
   const rawThreadStatus = input.rawThreadStatus ?? ''
   const latestTurnStatus = input.latestTurnStatus ?? ''
   const rawNormalized = normalizeStatusValue(rawThreadStatus)
@@ -1102,13 +1116,15 @@ export function formatSyncCountdown(lastSyncAtMs: number, intervalMs: number, no
   return `${minutes}m ${seconds}s`
 }
 
-export function buildSyncStatusDisplay(input: {
+export type BuildSyncStatusDisplayInput = {
   autoSyncIntervalMs: number | null
   isHeaderSyncBusy: boolean
   lastAutoSyncAtMs: number
   nowMs: number
   streamState: string
-}) {
+}
+
+export function buildSyncStatusDisplay(input: BuildSyncStatusDisplayInput) {
   if (input.isHeaderSyncBusy) {
     return {
       syncLabel: i18n._({
@@ -1163,6 +1179,17 @@ export function buildSyncStatusDisplay(input: {
   }
 }
 
+export type ContextUsageIndicatorProps = {
+  compactDisabledReason: string | null
+  compactFeedback: ContextCompactionFeedback | null
+  compactPending: boolean
+  contextWindow: number
+  onCompact: () => void
+  percent: number | null
+  totalTokens: number
+  usage: ThreadTokenUsage | null | undefined
+}
+
 export function ContextUsageIndicator({
   compactDisabledReason,
   compactFeedback,
@@ -1172,16 +1199,7 @@ export function ContextUsageIndicator({
   percent,
   totalTokens,
   usage,
-}: {
-  usage: ThreadTokenUsage | null | undefined
-  percent: number | null
-  totalTokens: number
-  contextWindow: number
-  compactDisabledReason: string | null
-  compactFeedback: ContextCompactionFeedback | null
-  compactPending: boolean
-  onCompact: () => void
-}) {
+}: ContextUsageIndicatorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const usagePercent = percent ?? 0
@@ -1404,7 +1422,11 @@ export function ContextUsageIndicator({
   )
 }
 
-export function ComposerStatusIndicator({ info }: { info: ComposerStatusInfo }) {
+export type ComposerStatusIndicatorProps = {
+  info: ComposerStatusInfo
+}
+
+export function ComposerStatusIndicator({ info }: ComposerStatusIndicatorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [position, setPosition] = useState<{ bottom: number; right: number } | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)

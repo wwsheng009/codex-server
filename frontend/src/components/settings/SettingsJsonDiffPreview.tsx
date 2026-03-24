@@ -15,6 +15,22 @@ type SettingsJsonDiffPreviewProps = {
   entries: ConfigScenarioDiffEntry[]
 }
 
+type UnifiedDiffRowsProps = {
+  rows: SettingsJsonDiffLine[]
+}
+
+type SplitDiffRowsProps = {
+  rows: SettingsJsonDiffSplitRow[]
+}
+
+type SplitDiffCellSide = 'left' | 'right'
+
+type SplitDiffCellProps = {
+  line: SettingsJsonDiffLine | null
+  side: SplitDiffCellSide
+  divider?: boolean
+}
+
 export function SettingsJsonDiffPreview({
   title,
   description,
@@ -133,7 +149,7 @@ function getChangeTypeLabel(changeType: 'added' | 'removed' | 'modified') {
   }
 }
 
-function UnifiedDiffRows({ rows }: { rows: SettingsJsonDiffLine[] }) {
+function UnifiedDiffRows({ rows }: UnifiedDiffRowsProps) {
   return (
     <div className="settings-json-diff__viewport">
       <table className="settings-json-diff__table settings-json-diff__table--unified">
@@ -174,7 +190,7 @@ function UnifiedDiffRows({ rows }: { rows: SettingsJsonDiffLine[] }) {
   )
 }
 
-function SplitDiffRows({ rows }: { rows: SettingsJsonDiffSplitRow[] }) {
+function SplitDiffRows({ rows }: SplitDiffRowsProps) {
   return (
     <div className="settings-json-diff__viewport">
       <table className="settings-json-diff__table settings-json-diff__table--split">
@@ -208,11 +224,7 @@ function SplitDiffCell({
   line,
   side,
   divider = false,
-}: {
-  line: SettingsJsonDiffLine | null
-  side: 'left' | 'right'
-  divider?: boolean
-}) {
+}: SplitDiffCellProps) {
   const kind = line?.kind ?? 'empty'
   const dividerClass = divider ? ' settings-json-diff__cell--divider' : ''
   const lineNumber =

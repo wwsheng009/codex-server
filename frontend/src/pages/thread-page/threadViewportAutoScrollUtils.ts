@@ -142,12 +142,7 @@ export function resolveThreadViewportScrollDeferState({
   nowMs,
   policy,
   userScrollLockUntilMs,
-}: {
-  isThreadViewportInteracting: boolean
-  nowMs: number
-  policy: ThreadViewportProgrammaticScrollPolicy
-  userScrollLockUntilMs: number
-}) {
+}: ResolveThreadViewportScrollDeferStateInput) {
   if (isThreadViewportInteracting) {
     return {
       delayMs: THREAD_VIEWPORT_SCROLL_RETRY_MS,
@@ -176,15 +171,24 @@ export function resolveThreadViewportScrollDeferState({
   }
 }
 
+export type ResolveThreadViewportScrollDeferStateInput = {
+  isThreadViewportInteracting: boolean
+  nowMs: number
+  policy: ThreadViewportProgrammaticScrollPolicy
+  userScrollLockUntilMs: number
+}
+
+export type ResolveOlderTurnsRestoreTargetInput = {
+  anchorScrollHeight: number
+  anchorScrollTop: number
+  currentScrollHeight: number
+}
+
 export function resolveOlderTurnsRestoreTarget({
   anchorScrollHeight,
   anchorScrollTop,
   currentScrollHeight,
-}: {
-  anchorScrollHeight: number
-  anchorScrollTop: number
-  currentScrollHeight: number
-}) {
+}: ResolveOlderTurnsRestoreTargetInput) {
   const scrollHeightDelta = currentScrollHeight - anchorScrollHeight
   if (scrollHeightDelta <= 0) {
     return null

@@ -48,6 +48,11 @@ type ViewportPinnedState = {
   shouldResetUnread: boolean
 }
 
+type ReduceThreadViewportContentChangeInput = {
+  shouldAutoScroll: boolean
+  shouldMarkUnread: boolean
+}
+
 export function createThreadViewportCoordinatorState(
   selectedThreadId?: string,
 ): ThreadViewportCoordinatorState {
@@ -82,10 +87,7 @@ export function reduceThreadViewportSelection(
 
 export function reduceThreadViewportContentChange(
   state: ThreadViewportCoordinatorState,
-  input: {
-    shouldAutoScroll: boolean
-    shouldMarkUnread: boolean
-  },
+  input: ReduceThreadViewportContentChangeInput,
 ): ThreadViewportCoordinatorResult {
   if (input.shouldAutoScroll) {
     return {

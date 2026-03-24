@@ -10,6 +10,7 @@ import { SendIcon, StopIcon } from '../../components/ui/RailControls'
 import { ApprovalDialog } from '../../components/workspace/renderers'
 import type { PendingApproval, RateLimit, Thread, ThreadTokenUsage } from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
+import type { ThreadPageRespondApprovalInput } from './threadPageActionTypes'
 import {
   type ComposerAssistPanel,
   type ComposerAutocompleteItem,
@@ -35,7 +36,12 @@ type ComposerAutocompleteSectionGroup = ComposerAutocompleteSection & {
   }>
 }
 
-type ThreadComposerDockProps = {
+type WorkingTimerProps = {
+  startTime: number
+  isInterruptible: boolean
+}
+
+export type ThreadComposerDockProps = {
   accountEmail?: string
   activeComposerApproval?: PendingApproval | null
   activeComposerPanel: ComposerAssistPanel | null
@@ -96,11 +102,7 @@ type ThreadComposerDockProps = {
   onComposerSelect: (caret: number) => void
   onJumpToLatest: () => void
   onPrimaryComposerAction: () => void
-  onRespondApproval: (input: {
-    requestId: string
-    action: string
-    answers?: Record<string, string[]>
-  }) => void
+  onRespondApproval: (input: ThreadPageRespondApprovalInput) => void
   onRetryComposerStatus?: () => void
   onSelectComposerAutocompleteItem: (item: ComposerAutocompleteItem) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -124,7 +126,7 @@ type ThreadComposerDockProps = {
   workspaceId: string
 }
 
-function WorkingTimer({ startTime, isInterruptible }: { startTime: number; isInterruptible: boolean }) {
+function WorkingTimer({ startTime, isInterruptible }: WorkingTimerProps) {
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {

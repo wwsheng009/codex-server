@@ -1,10 +1,10 @@
 import type {
-  BuildThreadPageLayoutPropsInput,
+  BuildThreadPageComposerDockPropsInput,
   ComposerDockProps,
 } from './threadPageLayoutPropTypes'
 
 export function buildThreadPageComposerDockProps(
-  input: BuildThreadPageLayoutPropsInput,
+  input: BuildThreadPageComposerDockPropsInput,
 ): ComposerDockProps {
   return {
     accountEmail: input.accountEmail,

@@ -7,18 +7,54 @@ import type {
   ThreadTurnItemOutput,
 } from '../../types/api'
 
+export type ListThreadsPageInput = {
+  archived?: boolean
+  cursor?: string
+  limit?: number
+  sortKey?: 'created_at' | 'updated_at'
+}
+
+export type GetThreadInput = {
+  beforeTurnId?: string
+  contentMode?: 'full' | 'summary'
+  turnLimit?: number
+}
+
+export type GetThreadTurnInput = {
+  contentMode?: 'full' | 'summary'
+}
+
+export type GetThreadTurnItemInput = {
+  contentMode?: 'full' | 'summary'
+}
+
+export type GetThreadTurnItemOutputInput = {
+  beforeLine?: number
+  outputMode?: 'full' | 'summary' | 'tail'
+  tailLines?: number
+}
+
+export type CreateThreadInput = {
+  model?: string
+  name?: string
+  permissionPreset?: string
+}
+
+export type RenameThreadInput = {
+  name: string
+}
+
+export type RunThreadShellCommandInput = {
+  command: string
+}
+
 export function listThreads(workspaceId: string) {
   return apiRequest<Thread[]>(`/api/workspaces/${workspaceId}/threads`)
 }
 
 export function listThreadsPage(
   workspaceId: string,
-  input: {
-    archived?: boolean
-    cursor?: string
-    limit?: number
-    sortKey?: 'created_at' | 'updated_at'
-  } = {},
+  input: ListThreadsPageInput = {},
 ) {
   const query = new URLSearchParams()
   if (typeof input.archived === 'boolean') {
@@ -57,7 +93,7 @@ export function listLoadedThreadIds(workspaceId: string) {
 export function getThread(
   workspaceId: string,
   threadId: string,
-  input?: { beforeTurnId?: string; contentMode?: 'full' | 'summary'; turnLimit?: number },
+  input?: GetThreadInput,
 ) {
   const query = new URLSearchParams()
   if (input?.beforeTurnId) {
@@ -78,7 +114,7 @@ export function getThreadTurn(
   workspaceId: string,
   threadId: string,
   turnId: string,
-  input?: { contentMode?: 'full' | 'summary' },
+  input?: GetThreadTurnInput,
 ) {
   const query = new URLSearchParams()
   if (input?.contentMode) {
@@ -96,7 +132,7 @@ export function getThreadTurnItem(
   threadId: string,
   turnId: string,
   itemId: string,
-  input?: { contentMode?: 'full' | 'summary' },
+  input?: GetThreadTurnItemInput,
 ) {
   const query = new URLSearchParams()
   if (input?.contentMode) {
@@ -114,7 +150,7 @@ export function getThreadTurnItemOutput(
   threadId: string,
   turnId: string,
   itemId: string,
-  input?: { outputMode?: 'full' | 'summary' | 'tail'; tailLines?: number; beforeLine?: number },
+  input?: GetThreadTurnItemOutputInput,
 ) {
   const query = new URLSearchParams()
   if (input?.outputMode) {
@@ -135,7 +171,7 @@ export function getThreadTurnItemOutput(
 
 export function createThread(
   workspaceId: string,
-  input: { name?: string; model?: string; permissionPreset?: string } = {},
+  input: CreateThreadInput = {},
 ) {
   return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads`, {
     method: 'POST',
@@ -149,7 +185,7 @@ export function resumeThread(workspaceId: string, threadId: string) {
   })
 }
 
-export function renameThread(workspaceId: string, threadId: string, input: { name: string }) {
+export function renameThread(workspaceId: string, threadId: string, input: RenameThreadInput) {
   return apiRequest<Thread>(`/api/workspaces/${workspaceId}/threads/${threadId}/name`, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -183,7 +219,7 @@ export function compactThread(workspaceId: string, threadId: string) {
 export function runThreadShellCommand(
   workspaceId: string,
   threadId: string,
-  input: { command: string },
+  input: RunThreadShellCommandInput,
 ) {
   return apiRequest<{ status: string }>(
     `/api/workspaces/${workspaceId}/threads/${threadId}/shell-command`,

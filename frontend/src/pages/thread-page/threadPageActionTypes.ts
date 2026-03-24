@@ -1,6 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { Dispatch, SetStateAction } from 'react'
 
+import type { RespondServerRequestWithDetailsInput } from '../../features/approvals/api'
+import type { StartCommandInput, WriteCommandInput } from '../../features/commands/api'
+import type { RunThreadShellCommandInput, RenameThreadInput } from '../../features/threads/api'
+import type { StartTurnInput } from '../../features/turns/api'
 import type { ThreadDetail, ThreadTurn, TurnResult } from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type {
@@ -11,15 +15,55 @@ import type {
 
 export type CommandRunMode = 'command-exec' | 'thread-shell'
 
-export type ThreadPageActionsInput = {
+export type ThreadPageCommandSessionSummary = {
+  archived?: boolean
+  id: string
+  pinned?: boolean
+  status: string
+}
+
+export type ThreadPageSelectedCommandSession = {
+  id: string
+  mode?: string
+  pinned?: boolean
+  shellState?: string
+  status?: string
+}
+
+export type ThreadPageSelectedThreadSummary = {
+  archived: boolean
+  id: string
+}
+
+export type ThreadPageRenameThreadMutationInput = {
+  name: RenameThreadInput['name']
+  threadId: string
+}
+
+export type ThreadPageRespondApprovalInput = RespondServerRequestWithDetailsInput & {
+  requestId: string
+}
+
+export type ThreadPageStartTurnMutationInput = StartTurnInput & {
+  threadId: string
+}
+
+export type ThreadPageStartCommandMutationInput = StartCommandInput
+
+export type ThreadPageThreadShellCommandMutationInput = RunThreadShellCommandInput & {
+  threadId: string
+}
+
+export type ThreadPageWriteCommandMutationInput = {
+  input: WriteCommandInput['input']
+  processId: string
+}
+
+export type ThreadPageThreadActionsInput = {
   archiveThreadMutation: {
     mutate: (threadId: string) => void
   }
-  clearCompletedCommandSessions: (workspaceId: string) => void
   closeDeleteThreadDialog: () => void
-  command: string
-  commandRunMode: CommandRunMode
-  commandSessions: Array<{ archived?: boolean; id: string; pinned?: boolean; status: string }>
   compactDisabledReason: string | null
   compactThreadMutation: {
     isPending: boolean
@@ -33,6 +77,12 @@ export type ThreadPageActionsInput = {
     reset: () => void
   }
   editingThreadName: string
+  fullTurnItemContentOverridesById: Record<string, Record<string, unknown>>
+  fullTurnItemOverridesById: Record<string, Record<string, unknown>>
+  fullTurnItemRetainCountById: Record<string, number>
+  fullTurnOverridesById: Record<string, ThreadTurn>
+  fullTurnRetainCountById: Record<string, number>
+  historicalTurns: ThreadTurn[]
   interruptTurnMutation: {
     isPending: boolean
     mutate: () => void
@@ -43,39 +93,15 @@ export type ThreadPageActionsInput = {
   message: string
   oldestDisplayedTurnId?: string
   queryClient: QueryClient
-  removeCommandSession: (workspaceId: string, processId: string) => void
-  updateCommandSession: (
-    workspaceId: string,
-    processId: string,
-    patch: Partial<{ archived?: boolean; pinned?: boolean; updatedAt?: string }>,
-  ) => void
   renameThreadMutation: {
-    mutate: (input: { threadId: string; name: string }) => void
+    mutate: (input: ThreadPageRenameThreadMutationInput) => void
   }
   requestDeleteSelectedThread: () => void
   respondApprovalMutation: {
-    mutate: (input: {
-      requestId: string
-      action: string
-      answers?: Record<string, string[]>
-    }) => void
+    mutate: (input: ThreadPageRespondApprovalInput) => void
   }
-  fullTurnOverridesById: Record<string, ThreadTurn>
-  fullTurnItemContentOverridesById: Record<string, Record<string, unknown>>
-  fullTurnItemOverridesById: Record<string, Record<string, unknown>>
-  fullTurnItemRetainCountById: Record<string, number>
-  fullTurnRetainCountById: Record<string, number>
-  historicalTurns: ThreadTurn[]
   scrollThreadToLatest: (behavior?: ScrollBehavior) => void
-  selectedCommandSession?: {
-    id: string
-    mode?: string
-    pinned?: boolean
-    shellState?: string
-    status?: string
-  }
-  selectedProcessId?: string
-  selectedThread?: { id: string; archived: boolean }
+  selectedThread?: ThreadPageSelectedThreadSummary
   selectedThreadId?: string
   setActiveComposerPanel: Dispatch<SetStateAction<ComposerAssistPanel | null>>
   setApprovalAnswers: Dispatch<SetStateAction<Record<string, Record<string, string>>>>
@@ -83,42 +109,25 @@ export type ThreadPageActionsInput = {
   setComposerCaret: (value: number) => void
   setComposerCommandMenu: Dispatch<SetStateAction<ComposerCommandMenu>>
   setDismissedComposerAutocompleteKey: (value: string | null) => void
-  setFullTurnItemContentOverridesById: Dispatch<SetStateAction<Record<string, Record<string, unknown>>>>
-  setFullTurnItemOverridesById: Dispatch<SetStateAction<Record<string, Record<string, unknown>>>>
+  setFullTurnItemContentOverridesById: Dispatch<
+    SetStateAction<Record<string, Record<string, unknown>>>
+  >
+  setFullTurnItemOverridesById: Dispatch<
+    SetStateAction<Record<string, Record<string, unknown>>>
+  >
   setFullTurnItemRetainCountById: Dispatch<SetStateAction<Record<string, number>>>
-  setHasMoreHistoricalTurnsBefore: Dispatch<SetStateAction<boolean | null>>
-  setHistoricalTurns: Dispatch<SetStateAction<ThreadTurn[]>>
   setFullTurnOverridesById: Dispatch<SetStateAction<Record<string, ThreadTurn>>>
   setFullTurnRetainCountById: Dispatch<SetStateAction<Record<string, number>>>
-  setIsTerminalDockExpanded: (value: boolean) => void
+  setHasMoreHistoricalTurnsBefore: Dispatch<SetStateAction<boolean | null>>
+  setHistoricalTurns: Dispatch<SetStateAction<ThreadTurn[]>>
   setIsLoadingOlderTurns: Dispatch<SetStateAction<boolean>>
   setMessage: (value: string) => void
-  setCommandRunMode: Dispatch<SetStateAction<CommandRunMode>>
-  setSelectedProcessId: (value: string | undefined) => void
   setSendError: (value: string | null) => void
   setThreadTurnWindowSize: Dispatch<SetStateAction<number>>
-  threadDetail?: ThreadDetail
-  startCommandMutation: {
-    mutate: (input: { command?: string; mode?: 'command' | 'shell'; shell?: string }) => void
-  }
-  threadShellCommandMutation: {
-    isPending: boolean
-    mutate: (input: { command: string; threadId: string }) => void
-  }
   startTurnMutation: {
-    mutateAsync: (input: {
-      threadId: string
-      input: string
-      model?: string
-      reasoningEffort?: string
-      permissionPreset?: string
-      collaborationMode?: string
-    }) => Promise<TurnResult>
+    mutateAsync: (input: ThreadPageStartTurnMutationInput) => Promise<TurnResult>
   }
-  stdinValue: string
-  terminateCommandMutation: {
-    mutate: (processId: string) => void
-  }
+  threadDetail?: ThreadDetail
   unarchiveThreadMutation: {
     mutate: (threadId: string) => void
   }
@@ -127,83 +136,42 @@ export type ThreadPageActionsInput = {
     updater: (current: PendingThreadTurn | null) => PendingThreadTurn | null,
   ) => void
   workspaceId: string
+}
+
+export type ThreadPageCommandActionsInput = {
+  clearCompletedCommandSessions: (workspaceId: string) => void
+  command: string
+  commandRunMode: CommandRunMode
+  commandSessions: ThreadPageCommandSessionSummary[]
+  removeCommandSession: (workspaceId: string, processId: string) => void
+  selectedCommandSession?: ThreadPageSelectedCommandSession
+  selectedProcessId?: string
+  selectedThreadId?: string
+  setCommandRunMode: Dispatch<SetStateAction<CommandRunMode>>
+  setIsTerminalDockExpanded: (value: boolean) => void
+  setSelectedProcessId: (value: string | undefined) => void
+  setSendError: (value: string | null) => void
+  startCommandMutation: {
+    mutate: (input: ThreadPageStartCommandMutationInput) => void
+  }
+  stdinValue: string
+  terminateCommandMutation: {
+    mutate: (processId: string) => void
+  }
+  threadShellCommandMutation: {
+    isPending: boolean
+    mutate: (input: ThreadPageThreadShellCommandMutationInput) => void
+  }
+  updateCommandSession: (
+    workspaceId: string,
+    processId: string,
+    patch: Partial<{ archived?: boolean; pinned?: boolean; updatedAt?: string }>,
+  ) => void
+  workspaceId: string
   writeCommandMutation: {
-    mutate: (input: { processId: string; input: string }) => void
+    mutate: (input: ThreadPageWriteCommandMutationInput) => void
   }
 }
 
-export type ThreadPageThreadActionsInput = Pick<
-  ThreadPageActionsInput,
-  | 'archiveThreadMutation'
-  | 'closeDeleteThreadDialog'
-  | 'compactDisabledReason'
-  | 'compactThreadMutation'
-  | 'composerPreferences'
-  | 'confirmingThreadDelete'
-  | 'deleteThreadMutation'
-  | 'editingThreadName'
-  | 'fullTurnItemContentOverridesById'
-  | 'fullTurnItemOverridesById'
-  | 'fullTurnItemRetainCountById'
-  | 'fullTurnOverridesById'
-  | 'fullTurnRetainCountById'
-  | 'historicalTurns'
-  | 'interruptTurnMutation'
-  | 'invalidateThreadQueries'
-  | 'isInterruptMode'
-  | 'isLoadingOlderTurns'
-  | 'message'
-  | 'oldestDisplayedTurnId'
-  | 'queryClient'
-  | 'renameThreadMutation'
-  | 'requestDeleteSelectedThread'
-  | 'respondApprovalMutation'
-  | 'scrollThreadToLatest'
-  | 'selectedThread'
-  | 'selectedThreadId'
-  | 'setActiveComposerPanel'
-  | 'setApprovalAnswers'
-  | 'setAuthRecoveryRequestedAt'
-  | 'setComposerCaret'
-  | 'setComposerCommandMenu'
-  | 'setDismissedComposerAutocompleteKey'
-  | 'setFullTurnItemContentOverridesById'
-  | 'setFullTurnItemOverridesById'
-  | 'setFullTurnItemRetainCountById'
-  | 'setFullTurnOverridesById'
-  | 'setFullTurnRetainCountById'
-  | 'setHasMoreHistoricalTurnsBefore'
-  | 'setHistoricalTurns'
-  | 'setIsLoadingOlderTurns'
-  | 'setMessage'
-  | 'setSendError'
-  | 'setThreadTurnWindowSize'
-  | 'startTurnMutation'
-  | 'threadDetail'
-  | 'unarchiveThreadMutation'
-  | 'updatePendingTurn'
-  | 'workspaceId'
->
-
-export type ThreadPageCommandActionsInput = Pick<
-  ThreadPageActionsInput,
-  | 'clearCompletedCommandSessions'
-  | 'command'
-  | 'commandRunMode'
-  | 'commandSessions'
-  | 'removeCommandSession'
-  | 'updateCommandSession'
-  | 'selectedCommandSession'
-  | 'selectedThreadId'
-  | 'setSendError'
-  | 'setCommandRunMode'
-  | 'selectedProcessId'
-  | 'setIsTerminalDockExpanded'
-  | 'setSelectedProcessId'
-  | 'startCommandMutation'
-  | 'threadShellCommandMutation'
-  | 'stdinValue'
-  | 'terminateCommandMutation'
-  | 'workspaceId'
-  | 'writeCommandMutation'
->
+export type ThreadPageActionsInput =
+  ThreadPageThreadActionsInput & ThreadPageCommandActionsInput

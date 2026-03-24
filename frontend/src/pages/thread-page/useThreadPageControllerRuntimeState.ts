@@ -1,22 +1,16 @@
-import type { RefObject } from 'react'
-
 import { useWorkspaceStream } from '../../hooks/useWorkspaceStream'
 import { usePendingThreadTurns } from './usePendingThreadTurns'
 import { useThreadComposerState } from './useThreadComposerState'
 import { useThreadPagePlanModeSupport } from './useThreadPagePlanModeSupport'
 import { useWorkbenchLayoutState } from './useWorkbenchLayoutState'
+import type { UseThreadPageControllerRuntimeStateInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageControllerRuntimeState({
   composerInputRef,
   isMobileViewport,
   selectedThreadId,
   workspaceId,
-}: {
-  composerInputRef: RefObject<HTMLTextAreaElement | null>
-  isMobileViewport: boolean
-  selectedThreadId?: string
-  workspaceId: string
-}) {
+}: UseThreadPageControllerRuntimeStateInput) {
   const {
     activeSurfacePanelSide,
     handleInspectorResizeStart,

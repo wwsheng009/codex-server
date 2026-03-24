@@ -28,6 +28,20 @@ import type { AutomationRun } from '../types/api'
 
 type RunViewMode = 'details' | 'summary' | 'logs'
 
+type AutomationStatusMutationInput = {
+  automationId: string
+  status: string
+}
+
+type AutomationErrorStateProps = {
+  error: unknown
+}
+
+type AutomationDetailRowProps = {
+  label: string
+  value: ReactNode
+}
+
 export function AutomationDetailPage() {
   const { automationId = '' } = useParams()
   const navigate = useNavigate()
@@ -57,7 +71,7 @@ export function AutomationDetailPage() {
   })
 
   const statusMutation = useMutation({
-    mutationFn: async (input: { automationId: string; status: string }) => {
+    mutationFn: async (input: AutomationStatusMutationInput) => {
       return input.status === 'active'
         ? pauseAutomation(input.automationId)
         : resumeAutomation(input.automationId)
@@ -482,7 +496,7 @@ function LoadingState() {
   )
 }
 
-function ErrorState({ error }: { error: unknown }) {
+function ErrorState({ error }: AutomationErrorStateProps) {
   return (
     <section className="screen screen--centered">
       <section className="empty-card">
@@ -529,7 +543,7 @@ function AutomationNotFound() {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+function DetailRow({ label, value }: AutomationDetailRowProps) {
   return (
     <div className="detail-row">
       <span>{label}</span>

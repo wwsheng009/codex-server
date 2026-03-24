@@ -34,28 +34,26 @@ export type ThreadPageDisplayStateInput = {
   workspaceId: string
 }
 
-export type ThreadPageTurnDisplayStateInput = Pick<
-  ThreadPageDisplayStateInput,
-  | 'activePendingTurn'
-  | 'fullTurnItemContentOverridesById'
-  | 'fullTurnItemOverridesById'
-  | 'fullTurnOverridesById'
-  | 'historicalTurns'
-  | 'liveThreadDetail'
-  | 'selectedThreadId'
->
+export type ThreadPageTurnDisplayStateInput = {
+  activePendingTurn: PendingThreadTurn | null
+  fullTurnItemContentOverridesById: Record<string, Record<string, unknown>>
+  fullTurnItemOverridesById: Record<string, Record<string, unknown>>
+  fullTurnOverridesById: Record<string, ThreadTurn>
+  historicalTurns: ThreadTurn[]
+  liveThreadDetail?: ThreadDetail
+  selectedThreadId?: string
+}
 
-export type ThreadPageSelectionDisplayStateInput = Pick<
-  ThreadPageDisplayStateInput,
-  | 'approvals'
-  | 'contextCompactionFeedback'
-  | 'historicalTurns'
-  | 'liveThreadDetail'
-  | 'loadedThreadIds'
-  | 'selectedCommandSession'
-  | 'selectedThreadEvents'
-  | 'selectedThreadId'
-  | 'selectedThreadTokenUsage'
-  | 'surfacePanelView'
-  | 'workspaceEvents'
->
+export type ThreadPageSelectionDisplayStateInput = {
+  approvals: PendingApproval[]
+  contextCompactionFeedback: ContextCompactionFeedback | null
+  historicalTurns: ThreadTurn[]
+  liveThreadDetail?: ThreadDetail
+  loadedThreadIds?: string[]
+  selectedCommandSession?: CommandRuntimeSession
+  selectedThreadEvents: ServerEvent[]
+  selectedThreadId?: string
+  selectedThreadTokenUsage: ThreadTokenUsage | null
+  surfacePanelView: SurfacePanelView | null
+  workspaceEvents: ServerEvent[]
+}

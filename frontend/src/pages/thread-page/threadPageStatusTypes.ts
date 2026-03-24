@@ -1,7 +1,11 @@
-import type { Account, PendingApproval, ServerEvent, Thread, ThreadTurn } from '../../types/api'
+import type { Account, PendingApproval, Thread, ThreadTurn } from '../../types/api'
 import type { TerminalDockPlacement } from '../../lib/layout-config'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ComposerStatusInfo, ContextCompactionFeedback } from './threadPageComposerShared'
+
+export type ThreadPageStatusEventTimestamp = {
+  ts: string
+}
 
 export type ThreadPageStatusStateInput = {
   account?: Account
@@ -31,7 +35,7 @@ export type ThreadPageStatusStateInput = {
   latestDisplayedTurn?: ThreadTurn
   liveThreadStatus?: string
   selectedThread?: Thread
-  selectedThreadEvents: Array<Pick<ServerEvent, 'ts'>>
+  selectedThreadEvents: ThreadPageStatusEventTimestamp[]
   selectedThreadId?: string
   sendError: string | null
   suppressAuthenticationError: boolean
@@ -42,66 +46,62 @@ export type ThreadPageStatusStateInput = {
   threadDetailIsFetching: boolean
   threadsDataUpdatedAt: number
   threadsIsFetching: boolean
-  workspaceEvents: Array<Pick<ServerEvent, 'ts'>>
+  workspaceEvents: ThreadPageStatusEventTimestamp[]
   workspaceId: string
 }
 
-export type ThreadPageInteractionStatusInput = Pick<
-  ThreadPageStatusStateInput,
-  | 'account'
-  | 'accountError'
-  | 'activeComposerApproval'
-  | 'activeContextCompactionFeedback'
-  | 'activePendingTurn'
-  | 'hasUnreadThreadUpdates'
-  | 'interruptPending'
-  | 'isThreadPinnedToLatest'
-  | 'latestDisplayedTurn'
-  | 'selectedThread'
-  | 'selectedThreadId'
-  | 'sendError'
-  | 'suppressAuthenticationError'
-  | 'streamState'
->
+export type ThreadPageInteractionStatusInput = {
+  account?: Account
+  accountError: unknown
+  activeComposerApproval: PendingApproval | null
+  activeContextCompactionFeedback: ContextCompactionFeedback | null
+  activePendingTurn: PendingThreadTurn | null
+  hasUnreadThreadUpdates: boolean
+  interruptPending: boolean
+  isThreadPinnedToLatest: boolean
+  latestDisplayedTurn?: ThreadTurn
+  selectedThread?: Thread
+  selectedThreadId?: string
+  sendError: string | null
+  streamState: string
+  suppressAuthenticationError: boolean
+}
 
-export type ThreadPageSyncStatusInput = Pick<
-  ThreadPageStatusStateInput,
-  | 'activePendingTurn'
-  | 'approvalsDataUpdatedAt'
-  | 'approvalsIsFetching'
-  | 'selectedThreadId'
-  | 'streamState'
-  | 'syncClock'
-  | 'threadDetailDataUpdatedAt'
-  | 'threadDetailIsFetching'
-  | 'threadsDataUpdatedAt'
-  | 'threadsIsFetching'
-  | 'workspaceId'
->
+export type ThreadPageSyncStatusInput = {
+  activePendingTurn: PendingThreadTurn | null
+  approvalsDataUpdatedAt: number
+  approvalsIsFetching: boolean
+  selectedThreadId?: string
+  streamState: string
+  syncClock: number
+  threadDetailDataUpdatedAt: number
+  threadDetailIsFetching: boolean
+  threadsDataUpdatedAt: number
+  threadsIsFetching: boolean
+  workspaceId: string
+}
 
-export type ThreadPageWorkbenchStatusInput = Pick<
-  ThreadPageStatusStateInput,
-  | 'activeCommandCount'
-  | 'commandSessionCount'
-  | 'displayedTurnsLength'
-  | 'isInspectorExpanded'
-  | 'isMobileViewport'
-  | 'isTerminalDockVisible'
-  | 'isTerminalDockExpanded'
-  | 'isTerminalDockResizing'
-  | 'isTerminalWindowDragging'
-  | 'isTerminalWindowMaximized'
-  | 'isTerminalWindowResizing'
-  | 'terminalDockPlacement'
-  | 'isThreadPinnedToLatest'
-  | 'selectedThread'
-  | 'selectedThreadEvents'
-  | 'selectedThreadId'
-  | 'streamState'
-  | 'surfacePanelView'
-  | 'workspaceEvents'
-> & {
+export type ThreadPageWorkbenchStatusInput = {
+  activeCommandCount: number
+  commandSessionCount: number
   composerStatusInfo: ComposerStatusInfo | null
+  displayedTurnsLength: number
+  isInspectorExpanded: boolean
+  isMobileViewport: boolean
+  isTerminalDockExpanded: boolean
+  isTerminalDockResizing: boolean
+  isTerminalDockVisible: boolean
+  isTerminalWindowDragging: boolean
+  isTerminalWindowMaximized: boolean
+  isTerminalWindowResizing: boolean
+  isThreadPinnedToLatest: boolean
   mobileStatus: string
+  selectedThread?: Thread
+  selectedThreadEvents: ThreadPageStatusEventTimestamp[]
+  selectedThreadId?: string
+  streamState: string
+  surfacePanelView: 'approvals' | 'feed' | null
   syncLabel: string
+  terminalDockPlacement: TerminalDockPlacement
+  workspaceEvents: ThreadPageStatusEventTimestamp[]
 }

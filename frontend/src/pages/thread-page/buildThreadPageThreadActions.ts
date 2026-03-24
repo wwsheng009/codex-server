@@ -16,10 +16,20 @@ import {
   updateThreadStatusInList,
 } from '../threadPageTurnHelpers'
 import { threadTurnItemOverrideKey } from './threadPageContentOverrideUtils'
-import type { ThreadPageThreadActionsInput } from './threadPageActionTypes'
+import type {
+  ThreadPageRespondApprovalInput,
+  ThreadPageThreadActionsInput,
+} from './threadPageActionTypes'
 import { THREAD_TURN_WINDOW_INCREMENT } from './useThreadPageControllerLocalState'
 
 const COMMAND_OUTPUT_TAIL_WINDOW_LINES = 1_200
+
+type FindThreadItemInput = {
+  fullTurnItemOverridesById: Record<string, Record<string, unknown>>
+  fullTurnOverridesById: Record<string, ThreadTurn>
+  historicalTurns: ThreadTurn[]
+  turns: ThreadTurn[]
+}
 
 export function buildThreadPageThreadActions({
   archiveThreadMutation,
@@ -218,11 +228,7 @@ export function buildThreadPageThreadActions({
     }))
   }
 
-  function handleRespondApproval(input: {
-    requestId: string
-    action: string
-    answers?: Record<string, string[]>
-  }) {
+  function handleRespondApproval(input: ThreadPageRespondApprovalInput) {
     respondApprovalMutation.mutate(input)
   }
 
@@ -526,12 +532,7 @@ function mergeHistoricalTurns(nextTurns: ThreadTurn[], currentTurns: ThreadTurn[
 function findThreadItem(
   turnId: string,
   itemId: string,
-  input: {
-    fullTurnItemOverridesById: Record<string, Record<string, unknown>>
-    fullTurnOverridesById: Record<string, ThreadTurn>
-    historicalTurns: ThreadTurn[]
-    turns: ThreadTurn[]
-  },
+  input: FindThreadItemInput,
 ) {
   const itemKey = threadTurnItemOverrideKey(turnId, itemId)
   const directOverride = input.fullTurnItemOverridesById[itemKey]

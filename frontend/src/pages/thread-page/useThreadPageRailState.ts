@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import type { SurfacePanelView } from '../../lib/layout-config'
 import type { Thread } from '../../types/api'
+import type { UseThreadPageRailStateInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageRailState({
   isMobileViewport,
@@ -9,13 +10,7 @@ export function useThreadPageRailState({
   setIsInspectorExpanded,
   setMobileThreadToolsOpen,
   setSurfacePanelView,
-}: {
-  isMobileViewport: boolean
-  selectedThread?: Thread
-  setIsInspectorExpanded: (value: boolean) => void
-  setMobileThreadToolsOpen: (value: boolean) => void
-  setSurfacePanelView: (value: SurfacePanelView | null) => void
-}) {
+}: UseThreadPageRailStateInput) {
   const [editingThreadId, setEditingThreadId] = useState<string>()
   const [editingThreadName, setEditingThreadName] = useState('')
   const [isThreadToolsExpanded, setIsThreadToolsExpanded] = useState(false)

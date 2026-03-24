@@ -2,15 +2,12 @@ import { useQuery } from '@tanstack/react-query'
 
 import { getRateLimits, rateLimitsQueryKey } from '../../features/account/api'
 import { listMcpServerStatus } from '../../features/catalog/api'
-import type { ComposerAssistPanel } from './threadPageComposerShared'
+import type { UseThreadPagePanelQueriesInput } from './threadPageRuntimeTypes'
 
 export function useThreadPagePanelQueries({
   activeComposerPanel,
   workspaceId,
-}: {
-  activeComposerPanel: ComposerAssistPanel | null
-  workspaceId: string
-}) {
+}: UseThreadPagePanelQueriesInput) {
   const rateLimitsQuery = useQuery({
     queryKey: rateLimitsQueryKey(workspaceId),
     queryFn: () => getRateLimits(workspaceId),

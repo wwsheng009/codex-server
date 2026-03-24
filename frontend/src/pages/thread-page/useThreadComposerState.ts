@@ -15,18 +15,21 @@ import {
   type ComposerCommandMenu,
   type ComposerPreferences,
 } from './threadPageComposerShared'
+import type { InsertComposerTextInput } from './threadComposerActionTypes'
+
+export type UseThreadComposerStateInput = {
+  composerInputRef: RefObject<HTMLTextAreaElement | null>
+  selectedThreadId?: string
+  supportsPlanMode: boolean
+  workspaceId: string
+}
 
 export function useThreadComposerState({
   composerInputRef,
   selectedThreadId,
   supportsPlanMode,
   workspaceId,
-}: {
-  composerInputRef: RefObject<HTMLTextAreaElement | null>
-  selectedThreadId?: string
-  supportsPlanMode: boolean
-  workspaceId: string
-}) {
+}: UseThreadComposerStateInput) {
   const [message, setMessage] = useState('')
   const [composerCaret, setComposerCaret] = useState(0)
   const [activeComposerPanel, setActiveComposerPanel] = useState<ComposerAssistPanel | null>(null)
@@ -113,10 +116,7 @@ export function useThreadComposerState({
     return replaceComposerAutocompleteToken(message, activeComposerMatch, '')
   }
 
-  function insertComposerText(input: {
-    replacement: string
-    replaceActiveToken?: boolean
-  }) {
+  function insertComposerText(input: InsertComposerTextInput) {
     const { replacement, replaceActiveToken = false } = input
     if (replaceActiveToken && activeComposerMatch) {
       return replaceComposerAutocompleteToken(message, activeComposerMatch, replacement)

@@ -1,10 +1,10 @@
 import { i18n } from '../../i18n/runtime'
-import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+import type { ThreadWorkbenchRailMobileQuickActionsProps } from './threadWorkbenchRailTypes'
 
 export function ThreadWorkbenchRailMobileQuickActions({
   onOpenSurfacePanel,
   surfacePanelView,
-}: Pick<ThreadWorkbenchRailProps, 'onOpenSurfacePanel' | 'surfacePanelView'>) {
+}: ThreadWorkbenchRailMobileQuickActionsProps) {
   return (
     <div className="pane-section">
       <div className="section-header section-header--inline">

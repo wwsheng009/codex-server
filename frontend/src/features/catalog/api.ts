@@ -8,6 +8,30 @@ import type {
   RemoteSkillWriteResult,
 } from '../../types/api'
 
+export type ListRemoteSkillsInput = {
+  enabled?: boolean
+  hazelnutScope?: string
+  productSurface?: string
+}
+
+export type ExportRemoteSkillInput = {
+  hazelnutId: string
+}
+
+export type ReadPluginInput = {
+  marketplacePath: string
+  pluginName: string
+}
+
+export type InstallPluginInput = {
+  marketplacePath: string
+  pluginName: string
+}
+
+export type UninstallPluginInput = {
+  pluginId: string
+}
+
 export function listModels(workspaceId: string) {
   return apiRequest<CatalogItem[]>(`/api/workspaces/${workspaceId}/models`)
 }
@@ -18,7 +42,7 @@ export function listSkills(workspaceId: string) {
 
 export function listRemoteSkills(
   workspaceId: string,
-  input: { enabled?: boolean; hazelnutScope?: string; productSurface?: string },
+  input: ListRemoteSkillsInput,
 ) {
   return apiRequest<{ data: RemoteSkillSummary[] }>(
     `/api/workspaces/${workspaceId}/skills/remote/list`,
@@ -29,7 +53,7 @@ export function listRemoteSkills(
   )
 }
 
-export function exportRemoteSkill(workspaceId: string, input: { hazelnutId: string }) {
+export function exportRemoteSkill(workspaceId: string, input: ExportRemoteSkillInput) {
   return apiRequest<RemoteSkillWriteResult>(
     `/api/workspaces/${workspaceId}/skills/remote/export`,
     {
@@ -49,7 +73,7 @@ export function listPlugins(workspaceId: string) {
 
 export function readPlugin(
   workspaceId: string,
-  input: { marketplacePath: string; pluginName: string },
+  input: ReadPluginInput,
 ) {
   return apiRequest<PluginDetailResult>(`/api/workspaces/${workspaceId}/plugins/read`, {
     method: 'POST',
@@ -59,7 +83,7 @@ export function readPlugin(
 
 export function installPlugin(
   workspaceId: string,
-  input: { marketplacePath: string; pluginName: string },
+  input: InstallPluginInput,
 ) {
   return apiRequest<PluginInstallResult>(
     `/api/workspaces/${workspaceId}/plugins/install`,
@@ -70,7 +94,7 @@ export function installPlugin(
   )
 }
 
-export function uninstallPlugin(workspaceId: string, input: { pluginId: string }) {
+export function uninstallPlugin(workspaceId: string, input: UninstallPluginInput) {
   return apiRequest<{ status: string }>(
     `/api/workspaces/${workspaceId}/plugins/uninstall`,
     {

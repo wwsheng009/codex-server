@@ -1,5 +1,4 @@
 import { ResizeHandle } from '../../components/ui/RailControls'
-import { ThreadTerminalDock } from '../../features/thread-terminal'
 import { i18n } from '../../i18n/runtime'
 import { ThreadWorkbenchRailCollapsed } from './ThreadWorkbenchRailCollapsed'
 import { ThreadWorkbenchRailMobileQuickActions } from './ThreadWorkbenchRailMobileQuickActions'
@@ -45,7 +44,6 @@ export function ThreadWorkbenchRail({
   startCommandPending,
   streamState,
   surfacePanelView,
-  terminalDockProps,
   totalTokens,
   totalMessageCount,
   totalTurnCount,
@@ -215,8 +213,6 @@ export function ThreadWorkbenchRail({
         startCommandModeDisabled={startCommandModeDisabled}
         startCommandPending={startCommandPending}
       />
-
-      {terminalDockProps ? <ThreadTerminalDock {...terminalDockProps} /> : null}
     </aside>
   )
 }

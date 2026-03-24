@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { resolveLiveThreadDetail } from '../threadLiveState'
 import { useSessionStore } from '../../stores/session-store'
 import type { ServerEvent, ThreadDetail } from '../../types/api'
+import type { UseThreadPageSessionStateInput } from './threadPageRuntimeTypes'
 
 const EMPTY_EVENTS: ServerEvent[] = []
 const EMPTY_COMMAND_SESSIONS = {}
@@ -13,13 +14,7 @@ export function useThreadPageSessionState({
   selectedThreadId,
   threadDetail,
   workspaceId,
-}: {
-  isDocumentVisible: boolean
-  selectedProcessId?: string
-  selectedThreadId?: string
-  threadDetail?: ThreadDetail
-  workspaceId: string
-}) {
+}: UseThreadPageSessionStateInput) {
   const selectedThreadEvents = useSessionStore((state) =>
     !isDocumentVisible || !selectedThreadId
       ? EMPTY_EVENTS

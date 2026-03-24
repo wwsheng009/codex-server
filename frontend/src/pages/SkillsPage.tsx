@@ -16,6 +16,19 @@ type SkillCardItem = {
   description: string
 }
 
+type DirectorySectionProps = {
+  title: string
+  description: string
+  items: SkillCardItem[]
+  loading: boolean
+  marker: string
+  sourceLabel: string
+  emptyMessage: string
+  errorMessage?: string | null
+  onRetry?: () => void
+  titleError: string
+}
+
 export function SkillsPage() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [query, setQuery] = useState('')
@@ -276,18 +289,7 @@ function DirectorySection({
   errorMessage,
   onRetry,
   titleError,
-}: {
-  title: string
-  description: string
-  items: SkillCardItem[]
-  loading: boolean
-  marker: string
-  sourceLabel: string
-  emptyMessage: string
-  errorMessage?: string | null
-  onRetry?: () => void
-  titleError: string
-}) {
+}: DirectorySectionProps) {
   return (
     <section className="mode-panel mode-panel--flush">
       <div className="mode-panel__body">

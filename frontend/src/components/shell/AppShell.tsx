@@ -52,6 +52,15 @@ import type {
 } from '../../types/api'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { AppMenuBar } from './AppMenuBar'
+import type {
+  CreateThreadMutationInput,
+  DeleteTarget,
+  DeleteThreadMutationInput,
+  RenameTarget,
+  RenameThreadMutationInput,
+  RenameWorkspaceMutationInput,
+  SidebarMenuState,
+} from './appShellTypes'
 import { getActiveLocale, i18n } from '../../i18n/runtime'
 
 function getPrimaryNavItems() {
@@ -78,42 +87,6 @@ function getPrimaryNavItems() {
     },
   ] as const
 }
-
-type SidebarMenuState =
-  | {
-      kind: 'workspace'
-      workspaceId: string
-    }
-  | {
-      kind: 'thread'
-      workspaceId: string
-      threadId: string
-    }
-  | null
-
-type RenameTarget =
-  | {
-      kind: 'workspace'
-      workspace: Workspace
-    }
-  | {
-      kind: 'thread'
-      workspaceId: string
-      thread: Thread
-    }
-  | null
-
-type DeleteTarget =
-  | {
-      kind: 'workspace'
-      workspace: Workspace
-    }
-  | {
-      kind: 'thread'
-      workspaceId: string
-      thread: Thread
-    }
-  | null
 
 const DEFAULT_VISIBLE_THREADS = 8
 function updateThreadInList(current: Thread[] | undefined, thread: Thread) {
@@ -396,7 +369,7 @@ export function AppShell() {
   }
 
   const renameWorkspaceMutation = useMutation({
-    mutationFn: ({ workspaceId, name }: { workspaceId: string; name: string }) =>
+    mutationFn: ({ workspaceId, name }: RenameWorkspaceMutationInput) =>
       renameWorkspace(workspaceId, { name }),
     onSuccess: async (workspace) => {
       setOpenMenu(null)
@@ -461,7 +434,7 @@ export function AppShell() {
   })
 
   const createThreadMutation = useMutation({
-    mutationFn: ({ workspaceId }: { workspaceId: string }) => createThread(workspaceId),
+    mutationFn: ({ workspaceId }: CreateThreadMutationInput) => createThread(workspaceId),
     onSuccess: async (thread) => {
       queryClient.setQueryData<Thread[]>(['threads', thread.workspaceId], (current) =>
         upsertThreadInList(current, thread),
@@ -492,7 +465,7 @@ export function AppShell() {
   })
 
   const renameThreadMutation = useMutation({
-    mutationFn: ({ workspaceId, threadId, name }: { workspaceId: string; threadId: string; name: string }) =>
+    mutationFn: ({ workspaceId, threadId, name }: RenameThreadMutationInput) =>
       renameThread(workspaceId, threadId, { name }),
     onSuccess: async (thread) => {
       setOpenMenu(null)
@@ -517,7 +490,7 @@ export function AppShell() {
   })
 
   const deleteThreadMutation = useMutation({
-    mutationFn: ({ workspaceId, threadId }: { workspaceId: string; threadId: string }) =>
+    mutationFn: ({ workspaceId, threadId }: DeleteThreadMutationInput) =>
       deleteThread(workspaceId, threadId),
     onSuccess: async (_, variables) => {
       const currentThreadId = getSelectedThreadIdForWorkspace(

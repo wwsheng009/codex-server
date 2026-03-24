@@ -3,9 +3,8 @@ import type { CSSProperties } from 'react'
 import {
   layoutConfig,
   type SurfacePanelSide,
-  type SurfacePanelView,
 } from '../../lib/layout-config'
-import type { SurfacePanelSides, SurfacePanelWidths } from './workbenchLayoutTypes'
+import type { BuildWorkbenchLayoutDerivedStateInput } from './threadPageRuntimeTypes'
 
 export function buildWorkbenchLayoutDerivedState({
   inspectorWidth,
@@ -15,15 +14,7 @@ export function buildWorkbenchLayoutDerivedState({
   surfacePanelView,
   surfacePanelWidths,
   terminalDockHeight,
-}: {
-  inspectorWidth: number
-  isInspectorExpanded: boolean
-  isMobileViewport: boolean
-  surfacePanelSides: SurfacePanelSides
-  surfacePanelView: SurfacePanelView | null
-  surfacePanelWidths: SurfacePanelWidths
-  terminalDockHeight: number
-}) {
+}: BuildWorkbenchLayoutDerivedStateInput) {
   const activeSurfacePanelWidth = surfacePanelView
     ? surfacePanelWidths[surfacePanelView]
     : layoutConfig.workbench.surfacePanel.defaultWidths.feed

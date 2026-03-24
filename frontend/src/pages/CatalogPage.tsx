@@ -41,6 +41,14 @@ type CatalogQueryData = {
   modes: CatalogSectionItem[]
 }
 
+type RuntimeSectionProps = {
+  title: string
+  description: string
+  items: CatalogSectionItem[]
+  loading: boolean
+  marker: string
+}
+
 export function CatalogPage() {
   const activeLocale = getActiveLocale()
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
@@ -689,13 +697,7 @@ function RuntimeSection({
   items,
   loading,
   marker,
-}: {
-  title: string
-  description: string
-  items: CatalogSectionItem[]
-  loading: boolean
-  marker: string
-}) {
+}: RuntimeSectionProps) {
   return (
     <section className="mode-panel mode-panel--flush mode-panel--compact">
       <div className="mode-panel__body">

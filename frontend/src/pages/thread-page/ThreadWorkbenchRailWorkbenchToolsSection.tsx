@@ -3,15 +3,15 @@ import { Link } from 'react-router-dom'
 import { DetailGroup } from '../../components/ui/DetailGroup'
 import { i18n } from '../../i18n/runtime'
 import { Tooltip } from '../../components/ui/Tooltip'
-import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+import type {
+  ThreadWorkbenchRailInfoLabelProps,
+  ThreadWorkbenchRailWorkbenchToolsSectionProps,
+} from './threadWorkbenchRailTypes'
 
 function InfoLabel({
   help,
   label,
-}: {
-  help?: string
-  label: string
-}) {
+}: ThreadWorkbenchRailInfoLabelProps) {
   if (!help) {
     return <span className="info-label">{label}</span>
   }
@@ -47,19 +47,7 @@ export function ThreadWorkbenchRailWorkbenchToolsSection({
   selectedThread,
   startCommandModeDisabled,
   startCommandPending,
-}: Pick<
-  ThreadWorkbenchRailProps,
-  | 'command'
-  | 'commandRunMode'
-  | 'isWorkbenchToolsExpanded'
-  | 'onChangeCommand'
-  | 'onChangeCommandRunMode'
-  | 'onStartCommand'
-  | 'onToggleWorkbenchToolsExpanded'
-  | 'selectedThread'
-  | 'startCommandModeDisabled'
-  | 'startCommandPending'
->) {
+}: ThreadWorkbenchRailWorkbenchToolsSectionProps) {
   return (
     <DetailGroup
       collapsible

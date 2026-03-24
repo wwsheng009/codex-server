@@ -1,19 +1,15 @@
 import { getErrorMessage } from '../../lib/error-utils'
 import { i18n } from '../../i18n/runtime'
 import type {
-  BuildThreadPageLayoutPropsInput,
+  BuildThreadPageRailLayoutPropsResult,
   ConfirmDialogProps,
   RailProps,
 } from './threadPageLayoutPropTypes'
+import type { BuildThreadPageRailLayoutPropsInput } from './threadPageLayoutInputTypes'
 
 export function buildThreadPageRailLayoutProps(
-  input: BuildThreadPageLayoutPropsInput,
-): {
-  confirmDialogProps: ConfirmDialogProps | null
-  railProps: RailProps
-} {
-  const terminalDockProps = undefined
-
+  input: BuildThreadPageRailLayoutPropsInput,
+): BuildThreadPageRailLayoutPropsResult {
   const railProps: RailProps = {
     command: input.command,
     commandRunMode: input.commandRunMode,
@@ -56,7 +52,6 @@ export function buildThreadPageRailLayoutProps(
     totalTokens: input.totalTokens,
     totalMessageCount: input.totalMessageCount,
     totalTurnCount: input.totalTurnCount,
-    terminalDockProps,
     turnCount: input.turnCount,
     workspaceName: input.workspaceName,
     onArchiveToggle: input.onArchiveToggle,

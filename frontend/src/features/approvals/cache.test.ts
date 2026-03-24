@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { nextApprovalsForEvent, removeApprovalFromList, removeThreadApprovalsFromList } from './cache'
+import type { ApprovalBuilderOverrides } from './approvalTypes'
 import type { PendingApproval, ServerEvent } from '../../types/api'
 
 describe('approval cache helpers', () => {
@@ -101,7 +102,7 @@ describe('approval cache helpers', () => {
   })
 })
 
-function buildApproval(overrides: Partial<PendingApproval> & Pick<PendingApproval, 'id'>): PendingApproval {
+function buildApproval(overrides: ApprovalBuilderOverrides): PendingApproval {
   return {
     id: overrides.id,
     workspaceId: overrides.workspaceId ?? 'ws-1',

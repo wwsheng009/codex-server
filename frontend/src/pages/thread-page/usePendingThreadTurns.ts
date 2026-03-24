@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react'
 
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
+import type { UsePendingThreadTurnsInput } from './threadPageRuntimeTypes'
 
 export function usePendingThreadTurns({
   selectedThreadId,
   workspaceId,
-}: {
-  selectedThreadId?: string
-  workspaceId: string
-}) {
+}: UsePendingThreadTurnsInput) {
   const [pendingTurnsByThread, setPendingTurnsByThread] = useState<Record<string, PendingThreadTurn>>(
     {},
   )

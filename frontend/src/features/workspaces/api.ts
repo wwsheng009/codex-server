@@ -1,6 +1,15 @@
 import { apiRequest } from '../../lib/api-client'
 import type { Workspace, WorkspaceRuntimeState } from '../../types/api'
 
+export type CreateWorkspaceInput = {
+  name: string
+  rootPath: string
+}
+
+export type RenameWorkspaceInput = {
+  name: string
+}
+
 export function listWorkspaces() {
   return apiRequest<Workspace[]>('/api/workspaces')
 }
@@ -13,14 +22,14 @@ export function getWorkspaceRuntimeState(workspaceId: string) {
   return apiRequest<WorkspaceRuntimeState>(`/api/workspaces/${workspaceId}/runtime-state`)
 }
 
-export function createWorkspace(input: { name: string; rootPath: string }) {
+export function createWorkspace(input: CreateWorkspaceInput) {
   return apiRequest<Workspace>('/api/workspaces', {
     method: 'POST',
     body: JSON.stringify(input),
   })
 }
 
-export function renameWorkspace(workspaceId: string, input: { name: string }) {
+export function renameWorkspace(workspaceId: string, input: RenameWorkspaceInput) {
   return apiRequest<Workspace>(`/api/workspaces/${workspaceId}/name`, {
     method: 'POST',
     body: JSON.stringify(input),

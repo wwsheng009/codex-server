@@ -1,20 +1,14 @@
 import { useEffect } from 'react'
-import type { MutableRefObject } from 'react'
 
 import { layoutConfig } from '../../lib/layout-config'
-import type { WorkbenchTerminalDockResizeState } from './workbenchLayoutTypes'
+import type { UseWorkbenchTerminalDockResizeInput } from './workbenchLayoutTypes'
 
 export function useWorkbenchTerminalDockResize({
   isTerminalDockResizing,
   setIsTerminalDockResizing,
   setTerminalDockHeight,
   terminalDockResizeRef,
-}: {
-  isTerminalDockResizing: boolean
-  setIsTerminalDockResizing: (value: boolean) => void
-  setTerminalDockHeight: (value: number) => void
-  terminalDockResizeRef: MutableRefObject<WorkbenchTerminalDockResizeState | null>
-}) {
+}: UseWorkbenchTerminalDockResizeInput) {
   useEffect(() => {
     if (!isTerminalDockResizing) {
       return

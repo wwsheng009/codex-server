@@ -6,7 +6,11 @@ import { useSettingsLocalStore } from '../features/settings/local-store'
 import { getLocaleDirection, type AppLocale } from './config'
 import { activateLocale, i18n } from './runtime'
 
-export function LinguiClientProvider({ children }: { children: ReactNode }) {
+type LinguiClientProviderProps = {
+  children: ReactNode
+}
+
+export function LinguiClientProvider({ children }: LinguiClientProviderProps) {
   const locale = useSettingsLocalStore((state) => state.locale)
   const [isReady, setIsReady] = useState(false)
 

@@ -1,23 +1,10 @@
-import type { CSSProperties } from 'react'
-
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { ThreadTerminalDock, type ThreadTerminalDockProps } from '../../features/thread-terminal'
+import { ThreadTerminalDock } from '../../features/thread-terminal'
 import { i18n } from '../../i18n/runtime'
 import { ThreadComposerDock } from './ThreadComposerDock'
 import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
 import { ThreadWorkbenchSurface } from './ThreadWorkbenchSurface'
-
-type ThreadPageLayoutProps = {
-  closeWorkbenchOverlay: () => void
-  composerDockProps: Parameters<typeof ThreadComposerDock>[0]
-  confirmDialogProps?: Parameters<typeof ConfirmDialog>[0] | null
-  isMobileViewport: boolean
-  isMobileWorkbenchOverlayOpen: boolean
-  railProps: Parameters<typeof ThreadWorkbenchRail>[0]
-  surfaceProps: Omit<Parameters<typeof ThreadWorkbenchSurface>[0], 'children'>
-  terminalDockProps?: ThreadTerminalDockProps
-  workbenchLayoutStyle: CSSProperties
-}
+import type { ThreadPageLayoutProps } from './threadPageLayoutPropTypes'
 
 export function ThreadPageLayout({
   closeWorkbenchOverlay,

@@ -1,74 +1,127 @@
-import type { QueryClient } from '@tanstack/react-query'
-import type { Dispatch, SetStateAction } from 'react'
+import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 
 import type { ThreadTerminalDockProps } from '../../features/thread-terminal'
-import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config'
-import type { PendingThreadTurn } from '../threadPageTurnHelpers'
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { ThreadComposerDock } from './ThreadComposerDock'
-import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
-import { ThreadWorkbenchSurface } from './ThreadWorkbenchSurface'
+import type {
+  ThreadTerminalActiveCommandCount,
+  ThreadTerminalChangePlacementHandler,
+  ThreadTerminalClearCompletedSessionsHandler,
+  ThreadTerminalCommandSessions,
+  ThreadTerminalDockExpanded,
+  ThreadTerminalDockPlacement,
+  ThreadTerminalDockRootPath,
+  ThreadTerminalDockVisible,
+  ThreadTerminalDragStartHandler,
+  ThreadTerminalHideHandler,
+  ThreadTerminalRemoveSessionHandler,
+  ThreadTerminalResetFloatingBoundsHandler,
+  ThreadTerminalResizeStartHandler,
+  ThreadTerminalResizeTerminalHandler,
+  ThreadTerminalSelectSessionHandler,
+  ThreadTerminalSelectedCommandSession,
+  ThreadTerminalShowHandler,
+  ThreadTerminalStartCommandLineHandler,
+  ThreadTerminalStartCommandPending,
+  ThreadTerminalStartShellSessionHandler,
+  ThreadTerminalTerminateDisabled,
+  ThreadTerminalTerminateSelectedSessionHandler,
+  ThreadTerminalToggleArchivedSessionHandler,
+  ThreadTerminalTogglePinnedSessionHandler,
+  ThreadTerminalToggleWindowMaximizedHandler,
+  ThreadTerminalWindowMaximized,
+  ThreadTerminalWindowResizeStartHandler,
+  ThreadTerminalWriteTerminalDataHandler,
+} from '../../features/thread-terminal/threadTerminalDockTypes'
+import type { ConfirmDialogProps as ConfirmDialogComponentProps } from '../../components/ui/ConfirmDialog'
+import type { ThreadComposerDockProps } from './ThreadComposerDock'
+import type { ThreadWorkbenchSurfaceProps } from './ThreadWorkbenchSurface'
+import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+import type {
+  BuildThreadPageComposerLayoutPropsInput,
+  BuildThreadPageRailLayoutPropsInput,
+  BuildThreadPageSurfaceLayoutPropsInput,
+} from './threadPageLayoutInputTypes'
 
-export type SurfaceProps = Omit<Parameters<typeof ThreadWorkbenchSurface>[0], 'children'>
-export type ComposerDockProps = Parameters<typeof ThreadComposerDock>[0]
+export type SurfaceProps = ThreadWorkbenchSurfaceProps
+export type ComposerDockProps = ThreadComposerDockProps
 export type TerminalDockProps = ThreadTerminalDockProps
-export type RailProps = Parameters<typeof ThreadWorkbenchRail>[0]
-export type ConfirmDialogProps = Parameters<typeof ConfirmDialog>[0]
+export type RailProps = ThreadWorkbenchRailProps
+export type ConfirmDialogProps = ConfirmDialogComponentProps
+
+export type ThreadPageTerminalWindowBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type BuildThreadTerminalDockPropsInput = {
+  activeCommandCount: ThreadTerminalActiveCommandCount
+  commandSessions: ThreadTerminalCommandSessions
+  isMobileViewport: boolean
+  isTerminalDockExpanded: ThreadTerminalDockExpanded
+  isTerminalDockVisible: ThreadTerminalDockVisible
+  isTerminalWindowMaximized: ThreadTerminalWindowMaximized
+  onChangePlacement: ThreadTerminalChangePlacementHandler
+  onClearCompletedSessions: ThreadTerminalClearCompletedSessionsHandler
+  onHideTerminalDock: ThreadTerminalHideHandler
+  onRemoveSession: ThreadTerminalRemoveSessionHandler
+  onResetTerminalWindowBounds: ThreadTerminalResetFloatingBoundsHandler
+  onResizeStart: ThreadTerminalResizeStartHandler
+  onResizeTerminal: ThreadTerminalResizeTerminalHandler
+  onSelectSession: ThreadTerminalSelectSessionHandler
+  onShowTerminalDock: ThreadTerminalShowHandler
+  onStartTerminalCommandLine: ThreadTerminalStartCommandLineHandler
+  onStartTerminalShellSession: ThreadTerminalStartShellSessionHandler
+  onStartTerminalWindowDrag: ThreadTerminalDragStartHandler
+  onStartTerminalWindowResize: ThreadTerminalWindowResizeStartHandler
+  onTerminateSelectedSession: ThreadTerminalTerminateSelectedSessionHandler
+  onToggleArchivedSession: ThreadTerminalToggleArchivedSessionHandler
+  onTogglePinnedSession: ThreadTerminalTogglePinnedSessionHandler
+  onToggleTerminalWindowMaximized: ThreadTerminalToggleWindowMaximizedHandler
+  onWriteTerminalData: ThreadTerminalWriteTerminalDataHandler
+  placement: ThreadTerminalDockPlacement
+  rootPath: ThreadTerminalDockRootPath
+  selectedCommandSession: ThreadTerminalSelectedCommandSession
+  setIsTerminalDockExpanded: Dispatch<SetStateAction<boolean>>
+  startTerminalCommandPending: ThreadTerminalStartCommandPending
+  terminalDockClassName: string
+  terminalWindowBounds: ThreadPageTerminalWindowBounds
+  terminateDisabled: ThreadTerminalTerminateDisabled
+}
+
+export type ThreadPageLayoutProps = {
+  closeWorkbenchOverlay: () => void
+  composerDockProps: ComposerDockProps
+  confirmDialogProps?: ConfirmDialogProps | null
+  isMobileViewport: boolean
+  isMobileWorkbenchOverlayOpen: boolean
+  railProps: RailProps
+  surfaceProps: SurfaceProps
+  terminalDockProps?: TerminalDockProps
+  workbenchLayoutStyle: CSSProperties
+}
+
+export type BuildThreadPageComposerDockPropsInput = ComposerDockProps
+
+export type BuildThreadPageSurfaceLayoutPropsResult = {
+  surfaceProps: SurfaceProps
+  terminalDockProps: TerminalDockProps | undefined
+}
+
+export type BuildThreadPageRailLayoutPropsResult = {
+  confirmDialogProps: ConfirmDialogProps | null
+  railProps: RailProps
+}
+
+export type BuildThreadPageLayoutPropsResult = {
+  composerDockProps: ComposerDockProps
+  confirmDialogProps: ConfirmDialogProps | null
+  railProps: RailProps
+  surfaceProps: SurfaceProps
+  terminalDockProps: TerminalDockProps | undefined
+}
 
 export type BuildThreadPageLayoutPropsInput =
-  Omit<SurfaceProps, 'threadLoadErrorMessage' | 'onRetryThreadLoad' | 'onToggleSurfacePanelSide'>
-  & ComposerDockProps
-  & RailProps
-  & Omit<
-    TerminalDockProps,
-    | 'className'
-    | 'isExpanded'
-    | 'isFloating'
-    | 'isVisible'
-    | 'isWindowMaximized'
-    | 'onDragStart'
-    | 'onHide'
-    | 'onResetFloatingBounds'
-    | 'onShow'
-    | 'onStartShellSession'
-    | 'onStartCommandLine'
-    | 'onToggleExpanded'
-    | 'onToggleWindowMaximized'
-    | 'onWindowResizeStart'
-    | 'style'
-  >
-  & {
-    activePendingTurn: PendingThreadTurn | null
-    confirmDialogError: unknown
-    confirmingThreadDelete: { name: string } | null
-    isTerminalDockExpanded: TerminalDockProps['isExpanded']
-    isTerminalDockVisible: TerminalDockProps['isVisible']
-    onCloseDeleteThreadDialog: ConfirmDialogProps['onClose']
-    onConfirmDeleteThreadDialog: ConfirmDialogProps['onConfirm']
-    onHideTerminalDock: TerminalDockProps['onHide']
-    onResetTerminalWindowBounds: TerminalDockProps['onResetFloatingBounds']
-    onReleaseFullTurn: SurfaceProps['onReleaseFullTurn']
-    onRetainFullTurn: SurfaceProps['onRetainFullTurn']
-    onStartTerminalShellSession: TerminalDockProps['onStartShellSession']
-    onStartTerminalCommandLine: TerminalDockProps['onStartCommandLine']
-    onStartTerminalWindowDrag: TerminalDockProps['onDragStart']
-    onStartTerminalWindowResize: TerminalDockProps['onWindowResizeStart']
-    onShowTerminalDock: TerminalDockProps['onShow']
-    onToggleArchivedSession: TerminalDockProps['onToggleArchivedSession']
-    onToggleTerminalWindowMaximized: TerminalDockProps['onToggleWindowMaximized']
-    queryClient: QueryClient
-    setIsTerminalDockExpanded: Dispatch<SetStateAction<boolean>>
-    setIsTerminalDockVisible: Dispatch<SetStateAction<boolean>>
-    setSurfacePanelSides: Dispatch<
-      SetStateAction<Record<SurfacePanelView, SurfacePanelSide>>
-    >
-    isTerminalWindowMaximized: TerminalDockProps['isWindowMaximized']
-    startTerminalCommandPending: TerminalDockProps['startCommandPending']
-    terminalDockClassName: TerminalDockProps['className']
-    terminalWindowBounds: {
-      x: number
-      y: number
-      width: number
-      height: number
-    }
-  }
+  BuildThreadPageComposerLayoutPropsInput &
+    BuildThreadPageSurfaceLayoutPropsInput &
+    BuildThreadPageRailLayoutPropsInput

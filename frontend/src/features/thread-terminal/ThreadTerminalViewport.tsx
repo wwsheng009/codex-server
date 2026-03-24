@@ -13,6 +13,14 @@ import {
   useSettingsLocalStore,
   type TerminalRendererPreference,
 } from '../settings/local-store'
+import type { TerminalLauncherMode } from './threadTerminalDockTypes'
+import type {
+  TerminalPerformanceInfo,
+  ThreadTerminalLauncherHandle,
+  ThreadTerminalLauncherViewportProps,
+  ThreadTerminalViewportHandle,
+  ThreadTerminalViewportProps,
+} from './threadTerminalViewportTypes'
 
 const TERMINAL_THEME = {
   background: '#0c1117',
@@ -31,67 +39,9 @@ const WINDOWS_PTY_OPTIONS = {
   buildNumber: 26200,
 } as const
 
-export type TerminalPerformanceInfo = {
-  bytesPerSecond: number
-  flushCount: number
-  flushesPerSecond: number
-  lastChunkSize: number
-}
-
-export type ThreadTerminalViewportHandle = {
-  clearViewport: () => void
-  copySelection: () => Promise<boolean>
-  getDimensionsInfo: () => string
-  getPerformanceInfo: () => TerminalPerformanceInfo
-  getRendererInfo: () => string
-  findNext: (query: string) => boolean
-  findPrevious: (query: string) => boolean
-  fitViewport: () => void
-  focusViewport: () => void
-  pasteFromClipboard: () => Promise<boolean>
-}
-
-export type ThreadTerminalLauncherHandle = {
-  clearLauncher: () => void
-  copySelection: () => Promise<boolean>
-  fitLauncher: () => void
-  focusLauncher: () => void
-  getDimensionsInfo: () => string
-  getPerformanceInfo: () => TerminalPerformanceInfo
-  getRendererInfo: () => string
-  pasteFromClipboard: () => Promise<boolean>
-}
-
 export const TERMINAL_VIEWPORT_SCROLLBACK = 5000
 export const TERMINAL_LAUNCHER_SCROLLBACK = 100
 const TERMINAL_WRITE_CHUNK_SIZE = 16_384
-
-type ThreadTerminalViewportProps = {
-  className?: string
-  content: string
-  interactive: boolean
-  onSelectionChange?: (hasSelection: boolean) => void
-  onResize: (cols: number, rows: number) => void
-  onWriteData: (input: string) => void
-  sessionId?: string
-  visible: boolean
-  windowsPty?: boolean
-}
-
-type ThreadTerminalLauncherMode = 'shell' | 'command'
-
-type ThreadTerminalLauncherViewportProps = {
-  className?: string
-  history: string[]
-  mode: ThreadTerminalLauncherMode
-  onClose?: () => void
-  onStartShell: () => void
-  onSelectionChange?: (hasSelection: boolean) => void
-  onRunCommand: (command: string) => void
-  pending: boolean
-  shellLabel?: string
-  visible: boolean
-}
 
 export const ThreadTerminalViewport = forwardRef<
   ThreadTerminalViewportHandle,
@@ -537,10 +487,10 @@ export const ThreadTerminalLauncherViewport = forwardRef<
   const terminalLineHeight = resolveTerminalLineHeight(terminalLineHeightSetting)
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
-    const fitAddonRef = useRef<FitAddon | null>(null)
-    const webglAddonRef = useRef<{ dispose: () => void } | null>(null)
-    const fitFrameRef = useRef<number | undefined>(undefined)
-    const modeRef = useRef<ThreadTerminalLauncherMode>(mode)
+  const fitAddonRef = useRef<FitAddon | null>(null)
+  const webglAddonRef = useRef<{ dispose: () => void } | null>(null)
+  const fitFrameRef = useRef<number | undefined>(undefined)
+  const modeRef = useRef<TerminalLauncherMode>(mode)
   const pendingRef = useRef(pending)
   const historyRef = useRef(history)
   const currentInputRef = useRef('')

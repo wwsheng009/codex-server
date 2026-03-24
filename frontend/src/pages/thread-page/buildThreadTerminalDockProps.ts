@@ -1,10 +1,10 @@
 import type {
-  BuildThreadPageLayoutPropsInput,
+  BuildThreadTerminalDockPropsInput,
   TerminalDockProps,
 } from './threadPageLayoutPropTypes'
 
 export function buildThreadTerminalDockProps(
-  input: BuildThreadPageLayoutPropsInput,
+  input: BuildThreadTerminalDockPropsInput,
 ): TerminalDockProps | undefined {
   if (input.isMobileViewport) {
     return undefined

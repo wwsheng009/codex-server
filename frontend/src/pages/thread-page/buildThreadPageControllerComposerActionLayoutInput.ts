@@ -1,24 +1,4 @@
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
-import type { ControllerComposerLayoutInput } from './threadPageControllerLayoutInputTypes'
-
-type ComposerActionLayoutInput = Pick<
-  ControllerComposerLayoutInput,
-  | 'onChangeCollaborationMode'
-  | 'onChangeComposerAutocompleteIndex'
-  | 'onChangeComposerMessage'
-  | 'onChangeModel'
-  | 'onChangePermissionPreset'
-  | 'onChangeReasoningEffort'
-  | 'onCloseComposerPanel'
-  | 'onCompactSelectedThread'
-  | 'onComposerKeyDown'
-  | 'onComposerSelect'
-  | 'onJumpToLatest'
-  | 'onPrimaryComposerAction'
-  | 'onRetryComposerStatus'
-  | 'onSelectComposerAutocompleteItem'
-  | 'onSubmit'
->
 
 export function buildThreadPageControllerComposerActionLayoutInput({
   composerActions,
@@ -26,7 +6,7 @@ export function buildThreadPageControllerComposerActionLayoutInput({
   controllerState,
   pageActions,
   viewportState,
-}: BuildThreadPageControllerLayoutPropsInput): ComposerActionLayoutInput {
+}: BuildThreadPageControllerLayoutPropsInput) {
   return {
     onChangeCollaborationMode: composerCallbacks.handleChangeCollaborationMode,
     onChangeComposerAutocompleteIndex: controllerState.setComposerAutocompleteIndex,

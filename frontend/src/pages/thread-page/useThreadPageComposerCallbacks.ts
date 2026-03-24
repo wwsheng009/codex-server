@@ -1,14 +1,10 @@
-import type { QueryClient } from '@tanstack/react-query'
-import type { Dispatch, SetStateAction } from 'react'
-
 import { accountQueryKey } from '../../features/account/api'
 import {
   normalizeCollaborationMode,
   normalizePermissionPreset,
   normalizeReasoningEffort,
-  type ComposerAssistPanel,
-  type ComposerPreferences,
 } from './threadPageComposerShared'
+import type { UseThreadPageComposerCallbacksInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageComposerCallbacks({
   hasAccountError,
@@ -19,16 +15,7 @@ export function useThreadPageComposerCallbacks({
   setComposerPreferences,
   setSendError,
   workspaceId,
-}: {
-  hasAccountError: boolean
-  queryClient: QueryClient
-  requiresOpenAIAuth: boolean
-  sendError: string | null
-  setActiveComposerPanel: Dispatch<SetStateAction<ComposerAssistPanel | null>>
-  setComposerPreferences: Dispatch<SetStateAction<ComposerPreferences>>
-  setSendError: (value: string | null) => void
-  workspaceId: string
-}) {
+}: UseThreadPageComposerCallbacksInput) {
   function handleChangeCollaborationMode(nextValue: string) {
     setComposerPreferences((current) => ({
       ...current,

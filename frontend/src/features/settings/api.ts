@@ -9,7 +9,60 @@ import type {
   RuntimePreferencesResult,
 } from '../../types/api'
 
-export function readConfig(workspaceId: string, input: { includeLayers?: boolean }) {
+export type ReadConfigInput = {
+  includeLayers?: boolean
+}
+
+export type WriteRuntimePreferencesInput = {
+  modelCatalogPath: string
+  defaultShellType: string
+  defaultTerminalShell: string
+  modelShellTypeOverrides: Record<string, string>
+  defaultTurnApprovalPolicy?: string
+  defaultTurnSandboxPolicy?: Record<string, unknown>
+  defaultCommandSandboxPolicy?: Record<string, unknown>
+}
+
+export type WriteConfigValueInput = {
+  filePath?: string
+  keyPath: string
+  mergeStrategy?: string
+  value: unknown
+}
+
+export type BatchWriteConfigInput = {
+  filePath?: string
+  edits: Array<Record<string, unknown>>
+  reloadUserConfig?: boolean
+}
+
+export type DetectExternalAgentConfigInput = {
+  includeHome?: boolean
+}
+
+export type ImportExternalAgentConfigInput = {
+  migrationItems: Array<Record<string, unknown>>
+}
+
+export type FuzzyFileSearchInput = {
+  query: string
+}
+
+export type UploadFeedbackInput = {
+  classification: string
+  includeLogs: boolean
+  reason?: string
+  threadId?: string
+  extraLogFiles?: string[]
+}
+
+export type McpOauthLoginInput = {
+  name: string
+  scopes?: string[]
+  timeoutSecs?: number
+}
+
+export function readConfig(workspaceId: string, input: ReadConfigInput) {
   return apiRequest<ConfigReadResult>(`/api/workspaces/${workspaceId}/config/read`, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -20,15 +73,7 @@ export function readRuntimePreferences() {
   return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences`)
 }
 
-export function writeRuntimePreferences(input: {
-  modelCatalogPath: string
-  defaultShellType: string
-  defaultTerminalShell: string
-  modelShellTypeOverrides: Record<string, string>
-  defaultTurnApprovalPolicy?: string
-  defaultTurnSandboxPolicy?: Record<string, unknown>
-  defaultCommandSandboxPolicy?: Record<string, unknown>
-}) {
+export function writeRuntimePreferences(input: WriteRuntimePreferencesInput) {
   return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences`, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -43,12 +88,7 @@ export function importRuntimeModelCatalogTemplate() {
 
 export function writeConfigValue(
   workspaceId: string,
-  input: {
-    filePath?: string
-    keyPath: string
-    mergeStrategy?: string
-    value: unknown
-  },
+  input: WriteConfigValueInput,
 ) {
   return apiRequest<ConfigWriteResult>(`/api/workspaces/${workspaceId}/config/write`, {
     method: 'POST',
@@ -58,11 +98,7 @@ export function writeConfigValue(
 
 export function batchWriteConfig(
   workspaceId: string,
-  input: {
-    filePath?: string
-    edits: Array<Record<string, unknown>>
-    reloadUserConfig?: boolean
-  },
+  input: BatchWriteConfigInput,
 ) {
   return apiRequest<ConfigWriteResult>(
     `/api/workspaces/${workspaceId}/config/batch-write`,
@@ -81,7 +117,7 @@ export function readConfigRequirements(workspaceId: string) {
 
 export function detectExternalAgentConfig(
   workspaceId: string,
-  input: { includeHome?: boolean },
+  input: DetectExternalAgentConfigInput,
 ) {
   return apiRequest<ExternalAgentConfigDetectResult>(
     `/api/workspaces/${workspaceId}/external-agent/detect`,
@@ -94,7 +130,7 @@ export function detectExternalAgentConfig(
 
 export function importExternalAgentConfig(
   workspaceId: string,
-  input: { migrationItems: Array<Record<string, unknown>> },
+  input: ImportExternalAgentConfigInput,
 ) {
   return apiRequest<{ status: string }>(
     `/api/workspaces/${workspaceId}/external-agent/import`,
@@ -105,7 +141,7 @@ export function importExternalAgentConfig(
   )
 }
 
-export function fuzzyFileSearch(workspaceId: string, input: { query: string }) {
+export function fuzzyFileSearch(workspaceId: string, input: FuzzyFileSearchInput) {
   return apiRequest<{ files: Array<Record<string, unknown>> }>(
     `/api/workspaces/${workspaceId}/search/files`,
     {
@@ -117,13 +153,7 @@ export function fuzzyFileSearch(workspaceId: string, input: { query: string }) {
 
 export function uploadFeedback(
   workspaceId: string,
-  input: {
-    classification: string
-    includeLogs: boolean
-    reason?: string
-    threadId?: string
-    extraLogFiles?: string[]
-  },
+  input: UploadFeedbackInput,
 ) {
   return apiRequest<FeedbackUploadResult>(
     `/api/workspaces/${workspaceId}/feedback/upload`,
@@ -136,11 +166,7 @@ export function uploadFeedback(
 
 export function mcpOauthLogin(
   workspaceId: string,
-  input: {
-    name: string
-    scopes?: string[]
-    timeoutSecs?: number
-  },
+  input: McpOauthLoginInput,
 ) {
   return apiRequest<McpOauthLoginResult>(
     `/api/workspaces/${workspaceId}/mcp/oauth/login`,

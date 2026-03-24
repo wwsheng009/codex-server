@@ -27,24 +27,16 @@ import { useUIStore } from '../../stores/ui-store'
 import { i18n } from '../../i18n/runtime'
 import { RefreshIcon, RailIconButton, ToolsIcon } from '../ui/RailControls'
 import { NotificationCenter } from './NotificationCenter'
+import type {
+  AppearanceMenuProps,
+  AppMenuBarProps,
+  MenuPosition,
+  ResolvedAppearanceTheme,
+  ThemeModeGlyphProps,
+} from './appMenuBarTypes'
 import type { CSSProperties } from 'react'
 
 const menuItems = ['File', 'Edit', 'View', 'Window', 'Help'] as const
-
-type AppMenuBarProps = {
-  commandPaletteShortcutLabel: string
-  mobileNavOpen?: boolean
-  onOpenCommandPalette: () => void
-  onOpenSidebar?: () => void
-  showMobileNavButton?: boolean
-}
-
-type MenuPosition = {
-  top: number
-  left: number
-  width: number
-  transformOrigin: string
-}
 
 function MenuIcon() {
   return (
@@ -134,10 +126,7 @@ function CaretIcon() {
 function ThemeModeGlyph({
   theme,
   resolvedTheme,
-}: {
-  theme: AppearanceTheme
-  resolvedTheme: 'light' | 'dark'
-}) {
+}: ThemeModeGlyphProps) {
   if (theme === 'system') {
     return <MonitorIcon />
   }
@@ -189,7 +178,7 @@ function getAppearanceModeLabel(theme: AppearanceTheme) {
   }
 }
 
-function getResolvedThemeLabel(resolvedTheme: 'light' | 'dark') {
+function getResolvedThemeLabel(resolvedTheme: ResolvedAppearanceTheme) {
   return resolvedTheme === 'dark'
     ? i18n._({
         id: 'Dark',
@@ -233,7 +222,7 @@ function getMenuItemLabel(item: (typeof menuItems)[number]) {
   }
 }
 
-function AppearanceMenu({ compact = false }: { compact?: boolean }) {
+function AppearanceMenu({ compact = false }: AppearanceMenuProps) {
   const theme = useSettingsLocalStore((state) => state.theme)
   const accentTone = useSettingsLocalStore((state) => state.accentTone)
   const locale = useSettingsLocalStore((state) => state.locale)

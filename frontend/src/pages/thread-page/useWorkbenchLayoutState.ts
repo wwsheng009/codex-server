@@ -36,13 +36,12 @@ import type {
   WorkbenchTerminalDockResizeState,
   WorkbenchTerminalWindowDragState,
   WorkbenchTerminalWindowResizeState,
+  UseWorkbenchLayoutStateInput,
 } from './workbenchLayoutTypes'
 
 export function useWorkbenchLayoutState({
   isMobileViewport,
-}: {
-  isMobileViewport: boolean
-}) {
+}: UseWorkbenchLayoutStateInput) {
   const [surfacePanelView, setSurfacePanelView] = useState<SurfacePanelView | null>(null)
   const [surfacePanelWidths, setSurfacePanelWidths] = useState<SurfacePanelWidths>(readSurfacePanelWidths)
   const [surfacePanelSides, setSurfacePanelSides] = useState<SurfacePanelSides>(readSurfacePanelSides)

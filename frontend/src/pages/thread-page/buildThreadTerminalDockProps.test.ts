@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildThreadTerminalDockProps } from './buildThreadTerminalDockProps'
+import type { BuildThreadTerminalDockPropsInput } from './threadPageLayoutPropTypes'
 
 describe('buildThreadTerminalDockProps', () => {
   it('opens the launcher when showing an empty terminal dock', () => {
@@ -8,7 +9,7 @@ describe('buildThreadTerminalDockProps', () => {
     const onStartTerminalShellSession = vi.fn()
     const setIsTerminalDockExpanded = vi.fn()
 
-    const props = buildThreadTerminalDockProps({
+    const input: BuildThreadTerminalDockPropsInput = {
       activeCommandCount: 0,
       commandSessions: [],
       isMobileViewport: false,
@@ -46,7 +47,8 @@ describe('buildThreadTerminalDockProps', () => {
         y: 20,
       },
       terminateDisabled: true,
-    } as any)
+    }
+    const props = buildThreadTerminalDockProps(input)
 
     props?.onShow()
 
@@ -58,7 +60,7 @@ describe('buildThreadTerminalDockProps', () => {
   it('does not auto-start a shell while a terminal session is already starting', () => {
     const onStartTerminalShellSession = vi.fn()
 
-    const props = buildThreadTerminalDockProps({
+    const input: BuildThreadTerminalDockPropsInput = {
       activeCommandCount: 0,
       commandSessions: [],
       isMobileViewport: false,
@@ -96,7 +98,8 @@ describe('buildThreadTerminalDockProps', () => {
         y: 20,
       },
       terminateDisabled: true,
-    } as any)
+    }
+    const props = buildThreadTerminalDockProps(input)
 
     props?.onShow()
 

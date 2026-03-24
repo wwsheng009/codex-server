@@ -19,6 +19,8 @@ import {
   loginAccount,
   rateLimitsQueryKey,
   logoutAccount,
+  type CancelLoginAccountInput,
+  type LoginAccountInput,
 } from '../../features/account/api'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
@@ -51,7 +53,7 @@ export function GeneralSettingsPage() {
   })
 
   const loginMutation = useMutation({
-    mutationFn: (input: { type: 'apiKey'; apiKey: string } | { type: 'chatgpt' }) =>
+    mutationFn: (input: LoginAccountInput) =>
       loginAccount(resolvedWorkspaceId, input),
     onSuccess: async (result) => {
       setLoginId(result.loginId ?? '')
@@ -74,7 +76,7 @@ export function GeneralSettingsPage() {
   })
 
   const cancelLoginMutation = useMutation({
-    mutationFn: () => cancelLoginAccount(resolvedWorkspaceId, { loginId }),
+    mutationFn: () => cancelLoginAccount(resolvedWorkspaceId, { loginId } satisfies CancelLoginAccountInput),
   })
 
   useEffect(() => {

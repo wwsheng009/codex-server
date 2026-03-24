@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
 
-type ConfirmDialogProps = {
+export type ConfirmDialogProps = {
   title: string
   description: string
   subject?: string

@@ -6,7 +6,7 @@ import { useThreadPagePanelQueries } from './useThreadPagePanelQueries'
 import { useThreadPageQueries } from './useThreadPageQueries'
 import { useThreadPageSelectedThread } from './useThreadPageSelectedThread'
 import { useThreadPageSessionState } from './useThreadPageSessionState'
-import type { ComposerAssistPanel } from './threadPageComposerShared'
+import type { UseThreadPageDataInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageData({
   activeComposerMatchMode,
@@ -19,18 +19,7 @@ export function useThreadPageData({
   streamState,
   threadTurnWindowSize,
   workspaceId,
-}: {
-  activeComposerMatchMode?: 'command' | 'mention' | 'skill'
-  activeComposerPanel: ComposerAssistPanel | null
-  hasPendingTurn: boolean
-  isDocumentVisible: boolean
-  normalizedDeferredComposerQuery: string
-  selectedProcessId?: string
-  selectedThreadId?: string
-  streamState: string
-  threadTurnWindowSize: number
-  workspaceId: string
-}) {
+}: UseThreadPageDataInput) {
   const {
     accountQuery,
     approvalsQuery,

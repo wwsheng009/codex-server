@@ -1,11 +1,7 @@
 import { useEffect } from 'react'
-import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 
 import { layoutConfig, type TerminalWindowBounds } from '../../lib/layout-config'
-import type {
-  WorkbenchTerminalWindowDragState,
-  WorkbenchTerminalWindowResizeState,
-} from './workbenchLayoutTypes'
+import type { UseWorkbenchTerminalWindowInteractionInput } from './workbenchLayoutTypes'
 
 function getViewportSize() {
   if (typeof window === 'undefined') {
@@ -86,17 +82,7 @@ export function useWorkbenchTerminalWindowInteraction({
   setTerminalWindowBounds,
   terminalWindowDragRef,
   terminalWindowResizeRef,
-}: {
-  isEnabled: boolean
-  isTerminalWindowDragging: boolean
-  isTerminalWindowMaximized: boolean
-  isTerminalWindowResizing: boolean
-  setIsTerminalWindowDragging: (value: boolean) => void
-  setIsTerminalWindowResizing: (value: boolean) => void
-  setTerminalWindowBounds: Dispatch<SetStateAction<TerminalWindowBounds>>
-  terminalWindowDragRef: MutableRefObject<WorkbenchTerminalWindowDragState | null>
-  terminalWindowResizeRef: MutableRefObject<WorkbenchTerminalWindowResizeState | null>
-}) {
+}: UseWorkbenchTerminalWindowInteractionInput) {
   useEffect(() => {
     if (
       !isEnabled ||

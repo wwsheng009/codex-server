@@ -1,17 +1,15 @@
 import { getErrorMessage } from '../../lib/error-utils'
+import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config'
 import { buildThreadTerminalDockProps } from './buildThreadTerminalDockProps'
 import type {
-  BuildThreadPageLayoutPropsInput,
+  BuildThreadPageSurfaceLayoutPropsResult,
   SurfaceProps,
-  TerminalDockProps,
 } from './threadPageLayoutPropTypes'
+import type { BuildThreadPageSurfaceLayoutPropsInput } from './threadPageLayoutInputTypes'
 
 export function buildThreadPageSurfaceLayoutProps(
-  input: BuildThreadPageLayoutPropsInput,
-): {
-  surfaceProps: SurfaceProps
-  terminalDockProps: TerminalDockProps | undefined
-} {
+  input: BuildThreadPageSurfaceLayoutPropsInput,
+): BuildThreadPageSurfaceLayoutPropsResult {
   const handleRetryThreadLoad = () =>
     void input.queryClient.invalidateQueries({
       queryKey: ['thread-detail', input.workspaceId, input.selectedThreadId],
@@ -24,7 +22,7 @@ export function buildThreadPageSurfaceLayoutProps(
       return
     }
 
-    input.setSurfacePanelSides((current) => ({
+    input.setSurfacePanelSides((current: Record<SurfacePanelView, SurfacePanelSide>) => ({
       ...current,
       [surfacePanelView]:
         current[surfacePanelView] === 'right' ? 'left' : 'right',
@@ -81,7 +79,7 @@ export function buildThreadPageSurfaceLayoutProps(
     workspaceName: input.workspaceName,
   }
 
-  const terminalDockProps: TerminalDockProps | undefined = buildThreadTerminalDockProps(input)
+  const terminalDockProps = buildThreadTerminalDockProps(input)
 
   return {
     surfaceProps,

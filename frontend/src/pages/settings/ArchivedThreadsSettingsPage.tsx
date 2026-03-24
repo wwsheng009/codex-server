@@ -13,6 +13,11 @@ import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { getActiveLocale, i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 
+type UnarchiveThreadMutationInput = {
+  workspaceId: string
+  threadId: string
+}
+
 export function ArchivedThreadsSettingsPage() {
   const queryClient = useQueryClient()
   const { workspaces } = useSettingsShellContext()
@@ -41,7 +46,7 @@ export function ArchivedThreadsSettingsPage() {
   )
 
   const unarchiveMutation = useMutation({
-    mutationFn: ({ workspaceId, threadId }: { workspaceId: string; threadId: string }) =>
+    mutationFn: ({ workspaceId, threadId }: UnarchiveThreadMutationInput) =>
       unarchiveThread(workspaceId, threadId),
     onSuccess: async (_, variables) => {
       await Promise.all([

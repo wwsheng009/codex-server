@@ -14,6 +14,28 @@ export type UIToast = {
   onAction?: () => void
 }
 
+export type UIToastInput = {
+  actionLabel?: string
+  durationMs?: number
+  id?: string
+  message: string
+  onAction?: () => void
+  title: string
+  tone: ToastTone
+}
+
+export type MobileThreadChromeInput = {
+  activityRunning: boolean
+  activityVisible: boolean
+  refreshBusy: boolean
+  statusLabel: string
+  statusTone: string
+  syncLabel: string
+  syncTitle: string
+  title: string
+  visible: boolean
+}
+
 const workspaceRestartTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -42,22 +64,12 @@ type UIState = {
   mobileThreadRefreshBusy: boolean
   mobileThreadToolsOpen: boolean
   setUtilityPanelOpen: (open: boolean) => void
-  pushToast: (toast: Pick<UIToast, 'title' | 'message' | 'tone' | 'actionLabel' | 'onAction'> & { id?: string; durationMs?: number }) => void
+  pushToast: (toast: UIToastInput) => void
   dismissToast: (toastId: string) => void
   markWorkspaceRestarting: (workspaceId: string) => void
   markWorkspaceRestarted: (workspaceId: string) => void
   clearWorkspaceRestartState: (workspaceId: string) => void
-  setMobileThreadChrome: (input: {
-    visible: boolean
-    title: string
-    statusLabel: string
-    statusTone: string
-    syncLabel: string
-    syncTitle: string
-    activityVisible: boolean
-    activityRunning: boolean
-    refreshBusy: boolean
-  }) => void
+  setMobileThreadChrome: (input: MobileThreadChromeInput) => void
   setMobileThreadToolsOpen: (open: boolean) => void
   resetMobileThreadChrome: () => void
 }

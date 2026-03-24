@@ -2,121 +2,28 @@ import {
   Profiler,
   useSyncExternalStore,
   type ProfilerOnRenderCallback,
-  type ReactNode,
 } from 'react'
+
+import type {
+  ConversationRenderProfilerBoundaryProps,
+  ConversationRenderProfilerRailToggleProps,
+  ConversationRenderProfilerRecord,
+  ConversationRenderProfilerRecordState,
+  ConversationRenderProfilerSample,
+  ConversationRenderProfilerSnapshot,
+  ConversationScrollDiagnosticEvent,
+  ConversationScrollDiagnosticEventInput,
+  ConversationScrollDiagnosticsSnapshot,
+  ConversationScrollDiagnosticsSuggestionsInput,
+  ConversationScrollMutatorDescriptor,
+  DebugTone,
+} from './threadConversationProfilerTypes'
 
 const THREAD_CONVERSATION_PROFILER_STORAGE_KEY = 'codex.threadConversationProfiler.enabled'
 const THREAD_CONVERSATION_PROFILER_WINDOW_MS = 5_000
 const MAX_CONVERSATION_SCROLL_DIAGNOSTIC_EVENTS = 400
 const MAX_CONVERSATION_SCROLL_DIAGNOSTIC_RECENT_EVENTS = 12
 const SCROLL_DIAGNOSTIC_JITTER_WINDOW_MS = 220
-
-type DebugTone = 'neutral' | 'warn' | 'danger' | 'good'
-type ConversationScrollDiagnosticKind =
-  | 'viewport-scroll'
-  | 'programmatic-scroll'
-  | 'virtualization-range'
-  | 'virtualization-layout'
-  | 'older-turn-anchor'
-  | 'user-intent'
-
-type ConversationScrollDiagnosticMetadata = Record<string, boolean | number | string | null>
-
-type ConversationRenderProfilerSample = {
-  actualDuration: number
-  baseDuration: number
-  commitTime: number
-}
-
-export type ConversationScrollMutatorDescriptor = {
-  file: string
-  reason: string
-  source: string
-}
-
-export type ConversationScrollDiagnosticEvent = {
-  behavior?: string
-  clientHeight?: number
-  deltaScrollTop?: number | null
-  deltaTargetTop?: number | null
-  detail?: string
-  id: number
-  kind: ConversationScrollDiagnosticKind
-  metadata?: ConversationScrollDiagnosticMetadata
-  scrollHeight?: number
-  scrollTop?: number
-  source: string
-  targetTop?: number
-  timeSincePreviousEventMs?: number | null
-  ts: number
-}
-
-export type ConversationScrollDiagnosticsSnapshot = {
-  candidateJitterCount: number
-  enabled: boolean
-  eventCount: number
-  lastEvent: ConversationScrollDiagnosticEvent | null
-  layoutChangeCount: number
-  maxAbsoluteScrollDelta: number
-  maxAbsoluteTargetDelta: number
-  programmaticScrollCount: number
-  rapidProgrammaticWriteCount: number
-  recentEvents: ConversationScrollDiagnosticEvent[]
-  suggestions: string[]
-  topSources: Array<{
-    count: number
-    source: string
-  }>
-  userIntentCount: number
-  viewportScrollCount: number
-}
-
-export type ConversationRenderProfilerRecordState = {
-  id: string
-  lastActualDuration: number
-  lastBaseDuration: number
-  lastCommitTime: number
-  maxActualDuration: number
-  mountCount: number
-  nestedUpdateCount: number
-  samples: ConversationRenderProfilerSample[]
-  totalActualDuration: number
-  totalBaseDuration: number
-  updateCount: number
-}
-
-export type ConversationRenderProfilerRecord = {
-  id: string
-  lastActualDuration: number
-  lastBaseDuration: number
-  lastCommitTime: number
-  maxActualDuration: number
-  mountCount: number
-  nestedUpdateCount: number
-  recentActualDuration: number
-  recentAverageActualDuration: number
-  recentCommitCount: number
-  recentMaxActualDuration: number
-  totalActualDuration: number
-  totalBaseDuration: number
-  totalCommitCount: number
-  updateCount: number
-}
-
-export type ConversationRenderProfilerSnapshot = {
-  enabled: boolean
-  knownScrollMutators: ConversationScrollMutatorDescriptor[]
-  lastCommitTime: number | null
-  panelVisible: boolean
-  records: ConversationRenderProfilerRecord[]
-  scrollDiagnostics: ConversationScrollDiagnosticsSnapshot
-  scrollDiagnosticsEnabled: boolean
-  suggestions: string[]
-  totalRecentActualDuration: number
-  totalRecentCommitCount: number
-  totalRecentMaxActualDuration: number
-  windowMs: number
-}
 
 const KNOWN_CONVERSATION_SCROLL_MUTATORS: ConversationScrollMutatorDescriptor[] = [
   {
@@ -400,16 +307,7 @@ export function buildConversationRenderProfilerSuggestions(
 }
 
 export function buildConversationScrollDiagnosticsSuggestions(
-  snapshot: Pick<
-    ConversationScrollDiagnosticsSnapshot,
-    | 'candidateJitterCount'
-    | 'eventCount'
-    | 'layoutChangeCount'
-    | 'programmaticScrollCount'
-    | 'rapidProgrammaticWriteCount'
-    | 'topSources'
-    | 'viewportScrollCount'
-  >,
+  snapshot: ConversationScrollDiagnosticsSuggestionsInput,
 ): string[] {
   if (!snapshot.eventCount) {
     return [
@@ -754,17 +652,7 @@ export function resetConversationRenderProfiler() {
   scheduleConversationRenderProfilerNotification()
 }
 
-export function recordConversationScrollDiagnosticEvent(input: {
-  behavior?: string
-  clientHeight?: number
-  detail?: string
-  kind: ConversationScrollDiagnosticKind
-  metadata?: ConversationScrollDiagnosticMetadata
-  scrollHeight?: number
-  scrollTop?: number
-  source: string
-  targetTop?: number
-}) {
+export function recordConversationScrollDiagnosticEvent(input: ConversationScrollDiagnosticEventInput) {
   if (!import.meta.env.DEV) {
     return
   }
@@ -913,10 +801,7 @@ function getConversationRenderProfilerTone(value: number, warnAt: number, danger
 export function ConversationRenderProfilerBoundary({
   children,
   id,
-}: {
-  children: ReactNode
-  id: string
-}) {
+}: ConversationRenderProfilerBoundaryProps) {
   if (!import.meta.env.DEV) {
     return <>{children}</>
   }
@@ -930,9 +815,7 @@ export function ConversationRenderProfilerBoundary({
 
 export function ConversationRenderProfilerRailToggle({
   disabled = false,
-}: {
-  disabled?: boolean
-}) {
+}: ConversationRenderProfilerRailToggleProps) {
   if (!import.meta.env.DEV) {
     return null
   }

@@ -41,10 +41,12 @@ export type ThreadPageControllerActions = {
 
 export type UseThreadPageControllerActionsInput = ThreadPageControllerData
 
-export type UseThreadPageControllerEffectsInput = Pick<
-  ThreadPageControllerData,
-  'controllerState' | 'dataState' | 'statusState' | 'viewportState'
->
+export type UseThreadPageControllerEffectsInput = {
+  controllerState: ControllerState
+  dataState: DataState
+  statusState: StatusState
+  viewportState: ViewportState
+}
 
 export type BuildThreadPageControllerLayoutPropsInput = ThreadPageControllerData &
   ThreadPageControllerActions

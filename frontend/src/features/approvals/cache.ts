@@ -1,6 +1,5 @@
-import type { QueryClient } from '@tanstack/react-query'
-
 import type { PendingApproval, ServerEvent } from '../../types/api'
+import type { ApprovalCacheQueryClient } from './approvalTypes'
 
 const snapshotMethod = 'approvals/snapshot'
 
@@ -19,7 +18,7 @@ const approvalRequestMethods = new Set([
 const approvalResolutionMethods = new Set(['server/request/resolved', 'server/request/expired'])
 
 export function applyApprovalEventToCache(
-  queryClient: Pick<QueryClient, 'setQueryData'>,
+  queryClient: ApprovalCacheQueryClient,
   workspaceId: string,
   event: ServerEvent,
 ) {

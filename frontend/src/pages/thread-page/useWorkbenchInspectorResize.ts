@@ -1,20 +1,14 @@
 import { useEffect } from 'react'
-import type { MutableRefObject } from 'react'
 
 import { layoutConfig } from '../../lib/layout-config'
-import type { WorkbenchInspectorResizeState } from './workbenchLayoutTypes'
+import type { UseWorkbenchInspectorResizeInput } from './workbenchLayoutTypes'
 
 export function useWorkbenchInspectorResize({
   inspectorResizeRef,
   isInspectorResizing,
   setInspectorWidth,
   setIsInspectorResizing,
-}: {
-  inspectorResizeRef: MutableRefObject<WorkbenchInspectorResizeState | null>
-  isInspectorResizing: boolean
-  setInspectorWidth: (value: number) => void
-  setIsInspectorResizing: (value: boolean) => void
-}) {
+}: UseWorkbenchInspectorResizeInput) {
   useEffect(() => {
     if (!isInspectorResizing) {
       return

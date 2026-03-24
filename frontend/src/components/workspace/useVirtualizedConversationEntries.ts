@@ -4,56 +4,25 @@ import {
   useMemo,
   useRef,
   useState,
-  type RefObject,
 } from 'react'
 
 import { recordConversationScrollDiagnosticEvent } from './threadConversationProfiler'
+import type {
+  ExpandVirtualizedRenderWindowInput,
+  ResolveVirtualizedViewportAnchorOffsetDeltaInput,
+  VirtualizedConversationEntriesInput,
+  VirtualizedConversationEntryLayout,
+  VirtualizedConversationLayoutCacheSnapshot,
+  VirtualizedConversationRenderWindow,
+  VisibleVirtualizedEntriesSlice,
+  WriteVirtualizedConversationLayoutCacheInput,
+} from './virtualizedConversationTypes'
 
 const DEFAULT_ENTRY_OVERSCAN_PX = 1800
 const FALLBACK_VIEWPORT_HEIGHT_PX = 720
 const RENDER_WINDOW_NEAR_BOTTOM_FREEZE_PX = 480
 const SCROLLING_RENDER_WINDOW_BUFFER_PX = 960
 const VIRTUALIZED_ENTRY_LAYOUT_CACHE_MAX_AGE_MS = 30_000
-
-type VirtualizedConversationEntryLayout<T> = {
-  entriesRef: T[]
-  heights: number[]
-  keyToIndex: Map<string, number>
-  keys: string[]
-  offsets: number[]
-  totalHeight: number
-}
-
-type VisibleVirtualizedEntriesSlice<T> = {
-  endIndex: number
-  entriesRef: T[]
-  startIndex: number
-  visibleEntries: T[]
-}
-
-type VirtualizedConversationEntriesInput<T> = {
-  enabled: boolean
-  entries: T[]
-  estimateEntryHeight: (entry: T) => number
-  freezeLayout?: boolean
-  getEntryKey: (entry: T) => string
-  listIdentity: string
-  overscanPx?: number
-  scrollViewportRef: RefObject<HTMLElement | null>
-}
-
-type VirtualizedConversationRenderWindow = {
-  endIndex: number
-  paddingBottom: number
-  paddingTop: number
-  startIndex: number
-}
-
-type VirtualizedConversationLayoutCacheSnapshot = {
-  entryHeights: Record<string, number>
-  renderWindow: VirtualizedConversationRenderWindow | null
-  updatedAt: number
-}
 
 const virtualizedConversationLayoutCache = new Map<
   string,
@@ -111,10 +80,7 @@ function clampVirtualizedConversationRenderWindow(
 
 function writeVirtualizedConversationLayoutCache(
   listIdentity: string,
-  input: {
-    entryHeights?: Record<string, number>
-    renderWindow?: VirtualizedConversationRenderWindow | null
-  },
+  input: WriteVirtualizedConversationLayoutCacheInput,
 ) {
   if (!listIdentity) {
     return
@@ -829,12 +795,7 @@ export function resolveVirtualizedViewportAnchorOffsetDelta<T>({
   getEntryKey,
   nextLayout,
   previousLayout,
-}: {
-  anchorEntry: T | undefined
-  getEntryKey: (entry: T) => string
-  nextLayout: VirtualizedConversationEntryLayout<T>
-  previousLayout: VirtualizedConversationEntryLayout<T>
-}) {
+}: ResolveVirtualizedViewportAnchorOffsetDeltaInput<T>) {
   if (!anchorEntry) {
     return 0
   }
@@ -859,15 +820,7 @@ export function expandVirtualizedRenderWindow({
   targetRange,
   totalHeight,
   viewportHeight,
-}: {
-  current: VirtualizedConversationRenderWindow
-  heights: number[]
-  isUserScrolling: boolean
-  offsets: number[]
-  targetRange: VirtualizedConversationRenderWindow
-  totalHeight: number
-  viewportHeight: number
-}): VirtualizedConversationRenderWindow {
+}: ExpandVirtualizedRenderWindowInput): VirtualizedConversationRenderWindow {
   const effectiveBufferPx = isUserScrolling
     ? Math.max(viewportHeight, SCROLLING_RENDER_WINDOW_BUFFER_PX)
     : 0

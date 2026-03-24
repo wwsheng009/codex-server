@@ -1,23 +1,14 @@
 import { useEffect } from 'react'
-import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 
 import { layoutConfig } from '../../lib/layout-config'
-import type {
-  SurfacePanelWidths,
-  WorkbenchSurfacePanelResizeState,
-} from './workbenchLayoutTypes'
+import type { UseWorkbenchSurfacePanelResizeInput } from './workbenchLayoutTypes'
 
 export function useWorkbenchSurfacePanelResize({
   isSurfacePanelResizing,
   setIsSurfacePanelResizing,
   setSurfacePanelWidths,
   surfacePanelResizeRef,
-}: {
-  isSurfacePanelResizing: boolean
-  setIsSurfacePanelResizing: (value: boolean) => void
-  setSurfacePanelWidths: Dispatch<SetStateAction<SurfacePanelWidths>>
-  surfacePanelResizeRef: MutableRefObject<WorkbenchSurfacePanelResizeState | null>
-}) {
+}: UseWorkbenchSurfacePanelResizeInput) {
   useEffect(() => {
     if (!isSurfacePanelResizing) {
       return

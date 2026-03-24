@@ -12,13 +12,65 @@ import type { LiveTimelineEntry } from '../../components/workspace/timeline-util
 import { i18n } from '../../i18n/runtime'
 import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config'
 import type { PendingApproval, Thread, ThreadTurn } from '../../types/api'
+import type { ThreadPageRespondApprovalInput } from './threadPageActionTypes'
 import type { ThreadViewportScrollInput } from './threadViewportTypes'
 
-type ThreadRuntimeNotice = {
+export type ThreadRuntimeNotice = {
   title: string
   message: string
   summary: string
   noticeKey: string
+}
+
+export type ThreadWorkbenchSurfaceProps = {
+  activePendingTurnPhase?: 'sending' | 'waiting'
+  activeSurfacePanelSide: SurfacePanelSide
+  approvalAnswers: Record<string, Record<string, string>>
+  approvalErrors: Record<string, string>
+  children?: ReactNode
+  approvals?: PendingApproval[]
+  createThreadErrorMessage?: string
+  displayedTurns: ThreadTurn[]
+  hasMoreTurnsBefore: boolean
+  hasThreads: boolean
+  hiddenTurnsCount: number
+  isCreateThreadPending: boolean
+  isLoadingOlderTurns: boolean
+  isThreadsLoaded: boolean
+  isThreadSelectionLoading: boolean
+  isMobileViewport: boolean
+  isSurfacePanelResizing: boolean
+  isThreadPinnedToLatest: boolean
+  isThreadProcessing: boolean
+  isThreadViewportInteracting: boolean
+  isWaitingForThreadData: boolean
+  liveTimelineEntries: LiveTimelineEntry[]
+  onChangeApprovalAnswer: (requestId: string, questionId: string, value: string) => void
+  onCloseWorkbenchOverlay: () => void
+  onCaptureOlderTurnsAnchor: (restoreMode?: 'preserve-position' | 'reveal-older') => void
+  onCreateThread: () => void
+  onLoadOlderTurns: () => void
+  onReleaseFullTurn: (turnId: string, itemId?: string) => void
+  onRetainFullTurn: (turnId: string, itemId?: string) => void
+  onRequestFullTurn: (turnId: string, itemId?: string) => void
+  onRespondApproval: (input: ThreadPageRespondApprovalInput) => void
+  onRetryServerRequest: (item: Record<string, unknown>) => void
+  onRetryThreadLoad: () => void
+  onRestoreOlderTurnsViewport: () => void
+  onSurfacePanelResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  onThreadViewportScroll: (input?: ThreadViewportScrollInput) => void
+  onToggleSurfacePanelSide: () => void
+  respondingToApproval: boolean
+  selectedThread?: Thread
+  surfacePanelView: SurfacePanelView | null
+  timelineIdentity: string
+  threadDetailError: unknown
+  threadDetailIsLoading: boolean
+  threadLoadErrorMessage?: string
+  threadLogStyle: CSSProperties
+  threadRuntimeNotice?: ThreadRuntimeNotice
+  threadViewportRef: RefObject<HTMLDivElement | null>
+  workspaceName?: string
 }
 
 const OLDER_TURNS_AUTOLOAD_THRESHOLD_PX = 72
@@ -73,62 +125,7 @@ export function ThreadWorkbenchSurface({
   threadRuntimeNotice,
   threadViewportRef,
   workspaceName,
-}: {
-  activePendingTurnPhase?: 'sending' | 'waiting'
-  activeSurfacePanelSide: SurfacePanelSide
-  approvalAnswers: Record<string, Record<string, string>>
-  approvalErrors: Record<string, string>
-  children?: ReactNode
-  approvals?: PendingApproval[]
-  createThreadErrorMessage?: string
-  displayedTurns: ThreadTurn[]
-  hasMoreTurnsBefore: boolean
-  hasThreads: boolean
-  hiddenTurnsCount: number
-  isCreateThreadPending: boolean
-  isLoadingOlderTurns: boolean
-  isThreadsLoaded: boolean
-  isThreadSelectionLoading: boolean
-  isMobileViewport: boolean
-  isSurfacePanelResizing: boolean
-  isThreadPinnedToLatest: boolean
-  isThreadProcessing: boolean
-  isThreadViewportInteracting: boolean
-  isWaitingForThreadData: boolean
-  liveTimelineEntries: LiveTimelineEntry[]
-  onChangeApprovalAnswer: (requestId: string, questionId: string, value: string) => void
-  onCloseWorkbenchOverlay: () => void
-  onCaptureOlderTurnsAnchor: (
-    restoreMode?: 'preserve-position' | 'reveal-older',
-  ) => void
-  onCreateThread: () => void
-  onLoadOlderTurns: () => void
-  onReleaseFullTurn: (turnId: string, itemId?: string) => void
-  onRetainFullTurn: (turnId: string, itemId?: string) => void
-  onRequestFullTurn: (turnId: string, itemId?: string) => void
-  onRespondApproval: (input: {
-    requestId: string
-    action: string
-    answers?: Record<string, string[]>
-  }) => void
-  onRetryServerRequest: (item: Record<string, unknown>) => void
-  onRetryThreadLoad: () => void
-  onRestoreOlderTurnsViewport: () => void
-  onSurfacePanelResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
-  onThreadViewportScroll: (input?: ThreadViewportScrollInput) => void
-  onToggleSurfacePanelSide: () => void
-  respondingToApproval: boolean
-  selectedThread?: Thread
-  surfacePanelView: SurfacePanelView | null
-  timelineIdentity: string
-  threadDetailError: unknown
-  threadDetailIsLoading: boolean
-  threadLoadErrorMessage?: string
-  threadLogStyle: CSSProperties
-  threadRuntimeNotice?: ThreadRuntimeNotice
-  threadViewportRef: RefObject<HTMLDivElement | null>
-  workspaceName?: string
-}) {
+}: ThreadWorkbenchSurfaceProps) {
   const previousOlderTurnsLoadingRef = useRef(isLoadingOlderTurns)
   const pendingOlderTurnsAutoloadRef = useRef(false)
 

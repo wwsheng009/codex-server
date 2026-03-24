@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
   type RefObject,
 } from 'react'
 
@@ -19,25 +18,36 @@ import {
 import { containsAnsiEscapeCode, safeJson } from '../thread/threadRender'
 import { InlineNotice } from '../ui/InlineNotice'
 import { Input } from '../ui/Input'
-import type { LiveTimelineEntry } from './timeline-utils'
+import type {
+  ApprovalCardProps,
+  ApprovalDialogProps,
+  ApprovalDialogQuestionProps,
+  ApprovalQuestionFieldProps,
+  ApprovalStackProps,
+  CompactSystemStatusIconProps,
+  CompactSystemStatusTone,
+  ConversationEntry,
+  ConversationEntryRowProps,
+  CopyableMessageBodyProps,
+  CopyMessageStatus,
+  CopyMessageStatusIconProps,
+  ExpandableThreadMessageProps,
+  LiveFeedProps,
+  MeasuredConversationEntryProps,
+  ServerRequestTimelineCardProps,
+  SystemTimelineCardProps,
+  TimelineItemProps,
+  ToolCallCommandField,
+  ToolCallContentItem,
+  ToolCallSection,
+  ToolCallSectionValueProps,
+  ToolCallTimelineCardProps,
+  TurnTimelineProps,
+  TurnTimelineVirtualizationInput,
+} from './renderersTypes'
 import { ConversationRenderProfilerBoundary } from './threadConversationProfiler'
 import { useVirtualizedConversationEntries } from './useVirtualizedConversationEntries'
 import type { PendingApproval, ThreadTurn } from '../../types/api'
-
-type ConversationEntry =
-  | {
-      kind: 'item'
-      key: string
-      item: Record<string, unknown>
-      turnId: string
-    }
-  | {
-      kind: 'error'
-      key: string
-      error: unknown
-    }
-
-type CompactSystemStatusTone = 'running' | 'success' | 'error'
 const EXPANDABLE_MESSAGE_THRESHOLD_CHARS = 4_000
 const EXPANDABLE_MESSAGE_PREVIEW_CHARS = 1_200
 const FULL_TURN_OVERRIDE_TTL_MS = 30_000
@@ -94,17 +104,7 @@ export const TurnTimeline = memo(function TurnTimeline({
   timelineIdentity,
   turns,
   onRetryServerRequest,
-}: {
-  disableVirtualization?: boolean
-  freezeVirtualization?: boolean
-  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
-  onRetainFullTurn?: (turnId: string, itemId?: string) => void
-  onRequestFullTurn?: (turnId: string, itemId?: string) => void
-  scrollViewportRef?: RefObject<HTMLDivElement | null>
-  timelineIdentity?: string
-  turns: ThreadTurn[]
-  onRetryServerRequest?: (item: Record<string, unknown>) => void
-}) {
+}: TurnTimelineProps) {
   const entries = useMemo(() => buildConversationEntries(turns), [turns])
   const isVirtualizedTimeline = shouldVirtualizeTurnTimeline({
     disableVirtualization,
@@ -213,12 +213,7 @@ export function shouldVirtualizeTurnTimeline({
   entryCount,
   hasScrollViewportRef,
   timelineIdentity,
-}: {
-  disableVirtualization?: boolean
-  entryCount: number
-  hasScrollViewportRef: boolean
-  timelineIdentity?: string
-}) {
+}: TurnTimelineVirtualizationInput) {
   return (
     !disableVirtualization &&
     hasScrollViewportRef &&
@@ -227,7 +222,7 @@ export function shouldVirtualizeTurnTimeline({
   )
 }
 
-export const LiveFeed = memo(function LiveFeed({ entries }: { entries: LiveTimelineEntry[] }) {
+export const LiveFeed = memo(function LiveFeed({ entries }: LiveFeedProps) {
   return (
     <div className="live-feed">
       {entries.map((entry) =>
@@ -265,18 +260,7 @@ export function ApprovalStack({
   responding,
   onChangeAnswer,
   onRespond,
-}: {
-  approvals: PendingApproval[]
-  approvalAnswers: Record<string, Record<string, string>>
-  approvalErrors: Record<string, string>
-  responding?: boolean
-  onChangeAnswer: (requestId: string, questionId: string, value: string) => void
-  onRespond: (input: {
-    requestId: string
-    action: string
-    answers?: Record<string, string[]>
-  }) => void
-}) {
+}: ApprovalStackProps) {
   return (
     <div className="approval-stack">
       {approvals.map((approval) => (
@@ -302,19 +286,7 @@ export function ApprovalDialog({
   responding,
   onChangeAnswer,
   onRespond,
-}: {
-  approval: PendingApproval
-  approvalAnswers: Record<string, Record<string, string>>
-  approvalErrors: Record<string, string>
-  approvalQueueCount: number
-  responding?: boolean
-  onChangeAnswer: (requestId: string, questionId: string, value: string) => void
-  onRespond: (input: {
-    requestId: string
-    action: string
-    answers?: Record<string, string[]>
-  }) => void
-}) {
+}: ApprovalDialogProps) {
   const details = asObject(approval.details)
   const questions = approvalQuestions(details)
   const summaryMeta = approvalDialogMeta(approval, details)
@@ -550,14 +522,7 @@ function ApprovalDialogQuestion({
   onChangeAnswer,
   onAdvance,
   focusFirst,
-}: {
-  approvalId: string
-  question: Record<string, unknown>
-  value: string
-  onChangeAnswer: (requestId: string, questionId: string, value: string) => void
-  onAdvance: () => void
-  focusFirst?: boolean
-}) {
+}: ApprovalDialogQuestionProps) {
   const questionId = stringField(question.id)
   const header = stringField(question.header) || questionId
   const prompt = stringField(question.question)
@@ -686,22 +651,7 @@ function ApprovalCard({
   children,
   headerMeta,
   titleId,
-}: {
-  approval: PendingApproval
-  approvalAnswers: Record<string, Record<string, string>>
-  approvalErrors: Record<string, string>
-  onChangeAnswer: (requestId: string, questionId: string, value: string) => void
-  onRespond: (input: {
-    requestId: string
-    action: string
-    answers?: Record<string, string[]>
-  }) => void
-  responding?: boolean
-  className?: string
-  children?: ReactNode
-  headerMeta?: ReactNode
-  titleId?: string
-}) {
+}: ApprovalCardProps) {
   const details = asObject(approval.details)
   const questions = approvalQuestions(details)
   const answersComplete = areApprovalQuestionsComplete(approval.id, questions, approvalAnswers)
@@ -766,13 +716,7 @@ function ApprovalQuestionField({
   value,
   onChangeAnswer,
   focusFirst,
-}: {
-  approvalId: string
-  question: Record<string, unknown>
-  value: string
-  onChangeAnswer: (requestId: string, questionId: string, value: string) => void
-  focusFirst?: boolean
-}) {
+}: ApprovalQuestionFieldProps) {
   const questionId = stringField(question.id)
   const header = stringField(question.header) || questionId
   const prompt = stringField(question.question)
@@ -829,16 +773,11 @@ function CopyableMessageBody({
   tone,
   className,
   children,
-}: {
-  source: string
-  tone: 'user' | 'assistant' | 'system'
-  className?: string
-  children: ReactNode
-}) {
+}: CopyableMessageBodyProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [isHovered, setIsHovered] = useState(false)
   const [hasSelection, setHasSelection] = useState(false)
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [copyState, setCopyState] = useState<CopyMessageStatus>('idle')
   const canCopy = source.trim() !== ''
   const classNames = [
     'conversation-copyable',
@@ -919,7 +858,7 @@ function CopyableMessageBody({
   )
 }
 
-function CopyMessageStatusIcon({ state }: { state: 'idle' | 'copied' | 'error' }) {
+function CopyMessageStatusIcon({ state }: CopyMessageStatusIconProps) {
   if (state === 'copied') {
     return <CopySuccessIcon />
   }
@@ -938,14 +877,7 @@ function ExpandableThreadMessage({
   onRequestFullContent,
   summaryTruncated,
   tone,
-}: {
-  content: string
-  onReleaseFullContent?: () => void
-  onRetainFullContent?: () => void
-  onRequestFullContent?: () => void
-  summaryTruncated?: boolean
-  tone: 'user' | 'assistant'
-}) {
+}: ExpandableThreadMessageProps) {
   const shouldCollapse = summaryTruncated || content.length > EXPANDABLE_MESSAGE_THRESHOLD_CHARS
   const [isExpanded, setIsExpanded] = useState(!shouldCollapse)
   const [isRequestingFullContent, setIsRequestingFullContent] = useState(false)
@@ -1092,7 +1024,7 @@ function CopyErrorIcon() {
   )
 }
 
-function CompactSystemStatusIcon({ tone }: { tone: CompactSystemStatusTone }) {
+function CompactSystemStatusIcon({ tone }: CompactSystemStatusIconProps) {
   if (tone === 'success') {
     return (
       <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
@@ -1131,14 +1063,7 @@ function TimelineItem({
   onRequestFullTurn,
   onRetryServerRequest,
   turnId,
-}: {
-  item: Record<string, unknown>
-  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
-  onRetainFullTurn?: (turnId: string, itemId?: string) => void
-  onRequestFullTurn?: (turnId: string, itemId?: string) => void
-  onRetryServerRequest?: (item: Record<string, unknown>) => void
-  turnId: string
-}) {
+}: TimelineItemProps) {
   const type = stringField(item.type)
   const itemId = stringField(item.id) || undefined
   const summaryTruncated = booleanField(item.summaryTruncated) === true
@@ -1433,19 +1358,7 @@ function SystemTimelineCard({
   meta,
   statusTone,
   children,
-}: {
-  className?: string
-  deferDetailsUntilOpen?: boolean
-  onReleaseFullContent?: () => void
-  onRetainFullContent?: () => void
-  onRequestFullContent?: () => void
-  summaryTruncated?: boolean
-  title: string
-  summary: string
-  meta?: string
-  statusTone?: CompactSystemStatusTone
-  children: ReactNode
-}) {
+}: SystemTimelineCardProps) {
   const [isOpen, setIsOpen] = useState(false)
   const detailsRef = useRef<HTMLDetailsElement | null>(null)
   const requestedFullContentRef = useRef(false)
@@ -1540,13 +1453,7 @@ function ToolCallTimelineCard({
   onRetainFullTurn,
   onRequestFullTurn,
   turnId,
-}: {
-  item: Record<string, unknown>
-  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
-  onRetainFullTurn?: (turnId: string, itemId?: string) => void
-  onRequestFullTurn?: (turnId: string, itemId?: string) => void
-  turnId: string
-}) {
+}: ToolCallTimelineCardProps) {
   const type = stringField(item.type)
   const tool = stringField(item.tool) || humanizeItemType(type)
   const status = stringField(item.status)
@@ -1690,14 +1597,7 @@ function ServerRequestTimelineCard({
   onRequestFullTurn,
   onRetry,
   turnId,
-}: {
-  item: Record<string, unknown>
-  onReleaseFullTurn?: (turnId: string, itemId?: string) => void
-  onRetainFullTurn?: (turnId: string, itemId?: string) => void
-  onRequestFullTurn?: (turnId: string, itemId?: string) => void
-  onRetry?: (item: Record<string, unknown>) => void
-  turnId: string
-}) {
+}: ServerRequestTimelineCardProps) {
   const requestKind = stringField(item.requestKind)
   const status = stringField(item.status) || 'pending'
   const details = asObject(item.details)
@@ -1781,41 +1681,11 @@ function ServerRequestTimelineCard({
   )
 }
 
-type ToolCallSection =
-  | {
-      kind?: 'json'
-      label: string
-      value: unknown
-      tone?: 'danger'
-    }
-  | {
-      kind: 'text'
-      label: string
-      value: string
-      tone?: 'danger'
-    }
-
-type ToolCallCommandField = {
-  label: string
-  value: string
-  terminal?: boolean
-}
-
-type ToolCallContentItem = {
-  type: string
-  text?: string
-  imageUrl?: string
-}
-
 function ToolCallSectionValue({
   value,
   tone,
   className,
-}: {
-  value: unknown
-  tone?: 'danger'
-  className?: string
-}) {
+}: ToolCallSectionValueProps) {
   const commandOutput = readToolCallCommandOutput(value)
   if (commandOutput) {
     return (
@@ -2495,10 +2365,7 @@ function buildConversationEntries(turns: ThreadTurn[]): ConversationEntry[] {
 const ConversationEntryRow = memo(function ConversationEntryRow({
   children,
   containerRef,
-}: {
-  children: ReactNode
-  containerRef?: RefObject<HTMLDivElement | null>
-}) {
+}: ConversationEntryRowProps) {
   return (
     <ConversationRenderProfilerBoundary id="ConversationEntryRow">
       <div className="conversation-stream__item" ref={containerRef}>
@@ -2513,12 +2380,7 @@ const MeasuredConversationEntry = memo(function MeasuredConversationEntry({
   entryKey,
   isMeasurementActive,
   onMeasure,
-}: {
-  children: ReactNode
-  entryKey: string
-  isMeasurementActive: boolean
-  onMeasure: (entryKey: string, nextHeight: number) => void
-}) {
+}: MeasuredConversationEntryProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {

@@ -9,7 +9,11 @@ type ResizeHandleProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   edge?: 'start' | 'end'
 }
 
-export function RailIcon({ children }: { children: ReactNode }) {
+type RailIconProps = {
+  children: ReactNode
+}
+
+export function RailIcon({ children }: RailIconProps) {
   return <span className="rail-icon">{children}</span>
 }
 

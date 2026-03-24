@@ -3,11 +3,12 @@ import { buildThreadPageControllerRailLayoutInput } from './buildThreadPageContr
 import { buildThreadPageControllerSurfaceLayoutInput } from './buildThreadPageControllerSurfaceLayoutInput'
 import { buildThreadPageLayoutProps } from './buildThreadPageLayoutProps'
 import type { BuildThreadPageLayoutPropsInput } from './threadPageLayoutPropTypes'
+import type { ThreadPageLayoutProps } from './threadPageLayoutPropTypes'
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
 
 export function buildThreadPageControllerLayoutProps(
   input: BuildThreadPageControllerLayoutPropsInput,
-) {
+): ThreadPageLayoutProps {
   const { controllerState, railState, statusState } = input
   const layoutInput: BuildThreadPageLayoutPropsInput = {
     ...buildThreadPageControllerComposerLayoutInput(input),

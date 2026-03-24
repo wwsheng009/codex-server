@@ -1,52 +1,4 @@
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
-import type { ControllerRailLayoutInput } from './threadPageControllerLayoutInputTypes'
-
-type RailStateLayoutInput = Pick<
-  ControllerRailLayoutInput,
-  | 'command'
-  | 'commandRunMode'
-  | 'commandCount'
-  | 'confirmDialogError'
-  | 'confirmingThreadDelete'
-  | 'deletePending'
-  | 'deletingThreadId'
-  | 'editingThreadId'
-  | 'editingThreadName'
-  | 'isExpanded'
-  | 'isResizing'
-  | 'isThreadToolsExpanded'
-  | 'isWorkbenchToolsExpanded'
-  | 'latestTurnStatus'
-  | 'lastTimelineEventTs'
-  | 'loadedAssistantMessageCount'
-  | 'loadedMessageCount'
-  | 'loadedTurnCount'
-  | 'liveThreadCwd'
-  | 'pendingApprovalsCount'
-  | 'rootPath'
-  | 'runtimeConfigChangedAt'
-  | 'runtimeConfigLoadStatus'
-  | 'runtimeRestartRequired'
-  | 'runtimeStartedAt'
-  | 'runtimeUpdatedAt'
-  | 'contextUsagePercent'
-  | 'contextWindow'
-  | 'loadedUserMessageCount'
-  | 'selectedThread'
-  | 'shellEnvironmentInfo'
-  | 'shellEnvironmentSummary'
-  | 'shellEnvironmentWarning'
-  | 'startCommandModeDisabled'
-  | 'startCommandPending'
-  | 'streamState'
-  | 'totalMessageCount'
-  | 'totalTokens'
-  | 'totalTurnCount'
-  | 'threadCount'
-  | 'timelineItemCount'
-  | 'turnCount'
-  | 'workspaceName'
->
 
 export function buildThreadPageControllerRailStateLayoutInput({
   controllerState,
@@ -55,7 +7,7 @@ export function buildThreadPageControllerRailStateLayoutInput({
   mutationState,
   railState,
   statusState,
-}: BuildThreadPageControllerLayoutPropsInput): RailStateLayoutInput {
+}: BuildThreadPageControllerLayoutPropsInput) {
   const activeSelectedThreadId =
     dataState.resolvedSelectedThreadId ?? controllerState.selectedThreadId
   const totalTurnCount =

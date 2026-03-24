@@ -7,12 +7,12 @@ import {
   ToolsIcon,
 } from '../../components/ui/RailControls'
 import { i18n } from '../../i18n/runtime'
-import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+import type { ThreadWorkbenchRailCollapsedProps } from './threadWorkbenchRailTypes'
 
 export function ThreadWorkbenchRailCollapsed({
   onOpenInspector,
   onOpenSurfacePanel,
-}: Pick<ThreadWorkbenchRailProps, 'onOpenInspector' | 'onOpenSurfacePanel'>) {
+}: ThreadWorkbenchRailCollapsedProps) {
   return (
     <aside className="workbench-pane workbench-pane--collapsed">
       <div className="workbench-pane__collapsed">

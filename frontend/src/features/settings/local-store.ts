@@ -32,7 +32,7 @@ type DensityMode = 'comfortable' | 'compact'
 type ResponseTone = 'balanced' | 'direct' | 'detailed'
 export type TerminalRendererPreference = 'auto' | 'webgl' | 'dom'
 
-type SettingsLocalState = {
+type SettingsLocalValues = {
   locale: AppLocale
   theme: AppearanceTheme
   density: DensityMode
@@ -64,6 +64,9 @@ type SettingsLocalState = {
   contrast: number
   usePointerCursor: boolean
   useCustomColors: boolean
+}
+
+type SettingsLocalActions = {
   setLocale: (locale: AppLocale) => void
   setTheme: (theme: AppearanceTheme) => void
   setDensity: (density: DensityMode) => void
@@ -106,18 +109,9 @@ type SettingsLocalState = {
   setUseCustomColors: (enabled: boolean) => void
 }
 
-type LegacyPersistedSettingsState = Partial<
-  Omit<
-    SettingsLocalState,
-    | 'setThemeColorCustomization'
-    | 'selectCustomTheme'
-    | 'createCustomTheme'
-    | 'renameCustomTheme'
-    | 'deleteCustomTheme'
-    | 'resetThemePaletteCustomization'
-    | 'copyThemePaletteCustomization'
-  >
-> & {
+type SettingsLocalState = SettingsLocalValues & SettingsLocalActions
+
+type LegacyPersistedSettingsState = Partial<SettingsLocalValues> & {
   reduceMotion?: boolean
   accentColorLight?: string
   accentColorDark?: string
@@ -258,7 +252,7 @@ function resolvePersistedThemeColorCustomizations(state: LegacyPersistedSettings
 
 function normalizePersistedSettingsState(
   persistedState: LegacyPersistedSettingsState | undefined,
-): Partial<SettingsLocalState> {
+): Partial<SettingsLocalValues> {
   const state = persistedState ?? {}
   const {
     accentColorLight: _accentColorLight,

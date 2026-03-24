@@ -1,12 +1,17 @@
-import type { QueryClient } from '@tanstack/react-query'
-
 import { shouldRefreshApprovalsForEvent } from '../../pages/threadPageUtils'
-import type { PendingApproval, ServerEvent } from '../../types/api'
+import type { PendingApproval } from '../../types/api'
+import type {
+  ApprovalWorkspaceActivityEventSummary,
+  FlushApprovalQueryInvalidationInput,
+  QueueApprovalQueryInvalidationFlushInput,
+  RefetchApprovalsQueryIfNeededInput,
+  ScheduleApprovalQueryInvalidationInput,
+  ShouldRefetchApprovalsQueryInput,
+  SyncApprovalQueriesFromWorkspaceActivityInput,
+} from './approvalTypes'
 import { applyApprovalEventToCache } from './cache'
 
 export const APPROVALS_QUERY_INVALIDATION_DEBOUNCE_MS = 180
-
-type ApprovalSyncQueryClient = Pick<QueryClient, 'invalidateQueries' | 'isFetching' | 'setQueryData'>
 export type ApprovalQueryInvalidationEntry = {
   inFlight: boolean
   needsAnotherPass: boolean
@@ -18,12 +23,9 @@ export type ApprovalQueryInvalidationByWorkspace = Map<
   ApprovalQueryInvalidationEntry
 >
 
-export function syncApprovalQueriesFromWorkspaceActivity(options: {
-  activityEventsByWorkspace: Record<string, ServerEvent[]>
-  lastProcessedEventKeyByWorkspace: Map<string, string>
-  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
-  queryClient: ApprovalSyncQueryClient
-}) {
+export function syncApprovalQueriesFromWorkspaceActivity(
+  options: SyncApprovalQueriesFromWorkspaceActivityInput,
+) {
   const {
     activityEventsByWorkspace,
     lastProcessedEventKeyByWorkspace,
@@ -77,10 +79,7 @@ export function clearPendingApprovalQueryInvalidations(
   pendingInvalidationByWorkspace.clear()
 }
 
-export function shouldRefetchApprovalsQuery(options: {
-  cachedApprovals: PendingApproval[] | undefined
-  connectionState?: string
-}) {
+export function shouldRefetchApprovalsQuery(options: ShouldRefetchApprovalsQueryInput) {
   const { cachedApprovals, connectionState } = options
   if (cachedApprovals === undefined) {
     return true
@@ -89,11 +88,9 @@ export function shouldRefetchApprovalsQuery(options: {
   return connectionState !== 'connecting' && connectionState !== 'open'
 }
 
-export async function refetchApprovalsQueryIfNeeded(options: {
-  connectionState?: string
-  queryClient: Pick<QueryClient, 'getQueryData' | 'refetchQueries'>
-  workspaceId: string
-}) {
+export async function refetchApprovalsQueryIfNeeded(
+  options: RefetchApprovalsQueryIfNeededInput,
+) {
   const { connectionState, queryClient, workspaceId } = options
   const cachedApprovals = queryClient.getQueryData<PendingApproval[]>(['approvals', workspaceId])
   if (
@@ -111,16 +108,12 @@ export async function refetchApprovalsQueryIfNeeded(options: {
 function buildWorkspaceActivityEventKey(
   workspaceId: string,
   eventCount: number,
-  event: Pick<ServerEvent, 'method' | 'serverRequestId' | 'ts'>,
+  event: ApprovalWorkspaceActivityEventSummary,
 ) {
   return `${workspaceId}:${eventCount}:${event.serverRequestId ?? ''}:${event.method}:${event.ts}`
 }
 
-function scheduleApprovalQueryInvalidation(options: {
-  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
-  queryClient: Pick<QueryClient, 'invalidateQueries' | 'isFetching'>
-  workspaceId: string
-}) {
+function scheduleApprovalQueryInvalidation(options: ScheduleApprovalQueryInvalidationInput) {
   const { pendingInvalidationByWorkspace, queryClient, workspaceId } = options
   const existingEntry = pendingInvalidationByWorkspace.get(workspaceId)
 
@@ -151,12 +144,7 @@ function scheduleApprovalQueryInvalidation(options: {
   })
 }
 
-function queueApprovalQueryInvalidationFlush(options: {
-  entry: ApprovalQueryInvalidationEntry
-  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
-  queryClient: Pick<QueryClient, 'invalidateQueries' | 'isFetching'>
-  workspaceId: string
-}) {
+function queueApprovalQueryInvalidationFlush(options: QueueApprovalQueryInvalidationFlushInput) {
   const { entry, pendingInvalidationByWorkspace, queryClient, workspaceId } = options
   if (entry.timerId !== null) {
     clearTimeout(entry.timerId)
@@ -173,12 +161,7 @@ function queueApprovalQueryInvalidationFlush(options: {
   }, APPROVALS_QUERY_INVALIDATION_DEBOUNCE_MS)
 }
 
-async function flushApprovalQueryInvalidation(options: {
-  entry: ApprovalQueryInvalidationEntry
-  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
-  queryClient: Pick<QueryClient, 'invalidateQueries' | 'isFetching'>
-  workspaceId: string
-}) {
+async function flushApprovalQueryInvalidation(options: FlushApprovalQueryInvalidationInput) {
   const { entry, pendingInvalidationByWorkspace, queryClient, workspaceId } = options
   const queryKey = approvalQueryKey(workspaceId)
 

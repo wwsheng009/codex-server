@@ -7,6 +7,15 @@ export type StartCommandInput = {
   shell?: string
 }
 
+export type WriteCommandInput = {
+  input: string
+}
+
+export type ResizeCommandInput = {
+  cols: number
+  rows: number
+}
+
 export function listCommandSessions(workspaceId: string) {
   return apiRequest<CommandSessionSnapshot[]>(`/api/workspaces/${workspaceId}/commands`)
 }
@@ -75,7 +84,7 @@ export function startCommand(workspaceId: string, input: StartCommandInput) {
 export function writeCommand(
   workspaceId: string,
   processId: string,
-  input: { input: string },
+  input: WriteCommandInput,
 ) {
   return apiRequest<{ status: string }>(
     `/api/workspaces/${workspaceId}/commands/${processId}/write`,
@@ -98,7 +107,7 @@ export function terminateCommand(workspaceId: string, processId: string) {
 export function resizeCommand(
   workspaceId: string,
   processId: string,
-  input: { cols: number; rows: number },
+  input: ResizeCommandInput,
 ) {
   return apiRequest<{ status: string }>(
     `/api/workspaces/${workspaceId}/commands/${processId}/resize`,

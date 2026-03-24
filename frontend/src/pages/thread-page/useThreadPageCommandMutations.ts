@@ -8,6 +8,7 @@ import {
 } from '../../features/commands/api'
 import { getErrorMessage } from '../../lib/error-utils'
 import { useSessionStore } from '../../stores/session-store'
+import type { ThreadPageWriteCommandMutationInput } from './threadPageActionTypes'
 import type { ThreadPageCommandMutationsInput } from './threadPageMutationTypes'
 
 export function useThreadPageCommandMutations({
@@ -47,7 +48,7 @@ export function useThreadPageCommandMutations({
   })
 
   const writeCommandMutation = useMutation({
-    mutationFn: ({ processId, input }: { processId: string; input: string }) =>
+    mutationFn: ({ processId, input }: ThreadPageWriteCommandMutationInput) =>
       writeCommand(workspaceId, processId, { input }),
     onSuccess: () => {
       setStdinValue('')

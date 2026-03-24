@@ -15,6 +15,12 @@ import {
 } from '../../features/threads/api'
 import { interruptTurn, startTurn } from '../../features/turns/api'
 import type { PendingApproval, Thread, TurnResult } from '../../types/api'
+import type {
+  ThreadPageRenameThreadMutationInput,
+  ThreadPageRespondApprovalInput,
+  ThreadPageStartTurnMutationInput,
+  ThreadPageThreadShellCommandMutationInput,
+} from './threadPageActionTypes'
 import type { ThreadPageThreadMutationsInput } from './threadPageMutationTypes'
 
 export function useThreadPageThreadMutations({
@@ -61,7 +67,7 @@ export function useThreadPageThreadMutations({
   })
 
   const renameThreadMutation = useMutation({
-    mutationFn: ({ threadId, name }: { threadId: string; name: string }) =>
+    mutationFn: ({ threadId, name }: ThreadPageRenameThreadMutationInput) =>
       renameThread(workspaceId, threadId, { name }),
     onSuccess: async () => {
       setEditingThreadId(undefined)
@@ -153,14 +159,7 @@ export function useThreadPageThreadMutations({
   const startTurnMutation = useMutation<
     TurnResult,
     Error,
-    {
-      threadId: string
-      input: string
-      model?: string
-      reasoningEffort?: string
-      permissionPreset?: string
-      collaborationMode?: string
-    }
+    ThreadPageStartTurnMutationInput
   >({
     mutationFn: ({ threadId, input, model, reasoningEffort, permissionPreset, collaborationMode }) =>
       startTurn(workspaceId, threadId, {
@@ -191,11 +190,7 @@ export function useThreadPageThreadMutations({
       requestId,
       action,
       answers,
-    }: {
-      requestId: string
-      action: string
-      answers?: Record<string, string[]>
-    }) => respondServerRequestWithDetails(requestId, { action, answers }),
+    }: ThreadPageRespondApprovalInput) => respondServerRequestWithDetails(requestId, { action, answers }),
     onSuccess: async (_, variables) => {
       setApprovalAnswers((current) => {
         const next = { ...current }
@@ -218,7 +213,7 @@ export function useThreadPageThreadMutations({
   })
 
   const threadShellCommandMutation = useMutation({
-    mutationFn: ({ threadId, command }: { threadId: string; command: string }) =>
+    mutationFn: ({ threadId, command }: ThreadPageThreadShellCommandMutationInput) =>
       runThreadShellCommand(workspaceId, threadId, { command }),
     onSuccess: async (_, variables) => {
       setCommand('')

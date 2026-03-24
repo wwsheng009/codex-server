@@ -8,6 +8,7 @@ import { fuzzyFileSearch, readConfig } from '../../features/settings/api'
 import { getThread, listLoadedThreadIds, listThreads } from '../../features/threads/api'
 import { getWorkspace, getWorkspaceRuntimeState } from '../../features/workspaces/api'
 import type { PendingApproval } from '../../types/api'
+import type { UseThreadPageQueriesInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageQueries({
   composerFileSearchQuery,
@@ -17,15 +18,7 @@ export function useThreadPageQueries({
   streamState,
   turnLimit,
   workspaceId,
-}: {
-  composerFileSearchQuery: string
-  hasPendingTurn: boolean
-  isDocumentVisible: boolean
-  selectedThreadId?: string
-  streamState: string
-  turnLimit: number
-  workspaceId: string
-}) {
+}: UseThreadPageQueriesInput) {
   const queryClient = useQueryClient()
   const workspaceQuery = useQuery({
     queryKey: ['workspace', workspaceId],

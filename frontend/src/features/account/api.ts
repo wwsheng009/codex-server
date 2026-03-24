@@ -6,6 +6,12 @@ import type {
   RateLimit,
 } from '../../types/api'
 
+export type LoginAccountInput = { type: 'apiKey'; apiKey: string } | { type: 'chatgpt' }
+
+export type CancelLoginAccountInput = {
+  loginId: string
+}
+
 export function accountQueryKey(workspaceId: string) {
   return ['account', workspaceId] as const
 }
@@ -28,7 +34,7 @@ export function getRateLimits(workspaceId: string) {
 
 export function loginAccount(
   workspaceId: string,
-  input: { type: 'apiKey'; apiKey: string } | { type: 'chatgpt' },
+  input: LoginAccountInput,
 ) {
   return apiRequest<AccountLoginResult>(buildWorkspaceAccountPath(workspaceId, '/login'), {
     method: 'POST',
@@ -42,7 +48,7 @@ export function logoutAccount(workspaceId: string) {
   })
 }
 
-export function cancelLoginAccount(workspaceId: string, input: { loginId: string }) {
+export function cancelLoginAccount(workspaceId: string, input: CancelLoginAccountInput) {
   return apiRequest<AccountCancelLoginResult>(buildWorkspaceAccountPath(workspaceId, '/login/cancel'), {
     method: 'POST',
     body: JSON.stringify(input),
