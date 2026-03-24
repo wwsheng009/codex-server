@@ -46,10 +46,10 @@ func NewService(dataStore *store.MemoryStore, runtimeManager *runtime.Manager) *
 	}
 }
 
-func (s *Service) CurrentAccount(ctx context.Context) (store.Account, error) {
-	workspaceID := s.primaryWorkspaceID()
-	if workspaceID == "" {
-		return disconnectedAccount(), nil
+func (s *Service) CurrentAccount(ctx context.Context, workspaceID string) (store.Account, error) {
+	resolvedWorkspaceID, err := s.requireWorkspace(workspaceID)
+	if err != nil {
+		return store.Account{}, err
 	}
 
 	var response struct {
@@ -57,7 +57,7 @@ func (s *Service) CurrentAccount(ctx context.Context) (store.Account, error) {
 		RequiresOpenAIAuth bool           `json:"requiresOpenaiAuth"`
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "account/read", map[string]any{}, &response); err != nil {
+	if err := s.runtimes.Call(ctx, resolvedWorkspaceID, "account/read", map[string]any{}, &response); err != nil {
 		return store.Account{}, err
 	}
 
@@ -86,17 +86,17 @@ func (s *Service) CurrentAccount(ctx context.Context) (store.Account, error) {
 	}, nil
 }
 
-func (s *Service) RateLimits(ctx context.Context) ([]store.RateLimit, error) {
-	workspaceID := s.primaryWorkspaceID()
-	if workspaceID == "" {
-		return nil, nil
+func (s *Service) RateLimits(ctx context.Context, workspaceID string) ([]store.RateLimit, error) {
+	resolvedWorkspaceID, err := s.requireWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
 	}
 
 	var response struct {
 		RateLimits []map[string]any `json:"rateLimits"`
 	}
 
-	err := s.runtimes.Call(ctx, workspaceID, "account/rateLimits/read", map[string]any{}, &response)
+	err = s.runtimes.Call(ctx, resolvedWorkspaceID, "account/rateLimits/read", map[string]any{}, &response)
 	if err != nil {
 		if strings.Contains(err.Error(), "authentication required") {
 			return nil, nil
@@ -117,19 +117,19 @@ func (s *Service) RateLimits(ctx context.Context) ([]store.RateLimit, error) {
 	return items, nil
 }
 
-func (s *Service) Logout(ctx context.Context) error {
-	workspaceID := s.primaryWorkspaceID()
-	if workspaceID == "" {
-		return nil
+func (s *Service) Logout(ctx context.Context, workspaceID string) error {
+	resolvedWorkspaceID, err := s.requireWorkspace(workspaceID)
+	if err != nil {
+		return err
 	}
 
-	return s.runtimes.Call(ctx, workspaceID, "account/logout", map[string]any{}, nil)
+	return s.runtimes.Call(ctx, resolvedWorkspaceID, "account/logout", map[string]any{}, nil)
 }
 
-func (s *Service) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
-	workspaceID := s.primaryWorkspaceID()
-	if workspaceID == "" {
-		return LoginResult{}, runtime.ErrRuntimeNotConfigured
+func (s *Service) Login(ctx context.Context, workspaceID string, input LoginInput) (LoginResult, error) {
+	resolvedWorkspaceID, err := s.requireWorkspace(workspaceID)
+	if err != nil {
+		return LoginResult{}, err
 	}
 
 	switch input.Type {
@@ -142,7 +142,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (LoginResult, err
 			Type string `json:"type"`
 		}
 
-		if err := s.runtimes.Call(ctx, workspaceID, "account/login/start", map[string]any{
+		if err := s.runtimes.Call(ctx, resolvedWorkspaceID, "account/login/start", map[string]any{
 			"apiKey": input.APIKey,
 			"type":   "apiKey",
 		}, &response); err != nil {
@@ -161,7 +161,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (LoginResult, err
 			LoginID string `json:"loginId"`
 		}
 
-		if err := s.runtimes.Call(ctx, workspaceID, "account/login/start", map[string]any{
+		if err := s.runtimes.Call(ctx, resolvedWorkspaceID, "account/login/start", map[string]any{
 			"type": "chatgpt",
 		}, &response); err != nil {
 			return LoginResult{}, err
@@ -179,18 +179,18 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (LoginResult, err
 	}
 }
 
-func (s *Service) CancelLogin(ctx context.Context, loginID string) (CancelLoginResult, error) {
+func (s *Service) CancelLogin(ctx context.Context, workspaceID string, loginID string) (CancelLoginResult, error) {
 	if strings.TrimSpace(loginID) == "" {
 		return CancelLoginResult{}, fmt.Errorf("%w: loginId is required", ErrInvalidLoginInput)
 	}
 
-	workspaceID := s.primaryWorkspaceID()
-	if workspaceID == "" {
-		return CancelLoginResult{}, runtime.ErrRuntimeNotConfigured
+	resolvedWorkspaceID, err := s.requireWorkspace(workspaceID)
+	if err != nil {
+		return CancelLoginResult{}, err
 	}
 
 	var response CancelLoginResult
-	if err := s.runtimes.Call(ctx, workspaceID, "account/login/cancel", map[string]any{
+	if err := s.runtimes.Call(ctx, resolvedWorkspaceID, "account/login/cancel", map[string]any{
 		"loginId": loginID,
 	}, &response); err != nil {
 		return CancelLoginResult{}, err
@@ -222,13 +222,17 @@ func (s *Service) McpOauthLogin(ctx context.Context, workspaceID string, name st
 	return response, nil
 }
 
-func (s *Service) primaryWorkspaceID() string {
-	workspaces := s.store.ListWorkspaces()
-	if len(workspaces) == 0 {
-		return ""
+func (s *Service) requireWorkspace(workspaceID string) (string, error) {
+	resolvedWorkspaceID := strings.TrimSpace(workspaceID)
+	if resolvedWorkspaceID == "" {
+		return "", store.ErrWorkspaceNotFound
 	}
 
-	return workspaces[0].ID
+	if _, ok := s.store.GetWorkspace(resolvedWorkspaceID); !ok {
+		return "", store.ErrWorkspaceNotFound
+	}
+
+	return resolvedWorkspaceID, nil
 }
 
 func disconnectedAccount() store.Account {

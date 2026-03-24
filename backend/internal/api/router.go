@@ -101,14 +101,9 @@ func NewRouter(deps Dependencies) http.Handler {
 
 	router.Get("/healthz", server.handleHealth)
 	router.Route("/api", func(r chi.Router) {
-		r.Get("/account", server.handleGetAccount)
 		r.Get("/runtime/preferences", server.handleReadRuntimePreferences)
 		r.Post("/runtime/preferences", server.handleWriteRuntimePreferences)
 		r.Post("/runtime/preferences/import-model-catalog", server.handleImportRuntimeModelCatalog)
-		r.Post("/account/login", server.handleLogin)
-		r.Post("/account/login/cancel", server.handleCancelLogin)
-		r.Post("/account/logout", server.handleLogout)
-		r.Get("/account/rate-limits", server.handleGetRateLimits)
 
 		r.Route("/automations", func(r chi.Router) {
 			r.Get("/", server.handleListAutomations)
@@ -138,6 +133,11 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/", server.handleListWorkspaces)
 			r.Post("/", server.handleCreateWorkspace)
 			r.Get("/{workspaceId}", server.handleGetWorkspace)
+			r.Get("/{workspaceId}/account", server.handleGetAccount)
+			r.Post("/{workspaceId}/account/login", server.handleLogin)
+			r.Post("/{workspaceId}/account/login/cancel", server.handleCancelLogin)
+			r.Post("/{workspaceId}/account/logout", server.handleLogout)
+			r.Get("/{workspaceId}/account/rate-limits", server.handleGetRateLimits)
 			r.Get("/{workspaceId}/runtime-state", server.handleGetWorkspaceRuntimeState)
 			r.Post("/{workspaceId}/name", server.handleRenameWorkspace)
 			r.Post("/{workspaceId}/restart", server.handleRestartWorkspace)
@@ -227,7 +227,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
-	account, err := s.auth.CurrentAccount(r.Context())
+	account, err := s.auth.CurrentAccount(r.Context(), chi.URLParam(r, "workspaceId"))
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -296,7 +296,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.auth.Login(r.Context(), request)
+	result, err := s.auth.Login(r.Context(), chi.URLParam(r, "workspaceId"), request)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -315,7 +315,7 @@ func (s *Server) handleCancelLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.auth.CancelLogin(r.Context(), request.LoginID)
+	result, err := s.auth.CancelLogin(r.Context(), chi.URLParam(r, "workspaceId"), request.LoginID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -325,7 +325,7 @@ func (s *Server) handleCancelLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if err := s.auth.Logout(r.Context()); err != nil {
+	if err := s.auth.Logout(r.Context(), chi.URLParam(r, "workspaceId")); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
@@ -334,7 +334,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetRateLimits(w http.ResponseWriter, r *http.Request) {
-	limits, err := s.auth.RateLimits(r.Context())
+	limits, err := s.auth.RateLimits(r.Context(), chi.URLParam(r, "workspaceId"))
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -599,6 +599,42 @@ func (s *Server) handleDeleteReadNotifications(w http.ResponseWriter, _ *http.Re
 
 func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
+
+	query := r.URL.Query()
+	if len(query) > 0 {
+		limit, err := parseOptionalPositiveIntQuery(query.Get("limit"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid limit query")
+			return
+		}
+
+		archived, err := parseOptionalBoolQuery(query.Get("archived"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid archived query")
+			return
+		}
+
+		sortKey := strings.TrimSpace(query.Get("sortKey"))
+		if sortKey != "" && sortKey != "created_at" && sortKey != "updated_at" {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid sortKey query")
+			return
+		}
+
+		page, err := s.threads.ListPage(r.Context(), workspaceID, threads.ListPageInput{
+			Archived: archived,
+			Cursor:   strings.TrimSpace(query.Get("cursor")),
+			Limit:    limit,
+			SortKey:  sortKey,
+		})
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, page)
+		return
+	}
+
 	threads, err := s.threads.List(r.Context(), workspaceID)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -879,6 +915,34 @@ func (s *Server) handleThreadShellCommand(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func parseOptionalPositiveIntQuery(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+
+	parsedValue, err := strconv.Atoi(value)
+	if err != nil || parsedValue < 0 {
+		return 0, errors.New("invalid integer query")
+	}
+
+	return parsedValue, nil
+}
+
+func parseOptionalBoolQuery(value string) (*bool, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	parsedValue, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return &parsedValue, nil
 }
 
 func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {

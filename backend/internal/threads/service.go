@@ -24,6 +24,8 @@ const (
 	threadContentModeFull    = "full"
 	threadContentModeSummary = "summary"
 	threadOutputModeTail     = "tail"
+	threadSortKeyCreatedAt   = "created_at"
+	threadSortKeyUpdatedAt   = "updated_at"
 
 	threadSummaryPreviewLimit                = 400
 	threadSummaryPlanTextLimit               = 1_200
@@ -33,12 +35,26 @@ const (
 	threadExpandedCommandOutputTailLineLimit = 1_200
 	threadSummaryMessageTextLimit            = 1_600
 	threadSummaryNestedStringLimit           = 1_200
+	threadListPageDefaultLimit               = 50
+	threadListPageMaxLimit                   = 200
 )
 
 type CreateInput struct {
 	Name             string
 	Model            string
 	PermissionPreset string
+}
+
+type ListPageInput struct {
+	Archived *bool
+	Cursor   string
+	Limit    int
+	SortKey  string
+}
+
+type ThreadListPage struct {
+	Data       []store.Thread `json:"data"`
+	NextCursor *string        `json:"nextCursor,omitempty"`
 }
 
 type ThreadTurnItemOutput struct {
@@ -83,6 +99,78 @@ func (s *Service) List(ctx context.Context, workspaceID string) ([]store.Thread,
 	})
 
 	return items, nil
+}
+
+func (s *Service) ListPage(
+	ctx context.Context,
+	workspaceID string,
+	input ListPageInput,
+) (ThreadListPage, error) {
+	rootPath := normalizePath(s.runtimes.RootPath(workspaceID))
+	cursor := strings.TrimSpace(input.Cursor)
+	sortKey := normalizeThreadListSortKey(input.SortKey)
+	archived := false
+	if input.Archived != nil {
+		archived = *input.Archived
+	}
+
+	items := make([]store.Thread, 0, normalizeThreadListPageLimit(input.Limit))
+	pageLimit := cap(items)
+	for page := 0; page < 20 && len(items) < pageLimit; page++ {
+		var response struct {
+			Data       []map[string]any `json:"data"`
+			NextCursor *string          `json:"nextCursor"`
+		}
+
+		params := map[string]any{
+			"archived": archived,
+			"limit":    pageLimit - len(items),
+		}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		if sortKey != "" {
+			params["sortKey"] = sortKey
+		}
+
+		if err := s.runtimes.Call(ctx, workspaceID, "thread/list", params, &response); err != nil {
+			return ThreadListPage{}, err
+		}
+
+		for _, thread := range response.Data {
+			if !threadBelongsToWorkspace(thread, rootPath) {
+				continue
+			}
+
+			mapped := mapThread(workspaceID, thread, archived)
+			if s.store.IsThreadDeleted(workspaceID, mapped.ID) {
+				continue
+			}
+
+			s.cacheThread(mapped)
+			items = append(items, mapped)
+		}
+
+		if response.NextCursor == nil || strings.TrimSpace(*response.NextCursor) == "" {
+			cursor = ""
+			break
+		}
+
+		cursor = *response.NextCursor
+	}
+
+	items = s.enrichThreadListCounts(workspaceID, items)
+
+	var nextCursor *string
+	if cursor != "" {
+		next := cursor
+		nextCursor = &next
+	}
+
+	return ThreadListPage{
+		Data:       items,
+		NextCursor: nextCursor,
+	}, nil
 }
 
 func (s *Service) Create(ctx context.Context, workspaceID string, input CreateInput) (store.Thread, error) {
@@ -1406,6 +1494,28 @@ func normalizeThreadOutputTailLines(value int) int {
 	}
 
 	return value
+}
+
+func normalizeThreadListPageLimit(value int) int {
+	switch {
+	case value <= 0:
+		return threadListPageDefaultLimit
+	case value > threadListPageMaxLimit:
+		return threadListPageMaxLimit
+	default:
+		return value
+	}
+}
+
+func normalizeThreadListSortKey(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", threadSortKeyCreatedAt:
+		return threadSortKeyCreatedAt
+	case threadSortKeyUpdatedAt:
+		return threadSortKeyUpdatedAt
+	default:
+		return ""
+	}
 }
 
 func normalizeThreadOutputBeforeLine(value int, totalLines int) int {

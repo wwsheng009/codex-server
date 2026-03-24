@@ -768,7 +768,8 @@ func TestConfigAndSearchRoutesValidateRequestBody(t *testing.T) {
 	decodeResponseBody(t, createResponse, &created)
 
 	for _, path := range []string{
-		"/api/account/login/cancel",
+		"/api/workspaces/" + created.Data.ID + "/account/login",
+		"/api/workspaces/" + created.Data.ID + "/account/login/cancel",
 		"/api/workspaces/" + created.Data.ID + "/config/read",
 		"/api/workspaces/" + created.Data.ID + "/config/write",
 		"/api/workspaces/" + created.Data.ID + "/config/batch-write",
