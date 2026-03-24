@@ -6,29 +6,44 @@ import type {
   RateLimit,
 } from '../../types/api'
 
-export function getAccount() {
-  return apiRequest<Account>('/api/account')
+export function accountQueryKey(workspaceId: string) {
+  return ['account', workspaceId] as const
 }
 
-export function getRateLimits() {
-  return apiRequest<RateLimit[]>('/api/account/rate-limits')
+export function rateLimitsQueryKey(workspaceId: string) {
+  return ['rate-limits', workspaceId] as const
 }
 
-export function loginAccount(input: { type: 'apiKey'; apiKey: string } | { type: 'chatgpt' }) {
-  return apiRequest<AccountLoginResult>('/api/account/login', {
+function buildWorkspaceAccountPath(workspaceId: string, suffix = '') {
+  return `/api/workspaces/${workspaceId}/account${suffix}`
+}
+
+export function getAccount(workspaceId: string) {
+  return apiRequest<Account>(buildWorkspaceAccountPath(workspaceId))
+}
+
+export function getRateLimits(workspaceId: string) {
+  return apiRequest<RateLimit[]>(buildWorkspaceAccountPath(workspaceId, '/rate-limits'))
+}
+
+export function loginAccount(
+  workspaceId: string,
+  input: { type: 'apiKey'; apiKey: string } | { type: 'chatgpt' },
+) {
+  return apiRequest<AccountLoginResult>(buildWorkspaceAccountPath(workspaceId, '/login'), {
     method: 'POST',
     body: JSON.stringify(input),
   })
 }
 
-export function logoutAccount() {
-  return apiRequest<{ status: string }>('/api/account/logout', {
+export function logoutAccount(workspaceId: string) {
+  return apiRequest<{ status: string }>(buildWorkspaceAccountPath(workspaceId, '/logout'), {
     method: 'POST',
   })
 }
 
-export function cancelLoginAccount(input: { loginId: string }) {
-  return apiRequest<AccountCancelLoginResult>('/api/account/login/cancel', {
+export function cancelLoginAccount(workspaceId: string, input: { loginId: string }) {
+  return apiRequest<AccountCancelLoginResult>(buildWorkspaceAccountPath(workspaceId, '/login/cancel'), {
     method: 'POST',
     body: JSON.stringify(input),
   })

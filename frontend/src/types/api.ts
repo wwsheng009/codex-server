@@ -113,6 +113,11 @@ export type Thread = {
   updatedAt: string
 }
 
+export type ThreadListPage = {
+  data: Thread[]
+  nextCursor?: string | null
+}
+
 export type ThreadTurn = {
   id: string
   status: string

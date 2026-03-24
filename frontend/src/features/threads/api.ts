@@ -1,8 +1,41 @@
 import { apiRequest } from '../../lib/api-client'
-import type { Thread, ThreadDetail, ThreadTurn, ThreadTurnItemOutput } from '../../types/api'
+import type {
+  Thread,
+  ThreadDetail,
+  ThreadListPage,
+  ThreadTurn,
+  ThreadTurnItemOutput,
+} from '../../types/api'
 
 export function listThreads(workspaceId: string) {
   return apiRequest<Thread[]>(`/api/workspaces/${workspaceId}/threads`)
+}
+
+export function listThreadsPage(
+  workspaceId: string,
+  input: {
+    archived?: boolean
+    cursor?: string
+    limit?: number
+    sortKey?: 'created_at' | 'updated_at'
+  } = {},
+) {
+  const query = new URLSearchParams()
+  if (typeof input.archived === 'boolean') {
+    query.set('archived', String(input.archived))
+  }
+  if (input.cursor) {
+    query.set('cursor', input.cursor)
+  }
+  if (input.limit && input.limit > 0) {
+    query.set('limit', String(input.limit))
+  }
+  if (input.sortKey) {
+    query.set('sortKey', input.sortKey)
+  }
+
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return apiRequest<ThreadListPage>(`/api/workspaces/${workspaceId}/threads${suffix}`)
 }
 
 export function listLoadedThreadIds(workspaceId: string) {
