@@ -119,6 +119,7 @@ export function useThreadPageControllerActions({
     setActiveComposerPanel: controllerState.setActiveComposerPanel,
     setComposerPreferences: controllerState.setComposerPreferences,
     setSendError: controllerState.setSendError,
+    workspaceId: controllerState.workspaceId,
   })
 
   return {

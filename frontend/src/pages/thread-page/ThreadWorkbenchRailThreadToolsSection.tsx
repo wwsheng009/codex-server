@@ -1,6 +1,38 @@
-import { CollapsiblePanel } from '../../components/ui/CollapsiblePanel'
+import { DetailGroup } from '../../components/ui/DetailGroup'
 import { i18n } from '../../i18n/runtime'
+import { Tooltip } from '../../components/ui/Tooltip'
 import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+
+function InfoLabel({
+  help,
+  label,
+}: {
+  help?: string
+  label: string
+}) {
+  if (!help) {
+    return <span className="info-label">{label}</span>
+  }
+
+  return (
+    <span className="info-label">
+      <span>{label}</span>
+      <Tooltip
+        content={help}
+        position="left"
+        triggerLabel={i18n._({
+          id: '{label} help',
+          message: '{label} help',
+          values: { label },
+        })}
+      >
+        <span aria-hidden="true" className="info-label__help">
+          ?
+        </span>
+      </Tooltip>
+    </span>
+  )
+}
 
 export function ThreadWorkbenchRailThreadToolsSection({
   deletePending,
@@ -35,8 +67,9 @@ export function ThreadWorkbenchRailThreadToolsSection({
   const isEditingSelectedThread = Boolean(selectedThread && editingThreadId === selectedThread.id)
 
   return (
-    <CollapsiblePanel
-      expanded={isThreadToolsExpanded}
+    <DetailGroup
+      collapsible
+      open={isThreadToolsExpanded}
       onToggle={onToggleThreadToolsExpanded}
       title={i18n._({
         id: 'Thread tools',
@@ -44,7 +77,7 @@ export function ThreadWorkbenchRailThreadToolsSection({
       })}
     >
       {selectedThread ? (
-        <>
+        <div className="pane-section-content">
           <div className="header-actions">
             <button
               className="ide-button ide-button--secondary"
@@ -89,21 +122,26 @@ export function ThreadWorkbenchRailThreadToolsSection({
             </button>
           </div>
           {isEditingSelectedThread ? (
-            <form className="form-stack" onSubmit={onSubmitRenameThread}>
+            <form className="form-stack" style={{ marginTop: 12 }} onSubmit={onSubmitRenameThread}>
               <label className="field">
-                <span>
-                  {i18n._({
+                <InfoLabel
+                  label={i18n._({
                     id: 'Rename thread',
                     message: 'Rename thread',
                   })}
-                </span>
+                />
                 <input
+                  className="field-input"
                   onChange={(event) => onChangeEditingThreadName(event.target.value)}
                   value={editingThreadName}
                 />
               </label>
               <div className="header-actions">
-                <button className="ide-button" disabled={!editingThreadName.trim()} type="submit">
+                <button
+                  className="ide-button ide-button--primary"
+                  disabled={!editingThreadName.trim()}
+                  type="submit"
+                >
                   {i18n._({
                     id: 'Save',
                     message: 'Save',
@@ -122,8 +160,8 @@ export function ThreadWorkbenchRailThreadToolsSection({
               </div>
             </form>
           ) : null}
-        </>
+        </div>
       ) : null}
-    </CollapsiblePanel>
+    </DetailGroup>
   )
 }

@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 
+import { accountQueryKey } from '../../features/account/api'
 import {
   getThread,
   getThreadTurn,
@@ -7,7 +8,7 @@ import {
   getThreadTurnItemOutput,
   resumeThread,
 } from '../../features/threads/api'
-import { getErrorMessage } from '../../lib/error-utils'
+import { getErrorMessage, isAuthenticationError } from '../../lib/error-utils'
 import type { Thread, ThreadTurn, TurnResult } from '../../types/api'
 import {
   createPendingTurn,
@@ -187,7 +188,7 @@ export function buildThreadPageThreadActions({
       setAuthRecoveryRequestedAt(Date.now())
 
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['account'] }),
+        queryClient.invalidateQueries({ queryKey: accountQueryKey(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] }),
         queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
@@ -197,6 +198,9 @@ export function buildThreadPageThreadActions({
       updatePendingTurn(selectedThreadId, (current) =>
         current?.localId === optimisticTurn.localId ? null : current,
       )
+      if (isAuthenticationError(error)) {
+        setAuthRecoveryRequestedAt(null)
+      }
       setMessage(input)
       setComposerCaret(input.length)
       setSendError(getErrorMessage(error, 'Failed to send message.'))

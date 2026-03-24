@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { getAccount } from '../../features/account/api'
+import { accountQueryKey, getAccount } from '../../features/account/api'
 import { listPendingApprovals } from '../../features/approvals/api'
 import { listModels, listSkills } from '../../features/catalog/api'
 import { listCommandSessions } from '../../features/commands/api'
@@ -46,8 +46,9 @@ export function useThreadPageQueries({
   })
 
   const accountQuery = useQuery({
-    queryKey: ['account'],
-    queryFn: getAccount,
+    queryKey: accountQueryKey(workspaceId),
+    queryFn: () => getAccount(workspaceId),
+    enabled: Boolean(workspaceId),
     staleTime: 15_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

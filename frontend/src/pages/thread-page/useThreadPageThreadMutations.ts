@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 
+import { accountQueryKey, rateLimitsQueryKey } from '../../features/account/api'
 import { removeApprovalFromList, removeThreadApprovalsFromList } from '../../features/approvals/cache'
 import { respondServerRequestWithDetails } from '../../features/approvals/api'
 import { i18n } from '../../i18n/runtime'
@@ -195,7 +196,7 @@ export function useThreadPageThreadMutations({
       action: string
       answers?: Record<string, string[]>
     }) => respondServerRequestWithDetails(requestId, { action, answers }),
-    onSuccess: (_, variables) => {
+    onSuccess: async (_, variables) => {
       setApprovalAnswers((current) => {
         const next = { ...current }
         delete next[variables.requestId]
@@ -209,6 +210,10 @@ export function useThreadPageThreadMutations({
       queryClient.setQueryData<PendingApproval[]>(['approvals', workspaceId], (current: PendingApproval[] | undefined) =>
         removeApprovalFromList(current, variables.requestId),
       )
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: accountQueryKey(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: rateLimitsQueryKey(workspaceId) }),
+      ])
     },
   })
 

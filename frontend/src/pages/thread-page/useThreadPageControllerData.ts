@@ -7,6 +7,7 @@ import { useThreadPageMutations } from './useThreadPageMutations'
 import { useThreadPageRailState } from './useThreadPageRailState'
 import { useThreadPageStatusState } from './useThreadPageStatusState'
 import { useThreadViewportState } from './useThreadViewportState'
+import { shouldSuppressAuthenticationErrorAfterRecovery } from './threadPageAuthRecovery'
 import type {
   ControllerState,
   ThreadPageControllerData,
@@ -111,6 +112,16 @@ export function useThreadPageControllerData(
     threadDetailIsLoading: dataState.threadDetailQuery.isLoading,
   })
 
+  const latestAccountResultAt = Math.max(
+    dataState.accountQuery.dataUpdatedAt ?? 0,
+    dataState.accountQuery.errorUpdatedAt ?? 0,
+  )
+  const suppressAuthenticationError = shouldSuppressAuthenticationErrorAfterRecovery({
+    authRecoveryRequestedAt: controllerState.authRecoveryRequestedAt,
+    latestAccountResultAt,
+    accountStatus: dataState.accountQuery.data?.status,
+  })
+
   useEffect(() => {
     const queryCache = controllerState.queryClient.getQueryCache()
 
@@ -141,12 +152,7 @@ export function useThreadPageControllerData(
       return
     }
 
-    const latestAccountResultAt = Math.max(
-      dataState.accountQuery.dataUpdatedAt ?? 0,
-      dataState.accountQuery.errorUpdatedAt ?? 0,
-    )
-
-    if (latestAccountResultAt < controllerState.authRecoveryRequestedAt) {
+    if (suppressAuthenticationError) {
       return
     }
 
@@ -154,8 +160,7 @@ export function useThreadPageControllerData(
   }, [
     controllerState.authRecoveryRequestedAt,
     controllerState.setAuthRecoveryRequestedAt,
-    dataState.accountQuery.dataUpdatedAt,
-    dataState.accountQuery.errorUpdatedAt,
+    suppressAuthenticationError,
   ])
 
   useEffect(() => {
@@ -216,7 +221,7 @@ export function useThreadPageControllerData(
     selectedThreadEvents: dataState.selectedThreadEvents,
     selectedThreadId: activeSelectedThreadId,
     sendError: controllerState.sendError,
-    suppressAuthenticationError: controllerState.authRecoveryRequestedAt !== null,
+    suppressAuthenticationError,
     streamState: controllerState.streamState,
     surfacePanelView: controllerState.surfacePanelView,
     syncClock: controllerState.syncClock,

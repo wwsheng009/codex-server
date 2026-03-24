@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 
 import { CollapsiblePanel } from '../../components/ui/CollapsiblePanel'
+import { DetailGroup } from '../../components/ui/DetailGroup'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { Tooltip } from '../../components/ui/Tooltip'
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
@@ -22,46 +23,6 @@ function DetailRow({
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
-  )
-}
-
-function DetailGroup({
-  collapsible = false,
-  defaultOpen = true,
-  tone = 'default',
-  title,
-  children,
-}: {
-  collapsible?: boolean
-  defaultOpen?: boolean
-  tone?: 'default' | 'primary' | 'secondary'
-  title: string
-  children: React.ReactNode
-}) {
-  const className =
-    tone === 'primary'
-      ? 'detail-group detail-group--primary'
-      : tone === 'secondary'
-        ? 'detail-group detail-group--secondary'
-        : 'detail-group'
-
-  if (collapsible) {
-    return (
-      <details className={`${className} detail-group--collapsible`} open={defaultOpen}>
-        <summary className="detail-group__summary">
-          <h3 className="detail-group__title">{title}</h3>
-          <span aria-hidden="true" className="detail-group__chevron" />
-        </summary>
-        <div className="detail-list">{children}</div>
-      </details>
-    )
-  }
-
-  return (
-    <section className={className}>
-      <h3 className="detail-group__title">{title}</h3>
-      <div className="detail-list">{children}</div>
-    </section>
   )
 }
 
@@ -145,6 +106,7 @@ type ProgressTone = 'accent' | 'warning' | 'danger' | 'neutral'
 
 function ProgressMeter({
   ariaLabel,
+  layout = 'inline',
   metaLabel,
   percent,
   showSummary = true,
@@ -152,6 +114,7 @@ function ProgressMeter({
   width = 'default',
 }: {
   ariaLabel: string
+  layout?: 'inline' | 'block'
   metaLabel?: string
   percent: number | null
   showSummary?: boolean
@@ -161,14 +124,13 @@ function ProgressMeter({
   const safePercent = percent === null ? null : Math.max(0, Math.min(100, percent))
   const valueLabel = safePercent === null ? '—' : `${safePercent}%`
 
+  const containerClasses = [
+    layout === 'block' ? 'detail-progress detail-progress--block' : 'detail-progress',
+    width === 'full' ? 'detail-progress--full' : '',
+  ].filter(Boolean).join(' ')
+
   return (
-    <span
-      className={
-        width === 'full'
-          ? 'detail-progress detail-progress--full'
-          : 'detail-progress'
-      }
-    >
+    <span className={containerClasses}>
       {showSummary ? (
         <span className="detail-progress__summary">
           <span className="detail-progress__value">{valueLabel}</span>
@@ -206,10 +168,12 @@ function ProgressMeter({
 function CoverageMeter({
   ariaLabel,
   current,
+  layout = 'inline',
   total,
 }: {
   ariaLabel: string
   current: number
+  layout?: 'inline' | 'block'
   total: number
 }) {
   const safeCurrent = Math.max(0, total > 0 ? Math.min(current, total) : current)
@@ -219,25 +183,26 @@ function CoverageMeter({
   return (
     <ProgressMeter
       ariaLabel={ariaLabel}
+      layout={layout}
       metaLabel={countsLabel}
       percent={percent}
     />
   )
 }
 
-function MetricLabel({
-  label,
+function InfoLabel({
   help,
+  label,
 }: {
-  label: string
   help?: string
+  label: string
 }) {
   if (!help) {
-    return <span>{label}</span>
+    return <span className="info-label">{label}</span>
   }
 
   return (
-    <span className="detail-label">
+    <span className="info-label">
       <span>{label}</span>
       <Tooltip
         content={help}
@@ -248,7 +213,7 @@ function MetricLabel({
           values: { label },
         })}
       >
-        <span aria-hidden="true" className="detail-label__help">
+        <span aria-hidden="true" className="info-label__help">
           ?
         </span>
       </Tooltip>
@@ -663,18 +628,18 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
       </CollapsiblePanel>
       <div className="detail-stat-grid">
         <SummaryStat
-          label={i18n._({ id: 'Stream', message: 'Stream' })}
+          label={<InfoLabel label={i18n._({ id: 'Stream', message: 'Stream' })} />}
           meta={workspaceName ?? undefined}
           value={<StatusBadge value={streamState} />}
         />
         <SummaryStat
-          label={i18n._({ id: 'Threads', message: 'Threads' })}
+          label={<InfoLabel label={i18n._({ id: 'Threads', message: 'Threads' })} />}
           meta={i18n._({ id: 'Workspace total', message: 'Workspace total' })}
           value={threadCount}
         />
         <SummaryStat
           label={
-            <MetricLabel
+            <InfoLabel
               help={turnsHelp}
               label={i18n._({ id: 'Turns', message: 'Turns' })}
             />
@@ -697,7 +662,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         />
         <SummaryStat
           label={
-            <MetricLabel
+            <InfoLabel
               help={messagesHelp}
               label={i18n._({ id: 'Messages', message: 'Messages' })}
             />
@@ -716,7 +681,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         />
         <SummaryStat
           label={
-            <MetricLabel
+            <InfoLabel
               help={contextHelp}
               label={i18n._({ id: 'Context', message: 'Context' })}
             />
@@ -735,7 +700,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           value={contextUsageValue}
         />
         <SummaryStat
-          label={i18n._({ id: 'Approvals', message: 'Approvals' })}
+          label={<InfoLabel label={i18n._({ id: 'Approvals', message: 'Approvals' })} />}
           meta={
             pendingApprovalsCount > 0
               ? i18n._({ id: 'Needs review', message: 'Needs review' })
@@ -745,7 +710,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           value={<PendingApprovalsBadge count={pendingApprovalsCount} />}
         />
         <SummaryStat
-          label={i18n._({ id: 'Commands', message: 'Commands' })}
+          label={<InfoLabel label={i18n._({ id: 'Commands', message: 'Commands' })} />}
           meta={i18n._({ id: 'Tracked', message: 'Tracked' })}
           value={commandCount}
         />
@@ -756,19 +721,28 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         tone="default"
         title={i18n._({ id: 'Workspace Stats', message: 'Workspace Stats' })}
       >
-        <DetailRow label={i18n._({ id: 'Workspace', message: 'Workspace' })} value={workspaceName ?? '—'} />
         <DetailRow
-          label={i18n._({ id: 'Stream', message: 'Stream' })}
+          label={<InfoLabel label={i18n._({ id: 'Workspace', message: 'Workspace' })} />}
+          value={workspaceName ?? '—'}
+        />
+        <DetailRow
+          label={<InfoLabel label={i18n._({ id: 'Stream', message: 'Stream' })} />}
           value={<StatusBadge value={streamState} />}
         />
-        <DetailRow label={i18n._({ id: 'Threads', message: 'Threads' })} value={threadCount} />
         <DetailRow
-          label={i18n._({ id: 'Pending approvals', message: 'Pending approvals' })}
+          label={<InfoLabel label={i18n._({ id: 'Threads', message: 'Threads' })} />}
+          value={threadCount}
+        />
+        <DetailRow
+          label={<InfoLabel label={i18n._({ id: 'Pending approvals', message: 'Pending approvals' })} />}
           value={<PendingApprovalsBadge count={pendingApprovalsCount} />}
         />
-        <DetailRow label={i18n._({ id: 'Commands', message: 'Commands' })} value={commandCount} />
         <DetailRow
-          label={i18n._({ id: 'Activity', message: 'Activity' })}
+          label={<InfoLabel label={i18n._({ id: 'Commands', message: 'Commands' })} />}
+          value={commandCount}
+        />
+        <DetailRow
+          label={<InfoLabel label={i18n._({ id: 'Activity', message: 'Activity' })} />}
           value={
             lastTimelineEventTs
               ? formatRelativeTimeShort(lastTimelineEventTs)
@@ -783,20 +757,20 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         collapsible={isMobileViewport}
         defaultOpen
         tone="primary"
-        title={i18n._({ id: 'Selected Thread', message: 'Selected Thread' })}
+        title={i18n._({ id: 'Current Thread', message: 'Current Thread' })}
       >
         <DetailRow
           emphasis
-          label={i18n._({ id: 'Thread', message: 'Thread' })}
+          label={<InfoLabel label={i18n._({ id: 'Thread', message: 'Thread' })} />}
           value={selectedThread?.name ?? '—'}
         />
         <DetailRow
           emphasis
-          label={i18n._({ id: 'Status', message: 'Status' })}
+          label={<InfoLabel label={i18n._({ id: 'Status', message: 'Status' })} />}
           value={<StatusBadge value={selectedThread?.status} />}
         />
         <DetailRow
-          label={i18n._({ id: 'Thread ID', message: 'Thread ID' })}
+          label={<InfoLabel label={i18n._({ id: 'Thread ID', message: 'Thread ID' })} />}
           value={
             selectedThread?.id ? (
               <code title={selectedThread.id}>{selectedThread.id}</code>
@@ -808,25 +782,28 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         <DetailRow
           emphasis
           label={
-            <MetricLabel
+            <InfoLabel
               help={latestTurnHelp}
               label={i18n._({ id: 'Latest turn', message: 'Latest turn' })}
             />
           }
           value={<StatusBadge value={latestTurnStatus} />}
         />
-        <DetailRow label={i18n._({ id: 'CWD', message: 'CWD' })} value={liveThreadCwd ?? '—'} />
         <DetailRow
-          label={i18n._({ id: 'Loaded turns', message: 'Loaded turns' })}
+          label={<InfoLabel label={i18n._({ id: 'CWD', message: 'CWD' })} />}
+          value={liveThreadCwd ?? '—'}
+        />
+        <DetailRow
+          label={<InfoLabel label={i18n._({ id: 'Loaded turns', message: 'Loaded turns' })} />}
           value={effectiveLoadedTurnCount}
         />
         <DetailRow
-          label={i18n._({ id: 'Total turns', message: 'Total turns' })}
+          label={<InfoLabel label={i18n._({ id: 'Total turns', message: 'Total turns' })} />}
           value={effectiveTotalTurnCount}
         />
         <DetailRow
           label={
-            <MetricLabel
+            <InfoLabel
               help={loadedCoverageHelp}
               label={i18n._({ id: 'Loaded coverage', message: 'Loaded coverage' })}
             />
@@ -835,21 +812,22 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
             <CoverageMeter
               ariaLabel={i18n._({ id: 'Loaded coverage', message: 'Loaded coverage' })}
               current={effectiveLoadedTurnCount}
+              layout="block"
               total={effectiveTotalTurnCount}
             />
           }
         />
         <DetailRow
-          label={i18n._({ id: 'Loaded messages', message: 'Loaded messages' })}
+          label={<InfoLabel label={i18n._({ id: 'Loaded messages', message: 'Loaded messages' })} />}
           value={loadedMessageCount}
         />
         <DetailRow
-          label={i18n._({ id: 'Total messages', message: 'Total messages' })}
+          label={<InfoLabel label={i18n._({ id: 'Total messages', message: 'Total messages' })} />}
           value={effectiveTotalMessageCount}
         />
         <DetailRow
           label={
-            <MetricLabel
+            <InfoLabel
               help={messageCoverageHelp}
               label={i18n._({ id: 'Msg coverage', message: 'Msg coverage' })}
             />
@@ -858,17 +836,18 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
             <CoverageMeter
               ariaLabel={i18n._({ id: 'Msg coverage', message: 'Msg coverage' })}
               current={loadedMessageCount}
+              layout="block"
               total={effectiveTotalMessageCount}
             />
           }
         />
         <DetailRow
-          label={i18n._({ id: 'Avg msgs/turn', message: 'Avg msgs/turn' })}
+          label={<InfoLabel label={i18n._({ id: 'Avg msgs/turn', message: 'Avg msgs/turn' })} />}
           value={averageMessagesPerTurn}
         />
         <DetailRow
           label={
-            <MetricLabel
+            <InfoLabel
               help={userAssistantHelp}
               label={i18n._({ id: 'User/assistant', message: 'User/assistant' })}
             />
@@ -877,7 +856,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         />
         <DetailRow
           label={
-            <MetricLabel
+            <InfoLabel
               help={timelineItemsHelp}
               label={i18n._({ id: 'Timeline items', message: 'Timeline items' })}
             />
@@ -886,7 +865,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         />
         <DetailRow
           label={
-            <MetricLabel
+            <InfoLabel
               help={itemsPerTurnHelp}
               label={i18n._({ id: 'Items/loaded turn', message: 'Items/loaded turn' })}
             />
@@ -900,9 +879,12 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         tone="secondary"
         title={i18n._({ id: 'Runtime Stats', message: 'Runtime Stats' })}
       >
-        <DetailRow label={i18n._({ id: 'Root path', message: 'Root path' })} value={rootPath ?? '—'} />
         <DetailRow
-          label={i18n._({ id: 'Runtime started', message: 'Runtime started' })}
+          label={<InfoLabel label={i18n._({ id: 'Root path', message: 'Root path' })} />}
+          value={rootPath ?? '—'}
+        />
+        <DetailRow
+          label={<InfoLabel label={i18n._({ id: 'Runtime started', message: 'Runtime started' })} />}
           value={
             runtimeStartedAt
               ? formatRelativeTimeShort(runtimeStartedAt)
@@ -910,7 +892,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           }
         />
         <DetailRow
-          label={i18n._({ id: 'Runtime updated', message: 'Runtime updated' })}
+          label={<InfoLabel label={i18n._({ id: 'Runtime updated', message: 'Runtime updated' })} />}
           value={
             runtimeUpdatedAt
               ? formatRelativeTimeShort(runtimeUpdatedAt)
@@ -918,7 +900,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           }
         />
         <DetailRow
-          label={i18n._({ id: 'Config changed', message: 'Config changed' })}
+          label={<InfoLabel label={i18n._({ id: 'Config changed', message: 'Config changed' })} />}
           value={
             runtimeConfigChangedAt
               ? formatRelativeTimeShort(runtimeConfigChangedAt)
@@ -926,7 +908,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           }
         />
         <DetailRow
-          label={i18n._({ id: 'Config load', message: 'Config load' })}
+          label={<InfoLabel label={i18n._({ id: 'Config load', message: 'Config load' })} />}
           value={<StatusBadge value={runtimeConfigLoadStatus} />}
         />
       </DetailGroup>
@@ -937,15 +919,15 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         title={i18n._({ id: 'Shell Stats', message: 'Shell Stats' })}
       >
         <DetailRow
-          label={i18n._({ id: 'Env inherit', message: 'Env inherit' })}
+          label={<InfoLabel label={i18n._({ id: 'Env inherit', message: 'Env inherit' })} />}
           value={formatShellEnvironmentInherit(effectiveShellEnvironmentSummary.inherit)}
         />
         <DetailRow
-          label={i18n._({ id: 'Cmd resolution', message: 'Cmd resolution' })}
+          label={<InfoLabel label={i18n._({ id: 'Cmd resolution', message: 'Cmd resolution' })} />}
           value={formatWindowsCommandResolution(effectiveShellEnvironmentSummary.windowsCommandResolution)}
         />
         <DetailRow
-          label={i18n._({ id: 'Missing vars', message: 'Missing vars' })}
+          label={<InfoLabel label={i18n._({ id: 'Missing vars', message: 'Missing vars' })} />}
           value={effectiveShellEnvironmentSummary.missingWindowsVars.join(', ') || '—'}
         />
       </DetailGroup>
