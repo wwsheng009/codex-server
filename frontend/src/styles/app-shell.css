@@ -1218,6 +1218,7 @@
 
 .workspace-tree__group {
   position: relative;
+  padding-inline: 2px;
 }
 
 .workspace-tree__group-header {
@@ -1259,20 +1260,18 @@
 }
 
 .workspace-tree__workspace--active {
-  box-shadow: inset 4px 0 0 var(--accent);
+  background: linear-gradient(135deg, var(--surface-selected), var(--surface-card));
+  box-shadow: 0 0 0 1px var(--border-accent);
 }
 
 .workspace-tree__workspace--restarting {
   background: linear-gradient(135deg, var(--surface-selected), var(--surface-card));
-  box-shadow:
-    inset 4px 0 0 var(--accent),
-    0 0 0 1px var(--border-accent);
+  box-shadow: 0 0 0 1px var(--border-accent);
 }
 
 .workspace-tree__workspace--restarted {
-  box-shadow:
-    inset 4px 0 0 var(--success),
-    0 0 0 1px var(--border-success);
+  background: linear-gradient(135deg, var(--surface-success-soft), var(--surface-card));
+  box-shadow: 0 0 0 1px var(--border-success);
   animation: workspace-tree-runtime-settle 900ms ease-out;
 }
 
@@ -1548,7 +1547,8 @@
 }
 
 .workspace-tree__thread--active {
-  box-shadow: inset 4px 0 0 var(--accent);
+  background: linear-gradient(135deg, var(--surface-selected), var(--surface-card));
+  box-shadow: 0 0 0 1px var(--border-accent);
 }
 
 .workspace-tree__thread--create {

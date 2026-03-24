@@ -173,6 +173,10 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.pane-section-content {
+  padding: 12px 0 4px;
+}
+
 .pane-section--command {
   border-bottom: 0;
 }

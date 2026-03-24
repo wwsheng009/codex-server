@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import {
@@ -7,17 +7,21 @@ import {
   SettingsGroup,
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
+import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import { SelectControl } from '../../components/ui/SelectControl'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { StatusPill } from '../../components/ui/StatusPill'
 import {
+  accountQueryKey,
   cancelLoginAccount,
   getAccount,
   getRateLimits,
   loginAccount,
+  rateLimitsQueryKey,
   logoutAccount,
 } from '../../features/account/api'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
+import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { formatLocaleDateTime, formatLocaleNumber, formatLocaleTime } from '../../i18n/format'
 import { localeLabels, type AppLocale } from '../../i18n/config'
 import { i18n } from '../../i18n/runtime'
@@ -26,39 +30,60 @@ import { Input } from '../../components/ui/Input'
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient()
+  const { workspaceId, workspaceName } = useSettingsShellContext()
   const locale = useSettingsLocalStore((state) => state.locale)
   const setLocale = useSettingsLocalStore((state) => state.setLocale)
   const [apiKey, setApiKey] = useState('')
   const [loginId, setLoginId] = useState('')
+  const resolvedWorkspaceId = workspaceId ?? ''
+  const accountKey = accountQueryKey(resolvedWorkspaceId)
+  const rateLimitsKey = rateLimitsQueryKey(resolvedWorkspaceId)
 
-  const accountQuery = useQuery({ queryKey: ['account'], queryFn: getAccount })
-  const rateLimitsQuery = useQuery({ queryKey: ['rate-limits'], queryFn: getRateLimits })
+  const accountQuery = useQuery({
+    queryKey: accountKey,
+    queryFn: () => getAccount(resolvedWorkspaceId),
+    enabled: Boolean(resolvedWorkspaceId),
+  })
+  const rateLimitsQuery = useQuery({
+    queryKey: rateLimitsKey,
+    queryFn: () => getRateLimits(resolvedWorkspaceId),
+    enabled: Boolean(resolvedWorkspaceId),
+  })
 
   const loginMutation = useMutation({
-    mutationFn: loginAccount,
+    mutationFn: (input: { type: 'apiKey'; apiKey: string } | { type: 'chatgpt' }) =>
+      loginAccount(resolvedWorkspaceId, input),
     onSuccess: async (result) => {
       setLoginId(result.loginId ?? '')
       setApiKey('')
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['account'] }),
-        queryClient.invalidateQueries({ queryKey: ['rate-limits'] }),
+        queryClient.invalidateQueries({ queryKey: accountKey }),
+        queryClient.invalidateQueries({ queryKey: rateLimitsKey }),
       ])
     },
   })
 
   const logoutMutation = useMutation({
-    mutationFn: logoutAccount,
+    mutationFn: () => logoutAccount(resolvedWorkspaceId),
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['account'] }),
-        queryClient.invalidateQueries({ queryKey: ['rate-limits'] }),
+        queryClient.invalidateQueries({ queryKey: accountKey }),
+        queryClient.invalidateQueries({ queryKey: rateLimitsKey }),
       ])
     },
   })
 
   const cancelLoginMutation = useMutation({
-    mutationFn: () => cancelLoginAccount({ loginId }),
+    mutationFn: () => cancelLoginAccount(resolvedWorkspaceId, { loginId }),
   })
+
+  useEffect(() => {
+    setApiKey('')
+    setLoginId('')
+    loginMutation.reset()
+    logoutMutation.reset()
+    cancelLoginMutation.reset()
+  }, [resolvedWorkspaceId])
 
   const accountStatus = accountQuery.isLoading ? 'loading' : accountQuery.data?.status ?? 'disconnected'
   const isAccountConnected =
@@ -121,6 +146,7 @@ export function GeneralSettingsPage() {
         })}
         meta={
           <>
+            <span className="meta-pill">{workspaceName}</span>
             <StatusPill status={accountStatus} />
             <span className="meta-pill">
               {i18n._({
@@ -133,10 +159,11 @@ export function GeneralSettingsPage() {
               className="ide-button ide-button--secondary"
               onClick={() =>
                 void Promise.all([
-                  queryClient.invalidateQueries({ queryKey: ['account'] }),
-                  queryClient.invalidateQueries({ queryKey: ['rate-limits'] }),
+                  queryClient.invalidateQueries({ queryKey: accountKey }),
+                  queryClient.invalidateQueries({ queryKey: rateLimitsKey }),
                 ])
               }
+              disabled={!resolvedWorkspaceId}
               type="button"
             >
               {i18n._({ id: 'Refresh', message: 'Refresh' })}
@@ -147,6 +174,14 @@ export function GeneralSettingsPage() {
       />
 
       <div className="settings-page__stack">
+        <SettingsWorkspaceScopePanel
+          description={i18n._({
+            id: 'All account identity, authentication, and quota actions on this page apply only to the selected workspace runtime.',
+            message:
+              'All account identity, authentication, and quota actions on this page apply only to the selected workspace runtime.',
+          })}
+        />
+
         <SettingsGroup
           description={languageGroupDescription}
           meta={localeLabels[locale].nativeLabel}
@@ -207,6 +242,7 @@ export function GeneralSettingsPage() {
                 <button
                   className="ide-button ide-button--secondary"
                   onClick={() => logoutMutation.mutate()}
+                  disabled={!resolvedWorkspaceId}
                   type="button"
                 >
                   {logoutMutation.isPending
@@ -220,7 +256,7 @@ export function GeneralSettingsPage() {
                 details={getErrorMessage(accountQuery.error)}
                 dismissible
                 noticeKey={`account-read-${accountQuery.error instanceof Error ? accountQuery.error.message : 'unknown'}`}
-                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['account'] })}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: accountKey })}
                 title={i18n._({ id: 'Failed To Read Account', message: 'Failed To Read Account' })}
                 tone="error"
               >
@@ -262,7 +298,7 @@ export function GeneralSettingsPage() {
                 value={apiKey}
               />
               <div className="setting-row__actions">
-                <button className="ide-button" disabled={!apiKey.trim()} type="submit">
+                <button className="ide-button" disabled={!resolvedWorkspaceId || !apiKey.trim()} type="submit">
                   {loginMutation.isPending
                     ? i18n._({ id: 'Signing in…', message: 'Signing in…' })
                     : i18n._({ id: 'Login with API Key', message: 'Login with API Key' })}
@@ -293,6 +329,7 @@ export function GeneralSettingsPage() {
               <button
                 className="ide-button ide-button--secondary"
                 onClick={() => loginMutation.mutate({ type: 'chatgpt' })}
+                disabled={!resolvedWorkspaceId}
                 type="button"
               >
                 {i18n._({
@@ -304,6 +341,7 @@ export function GeneralSettingsPage() {
                 <button
                   className="ide-button ide-button--secondary"
                   onClick={() => cancelLoginMutation.mutate()}
+                  disabled={!resolvedWorkspaceId}
                   type="button"
                 >
                   {cancelLoginMutation.isPending
@@ -372,7 +410,7 @@ export function GeneralSettingsPage() {
                 details={getErrorMessage(rateLimitsQuery.error)}
                 dismissible
                 noticeKey={`rate-limits-${rateLimitsQuery.error instanceof Error ? rateLimitsQuery.error.message : 'unknown'}`}
-                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['rate-limits'] })}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: rateLimitsKey })}
                 title={i18n._({ id: 'Failed To Read Rate Limits', message: 'Failed To Read Rate Limits' })}
                 tone="error"
               >
