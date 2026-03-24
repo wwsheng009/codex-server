@@ -1,0 +1,9 @@
+{
+  "capture": {
+    "samples": [],
+    "scrollEvents": []
+  },
+  "events": {
+    "error": "Error: page.evaluate: Target page, context or browser has been closed"
+  }
+}

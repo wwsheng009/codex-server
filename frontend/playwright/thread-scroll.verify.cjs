@@ -78,7 +78,7 @@ async function installThreadPageMocks(page) {
         status: 200,
       })
 
-    if (pathname === '/api/account') {
+    if (pathname === `/api/workspaces/${WORKSPACE_ID}/account`) {
       return fulfill({
         email: 'vince@example.com',
         id: 'acct-1',
@@ -87,7 +87,7 @@ async function installThreadPageMocks(page) {
       })
     }
 
-    if (pathname === '/api/account/rate-limits') {
+    if (pathname === `/api/workspaces/${WORKSPACE_ID}/account/rate-limits`) {
       return fulfill([])
     }
 
