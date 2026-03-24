@@ -1,6 +1,6 @@
 import { ResizeHandle } from '../../components/ui/RailControls'
+import { ThreadTerminalDock } from '../../features/thread-terminal'
 import { i18n } from '../../i18n/runtime'
-import { ThreadTerminalDock } from './ThreadTerminalDock'
 import { ThreadWorkbenchRailCollapsed } from './ThreadWorkbenchRailCollapsed'
 import { ThreadWorkbenchRailMobileQuickActions } from './ThreadWorkbenchRailMobileQuickActions'
 import { ThreadWorkbenchRailThreadToolsSection } from './ThreadWorkbenchRailThreadToolsSection'

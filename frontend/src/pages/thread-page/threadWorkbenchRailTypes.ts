@@ -1,10 +1,10 @@
 import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 
+import type { ThreadTerminalDockProps } from '../../features/thread-terminal'
 import type { SurfacePanelView } from '../../lib/layout-config'
 import type { Thread } from '../../types/api'
 import type { ShellEnvironmentDiagnosisSummary } from '../../features/settings/shell-environment-diagnostics'
 import type { CommandRunMode } from './threadPageActionTypes'
-import type { ThreadTerminalDockProps } from './threadTerminalDockTypes'
 
 export type ThreadWorkbenchRailProps = {
   command: string

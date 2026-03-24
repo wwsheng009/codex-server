@@ -1,17 +1,17 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { Dispatch, SetStateAction } from 'react'
 
+import type { ThreadTerminalDockProps } from '../../features/thread-terminal'
 import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { ThreadComposerDock } from './ThreadComposerDock'
-import { ThreadTerminalDock } from './ThreadTerminalDock'
 import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
 import { ThreadWorkbenchSurface } from './ThreadWorkbenchSurface'
 
 export type SurfaceProps = Omit<Parameters<typeof ThreadWorkbenchSurface>[0], 'children'>
 export type ComposerDockProps = Parameters<typeof ThreadComposerDock>[0]
-export type TerminalDockProps = Parameters<typeof ThreadTerminalDock>[0]
+export type TerminalDockProps = ThreadTerminalDockProps
 export type RailProps = Parameters<typeof ThreadWorkbenchRail>[0]
 export type ConfirmDialogProps = Parameters<typeof ConfirmDialog>[0]
 

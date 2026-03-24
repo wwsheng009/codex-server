@@ -1692,6 +1692,28 @@
   opacity: 0.92;
 }
 
+.detail-group--warning {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--border-subtle));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-warning-soft) 38%, transparent), transparent 100%),
+    var(--surface-card);
+}
+
+.detail-group--danger {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border-subtle));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-danger-soft) 38%, transparent), transparent 100%),
+    var(--surface-card);
+}
+
+.detail-group--warning .detail-group__title {
+  color: var(--warning);
+}
+
+.detail-group--danger .detail-group__title {
+  color: var(--danger);
+}
+
 .detail-group--collapsible {
   gap: 0;
   padding: 0 12px 12px;

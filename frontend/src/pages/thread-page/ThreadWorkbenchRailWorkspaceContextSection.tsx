@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 
-import { CollapsiblePanel } from '../../components/ui/CollapsiblePanel'
 import { DetailGroup } from '../../components/ui/DetailGroup'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { Tooltip } from '../../components/ui/Tooltip'
@@ -578,54 +577,62 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           </button>
         </div>
       </div>
-      <CollapsiblePanel
-        defaultExpanded={false}
+      <DetailGroup
+        collapsible
+        defaultOpen={false}
+        tone={shellEnvironmentWarning ? 'danger' : 'default'}
         title={
           shellEnvironmentWarning
             ? i18n._({ id: 'Shell Environment Risk', message: 'Shell Environment Risk' })
             : i18n._({ id: 'Shell Environment', message: 'Shell Environment' })
         }
       >
-        {shellEnvironmentWarning ? (
-          <InlineNotice
-            noticeKey={`thread-shell-environment-warning-${effectiveShellEnvironmentSummary.inherit}`}
-            title={i18n._({ id: 'Shell Environment Risk', message: 'Shell Environment Risk' })}
-            tone="error"
-          >
-            {shellEnvironmentWarning}
-          </InlineNotice>
-        ) : (
-          <InlineNotice
-            noticeKey={`thread-shell-environment-info-${effectiveShellEnvironmentSummary.inherit}`}
-            title={i18n._({ id: 'Shell Environment', message: 'Shell Environment' })}
-          >
-            {shellEnvironmentInfo}
-          </InlineNotice>
-        )}
-      </CollapsiblePanel>
+        <div className="pane-section-content">
+          {shellEnvironmentWarning ? (
+            <InlineNotice
+              noticeKey={`thread-shell-environment-warning-${effectiveShellEnvironmentSummary.inherit}`}
+              title={i18n._({ id: 'Shell Environment Risk', message: 'Shell Environment Risk' })}
+              tone="error"
+            >
+              {shellEnvironmentWarning}
+            </InlineNotice>
+          ) : (
+            <InlineNotice
+              noticeKey={`thread-shell-environment-info-${effectiveShellEnvironmentSummary.inherit}`}
+              title={i18n._({ id: 'Shell Environment', message: 'Shell Environment' })}
+            >
+              {shellEnvironmentInfo}
+            </InlineNotice>
+          )}
+        </div>
+      </DetailGroup>
 
-      <CollapsiblePanel
-        defaultExpanded={false}
+      <DetailGroup
+        collapsible
+        defaultOpen={false}
+        tone={runtimeRestartRequired ? 'warning' : 'default'}
         title={i18n._({ id: 'Runtime Config Status', message: 'Runtime Config Status' })}
       >
-        <InlineNotice
-          noticeKey={`thread-runtime-load-status-${runtimeConfigLoadStatus}`}
-          title={i18n._({ id: 'Runtime Config Status', message: 'Runtime Config Status' })}
-          tone={runtimeRestartRequired ? 'error' : 'info'}
-        >
-          {runtimeRestartRequired
-            ? i18n._({
-                id: 'Restart required: the tracked runtime-affecting config changed after this runtime started.',
-                message:
-                  'Restart required: the tracked runtime-affecting config changed after this runtime started.',
-              })
-            : i18n._({
-                id: 'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
-                message:
-                  'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
-              })}
-        </InlineNotice>
-      </CollapsiblePanel>
+        <div className="pane-section-content">
+          <InlineNotice
+            noticeKey={`thread-runtime-load-status-${runtimeConfigLoadStatus}`}
+            title={i18n._({ id: 'Runtime Config Status', message: 'Runtime Config Status' })}
+            tone={runtimeRestartRequired ? 'error' : 'info'}
+          >
+            {runtimeRestartRequired
+              ? i18n._({
+                  id: 'Restart required: the tracked runtime-affecting config changed after this runtime started.',
+                  message:
+                    'Restart required: the tracked runtime-affecting config changed after this runtime started.',
+                })
+              : i18n._({
+                  id: 'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
+                  message:
+                    'Runtime is aligned with the last tracked runtime-affecting config change, or no tracked change exists.',
+                })}
+          </InlineNotice>
+        </div>
+      </DetailGroup>
       <div className="detail-stat-grid">
         <SummaryStat
           label={<InfoLabel label={i18n._({ id: 'Stream', message: 'Stream' })} />}

@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react'
 
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { ThreadTerminalDock, type ThreadTerminalDockProps } from '../../features/thread-terminal'
 import { i18n } from '../../i18n/runtime'
 import { ThreadComposerDock } from './ThreadComposerDock'
-import { ThreadTerminalDock } from './ThreadTerminalDock'
 import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
 import { ThreadWorkbenchSurface } from './ThreadWorkbenchSurface'
 
@@ -15,7 +15,7 @@ type ThreadPageLayoutProps = {
   isMobileWorkbenchOverlayOpen: boolean
   railProps: Parameters<typeof ThreadWorkbenchRail>[0]
   surfaceProps: Omit<Parameters<typeof ThreadWorkbenchSurface>[0], 'children'>
-  terminalDockProps?: Parameters<typeof ThreadTerminalDock>[0]
+  terminalDockProps?: ThreadTerminalDockProps
   workbenchLayoutStyle: CSSProperties
 }
 

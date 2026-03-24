@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 
-type DetailGroupTone = 'default' | 'primary' | 'secondary'
+type DetailGroupTone = 'default' | 'primary' | 'secondary' | 'warning' | 'danger'
 
 interface DetailGroupProps {
   children: ReactNode
@@ -22,12 +22,11 @@ export function DetailGroup({
   title,
   tone = 'default',
 }: DetailGroupProps) {
-  const className =
-    tone === 'primary'
-      ? 'detail-group detail-group--primary'
-      : tone === 'secondary'
-        ? 'detail-group detail-group--secondary'
-        : 'detail-group'
+  const className = [
+    'detail-group',
+    tone !== 'default' ? `detail-group--${tone}` : '',
+    collapsible ? 'detail-group--collapsible' : '',
+  ].filter(Boolean).join(' ')
   const [internalOpen, setInternalOpen] = useState(defaultOpen)
   const isOpen = open ?? internalOpen
 
