@@ -35,7 +35,7 @@ import {
   SparkIcon,
   TerminalIcon,
 } from '../ui/RailControls'
-import { createThread, deleteThread, listThreads, renameThread } from '../../features/threads/api'
+import { createThread, deleteThread, listThreadsPage, renameThread } from '../../features/threads/api'
 import { removeThreadApprovalsFromList } from '../../features/approvals/cache'
 import { refetchApprovalsQueryIfNeeded } from '../../features/approvals/sync'
 import { deleteWorkspace, listWorkspaces, renameWorkspace, restartWorkspace } from '../../features/workspaces/api'
@@ -43,7 +43,13 @@ import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
 import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
-import type { PendingApproval, Thread, ThreadDetail, Workspace } from '../../types/api'
+import type {
+  PendingApproval,
+  Thread,
+  ThreadDetail,
+  ThreadListPage,
+  Workspace,
+} from '../../types/api'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { AppMenuBar } from './AppMenuBar'
 import { getActiveLocale, i18n } from '../../i18n/runtime'
@@ -211,11 +217,36 @@ export function AppShell() {
   })
 
   const threadQueries = useQueries({
-    queries: (workspacesQuery.data ?? []).map((workspace) => ({
-      queryKey: ['threads', workspace.id],
-      queryFn: () => listThreads(workspace.id),
-      enabled: Boolean(workspacesQuery.data?.length) && !isSettingsRoute,
-    })),
+    queries: (workspacesQuery.data ?? []).map((workspace) => {
+      const requestedThreadCount =
+        visibleThreadCountByWorkspace[workspace.id] ?? DEFAULT_VISIBLE_THREADS
+      const workspaceRouteActive = location.pathname.startsWith(`/workspaces/${workspace.id}`)
+      const shouldLoadWorkspaceThreads =
+        !isSettingsRoute && (isWorkspaceGroupExpanded(workspace.id) || workspaceRouteActive)
+
+      return {
+        queryKey: [
+          'shell-threads',
+          workspace.id,
+          {
+            archived: false,
+            limit: requestedThreadCount,
+            sortKey: 'updated_at',
+          },
+        ],
+        queryFn: () =>
+          listThreadsPage(workspace.id, {
+            archived: false,
+            limit: requestedThreadCount,
+            sortKey: 'updated_at',
+          }),
+        enabled: shouldLoadWorkspaceThreads,
+        placeholderData: (previous: ThreadListPage | undefined) => previous,
+        staleTime: 30_000,
+        refetchOnReconnect: false,
+        refetchOnWindowFocus: false,
+      }
+    }),
   })
 
   useEffect(() => {
@@ -497,8 +528,15 @@ export function AppShell() {
         variables.workspaceId,
       )
 
+      const cachedShellThreads = queryClient
+        .getQueriesData<ThreadListPage>({ queryKey: ['shell-threads', variables.workspaceId] })
+        .reduce<Thread[]>(
+          (largestPage, [, page]) =>
+            page?.data && page.data.length > largestPage.length ? page.data : largestPage,
+          [],
+        )
       const remainingThreads = (
-        queryClient.getQueryData<Thread[]>(['shell-threads', variables.workspaceId]) ?? []
+        queryClient.getQueryData<Thread[]>(['threads', variables.workspaceId]) ?? cachedShellThreads
       ).filter((thread) => thread.id !== variables.threadId)
 
       queryClient.setQueryData<Thread[]>(['shell-threads', variables.workspaceId], remainingThreads)
@@ -785,7 +823,10 @@ export function AppShell() {
   const threadsByWorkspace = useMemo(
     () =>
       new Map(
-        (workspacesQuery.data ?? []).map((workspace, index) => [workspace.id, threadQueries[index]?.data ?? []]),
+        (workspacesQuery.data ?? []).map((workspace, index) => [
+          workspace.id,
+          threadQueries[index]?.data?.data ?? [],
+        ]),
       ),
     [threadQueries, workspacesQuery.data],
   )
@@ -1140,19 +1181,15 @@ export function AppShell() {
                   </InlineNotice>
                 ) : null}
                 {workspacesQuery.data?.map((workspace, index) => {
-                  const threads = threadQueries[index]?.data ?? []
+                  const threadQuery = threadQueries[index]
+                  const threadPage = threadQuery?.data
+                  const threads = threadPage?.data ?? []
+                  const hasMoreThreads = Boolean(threadPage?.nextCursor)
                   const restartPhase = workspaceRestartStateById[workspace.id]
                   const visualRuntimeStatus =
                     restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
                   const workspaceStatusLabel = formatWorkspaceRuntimeStatus(visualRuntimeStatus)
                   const workspaceStatusTone = getWorkspaceRuntimeTone(visualRuntimeStatus)
-                  const workspaceThreadCountLabel = i18n._({
-                    id: '{count} threads',
-                    message: '{count} threads',
-                    values: {
-                      count: threads.length,
-                    },
-                  })
                   const isWorkspaceGroupOpen = isWorkspaceGroupExpanded(workspace.id)
                   const visibleThreadCount =
                     visibleThreadCountByWorkspace[workspace.id] ?? DEFAULT_VISIBLE_THREADS
@@ -1160,6 +1197,35 @@ export function AppShell() {
                   const remainingThreadCount = Math.max(0, threads.length - visibleThreads.length)
                   const canShowLessThreads =
                     visibleThreadCount > DEFAULT_VISIBLE_THREADS && threads.length > DEFAULT_VISIBLE_THREADS
+                  const workspaceThreadCountLabel = threadPage
+                    ? hasMoreThreads
+                      ? i18n._({
+                          id: 'At least {count} threads',
+                          message: 'At least {count} threads',
+                          values: {
+                            count: threads.length,
+                          },
+                        })
+                      : i18n._({
+                          id: '{count} threads',
+                          message: '{count} threads',
+                          values: {
+                            count: threads.length,
+                          },
+                        })
+                    : i18n._({
+                        id: 'Threads not loaded',
+                        message: 'Threads not loaded',
+                      })
+                  const workspaceThreadCountText = threadPage
+                    ? hasMoreThreads
+                      ? `${threads.length}+`
+                      : String(threads.length)
+                    : null
+                  const threadListError = threadQuery?.error ? getErrorMessage(threadQuery.error) : null
+                  const isInitialThreadListLoading = Boolean(threadQuery?.isLoading && !threads.length)
+                  const shouldShowThreadPagination =
+                    remainingThreadCount > 0 || hasMoreThreads || canShowLessThreads
                   const activeThreadId = getSelectedThreadIdForWorkspace(
                     {
                       selectedWorkspaceId,
@@ -1223,13 +1289,15 @@ export function AppShell() {
                                 title={workspaceStatusLabel}
                               />
                             </span>
-                            <span
-                              aria-label={workspaceThreadCountLabel}
-                              className="workspace-tree__workspace-count-badge"
-                              title={workspaceThreadCountLabel}
-                            >
-                              {threads.length}
-                            </span>
+                            {workspaceThreadCountText ? (
+                              <span
+                                aria-label={workspaceThreadCountLabel}
+                                className="workspace-tree__workspace-count-badge"
+                                title={workspaceThreadCountLabel}
+                              >
+                                {workspaceThreadCountText}
+                              </span>
+                            ) : null}
                           </span>
                           <span className="workspace-tree__workspace-copy">
                             <span className="workspace-tree__workspace-name">{workspace.name}</span>
@@ -1369,6 +1437,33 @@ export function AppShell() {
 
                       {isWorkspaceGroupOpen ? (
                         <div className="workspace-tree__threads" id={`workspace-threads-${workspace.id}`}>
+                          {threadListError ? (
+                            <InlineNotice
+                              details={threadListError}
+                              dismissible
+                              noticeKey={`workspace-thread-list-${workspace.id}-${threadListError}`}
+                              onRetry={() => {
+                                void threadQuery?.refetch()
+                              }}
+                              title={i18n._({
+                                id: 'Failed To Load Threads',
+                                message: 'Failed To Load Threads',
+                              })}
+                              tone="error"
+                            >
+                              {threadListError}
+                            </InlineNotice>
+                          ) : null}
+                          {isInitialThreadListLoading ? (
+                            <div className="workspace-tree__thread-pagination">
+                              <span className="workspace-tree__show-more">
+                                {i18n._({
+                                  id: 'Loading threads…',
+                                  message: 'Loading threads…',
+                                })}
+                              </span>
+                            </div>
+                          ) : null}
                           {visibleThreads.map((thread) => {
                             return (
                               <WorkspaceTreeThreadRow
@@ -1415,7 +1510,7 @@ export function AppShell() {
                               />
                             )
                           })}
-                          {remainingThreadCount > 0 || canShowLessThreads ? (
+                          {shouldShowThreadPagination ? (
                             <div className="workspace-tree__thread-pagination">
                               {remainingThreadCount > 0 ? (
                                 <button
@@ -1430,6 +1525,23 @@ export function AppShell() {
                                       count: Math.min(DEFAULT_VISIBLE_THREADS, remainingThreadCount),
                                     },
                                   })}
+                                </button>
+                              ) : hasMoreThreads ? (
+                                <button
+                                  className="workspace-tree__show-more"
+                                  onClick={() => handleShowMoreThreads(workspace.id)}
+                                  disabled={threadQuery?.isFetching}
+                                  type="button"
+                                >
+                                  {threadQuery?.isFetching
+                                    ? i18n._({
+                                        id: 'Loading more…',
+                                        message: 'Loading more…',
+                                      })
+                                    : i18n._({
+                                        id: 'Load more',
+                                        message: 'Load more',
+                                      })}
                                 </button>
                               ) : null}
                               {canShowLessThreads ? (

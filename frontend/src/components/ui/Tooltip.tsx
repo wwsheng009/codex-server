@@ -22,6 +22,30 @@ export function Tooltip({
   const tooltipId = useId()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const showTimeoutRef = useRef<number | null>(null)
+  const hideTimeoutRef = useRef<number | null>(null)
+
+  const showTooltip = () => {
+    if (hideTimeoutRef.current) {
+      window.clearTimeout(hideTimeoutRef.current)
+      hideTimeoutRef.current = null
+    }
+    if (!isVisible) {
+      showTimeoutRef.current = window.setTimeout(() => {
+        setIsVisible(true)
+      }, 200)
+    }
+  }
+
+  const hideTooltip = () => {
+    if (showTimeoutRef.current) {
+      window.clearTimeout(showTimeoutRef.current)
+      showTimeoutRef.current = null
+    }
+    hideTimeoutRef.current = window.setTimeout(() => {
+      setIsVisible(false)
+    }, 150)
+  }
 
   const updatePosition = () => {
     if (!triggerRef.current || !tooltipRef.current) {
@@ -59,6 +83,13 @@ export function Tooltip({
 
     setCoords({ top: top + window.scrollY, left: left + window.scrollX })
   }
+
+  useEffect(() => {
+    return () => {
+      if (showTimeoutRef.current) window.clearTimeout(showTimeoutRef.current)
+      if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isVisible) {
@@ -110,10 +141,12 @@ export function Tooltip({
           if (nextTarget && tooltipRef.current?.contains(nextTarget)) {
             return
           }
-          setIsVisible(false)
+          hideTooltip()
         }}
         onClick={() => setIsVisible((current) => !current)}
-        onFocus={() => setIsVisible(true)}
+        onFocus={showTooltip}
+        onMouseEnter={showTooltip}
+        onMouseLeave={hideTooltip}
         ref={triggerRef}
         type="button"
       >
@@ -124,6 +157,8 @@ export function Tooltip({
           <div
             className={`ide-tooltip ide-tooltip--${position}`}
             id={tooltipId}
+            onMouseEnter={showTooltip}
+            onMouseLeave={hideTooltip}
             ref={tooltipRef}
             role="tooltip"
             style={{

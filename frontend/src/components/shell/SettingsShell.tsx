@@ -1,14 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { getSettingsSections } from '../../features/settings/sections'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import { listWorkspaces } from '../../features/workspaces/api'
+import { useSessionStore } from '../../stores/session-store'
 
 export function SettingsShell() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const sessionSelectedWorkspaceId = useSessionStore((state) => state.selectedWorkspaceId)
   const settingsSections = getSettingsSections()
 
   const workspacesQuery = useQuery({
@@ -16,13 +18,26 @@ export function SettingsShell() {
     queryFn: listWorkspaces,
   })
 
-  useEffect(() => {
-    if (!selectedWorkspaceId && workspacesQuery.data?.length) {
-      setSelectedWorkspaceId(workspacesQuery.data[0].id)
+  const workspaceId = useMemo(() => {
+    const workspaces = workspacesQuery.data ?? []
+    if (!workspaces.length) {
+      return undefined
     }
-  }, [selectedWorkspaceId, workspacesQuery.data])
 
-  const workspaceId = selectedWorkspaceId || workspacesQuery.data?.[0]?.id
+    if (selectedWorkspaceId && workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+      return selectedWorkspaceId
+    }
+
+    if (
+      sessionSelectedWorkspaceId &&
+      workspaces.some((workspace) => workspace.id === sessionSelectedWorkspaceId)
+    ) {
+      return sessionSelectedWorkspaceId
+    }
+
+    return workspaces[0]?.id
+  }, [selectedWorkspaceId, sessionSelectedWorkspaceId, workspacesQuery.data])
+
   const workspaceName =
     workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ??
     i18n._({ id: 'No workspace', message: 'No workspace' })
