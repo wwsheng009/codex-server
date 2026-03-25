@@ -11,6 +11,10 @@ export default defineConfig(({ mode }) => {
       react(),
       ...lingui(),
     ],
+    test: {
+      include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+      exclude: ['playwright/**'],
+    },
     server: {
       host: '0.0.0.0',
       port: 15173,
