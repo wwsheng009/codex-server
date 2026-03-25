@@ -102,6 +102,39 @@ type Notification struct {
 	ReadAt          *time.Time `json:"readAt,omitempty"`
 }
 
+type BotConnection struct {
+	ID          string            `json:"id"`
+	WorkspaceID string            `json:"workspaceId"`
+	Provider    string            `json:"provider"`
+	Name        string            `json:"name"`
+	Status      string            `json:"status"`
+	AIBackend   string            `json:"aiBackend"`
+	AIConfig    map[string]string `json:"aiConfig,omitempty"`
+	Settings    map[string]string `json:"settings,omitempty"`
+	Secrets     map[string]string `json:"secrets,omitempty"`
+	LastError   string            `json:"lastError,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+}
+
+type BotConversation struct {
+	ID                   string    `json:"id"`
+	WorkspaceID          string    `json:"workspaceId"`
+	ConnectionID         string    `json:"connectionId"`
+	Provider             string    `json:"provider"`
+	ExternalChatID       string    `json:"externalChatId"`
+	ExternalUserID       string    `json:"externalUserId,omitempty"`
+	ExternalUsername     string    `json:"externalUsername,omitempty"`
+	ExternalTitle        string    `json:"externalTitle,omitempty"`
+	ThreadID             string    `json:"threadId,omitempty"`
+	BackendState         map[string]string `json:"backendState,omitempty"`
+	LastInboundMessageID string    `json:"lastInboundMessageId,omitempty"`
+	LastInboundText      string    `json:"lastInboundText,omitempty"`
+	LastOutboundText     string    `json:"lastOutboundText,omitempty"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
 type Thread struct {
 	ID           string    `json:"id"`
 	WorkspaceID  string    `json:"workspaceId"`

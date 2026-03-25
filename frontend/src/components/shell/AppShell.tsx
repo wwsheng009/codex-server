@@ -25,6 +25,7 @@ import {
   AutomationIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  FeedIcon,
   FolderClosedIcon,
   FolderOpenIcon,
   MoreActionsIcon,
@@ -75,6 +76,11 @@ function getPrimaryNavItems() {
       to: '/automations',
       label: i18n._({ id: 'Automations', message: 'Automations' }),
       icon: AutomationIcon,
+    },
+    {
+      to: '/bots',
+      label: i18n._({ id: 'Bots', message: 'Bots' }),
+      icon: FeedIcon,
     },
     {
       to: '/skills',
@@ -812,6 +818,8 @@ export function AppShell() {
     ? 'workspaces'
     : location.pathname.startsWith('/automations')
       ? 'automations'
+      : location.pathname.startsWith('/bots')
+        ? 'bots'
       : location.pathname.startsWith('/skills')
         ? 'skills'
         : location.pathname.startsWith('/runtime')
@@ -847,6 +855,18 @@ export function AppShell() {
         onSelect: () => navigate('/automations'),
       },
       {
+        id: 'nav-bots',
+        group: 'Nav',
+        title: i18n._({ id: 'Open Bots', message: 'Open Bots' }),
+        subtitle: i18n._({
+          id: 'Manage bot integrations and chat bindings',
+          message: 'Manage bot integrations and chat bindings',
+        }),
+        keywords: ['bots', 'telegram', 'webhook', 'integrations'],
+        priority: currentSection === 'bots' ? 40 : 12,
+        onSelect: () => navigate('/bots'),
+      },
+      {
         id: 'nav-skills',
         group: 'Nav',
         title: i18n._({ id: 'Open Skills', message: 'Open Skills' }),
@@ -855,7 +875,7 @@ export function AppShell() {
           message: 'Browse installed and remote skills',
         }),
         keywords: ['skills', 'catalog', 'directory'],
-        priority: currentSection === 'skills' ? 40 : 12,
+        priority: currentSection === 'skills' ? 40 : 13,
         onSelect: () => navigate('/skills'),
       },
       {
@@ -867,7 +887,7 @@ export function AppShell() {
           message: 'Inspect runtime inventory and actions',
         }),
         keywords: ['runtime', 'catalog', 'models', 'plugins'],
-        priority: currentSection === 'runtime' ? 40 : 13,
+        priority: currentSection === 'runtime' ? 40 : 14,
         onSelect: () => navigate('/runtime'),
       },
       {
@@ -882,7 +902,7 @@ export function AppShell() {
           message: 'Account, login, and usage limits',
         }),
         keywords: ['settings', 'general', 'account', 'login'],
-        priority: currentSection === 'settings' ? 42 : 14,
+        priority: currentSection === 'settings' ? 42 : 15,
         onSelect: () => navigate('/settings/general'),
       },
       {
@@ -897,7 +917,7 @@ export function AppShell() {
           message: 'Theme, density, and motion preferences',
         }),
         keywords: ['settings', 'appearance', 'theme', 'motion'],
-        priority: currentSection === 'settings' ? 43 : 15,
+        priority: currentSection === 'settings' ? 43 : 16,
         onSelect: () => navigate('/settings/appearance'),
       },
     ]

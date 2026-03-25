@@ -101,6 +101,39 @@ export type NotificationItem = {
   readAt?: string | null
 }
 
+export type BotConnection = {
+  id: string
+  workspaceId: string
+  provider: string
+  name: string
+  status: string
+  aiBackend: string
+  aiConfig?: Record<string, string> | null
+  settings?: Record<string, string> | null
+  secretKeys?: string[] | null
+  lastError?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type BotConversation = {
+  id: string
+  workspaceId: string
+  connectionId: string
+  provider: string
+  externalChatId: string
+  externalUserId?: string
+  externalUsername?: string
+  externalTitle?: string
+  threadId?: string
+  backendState?: Record<string, string> | null
+  lastInboundMessageId?: string
+  lastInboundText?: string
+  lastOutboundText?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type Thread = {
   id: string
   workspaceId: string

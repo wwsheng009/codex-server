@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,10 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/automations"
+	"codex-server/backend/internal/bots"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/configfs"
 	"codex-server/backend/internal/events"
@@ -611,6 +614,120 @@ func TestAutomationTemplateRoutesRejectBuiltInMutation(t *testing.T) {
 	}
 }
 
+func TestBotConnectionRoutesAndWebhook(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
+	botProvider := newRouterTestBotProvider()
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []bots.Provider{botProvider},
+		AIBackends:    []bots.AIBackend{routerTestAIBackend{}},
+	})
+	botService.Start(context.Background())
+
+	router := NewRouter(Dependencies{
+		FrontendOrigin: "http://localhost:15173",
+		Auth:           auth.NewService(dataStore, runtimeManager),
+		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Bots:           botService,
+		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
+		Notifications:  notifications.NewService(dataStore),
+		Threads:        threadService,
+		Turns:          turnService,
+		Approvals:      approvals.NewService(runtimeManager),
+		Catalog:        catalog.NewService(runtimeManager),
+		ConfigFS:       configfs.NewService(runtimeManager),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub, dataStore),
+		Feedback:       feedback.NewService(runtimeManager),
+		Events:         eventHub,
+	})
+
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-connections",
+		`{"provider":"fakechat","name":"Support Bot","aiBackend":"fake_ai","secrets":{"bot_token":"token-1"}}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create bot connection, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data struct {
+			ID         string   `json:"id"`
+			SecretKeys []string `json:"secretKeys"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+	if created.Data.ID == "" {
+		t.Fatal("expected bot connection id")
+	}
+	if len(created.Data.SecretKeys) == 0 {
+		t.Fatalf("expected secret keys to be returned, got %#v", created.Data.SecretKeys)
+	}
+
+	listResponse := performJSONRequest(t, router, http.MethodGet, "/api/workspaces/"+workspace.ID+"/bot-connections", "")
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list bot connections, got %d", listResponse.Code)
+	}
+
+	webhookRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/hooks/bots/"+created.Data.ID,
+		strings.NewReader(`{"conversationId":"chat-1","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello"}`),
+	)
+	webhookRequest.Header.Set("X-Test-Secret", "fake-secret")
+	webhookRecorder := httptest.NewRecorder()
+	router.ServeHTTP(webhookRecorder, webhookRequest)
+	if webhookRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 from bot webhook, got %d", webhookRecorder.Code)
+	}
+
+	select {
+	case payload := <-botProvider.sentCh:
+		if len(payload.Messages) != 1 || payload.Messages[0].Text != "route reply: hello" {
+			t.Fatalf("expected route ai reply to be forwarded, got %#v", payload.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for routed bot reply")
+	}
+
+	conversationsResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/bot-connections/"+created.Data.ID+"/conversations",
+		"",
+	)
+	if conversationsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from bot conversations route, got %d", conversationsResponse.Code)
+	}
+
+	var conversations struct {
+		Data []struct {
+			ThreadID string `json:"threadId"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, conversationsResponse, &conversations)
+	if len(conversations.Data) != 1 || conversations.Data[0].ThreadID != "thr_route_chat-1" {
+		t.Fatalf("expected persisted bot conversation thread mapping, got %#v", conversations.Data)
+	}
+}
+
 func TestRestartWorkspaceRouteIsWired(t *testing.T) {
 	t.Parallel()
 
@@ -864,11 +981,13 @@ func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
 	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
 	threadService := threads.NewService(dataStore, runtimeManager)
 	turnService := turns.NewService(runtimeManager, dataStore)
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{})
 
 	router := NewRouter(Dependencies{
 		FrontendOrigin: "http://0.0.0.0:15173",
 		Auth:           auth.NewService(dataStore, runtimeManager),
 		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Bots:           botService,
 		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
 		Notifications:  notifications.NewService(dataStore),
 		Threads:        threadService,
@@ -930,6 +1049,7 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	approvalsService := approvals.NewService(runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
 	turnService := turns.NewService(runtimeManager, dataStore)
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{})
 	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
 	notificationsService := notifications.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
@@ -942,6 +1062,7 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 		FrontendOrigin: "http://localhost:15173",
 		Auth:           authService,
 		Workspaces:     workspaceService,
+		Bots:           botService,
 		Automations:    automationService,
 		Notifications:  notificationsService,
 		Threads:        threadService,
@@ -974,4 +1095,72 @@ func decodeResponseBody(t *testing.T, recorder *httptest.ResponseRecorder, targe
 	if err := json.NewDecoder(recorder.Body).Decode(target); err != nil {
 		t.Fatalf("decode response body error = %v", err)
 	}
+}
+
+type routerTestBotProvider struct {
+	sentCh chan routerTestBotSentPayload
+}
+
+type routerTestBotSentPayload struct {
+	Messages []bots.OutboundMessage
+}
+
+func newRouterTestBotProvider() *routerTestBotProvider {
+	return &routerTestBotProvider{
+		sentCh: make(chan routerTestBotSentPayload, 8),
+	}
+}
+
+func (p *routerTestBotProvider) Name() string {
+	return "fakechat"
+}
+
+func (p *routerTestBotProvider) Activate(_ context.Context, connection store.BotConnection, publicBaseURL string) (bots.ActivationResult, error) {
+	return bots.ActivationResult{
+		Settings: map[string]string{
+			"webhook_url": strings.TrimRight(publicBaseURL, "/") + "/hooks/bots/" + connection.ID,
+		},
+		Secrets: map[string]string{
+			"webhook_secret": "fake-secret",
+		},
+	}, nil
+}
+
+func (p *routerTestBotProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *routerTestBotProvider) ParseWebhook(r *http.Request, _ store.BotConnection) ([]bots.InboundMessage, error) {
+	if strings.TrimSpace(r.Header.Get("X-Test-Secret")) != "fake-secret" {
+		return nil, bots.ErrWebhookUnauthorized
+	}
+
+	var payload bots.InboundMessage
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	return []bots.InboundMessage{payload}, nil
+}
+
+func (p *routerTestBotProvider) SendMessages(_ context.Context, _ store.BotConnection, _ store.BotConversation, messages []bots.OutboundMessage) error {
+	p.sentCh <- routerTestBotSentPayload{
+		Messages: append([]bots.OutboundMessage(nil), messages...),
+	}
+	return nil
+}
+
+type routerTestAIBackend struct{}
+
+func (routerTestAIBackend) Name() string {
+	return "fake_ai"
+}
+
+func (routerTestAIBackend) ProcessMessage(_ context.Context, _ store.BotConnection, _ store.BotConversation, inbound bots.InboundMessage) (bots.AIResult, error) {
+	return bots.AIResult{
+		ThreadID: "thr_route_" + inbound.ConversationID,
+		Messages: []bots.OutboundMessage{
+			{Text: "route reply: " + inbound.Text},
+		},
+	}, nil
 }

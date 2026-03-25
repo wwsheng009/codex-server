@@ -14,6 +14,7 @@ import (
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/automations"
+	"codex-server/backend/internal/bots"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/config"
 	"codex-server/backend/internal/configfs"
@@ -68,6 +69,9 @@ func main() {
 	approvalsService := approvals.NewService(runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
 	turnService := turns.NewService(runtimeManager, dataStore)
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+		PublicBaseURL: cfg.PublicBaseURL,
+	})
 	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
 	notificationsService := notifications.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
@@ -79,6 +83,7 @@ func main() {
 	serviceCtx, serviceCancel := context.WithCancel(context.Background())
 	defer serviceCancel()
 	automationService.Start(serviceCtx)
+	botService.Start(serviceCtx)
 
 	if len(workspaceService.List()) == 0 {
 		_, _ = workspaceService.Create("Demo Workspace", "E:/projects/ai/codex-server")
@@ -88,6 +93,7 @@ func main() {
 		FrontendOrigin: cfg.FrontendOrigin,
 		Auth:           authService,
 		Workspaces:     workspaceService,
+		Bots:           botService,
 		Automations:    automationService,
 		Notifications:  notificationsService,
 		Threads:        threadService,

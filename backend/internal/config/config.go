@@ -18,6 +18,7 @@ import (
 type Config struct {
 	Addr                  string
 	FrontendOrigin        string
+	PublicBaseURL         string
 	BaseCodexCommand      string
 	CodexCommand          string
 	CodexModelCatalogJSON string
@@ -59,6 +60,7 @@ func FromEnv() (Config, error) {
 	return Config{
 		Addr:                  getEnv("CODEX_SERVER_ADDR", ":18080"),
 		FrontendOrigin:        getEnv("CODEX_FRONTEND_ORIGIN", "http://0.0.0.0:15173"),
+		PublicBaseURL:         getEnv("CODEX_SERVER_PUBLIC_BASE_URL", ""),
 		BaseCodexCommand:      codexCommand,
 		CodexCommand:          resolved.Command,
 		CodexModelCatalogJSON: resolved.Preferences.ModelCatalogPath,

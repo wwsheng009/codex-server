@@ -20,6 +20,8 @@ var (
 	ErrAutomationTemplateNotFound = errors.New("automation template not found")
 	ErrAutomationRunNotFound      = errors.New("automation run not found")
 	ErrNotificationNotFound       = errors.New("notification not found")
+	ErrBotConnectionNotFound      = errors.New("bot connection not found")
+	ErrBotConversationNotFound    = errors.New("bot conversation not found")
 )
 
 const (
@@ -29,19 +31,21 @@ const (
 )
 
 type MemoryStore struct {
-	mu              sync.RWMutex
-	path            string
-	runtimePrefs    RuntimePreferences
-	workspaces      map[string]Workspace
-	commandSessions map[string]map[string]CommandSessionSnapshot
-	automations     map[string]Automation
-	templates       map[string]AutomationTemplate
-	runs            map[string]AutomationRun
-	notifications   map[string]Notification
-	threads         map[string]Thread
-	projections     map[string]ThreadProjection
-	deleted         map[string]DeletedThread
-	approvals       map[string]PendingApproval
+	mu               sync.RWMutex
+	path             string
+	runtimePrefs     RuntimePreferences
+	workspaces       map[string]Workspace
+	commandSessions  map[string]map[string]CommandSessionSnapshot
+	automations      map[string]Automation
+	templates        map[string]AutomationTemplate
+	runs             map[string]AutomationRun
+	notifications    map[string]Notification
+	botConnections   map[string]BotConnection
+	botConversations map[string]BotConversation
+	threads          map[string]Thread
+	projections      map[string]ThreadProjection
+	deleted          map[string]DeletedThread
+	approvals        map[string]PendingApproval
 }
 
 type storeSnapshot struct {
@@ -52,6 +56,8 @@ type storeSnapshot struct {
 	AutomationTemplates []AutomationTemplate     `json:"automationTemplates,omitempty"`
 	AutomationRuns      []AutomationRun          `json:"automationRuns,omitempty"`
 	Notifications       []Notification           `json:"notifications,omitempty"`
+	BotConnections      []BotConnection          `json:"botConnections,omitempty"`
+	BotConversations    []BotConversation        `json:"botConversations,omitempty"`
 	Threads             []Thread                 `json:"threads"`
 	ThreadProjections   []ThreadProjection       `json:"threadProjections,omitempty"`
 	DeletedThreads      []DeletedThread          `json:"deletedThreads,omitempty"`
@@ -59,16 +65,18 @@ type storeSnapshot struct {
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		workspaces:      make(map[string]Workspace),
-		commandSessions: make(map[string]map[string]CommandSessionSnapshot),
-		automations:     make(map[string]Automation),
-		templates:       make(map[string]AutomationTemplate),
-		runs:            make(map[string]AutomationRun),
-		notifications:   make(map[string]Notification),
-		threads:         make(map[string]Thread),
-		projections:     make(map[string]ThreadProjection),
-		deleted:         make(map[string]DeletedThread),
-		approvals:       make(map[string]PendingApproval),
+		workspaces:       make(map[string]Workspace),
+		commandSessions:  make(map[string]map[string]CommandSessionSnapshot),
+		automations:      make(map[string]Automation),
+		templates:        make(map[string]AutomationTemplate),
+		runs:             make(map[string]AutomationRun),
+		notifications:    make(map[string]Notification),
+		botConnections:   make(map[string]BotConnection),
+		botConversations: make(map[string]BotConversation),
+		threads:          make(map[string]Thread),
+		projections:      make(map[string]ThreadProjection),
+		deleted:          make(map[string]DeletedThread),
+		approvals:        make(map[string]PendingApproval),
 	}
 }
 
@@ -749,6 +757,238 @@ func (s *MemoryStore) DeleteReadNotifications() []Notification {
 	return deleted
 }
 
+func (s *MemoryStore) ListBotConnections(workspaceID string) []BotConnection {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BotConnection, 0)
+	for _, connection := range s.botConnections {
+		if connection.WorkspaceID != workspaceID {
+			continue
+		}
+		items = append(items, cloneBotConnection(connection))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) CreateBotConnection(connection BotConnection) (BotConnection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[connection.WorkspaceID]; !ok {
+		return BotConnection{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(connection.ID) == "" {
+		connection.ID = NewID("bot")
+	}
+	if connection.CreatedAt.IsZero() {
+		connection.CreatedAt = now
+	}
+	if connection.UpdatedAt.IsZero() {
+		connection.UpdatedAt = now
+	}
+	connection.AIConfig = cloneStringMap(connection.AIConfig)
+	connection.Settings = cloneStringMap(connection.Settings)
+	connection.Secrets = cloneStringMap(connection.Secrets)
+
+	s.botConnections[connection.ID] = connection
+	s.persistLocked()
+
+	return cloneBotConnection(connection), nil
+}
+
+func (s *MemoryStore) GetBotConnection(workspaceID string, connectionID string) (BotConnection, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	connection, ok := s.botConnections[connectionID]
+	if !ok || connection.WorkspaceID != workspaceID {
+		return BotConnection{}, false
+	}
+
+	return cloneBotConnection(connection), true
+}
+
+func (s *MemoryStore) FindBotConnection(connectionID string) (BotConnection, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	connection, ok := s.botConnections[connectionID]
+	if !ok {
+		return BotConnection{}, false
+	}
+
+	return cloneBotConnection(connection), true
+}
+
+func (s *MemoryStore) UpdateBotConnection(
+	workspaceID string,
+	connectionID string,
+	updater func(BotConnection) BotConnection,
+) (BotConnection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	connection, ok := s.botConnections[connectionID]
+	if !ok || connection.WorkspaceID != workspaceID {
+		return BotConnection{}, ErrBotConnectionNotFound
+	}
+
+	next := updater(cloneBotConnection(connection))
+	next.ID = connection.ID
+	next.WorkspaceID = connection.WorkspaceID
+	next.CreatedAt = connection.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.AIConfig = cloneStringMap(next.AIConfig)
+	next.Settings = cloneStringMap(next.Settings)
+	next.Secrets = cloneStringMap(next.Secrets)
+
+	s.botConnections[connectionID] = next
+	s.persistLocked()
+
+	return cloneBotConnection(next), nil
+}
+
+func (s *MemoryStore) DeleteBotConnection(workspaceID string, connectionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	connection, ok := s.botConnections[connectionID]
+	if !ok || connection.WorkspaceID != workspaceID {
+		return ErrBotConnectionNotFound
+	}
+
+	delete(s.botConnections, connectionID)
+	for conversationID, conversation := range s.botConversations {
+		if conversation.ConnectionID == connectionID && conversation.WorkspaceID == workspaceID {
+			delete(s.botConversations, conversationID)
+		}
+	}
+
+	s.persistLocked()
+	return nil
+}
+
+func (s *MemoryStore) ListBotConversations(workspaceID string, connectionID string) []BotConversation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BotConversation, 0)
+	for _, conversation := range s.botConversations {
+		if conversation.WorkspaceID != workspaceID {
+			continue
+		}
+		if connectionID != "" && conversation.ConnectionID != connectionID {
+			continue
+		}
+		items = append(items, cloneBotConversation(conversation))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBotConversation(workspaceID string, conversationID string) (BotConversation, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	conversation, ok := s.botConversations[conversationID]
+	if !ok || conversation.WorkspaceID != workspaceID {
+		return BotConversation{}, false
+	}
+
+	return cloneBotConversation(conversation), true
+}
+
+func (s *MemoryStore) FindBotConversationByExternalChat(
+	workspaceID string,
+	connectionID string,
+	externalChatID string,
+) (BotConversation, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, conversation := range s.botConversations {
+		if conversation.WorkspaceID != workspaceID ||
+			conversation.ConnectionID != connectionID ||
+			conversation.ExternalChatID != externalChatID {
+			continue
+		}
+		return cloneBotConversation(conversation), true
+	}
+
+	return BotConversation{}, false
+}
+
+func (s *MemoryStore) CreateBotConversation(conversation BotConversation) (BotConversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[conversation.WorkspaceID]; !ok {
+		return BotConversation{}, ErrWorkspaceNotFound
+	}
+	connection, ok := s.botConnections[conversation.ConnectionID]
+	if !ok || connection.WorkspaceID != conversation.WorkspaceID {
+		return BotConversation{}, ErrBotConnectionNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(conversation.ID) == "" {
+		conversation.ID = NewID("bcn")
+	}
+	if conversation.CreatedAt.IsZero() {
+		conversation.CreatedAt = now
+	}
+	if conversation.UpdatedAt.IsZero() {
+		conversation.UpdatedAt = now
+	}
+	conversation.BackendState = cloneStringMap(conversation.BackendState)
+
+	s.botConversations[conversation.ID] = conversation
+	s.persistLocked()
+
+	return cloneBotConversation(conversation), nil
+}
+
+func (s *MemoryStore) UpdateBotConversation(
+	workspaceID string,
+	conversationID string,
+	updater func(BotConversation) BotConversation,
+) (BotConversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conversation, ok := s.botConversations[conversationID]
+	if !ok || conversation.WorkspaceID != workspaceID {
+		return BotConversation{}, ErrBotConversationNotFound
+	}
+
+	next := updater(cloneBotConversation(conversation))
+	next.ID = conversation.ID
+	next.WorkspaceID = conversation.WorkspaceID
+	next.ConnectionID = conversation.ConnectionID
+	next.Provider = conversation.Provider
+	next.ExternalChatID = conversation.ExternalChatID
+	next.CreatedAt = conversation.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.BackendState = cloneStringMap(next.BackendState)
+
+	s.botConversations[conversationID] = next
+	s.persistLocked()
+
+	return cloneBotConversation(next), nil
+}
+
 func (s *MemoryStore) CreateAutomation(automation Automation) (Automation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1101,6 +1341,16 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 			delete(s.notifications, notificationID)
 		}
 	}
+	for connectionID, connection := range s.botConnections {
+		if connection.WorkspaceID == workspaceID {
+			delete(s.botConnections, connectionID)
+		}
+	}
+	for conversationID, conversation := range s.botConversations {
+		if conversation.WorkspaceID == workspaceID {
+			delete(s.botConversations, conversationID)
+		}
+	}
 	delete(s.commandSessions, workspaceID)
 
 	for threadID, thread := range s.threads {
@@ -1285,6 +1535,18 @@ func (s *MemoryStore) load() error {
 			maxID = value
 		}
 	}
+	for _, connection := range snapshot.BotConnections {
+		s.botConnections[connection.ID] = cloneBotConnection(connection)
+		if value := NumericIDSuffix(connection.ID); value > maxID {
+			maxID = value
+		}
+	}
+	for _, conversation := range snapshot.BotConversations {
+		s.botConversations[conversation.ID] = cloneBotConversation(conversation)
+		if value := NumericIDSuffix(conversation.ID); value > maxID {
+			maxID = value
+		}
+	}
 
 	for _, thread := range snapshot.Threads {
 		s.threads[thread.ID] = thread
@@ -1319,6 +1581,8 @@ func (s *MemoryStore) persistLocked() {
 		AutomationTemplates: make([]AutomationTemplate, 0, len(s.templates)),
 		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
 		Notifications:       make([]Notification, 0, len(s.notifications)),
+		BotConnections:      make([]BotConnection, 0, len(s.botConnections)),
+		BotConversations:    make([]BotConversation, 0, len(s.botConversations)),
 		Threads:             make([]Thread, 0, len(s.threads)),
 		ThreadProjections:   make([]ThreadProjection, 0, len(s.projections)),
 		DeletedThreads:      make([]DeletedThread, 0, len(s.deleted)),
@@ -1368,6 +1632,12 @@ func (s *MemoryStore) persistLocked() {
 	for _, notification := range s.notifications {
 		snapshot.Notifications = append(snapshot.Notifications, notification)
 	}
+	for _, connection := range s.botConnections {
+		snapshot.BotConnections = append(snapshot.BotConnections, cloneBotConnection(connection))
+	}
+	for _, conversation := range s.botConversations {
+		snapshot.BotConversations = append(snapshot.BotConversations, cloneBotConversation(conversation))
+	}
 	for _, thread := range s.threads {
 		snapshot.Threads = append(snapshot.Threads, thread)
 	}
@@ -1398,6 +1668,12 @@ func (s *MemoryStore) persistLocked() {
 	})
 	sort.Slice(snapshot.Notifications, func(i int, j int) bool {
 		return snapshot.Notifications[i].ID < snapshot.Notifications[j].ID
+	})
+	sort.Slice(snapshot.BotConnections, func(i int, j int) bool {
+		return snapshot.BotConnections[i].ID < snapshot.BotConnections[j].ID
+	})
+	sort.Slice(snapshot.BotConversations, func(i int, j int) bool {
+		return snapshot.BotConversations[i].ID < snapshot.BotConversations[j].ID
 	})
 	sort.Slice(snapshot.Threads, func(i int, j int) bool {
 		return snapshot.Threads[i].ID < snapshot.Threads[j].ID
@@ -1442,6 +1718,36 @@ func cloneAutomationRun(run AutomationRun) AutomationRun {
 		next.Logs = append([]AutomationRunLogEntry{}, run.Logs...)
 	} else {
 		next.Logs = []AutomationRunLogEntry{}
+	}
+	return next
+}
+
+func cloneBotConnection(connection BotConnection) BotConnection {
+	next := connection
+	if len(connection.AIConfig) > 0 {
+		next.AIConfig = cloneStringMap(connection.AIConfig)
+	} else {
+		next.AIConfig = nil
+	}
+	if len(connection.Settings) > 0 {
+		next.Settings = cloneStringMap(connection.Settings)
+	} else {
+		next.Settings = nil
+	}
+	if len(connection.Secrets) > 0 {
+		next.Secrets = cloneStringMap(connection.Secrets)
+	} else {
+		next.Secrets = nil
+	}
+	return next
+}
+
+func cloneBotConversation(conversation BotConversation) BotConversation {
+	next := conversation
+	if len(conversation.BackendState) > 0 {
+		next.BackendState = cloneStringMap(conversation.BackendState)
+	} else {
+		next.BackendState = nil
 	}
 	return next
 }

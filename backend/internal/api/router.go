@@ -13,6 +13,7 @@ import (
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/automations"
+	"codex-server/backend/internal/bots"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/configfs"
 	"codex-server/backend/internal/events"
@@ -36,6 +37,7 @@ type Dependencies struct {
 	FrontendOrigin string
 	Auth           *auth.Service
 	Workspaces     *workspace.Service
+	Bots           *bots.Service
 	Automations    *automations.Service
 	Notifications  *notifications.Service
 	Threads        *threads.Service
@@ -53,6 +55,7 @@ type Server struct {
 	originMatcher *originMatcher
 	auth          *auth.Service
 	workspaces    *workspace.Service
+	bots          *bots.Service
 	automations   *automations.Service
 	notifications *notifications.Service
 	threads       *threads.Service
@@ -73,6 +76,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		originMatcher: originMatcher,
 		auth:          deps.Auth,
 		workspaces:    deps.Workspaces,
+		bots:          deps.Bots,
 		automations:   deps.Automations,
 		notifications: deps.Notifications,
 		threads:       deps.Threads,
@@ -100,6 +104,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	}))
 
 	router.Get("/healthz", server.handleHealth)
+	router.Post("/hooks/bots/{connectionId}", server.handleBotWebhook)
 	router.Route("/api", func(r chi.Router) {
 		r.Get("/runtime/preferences", server.handleReadRuntimePreferences)
 		r.Post("/runtime/preferences", server.handleWriteRuntimePreferences)
@@ -168,6 +173,16 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
 			r.Get("/{workspaceId}/collaboration-modes", server.handleListCollaborationModes)
 			r.Get("/{workspaceId}/stream", server.handleWorkspaceStream)
+			r.Route("/{workspaceId}/bot-connections", func(r chi.Router) {
+				r.Get("/", server.handleListBotConnections)
+				r.Post("/", server.handleCreateBotConnection)
+				r.Get("/{connectionId}", server.handleGetBotConnection)
+				r.Post("/{connectionId}/pause", server.handlePauseBotConnection)
+				r.Post("/{connectionId}/resume", server.handleResumeBotConnection)
+				r.Delete("/{connectionId}", server.handleDeleteBotConnection)
+				r.Get("/{connectionId}/conversations", server.handleListBotConnectionConversations)
+			})
+			r.Get("/{workspaceId}/bot-conversations", server.handleListBotConversations)
 
 			r.Route("/{workspaceId}/threads", func(r chi.Router) {
 				r.Get("/", server.handleListThreads)
@@ -595,6 +610,110 @@ func (s *Server) handleReadAllNotifications(w http.ResponseWriter, _ *http.Reque
 
 func (s *Server) handleDeleteReadNotifications(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.notifications.DeleteRead())
+}
+
+func (s *Server) handleListBotConnections(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.bots.ListConnections(chi.URLParam(r, "workspaceId")))
+}
+
+func (s *Server) handleCreateBotConnection(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request bots.CreateConnectionInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	connection, err := s.bots.CreateConnection(r.Context(), workspaceID, request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, connection)
+}
+
+func (s *Server) handleGetBotConnection(w http.ResponseWriter, r *http.Request) {
+	connection, err := s.bots.GetConnection(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, connection)
+}
+
+func (s *Server) handlePauseBotConnection(w http.ResponseWriter, r *http.Request) {
+	connection, err := s.bots.PauseConnection(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, connection)
+}
+
+func (s *Server) handleResumeBotConnection(w http.ResponseWriter, r *http.Request) {
+	var request bots.ResumeConnectionInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	connection, err := s.bots.ResumeConnection(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, connection)
+}
+
+func (s *Server) handleDeleteBotConnection(w http.ResponseWriter, r *http.Request) {
+	if err := s.bots.DeleteConnection(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId")); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleListBotConversations(w http.ResponseWriter, r *http.Request) {
+	writeJSON(
+		w,
+		http.StatusOK,
+		s.bots.ListConversations(chi.URLParam(r, "workspaceId"), strings.TrimSpace(r.URL.Query().Get("connectionId"))),
+	)
+}
+
+func (s *Server) handleListBotConnectionConversations(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.bots.ListConversations(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId")))
+}
+
+func (s *Server) handleBotWebhook(w http.ResponseWriter, r *http.Request) {
+	result, err := s.bots.HandleWebhook(r, chi.URLParam(r, "connectionId"))
+	if err != nil {
+		switch {
+		case errors.Is(err, bots.ErrWebhookIgnored):
+			writeJSON(w, http.StatusOK, map[string]any{
+				"accepted": 0,
+				"status":   "ignored",
+			})
+		case errors.Is(err, bots.ErrWebhookUnauthorized):
+			writeError(w, http.StatusUnauthorized, "bot_webhook_unauthorized", err.Error())
+		default:
+			s.writeStoreError(w, err)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
@@ -1975,11 +2094,19 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "automation_run_not_found", err.Error())
 	case errors.Is(err, store.ErrNotificationNotFound):
 		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
+	case errors.Is(err, store.ErrBotConnectionNotFound):
+		writeError(w, http.StatusNotFound, "bot_connection_not_found", err.Error())
+	case errors.Is(err, store.ErrBotConversationNotFound):
+		writeError(w, http.StatusNotFound, "bot_conversation_not_found", err.Error())
 	case errors.Is(err, execfs.ErrCommandSessionNotFound):
 		writeError(w, http.StatusNotFound, "command_session_not_found", err.Error())
 	case errors.Is(err, execfs.ErrCommandStartCommandRequired), errors.Is(err, execfs.ErrCommandStartModeInvalid):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, automations.ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+	case errors.Is(err, bots.ErrInvalidInput), errors.Is(err, bots.ErrPublicBaseURLMissing):
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+	case errors.Is(err, bots.ErrProviderNotSupported), errors.Is(err, bots.ErrAIBackendUnsupported):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, automations.ErrImmutableTemplate):
 		writeError(w, http.StatusConflict, "automation_template_immutable", err.Error())
