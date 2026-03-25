@@ -89,6 +89,7 @@ cd frontend
 npm install
 npm run dev
 npm test
+npm run test:e2e
 ```
 
 默认地址：`http://localhost:15173`
@@ -105,6 +106,21 @@ VITE_API_PROXY_TARGET=http://localhost:18080
 
 ```bash
 VITE_API_BASE_URL=http://localhost:18080
+```
+
+如需运行前端 Playwright E2E：
+
+```bash
+npm run test:e2e:install
+npm run test:e2e
+```
+
+默认会由 Playwright 自动启动一个本地 Vite dev server。
+
+如果你已经手动启动了前端，也可以复用现有地址：
+
+```bash
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173 npm run test:e2e
 ```
 
 如果未设置 `VITE_API_BASE_URL`：
@@ -204,5 +220,6 @@ codex app-server --listen stdio:// --config "model_catalog_json=E:/generated/cat
 
 - 后端：`go test ./...`
 - 前端：`npm test`、`npm run build`
+- 前端 E2E：`npm run test:e2e`
 - 已覆盖前端关键纯逻辑：live timeline delta 聚合、thread render helper
 - 已覆盖后端关键基础链路：workspace 元数据持久化、历史线程归属判断、扩展路由请求体验证

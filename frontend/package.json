@@ -9,6 +9,9 @@
     "i18n:extract": "lingui extract",
     "i18n:extract:clean": "lingui extract --clean",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:install": "playwright install",
     "test:watch": "vitest",
     "preview": "vite preview"
   },
