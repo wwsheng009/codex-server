@@ -9,25 +9,7 @@ import { SelectControl } from '../components/ui/SelectControl'
 import { formatLocaleNumber } from '../i18n/format'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
-
-type SkillCardItem = {
-  id: string
-  name: string
-  description: string
-}
-
-type DirectorySectionProps = {
-  title: string
-  description: string
-  items: SkillCardItem[]
-  loading: boolean
-  marker: string
-  sourceLabel: string
-  emptyMessage: string
-  errorMessage?: string | null
-  onRetry?: () => void
-  titleError: string
-}
+import type { DirectorySectionProps, SkillCardItem } from './skillsPageTypes'
 
 export function SkillsPage() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')

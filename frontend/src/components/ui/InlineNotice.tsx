@@ -1,17 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 
-type InlineNoticeProps = {
-  tone?: 'info' | 'error'
-  title?: string
-  children: ReactNode
-  action?: ReactNode
-  className?: string
-  dismissible?: boolean
-  noticeKey?: string
-  details?: string
-  onRetry?: () => void
-  retryLabel?: string
-}
+import type { InlineNoticeProps } from './inlineNoticeTypes'
 
 export function InlineNotice({
   tone = 'info',

@@ -1,17 +1,12 @@
-export type ComposerAutocompleteMode = 'command' | 'mention' | 'skill'
-
-export type ComposerAutocompleteMatch = {
-  mode: ComposerAutocompleteMode
-  query: string
-  tokenStart: number
-  tokenEnd: number
-}
-
-export type NormalizedComposerFileSearchItem = {
-  path: string
-  name: string
-  directory: string
-}
+import type {
+  ComposerAutocompleteMatch,
+  NormalizedComposerFileSearchItem,
+} from './composer-autocomplete-types'
+export type {
+  ComposerAutocompleteMatch,
+  ComposerAutocompleteMode,
+  NormalizedComposerFileSearchItem,
+} from './composer-autocomplete-types'
 
 export function getComposerAutocompleteMatch(
   value: string,

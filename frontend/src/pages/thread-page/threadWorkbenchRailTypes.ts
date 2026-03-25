@@ -1,6 +1,6 @@
 import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 
-import type { SurfacePanelView } from '../../lib/layout-config'
+import type { SurfacePanelView } from '../../lib/layout-config-types'
 import type { Thread } from '../../types/api'
 import type { ShellEnvironmentDiagnosisSummary } from '../../features/settings/shell-environment-diagnostics'
 import type { CommandRunMode } from './threadPageActionTypes'

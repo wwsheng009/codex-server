@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
 
 import { AppearanceController } from './AppearanceController'
 import { WorkspaceApprovalsQuerySync } from '../features/approvals/WorkspaceApprovalsQuerySync'
 import { LinguiClientProvider } from '../i18n/LinguiClientProvider'
 import { ToastHost } from '../components/ui/ToastHost'
+import type { ProvidersProps } from './providersTypes'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,10 +15,6 @@ const queryClient = new QueryClient({
     },
   },
 })
-
-type ProvidersProps = {
-  children: ReactNode
-}
 
 export function Providers({ children }: ProvidersProps) {
   return (

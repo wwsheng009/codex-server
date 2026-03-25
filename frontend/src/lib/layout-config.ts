@@ -1,12 +1,14 @@
-export type SurfacePanelView = 'approvals' | 'feed'
-export type SurfacePanelSide = 'left' | 'right'
-export type TerminalDockPlacement = 'bottom' | 'right' | 'floating'
-export type TerminalWindowBounds = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
+import type {
+  SurfacePanelSide,
+  SurfacePanelView,
+  TerminalDockPlacement,
+} from './layout-config-types'
+export type {
+  SurfacePanelSide,
+  SurfacePanelView,
+  TerminalDockPlacement,
+  TerminalWindowBounds,
+} from './layout-config-types'
 
 export const layoutConfig = {
   shell: {

@@ -1,4 +1,4 @@
-import type { SelectOption } from '../../components/ui/SelectControl'
+import type { SelectOption } from '../../components/ui/selectControlTypes'
 import { i18n } from '../../i18n/runtime'
 import type {
   ThreadTerminalShellDisplayNameInput,

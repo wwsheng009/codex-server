@@ -11,8 +11,8 @@ import {
 
 import {
   useSettingsLocalStore,
-  type TerminalRendererPreference,
 } from '../settings/local-store'
+import type { TerminalRendererPreference } from '../settings/local-store-types'
 import type { TerminalLauncherMode } from './threadTerminalDockTypes'
 import type {
   TerminalPerformanceInfo,

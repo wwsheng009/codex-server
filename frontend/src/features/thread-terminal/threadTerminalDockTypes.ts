@@ -1,7 +1,7 @@
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 
-import type { TerminalDockPlacement } from '../../lib/layout-config'
-import type { CommandRuntimeSession } from '../../stores/session-store'
+import type { TerminalDockPlacement } from '../../lib/layout-config-types'
+import type { CommandRuntimeSession } from '../../stores/session-store-types'
 
 export type TerminalLauncherMode = 'shell' | 'command'
 export type ThreadTerminalCommandSession = CommandRuntimeSession

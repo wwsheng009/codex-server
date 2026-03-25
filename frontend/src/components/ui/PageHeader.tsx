@@ -1,12 +1,4 @@
-import type { ReactNode } from 'react'
-
-type PageHeaderProps = {
-  eyebrow: string
-  title: string
-  description?: string
-  actions?: ReactNode
-  meta?: ReactNode
-}
+import type { PageHeaderProps } from './pageHeaderTypes'
 
 export function PageHeader({ eyebrow, title, description, actions, meta }: PageHeaderProps) {
   return (

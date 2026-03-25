@@ -1,8 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 
-import type { ComposerAutocompleteMode } from '../../lib/composer-autocomplete'
-import type { SurfacePanelView } from '../../lib/layout-config'
+import type { ComposerAutocompleteMode } from '../../lib/composer-autocomplete-types'
+import type { SurfacePanelView } from '../../lib/layout-config-types'
 import type { CatalogItem, Thread, ThreadDetail } from '../../types/api'
 import type {
   ComposerAssistPanel,

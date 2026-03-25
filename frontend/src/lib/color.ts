@@ -1,14 +1,5 @@
-export interface RGB {
-  r: number
-  g: number
-  b: number
-}
-
-export interface HSV {
-  h: number
-  s: number
-  v: number
-}
+import type { HSV, RGB } from './colorTypes'
+export type { HSV, RGB } from './colorTypes'
 
 export function hexToRgb(hex: string): RGB {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)

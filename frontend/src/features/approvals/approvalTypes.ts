@@ -29,10 +29,21 @@ export type ApprovalBuilderOverrides = Partial<PendingApproval> & {
   id: string
 }
 
+export type ApprovalQueryInvalidationEntry = {
+  inFlight: boolean
+  needsAnotherPass: boolean
+  timerId: ReturnType<typeof setTimeout> | null
+}
+
+export type ApprovalQueryInvalidationByWorkspace = Map<
+  string,
+  ApprovalQueryInvalidationEntry
+>
+
 export type SyncApprovalQueriesFromWorkspaceActivityInput = {
   activityEventsByWorkspace: Record<string, import('../../types/api').ServerEvent[]>
   lastProcessedEventKeyByWorkspace: Map<string, string>
-  pendingInvalidationByWorkspace: Map<string, import('./sync').ApprovalQueryInvalidationEntry>
+  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
   queryClient: ApprovalSyncQueryClient
 }
 
@@ -48,21 +59,21 @@ export type RefetchApprovalsQueryIfNeededInput = {
 }
 
 export type ScheduleApprovalQueryInvalidationInput = {
-  pendingInvalidationByWorkspace: Map<string, import('./sync').ApprovalQueryInvalidationEntry>
+  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
   queryClient: ApprovalQueryInvalidationClient
   workspaceId: string
 }
 
 export type QueueApprovalQueryInvalidationFlushInput = {
-  entry: import('./sync').ApprovalQueryInvalidationEntry
-  pendingInvalidationByWorkspace: Map<string, import('./sync').ApprovalQueryInvalidationEntry>
+  entry: ApprovalQueryInvalidationEntry
+  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
   queryClient: ApprovalQueryInvalidationClient
   workspaceId: string
 }
 
 export type FlushApprovalQueryInvalidationInput = {
-  entry: import('./sync').ApprovalQueryInvalidationEntry
-  pendingInvalidationByWorkspace: Map<string, import('./sync').ApprovalQueryInvalidationEntry>
+  entry: ApprovalQueryInvalidationEntry
+  pendingInvalidationByWorkspace: ApprovalQueryInvalidationByWorkspace
   queryClient: ApprovalQueryInvalidationClient
   workspaceId: string
 }

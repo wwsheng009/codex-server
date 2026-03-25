@@ -1,4 +1,4 @@
-import type { TerminalDockPlacement } from '../../lib/layout-config'
+import type { TerminalDockPlacement } from '../../lib/layout-config-types'
 import type {
   CompletedTerminalStressRun,
   TerminalStressRunConfig,

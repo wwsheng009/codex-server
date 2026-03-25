@@ -14,152 +14,67 @@ import {
   TerminalIcon,
   ToolsIcon,
 } from '../../components/ui/RailControls'
-import type { CatalogItem, RateLimit, ThreadTokenUsage } from '../../types/api'
+import type { RateLimit } from '../../types/api'
+import type {
+  BuildComposerAutocompleteSectionsInput,
+  BuildComposerStatusInfoInput,
+  BuildSyncStatusDisplayInput,
+  ComposerAutocompleteItem,
+  ComposerAutocompleteSection,
+  ComposerCommandDefinition,
+  ComposerCollaborationMode,
+  ComposerOptionGlyphProps,
+  ComposerPermissionPreset,
+  ComposerPreferences,
+  ComposerReasoningEffort,
+  ComposerReviewShortcutDefinition,
+  ComposerStatusDetailRow,
+  ComposerStatusIndicatorProps,
+  ComposerStatusInfo,
+  ContextUsageIndicatorProps,
+  NormalizedMcpServerState,
+} from './threadPageComposerSharedTypes'
+export type {
+  BuildComposerAutocompleteSectionsInput,
+  BuildComposerStatusInfoInput,
+  BuildSyncStatusDisplayInput,
+  ComposerAssistPanel,
+  ComposerAutocompleteFileEntry,
+  ComposerAutocompleteItem,
+  ComposerAutocompleteSection,
+  ComposerCommandAction,
+  ComposerCommandDefinition,
+  ComposerCommandId,
+  ComposerCommandMenu,
+  ComposerCollaborationMode,
+  ComposerMcpPanelProps,
+  ComposerOptionGlyphProps,
+  ComposerOptionIcon,
+  ComposerPermissionPreset,
+  ComposerPersonalizationPanelProps,
+  ComposerPreferences,
+  ComposerReasoningEffort,
+  ComposerStatusDetailRow,
+  ComposerStatusIndicatorProps,
+  ComposerStatusInfo,
+  ComposerStatusTone,
+  ComposerStatusPanelProps,
+  ComposerWorktreePanelProps,
+  ContextCompactionFeedback,
+  ContextUsageIndicatorProps,
+  ModelOption,
+  NormalizedMcpServerState,
+} from './threadPageComposerSharedTypes'
 
 const COMPOSER_PREFERENCES_STORAGE_PREFIX = 'codex-server:composer-preferences:'
 
 export const FALLBACK_MODEL_OPTIONS = ['gpt-5.4', 'gpt-5.3-codex']
-
-export type ModelOption = {
-  value: string
-  label: string
-  triggerLabel?: string
-}
-
-export type ComposerPermissionPreset = 'default' | 'full-access'
-export type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
-export type ComposerCollaborationMode = 'default' | 'plan'
-
-export type ContextCompactionFeedback = {
-  phase: 'requested' | 'completed' | 'failed'
-  title: string
-  threadId: string
-}
-
-export type ComposerPreferences = {
-  permissionPreset: ComposerPermissionPreset
-  model: string
-  reasoningEffort: ComposerReasoningEffort
-  collaborationMode: ComposerCollaborationMode
-}
 
 export const DEFAULT_COMPOSER_PREFERENCES: ComposerPreferences = {
   permissionPreset: 'default',
   model: '',
   reasoningEffort: 'medium',
   collaborationMode: 'default',
-}
-
-export type ComposerAssistPanel = 'mcp' | 'personalization' | 'status' | 'worktree'
-export type ComposerCommandMenu = 'root' | 'review'
-
-type ComposerCommandId =
-  | 'mcp'
-  | 'personalization'
-  | 'review'
-  | 'feedback'
-  | 'worktree'
-  | 'status'
-  | 'plan'
-
-export type ComposerCommandAction =
-  | { kind: 'panel'; panel: ComposerAssistPanel }
-  | { kind: 'prompt'; prompt: string }
-  | { kind: 'submenu'; menu: ComposerCommandMenu }
-  | { kind: 'toggle-plan' }
-
-export type ComposerCommandDefinition = {
-  id: ComposerCommandId
-  title: string
-  description: string
-  keywords: string[]
-  icon: ComposerOptionIcon
-  action: ComposerCommandAction
-}
-
-type ComposerReviewShortcutDefinition = {
-  id: 'review-base' | 'review-uncommitted'
-  title: string
-  description: string
-  prompt: string
-}
-
-export type ComposerOptionIcon =
-  | 'feedback'
-  | 'file'
-  | 'mcp'
-  | 'personalization'
-  | 'plan'
-  | 'review'
-  | 'skill'
-  | 'status'
-  | 'worktree'
-
-export type ComposerAutocompleteItem =
-  | {
-      kind: 'command'
-      id: ComposerCommandId
-      title: string
-      description: string
-      meta?: string
-      icon: ComposerOptionIcon
-      action: ComposerCommandAction
-      section: 'commands'
-    }
-  | {
-      kind: 'review'
-      id: ComposerReviewShortcutDefinition['id']
-      title: string
-      description: string
-      meta?: string
-      icon: ComposerOptionIcon
-      prompt: string
-      section: 'commands'
-    }
-  | {
-      kind: 'skill'
-      id: string
-      title: string
-      description: string
-      meta?: string
-      icon: ComposerOptionIcon
-      insertion: string
-      section: 'skills'
-    }
-  | {
-      kind: 'file'
-      id: string
-      title: string
-      description: string
-      meta?: string
-      icon: ComposerOptionIcon
-      insertion: string
-      section: 'files'
-    }
-
-export type ComposerAutocompleteSection = {
-  id: ComposerAutocompleteItem['section']
-  label: string
-  items: ComposerAutocompleteItem[]
-}
-
-export type ComposerAutocompleteFileEntry = {
-  directory: string
-  name: string
-  path: string
-}
-
-export type ComposerOptionGlyphProps = {
-  icon: ComposerOptionIcon
-}
-
-export type BuildComposerAutocompleteSectionsInput = {
-  commandMenu: ComposerCommandMenu
-  commands: ComposerCommandDefinition[]
-  files: ComposerAutocompleteFileEntry[]
-  mode: 'command' | 'mention' | 'skill'
-  query: string
-  skills: CatalogItem[]
 }
 
 function getFeedbackPrompt() {
@@ -537,12 +452,6 @@ export function describeRateLimits(rateLimits: RateLimit[] | undefined) {
     .join(' · ')
 }
 
-export type NormalizedMcpServerState = {
-  name: string
-  status: string
-  detail: string
-}
-
 export function normalizeMcpServerState(entry: Record<string, unknown>): NormalizedMcpServerState {
   const name =
     stringRecordField(entry.name) ||
@@ -662,37 +571,6 @@ export function compactStatusLabel(value?: string) {
         message: 'Idle',
       })
   }
-}
-
-export type ComposerStatusTone = 'active' | 'warning' | 'error' | 'neutral'
-
-type ComposerStatusDetailRow = {
-  label: string
-  value: string
-}
-
-export type ComposerStatusInfo = {
-  label: string
-  tone: ComposerStatusTone
-  summary: string
-  detailRows: ComposerStatusDetailRow[]
-  noticeTitle?: string
-  noticeMessage?: string
-}
-
-export type BuildComposerStatusInfoInput = {
-  approvalSummary?: string
-  isApprovalDialogOpen: boolean
-  isThreadInterruptible: boolean
-  isThreadLoaded: boolean | null
-  isWaitingForThreadData: boolean
-  latestTurnError?: unknown
-  latestTurnStatus?: string
-  pendingPhase?: 'sending' | 'waiting'
-  rawThreadStatus?: string
-  requiresOpenAIAuth: boolean
-  sendError?: string | null
-  streamState: string
 }
 
 function normalizeStatusValue(value?: string) {
@@ -1116,14 +994,6 @@ export function formatSyncCountdown(lastSyncAtMs: number, intervalMs: number, no
   return `${minutes}m ${seconds}s`
 }
 
-export type BuildSyncStatusDisplayInput = {
-  autoSyncIntervalMs: number | null
-  isHeaderSyncBusy: boolean
-  lastAutoSyncAtMs: number
-  nowMs: number
-  streamState: string
-}
-
 export function buildSyncStatusDisplay(input: BuildSyncStatusDisplayInput) {
   if (input.isHeaderSyncBusy) {
     return {
@@ -1177,17 +1047,6 @@ export function buildSyncStatusDisplay(input: BuildSyncStatusDisplayInput) {
       message: 'Manual sync',
     }),
   }
-}
-
-export type ContextUsageIndicatorProps = {
-  compactDisabledReason: string | null
-  compactFeedback: ContextCompactionFeedback | null
-  compactPending: boolean
-  contextWindow: number
-  onCompact: () => void
-  percent: number | null
-  totalTokens: number
-  usage: ThreadTokenUsage | null | undefined
 }
 
 export function ContextUsageIndicator({
@@ -1420,10 +1279,6 @@ export function ContextUsageIndicator({
       ) : null}
     </div>
   )
-}
-
-export type ComposerStatusIndicatorProps = {
-  info: ComposerStatusInfo
 }
 
 export function ComposerStatusIndicator({ info }: ComposerStatusIndicatorProps) {

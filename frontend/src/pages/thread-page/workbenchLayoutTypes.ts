@@ -2,7 +2,7 @@ import type {
   SurfacePanelSide,
   SurfacePanelView,
   TerminalWindowBounds,
-} from '../../lib/layout-config'
+} from '../../lib/layout-config-types'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { readSurfacePanelWidths } from '../../lib/layout-state'
 
@@ -50,7 +50,7 @@ export type UseWorkbenchLayoutPersistenceInput = {
   isInspectorExpanded: boolean
   surfacePanelSides: SurfacePanelSides
   surfacePanelWidths: SurfacePanelWidths
-  terminalDockPlacement: import('../../lib/layout-config').TerminalDockPlacement
+  terminalDockPlacement: import('../../lib/layout-config-types').TerminalDockPlacement
   isTerminalDockVisible: boolean
   terminalWindowBounds: TerminalWindowBounds
   isTerminalWindowMaximized: boolean

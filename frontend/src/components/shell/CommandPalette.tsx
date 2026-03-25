@@ -3,28 +3,11 @@ import { createPortal } from 'react-dom'
 import { Trans } from '@lingui/react'
 
 import { getActiveLocale, i18n } from '../../i18n/runtime'
-
-export type CommandPaletteItem = {
-  id: string
-  title: string
-  subtitle?: string
-  group: 'Action' | 'Nav' | 'Recent'
-  keywords?: string[]
-  shortcut?: string
-  priority?: number
-  onSelect: () => void
-}
-
-type CommandPaletteProps = {
-  isOpen: boolean
-  items: CommandPaletteItem[]
-  onClose: () => void
-  shortcutLabel: string
-}
-
-type RankedItem = CommandPaletteItem & {
-  score: number
-}
+import type {
+  CommandPaletteItem,
+  CommandPaletteProps,
+  RankedItem,
+} from './commandPaletteTypes'
 
 const groupOrder: Array<CommandPaletteItem['group']> = ['Action', 'Nav', 'Recent']
 

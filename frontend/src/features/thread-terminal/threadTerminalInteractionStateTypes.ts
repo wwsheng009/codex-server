@@ -1,6 +1,6 @@
 import type { MutableRefObject } from 'react'
 
-import type { SelectOption } from '../../components/ui/SelectControl'
+import type { SelectOption } from '../../components/ui/selectControlTypes'
 import type {
   TerminalLauncherMode,
   ThreadTerminalCommandSessions,

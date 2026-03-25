@@ -31,8 +31,8 @@ import type {
   ThreadTerminalWindowResizeStartHandler,
   ThreadTerminalWriteTerminalDataHandler,
 } from '../../features/thread-terminal/threadTerminalDockTypes'
-import type { ConfirmDialogProps as ConfirmDialogComponentProps } from '../../components/ui/ConfirmDialog'
-import type { ThreadComposerDockProps } from './ThreadComposerDock'
+import type { ConfirmDialogProps as ConfirmDialogComponentProps } from '../../components/ui/confirmDialogTypes'
+import type { ThreadComposerDockProps } from './threadComposerDockTypes'
 import type { ThreadWorkbenchSurfaceProps } from './ThreadWorkbenchSurface'
 import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
 import type {

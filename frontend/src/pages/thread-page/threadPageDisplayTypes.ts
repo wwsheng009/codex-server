@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
 
-import type { CommandRuntimeSession } from '../../stores/session-store'
+import type { CommandRuntimeSession } from '../../stores/session-store-types'
 import type {
   PendingApproval,
   ServerEvent,
@@ -11,7 +11,7 @@ import type {
 } from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ContextCompactionFeedback } from './threadPageComposerShared'
-import type { SurfacePanelView } from '../../lib/layout-config'
+import type { SurfacePanelView } from '../../lib/layout-config-types'
 
 export type ThreadPageDisplayStateInput = {
   activePendingTurn: PendingThreadTurn | null

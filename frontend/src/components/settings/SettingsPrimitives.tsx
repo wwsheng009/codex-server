@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 import { i18n } from '../../i18n/runtime'
-
-type SettingsPageHeaderProps = {
-  eyebrow?: string
-  title: string
-  description: string
-  meta?: ReactNode
-}
+import type {
+  ConfigHelperCardProps,
+  SettingRowProps,
+  SettingsGroupProps,
+  SettingsJsonPreviewProps,
+  SettingsPageHeaderProps,
+  SettingsRecordProps,
+} from './settingsPrimitivesTypes'
 
 export function SettingsPageHeader({
   eyebrow,
@@ -25,14 +25,6 @@ export function SettingsPageHeader({
       {meta ? <div className="settings-page__meta">{meta}</div> : null}
     </header>
   )
-}
-
-type SettingsGroupProps = {
-  title: string
-  description: string
-  meta?: ReactNode
-  children: ReactNode
-  className?: string
 }
 
 export function SettingsGroup({
@@ -56,13 +48,6 @@ export function SettingsGroup({
   )
 }
 
-type SettingRowProps = {
-  title: string
-  description: string
-  meta?: ReactNode
-  children: ReactNode
-}
-
 export function SettingRow({
   title,
   description,
@@ -81,14 +66,6 @@ export function SettingRow({
       <div className="setting-row__control">{children}</div>
     </section>
   )
-}
-
-type SettingsJsonPreviewProps = {
-  title: string
-  description: string
-  value: unknown
-  collapsible?: boolean
-  defaultExpanded?: boolean
 }
 
 export function SettingsJsonPreview({
@@ -142,14 +119,6 @@ export function SettingsJsonPreview({
   )
 }
 
-type SettingsRecordProps = {
-  marker: string
-  title: string
-  description: string
-  meta?: ReactNode
-  action?: ReactNode
-}
-
 export function SettingsRecord({
   marker,
   title,
@@ -168,12 +137,6 @@ export function SettingsRecord({
       {action ? <div className="settings-record__action">{action}</div> : null}
     </article>
   )
-}
-
-type ConfigHelperCardProps = {
-  title: string
-  description: string
-  icon?: ReactNode
 }
 
 export function ConfigHelperCard({

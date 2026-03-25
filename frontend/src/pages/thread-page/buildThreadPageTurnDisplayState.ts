@@ -8,28 +8,23 @@ import { buildPendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ThreadPageTurnDisplayStateInput } from './threadPageDisplayTypes'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import { buildThreadContentSignature } from './threadContentSignature'
-import type { ThreadContentSignature } from './threadContentSignature'
+import type {
+  ItemOverrideMetadata,
+  PendingTurnMetadata,
+  ThreadPageTurnDisplayStateResult,
+  TurnArrayCacheEntry,
+  TurnItemOverrideCacheNode,
+  TurnMetadata,
+  TurnOverrideCacheNode,
+  TurnOverrideMetadata,
+  TurnReplacementRef,
+} from './threadPageTurnDisplayStateTypes'
 
 const joinedCommandOutputCache = new WeakMap<object, string>()
 const mergedItemContentOverrideCache = new WeakMap<
   Record<string, unknown>,
   WeakMap<Record<string, unknown>, Record<string, unknown>>
 >()
-type TurnItemOverrideCacheNode = {
-  byItemIndex?: Map<number, TurnItemOverrideCacheNode>
-  byOverrideKind?: Map<number, TurnItemOverrideCacheNode>
-  byOverrideRef?: WeakMap<Record<string, unknown>, TurnItemOverrideCacheNode>
-  result?: ThreadTurn
-}
-type TurnOverrideCacheNode = {
-  byTurnIndex?: Map<number, TurnOverrideCacheNode>
-  byOverrideRef?: WeakMap<ThreadTurn, TurnOverrideCacheNode>
-  result?: ThreadTurn[]
-}
-type TurnReplacementRef = {
-  turnIndex: number
-  turnRef: ThreadTurn
-}
 const turnItemOverrideResultCache = new WeakMap<ThreadTurn, TurnItemOverrideCacheNode>()
 const singleOverrideItemIdsCache = new WeakMap<Map<string, Record<string, unknown>>, string[]>()
 const mergedOverrideItemIdsCache = new WeakMap<
@@ -38,70 +33,15 @@ const mergedOverrideItemIdsCache = new WeakMap<
 >()
 const mergedOverrideTurnIdsCache = new WeakMap<string[], WeakMap<string[], string[]>>()
 const overrideTurnIdLookupCache = new WeakMap<string[], Set<string>>()
-type ItemOverrideMetadata = {
-  byTurnId: Map<string, Map<string, Record<string, unknown>>>
-  count: number
-  turnIds: string[]
-}
 const itemOverrideMetadataCache = new WeakMap<
   Record<string, Record<string, unknown>>,
   ItemOverrideMetadata
 >()
-type TurnOverrideMetadata = {
-  count: number
-  turnIds: string[]
-}
 const turnOverrideMetadataCache = new WeakMap<Record<string, ThreadTurn>, TurnOverrideMetadata>()
 const mergedTurnHistoryCache = new WeakMap<ThreadTurn[], WeakMap<ThreadTurn[], ThreadTurn[]>>()
 const turnIdSetCache = new WeakMap<ThreadTurn[], Set<string>>()
-type TurnMetadata = {
-  hasUserMessage?: boolean
-  itemIndexById?: Map<string, number>
-}
 const turnMetadataCache = new WeakMap<ThreadTurn, TurnMetadata>()
-type PendingTurnMetadata = {
-  messageKey?: string
-  standaloneTurn?: ThreadTurn
-  userMessageItem?: Record<string, unknown>
-}
 const pendingTurnMetadataCache = new WeakMap<PendingThreadTurn, PendingTurnMetadata>()
-type ThreadPageTurnDisplayStateResult = {
-  displayedTurns: ThreadTurn[]
-  loadedAssistantMessageCount: number
-  loadedMessageCount: number
-  loadedUserMessageCount: number
-  oldestDisplayedTurnId?: string
-  latestDisplayedTurn?: ThreadTurn
-  settledMessageAutoScrollKey: string
-  threadUnreadUpdateKey: string
-  threadContentSignature: ThreadContentSignature
-  timelineItemCount: number
-  turnCount: number
-}
-type TurnDisplayStateCacheBucket = {
-  nullPendingByThreadId: Map<string, ThreadPageTurnDisplayStateResult>
-  pendingByThreadId: Map<string, WeakMap<PendingThreadTurn, ThreadPageTurnDisplayStateResult>>
-}
-type TurnArrayCacheEntry = {
-  combinedOverrideResults: WeakMap<
-    Record<string, ThreadTurn>,
-    WeakMap<
-      Record<string, Record<string, unknown>>,
-      WeakMap<Record<string, Record<string, unknown>>, ThreadTurn[]>
-    >
-  >
-  displayState: TurnDisplayStateCacheBucket
-  itemOverrideResults: WeakMap<
-    Record<string, Record<string, unknown>>,
-    WeakMap<Record<string, Record<string, unknown>>, ThreadTurn[]>
-  >
-  pendingInjectedMetrics: WeakMap<PendingThreadTurn, ReturnType<typeof extendMetricsWithInjectedPendingUserMessage>>
-  pendingStandaloneMetrics: WeakMap<PendingThreadTurn, ReturnType<typeof extendMetricsWithStandalonePendingTurn>>
-  pendingTurnResults: WeakMap<PendingThreadTurn, ThreadTurn[]>
-  turnIndexById?: Map<string, number>
-  turnOverrideResultTree: TurnOverrideCacheNode
-  turnOverrideResults: WeakMap<Record<string, ThreadTurn>, ThreadTurn[]>
-}
 const turnArrayCache = new WeakMap<ThreadTurn[], TurnArrayCacheEntry>()
 
 export function buildThreadPageTurnDisplayState({
@@ -1298,11 +1238,11 @@ function getTurnArrayCacheEntry(turns: ThreadTurn[]) {
     >(),
     pendingInjectedMetrics: new WeakMap<
       PendingThreadTurn,
-      ReturnType<typeof extendMetricsWithInjectedPendingUserMessage>
+      import('../threadPageUtils').ThreadDisplayMetrics
     >(),
     pendingStandaloneMetrics: new WeakMap<
       PendingThreadTurn,
-      ReturnType<typeof extendMetricsWithStandalonePendingTurn>
+      import('../threadPageUtils').ThreadDisplayMetrics
     >(),
     pendingTurnResults: new WeakMap<PendingThreadTurn, ThreadTurn[]>(),
     turnOverrideResultTree: {},

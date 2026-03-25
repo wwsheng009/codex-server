@@ -1,6 +1,7 @@
 import { i18n } from '@lingui/core'
 
-import { normalizeLocale, sourceLocale, type AppLocale } from './config'
+import { normalizeLocale, sourceLocale } from './config'
+import type { AppLocale } from './configTypes'
 
 const catalogLoaders: Record<AppLocale, () => Promise<{ messages: Record<string, string> }>> = {
   en: () => import('../locales/en/messages.po'),

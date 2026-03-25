@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -25,22 +25,12 @@ import { i18n } from '../i18n/runtime'
 import { isApiClientErrorCode } from '../lib/api-client'
 import { getErrorMessage } from '../lib/error-utils'
 import type { AutomationRun } from '../types/api'
-
-type RunViewMode = 'details' | 'summary' | 'logs'
-
-type AutomationStatusMutationInput = {
-  automationId: string
-  status: string
-}
-
-type AutomationErrorStateProps = {
-  error: unknown
-}
-
-type AutomationDetailRowProps = {
-  label: string
-  value: ReactNode
-}
+import type {
+  AutomationDetailRowProps,
+  AutomationErrorStateProps,
+  AutomationStatusMutationInput,
+  RunViewMode,
+} from './automationDetailPageTypes'
 
 export function AutomationDetailPage() {
   const { automationId = '' } = useParams()

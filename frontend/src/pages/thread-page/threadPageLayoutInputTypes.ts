@@ -1,4 +1,4 @@
-import type { SurfacePanelView } from '../../lib/layout-config'
+import type { SurfacePanelView } from '../../lib/layout-config-types'
 import type { buildThreadPageControllerComposerActionLayoutInput } from './buildThreadPageControllerComposerActionLayoutInput'
 import type { buildThreadPageControllerComposerStateLayoutInput } from './buildThreadPageControllerComposerStateLayoutInput'
 import type { buildThreadPageControllerRailActionLayoutInput } from './buildThreadPageControllerRailActionLayoutInput'

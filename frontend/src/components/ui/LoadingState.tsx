@@ -1,10 +1,6 @@
 import { i18n } from '../../i18n/runtime'
 import { RefreshIcon } from './RailControls'
-
-type LoadingStateProps = {
-  message?: string
-  fill?: boolean
-}
+import type { LoadingStateProps } from './loadingStateTypes'
 
 export function LoadingState({ message, fill = true }: LoadingStateProps) {
   const resolvedMessage = message ?? i18n._({ id: 'Loading…', message: 'Loading…' })

@@ -8,9 +8,9 @@ import {
   ConversationRenderProfilerBoundary,
   ConversationRenderProfilerPanel,
 } from '../../components/workspace/threadConversationProfiler'
-import type { LiveTimelineEntry } from '../../components/workspace/timeline-utils'
+import type { LiveTimelineEntry } from '../../components/workspace/timelineUtilsTypes'
 import { i18n } from '../../i18n/runtime'
-import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config'
+import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config-types'
 import type { PendingApproval, Thread, ThreadTurn } from '../../types/api'
 import type { ThreadPageRespondApprovalInput } from './threadPageActionTypes'
 import type { ThreadViewportScrollInput } from './threadViewportTypes'

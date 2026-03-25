@@ -1,15 +1,6 @@
 import { useEffect, useId } from 'react'
-import type { ReactNode } from 'react'
-
-export type ModalProps = {
-  title: string
-  description?: string
-  children: ReactNode
-  footer?: ReactNode
-  onClose: () => void
-  maxWidth?: string
-  className?: string
-}
+import type { ModalProps } from './modalTypes'
+export type { ModalProps } from './modalTypes'
 
 /**
  * A generic Modal component that handles common UI patterns:

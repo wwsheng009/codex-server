@@ -8,11 +8,13 @@ import {
 } from './layout-preferences'
 import {
   layoutConfig,
-  type SurfacePanelSide,
-  type SurfacePanelView,
-  type TerminalDockPlacement,
-  type TerminalWindowBounds,
 } from './layout-config'
+import type {
+  SurfacePanelSide,
+  SurfacePanelView,
+  TerminalDockPlacement,
+  TerminalWindowBounds,
+} from './layout-config-types'
 
 export function readLeftSidebarCollapsed() {
   return readBooleanPreference('leftSidebarCollapsed', false)

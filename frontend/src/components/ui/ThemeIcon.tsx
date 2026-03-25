@@ -1,6 +1,4 @@
-type ThemeIconProps = {
-  mode: string
-}
+import type { ThemeIconProps } from './themeIconTypes'
 
 export function ThemeIcon({ mode }: ThemeIconProps) {
   if (mode === 'light') {

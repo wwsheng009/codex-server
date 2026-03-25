@@ -1,28 +1,12 @@
 import { useEffect, useId, useMemo, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
-
-export type TabItem = {
-  id: string
-  label: string
-  content: ReactNode
-  badge?: ReactNode
-  icon?: ReactNode
-}
-
-type TabsProps = {
-  items: TabItem[]
-  ariaLabel: string
-  defaultValue?: string
-  className?: string
-  storageKey?: string
-}
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type {
+  TabItem,
+  TabsActivateDetail,
+  TabsProps,
+} from './tabsTypes'
 
 const TABS_ACTIVATE_EVENT = 'codex-server:tabs-activate'
-
-type TabsActivateDetail = {
-  storageKey: string
-  tabId: string
-}
 
 function isValidTabId(items: TabItem[], tabId: string | null | undefined): tabId is string {
   return Boolean(tabId) && items.some((item) => item.id === tabId)

@@ -1,5 +1,5 @@
 import type { Account, PendingApproval, Thread, ThreadTurn } from '../../types/api'
-import type { TerminalDockPlacement } from '../../lib/layout-config'
+import type { TerminalDockPlacement } from '../../lib/layout-config-types'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ComposerStatusInfo, ContextCompactionFeedback } from './threadPageComposerShared'
 

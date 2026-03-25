@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { MutableRefObject } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
 
-import type { MobileThreadChromeInput } from '../../stores/ui-store'
+import type { MobileThreadChromeInput } from '../../stores/ui-store-types'
 import type { ServerEvent } from '../../types/api'
 import type { ContextCompactionFeedback } from './threadPageComposerShared'
 

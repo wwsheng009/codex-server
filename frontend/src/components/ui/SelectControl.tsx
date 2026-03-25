@@ -1,34 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
-
-export type SelectOption = {
-  value: string
-  label: string
-  triggerLabel?: string
-  disabled?: boolean
-}
-
-type SelectControlProps = {
-  value: string
-  options: SelectOption[]
-  onChange: (value: string) => void
-  ariaLabel: string
-  menuLabel?: string
-  className?: string
-  menuClassName?: string
-  optionClassName?: string
-  disabled?: boolean
-  fullWidth?: boolean
-}
-
-type MenuPosition = {
-  top: number
-  left: number
-  minWidth: number
-  maxWidth: number
-  transformOrigin: string
-}
+import type {
+  SelectControlProps,
+  SelectMenuPosition,
+  SelectOption,
+} from './selectControlTypes'
 
 function firstEnabledIndex(options: SelectOption[]) {
   return options.findIndex((option) => !option.disabled)
@@ -111,7 +88,7 @@ export function SelectControl({
   const [highlightedIndex, setHighlightedIndex] = useState(() =>
     selectedIndex >= 0 && !options[selectedIndex]?.disabled ? selectedIndex : firstEnabledIndex(options),
   )
-  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null)
+  const [menuPosition, setMenuPosition] = useState<SelectMenuPosition | null>(null)
 
   const classes = [
     'custom-select',

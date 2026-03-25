@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { SurfacePanelView } from '../../lib/layout-config'
+import type { SurfacePanelView } from '../../lib/layout-config-types'
 import type { Thread } from '../../types/api'
 import type { UseThreadPageRailStateInput } from './threadPageRuntimeTypes'
 

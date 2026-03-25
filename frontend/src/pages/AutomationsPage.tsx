@@ -22,7 +22,6 @@ import {
   listAutomationTemplates,
   pauseAutomation,
   resumeAutomation,
-  type TemplateInput,
   updateAutomationTemplate,
 } from '../features/automations/api'
 import {
@@ -33,33 +32,12 @@ import { listWorkspaces } from '../features/workspaces/api'
 import { listModels } from '../features/catalog/api'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
-
-type Draft = {
-  title: string
-  description: string
-  prompt: string
-  workspaceId: string
-  schedule: string
-  model: string
-  reasoning: string
-}
-
-type TemplateDraft = {
-  title: string
-  description: string
-  prompt: string
-  category: string
-}
-
-type AutomationActionInput = {
-  id: string
-  action: 'pause' | 'resume' | 'fix'
-}
-
-type UpdateAutomationTemplateInput = {
-  templateId: string
-  input: TemplateInput
-}
+import type {
+  AutomationActionInput,
+  Draft,
+  TemplateDraft,
+  UpdateAutomationTemplateInput,
+} from './automationsPageTypes'
 
 const EMPTY_DRAFT: Draft = {
   title: '',

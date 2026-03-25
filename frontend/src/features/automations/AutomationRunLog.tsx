@@ -1,10 +1,6 @@
 import { useMemo } from 'react'
 import { AnsiUp } from 'ansi_up'
-import type { AutomationRunLogEntry } from '../../types/api'
-
-interface AutomationRunLogProps {
-  logs: AutomationRunLogEntry[]
-}
+import type { AutomationRunLogProps } from './automationRunLogTypes'
 
 export function AutomationRunLog({ logs }: AutomationRunLogProps) {
   const ansiUp = useMemo(() => new AnsiUp(), [])

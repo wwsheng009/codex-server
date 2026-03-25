@@ -1,4 +1,34 @@
 import { i18n } from '../../i18n/runtime'
+import type {
+  AccentTone,
+  AppearanceTheme,
+  BuiltinAccentTone,
+  CustomThemeDefinition,
+  MessageSurface,
+  MotionPreference,
+  PartialThemeColorCustomizations,
+  ResolvedAppearanceTheme,
+  ThemeColorCustomizations,
+  ThreadSpacing,
+  UserMessageEmphasis,
+  WorkbenchThemeColorField,
+  WorkbenchThemeColors,
+} from './appearanceTypes'
+export type {
+  AccentTone,
+  AppearanceTheme,
+  BuiltinAccentTone,
+  CustomThemeDefinition,
+  MessageSurface,
+  MotionPreference,
+  PartialThemeColorCustomizations,
+  ResolvedAppearanceTheme,
+  ThemeColorCustomizations,
+  ThreadSpacing,
+  UserMessageEmphasis,
+  WorkbenchThemeColorField,
+  WorkbenchThemeColors,
+} from './appearanceTypes'
 
 export const appearanceThemeOptions = [
   {
@@ -99,26 +129,6 @@ export const userMessageEmphasisOptions = [
   },
 ] as const
 
-export type AppearanceTheme = (typeof appearanceThemeOptions)[number]['value']
-export type MotionPreference = (typeof motionPreferenceOptions)[number]['value']
-export type BuiltinAccentTone = (typeof builtinColorThemeOptions)[number]['value']
-export type AccentTone = (typeof colorThemeOptions)[number]['value']
-export type ThreadSpacing = (typeof threadSpacingOptions)[number]['value']
-export type MessageSurface = (typeof messageSurfaceOptions)[number]['value']
-export type UserMessageEmphasis = (typeof userMessageEmphasisOptions)[number]['value']
-export type ResolvedAppearanceTheme = 'light' | 'dark'
-export type WorkbenchThemeColorField = 'accent' | 'background' | 'foreground'
-export type WorkbenchThemeColors = Record<WorkbenchThemeColorField, string>
-export type ThemeColorCustomizations = Record<
-  AccentTone,
-  Record<ResolvedAppearanceTheme, WorkbenchThemeColors>
->
-export type CustomThemeDefinition = {
-  id: string
-  name: string
-  colors: Record<ResolvedAppearanceTheme, WorkbenchThemeColors>
-}
-
 export const appearanceColorDefaults = {
   cyan: {
     light: { accent: '#0891B2', background: '#F0FDFA', foreground: '#303744' },
@@ -153,10 +163,6 @@ export const appearanceColorDefaults = {
     dark: { accent: '#D3B79A', background: '#18120F', foreground: '#F1E7DD' },
   },
 } as const satisfies ThemeColorCustomizations
-
-type PartialThemeColorCustomizations = Partial<
-  Record<AccentTone, Partial<Record<ResolvedAppearanceTheme, Partial<WorkbenchThemeColors>>>>
->
 
 export function isAppearanceTheme(value: unknown): value is AppearanceTheme {
   return appearanceThemeOptions.some((option) => option.value === value)

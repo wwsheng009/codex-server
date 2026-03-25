@@ -1,4 +1,7 @@
-import type { AppearanceTheme } from '../../features/settings/appearance'
+import type {
+  AppearanceTheme,
+  ResolvedAppearanceTheme,
+} from '../../features/settings/appearanceTypes'
 
 export type AppMenuBarProps = {
   commandPaletteShortcutLabel: string
@@ -14,8 +17,6 @@ export type MenuPosition = {
   width: number
   transformOrigin: string
 }
-
-export type ResolvedAppearanceTheme = 'light' | 'dark'
 
 export type ThemeModeGlyphProps = {
   theme: AppearanceTheme

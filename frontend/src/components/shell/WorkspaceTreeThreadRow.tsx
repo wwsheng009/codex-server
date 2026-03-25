@@ -1,10 +1,10 @@
-import type { RefObject } from 'react'
-
 import { MoreActionsIcon } from '../ui/RailControls'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { i18n } from '../../i18n/runtime'
-import { useSessionStore, type ThreadActivitySummary } from '../../stores/session-store'
+import { useSessionStore } from '../../stores/session-store'
+import type { ThreadActivitySummary } from '../../stores/session-store-types'
 import type { Thread } from '../../types/api'
+import type { WorkspaceTreeThreadRowProps } from './workspaceTreeThreadRowTypes'
 
 const RUNNING_THREAD_EVENT_METHODS = new Set([
   'turn/started',
@@ -21,20 +21,6 @@ const STOPPED_THREAD_EVENT_METHODS = new Set([
   'thread/archived',
   'thread/unarchived',
 ])
-
-type WorkspaceTreeThreadRowProps = {
-  activeThreadId?: string
-  deleteInProgress: boolean
-  isMenuOpen: boolean
-  isRenameOrDeletePending: boolean
-  isSelectedWorkspaceRoute: boolean
-  menuRef?: RefObject<HTMLDivElement | null>
-  onDeleteThread: () => void
-  onOpenThread: () => void
-  onRenameThread: () => void
-  onToggleMenu: () => void
-  thread: Thread
-}
 
 export function WorkspaceTreeThreadRow({
   activeThreadId,

@@ -1,7 +1,7 @@
 import type { ReactNode, RefObject } from 'react'
 
 import type { PendingApproval, ThreadTurn } from '../../types/api'
-import type { LiveTimelineEntry } from './timeline-utils'
+import type { LiveTimelineEntry } from './timelineUtilsTypes'
 
 export type ConversationEntry =
   | {

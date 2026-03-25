@@ -9,8 +9,9 @@ import {
   SettingsPageHeader,
 } from '../../components/settings/SettingsPrimitives'
 import { SettingsJsonDiffPreview } from '../../components/settings/SettingsJsonDiffPreview'
+import type { SettingsSummaryItem } from '../../components/settings/settingsWorkspaceScopePanelTypes'
 import { InlineNotice } from '../../components/ui/InlineNotice'
-import { SettingsWorkspaceScopePanel, type SettingsSummaryItem } from '../../components/settings/SettingsWorkspaceScopePanel'
+import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import {
   batchWriteConfig,
   detectExternalAgentConfig,
@@ -41,7 +42,8 @@ import { TextArea } from '../../components/ui/TextArea'
 import { i18n } from '../../i18n/runtime'
 import { formatLocaleDateTime } from '../../i18n/format'
 import { getErrorMessage } from '../../lib/error-utils'
-import { SelectControl, type SelectOption } from '../../components/ui/SelectControl'
+import { SelectControl } from '../../components/ui/SelectControl'
+import type { SelectOption } from '../../components/ui/selectControlTypes'
 import { activateStoredTab, Tabs } from '../../components/ui/Tabs'
 import { useUIStore } from '../../stores/ui-store'
 import { ContextIcon, FeedIcon, RefreshIcon, SettingsIcon, SparkIcon, TerminalIcon } from '../../components/ui/RailControls'

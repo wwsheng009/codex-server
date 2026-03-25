@@ -1,20 +1,19 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type {
+  ChangeEvent,
+  MouseEvent as ReactMouseEvent,
+  TouchEvent as ReactTouchEvent,
+} from 'react'
 import { hexToRgb, rgbToHex, rgbToHsv, hsvToRgb, isValidHex } from '../../lib/color'
-import type { HSV } from '../../lib/color'
+import type { HSV } from '../../lib/colorTypes'
+import type { ColorPickerProps } from './colorPickerTypes'
 
-interface ColorPickerProps {
-  value: string
-  onChange: (hex: string) => void
-  label?: string
-  presets?: string[]
-}
-
-export const ColorPicker: React.FC<ColorPickerProps> = ({ 
-  value, 
-  onChange, 
+export function ColorPicker({
+  value,
+  onChange,
   label,
-  presets = ['#0969DA', '#268BD2', '#2AA198', '#859900', '#B58900', '#CB4B16', '#DC322F', '#D33682', '#6C71C4', '#002B36', '#FDF6E3', '#FFFFFF']
-}) => {
+  presets = ['#0969DA', '#268BD2', '#2AA198', '#859900', '#B58900', '#CB4B16', '#DC322F', '#D33682', '#6C71C4', '#002B36', '#FDF6E3', '#FFFFFF'],
+}: ColorPickerProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [hsv, setHsv] = useState<HSV>(rgbToHsv(hexToRgb(value)))
   const [tempHex, setTempHex] = useState(value)
@@ -55,7 +54,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     onChange(hex)
   }
 
-  const handleSaturationChange = (e: React.MouseEvent | React.TouchEvent) => {
+  const handleSaturationChange = (e: ReactMouseEvent | ReactTouchEvent) => {
     if (!satRef.current) return
     const rect = satRef.current.getBoundingClientRect()
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
@@ -70,12 +69,12 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     updateColor({ ...hsv, s, v })
   }
 
-  const handleHueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleHueChange = (e: ChangeEvent<HTMLInputElement>) => {
     const h = parseInt(e.target.value)
     updateColor({ ...hsv, h })
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const hex = e.target.value
     setTempHex(hex)
     if (isValidHex(hex)) {
@@ -143,7 +142,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             </div>
 
             <div className="color-picker-presets">
-              {presets.map(p => (
+              {presets.map((p) => (
                 <button 
                   key={p} 
                   className={`preset-btn ${p === value ? 'active' : ''}`}

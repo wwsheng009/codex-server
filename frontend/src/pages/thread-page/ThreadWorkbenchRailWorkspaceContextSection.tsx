@@ -7,57 +7,17 @@ import { formatRelativeTimeShort } from '../../components/workspace/timeline-uti
 import { ConversationRenderProfilerRailToggle } from '../../components/workspace/threadConversationProfiler'
 import { i18n } from '../../i18n/runtime'
 import type { ThreadWorkbenchRailWorkspaceContextSectionProps } from './threadWorkbenchRailTypes'
-
-type DetailRowProps = {
-  emphasis?: boolean
-  label: React.ReactNode
-  value: React.ReactNode
-}
-
-type SummaryStatTone = 'default' | 'success' | 'warning'
-
-type SummaryStatProps = {
-  label: React.ReactNode
-  value: React.ReactNode
-  meta?: React.ReactNode
-  footer?: React.ReactNode
-  tone?: SummaryStatTone
-}
-
-type StatusBadgeProps = {
-  value?: string | null
-}
-
-type PendingApprovalsBadgeProps = {
-  count: number
-  compact?: boolean
-}
-
-type ProgressTone = 'accent' | 'warning' | 'danger' | 'neutral'
-
-type ProgressMeterLayout = 'inline' | 'block'
-
-type ProgressMeterProps = {
-  ariaLabel: string
-  layout?: ProgressMeterLayout
-  metaLabel?: string
-  percent: number | null
-  showSummary?: boolean
-  tone?: ProgressTone
-  width?: 'default' | 'full'
-}
-
-type CoverageMeterProps = {
-  ariaLabel: string
-  current: number
-  layout?: ProgressMeterLayout
-  total: number
-}
-
-type InfoLabelProps = {
-  help?: string
-  label: string
-}
+import type {
+  CoverageMeterProps,
+  DetailProgressStyle,
+  DetailRowProps,
+  InfoLabelProps,
+  PendingApprovalsBadgeProps,
+  ProgressMeterProps,
+  ProgressTone,
+  StatusBadgeProps,
+  SummaryStatProps,
+} from './threadWorkbenchRailWorkspaceContextTypes'
 
 function DetailRow({
   emphasis = false,
@@ -185,7 +145,7 @@ function ProgressMeter({
       >
         <span
           className={`detail-progress__fill detail-progress__fill--${tone}`}
-          style={{ '--detail-progress-value': `${safePercent ?? 0}%` } as React.CSSProperties}
+          style={{ '--detail-progress-value': `${safePercent ?? 0}%` } as DetailProgressStyle}
         />
       </span>
     </span>

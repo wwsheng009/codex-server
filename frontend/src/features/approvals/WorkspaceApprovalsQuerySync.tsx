@@ -6,8 +6,8 @@ import { useSessionStore } from '../../stores/session-store'
 import {
   clearPendingApprovalQueryInvalidations,
   syncApprovalQueriesFromWorkspaceActivity,
-  type ApprovalQueryInvalidationByWorkspace,
 } from './sync'
+import type { ApprovalQueryInvalidationByWorkspace } from './approvalTypes'
 
 export function WorkspaceApprovalsQuerySync() {
   const queryClient = useQueryClient()

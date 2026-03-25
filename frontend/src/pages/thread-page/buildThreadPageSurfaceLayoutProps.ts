@@ -1,5 +1,5 @@
 import { getErrorMessage } from '../../lib/error-utils'
-import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config'
+import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config-types'
 import { buildThreadTerminalDockProps } from './buildThreadTerminalDockProps'
 import type {
   BuildThreadPageSurfaceLayoutPropsResult,

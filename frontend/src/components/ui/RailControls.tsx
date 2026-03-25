@@ -1,17 +1,8 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
-
-type RailIconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  primary?: boolean
-}
-
-type ResizeHandleProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  axis: 'horizontal' | 'vertical'
-  edge?: 'start' | 'end'
-}
-
-type RailIconProps = {
-  children: ReactNode
-}
+import type {
+  RailIconButtonProps,
+  RailIconProps,
+  ResizeHandleProps,
+} from './railControlsTypes'
 
 export function RailIcon({ children }: RailIconProps) {
   return <span className="rail-icon">{children}</span>

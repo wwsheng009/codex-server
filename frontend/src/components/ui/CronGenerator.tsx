@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react'
 import { SelectControl } from './SelectControl'
 import { i18n } from '../../i18n/runtime'
-
-interface CronGeneratorProps {
-  value: string
-  onChange: (cron: string) => void
-}
+import type { SelectOption } from './selectControlTypes'
+import type { CronFieldProps, CronGeneratorProps } from './cronGeneratorTypes'
 
 export function CronGenerator({ value, onChange }: CronGeneratorProps) {
   const parts = value.split(' ')
@@ -89,7 +86,7 @@ export function CronGenerator({ value, onChange }: CronGeneratorProps) {
   )
 }
 
-function CronField({ label, value, onChange, options }: any) {
+function CronField({ label, value, onChange, options }: CronFieldProps) {
   return (
     <div className="cron-field">
       <span className="cron-field__label">{label}</span>
@@ -104,8 +101,8 @@ function CronField({ label, value, onChange, options }: any) {
   )
 }
 
-function generateOptions(start: number, end: number, labelPrefix: string) {
-  const options = [
+function generateOptions(start: number, end: number, labelPrefix: string): SelectOption[] {
+  const options: SelectOption[] = [
     {
       value: '*',
       label: i18n._({

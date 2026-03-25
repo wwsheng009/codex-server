@@ -23,31 +23,10 @@ import { Switch } from '../components/ui/Switch'
 import { getActiveLocale, i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { InlineNotice } from '../components/ui/InlineNotice'
-
-type CatalogSectionItem = {
-  id: string
-  name: string
-  description: string
-  value?: string
-  shellType?: string
-}
-
-type CatalogQueryData = {
-  models: CatalogSectionItem[]
-  skills: CatalogSectionItem[]
-  remoteSkills: CatalogSectionItem[]
-  apps: CatalogSectionItem[]
-  plugins: CatalogSectionItem[]
-  modes: CatalogSectionItem[]
-}
-
-type RuntimeSectionProps = {
-  title: string
-  description: string
-  items: CatalogSectionItem[]
-  loading: boolean
-  marker: string
-}
+import type {
+  CatalogQueryData,
+  RuntimeSectionProps,
+} from './catalogPageTypes'
 
 export function CatalogPage() {
   const activeLocale = getActiveLocale()

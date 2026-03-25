@@ -1,15 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { i18n } from '../../i18n/runtime'
-
-interface CollapsiblePanelProps {
-  title: ReactNode
-  description?: ReactNode
-  children: ReactNode
-  defaultExpanded?: boolean
-  expanded?: boolean
-  className?: string
-  onToggle?: (isExpanded: boolean) => void
-}
+import type { CollapsiblePanelProps } from './collapsiblePanelTypes'
 
 /**
  * A generic collapsible panel component that can show/hide its children.

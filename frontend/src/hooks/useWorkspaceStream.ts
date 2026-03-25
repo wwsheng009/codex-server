@@ -3,24 +3,16 @@ import { useEffect } from 'react'
 import { buildApiWebSocketUrl } from '../lib/api-client'
 import { useSessionStore } from '../stores/session-store'
 import type { ServerEvent } from '../types/api'
+import type {
+  ConnectionStateSetter,
+  WorkspaceStream,
+} from './useWorkspaceStreamTypes'
 
 const workspaceStreams = new Map<string, WorkspaceStream>()
 const reconnectDelaysMs = [1_000, 2_000, 5_000]
 const streamBatchFlushDelayMs = 16
 const commandResumeSessionLimit = 16
 const commandResumeTailLength = 512
-
-type ConnectionStateSetter = (workspaceId: string, state: string) => void
-
-type WorkspaceStream = {
-  eventQueue: ServerEvent[]
-  flushTimer?: number
-  subscribers: number
-  socket: WebSocket | null
-  reconnectTimer?: number
-  closeTimer?: number
-  reconnectAttempt: number
-}
 
 export function useWorkspaceStream(workspaceId?: string) {
   const setConnectionState = useSessionStore((state) => state.setConnectionState)

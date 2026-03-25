@@ -16,6 +16,7 @@ import {
   updateThreadStatusInList,
 } from '../threadPageTurnHelpers'
 import { threadTurnItemOverrideKey } from './threadPageContentOverrideUtils'
+import type { FindThreadItemInput } from './buildThreadPageThreadActionsTypes'
 import type {
   ThreadPageRespondApprovalInput,
   ThreadPageThreadActionsInput,
@@ -23,13 +24,6 @@ import type {
 import { THREAD_TURN_WINDOW_INCREMENT } from './useThreadPageControllerLocalState'
 
 const COMMAND_OUTPUT_TAIL_WINDOW_LINES = 1_200
-
-type FindThreadItemInput = {
-  fullTurnItemOverridesById: Record<string, Record<string, unknown>>
-  fullTurnOverridesById: Record<string, ThreadTurn>
-  historicalTurns: ThreadTurn[]
-  turns: ThreadTurn[]
-}
 
 export function buildThreadPageThreadActions({
   archiveThreadMutation,

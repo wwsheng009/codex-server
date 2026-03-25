@@ -1,4 +1,4 @@
-import type { TerminalDockPlacement } from '../../lib/layout-config'
+import type { TerminalDockPlacement } from '../../lib/layout-config-types'
 
 export type TerminalStressRunStatus = 'waiting' | 'running' | 'completed'
 

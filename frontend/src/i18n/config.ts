@@ -1,6 +1,7 @@
 export const appLocales = ['en', 'zh-CN'] as const
 
-export type AppLocale = (typeof appLocales)[number]
+import type { AppLocale } from './configTypes'
+export type { AppLocale } from './configTypes'
 
 export const sourceLocale: AppLocale = 'en'
 

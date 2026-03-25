@@ -2,18 +2,8 @@ import { useEffect, useRef } from 'react'
 
 import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
-
-export type ConfirmDialogProps = {
-  title: string
-  description: string
-  subject?: string
-  confirmLabel: string
-  cancelLabel?: string
-  error?: string | null
-  isPending?: boolean
-  onClose: () => void
-  onConfirm: () => void
-}
+import type { ConfirmDialogProps } from './confirmDialogTypes'
+export type { ConfirmDialogProps } from './confirmDialogTypes'
 
 export function ConfirmDialog({
   title,

@@ -11,9 +11,6 @@ import {
   reduceThreadViewportRestoreOlderTurns,
   reduceThreadViewportSelection,
   reduceThreadViewportThreadOpenSettleComplete,
-  type ThreadViewportCoordinatorCommand,
-  type ThreadViewportCoordinatorResult,
-  type ThreadViewportCoordinatorState,
 } from './threadViewportCoordinator'
 import {
   computeThreadPinnedToLatest,
@@ -28,18 +25,16 @@ import type {
   ThreadViewportAutoScrollInput,
   ThreadViewportScrollInput,
 } from './threadViewportTypes'
+import type { ThreadViewportScrollTask } from './threadViewportAutoScrollTypes'
+import type {
+  ThreadViewportCoordinatorCommand,
+  ThreadViewportCoordinatorResult,
+  ThreadViewportCoordinatorState,
+} from './threadViewportCoordinatorTypes'
 
 const THREAD_VIEWPORT_INTERACTION_LOCK_MS = 220
 const THREAD_OPEN_SETTLE_MAX_MS = 600
 const THREAD_OPEN_SETTLE_STABLE_FRAME_COUNT = 2
-
-type ThreadViewportScrollTask = {
-  behavior: ScrollBehavior
-  metadata?: Record<string, boolean | number | string | null>
-  policy: ThreadViewportProgrammaticScrollPolicy
-  resolveTargetTop: (viewport: HTMLDivElement) => number | null
-  source: string
-}
 
 export function useThreadViewportAutoScroll({
   displayedTurnsLength,

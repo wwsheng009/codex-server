@@ -3,10 +3,12 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 
 import {
   layoutConfig,
-  type TerminalDockPlacement,
-  type SurfacePanelView,
-  type TerminalWindowBounds,
 } from '../../lib/layout-config'
+import type {
+  SurfacePanelView,
+  TerminalDockPlacement,
+  TerminalWindowBounds,
+} from '../../lib/layout-config-types'
 import {
   readRightRailExpanded,
   readRightRailWidth,

@@ -4,17 +4,7 @@ import { i18n } from '../../i18n/runtime'
 import { Modal } from '../ui/Modal'
 import { InlineNotice } from '../ui/InlineNotice'
 import { Input } from '../ui/Input'
-
-type CreateWorkspaceDialogProps = {
-  name: string
-  rootPath: string
-  isPending?: boolean
-  error?: string | null
-  onNameChange: (value: string) => void
-  onRootPathChange: (value: string) => void
-  onClose: () => void
-  onSubmit: () => void
-}
+import type { CreateWorkspaceDialogProps } from './createWorkspaceDialogTypes'
 
 export function CreateWorkspaceDialog({
   name,

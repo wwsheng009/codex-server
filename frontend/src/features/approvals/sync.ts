@@ -1,6 +1,8 @@
 import { shouldRefreshApprovalsForEvent } from '../../pages/threadPageUtils'
 import type { PendingApproval } from '../../types/api'
 import type {
+  ApprovalQueryInvalidationByWorkspace,
+  ApprovalQueryInvalidationEntry,
   ApprovalWorkspaceActivityEventSummary,
   FlushApprovalQueryInvalidationInput,
   QueueApprovalQueryInvalidationFlushInput,
@@ -12,16 +14,10 @@ import type {
 import { applyApprovalEventToCache } from './cache'
 
 export const APPROVALS_QUERY_INVALIDATION_DEBOUNCE_MS = 180
-export type ApprovalQueryInvalidationEntry = {
-  inFlight: boolean
-  needsAnotherPass: boolean
-  timerId: ReturnType<typeof setTimeout> | null
-}
-
-export type ApprovalQueryInvalidationByWorkspace = Map<
-  string,
-  ApprovalQueryInvalidationEntry
->
+export type {
+  ApprovalQueryInvalidationByWorkspace,
+  ApprovalQueryInvalidationEntry,
+} from './approvalTypes'
 
 export function syncApprovalQueriesFromWorkspaceActivity(
   options: SyncApprovalQueriesFromWorkspaceActivityInput,

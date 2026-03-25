@@ -1,14 +1,11 @@
 import { I18nProvider } from '@lingui/react'
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
 
 import { useSettingsLocalStore } from '../features/settings/local-store'
-import { getLocaleDirection, type AppLocale } from './config'
+import { getLocaleDirection } from './config'
+import type { AppLocale } from './configTypes'
 import { activateLocale, i18n } from './runtime'
-
-type LinguiClientProviderProps = {
-  children: ReactNode
-}
+import type { LinguiClientProviderProps } from './linguiClientProviderTypes'
 
 export function LinguiClientProvider({ children }: LinguiClientProviderProps) {
   const locale = useSettingsLocalStore((state) => state.locale)

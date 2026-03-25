@@ -3,21 +3,7 @@ import { useEffect, useId, useRef } from 'react'
 import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
 import { Input } from './Input'
-
-type RenameDialogProps = {
-  title: string
-  description: string
-  value: string
-  fieldLabel?: string
-  placeholder?: string
-  submitLabel?: string
-  isSubmitDisabled?: boolean
-  error?: string | null
-  isPending?: boolean
-  onChange: (value: string) => void
-  onClose: () => void
-  onSubmit: () => void
-}
+import type { RenameDialogProps } from './renameDialogTypes'
 
 export function RenameDialog({
   title,

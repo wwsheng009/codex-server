@@ -1,4 +1,9 @@
 import type { ThreadTurn } from '../types/api'
+import type {
+  ThreadDisplayMetrics,
+  ThreadItemDisplayMetrics,
+} from './threadPageUtilsTypes'
+export type { ThreadDisplayMetrics } from './threadPageUtilsTypes'
 
 const threadQueryRefreshMethods = new Set([
   'thread/started',
@@ -33,25 +38,8 @@ const threadDetailStreamingMethods = new Set([
 ])
 
 const THREAD_VIEWPORT_NEAR_BOTTOM_THRESHOLD_PX = 72
-export type ThreadDisplayMetrics = {
-  latestRenderableItemKey: string
-  loadedAssistantMessageCount: number
-  loadedMessageCount: number
-  loadedUserMessageCount: number
-  settledMessageAutoScrollKey: string
-  threadUnreadUpdateKey: string
-  timelineItemCount: number
-}
 
 const threadDisplayMetricsCache = new WeakMap<ThreadTurn[], ThreadDisplayMetrics>()
-type ThreadItemDisplayMetrics = {
-  loadedAssistantMessageCount: number
-  loadedMessageCount: number
-  loadedUserMessageCount: number
-  renderableKeySuffix: string
-  settledMessageKeySuffix: string
-  threadUnreadKeySuffix: string
-}
 const threadTurnDisplayMetricsCache = new WeakMap<ThreadTurn, ThreadDisplayMetrics>()
 const threadItemDisplayMetricsCache = new WeakMap<
   Record<string, unknown>,

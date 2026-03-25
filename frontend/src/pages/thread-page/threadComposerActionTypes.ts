@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
 
-import type { ComposerAutocompleteMode } from '../../lib/composer-autocomplete'
+import type { ComposerAutocompleteMode } from '../../lib/composer-autocomplete-types'
 import type {
   ComposerAssistPanel,
   ComposerAutocompleteItem,

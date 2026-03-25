@@ -1,17 +1,8 @@
 import { useState } from 'react'
-import type { MouseEvent, ReactNode } from 'react'
-
-type DetailGroupTone = 'default' | 'primary' | 'secondary' | 'warning' | 'danger'
-
-interface DetailGroupProps {
-  children: ReactNode
-  collapsible?: boolean
-  defaultOpen?: boolean
-  onToggle?: () => void
-  open?: boolean
-  title: string
-  tone?: DetailGroupTone
-}
+import type {
+  DetailGroupProps,
+  DetailGroupSummaryClick,
+} from './detailGroupTypes'
 
 export function DetailGroup({
   children,
@@ -30,7 +21,7 @@ export function DetailGroup({
   const [internalOpen, setInternalOpen] = useState(defaultOpen)
   const isOpen = open ?? internalOpen
 
-  function handleSummaryClick(event: MouseEvent<HTMLElement>) {
+  function handleSummaryClick(event: DetailGroupSummaryClick) {
     event.preventDefault()
 
     if (open === undefined) {

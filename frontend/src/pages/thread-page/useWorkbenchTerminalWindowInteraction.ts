@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
-import { layoutConfig, type TerminalWindowBounds } from '../../lib/layout-config'
+import { layoutConfig } from '../../lib/layout-config'
+import type { TerminalWindowBounds } from '../../lib/layout-config-types'
 import type { UseWorkbenchTerminalWindowInteractionInput } from './workbenchLayoutTypes'
 
 function getViewportSize() {

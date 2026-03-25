@@ -1,10 +1,6 @@
 import { ApiClientError } from './api-client'
-
-export type UserFacingError = {
-  code: string
-  title: string
-  message: string
-}
+import type { UserFacingError } from './errorUtilsTypes'
+export type { UserFacingError } from './errorUtilsTypes'
 
 export function describeError(error: unknown, fallback = 'An unexpected error occurred.') {
   const message = readErrorMessage(error).trim()

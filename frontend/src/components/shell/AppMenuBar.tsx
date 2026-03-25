@@ -17,9 +17,14 @@ import {
   resolveAppearanceTheme,
 } from '../../features/settings/appearance'
 import { refetchApprovalsQueryIfNeeded } from '../../features/approvals/sync'
-import type { AccentTone, AppearanceTheme } from '../../features/settings/appearance'
+import type {
+  AccentTone,
+  AppearanceTheme,
+  ResolvedAppearanceTheme,
+} from '../../features/settings/appearanceTypes'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
-import { localeLabels, type AppLocale } from '../../i18n/config'
+import { localeLabels } from '../../i18n/config'
+import type { AppLocale } from '../../i18n/configTypes'
 import { parseWorkspaceThreadRoute } from '../../lib/thread-routes'
 import { useSystemAppearancePreferences } from '../../features/settings/useSystemAppearancePreferences'
 import { useSessionStore } from '../../stores/session-store'
@@ -31,7 +36,6 @@ import type {
   AppearanceMenuProps,
   AppMenuBarProps,
   MenuPosition,
-  ResolvedAppearanceTheme,
   ThemeModeGlyphProps,
 } from './appMenuBarTypes'
 import type { CSSProperties } from 'react'

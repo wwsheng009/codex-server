@@ -15,19 +15,11 @@ import { getErrorMessage } from '../../lib/error-utils'
 import type { NotificationItem } from '../../types/api'
 import { Button } from '../ui/Button'
 import { InlineNotice } from '../ui/InlineNotice'
-
-type NotificationCenterProps = {
-  compact?: boolean
-}
-
-type MenuPosition = {
-  top: number
-  left: number
-  width: number
-  transformOrigin: string
-}
-
-type ToastNotification = NotificationItem
+import type {
+  NotificationCenterProps,
+  NotificationMenuPosition,
+  ToastNotification,
+} from './notificationCenterTypes'
 
 function BellIcon() {
   return (
@@ -52,7 +44,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [isOpen, setIsOpen] = useState(false)
-  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null)
+  const [menuPosition, setMenuPosition] = useState<NotificationMenuPosition | null>(null)
   const [toasts, setToasts] = useState<ToastNotification[]>([])
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)

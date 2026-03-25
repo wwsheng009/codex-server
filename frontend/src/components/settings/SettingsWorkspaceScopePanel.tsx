@@ -1,20 +1,10 @@
-import type { ReactNode } from 'react'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { i18n } from '../../i18n/runtime'
 import { InlineNotice } from '../ui/InlineNotice'
 import { SelectControl } from '../ui/SelectControl'
-
-export type SettingsSummaryItem = {
-  label: string
-  value: ReactNode
-  tone?: 'active' | 'paused' | 'error' | 'default'
-}
-
-type SettingsWorkspaceScopePanelProps = {
-  title?: string
-  description?: string
-  extraSummaryItems?: SettingsSummaryItem[]
-}
+import type {
+  SettingsWorkspaceScopePanelProps,
+} from './settingsWorkspaceScopePanelTypes'
 
 export function SettingsWorkspaceScopePanel({
   title,

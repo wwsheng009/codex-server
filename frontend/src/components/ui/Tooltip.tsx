@@ -1,14 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-
-type TooltipProps = {
-  content: ReactNode
-  children: ReactNode
-  position?: 'top' | 'bottom' | 'left' | 'right'
-  className?: string
-  triggerLabel?: string
-}
+import type { TooltipProps } from './tooltipTypes'
 
 export function Tooltip({
   content,

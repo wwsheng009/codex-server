@@ -1,9 +1,5 @@
 import { useEffect, useState } from 'react'
-
-type SystemAppearancePreferences = {
-  prefersDark: boolean
-  prefersReducedMotion: boolean
-}
+import type { SystemAppearancePreferences } from './systemAppearancePreferenceTypes'
 
 function readMediaQueryMatches(query: string) {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {

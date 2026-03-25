@@ -12,11 +12,7 @@ import { listThreads, unarchiveThread } from '../../features/threads/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { getActiveLocale, i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
-
-type UnarchiveThreadMutationInput = {
-  workspaceId: string
-  threadId: string
-}
+import type { UnarchiveThreadMutationInput } from './archivedThreadsSettingsPageTypes'
 
 export function ArchivedThreadsSettingsPage() {
   const queryClient = useQueryClient()

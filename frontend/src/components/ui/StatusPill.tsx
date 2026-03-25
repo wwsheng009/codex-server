@@ -1,8 +1,5 @@
 import { i18n } from '../../i18n/runtime'
-
-type StatusPillProps = {
-  status: string
-}
+import type { StatusPillProps } from './statusPillTypes'
 
 export function StatusPill({ status }: StatusPillProps) {
   const tone = status.toLowerCase().replace(/\s+/g, '-')

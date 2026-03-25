@@ -1,13 +1,7 @@
 import { isRouteErrorResponse } from 'react-router-dom'
 import { i18n } from '../i18n/runtime'
-
-export type RouteErrorDescription = {
-  code: string
-  title: string
-  message: string
-  recovery: string
-  details: string
-}
+import type { RouteErrorDescription } from './route-error-types'
+export type { RouteErrorDescription } from './route-error-types'
 
 const DYNAMIC_IMPORT_ERROR_PATTERN =
   /ChunkLoadError|Loading chunk|Importing a module script failed|Failed to fetch dynamically imported module/i

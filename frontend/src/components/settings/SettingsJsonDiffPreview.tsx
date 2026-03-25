@@ -1,35 +1,18 @@
 import { useMemo, useState } from 'react'
 
 import { i18n } from '../../i18n/runtime'
-import type { ConfigScenarioDiffEntry } from '../../features/settings/config-scenarios'
 import type {
   SettingsJsonDiffDisplayMode,
   SettingsJsonDiffLine,
   SettingsJsonDiffSplitRow,
 } from './settings-json-diff'
 import { createSettingsJsonDiffModel } from './settings-json-diff'
-
-type SettingsJsonDiffPreviewProps = {
-  title: string
-  description: string
-  entries: ConfigScenarioDiffEntry[]
-}
-
-type UnifiedDiffRowsProps = {
-  rows: SettingsJsonDiffLine[]
-}
-
-type SplitDiffRowsProps = {
-  rows: SettingsJsonDiffSplitRow[]
-}
-
-type SplitDiffCellSide = 'left' | 'right'
-
-type SplitDiffCellProps = {
-  line: SettingsJsonDiffLine | null
-  side: SplitDiffCellSide
-  divider?: boolean
-}
+import type {
+  SettingsJsonDiffPreviewProps,
+  SplitDiffCellProps,
+  SplitDiffRowsProps,
+  UnifiedDiffRowsProps,
+} from './settingsJsonDiffPreviewTypes'
 
 export function SettingsJsonDiffPreview({
   title,
