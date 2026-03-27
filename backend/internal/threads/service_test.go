@@ -460,6 +460,92 @@ func TestApplyStoredProjectionMergesEquivalentConversationItemsWithDifferentIDs(
 	}
 }
 
+func TestApplyStoredProjectionPreservesProjectedItemOrderAcrossCompletion(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/started",
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"item": map[string]any{
+				"id":      "cmd-1",
+				"type":    "commandExecution",
+				"command": "go test ./...",
+			},
+		},
+	})
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/commandExecution/outputDelta",
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"itemId":   "cmd-1",
+			"delta":    "ok",
+		},
+	})
+	dataStore.ApplyThreadEvent(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/agentMessage/delta",
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"itemId":   "msg-1",
+			"delta":    "done",
+		},
+	})
+
+	detail := applyStoredProjection(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "idle",
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":   "msg-1",
+						"type": "agentMessage",
+						"text": "done",
+					},
+					{
+						"id":               "cmd-1",
+						"type":             "commandExecution",
+						"command":          "go test ./...",
+						"aggregatedOutput": "ok",
+						"status":           "completed",
+					},
+				},
+			},
+		},
+	}, dataStore, runtime.NewManager("codex app-server --listen stdio://", nil), workspace.ID, "thread-1")
+
+	if len(detail.Turns) != 1 || len(detail.Turns[0].Items) != 2 {
+		t.Fatalf("expected merged turn items, got %#v", detail.Turns)
+	}
+	if got := detail.Turns[0].Items[0]["id"]; got != "cmd-1" {
+		t.Fatalf("expected projected command item to stay first, got %#v", detail.Turns[0].Items)
+	}
+	if got := detail.Turns[0].Items[1]["id"]; got != "msg-1" {
+		t.Fatalf("expected projected agent item to stay second, got %#v", detail.Turns[0].Items)
+	}
+}
+
 func TestSliceThreadDetailTurnsKeepsLatestWindow(t *testing.T) {
 	t.Parallel()
 

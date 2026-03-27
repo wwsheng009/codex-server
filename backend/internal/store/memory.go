@@ -22,6 +22,7 @@ var (
 	ErrNotificationNotFound       = errors.New("notification not found")
 	ErrBotConnectionNotFound      = errors.New("bot connection not found")
 	ErrBotConversationNotFound    = errors.New("bot conversation not found")
+	ErrBotInboundDeliveryNotFound = errors.New("bot inbound delivery not found")
 )
 
 const (
@@ -42,6 +43,8 @@ type MemoryStore struct {
 	notifications    map[string]Notification
 	botConnections   map[string]BotConnection
 	botConversations map[string]BotConversation
+	botInbound       map[string]BotInboundDelivery
+	botInboundIndex  map[string]string
 	threads          map[string]Thread
 	projections      map[string]ThreadProjection
 	deleted          map[string]DeletedThread
@@ -58,6 +61,7 @@ type storeSnapshot struct {
 	Notifications       []Notification           `json:"notifications,omitempty"`
 	BotConnections      []BotConnection          `json:"botConnections,omitempty"`
 	BotConversations    []BotConversation        `json:"botConversations,omitempty"`
+	BotInbound          []BotInboundDelivery     `json:"botInbound,omitempty"`
 	Threads             []Thread                 `json:"threads"`
 	ThreadProjections   []ThreadProjection       `json:"threadProjections,omitempty"`
 	DeletedThreads      []DeletedThread          `json:"deletedThreads,omitempty"`
@@ -73,6 +77,8 @@ func NewMemoryStore() *MemoryStore {
 		notifications:    make(map[string]Notification),
 		botConnections:   make(map[string]BotConnection),
 		botConversations: make(map[string]BotConversation),
+		botInbound:       make(map[string]BotInboundDelivery),
+		botInboundIndex:  make(map[string]string),
 		threads:          make(map[string]Thread),
 		projections:      make(map[string]ThreadProjection),
 		deleted:          make(map[string]DeletedThread),
@@ -297,6 +303,7 @@ func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
 	defer s.mu.RUnlock()
 
 	prefs := s.runtimePrefs
+	prefs.OutboundProxyURL = strings.TrimSpace(prefs.OutboundProxyURL)
 	if len(prefs.LocalShellModels) > 0 {
 		prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
 	}
@@ -317,6 +324,7 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 	defer s.mu.Unlock()
 
 	prefs.ModelCatalogPath = strings.TrimSpace(prefs.ModelCatalogPath)
+	prefs.OutboundProxyURL = strings.TrimSpace(prefs.OutboundProxyURL)
 	prefs.DefaultTerminalShell = strings.TrimSpace(prefs.DefaultTerminalShell)
 	if len(prefs.LocalShellModels) > 0 {
 		prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
@@ -910,18 +918,19 @@ func (s *MemoryStore) GetBotConversation(workspaceID string, conversationID stri
 	return cloneBotConversation(conversation), true
 }
 
-func (s *MemoryStore) FindBotConversationByExternalChat(
+func (s *MemoryStore) FindBotConversationByExternalConversation(
 	workspaceID string,
 	connectionID string,
-	externalChatID string,
+	externalConversationID string,
 ) (BotConversation, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	targetConversationID := strings.TrimSpace(externalConversationID)
 	for _, conversation := range s.botConversations {
 		if conversation.WorkspaceID != workspaceID ||
 			conversation.ConnectionID != connectionID ||
-			conversation.ExternalChatID != externalChatID {
+			effectiveBotConversationExternalConversationID(conversation) != targetConversationID {
 			continue
 		}
 		return cloneBotConversation(conversation), true
@@ -952,6 +961,7 @@ func (s *MemoryStore) CreateBotConversation(conversation BotConversation) (BotCo
 	if conversation.UpdatedAt.IsZero() {
 		conversation.UpdatedAt = now
 	}
+	conversation = normalizeBotConversationExternalRouting(conversation)
 	conversation.BackendState = cloneStringMap(conversation.BackendState)
 
 	s.botConversations[conversation.ID] = conversation
@@ -978,7 +988,9 @@ func (s *MemoryStore) UpdateBotConversation(
 	next.WorkspaceID = conversation.WorkspaceID
 	next.ConnectionID = conversation.ConnectionID
 	next.Provider = conversation.Provider
-	next.ExternalChatID = conversation.ExternalChatID
+	next.ExternalConversationID = effectiveBotConversationExternalConversationID(conversation)
+	next.ExternalChatID = firstNonEmpty(strings.TrimSpace(conversation.ExternalChatID), next.ExternalConversationID)
+	next.ExternalThreadID = strings.TrimSpace(conversation.ExternalThreadID)
 	next.CreatedAt = conversation.CreatedAt
 	next.UpdatedAt = time.Now().UTC()
 	next.BackendState = cloneStringMap(next.BackendState)
@@ -987,6 +999,188 @@ func (s *MemoryStore) UpdateBotConversation(
 	s.persistLocked()
 
 	return cloneBotConversation(next), nil
+}
+
+func (s *MemoryStore) UpsertBotInboundDelivery(delivery BotInboundDelivery) (BotInboundDelivery, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[delivery.WorkspaceID]; !ok {
+		return BotInboundDelivery{}, false, ErrWorkspaceNotFound
+	}
+	connection, ok := s.botConnections[delivery.ConnectionID]
+	if !ok || connection.WorkspaceID != delivery.WorkspaceID {
+		return BotInboundDelivery{}, false, ErrBotConnectionNotFound
+	}
+
+	now := time.Now().UTC()
+	delivery = normalizeBotInboundExternalRouting(delivery)
+	lookupKey := botInboundLookupKey(
+		delivery.WorkspaceID,
+		delivery.ConnectionID,
+		effectiveBotInboundExternalConversationID(delivery),
+		strings.TrimSpace(delivery.MessageID),
+	)
+	if existingID, ok := s.botInboundIndex[lookupKey]; ok {
+		existing := s.botInbound[existingID]
+		switch strings.TrimSpace(existing.Status) {
+		case "completed", "received", "processing":
+			return cloneBotInboundDelivery(existing), false, nil
+		case "failed":
+			existing.Provider = delivery.Provider
+			existing.ExternalConversationID = effectiveBotInboundExternalConversationID(delivery)
+			existing.ExternalChatID = firstNonEmpty(strings.TrimSpace(delivery.ExternalChatID), existing.ExternalConversationID)
+			existing.ExternalThreadID = strings.TrimSpace(delivery.ExternalThreadID)
+			existing.UserID = delivery.UserID
+			existing.Username = delivery.Username
+			existing.Title = delivery.Title
+			existing.Text = delivery.Text
+			existing.Status = "received"
+			existing.LastError = ""
+			existing.UpdatedAt = now
+			s.botInbound[existing.ID] = existing
+			s.persistLocked()
+			return cloneBotInboundDelivery(existing), true, nil
+		}
+	}
+
+	if strings.TrimSpace(delivery.ID) == "" {
+		delivery.ID = NewID("bid")
+	}
+	if strings.TrimSpace(delivery.Provider) == "" {
+		delivery.Provider = connection.Provider
+	}
+	delivery.Status = "received"
+	delivery.LastError = ""
+	delivery.AttemptCount = 0
+	if delivery.CreatedAt.IsZero() {
+		delivery.CreatedAt = now
+	}
+	delivery.UpdatedAt = now
+
+	s.botInbound[delivery.ID] = delivery
+	s.botInboundIndex[lookupKey] = delivery.ID
+	s.persistLocked()
+
+	return cloneBotInboundDelivery(delivery), true, nil
+}
+
+func (s *MemoryStore) ClaimBotInboundDelivery(workspaceID string, deliveryID string) (BotInboundDelivery, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delivery, ok := s.botInbound[deliveryID]
+	if !ok || delivery.WorkspaceID != workspaceID {
+		return BotInboundDelivery{}, false, ErrBotInboundDeliveryNotFound
+	}
+	if strings.TrimSpace(delivery.Status) == "completed" || strings.TrimSpace(delivery.Status) == "processing" {
+		return cloneBotInboundDelivery(delivery), false, nil
+	}
+
+	delivery.Status = "processing"
+	delivery.AttemptCount += 1
+	delivery.LastError = ""
+	delivery.UpdatedAt = time.Now().UTC()
+	s.botInbound[deliveryID] = delivery
+	s.persistLocked()
+
+	return cloneBotInboundDelivery(delivery), true, nil
+}
+
+func (s *MemoryStore) CompleteBotInboundDelivery(workspaceID string, deliveryID string) (BotInboundDelivery, error) {
+	return s.updateBotInboundDelivery(workspaceID, deliveryID, func(current BotInboundDelivery) BotInboundDelivery {
+		current.Status = "completed"
+		current.LastError = ""
+		return current
+	})
+}
+
+func (s *MemoryStore) FailBotInboundDelivery(workspaceID string, deliveryID string, lastError string) (BotInboundDelivery, error) {
+	return s.updateBotInboundDelivery(workspaceID, deliveryID, func(current BotInboundDelivery) BotInboundDelivery {
+		current.Status = "failed"
+		current.LastError = strings.TrimSpace(lastError)
+		return current
+	})
+}
+
+func (s *MemoryStore) PrepareBotInboundDeliveriesForRecovery(workspaceID string, connectionID string) []BotInboundDelivery {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	items := make([]BotInboundDelivery, 0)
+	changed := false
+	for id, delivery := range s.botInbound {
+		if strings.TrimSpace(workspaceID) != "" && delivery.WorkspaceID != strings.TrimSpace(workspaceID) {
+			continue
+		}
+		if strings.TrimSpace(connectionID) != "" && delivery.ConnectionID != strings.TrimSpace(connectionID) {
+			continue
+		}
+		switch strings.TrimSpace(delivery.Status) {
+		case "processing":
+			delivery.Status = "received"
+			delivery.UpdatedAt = time.Now().UTC()
+			s.botInbound[id] = delivery
+			changed = true
+			items = append(items, cloneBotInboundDelivery(delivery))
+		case "received":
+			items = append(items, cloneBotInboundDelivery(delivery))
+		}
+	}
+
+	if changed {
+		s.persistLocked()
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) updateBotInboundDelivery(
+	workspaceID string,
+	deliveryID string,
+	updater func(BotInboundDelivery) BotInboundDelivery,
+) (BotInboundDelivery, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delivery, ok := s.botInbound[deliveryID]
+	if !ok || delivery.WorkspaceID != workspaceID {
+		return BotInboundDelivery{}, ErrBotInboundDeliveryNotFound
+	}
+
+	next := updater(cloneBotInboundDelivery(delivery))
+	next.ID = delivery.ID
+	next.WorkspaceID = delivery.WorkspaceID
+	next.ConnectionID = delivery.ConnectionID
+	next.Provider = delivery.Provider
+	next.ExternalConversationID = effectiveBotInboundExternalConversationID(delivery)
+	next.ExternalChatID = firstNonEmpty(strings.TrimSpace(delivery.ExternalChatID), next.ExternalConversationID)
+	next.ExternalThreadID = strings.TrimSpace(delivery.ExternalThreadID)
+	next.MessageID = delivery.MessageID
+	next.CreatedAt = delivery.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+
+	s.botInbound[deliveryID] = next
+	s.persistLocked()
+	return cloneBotInboundDelivery(next), nil
+}
+
+func botInboundLookupKey(workspaceID string, connectionID string, externalChatID string, messageID string) string {
+	trimmedMessageID := strings.TrimSpace(messageID)
+	if trimmedMessageID == "" {
+		return NewID("bidk")
+	}
+	return strings.TrimSpace(workspaceID) + "\x00" +
+		strings.TrimSpace(connectionID) + "\x00" +
+		strings.TrimSpace(externalChatID) + "\x00" +
+		trimmedMessageID
 }
 
 func (s *MemoryStore) CreateAutomation(automation Automation) (Automation, error) {
@@ -1547,6 +1741,18 @@ func (s *MemoryStore) load() error {
 			maxID = value
 		}
 	}
+	for _, delivery := range snapshot.BotInbound {
+		s.botInbound[delivery.ID] = cloneBotInboundDelivery(delivery)
+		s.botInboundIndex[botInboundLookupKey(
+			delivery.WorkspaceID,
+			delivery.ConnectionID,
+			effectiveBotInboundExternalConversationID(delivery),
+			delivery.MessageID,
+		)] = delivery.ID
+		if value := NumericIDSuffix(delivery.ID); value > maxID {
+			maxID = value
+		}
+	}
 
 	for _, thread := range snapshot.Threads {
 		s.threads[thread.ID] = thread
@@ -1583,6 +1789,7 @@ func (s *MemoryStore) persistLocked() {
 		Notifications:       make([]Notification, 0, len(s.notifications)),
 		BotConnections:      make([]BotConnection, 0, len(s.botConnections)),
 		BotConversations:    make([]BotConversation, 0, len(s.botConversations)),
+		BotInbound:          make([]BotInboundDelivery, 0, len(s.botInbound)),
 		Threads:             make([]Thread, 0, len(s.threads)),
 		ThreadProjections:   make([]ThreadProjection, 0, len(s.projections)),
 		DeletedThreads:      make([]DeletedThread, 0, len(s.deleted)),
@@ -1638,6 +1845,9 @@ func (s *MemoryStore) persistLocked() {
 	for _, conversation := range s.botConversations {
 		snapshot.BotConversations = append(snapshot.BotConversations, cloneBotConversation(conversation))
 	}
+	for _, delivery := range s.botInbound {
+		snapshot.BotInbound = append(snapshot.BotInbound, cloneBotInboundDelivery(delivery))
+	}
 	for _, thread := range s.threads {
 		snapshot.Threads = append(snapshot.Threads, thread)
 	}
@@ -1674,6 +1884,9 @@ func (s *MemoryStore) persistLocked() {
 	})
 	sort.Slice(snapshot.BotConversations, func(i int, j int) bool {
 		return snapshot.BotConversations[i].ID < snapshot.BotConversations[j].ID
+	})
+	sort.Slice(snapshot.BotInbound, func(i int, j int) bool {
+		return snapshot.BotInbound[i].ID < snapshot.BotInbound[j].ID
 	})
 	sort.Slice(snapshot.Threads, func(i int, j int) bool {
 		return snapshot.Threads[i].ID < snapshot.Threads[j].ID
@@ -1750,6 +1963,63 @@ func cloneBotConversation(conversation BotConversation) BotConversation {
 		next.BackendState = nil
 	}
 	return next
+}
+
+func cloneBotInboundDelivery(delivery BotInboundDelivery) BotInboundDelivery {
+	return delivery
+}
+
+func normalizeBotConversationExternalRouting(conversation BotConversation) BotConversation {
+	conversation.ExternalConversationID = strings.TrimSpace(conversation.ExternalConversationID)
+	conversation.ExternalChatID = strings.TrimSpace(conversation.ExternalChatID)
+	conversation.ExternalThreadID = strings.TrimSpace(conversation.ExternalThreadID)
+
+	if conversation.ExternalConversationID == "" {
+		conversation.ExternalConversationID = conversation.ExternalChatID
+	}
+	if conversation.ExternalChatID == "" {
+		conversation.ExternalChatID = conversation.ExternalConversationID
+	}
+
+	return conversation
+}
+
+func effectiveBotConversationExternalConversationID(conversation BotConversation) string {
+	return firstNonEmpty(
+		strings.TrimSpace(conversation.ExternalConversationID),
+		strings.TrimSpace(conversation.ExternalChatID),
+	)
+}
+
+func normalizeBotInboundExternalRouting(delivery BotInboundDelivery) BotInboundDelivery {
+	delivery.ExternalConversationID = strings.TrimSpace(delivery.ExternalConversationID)
+	delivery.ExternalChatID = strings.TrimSpace(delivery.ExternalChatID)
+	delivery.ExternalThreadID = strings.TrimSpace(delivery.ExternalThreadID)
+
+	if delivery.ExternalConversationID == "" {
+		delivery.ExternalConversationID = delivery.ExternalChatID
+	}
+	if delivery.ExternalChatID == "" {
+		delivery.ExternalChatID = delivery.ExternalConversationID
+	}
+
+	return delivery
+}
+
+func effectiveBotInboundExternalConversationID(delivery BotInboundDelivery) string {
+	return firstNonEmpty(
+		strings.TrimSpace(delivery.ExternalConversationID),
+		strings.TrimSpace(delivery.ExternalChatID),
+	)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func cloneThreadTokenUsage(usage *ThreadTokenUsage) *ThreadTokenUsage {

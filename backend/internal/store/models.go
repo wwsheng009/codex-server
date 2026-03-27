@@ -24,6 +24,7 @@ type RuntimePreferences struct {
 	DefaultShellType            string            `json:"defaultShellType,omitempty"`
 	DefaultTerminalShell        string            `json:"defaultTerminalShell,omitempty"`
 	ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides,omitempty"`
+	OutboundProxyURL            string            `json:"outboundProxyUrl,omitempty"`
 	DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy,omitempty"`
 	DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
 	DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
@@ -118,19 +119,41 @@ type BotConnection struct {
 }
 
 type BotConversation struct {
+	ID                   string            `json:"id"`
+	WorkspaceID          string            `json:"workspaceId"`
+	ConnectionID         string            `json:"connectionId"`
+	Provider             string            `json:"provider"`
+	ExternalConversationID string          `json:"externalConversationId,omitempty"`
+	ExternalChatID       string            `json:"externalChatId"`
+	ExternalThreadID     string            `json:"externalThreadId,omitempty"`
+	ExternalUserID       string            `json:"externalUserId,omitempty"`
+	ExternalUsername     string            `json:"externalUsername,omitempty"`
+	ExternalTitle        string            `json:"externalTitle,omitempty"`
+	ThreadID             string            `json:"threadId,omitempty"`
+	BackendState         map[string]string `json:"backendState,omitempty"`
+	LastInboundMessageID string            `json:"lastInboundMessageId,omitempty"`
+	LastInboundText      string            `json:"lastInboundText,omitempty"`
+	LastOutboundText     string            `json:"lastOutboundText,omitempty"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	UpdatedAt            time.Time         `json:"updatedAt"`
+}
+
+type BotInboundDelivery struct {
 	ID                   string    `json:"id"`
 	WorkspaceID          string    `json:"workspaceId"`
 	ConnectionID         string    `json:"connectionId"`
 	Provider             string    `json:"provider"`
+	ExternalConversationID string  `json:"externalConversationId,omitempty"`
 	ExternalChatID       string    `json:"externalChatId"`
-	ExternalUserID       string    `json:"externalUserId,omitempty"`
-	ExternalUsername     string    `json:"externalUsername,omitempty"`
-	ExternalTitle        string    `json:"externalTitle,omitempty"`
-	ThreadID             string    `json:"threadId,omitempty"`
-	BackendState         map[string]string `json:"backendState,omitempty"`
-	LastInboundMessageID string    `json:"lastInboundMessageId,omitempty"`
-	LastInboundText      string    `json:"lastInboundText,omitempty"`
-	LastOutboundText     string    `json:"lastOutboundText,omitempty"`
+	ExternalThreadID     string    `json:"externalThreadId,omitempty"`
+	MessageID            string    `json:"messageId,omitempty"`
+	UserID               string    `json:"userId,omitempty"`
+	Username             string    `json:"username,omitempty"`
+	Title                string    `json:"title,omitempty"`
+	Text                 string    `json:"text"`
+	Status               string    `json:"status"`
+	AttemptCount         int       `json:"attemptCount,omitempty"`
+	LastError            string    `json:"lastError,omitempty"`
 	CreatedAt            time.Time `json:"createdAt"`
 	UpdatedAt            time.Time `json:"updatedAt"`
 }

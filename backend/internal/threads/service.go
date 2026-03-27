@@ -1179,7 +1179,7 @@ func mergeProjectedTurn(base store.ThreadTurn, overlay store.ThreadTurn) store.T
 	if overlay.Error != nil {
 		next.Error = overlay.Error
 	}
-	next.Items = mergeProjectedItems(next.Items, overlay.Items)
+	next.Items = mergeProjectedItemsPreserveOverlayOrder(next.Items, overlay.Items)
 	return next
 }
 
@@ -1228,6 +1228,62 @@ func mergeProjectedItems(base []map[string]any, overlay []map[string]any) []map[
 	return nextItems
 }
 
+func mergeProjectedItemsPreserveOverlayOrder(base []map[string]any, overlay []map[string]any) []map[string]any {
+	if len(overlay) == 0 {
+		return cloneItems(base)
+	}
+
+	result := make([]map[string]any, 0, len(base)+len(overlay))
+	usedBase := make([]bool, len(base))
+
+	for _, projectedItem := range overlay {
+		projectedID := stringValue(projectedItem["id"])
+		index := -1
+		semanticMatch := false
+
+		if projectedID != "" {
+			for itemIndex, item := range base {
+				if usedBase[itemIndex] {
+					continue
+				}
+				if stringValue(item["id"]) == projectedID {
+					index = itemIndex
+					break
+				}
+			}
+		}
+
+		if index < 0 {
+			index = findEquivalentProjectedItemIndexSkippingUsed(base, usedBase, projectedItem)
+			semanticMatch = index >= 0
+		}
+
+		if index < 0 {
+			result = append(result, cloneItem(projectedItem))
+			continue
+		}
+
+		usedBase[index] = true
+		merged := mergeProjectedItem(base[index], projectedItem)
+		if semanticMatch {
+			merged["id"] = chooseCanonicalProjectedItemID(
+				stringValue(base[index]["id"]),
+				projectedID,
+			)
+		}
+		result = append(result, merged)
+	}
+
+	for index, item := range base {
+		if usedBase[index] {
+			continue
+		}
+		result = append(result, cloneItem(item))
+	}
+
+	return result
+}
+
 func findEquivalentProjectedItemIndex(items []map[string]any, candidate map[string]any) int {
 	candidateType := stringValue(candidate["type"])
 	if candidateType == "" {
@@ -1238,6 +1294,39 @@ func findEquivalentProjectedItemIndex(items []map[string]any, candidate map[stri
 	matchingTypeIndices := make([]int, 0, len(items))
 
 	for index, item := range items {
+		if stringValue(item["type"]) != candidateType {
+			continue
+		}
+
+		matchingTypeIndices = append(matchingTypeIndices, index)
+		if candidateText != "" && projectedItemSemanticText(item) == candidateText {
+			return index
+		}
+	}
+
+	switch candidateType {
+	case "userMessage", "agentMessage", "reasoning":
+		if len(matchingTypeIndices) == 1 {
+			return matchingTypeIndices[0]
+		}
+	}
+
+	return -1
+}
+
+func findEquivalentProjectedItemIndexSkippingUsed(items []map[string]any, used []bool, candidate map[string]any) int {
+	candidateType := stringValue(candidate["type"])
+	if candidateType == "" {
+		return -1
+	}
+
+	candidateText := projectedItemSemanticText(candidate)
+	matchingTypeIndices := make([]int, 0, len(items))
+
+	for index, item := range items {
+		if index < len(used) && used[index] {
+			continue
+		}
 		if stringValue(item["type"]) != candidateType {
 			continue
 		}

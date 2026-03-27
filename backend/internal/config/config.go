@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,6 +20,7 @@ type Config struct {
 	Addr                  string
 	FrontendOrigin        string
 	PublicBaseURL         string
+	OutboundProxyURL      string
 	BaseCodexCommand      string
 	CodexCommand          string
 	CodexModelCatalogJSON string
@@ -31,6 +33,7 @@ type RuntimePreferences struct {
 	LocalShellModels            []string
 	DefaultShellType            string
 	ModelShellTypeOverrides     map[string]string
+	OutboundProxyURL            string
 	DefaultTurnApprovalPolicy   string
 	DefaultTurnSandboxPolicy    map[string]any
 	DefaultCommandSandboxPolicy map[string]any
@@ -52,6 +55,7 @@ func FromEnv() (Config, error) {
 	resolved, err := ResolveCodexRuntime(codexCommand, RuntimePreferences{
 		ModelCatalogPath: modelCatalogPath,
 		LocalShellModels: localShellModels,
+		OutboundProxyURL: getEnv("CODEX_SERVER_OUTBOUND_PROXY", ""),
 	})
 	if err != nil {
 		return Config{}, err
@@ -61,6 +65,7 @@ func FromEnv() (Config, error) {
 		Addr:                  getEnv("CODEX_SERVER_ADDR", ":18080"),
 		FrontendOrigin:        getEnv("CODEX_FRONTEND_ORIGIN", "http://0.0.0.0:15173"),
 		PublicBaseURL:         getEnv("CODEX_SERVER_PUBLIC_BASE_URL", ""),
+		OutboundProxyURL:      resolved.Preferences.OutboundProxyURL,
 		BaseCodexCommand:      codexCommand,
 		CodexCommand:          resolved.Command,
 		CodexModelCatalogJSON: resolved.Preferences.ModelCatalogPath,
@@ -73,6 +78,10 @@ func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (Resolved
 	modelCatalogPath := strings.TrimSpace(prefs.ModelCatalogPath)
 	localShellModels := normalizeModelTargets(prefs.LocalShellModels)
 	defaultShellType, err := normalizeShellType(prefs.DefaultShellType)
+	if err != nil {
+		return ResolvedRuntime{}, err
+	}
+	outboundProxyURL, err := NormalizeOutboundProxyURL(prefs.OutboundProxyURL)
 	if err != nil {
 		return ResolvedRuntime{}, err
 	}
@@ -124,6 +133,7 @@ func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (Resolved
 			LocalShellModels:            localShellModels,
 			DefaultShellType:            defaultShellType,
 			ModelShellTypeOverrides:     modelShellTypeOverrides,
+			OutboundProxyURL:            outboundProxyURL,
 			DefaultTurnApprovalPolicy:   defaultTurnApprovalPolicy,
 			DefaultTurnSandboxPolicy:    defaultTurnSandboxPolicy,
 			DefaultCommandSandboxPolicy: defaultCommandSandboxPolicy,
@@ -181,6 +191,36 @@ func parseCSVEnv(value string) []string {
 		items = append(items, trimmed)
 	}
 	return items
+}
+
+func NormalizeOutboundProxyURL(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("invalid outbound proxy url: %w", err)
+	}
+
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	switch scheme {
+	case "http", "https", "socks5", "socks5h":
+		parsed.Scheme = scheme
+	default:
+		return "", errors.New("outbound proxy url must use http, https, socks5, or socks5h")
+	}
+
+	if strings.TrimSpace(parsed.Host) == "" {
+		return "", errors.New("outbound proxy url must include a host")
+	}
+
+	return parsed.String(), nil
 }
 
 func normalizeModelTargets(values []string) []string {

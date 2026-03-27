@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turns"
@@ -39,18 +40,73 @@ type Provider interface {
 	SendMessages(ctx context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error
 }
 
+type StreamingReplySession interface {
+	Update(ctx context.Context, update StreamingUpdate) error
+	Complete(ctx context.Context, messages []OutboundMessage) error
+	Fail(ctx context.Context, text string) error
+}
+
+type StreamingProvider interface {
+	Provider
+	StartStreamingReply(
+		ctx context.Context,
+		connection store.BotConnection,
+		conversation store.BotConversation,
+	) (StreamingReplySession, error)
+}
+
+type PollingMessageHandler func(ctx context.Context, message InboundMessage) error
+
+type PollingSettingsHandler func(ctx context.Context, settings map[string]string) error
+
+type PollingProvider interface {
+	Provider
+	SupportsPolling(connection store.BotConnection) bool
+	RunPolling(
+		ctx context.Context,
+		connection store.BotConnection,
+		handleMessage PollingMessageHandler,
+		updateSettings PollingSettingsHandler,
+	) error
+}
+
 type AIBackend interface {
 	Name() string
 	ProcessMessage(ctx context.Context, connection store.BotConnection, conversation store.BotConversation, inbound InboundMessage) (AIResult, error)
 }
 
+type StreamingUpdate struct {
+	Text     string
+	Messages []OutboundMessage
+}
+
+type StreamingUpdateHandler func(ctx context.Context, update StreamingUpdate) error
+
+type StreamingAIBackend interface {
+	AIBackend
+	ProcessMessageStream(
+		ctx context.Context,
+		connection store.BotConnection,
+		conversation store.BotConversation,
+		inbound InboundMessage,
+		handle StreamingUpdateHandler,
+	) (AIResult, error)
+}
+
+type ApprovalResponder interface {
+	List(workspaceID string) []store.PendingApproval
+	Respond(ctx context.Context, requestID string, input approvals.ResponseInput) (store.PendingApproval, error)
+}
+
 type Config struct {
-	PublicBaseURL string
-	HTTPClient    *http.Client
-	PollInterval  time.Duration
-	TurnTimeout   time.Duration
-	Providers     []Provider
-	AIBackends    []AIBackend
+	PublicBaseURL    string
+	OutboundProxyURL string
+	HTTPClient       *http.Client
+	PollInterval     time.Duration
+	TurnTimeout      time.Duration
+	Approvals        ApprovalResponder
+	Providers        []Provider
+	AIBackends       []AIBackend
 }
 
 type ActivationResult struct {
@@ -60,6 +116,8 @@ type ActivationResult struct {
 
 type InboundMessage struct {
 	ConversationID string
+	ExternalChatID string
+	ExternalThreadID string
 	MessageID      string
 	UserID         string
 	Username       string

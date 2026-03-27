@@ -34,7 +34,9 @@ describe('botsPageUtils', () => {
         reasoning_effort: 'high',
         collaboration_mode: 'plan',
       },
-      settings: undefined,
+      settings: {
+        telegram_delivery_mode: 'webhook',
+      },
       secrets: {
         bot_token: 'token-1',
       },
@@ -67,11 +69,39 @@ describe('botsPageUtils', () => {
         store: 'false',
       },
       settings: {
+        telegram_delivery_mode: 'webhook',
         openai_base_url: 'https://api.openai.com/v1/responses',
       },
       secrets: {
         bot_token: 'token-2',
         openai_api_key: 'sk-test',
+      },
+    })
+  })
+
+  it('omits public base url for telegram polling mode', () => {
+    const input = buildBotConnectionCreateInput({
+      ...EMPTY_BOTS_PAGE_DRAFT,
+      telegramDeliveryMode: 'polling',
+      publicBaseUrl: ' https://bots.example.com ',
+      telegramBotToken: ' token-3 ',
+    })
+
+    expect(input).toEqual({
+      provider: 'telegram',
+      name: '',
+      publicBaseUrl: undefined,
+      aiBackend: 'workspace_thread',
+      aiConfig: {
+        model: 'gpt-5.4',
+        reasoning_effort: 'medium',
+        collaboration_mode: 'default',
+      },
+      settings: {
+        telegram_delivery_mode: 'polling',
+      },
+      secrets: {
+        bot_token: 'token-3',
       },
     })
   })
@@ -87,13 +117,14 @@ describe('botsPageUtils', () => {
         connectionId: 'bot_1',
         provider: 'telegram',
         externalChatId: 'chat_1',
+        externalThreadId: '77',
         externalUserId: 'user_1',
         externalUsername: 'alice',
         externalTitle: 'Alice A.',
         createdAt: '2026-03-25T00:00:00.000Z',
         updatedAt: '2026-03-25T00:00:00.000Z',
       }),
-    ).toBe('Alice A.')
+    ).toBe('Alice A. (topic 77)')
 
     expect(
       formatBotConversationTitle({

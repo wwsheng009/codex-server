@@ -229,6 +229,47 @@ func TestResolveCodexRuntimeRejectsUnknownShellType(t *testing.T) {
 	}
 }
 
+func TestNormalizeOutboundProxyURL(t *testing.T) {
+	t.Run("adds http scheme when missing", func(t *testing.T) {
+		got, err := NormalizeOutboundProxyURL("127.0.0.1:7890")
+		if err != nil {
+			t.Fatalf("NormalizeOutboundProxyURL() error = %v", err)
+		}
+		if got != "http://127.0.0.1:7890" {
+			t.Fatalf("NormalizeOutboundProxyURL() = %q", got)
+		}
+	})
+
+	t.Run("keeps socks5 proxy url", func(t *testing.T) {
+		got, err := NormalizeOutboundProxyURL("socks5://127.0.0.1:1080")
+		if err != nil {
+			t.Fatalf("NormalizeOutboundProxyURL() error = %v", err)
+		}
+		if got != "socks5://127.0.0.1:1080" {
+			t.Fatalf("NormalizeOutboundProxyURL() = %q", got)
+		}
+	})
+
+	t.Run("rejects unsupported scheme", func(t *testing.T) {
+		if _, err := NormalizeOutboundProxyURL("ftp://127.0.0.1:21"); err == nil {
+			t.Fatal("expected NormalizeOutboundProxyURL to reject unsupported scheme")
+		}
+	})
+}
+
+func TestResolveCodexRuntimeCarriesOutboundProxyURL(t *testing.T) {
+	resolved, err := ResolveCodexRuntime("codex app-server --listen stdio://", RuntimePreferences{
+		OutboundProxyURL: "127.0.0.1:7890",
+	})
+	if err != nil {
+		t.Fatalf("ResolveCodexRuntime() error = %v", err)
+	}
+
+	if resolved.Preferences.OutboundProxyURL != "http://127.0.0.1:7890" {
+		t.Fatalf("expected normalized outbound proxy url, got %q", resolved.Preferences.OutboundProxyURL)
+	}
+}
+
 func writeTestCatalog(t *testing.T, catalog map[string]any) string {
 	t.Helper()
 

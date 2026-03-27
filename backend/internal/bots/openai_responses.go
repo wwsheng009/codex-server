@@ -17,7 +17,7 @@ import (
 const openAIResponsesBackendName = "openai_responses"
 
 type openAIResponsesBackend struct {
-	client *http.Client
+	clients httpClientSource
 }
 
 type openAIResponsesRequest struct {
@@ -54,11 +54,15 @@ type openAIErrorResponse struct {
 }
 
 func newOpenAIResponsesBackend(client *http.Client) AIBackend {
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+	return newOpenAIResponsesBackendWithClientSource(staticHTTPClientSource{client: client})
+}
+
+func newOpenAIResponsesBackendWithClientSource(clients httpClientSource) AIBackend {
+	if clients == nil {
+		clients = staticHTTPClientSource{}
 	}
 
-	return &openAIResponsesBackend{client: client}
+	return &openAIResponsesBackend{clients: clients}
 }
 
 func (b *openAIResponsesBackend) Name() string {
@@ -163,7 +167,7 @@ func (b *openAIResponsesBackend) createResponse(
 		request.Header.Set("OpenAI-Project", project)
 	}
 
-	httpResponse, err := b.client.Do(request)
+	httpResponse, err := b.client(30 * time.Second).Do(request)
 	if err != nil {
 		return openAIResponsesResponse{}, fmt.Errorf("openai responses request failed: %w", err)
 	}
@@ -207,4 +211,12 @@ func extractOpenAIResponseText(response openAIResponsesResponse) string {
 	}
 
 	return strings.Join(parts, "\n\n")
+}
+
+func (b *openAIResponsesBackend) client(timeout time.Duration) *http.Client {
+	if b.clients == nil {
+		return staticHTTPClientSource{}.Client(timeout)
+	}
+
+	return b.clients.Client(timeout)
 }

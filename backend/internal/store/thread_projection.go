@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvelope) bool {
 	payload := asObject(event.Payload)
@@ -64,7 +67,7 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 			}
 
 			if items := readTurnItems(turn["items"]); len(items) > 0 {
-				next.Items = items
+				next.Items = mergeProjectedTurnItemsPreserveCurrentOrder(next.Items, items)
 			}
 			if hasOwn(turn, "error") {
 				next.Error = turn["error"]
@@ -382,6 +385,152 @@ func mergeProjectedItem(current map[string]any, incoming map[string]any) map[str
 	}
 
 	return merged
+}
+
+func mergeProjectedTurnItemsPreserveCurrentOrder(base []map[string]any, overlay []map[string]any) []map[string]any {
+	if len(overlay) == 0 {
+		return cloneItems(base)
+	}
+
+	nextItems := cloneItems(base)
+	for _, projectedItem := range overlay {
+		projectedID := stringValue(projectedItem["id"])
+		if projectedID == "" {
+			nextItems = append(nextItems, cloneItem(projectedItem))
+			continue
+		}
+
+		index := -1
+		for itemIndex, item := range nextItems {
+			if stringValue(item["id"]) == projectedID {
+				index = itemIndex
+				break
+			}
+		}
+
+		semanticMatch := false
+		if index < 0 {
+			index = findEquivalentProjectedTurnItemIndex(nextItems, projectedItem)
+			semanticMatch = index >= 0
+		}
+
+		if index < 0 {
+			nextItems = append(nextItems, cloneItem(projectedItem))
+			continue
+		}
+
+		merged := mergeProjectedItem(nextItems[index], projectedItem)
+		if semanticMatch {
+			merged["id"] = chooseCanonicalProjectedTurnItemID(
+				stringValue(nextItems[index]["id"]),
+				projectedID,
+			)
+		}
+		nextItems[index] = merged
+	}
+
+	return nextItems
+}
+
+func findEquivalentProjectedTurnItemIndex(items []map[string]any, candidate map[string]any) int {
+	candidateType := stringValue(candidate["type"])
+	if candidateType == "" {
+		return -1
+	}
+
+	candidateText := projectedTurnItemSemanticText(candidate)
+	matchingTypeIndices := make([]int, 0, len(items))
+
+	for index, item := range items {
+		if stringValue(item["type"]) != candidateType {
+			continue
+		}
+
+		matchingTypeIndices = append(matchingTypeIndices, index)
+		if candidateText != "" && projectedTurnItemSemanticText(item) == candidateText {
+			return index
+		}
+	}
+
+	switch candidateType {
+	case "userMessage", "agentMessage", "reasoning":
+		if len(matchingTypeIndices) == 1 {
+			return matchingTypeIndices[0]
+		}
+	}
+
+	return -1
+}
+
+func projectedTurnItemSemanticText(item map[string]any) string {
+	switch stringValue(item["type"]) {
+	case "userMessage":
+		return normalizeProjectedTurnItemText(userMessageProjectedContentText(item))
+	case "agentMessage", "plan":
+		return normalizeProjectedTurnItemText(stringValue(item["text"]))
+	case "reasoning":
+		return normalizeProjectedTurnItemText(
+			strings.Join(stringSlice(item["summary"]), "\n") + "\n" + strings.Join(stringSlice(item["content"]), "\n"),
+		)
+	default:
+		return ""
+	}
+}
+
+func userMessageProjectedContentText(item map[string]any) string {
+	rawContent, ok := item["content"].([]any)
+	if !ok || len(rawContent) == 0 {
+		return ""
+	}
+
+	lines := make([]string, 0, len(rawContent))
+	for _, rawEntry := range rawContent {
+		entry := asObject(rawEntry)
+		text := strings.TrimSpace(stringValue(entry["text"]))
+		if text != "" {
+			lines = append(lines, text)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func normalizeProjectedTurnItemText(value string) string {
+	return strings.TrimSpace(strings.ReplaceAll(value, "\r\n", "\n"))
+}
+
+func chooseCanonicalProjectedTurnItemID(baseID string, overlayID string) string {
+	if baseID == "" {
+		return overlayID
+	}
+	if overlayID == "" {
+		return baseID
+	}
+
+	baseTemporary := isTemporaryProjectedTurnItemID(baseID)
+	overlayTemporary := isTemporaryProjectedTurnItemID(overlayID)
+	switch {
+	case baseTemporary && !overlayTemporary:
+		return overlayID
+	case !baseTemporary && overlayTemporary:
+		return baseID
+	default:
+		return baseID
+	}
+}
+
+func isTemporaryProjectedTurnItemID(value string) bool {
+	if !strings.HasPrefix(value, "item-") {
+		return false
+	}
+
+	for _, r := range value[len("item-"):] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return len(value) > len("item-")
 }
 
 func parseThreadTokenUsage(value any) *ThreadTokenUsage {

@@ -63,6 +63,7 @@ func main() {
 		cfg.BaseCodexCommand,
 		cfg.CodexModelCatalogJSON,
 		cfg.CodexLocalShellModels,
+		cfg.OutboundProxyURL,
 	)
 
 	authService := auth.NewService(dataStore, runtimeManager)
@@ -70,7 +71,8 @@ func main() {
 	threadService := threads.NewService(dataStore, runtimeManager)
 	turnService := turns.NewService(runtimeManager, dataStore)
 	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
-		PublicBaseURL: cfg.PublicBaseURL,
+		PublicBaseURL:    cfg.PublicBaseURL,
+		OutboundProxyURL: cfg.OutboundProxyURL,
 	})
 	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
 	notificationsService := notifications.NewService(dataStore)

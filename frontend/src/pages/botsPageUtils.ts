@@ -6,6 +6,7 @@ export type BotsPageDraft = {
   workspaceId: string
   provider: string
   name: string
+  telegramDeliveryMode: string
   publicBaseUrl: string
   aiBackend: string
   telegramBotToken: string
@@ -24,6 +25,7 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   workspaceId: '',
   provider: 'telegram',
   name: '',
+  telegramDeliveryMode: 'webhook',
   publicBaseUrl: '',
   aiBackend: 'workspace_thread',
   telegramBotToken: '',
@@ -42,6 +44,10 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   const aiConfig: Record<string, string> = {}
   const settings: Record<string, string> = {}
   const secrets: Record<string, string> = {}
+
+  if (draft.provider === 'telegram') {
+    settings.telegram_delivery_mode = draft.telegramDeliveryMode.trim() || 'webhook'
+  }
 
   if (draft.aiBackend === 'workspace_thread') {
     if (draft.workspaceModel.trim()) {
@@ -80,7 +86,10 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   return {
     provider: draft.provider,
     name: draft.name.trim(),
-    publicBaseUrl: draft.publicBaseUrl.trim() || undefined,
+    publicBaseUrl:
+      draft.provider === 'telegram' && (draft.telegramDeliveryMode.trim() || 'webhook') === 'webhook'
+        ? draft.publicBaseUrl.trim() || undefined
+        : undefined,
     aiBackend: draft.aiBackend,
     aiConfig: Object.keys(aiConfig).length ? aiConfig : undefined,
     settings: Object.keys(settings).length ? settings : undefined,
@@ -135,10 +144,15 @@ export function summarizeBotMap(value: Record<string, string> | null | undefined
 }
 
 export function formatBotConversationTitle(conversation: BotConversation) {
-  return (
+  const baseTitle =
     conversation.externalTitle ||
     conversation.externalUsername ||
     conversation.externalUserId ||
     conversation.externalChatId
-  )
+
+  if (conversation.externalThreadId) {
+    return `${baseTitle} (topic ${conversation.externalThreadId})`
+  }
+
+  return baseTitle
 }

@@ -162,6 +162,20 @@ export function BotsPage() {
     [],
   )
 
+  const telegramDeliveryModeOptions = useMemo(
+    () => [
+      {
+        value: 'webhook',
+        label: i18n._({ id: 'Webhook', message: 'Webhook' }),
+      },
+      {
+        value: 'polling',
+        label: i18n._({ id: 'Long Polling', message: 'Long Polling' }),
+      },
+    ],
+    [],
+  )
+
   const reasoningOptions = useMemo(
     () => [
       { value: 'low', label: i18n._({ id: 'Low', message: 'Low' }) },
@@ -184,6 +198,9 @@ export function BotsPage() {
   const formErrorMessage = formError || (createMutation.error ? getErrorMessage(createMutation.error) : '')
   const actionErrorMessage = actionMutation.error ? getErrorMessage(actionMutation.error) : ''
   const deleteErrorMessage = deleteMutation.error ? getErrorMessage(deleteMutation.error) : ''
+  const draftTelegramDeliveryMode = draft.telegramDeliveryMode.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
+  const selectedTelegramDeliveryMode =
+    selectedConnection?.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
 
   function openCreateModal() {
     createMutation.reset()
@@ -191,6 +208,7 @@ export function BotsPage() {
     setDraft((current) => ({
       ...EMPTY_BOTS_PAGE_DRAFT,
       workspaceId: selectedWorkspaceId || workspaces[0]?.id || '',
+      telegramDeliveryMode: current.telegramDeliveryMode,
       publicBaseUrl: current.publicBaseUrl,
     }))
     setCreateModalOpen(true)
@@ -284,9 +302,9 @@ export function BotsPage() {
           </div>
           <div className="mode-strip__description">
             {i18n._({
-              id: 'Connect Telegram bots to a workspace thread backend now, or route replies through OpenAI Responses when you need direct API execution.',
+              id: 'Connect Telegram bots with either webhook or long-polling delivery, then route replies through Workspace Thread or OpenAI Responses.',
               message:
-                'Connect Telegram bots to a workspace thread backend now, or route replies through OpenAI Responses when you need direct API execution.',
+                'Connect Telegram bots with either webhook or long-polling delivery, then route replies through Workspace Thread or OpenAI Responses.',
             })}
           </div>
         </div>
@@ -364,9 +382,9 @@ export function BotsPage() {
                 <h2>{i18n._({ id: 'Provider Posture', message: 'Provider Posture' })}</h2>
                 <p>
                   {i18n._({
-                    id: 'Telegram is live today. Discord ordinary message intake can be added later through a gateway worker without changing the core orchestration flow.',
+                    id: 'Telegram supports both webhook and long-polling intake. Discord ordinary message intake can be added later through a gateway worker without changing the core orchestration flow.',
                     message:
-                      'Telegram is live today. Discord ordinary message intake can be added later through a gateway worker without changing the core orchestration flow.',
+                      'Telegram supports both webhook and long-polling intake. Discord ordinary message intake can be added later through a gateway worker without changing the core orchestration flow.',
                   })}
                 </p>
               </div>
@@ -383,14 +401,32 @@ export function BotsPage() {
             </div>
             <div className="detail-list">
               <div className="detail-row">
-                <span>{i18n._({ id: 'Webhook Route', message: 'Webhook Route' })}</span>
-                <strong>/hooks/bots/{selectedConnection?.id ?? '{connectionId}'}</strong>
+                <span>{i18n._({ id: 'Delivery Mode', message: 'Delivery Mode' })}</span>
+                <strong>
+                  {selectedTelegramDeliveryMode === 'polling'
+                    ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
+                    : i18n._({ id: 'Webhook', message: 'Webhook' })}
+                </strong>
+              </div>
+              <div className="detail-row">
+                <span>
+                  {selectedTelegramDeliveryMode === 'polling'
+                    ? i18n._({ id: 'Update Intake', message: 'Update Intake' })
+                    : i18n._({ id: 'Webhook Route', message: 'Webhook Route' })}
+                </span>
+                <strong>
+                  {selectedTelegramDeliveryMode === 'polling'
+                    ? i18n._({ id: 'Telegram getUpdates long polling', message: 'Telegram getUpdates long polling' })
+                    : `/hooks/bots/${selectedConnection?.id ?? '{connectionId}'}`}
+                </strong>
               </div>
               <div className="detail-row">
                 <span>{i18n._({ id: 'Public URL', message: 'Public URL' })}</span>
                 <strong>
-                  {selectedConnection?.settings?.webhook_url ??
-                    i18n._({ id: 'resolved at activation', message: 'resolved at activation' })}
+                  {selectedTelegramDeliveryMode === 'polling'
+                    ? i18n._({ id: 'not required in polling mode', message: 'not required in polling mode' })
+                    : selectedConnection?.settings?.webhook_url ??
+                      i18n._({ id: 'resolved at activation', message: 'resolved at activation' })}
                 </strong>
               </div>
             </div>
@@ -464,8 +500,9 @@ export function BotsPage() {
                 {!connectionsQuery.isLoading && !connections.length ? (
                   <div className="empty-state">
                     {i18n._({
-                      id: 'No bot connections yet. Start with a Telegram token and a reachable public webhook URL.',
-                      message: 'No bot connections yet. Start with a Telegram token and a reachable public webhook URL.',
+                      id: 'No bot connections yet. Start with a Telegram token, then choose webhook or long polling based on your deployment.',
+                      message:
+                        'No bot connections yet. Start with a Telegram token, then choose webhook or long polling based on your deployment.',
                     })}
                   </div>
                 ) : null}
@@ -592,6 +629,14 @@ export function BotsPage() {
                           <strong>{formatBotBackendLabel(selectedConnection.aiBackend)}</strong>
                         </div>
                         <div className="detail-row">
+                          <span>{i18n._({ id: 'Telegram Mode', message: 'Telegram Mode' })}</span>
+                          <strong>
+                            {selectedTelegramDeliveryMode === 'polling'
+                              ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
+                              : i18n._({ id: 'Webhook', message: 'Webhook' })}
+                          </strong>
+                        </div>
+                        <div className="detail-row">
                           <span>{i18n._({ id: 'Updated', message: 'Updated' })}</span>
                           <strong>{formatBotTimestamp(selectedConnection.updatedAt)}</strong>
                         </div>
@@ -709,8 +754,9 @@ export function BotsPage() {
       {createModalOpen ? (
         <Modal
           description={i18n._({
-            id: 'Create a provider connection, activate its webhook, and bind it to an AI execution backend.',
-            message: 'Create a provider connection, activate its webhook, and bind it to an AI execution backend.',
+            id: 'Create a provider connection, choose webhook or long polling delivery, and bind it to an AI execution backend.',
+            message:
+              'Create a provider connection, choose webhook or long polling delivery, and bind it to an AI execution backend.',
           })}
           footer={createModalFooter}
           onClose={closeCreateModal}
@@ -733,6 +779,16 @@ export function BotsPage() {
                 {formErrorMessage}
               </InlineNotice>
             ) : null}
+
+            <p className="config-inline-note">
+              {i18n._({
+                id: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
+                message: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
+              })}{' '}
+              <Link to="/settings/config">
+                {i18n._({ id: 'Open Settings', message: 'Open Settings' })}
+              </Link>
+            </p>
 
             <div className="form-row">
               <label className="field">
@@ -761,37 +817,16 @@ export function BotsPage() {
             </div>
 
             <div className="form-row">
-              <Input
-                hint={i18n._({
-                  id: 'Optional. Defaults to a provider-specific connection name.',
-                  message: 'Optional. Defaults to a provider-specific connection name.',
-                })}
-                label={i18n._({ id: 'Connection Name', message: 'Connection Name' })}
-                onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                placeholder={i18n._({ id: 'Support Bot', message: 'Support Bot' })}
-                value={draft.name}
-              />
-              <Input
-                hint={i18n._({
-                  id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                  message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                })}
-                label={i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
-                onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
-                placeholder="https://bots.example.com"
-                value={draft.publicBaseUrl}
-              />
-            </div>
-
-            <Input
-              label={i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
-              onChange={(event) => setDraft((current) => ({ ...current, telegramBotToken: event.target.value }))}
-              placeholder={i18n._({ id: '123456:ABCDEF...', message: '123456:ABCDEF...' })}
-              type="password"
-              value={draft.telegramBotToken}
-            />
-
-            <div className="form-row">
+              <label className="field">
+                <span>{i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}</span>
+                <SelectControl
+                  ariaLabel={i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}
+                  fullWidth
+                  onChange={(nextValue) => setDraft((current) => ({ ...current, telegramDeliveryMode: nextValue }))}
+                  options={telegramDeliveryModeOptions}
+                  value={draft.telegramDeliveryMode}
+                />
+              </label>
               <label className="field">
                 <span>{i18n._({ id: 'AI Backend', message: 'AI Backend' })}</span>
                 <SelectControl
@@ -803,6 +838,40 @@ export function BotsPage() {
                 />
               </label>
             </div>
+
+            <div className="form-row">
+              <Input
+                hint={i18n._({
+                  id: 'Optional. Defaults to a provider-specific connection name.',
+                  message: 'Optional. Defaults to a provider-specific connection name.',
+                })}
+                label={i18n._({ id: 'Connection Name', message: 'Connection Name' })}
+                onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                placeholder={i18n._({ id: 'Support Bot', message: 'Support Bot' })}
+                value={draft.name}
+              />
+            </div>
+
+            {draftTelegramDeliveryMode === 'webhook' ? (
+              <Input
+                hint={i18n._({
+                  id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                  message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                })}
+                label={i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
+                onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
+                placeholder="https://bots.example.com"
+                value={draft.publicBaseUrl}
+              />
+            ) : null}
+
+            <Input
+              label={i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
+              onChange={(event) => setDraft((current) => ({ ...current, telegramBotToken: event.target.value }))}
+              placeholder={i18n._({ id: '123456:ABCDEF...', message: '123456:ABCDEF...' })}
+              type="password"
+              value={draft.telegramBotToken}
+            />
 
             {draft.aiBackend === 'workspace_thread' ? (
               <>

@@ -121,7 +121,9 @@ export type BotConversation = {
   workspaceId: string
   connectionId: string
   provider: string
+  externalConversationId?: string
   externalChatId: string
+  externalThreadId?: string
   externalUserId?: string
   externalUsername?: string
   externalTitle?: string
@@ -266,10 +268,32 @@ export type CatalogItem = {
   shellType?: string
 }
 
+export type PluginCatalogItem = {
+  id: string
+  name: string
+  description: string
+  marketplaceName: string
+  marketplacePath?: string
+  installed: boolean
+  enabled: boolean
+  authPolicy?: string
+  installPolicy?: string
+  sourceType?: string
+  sourcePath?: string
+  capabilities?: string[] | null
+  category?: string | null
+  brandColor?: string | null
+}
+
 export type RemoteSkillSummary = {
   id: string
   name: string
   description: string
+}
+
+export type PluginListResult = {
+  plugins: PluginCatalogItem[]
+  remoteSyncError?: string | null
 }
 
 export type RemoteSkillWriteResult = {
@@ -311,6 +335,7 @@ export type RuntimePreferencesResult = {
   configuredDefaultTerminalShell: string
   supportedTerminalShells: string[]
   configuredModelShellTypeOverrides: Record<string, string>
+  configuredOutboundProxyUrl: string
   configuredDefaultTurnApprovalPolicy: string
   configuredDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   configuredDefaultCommandSandboxPolicy?: Record<string, unknown> | null
@@ -318,6 +343,7 @@ export type RuntimePreferencesResult = {
   defaultDefaultShellType: string
   defaultDefaultTerminalShell: string
   defaultModelShellTypeOverrides: Record<string, string>
+  defaultOutboundProxyUrl: string
   defaultDefaultTurnApprovalPolicy: string
   defaultDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   defaultDefaultCommandSandboxPolicy?: Record<string, unknown> | null
@@ -325,6 +351,7 @@ export type RuntimePreferencesResult = {
   effectiveDefaultShellType: string
   effectiveDefaultTerminalShell: string
   effectiveModelShellTypeOverrides: Record<string, string>
+  effectiveOutboundProxyUrl: string
   effectiveDefaultTurnApprovalPolicy: string
   effectiveDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   effectiveDefaultCommandSandboxPolicy?: Record<string, unknown> | null
