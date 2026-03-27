@@ -383,6 +383,8 @@
 .field-hint {
   color: var(--text-faint);
   font-size: 0.78rem;
+  display: block;
+  line-height: 1.4;
   margin-top: 2px;
 }
 
@@ -2870,7 +2872,7 @@
   margin-top: 2px;
 }
 
-.field-hint {
+.field-hint-badge {
   display: inline-flex;
   width: 18px;
   height: 18px;
@@ -2888,7 +2890,7 @@
   vertical-align: middle;
 }
 
-.field-hint:hover {
+.field-hint-badge:hover {
   border-color: var(--border-accent);
   color: var(--accent);
 }

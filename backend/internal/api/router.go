@@ -267,6 +267,7 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 		DefaultShellType            string            `json:"defaultShellType"`
 		DefaultTerminalShell        string            `json:"defaultTerminalShell"`
 		ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides"`
+		OutboundProxyURL            string            `json:"outboundProxyUrl"`
 		DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy"`
 		DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy"`
 		DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy"`
@@ -282,6 +283,7 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 		DefaultShellType:            request.DefaultShellType,
 		DefaultTerminalShell:        request.DefaultTerminalShell,
 		ModelShellTypeOverrides:     request.ModelShellTypeOverrides,
+		OutboundProxyURL:            request.OutboundProxyURL,
 		DefaultTurnApprovalPolicy:   request.DefaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:    request.DefaultTurnSandboxPolicy,
 		DefaultCommandSandboxPolicy: request.DefaultCommandSandboxPolicy,

@@ -8,6 +8,7 @@ import { InlineNotice } from '../../components/ui/InlineNotice'
 import { SelectControl } from '../../components/ui/SelectControl'
 import { SendIcon, StopIcon } from '../../components/ui/RailControls'
 import { ApprovalDialog } from '../../components/workspace/renderers'
+import { parseBangShellCommandShortcut } from './threadShellShortcut'
 import {
   ComposerCloseIcon,
   ComposerOptionGlyph,
@@ -138,6 +139,7 @@ export function ThreadComposerDock({
 }: ThreadComposerDockProps) {
   const isAutocompleteOpen =
     isCommandAutocompleteOpen || isMentionAutocompleteOpen || isSkillAutocompleteOpen
+  const bangShellCommand = parseBangShellCommandShortcut(message)
   const composerMinRows = isMobileViewport ? 2 : 3
   const composerMaxRows = isMobileViewport ? 6 : 8
   const modeLabel = i18n._({ id: 'Mode', message: 'Mode' })
@@ -652,6 +654,23 @@ export function ThreadComposerDock({
                 ) : null}
               </div>
             </div>
+          ) : null}
+          {bangShellCommand ? (
+            <InlineNotice
+              className="composer-dock__status-banner"
+              details={bangShellCommand}
+              noticeKey={`composer-shell-shortcut-${bangShellCommand}`}
+              title={i18n._({
+                id: 'Shell shortcut',
+                message: 'Shell shortcut',
+              })}
+            >
+              {i18n._({
+                id: 'This input will run through thread/shellCommand with unsandboxed full access.',
+                message:
+                  'This input will run through thread/shellCommand with unsandboxed full access.',
+              })}
+            </InlineNotice>
           ) : null}
           {isMobileViewport ? (
             <div className="composer-dock__footer composer-dock__footer--mobile">

@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react'
 
 import { i18n } from '../../i18n/runtime'
 import {
+  shouldRefreshMcpServerStatusForEvent,
   shouldRefreshLoadedThreadsForEvent,
+  shouldRefreshRuntimeCatalogForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
@@ -32,7 +34,9 @@ export function useThreadPageRefreshEffects({
   const previousStreamStateRef = useRef(streamState)
   const lastProcessedThreadEventKeyRef = useRef('')
   const lastProcessedWorkspaceActivityEventKeyRef = useRef('')
+  const mcpServerStatusRefreshTimerRef = useRef<number | null>(null)
   const pendingThreadListRefreshRef = useRef(false)
+  const runtimeCatalogRefreshTimerRef = useRef<number | null>(null)
   const pendingLoadedThreadRefreshRef = useRef(false)
 
   useEffect(() => {
@@ -84,6 +88,32 @@ export function useThreadPageRefreshEffects({
       threadDetailRefreshTimerRef.current = null
       void queryClient.invalidateQueries({
         queryKey: ['thread-detail', workspaceId, selectedThreadId],
+      })
+    }, delayMs)
+  }
+
+  function scheduleMcpServerStatusRefresh(delayMs = 180) {
+    if (mcpServerStatusRefreshTimerRef.current) {
+      window.clearTimeout(mcpServerStatusRefreshTimerRef.current)
+    }
+
+    mcpServerStatusRefreshTimerRef.current = window.setTimeout(() => {
+      mcpServerStatusRefreshTimerRef.current = null
+      void queryClient.invalidateQueries({
+        queryKey: ['mcp-server-status', workspaceId],
+      })
+    }, delayMs)
+  }
+
+  function scheduleRuntimeCatalogRefresh(delayMs = 220) {
+    if (runtimeCatalogRefreshTimerRef.current) {
+      window.clearTimeout(runtimeCatalogRefreshTimerRef.current)
+    }
+
+    runtimeCatalogRefreshTimerRef.current = window.setTimeout(() => {
+      runtimeCatalogRefreshTimerRef.current = null
+      void queryClient.invalidateQueries({
+        queryKey: ['runtime-catalog', workspaceId],
       })
     }, delayMs)
   }
@@ -278,10 +308,24 @@ export function useThreadPageRefreshEffects({
     if (shouldRefreshLoadedThreadsForEvent(latestEvent.method)) {
       scheduleThreadQueryRefresh({ loadedThreads: true })
     }
+
+    if (shouldRefreshMcpServerStatusForEvent(latestEvent.method)) {
+      scheduleMcpServerStatusRefresh()
+    }
+
+    if (shouldRefreshRuntimeCatalogForEvent(latestEvent.method)) {
+      scheduleRuntimeCatalogRefresh()
+    }
   }, [queryClient, threadListRefreshTimerRef, workspaceActivityEvents, workspaceId])
 
   useEffect(
     () => () => {
+      if (mcpServerStatusRefreshTimerRef.current) {
+        window.clearTimeout(mcpServerStatusRefreshTimerRef.current)
+      }
+      if (runtimeCatalogRefreshTimerRef.current) {
+        window.clearTimeout(runtimeCatalogRefreshTimerRef.current)
+      }
       if (threadListRefreshTimerRef.current) {
         window.clearTimeout(threadListRefreshTimerRef.current)
       }

@@ -76,6 +76,33 @@ export type ThreadWorkbenchSurfaceProps = {
 const OLDER_TURNS_AUTOLOAD_THRESHOLD_PX = 72
 const OLDER_TURNS_AUTOLOAD_IDLE_DELAY_MS = 0
 
+export function shouldScheduleOlderTurnsAutoload({
+  hasMoreTurnsBefore,
+  isLoadingOlderTurns,
+  scrollTop,
+  thresholdPx = OLDER_TURNS_AUTOLOAD_THRESHOLD_PX,
+}: {
+  hasMoreTurnsBefore: boolean
+  isLoadingOlderTurns: boolean
+  scrollTop: number | null
+  thresholdPx?: number
+}) {
+  return (
+    hasMoreTurnsBefore &&
+    !isLoadingOlderTurns &&
+    typeof scrollTop === 'number' &&
+    scrollTop <= thresholdPx
+  )
+}
+
+export function triggerOlderTurnsLoadWithAnchor({
+  onCaptureOlderTurnsAnchor,
+  onLoadOlderTurns,
+}: Pick<ThreadWorkbenchSurfaceProps, 'onCaptureOlderTurnsAnchor' | 'onLoadOlderTurns'>) {
+  onCaptureOlderTurnsAnchor('preserve-position')
+  onLoadOlderTurns()
+}
+
 export function ThreadWorkbenchSurface({
   activePendingTurnPhase: _activePendingTurnPhase,
   activeSurfacePanelSide,
@@ -151,9 +178,11 @@ export function ThreadWorkbenchSurface({
 
     const viewport = threadViewportRef.current
     if (
-      !viewport ||
-      !hasMoreTurnsBefore ||
-      viewport.scrollTop > OLDER_TURNS_AUTOLOAD_THRESHOLD_PX
+      !shouldScheduleOlderTurnsAutoload({
+        hasMoreTurnsBefore,
+        isLoadingOlderTurns,
+        scrollTop: viewport?.scrollTop ?? null,
+      })
     ) {
       pendingOlderTurnsAutoloadRef.current = false
       return
@@ -164,19 +193,28 @@ export function ThreadWorkbenchSurface({
       if (
         !pendingOlderTurnsAutoloadRef.current ||
         !latestViewport ||
-        latestViewport.scrollTop > OLDER_TURNS_AUTOLOAD_THRESHOLD_PX
+        !shouldScheduleOlderTurnsAutoload({
+          hasMoreTurnsBefore,
+          isLoadingOlderTurns,
+          scrollTop: latestViewport.scrollTop,
+        })
       ) {
+        pendingOlderTurnsAutoloadRef.current = false
         return
       }
 
       pendingOlderTurnsAutoloadRef.current = false
-      onLoadOlderTurns()
+      triggerOlderTurnsLoadWithAnchor({
+        onCaptureOlderTurnsAnchor,
+        onLoadOlderTurns,
+      })
     }, OLDER_TURNS_AUTOLOAD_IDLE_DELAY_MS)
 
     return () => window.clearTimeout(timeoutId)
   }, [
     hasMoreTurnsBefore,
     isLoadingOlderTurns,
+    onCaptureOlderTurnsAnchor,
     isThreadViewportInteracting,
     onLoadOlderTurns,
     threadViewportRef,
@@ -184,15 +222,11 @@ export function ThreadWorkbenchSurface({
 
   function handleViewportScroll() {
     const viewport = threadViewportRef.current
-    if (
-      viewport &&
-      hasMoreTurnsBefore &&
-      viewport.scrollTop <= OLDER_TURNS_AUTOLOAD_THRESHOLD_PX
-    ) {
-      pendingOlderTurnsAutoloadRef.current = !isLoadingOlderTurns
-    } else {
-      pendingOlderTurnsAutoloadRef.current = false
-    }
+    pendingOlderTurnsAutoloadRef.current = shouldScheduleOlderTurnsAutoload({
+      hasMoreTurnsBefore,
+      isLoadingOlderTurns,
+      scrollTop: viewport?.scrollTop ?? null,
+    })
 
     onThreadViewportScroll({
       isLoadingOlderTurns,
@@ -260,8 +294,10 @@ export function ThreadWorkbenchSurface({
                         className="conversation-history-window__button"
                         disabled={isLoadingOlderTurns}
                         onClick={() => {
-                          onCaptureOlderTurnsAnchor('preserve-position')
-                          onLoadOlderTurns()
+                          triggerOlderTurnsLoadWithAnchor({
+                            onCaptureOlderTurnsAnchor,
+                            onLoadOlderTurns,
+                          })
                         }}
                         type="button"
                       >

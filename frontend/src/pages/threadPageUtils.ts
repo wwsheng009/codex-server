@@ -18,6 +18,17 @@ const loadedThreadQueryRefreshMethods = new Set([
   'thread/closed',
 ])
 
+const mcpServerStatusRefreshMethods = new Set([
+  'mcpServer/oauthLogin/completed',
+  'mcpServer/startupStatus/updated',
+])
+
+const runtimeCatalogRefreshMethods = new Set([
+  'app/list/updated',
+  'mcpServer/oauthLogin/completed',
+  'skills/changed',
+])
+
 const threadDetailRefreshMethods = new Set([
   ...threadQueryRefreshMethods,
   'item/started',
@@ -54,6 +65,14 @@ export function shouldRefreshThreadsForEvent(method?: string) {
 
 export function shouldRefreshLoadedThreadsForEvent(method?: string) {
   return typeof method === 'string' && loadedThreadQueryRefreshMethods.has(method)
+}
+
+export function shouldRefreshMcpServerStatusForEvent(method?: string) {
+  return typeof method === 'string' && mcpServerStatusRefreshMethods.has(method)
+}
+
+export function shouldRefreshRuntimeCatalogForEvent(method?: string) {
+  return typeof method === 'string' && runtimeCatalogRefreshMethods.has(method)
 }
 
 export function shouldRefreshThreadDetailForEvent(method?: string) {

@@ -9,8 +9,11 @@
     "i18n:extract": "lingui extract",
     "i18n:extract:clean": "lingui extract --clean",
     "test": "vitest run",
-    "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed",
+    "test:e2e": "node ./playwright/run-playwright.cjs test",
+    "test:e2e:list": "node ./playwright/run-playwright.cjs test --list",
+    "test:e2e:runtime": "node ./playwright/run-playwright.cjs test playwright/runtime-plugin-and-shell-shortcut.spec.ts --project=chromium",
+    "test:e2e:runtime-verify": "node ./playwright/runtime-plugin-and-shell-shortcut.verify.cjs",
+    "test:e2e:headed": "node ./playwright/run-playwright.cjs test --headed",
     "test:e2e:install": "playwright install",
     "test:watch": "vitest",
     "preview": "vite preview"

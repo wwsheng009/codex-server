@@ -2,8 +2,10 @@ import { apiRequest } from '../../lib/api-client'
 import type {
   CatalogItem,
   CollaborationMode,
+  PluginCatalogItem,
   PluginDetailResult,
   PluginInstallResult,
+  PluginListResult,
   RemoteSkillSummary,
   RemoteSkillWriteResult,
 } from '../../types/api'
@@ -68,7 +70,10 @@ export function listApps(workspaceId: string) {
 }
 
 export function listPlugins(workspaceId: string) {
-  return apiRequest<CatalogItem[]>(`/api/workspaces/${workspaceId}/plugins`)
+  return apiRequest<PluginListResult>(`/api/workspaces/${workspaceId}/plugins`).then((result) => ({
+    plugins: (result.plugins ?? []) as PluginCatalogItem[],
+    remoteSyncError: result.remoteSyncError ?? null,
+  }))
 }
 
 export function readPlugin(

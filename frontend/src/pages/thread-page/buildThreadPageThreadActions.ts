@@ -16,10 +16,11 @@ import {
   updateThreadStatusInList,
 } from '../threadPageTurnHelpers'
 import { threadTurnItemOverrideKey } from './threadPageContentOverrideUtils'
+import { parseBangShellCommandShortcut } from './threadShellShortcut'
 import type { FindThreadItemInput } from './buildThreadPageThreadActionsTypes'
 import type {
   ThreadPageRespondApprovalInput,
-  ThreadPageThreadActionsInput,
+  ThreadPageActionsInput,
 } from './threadPageActionTypes'
 import { THREAD_TURN_WINDOW_INCREMENT } from './useThreadPageControllerLocalState'
 
@@ -70,11 +71,12 @@ export function buildThreadPageThreadActions({
   setMessage,
   setSendError,
   startTurnMutation,
+  threadShellCommandMutation,
   threadDetail,
   unarchiveThreadMutation,
   updatePendingTurn,
   workspaceId,
-}: ThreadPageThreadActionsInput) {
+}: ThreadPageActionsInput) {
   function handleDeleteSelectedThread() {
     if (!selectedThread || deleteThreadMutation.isPending) {
       return
@@ -133,6 +135,39 @@ export function buildThreadPageThreadActions({
     }
 
     const input = message.trim()
+    const shellCommand = parseBangShellCommandShortcut(input)
+
+    if (shellCommand) {
+      setSendError(null)
+      setMessage('')
+      setComposerCaret(0)
+      setComposerCommandMenu('root')
+      setDismissedComposerAutocompleteKey(null)
+      setActiveComposerPanel(null)
+      scrollThreadToLatest('smooth')
+
+      try {
+        await threadShellCommandMutation.mutateAsync({
+          threadId: selectedThreadId,
+          command: shellCommand,
+        })
+
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] }),
+          queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+          queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+          queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+        ])
+      } catch (error) {
+        setMessage(input)
+        setComposerCaret(input.length)
+        setSendError(getErrorMessage(error, 'Failed to run shell command.'))
+        void invalidateThreadQueries()
+      }
+
+      return
+    }
+
     const optimisticTurn = createPendingTurn(selectedThreadId, input)
     const optimisticStatusUpdatedAt = new Date().toISOString()
     const startTurnInput = {

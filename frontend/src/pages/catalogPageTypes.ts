@@ -4,6 +4,17 @@ export type CatalogSectionItem = {
   description: string
   value?: string
   shellType?: string
+  marketplaceName?: string
+  marketplacePath?: string
+  installed?: boolean
+  enabled?: boolean
+  authPolicy?: string
+  installPolicy?: string
+  sourceType?: string
+  sourcePath?: string
+  capabilities?: string[] | null
+  category?: string | null
+  brandColor?: string | null
 }
 
 export type CatalogQueryData = {
@@ -12,6 +23,7 @@ export type CatalogQueryData = {
   remoteSkills: CatalogSectionItem[]
   apps: CatalogSectionItem[]
   plugins: CatalogSectionItem[]
+  pluginRemoteSyncError?: string | null
   modes: CatalogSectionItem[]
 }
 
@@ -21,4 +33,10 @@ export type RuntimeSectionProps = {
   items: CatalogSectionItem[]
   loading: boolean
   marker: string
+  onInstallPlugin?: (item: CatalogSectionItem) => void
+  onReadPlugin?: (item: CatalogSectionItem) => void
+  onUninstallPlugin?: (item: CatalogSectionItem) => void
+  pluginInstallPendingId?: string | null
+  pluginReadPendingId?: string | null
+  pluginUninstallPendingId?: string | null
 }

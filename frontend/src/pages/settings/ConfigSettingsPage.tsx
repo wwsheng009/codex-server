@@ -60,6 +60,7 @@ export function ConfigSettingsPage() {
   const [defaultShellType, setDefaultShellType] = useState('')
   const [defaultTerminalShell, setDefaultTerminalShell] = useState('')
   const [modelShellTypeOverridesInput, setModelShellTypeOverridesInput] = useState('{}')
+  const [outboundProxyUrl, setOutboundProxyUrl] = useState('')
   const [defaultTurnApprovalPolicy, setDefaultTurnApprovalPolicy] = useState('')
   const [defaultTurnSandboxPolicyInput, setDefaultTurnSandboxPolicyInput] = useState('')
   const [defaultCommandSandboxPolicyInput, setDefaultCommandSandboxPolicyInput] = useState('')
@@ -104,6 +105,7 @@ export function ConfigSettingsPage() {
     defaultShellType?: string
     defaultTerminalShell?: string
     modelShellTypeOverrides?: Record<string, string>
+    outboundProxyUrl?: string
     defaultTurnApprovalPolicy?: string
     defaultTurnSandboxPolicy?: Record<string, unknown>
     defaultCommandSandboxPolicy?: Record<string, unknown>
@@ -115,6 +117,7 @@ export function ConfigSettingsPage() {
       modelShellTypeOverrides:
         input?.modelShellTypeOverrides ??
         parseShellOverridesInput(modelShellTypeOverridesInput),
+      outboundProxyUrl: (input?.outboundProxyUrl ?? outboundProxyUrl).trim(),
       defaultTurnApprovalPolicy: input?.defaultTurnApprovalPolicy ?? defaultTurnApprovalPolicy,
       defaultTurnSandboxPolicy:
         input?.defaultTurnSandboxPolicy ?? parseSandboxPolicyInput(defaultTurnSandboxPolicyInput),
@@ -295,6 +298,7 @@ export function ConfigSettingsPage() {
       defaultShellType?: string
       defaultTerminalShell?: string
       modelShellTypeOverrides?: Record<string, string>
+      outboundProxyUrl?: string
       defaultTurnApprovalPolicy?: string
       defaultTurnSandboxPolicy?: Record<string, unknown>
       defaultCommandSandboxPolicy?: Record<string, unknown>
@@ -306,6 +310,7 @@ export function ConfigSettingsPage() {
       setModelShellTypeOverridesInput(
         JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
       )
+      setOutboundProxyUrl(result.configuredOutboundProxyUrl ?? '')
       setDefaultTurnApprovalPolicy(result.configuredDefaultTurnApprovalPolicy ?? '')
       setDefaultTurnSandboxPolicyInput(
         stringifyJsonInput(result.configuredDefaultTurnSandboxPolicy),
@@ -411,6 +416,7 @@ export function ConfigSettingsPage() {
       setModelShellTypeOverridesInput(
         JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
       )
+      setOutboundProxyUrl(result.configuredOutboundProxyUrl ?? '')
       setDefaultTurnApprovalPolicy(result.configuredDefaultTurnApprovalPolicy ?? '')
       setDefaultTurnSandboxPolicyInput(
         stringifyJsonInput(result.configuredDefaultTurnSandboxPolicy),
@@ -457,6 +463,7 @@ export function ConfigSettingsPage() {
     setModelShellTypeOverridesInput(
       JSON.stringify(runtimePreferencesQuery.data.configuredModelShellTypeOverrides ?? {}, null, 2),
     )
+    setOutboundProxyUrl(runtimePreferencesQuery.data.configuredOutboundProxyUrl ?? '')
     setDefaultTurnApprovalPolicy(runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy ?? '')
     setDefaultTurnSandboxPolicyInput(
       stringifyJsonInput(runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy),
@@ -495,6 +502,12 @@ export function ConfigSettingsPage() {
     defaultTerminalShell: formatTerminalShellLabel(
       runtimePreferencesQuery.data?.effectiveDefaultTerminalShell,
     ),
+    outboundProxy:
+      runtimePreferencesQuery.data?.effectiveOutboundProxyUrl ||
+      i18n._({
+        id: 'system env fallback',
+        message: 'system env fallback',
+      }),
     turnApprovalPolicy: formatApprovalPolicyLabel(
       runtimePreferencesQuery.data?.effectiveDefaultTurnApprovalPolicy,
     ),
@@ -525,6 +538,10 @@ export function ConfigSettingsPage() {
     {
       label: i18n._({ id: 'Terminal', message: 'Terminal' }),
       value: runtimeSummary.defaultTerminalShell,
+    },
+    {
+      label: i18n._({ id: 'Proxy', message: 'Proxy' }),
+      value: runtimeSummary.outboundProxy,
     },
     {
       label: i18n._({ id: 'Turn', message: 'Turn' }),
@@ -811,6 +828,21 @@ export function ConfigSettingsPage() {
                       disabled={writeRuntimePreferencesMutation.isPending}
                       onClick={() =>
                         writeRuntimePreferencesMutation.mutate({
+                          outboundProxyUrl: '',
+                        })
+                      }
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Reset Proxy',
+                        message: 'Reset Proxy',
+                      })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={writeRuntimePreferencesMutation.isPending}
+                      onClick={() =>
+                        writeRuntimePreferencesMutation.mutate({
                           defaultTurnApprovalPolicy: '',
                           defaultTurnSandboxPolicy: {},
                           defaultCommandSandboxPolicy: {},
@@ -905,6 +937,20 @@ export function ConfigSettingsPage() {
                         'Choose which backend shell opens when you start a terminal session. Availability depends on the backend machine and PATH.',
                     })}
                   </p>
+
+                  <Input
+                    hint={i18n._({
+                      id: 'Optional global outbound proxy for Telegram and OpenAI requests. Supports http://127.0.0.1:7890 and socks5://127.0.0.1:1080. Leave blank to fall back to CODEX_SERVER_OUTBOUND_PROXY and then standard HTTP_PROXY/HTTPS_PROXY/ALL_PROXY handling. Proxy credentials embedded in the URL are stored in local codex-server metadata.',
+                      message:
+                        'Optional global outbound proxy for Telegram and OpenAI requests. Supports http://127.0.0.1:7890 and socks5://127.0.0.1:1080. Leave blank to fall back to CODEX_SERVER_OUTBOUND_PROXY and then standard HTTP_PROXY/HTTPS_PROXY/ALL_PROXY handling. Proxy credentials embedded in the URL are stored in local codex-server metadata.',
+                    })}
+                    label={i18n._({ id: 'Outbound Proxy URL', message: 'Outbound Proxy URL' })}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setOutboundProxyUrl(event.target.value)}
+                    placeholder={
+                      runtimePreferencesQuery.data?.defaultOutboundProxyUrl || 'http://127.0.0.1:7890'
+                    }
+                    value={outboundProxyUrl}
+                  />
 
                   <p className="config-inline-note">
                     {i18n._({
@@ -1010,6 +1056,7 @@ export function ConfigSettingsPage() {
                               defaultShellType: runtimePreferencesQuery.data.effectiveDefaultShellType,
                               defaultTerminalShell: runtimePreferencesQuery.data.effectiveDefaultTerminalShell,
                               modelShellTypeOverrides: runtimePreferencesQuery.data.effectiveModelShellTypeOverrides,
+                              outboundProxyUrl: runtimePreferencesQuery.data.effectiveOutboundProxyUrl,
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnSandboxPolicy,
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultCommandSandboxPolicy,
@@ -1034,6 +1081,7 @@ export function ConfigSettingsPage() {
                               defaultShellType: runtimePreferencesQuery.data.configuredDefaultShellType,
                               defaultTerminalShell: runtimePreferencesQuery.data.configuredDefaultTerminalShell,
                               modelShellTypeOverrides: runtimePreferencesQuery.data.configuredModelShellTypeOverrides,
+                              outboundProxyUrl: runtimePreferencesQuery.data.configuredOutboundProxyUrl,
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy,
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultCommandSandboxPolicy,

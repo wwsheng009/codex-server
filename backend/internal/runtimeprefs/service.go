@@ -26,6 +26,7 @@ type ReadResult struct {
 	ConfiguredDefaultTerminalShell        string            `json:"configuredDefaultTerminalShell"`
 	SupportedTerminalShells               []string          `json:"supportedTerminalShells"`
 	ConfiguredModelShellTypeOverrides     map[string]string `json:"configuredModelShellTypeOverrides"`
+	ConfiguredOutboundProxyURL            string            `json:"configuredOutboundProxyUrl"`
 	ConfiguredDefaultTurnApprovalPolicy   string            `json:"configuredDefaultTurnApprovalPolicy"`
 	ConfiguredDefaultTurnSandboxPolicy    map[string]any    `json:"configuredDefaultTurnSandboxPolicy"`
 	ConfiguredDefaultCommandSandboxPolicy map[string]any    `json:"configuredDefaultCommandSandboxPolicy"`
@@ -33,6 +34,7 @@ type ReadResult struct {
 	DefaultDefaultShellType               string            `json:"defaultDefaultShellType"`
 	DefaultDefaultTerminalShell           string            `json:"defaultDefaultTerminalShell"`
 	DefaultModelShellTypeOverrides        map[string]string `json:"defaultModelShellTypeOverrides"`
+	DefaultOutboundProxyURL               string            `json:"defaultOutboundProxyUrl"`
 	DefaultDefaultTurnApprovalPolicy      string            `json:"defaultDefaultTurnApprovalPolicy"`
 	DefaultDefaultTurnSandboxPolicy       map[string]any    `json:"defaultDefaultTurnSandboxPolicy"`
 	DefaultDefaultCommandSandboxPolicy    map[string]any    `json:"defaultDefaultCommandSandboxPolicy"`
@@ -40,6 +42,7 @@ type ReadResult struct {
 	EffectiveDefaultShellType             string            `json:"effectiveDefaultShellType"`
 	EffectiveDefaultTerminalShell         string            `json:"effectiveDefaultTerminalShell"`
 	EffectiveModelShellTypeOverrides      map[string]string `json:"effectiveModelShellTypeOverrides"`
+	EffectiveOutboundProxyURL             string            `json:"effectiveOutboundProxyUrl"`
 	EffectiveDefaultTurnApprovalPolicy    string            `json:"effectiveDefaultTurnApprovalPolicy"`
 	EffectiveDefaultTurnSandboxPolicy     map[string]any    `json:"effectiveDefaultTurnSandboxPolicy"`
 	EffectiveDefaultCommandSandboxPolicy  map[string]any    `json:"effectiveDefaultCommandSandboxPolicy"`
@@ -51,6 +54,7 @@ type WriteInput struct {
 	DefaultShellType            string            `json:"defaultShellType"`
 	DefaultTerminalShell        string            `json:"defaultTerminalShell"`
 	ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides"`
+	OutboundProxyURL            string            `json:"outboundProxyUrl"`
 	DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy"`
 	DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy"`
 	DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy"`
@@ -62,6 +66,7 @@ func NewService(
 	baseCommand string,
 	defaultModelCatalogPath string,
 	defaultLocalShellModels []string,
+	defaultOutboundProxyURL string,
 ) *Service {
 	return &Service{
 		store:       dataStore,
@@ -70,6 +75,7 @@ func NewService(
 		defaultPrefs: appconfig.RuntimePreferences{
 			ModelCatalogPath:            strings.TrimSpace(defaultModelCatalogPath),
 			ModelShellTypeOverrides:     localShellModelsToOverrides(defaultLocalShellModels),
+			OutboundProxyURL:            strings.TrimSpace(defaultOutboundProxyURL),
 			DefaultCommandSandboxPolicy: appconfig.DefaultCommandSandboxPolicy(),
 		},
 	}
@@ -102,12 +108,17 @@ func (s *Service) Write(input WriteInput) (ReadResult, error) {
 	if err != nil {
 		return ReadResult{}, err
 	}
+	outboundProxyURL, err := appconfig.NormalizeOutboundProxyURL(input.OutboundProxyURL)
+	if err != nil {
+		return ReadResult{}, err
+	}
 
 	candidateConfigured := store.RuntimePreferences{
 		ModelCatalogPath:            strings.TrimSpace(input.ModelCatalogPath),
 		DefaultShellType:            strings.TrimSpace(input.DefaultShellType),
 		DefaultTerminalShell:        normalizeTerminalShellPreference(input.DefaultTerminalShell),
 		ModelShellTypeOverrides:     normalizeInputs(input.ModelShellTypeOverrides),
+		OutboundProxyURL:            outboundProxyURL,
 		DefaultTurnApprovalPolicy:   defaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:    defaultTurnSandboxPolicy,
 		DefaultCommandSandboxPolicy: defaultCommandSandboxPolicy,
@@ -151,6 +162,7 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 		DefaultShellType:            currentConfigured.DefaultShellType,
 		DefaultTerminalShell:        currentConfigured.DefaultTerminalShell,
 		ModelShellTypeOverrides:     cloneStringMap(currentConfigured.ModelShellTypeOverrides),
+		OutboundProxyURL:            currentConfigured.OutboundProxyURL,
 		DefaultTurnApprovalPolicy:   currentConfigured.DefaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:    cloneAnyMap(currentConfigured.DefaultTurnSandboxPolicy),
 		DefaultCommandSandboxPolicy: cloneAnyMap(currentConfigured.DefaultCommandSandboxPolicy),
@@ -173,6 +185,7 @@ func (s *Service) mergeWithDefaults(configured store.RuntimePreferences) appconf
 		LocalShellModels:            cloneStrings(configured.LocalShellModels),
 		DefaultShellType:            configured.DefaultShellType,
 		ModelShellTypeOverrides:     cloneStringMap(configured.ModelShellTypeOverrides),
+		OutboundProxyURL:            configured.OutboundProxyURL,
 		DefaultTurnApprovalPolicy:   configured.DefaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:    cloneAnyMap(configured.DefaultTurnSandboxPolicy),
 		DefaultCommandSandboxPolicy: cloneAnyMap(configured.DefaultCommandSandboxPolicy),
@@ -196,6 +209,9 @@ func (s *Service) mergeWithDefaults(configured store.RuntimePreferences) appconf
 				merged.ModelShellTypeOverrides[key] = value
 			}
 		}
+	}
+	if merged.OutboundProxyURL == "" {
+		merged.OutboundProxyURL = s.defaultPrefs.OutboundProxyURL
 	}
 	if merged.DefaultTurnApprovalPolicy == "" {
 		merged.DefaultTurnApprovalPolicy = s.defaultPrefs.DefaultTurnApprovalPolicy
@@ -242,9 +258,14 @@ func normalizeConfiguredPreferences(input store.RuntimePreferences) (store.Runti
 	if err != nil {
 		return store.RuntimePreferences{}, err
 	}
+	outboundProxyURL, err := appconfig.NormalizeOutboundProxyURL(input.OutboundProxyURL)
+	if err != nil {
+		return store.RuntimePreferences{}, err
+	}
 
 	input.DefaultTurnApprovalPolicy = defaultTurnApprovalPolicy
 	input.DefaultTerminalShell = normalizeTerminalShellPreference(input.DefaultTerminalShell)
+	input.OutboundProxyURL = outboundProxyURL
 	input.DefaultTurnSandboxPolicy = defaultTurnSandboxPolicy
 	input.DefaultCommandSandboxPolicy = defaultCommandSandboxPolicy
 	return input, nil
@@ -306,6 +327,7 @@ func (s *Service) buildReadResult(
 		ConfiguredDefaultTerminalShell:        configuredPrefs.DefaultTerminalShell,
 		SupportedTerminalShells:               detectSupportedTerminalShells(),
 		ConfiguredModelShellTypeOverrides:     cloneStringMap(configuredPrefs.ModelShellTypeOverrides),
+		ConfiguredOutboundProxyURL:            configuredPrefs.OutboundProxyURL,
 		ConfiguredDefaultTurnApprovalPolicy:   configuredPrefs.DefaultTurnApprovalPolicy,
 		ConfiguredDefaultTurnSandboxPolicy:    cloneAnyMap(configuredPrefs.DefaultTurnSandboxPolicy),
 		ConfiguredDefaultCommandSandboxPolicy: cloneAnyMap(configuredPrefs.DefaultCommandSandboxPolicy),
@@ -313,6 +335,7 @@ func (s *Service) buildReadResult(
 		DefaultDefaultShellType:               s.defaultPrefs.DefaultShellType,
 		DefaultDefaultTerminalShell:           "auto",
 		DefaultModelShellTypeOverrides:        cloneStringMap(s.defaultPrefs.ModelShellTypeOverrides),
+		DefaultOutboundProxyURL:               s.defaultPrefs.OutboundProxyURL,
 		DefaultDefaultTurnApprovalPolicy:      s.defaultPrefs.DefaultTurnApprovalPolicy,
 		DefaultDefaultTurnSandboxPolicy:       cloneAnyMap(s.defaultPrefs.DefaultTurnSandboxPolicy),
 		DefaultDefaultCommandSandboxPolicy:    cloneAnyMap(s.defaultPrefs.DefaultCommandSandboxPolicy),
@@ -320,6 +343,7 @@ func (s *Service) buildReadResult(
 		EffectiveDefaultShellType:             resolved.Preferences.DefaultShellType,
 		EffectiveDefaultTerminalShell:         effectiveTerminalShellPreference(configuredPrefs.DefaultTerminalShell),
 		EffectiveModelShellTypeOverrides:      cloneStringMap(resolved.Preferences.ModelShellTypeOverrides),
+		EffectiveOutboundProxyURL:             resolved.Preferences.OutboundProxyURL,
 		EffectiveDefaultTurnApprovalPolicy:    resolved.Preferences.DefaultTurnApprovalPolicy,
 		EffectiveDefaultTurnSandboxPolicy:     cloneAnyMap(resolved.Preferences.DefaultTurnSandboxPolicy),
 		EffectiveDefaultCommandSandboxPolicy:  cloneAnyMap(resolved.Preferences.DefaultCommandSandboxPolicy),

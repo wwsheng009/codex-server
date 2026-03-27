@@ -19,6 +19,28 @@ type Item struct {
 	ShellType   string `json:"shellType,omitempty"`
 }
 
+type PluginListItem struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	MarketplaceName string   `json:"marketplaceName"`
+	MarketplacePath string   `json:"marketplacePath,omitempty"`
+	Installed       bool     `json:"installed"`
+	Enabled         bool     `json:"enabled"`
+	AuthPolicy      string   `json:"authPolicy,omitempty"`
+	InstallPolicy   string   `json:"installPolicy,omitempty"`
+	SourceType      string   `json:"sourceType,omitempty"`
+	SourcePath      string   `json:"sourcePath,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+	Category        string   `json:"category,omitempty"`
+	BrandColor      string   `json:"brandColor,omitempty"`
+}
+
+type PluginListResult struct {
+	Plugins         []PluginListItem `json:"plugins"`
+	RemoteSyncError string           `json:"remoteSyncError,omitempty"`
+}
+
 type CollaborationMode struct {
 	ID              string  `json:"id"`
 	Name            string  `json:"name"`
@@ -61,6 +83,11 @@ type McpServerStatusResult struct {
 
 type SkillConfigWriteResult struct {
 	EffectiveEnabled bool `json:"effectiveEnabled"`
+}
+
+type pluginListResponse struct {
+	Marketplaces    []map[string]any `json:"marketplaces"`
+	RemoteSyncError string           `json:"remoteSyncError"`
 }
 
 func NewService(runtimeManager *runtime.Manager, runtimePrefs ...*runtimeprefs.Service) *Service {
@@ -149,27 +176,16 @@ func (s *Service) Apps(ctx context.Context, workspaceID string) ([]Item, error) 
 	return items, nil
 }
 
-func (s *Service) Plugins(ctx context.Context, workspaceID string) ([]Item, error) {
-	var response struct {
-		Marketplaces []map[string]any `json:"marketplaces"`
-	}
+func (s *Service) Plugins(ctx context.Context, workspaceID string) (PluginListResult, error) {
+	var response pluginListResponse
 
 	if err := s.runtimes.Call(ctx, workspaceID, "plugin/list", map[string]any{
 		"cwds": []string{s.runtimes.RootPath(workspaceID)},
 	}, &response); err != nil {
-		return nil, err
+		return PluginListResult{}, err
 	}
 
-	items := make([]Item, 0, len(response.Marketplaces))
-	for index, marketplace := range response.Marketplaces {
-		items = append(items, Item{
-			ID:          fallbackString(stringValue(marketplace["id"]), fmt.Sprintf("marketplace_%d", index+1)),
-			Name:        fallbackString(stringValue(marketplace["name"]), "Marketplace"),
-			Description: fallbackString(stringValue(marketplace["description"]), "Plugin marketplace"),
-		})
-	}
-
-	return items, nil
+	return mapPluginListResponse(response), nil
 }
 
 func (s *Service) ReadPlugin(ctx context.Context, workspaceID string, marketplacePath string, pluginName string) (PluginDetailResult, error) {
@@ -427,4 +443,115 @@ func resolveModelShellType(shellTypes map[string]string, candidates ...string) s
 	}
 
 	return ""
+}
+
+func mapPluginListResponse(response pluginListResponse) PluginListResult {
+	items := make([]PluginListItem, 0)
+
+	for index, marketplace := range response.Marketplaces {
+		marketplaceName := fallbackString(stringValue(marketplace["name"]), fmt.Sprintf("Marketplace %d", index+1))
+		marketplacePath := stringValue(marketplace["path"])
+		plugins := objectSliceValue(marketplace["plugins"])
+
+		for pluginIndex, plugin := range plugins {
+			interfaceObject := mapValue(plugin["interface"])
+			capabilities := stringSliceValue(interfaceObject["capabilities"])
+			category := stringValue(interfaceObject["category"])
+			brandColor := stringValue(interfaceObject["brandColor"])
+			source := mapValue(plugin["source"])
+			name := fallbackString(stringValue(plugin["name"]), fmt.Sprintf("%s Plugin %d", marketplaceName, pluginIndex+1))
+
+			items = append(items, PluginListItem{
+				ID:              fallbackString(stringValue(plugin["id"]), name),
+				Name:            name,
+				Description:     buildPluginDescription(category, capabilities, marketplaceName),
+				MarketplaceName: marketplaceName,
+				MarketplacePath: marketplacePath,
+				Installed:       boolValue(plugin["installed"]),
+				Enabled:         boolValue(plugin["enabled"]),
+				AuthPolicy:      stringValue(plugin["authPolicy"]),
+				InstallPolicy:   stringValue(plugin["installPolicy"]),
+				SourceType:      stringValue(source["type"]),
+				SourcePath:      stringValue(source["path"]),
+				Capabilities:    capabilities,
+				Category:        category,
+				BrandColor:      brandColor,
+			})
+		}
+	}
+
+	return PluginListResult{
+		Plugins:         items,
+		RemoteSyncError: strings.TrimSpace(response.RemoteSyncError),
+	}
+}
+
+func buildPluginDescription(category string, capabilities []string, marketplaceName string) string {
+	parts := make([]string, 0, 2)
+
+	if strings.TrimSpace(category) != "" {
+		parts = append(parts, "Category: "+strings.TrimSpace(category))
+	}
+	if len(capabilities) > 0 {
+		parts = append(parts, "Capabilities: "+strings.Join(capabilities, ", "))
+	}
+	if len(parts) == 0 {
+		return "Plugin from " + marketplaceName
+	}
+
+	return strings.Join(parts, " | ")
+}
+
+func mapValue(value any) map[string]any {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return object
+}
+
+func objectSliceValue(value any) []map[string]any {
+	rawItems, ok := value.([]any)
+	if !ok || len(rawItems) == 0 {
+		return nil
+	}
+
+	items := make([]map[string]any, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		object, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		items = append(items, object)
+	}
+
+	return items
+}
+
+func stringSliceValue(value any) []string {
+	rawItems, ok := value.([]any)
+	if !ok || len(rawItems) == 0 {
+		return nil
+	}
+
+	items := make([]string, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		item := strings.TrimSpace(stringValue(rawItem))
+		if item == "" {
+			continue
+		}
+		items = append(items, item)
+	}
+
+	return items
+}
+
+func boolValue(value any) bool {
+	typed, ok := value.(bool)
+	if !ok {
+		return false
+	}
+
+	return typed
 }

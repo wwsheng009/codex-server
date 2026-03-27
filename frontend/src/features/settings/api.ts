@@ -18,6 +18,7 @@ export type WriteRuntimePreferencesInput = {
   defaultShellType: string
   defaultTerminalShell: string
   modelShellTypeOverrides: Record<string, string>
+  outboundProxyUrl: string
   defaultTurnApprovalPolicy?: string
   defaultTurnSandboxPolicy?: Record<string, unknown>
   defaultCommandSandboxPolicy?: Record<string, unknown>

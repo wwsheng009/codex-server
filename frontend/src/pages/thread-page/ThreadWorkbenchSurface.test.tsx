@@ -2,11 +2,64 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { i18n } from '../../i18n/runtime'
-import { ThreadWorkbenchSurface } from './ThreadWorkbenchSurface'
+import {
+  shouldScheduleOlderTurnsAutoload,
+  ThreadWorkbenchSurface,
+  triggerOlderTurnsLoadWithAnchor,
+} from './ThreadWorkbenchSurface'
 
 describe('ThreadWorkbenchSurface', () => {
   beforeAll(() => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
+  })
+
+  it('captures a preserve-position anchor before loading older turns', () => {
+    const calls: string[] = []
+
+    triggerOlderTurnsLoadWithAnchor({
+      onCaptureOlderTurnsAnchor: (restoreMode) => {
+        calls.push(`capture:${restoreMode ?? 'unset'}`)
+      },
+      onLoadOlderTurns: () => {
+        calls.push('load')
+      },
+    })
+
+    expect(calls).toEqual(['capture:preserve-position', 'load'])
+  })
+
+  it('schedules older-turn autoload only near the top when more history is available', () => {
+    expect(
+      shouldScheduleOlderTurnsAutoload({
+        hasMoreTurnsBefore: true,
+        isLoadingOlderTurns: false,
+        scrollTop: 48,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldScheduleOlderTurnsAutoload({
+        hasMoreTurnsBefore: false,
+        isLoadingOlderTurns: false,
+        scrollTop: 48,
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldScheduleOlderTurnsAutoload({
+        hasMoreTurnsBefore: true,
+        isLoadingOlderTurns: true,
+        scrollTop: 48,
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldScheduleOlderTurnsAutoload({
+        hasMoreTurnsBefore: true,
+        isLoadingOlderTurns: false,
+        scrollTop: 120,
+      }),
+    ).toBe(false)
   })
 
   it('shows a create-thread call to action for an empty workspace', () => {

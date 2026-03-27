@@ -233,7 +233,7 @@ export const useSessionStore = create<SessionState>()(
   ),
 )
 
-function applySessionEvents(
+export function applySessionEvents(
   current: ApplySessionEventsState,
   events: ServerEvent[],
 ) {

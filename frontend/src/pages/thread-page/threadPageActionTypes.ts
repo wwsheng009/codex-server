@@ -161,6 +161,9 @@ export type ThreadPageCommandActionsInput = {
   threadShellCommandMutation: {
     isPending: boolean
     mutate: (input: ThreadPageThreadShellCommandMutationInput) => void
+    mutateAsync: (
+      input: ThreadPageThreadShellCommandMutationInput,
+    ) => Promise<{ status: string }>
   }
   updateCommandSession: (
     workspaceId: string,

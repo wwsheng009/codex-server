@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
@@ -17,6 +17,7 @@ import {
 import { fuzzyFileSearch, uploadFeedback } from '../features/settings/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { Input } from '../components/ui/Input'
+import { Button } from '../components/ui/Button'
 import { SelectControl } from '../components/ui/SelectControl'
 import { TextArea } from '../components/ui/TextArea'
 import { Switch } from '../components/ui/Switch'
@@ -24,12 +25,14 @@ import { getActiveLocale, i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import type {
+  CatalogSectionItem,
   CatalogQueryData,
   RuntimeSectionProps,
 } from './catalogPageTypes'
 
 export function CatalogPage() {
   const activeLocale = getActiveLocale()
+  const queryClient = useQueryClient()
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [modelShellTypeFilter, setModelShellTypeFilter] = useState('all')
   const [hazelnutId, setHazelnutId] = useState('')
@@ -76,7 +79,8 @@ export function CatalogPage() {
         skills,
         remoteSkills: remoteSkills.data,
         apps,
-        plugins,
+        plugins: plugins.plugins,
+        pluginRemoteSyncError: plugins.remoteSyncError ?? null,
         modes,
       } satisfies CatalogQueryData
     },
@@ -86,13 +90,35 @@ export function CatalogPage() {
     mutationFn: () => exportRemoteSkill(workspaceId!, { hazelnutId }),
   })
   const readPluginMutation = useMutation({
-    mutationFn: () => readPlugin(workspaceId!, { marketplacePath, pluginName }),
+    mutationFn: (input: { marketplacePath: string; pluginName: string }) =>
+      readPlugin(workspaceId!, input),
   })
   const installPluginMutation = useMutation({
-    mutationFn: () => installPlugin(workspaceId!, { marketplacePath, pluginName }),
+    mutationFn: (input: { marketplacePath: string; pluginName: string }) =>
+      installPlugin(workspaceId!, input),
+    onSuccess: async () => {
+      if (!workspaceId) {
+        return
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['runtime-catalog', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['mcp-server-status', workspaceId] }),
+      ])
+    },
   })
   const uninstallPluginMutation = useMutation({
-    mutationFn: () => uninstallPlugin(workspaceId!, { pluginId }),
+    mutationFn: (input: { pluginId: string }) => uninstallPlugin(workspaceId!, input),
+    onSuccess: async () => {
+      if (!workspaceId) {
+        return
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['runtime-catalog', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['mcp-server-status', workspaceId] }),
+      ])
+    },
   })
   const searchMutation = useMutation({
     mutationFn: () => fuzzyFileSearch(workspaceId!, { query: searchQuery }),
@@ -200,6 +226,47 @@ export function CatalogPage() {
     [activeLocale, catalogQuery.data, filteredModels],
   )
   const totalInventoryCount = catalogSections.reduce((count, section) => count + section.items.length, 0)
+
+  function focusPluginActionTarget(item: CatalogSectionItem) {
+    setMarketplacePath(item.marketplacePath ?? '')
+    setPluginName(item.name)
+    setPluginId(item.id)
+  }
+
+  function handleReadPluginItem(item: CatalogSectionItem) {
+    if (!workspaceId || !item.marketplacePath) {
+      return
+    }
+
+    focusPluginActionTarget(item)
+    readPluginMutation.mutate({
+      marketplacePath: item.marketplacePath,
+      pluginName: item.name,
+    })
+  }
+
+  function handleInstallPluginItem(item: CatalogSectionItem) {
+    if (!workspaceId || !item.marketplacePath) {
+      return
+    }
+
+    focusPluginActionTarget(item)
+    installPluginMutation.mutate({
+      marketplacePath: item.marketplacePath,
+      pluginName: item.name,
+    })
+  }
+
+  function handleUninstallPluginItem(item: CatalogSectionItem) {
+    if (!workspaceId || !item.id) {
+      return
+    }
+
+    focusPluginActionTarget(item)
+    uninstallPluginMutation.mutate({
+      pluginId: item.id,
+    })
+  }
 
   return (
     <section className="screen">
@@ -374,6 +441,23 @@ export function CatalogPage() {
               {getErrorMessage(catalogQuery.error)}
             </InlineNotice>
           ) : null}
+          {catalogQuery.data?.pluginRemoteSyncError ? (
+            <InlineNotice
+              details={catalogQuery.data.pluginRemoteSyncError}
+              dismissible
+              noticeKey={`catalog-plugin-remote-sync-${catalogQuery.data.pluginRemoteSyncError}`}
+              title={i18n._({
+                id: 'Plugin sync warning',
+                message: 'Plugin sync warning',
+              })}
+            >
+              {i18n._({
+                id: 'The runtime loaded plugin inventory, but remote curated sync reported an error. Local plugin data is still available below.',
+                message:
+                  'The runtime loaded plugin inventory, but remote curated sync reported an error. Local plugin data is still available below.',
+              })}
+            </InlineNotice>
+          ) : null}
 
           <div className="runtime-board">
             {catalogSections.map((section) => (
@@ -383,6 +467,16 @@ export function CatalogPage() {
                 key={section.title}
                 loading={catalogQuery.isLoading}
                 marker={section.marker}
+                onInstallPlugin={section.marker === 'PL' ? handleInstallPluginItem : undefined}
+                onReadPlugin={section.marker === 'PL' ? handleReadPluginItem : undefined}
+                onUninstallPlugin={section.marker === 'PL' ? handleUninstallPluginItem : undefined}
+                pluginInstallPendingId={
+                  installPluginMutation.isPending ? `${marketplacePath}:${pluginName}` : null
+                }
+                pluginReadPendingId={
+                  readPluginMutation.isPending ? `${marketplacePath}:${pluginName}` : null
+                }
+                pluginUninstallPendingId={uninstallPluginMutation.isPending ? pluginId : null}
                 title={section.title}
               />
             ))}
@@ -453,7 +547,10 @@ export function CatalogPage() {
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
                     event.preventDefault()
                     if (workspaceId && marketplacePath.trim() && pluginName.trim()) {
-                      readPluginMutation.mutate()
+                      readPluginMutation.mutate({
+                        marketplacePath,
+                        pluginName,
+                      })
                     }
                   }}
                 >
@@ -482,7 +579,12 @@ export function CatalogPage() {
                     <button
                       className="ide-button ide-button--secondary"
                       disabled={!workspaceId || !marketplacePath.trim() || !pluginName.trim()}
-                      onClick={() => installPluginMutation.mutate()}
+                      onClick={() =>
+                        installPluginMutation.mutate({
+                          marketplacePath,
+                          pluginName,
+                        })
+                      }
                       type="button"
                     >
                       {installPluginMutation.isPending
@@ -510,7 +612,9 @@ export function CatalogPage() {
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
                     event.preventDefault()
                     if (workspaceId && pluginId.trim()) {
-                      uninstallPluginMutation.mutate()
+                      uninstallPluginMutation.mutate({
+                        pluginId,
+                      })
                     }
                   }}
                 >
@@ -676,6 +780,12 @@ function RuntimeSection({
   items,
   loading,
   marker,
+  onInstallPlugin,
+  onReadPlugin,
+  onUninstallPlugin,
+  pluginInstallPendingId,
+  pluginReadPendingId,
+  pluginUninstallPendingId,
 }: RuntimeSectionProps) {
   return (
     <section className="mode-panel mode-panel--flush mode-panel--compact">
@@ -713,6 +823,32 @@ function RuntimeSection({
                   </code>
                 </p>
               ) : null}
+              {item.marketplaceName ? (
+                <p>
+                  <code>
+                    {i18n._({ id: 'Marketplace', message: 'Marketplace' })}: {item.marketplaceName}
+                  </code>
+                </p>
+              ) : null}
+              {hasPluginStatusMetadata(item) ? (
+                <p>
+                  <code>{buildPluginStatusSummary(item)}</code>
+                </p>
+              ) : null}
+              {item.capabilities?.length ? (
+                <p>
+                  <code>
+                    {i18n._({ id: 'Capabilities', message: 'Capabilities' })}: {item.capabilities.join(', ')}
+                  </code>
+                </p>
+              ) : null}
+              {item.sourcePath ? (
+                <p>
+                  <code>
+                    {i18n._({ id: 'Source', message: 'Source' })}: {item.sourceType || 'unknown'} {item.sourcePath}
+                  </code>
+                </p>
+              ) : null}
               <p>
                 {item.description ||
                   i18n._({
@@ -720,10 +856,94 @@ function RuntimeSection({
                     message: 'No description provided.',
                   })}
               </p>
+              {marker === 'PL' ? (
+                <div className="header-actions" style={{ marginTop: '10px' }}>
+                  <Button
+                    disabled={!item.marketplacePath}
+                    intent="ghost"
+                    isLoading={pluginReadPendingId === `${item.marketplacePath ?? ''}:${item.name}`}
+                    onClick={() => onReadPlugin?.(item)}
+                    size="sm"
+                  >
+                    {i18n._({ id: 'Read', message: 'Read' })}
+                  </Button>
+                  {!item.installed ? (
+                    <Button
+                      disabled={!item.marketplacePath}
+                      intent="secondary"
+                      isLoading={pluginInstallPendingId === `${item.marketplacePath ?? ''}:${item.name}`}
+                      onClick={() => onInstallPlugin?.(item)}
+                      size="sm"
+                    >
+                      {i18n._({ id: 'Install', message: 'Install' })}
+                    </Button>
+                  ) : (
+                    <Button
+                      intent="ghost"
+                      isLoading={pluginUninstallPendingId === item.id}
+                      onClick={() => onUninstallPlugin?.(item)}
+                      size="sm"
+                    >
+                      {i18n._({ id: 'Uninstall', message: 'Uninstall' })}
+                    </Button>
+                  )}
+                </div>
+              ) : null}
             </div>
           </article>
         ))}
       </div>
     </section>
   )
+}
+
+function hasPluginStatusMetadata(item: CatalogSectionItem) {
+  return (
+    typeof item.installed === 'boolean' ||
+    typeof item.enabled === 'boolean' ||
+    Boolean(item.installPolicy) ||
+    Boolean(item.authPolicy) ||
+    Boolean(item.category)
+  )
+}
+
+function buildPluginStatusSummary(item: CatalogSectionItem) {
+  const parts = [] as string[]
+
+  if (typeof item.installed === 'boolean') {
+    parts.push(
+      item.installed
+        ? i18n._({ id: 'Installed', message: 'Installed' })
+        : i18n._({ id: 'Not installed', message: 'Not installed' }),
+    )
+  }
+  if (typeof item.enabled === 'boolean') {
+    parts.push(
+      item.enabled
+        ? i18n._({ id: 'Enabled', message: 'Enabled' })
+        : i18n._({ id: 'Disabled', message: 'Disabled' }),
+    )
+  }
+  if (item.installPolicy) {
+    parts.push(
+      `${i18n._({ id: 'Install', message: 'Install' })}: ${formatPluginPolicy(item.installPolicy)}`,
+    )
+  }
+  if (item.authPolicy) {
+    parts.push(
+      `${i18n._({ id: 'Auth', message: 'Auth' })}: ${formatPluginPolicy(item.authPolicy)}`,
+    )
+  }
+  if (item.category) {
+    parts.push(`${i18n._({ id: 'Category', message: 'Category' })}: ${item.category}`)
+  }
+
+  return parts.join(' | ')
+}
+
+function formatPluginPolicy(value: string) {
+  return value
+    .split('_')
+    .map((segment) => segment.charAt(0) + segment.slice(1).toLowerCase())
+    .join(' ')
 }
