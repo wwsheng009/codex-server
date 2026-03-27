@@ -833,6 +833,82 @@ func TestHandleWebhookApproveCommandRespondsToPendingApproval(t *testing.T) {
 	}
 }
 
+func TestHandleWebhookApproveCommandSupportsTelegramBotMentions(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	approvalService := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_mention_1",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thr_chat-mention",
+			Kind:        "item/commandExecution/requestApproval",
+			Summary:     "go test ./...",
+			Status:      "pending",
+			Actions:     []string{"accept", "decline", "cancel"},
+			RequestedAt: time.Now().UTC(),
+		},
+	})
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Approvals:     approvalService,
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-mention",
+		"messageId":"msg-mention-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"/approve@demo_bot req_mention_1"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 ||
+			!strings.Contains(sent.Messages[0].Text, "req_mention_1") ||
+			!strings.Contains(sent.Messages[0].Text, "was approved") {
+			t.Fatalf("expected approval confirmation message, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for approval confirmation message")
+	}
+
+	call := approvalService.lastCall()
+	if call.requestID != "req_mention_1" {
+		t.Fatalf("expected approval request id req_mention_1, got %#v", call)
+	}
+	if call.input.Action != "accept" {
+		t.Fatalf("expected approval action accept, got %#v", call.input)
+	}
+}
+
 func TestHandleWebhookAnswerCommandBuildsQuestionAnswers(t *testing.T) {
 	t.Parallel()
 
@@ -908,6 +984,90 @@ func TestHandleWebhookAnswerCommandBuildsQuestionAnswers(t *testing.T) {
 	call := approvalService.lastCall()
 	if call.requestID != "req_answer_1" {
 		t.Fatalf("expected answer request id req_answer_1, got %#v", call)
+	}
+	if call.input.Action != "accept" {
+		t.Fatalf("expected answer action accept, got %#v", call.input)
+	}
+	if got := call.input.Answers["environment"]; len(got) != 1 || got[0] != "production" {
+		t.Fatalf("expected single-question answer to map to environment, got %#v", call.input.Answers)
+	}
+}
+
+func TestHandleWebhookAnswerCommandSupportsTelegramBotMentions(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	approvalService := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_answer_mention_1",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thr_chat-answer-mention",
+			Kind:        "item/tool/requestUserInput",
+			Summary:     "1 question awaiting user input",
+			Status:      "pending",
+			Actions:     []string{"accept", "decline", "cancel"},
+			Details: map[string]any{
+				"questions": []any{
+					map[string]any{"id": "environment", "question": "Which environment?"},
+				},
+			},
+			RequestedAt: time.Now().UTC(),
+		},
+	})
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Approvals:     approvalService,
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-answer-mention",
+		"messageId":"msg-answer-mention-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"/answer@demo_bot req_answer_mention_1 production"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 ||
+			!strings.Contains(sent.Messages[0].Text, "req_answer_mention_1") ||
+			!strings.Contains(sent.Messages[0].Text, "was approved") {
+			t.Fatalf("expected answer confirmation message, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for answer confirmation message")
+	}
+
+	call := approvalService.lastCall()
+	if call.requestID != "req_answer_mention_1" {
+		t.Fatalf("expected answer request id req_answer_mention_1, got %#v", call)
 	}
 	if call.input.Action != "accept" {
 		t.Fatalf("expected answer action accept, got %#v", call.input)

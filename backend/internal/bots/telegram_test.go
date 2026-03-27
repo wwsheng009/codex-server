@@ -488,6 +488,137 @@ func TestTelegramProviderSendMessagesIncludesTopicThreadID(t *testing.T) {
 	}
 }
 
+func TestTelegramProviderSendMessagesPreservesTopicThreadIDAcrossChunks(t *testing.T) {
+	t.Parallel()
+
+	sendPayloads := make([]map[string]any, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/sendMessage" {
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode sendMessage payload error = %v", err)
+		}
+		sendPayloads = append(sendPayloads, payload)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": map[string]any{
+				"message_id": 720 + len(sendPayloads),
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	longText := strings.Repeat("a", telegramTextLimitRunes+25)
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID:   "-100123",
+		ExternalThreadID: "77",
+	}, []OutboundMessage{{Text: longText}})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if len(sendPayloads) != 2 {
+		t.Fatalf("expected 2 sendMessage payloads, got %#v", sendPayloads)
+	}
+	for index, payload := range sendPayloads {
+		if payload["chat_id"] != "-100123" {
+			t.Fatalf("expected chat_id -100123 for chunk %d, got %#v", index, payload)
+		}
+		if payload["message_thread_id"] != float64(77) {
+			t.Fatalf("expected message_thread_id 77 for chunk %d, got %#v", index, payload)
+		}
+	}
+}
+
+func TestTelegramProviderRunPollingPreservesTopicThreadID(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:abc/getUpdates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": []map[string]any{
+					{
+						"update_id": 15,
+						"message": map[string]any{
+							"message_id":        99,
+							"message_thread_id": 77,
+							"text":              "hello topic polling",
+							"chat": map[string]any{
+								"id":    -100123,
+								"title": "Ops Group",
+							},
+							"from": map[string]any{
+								"id":         5001,
+								"username":   "alice",
+								"first_name": "Alice",
+								"is_bot":     false,
+							},
+						},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	connection := store.BotConnection{
+		ID: "bot_003",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}
+
+	handled := make([]InboundMessage, 0, 1)
+	var persistedSettings map[string]string
+	err := provider.RunPolling(
+		context.Background(),
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			handled = append(handled, message)
+			return nil
+		},
+		func(_ context.Context, settings map[string]string) error {
+			persistedSettings = settings
+			return context.Canceled
+		},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected polling to stop with context.Canceled, got %v", err)
+	}
+
+	if len(handled) != 1 {
+		t.Fatalf("expected one handled polling message, got %#v", handled)
+	}
+	if handled[0].ConversationID != "-100123:thread:77" {
+		t.Fatalf("expected topic-scoped conversation id, got %#v", handled[0])
+	}
+	if handled[0].ExternalChatID != "-100123" {
+		t.Fatalf("expected external chat id -100123, got %#v", handled[0])
+	}
+	if handled[0].ExternalThreadID != "77" {
+		t.Fatalf("expected external thread id 77, got %#v", handled[0])
+	}
+	if persistedSettings[telegramUpdateOffsetSetting] != "16" {
+		t.Fatalf("expected telegram update offset 16, got %#v", persistedSettings)
+	}
+}
+
 func TestTelegramProviderSendMessagesRetriesRateLimitedRequests(t *testing.T) {
 	t.Parallel()
 
