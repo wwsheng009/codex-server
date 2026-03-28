@@ -33,9 +33,11 @@ export type ThreadPageEffectsInput = {
   isDocumentVisible: boolean
   isMobileViewport: boolean
   isMobileWorkbenchOverlayOpen: boolean
+  isThreadDetailLoading: boolean
   isThreadPinnedToLatest: boolean
   isThreadProcessing: boolean
   isThreadViewportInteracting: boolean
+  isThreadsLoaded: boolean
   latestThreadDetailId?: string
   liveThreadTurns?: Array<{ id: string }>
   mobileThreadToolsOpen: boolean
@@ -79,6 +81,8 @@ export type ThreadPageLifecycleEffectsInput = {
     | null
   clearPendingTurn: (threadId: string) => void
   currentThreads: Array<{ id: string }>
+  isThreadDetailLoading: boolean
+  isThreadsLoaded: boolean
   latestThreadDetailId?: string
   liveThreadTurns?: Array<{ id: string }>
   navigate: NavigateFunction
