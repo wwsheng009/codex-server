@@ -1,6 +1,10 @@
 import { useEffect } from 'react'
 
 import { buildApiWebSocketUrl } from '../lib/api-client'
+import {
+  frontendDebugLog,
+  summarizeServerEventForDebug,
+} from '../lib/frontend-runtime-mode'
 import { useSessionStore } from '../stores/session-store'
 import type { ServerEvent } from '../types/api'
 import type {
@@ -13,6 +17,13 @@ const reconnectDelaysMs = [1_000, 2_000, 5_000]
 const streamBatchFlushDelayMs = 16
 const commandResumeSessionLimit = 16
 const commandResumeTailLength = 512
+
+type WorkspaceStreamEventHandlers = {
+  flushQueuedEvents: (stream: WorkspaceStream) => void
+  ingestImmediateEvent: (event: ServerEvent) => void
+  scheduleDeferredFlush: (stream: WorkspaceStream) => void
+  scheduleQueuedFlush: (stream: WorkspaceStream) => void
+}
 
 export function useWorkspaceStream(workspaceId?: string) {
   const setConnectionState = useSessionStore((state) => state.setConnectionState)
@@ -83,6 +94,7 @@ function getWorkspaceStream(workspaceId: string) {
   let stream = workspaceStreams.get(workspaceId)
   if (!stream) {
     stream = {
+      deferredEvents: [],
       eventQueue: [],
       subscribers: 0,
       socket: null,
@@ -112,6 +124,10 @@ function openWorkspaceStream(
     buildApiWebSocketUrl(buildWorkspaceStreamPath(workspaceId)),
   )
   stream.socket = socket
+  frontendDebugLog('workspace-stream', 'opening websocket', {
+    workspaceId,
+    path: buildWorkspaceStreamPath(workspaceId),
+  })
 
   setConnectionState(workspaceId, 'connecting')
 
@@ -122,6 +138,7 @@ function openWorkspaceStream(
 
     stream.reconnectAttempt = 0
     setConnectionState(workspaceId, 'open')
+    frontendDebugLog('workspace-stream', 'websocket opened', { workspaceId })
   }
 
   socket.onmessage = (message) => {
@@ -129,15 +146,8 @@ function openWorkspaceStream(
     if (!event) {
       return
     }
-
-    if (!isBatchableWorkspaceEvent(event.method)) {
-      flushWorkspaceStreamEvents(stream)
-      useSessionStore.getState().ingestEvent(event)
-      return
-    }
-
-    stream.eventQueue.push(event)
-    scheduleWorkspaceStreamFlush(stream)
+    frontendDebugLog('workspace-stream', 'event received', summarizeServerEventForDebug(event))
+    handleWorkspaceStreamEvent(stream, event)
   }
 
   socket.onerror = () => {
@@ -146,6 +156,7 @@ function openWorkspaceStream(
     }
 
     setConnectionState(workspaceId, 'error')
+    frontendDebugLog('workspace-stream', 'websocket error', { workspaceId })
   }
 
   socket.onclose = () => {
@@ -153,19 +164,28 @@ function openWorkspaceStream(
       stream.socket = null
     }
 
+    if (stream.deferredEventFlushHandle) {
+      cancelDeferredWorkspaceEventFlush(stream)
+    }
     if (stream.flushTimer) {
       window.clearTimeout(stream.flushTimer)
       stream.flushTimer = undefined
     }
     flushWorkspaceStreamEvents(stream)
+    flushDeferredWorkspaceEvents(stream)
 
     if (stream.subscribers === 0) {
       setConnectionState(workspaceId, 'idle')
       workspaceStreams.delete(workspaceId)
+      frontendDebugLog('workspace-stream', 'websocket closed without subscribers', { workspaceId })
       return
     }
 
     setConnectionState(workspaceId, 'closed')
+    frontendDebugLog('workspace-stream', 'websocket closed, scheduling reconnect', {
+      workspaceId,
+      reconnectAttempt: stream.reconnectAttempt,
+    })
     scheduleReconnect(workspaceId, stream, setConnectionState)
   }
 }
@@ -226,6 +246,11 @@ function scheduleReconnect(
 
   const delay = reconnectDelaysMs[Math.min(stream.reconnectAttempt, reconnectDelaysMs.length - 1)]
   stream.reconnectAttempt += 1
+  frontendDebugLog('workspace-stream', 'reconnect scheduled', {
+    workspaceId,
+    delay,
+    reconnectAttempt: stream.reconnectAttempt,
+  })
   stream.reconnectTimer = window.setTimeout(() => {
     stream.reconnectTimer = undefined
     if (stream.subscribers === 0) {
@@ -249,8 +274,12 @@ function disposeWorkspaceStream(
     window.clearTimeout(stream.flushTimer)
     stream.flushTimer = undefined
   }
+  if (stream.deferredEventFlushHandle) {
+    cancelDeferredWorkspaceEventFlush(stream)
+  }
 
   flushWorkspaceStreamEvents(stream)
+  flushDeferredWorkspaceEvents(stream)
 
   const socket = stream.socket
   stream.socket = null
@@ -271,6 +300,32 @@ function isSocketActive(socket: WebSocket) {
   return socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN
 }
 
+export function handleWorkspaceStreamEvent(
+  stream: WorkspaceStream,
+  event: ServerEvent,
+  handlers: WorkspaceStreamEventHandlers = {
+    flushQueuedEvents: flushWorkspaceStreamEvents,
+    ingestImmediateEvent: (nextEvent) => useSessionStore.getState().ingestEvent(nextEvent),
+    scheduleDeferredFlush: scheduleDeferredWorkspaceEventFlush,
+    scheduleQueuedFlush: scheduleWorkspaceStreamFlush,
+  },
+) {
+  if (!isBatchableWorkspaceEvent(event.method)) {
+    if (stream.eventQueue.length > 0 || stream.deferredEvents.length > 0) {
+      handlers.flushQueuedEvents(stream)
+      stream.deferredEvents.push(event)
+      handlers.scheduleDeferredFlush(stream)
+      return
+    }
+
+    handlers.ingestImmediateEvent(event)
+    return
+  }
+
+  stream.eventQueue.push(event)
+  handlers.scheduleQueuedFlush(stream)
+}
+
 function scheduleWorkspaceStreamFlush(stream: WorkspaceStream) {
   if (stream.flushTimer) {
     return
@@ -289,7 +344,57 @@ function flushWorkspaceStreamEvents(stream: WorkspaceStream) {
 
   const queuedEvents = stream.eventQueue
   stream.eventQueue = []
+  frontendDebugLog('workspace-stream', 'flushing queued delta events', {
+    count: queuedEvents.length,
+    methods: queuedEvents.map((event) => event.method),
+    lastEvent: summarizeServerEventForDebug(queuedEvents[queuedEvents.length - 1]),
+  })
   useSessionStore.getState().ingestEvents(queuedEvents)
+}
+
+function scheduleDeferredWorkspaceEventFlush(stream: WorkspaceStream) {
+  if (stream.deferredEventFlushHandle) {
+    return
+  }
+
+  const scheduleFrame =
+    typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) =>
+          window.setTimeout(() => callback(Date.now()), 0)
+
+  stream.deferredEventFlushHandle = scheduleFrame(() => {
+    stream.deferredEventFlushHandle = undefined
+    flushDeferredWorkspaceEvents(stream)
+  })
+}
+
+function cancelDeferredWorkspaceEventFlush(stream: WorkspaceStream) {
+  if (!stream.deferredEventFlushHandle) {
+    return
+  }
+
+  if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(stream.deferredEventFlushHandle)
+  } else {
+    window.clearTimeout(stream.deferredEventFlushHandle)
+  }
+  stream.deferredEventFlushHandle = undefined
+}
+
+function flushDeferredWorkspaceEvents(stream: WorkspaceStream) {
+  if (!stream.deferredEvents.length) {
+    return
+  }
+
+  const deferredEvents = stream.deferredEvents
+  stream.deferredEvents = []
+  frontendDebugLog('workspace-stream', 'flushing deferred non-delta events', {
+    count: deferredEvents.length,
+    methods: deferredEvents.map((event) => event.method),
+    lastEvent: summarizeServerEventForDebug(deferredEvents[deferredEvents.length - 1]),
+  })
+  useSessionStore.getState().ingestEvents(deferredEvents)
 }
 
 function isServerEvent(value: unknown): value is ServerEvent {

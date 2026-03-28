@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  completedAgentMessageRefreshDelayMs,
   collectThreadDisplayMetrics,
   isViewportNearBottom,
   latestMessageUpdateKey,
@@ -49,6 +50,67 @@ describe('threadPageUtils', () => {
     expect(shouldFallbackRefreshThreadDetailDuringOpenStream(null, 10_000)).toBe(true)
     expect(shouldFallbackRefreshThreadDetailDuringOpenStream(9_000, 10_500)).toBe(false)
     expect(shouldFallbackRefreshThreadDetailDuringOpenStream(8_000, 10_500)).toBe(true)
+  })
+
+  it('delays snapshot refresh long enough for completed-only agent messages to animate', () => {
+    expect(
+      completedAgentMessageRefreshDelayMs({
+        method: 'item/completed',
+        payload: {
+          item: {
+            type: 'agentMessage',
+            text: 'short reply',
+          },
+        },
+      }),
+    ).toBe(480)
+
+    expect(
+      completedAgentMessageRefreshDelayMs({
+        method: 'item/completed',
+        payload: {
+          item: {
+            type: 'agentMessage',
+            text: 'x'.repeat(180),
+          },
+        },
+      }),
+    ).toBeGreaterThan(1_900)
+  })
+
+  it('does not delay snapshot refresh for non-agent or empty completion events', () => {
+    expect(
+      completedAgentMessageRefreshDelayMs({
+        method: 'item/completed',
+        payload: {
+          item: {
+            type: 'commandExecution',
+            aggregatedOutput: 'done',
+          },
+        },
+      }),
+    ).toBeNull()
+
+    expect(
+      completedAgentMessageRefreshDelayMs({
+        method: 'item/completed',
+        payload: {
+          item: {
+            type: 'agentMessage',
+            text: '',
+          },
+        },
+      }),
+    ).toBeNull()
+
+    expect(
+      completedAgentMessageRefreshDelayMs({
+        method: 'item/agentMessage/delta',
+        payload: {
+          delta: 'hello',
+        },
+      }),
+    ).toBeNull()
   })
 
   it('refreshes approvals for server requests and resolutions', () => {

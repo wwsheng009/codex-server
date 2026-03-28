@@ -102,6 +102,63 @@ describe('threadLiveState', () => {
     expect(completed?.turns[0]?.items[0]?.phase).toBeUndefined()
   })
 
+  it('marks completed-only agent messages for a one-shot client reveal', () => {
+    const started = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('item/started', {
+        item: {
+          id: 'item-1',
+          type: 'agentMessage',
+          text: '',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    const completed = applyThreadEventToDetail(
+      started,
+      makeEvent('item/completed', {
+        item: {
+          id: 'item-1',
+          type: 'agentMessage',
+          text: 'Hello',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(completed?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello',
+      clientRenderMode: 'animate-once',
+    })
+    expect(completed?.turns[0]?.items[0]?.phase).toBeUndefined()
+  })
+
+  it('marks started agent messages as streaming before the first text delta arrives', () => {
+    const detail = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('item/started', {
+        item: {
+          id: 'item-1',
+          type: 'agentMessage',
+          text: '',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      phase: 'streaming',
+    })
+  })
+
   it('appends live command output chunks into the running command item', () => {
     const started = applyThreadEventToDetail(
       makeDetail(),
@@ -426,6 +483,61 @@ describe('threadLiveState', () => {
       id: 'item-1',
       type: 'agentMessage',
       text: 'Hello world',
+    })
+    expect(resolved?.turns[0]?.items[0]?.phase).toBeUndefined()
+  })
+
+  it('preserves completed-only client reveal markers across newer snapshots', () => {
+    const currentLiveDetail = applyThreadEventsToDetail(makeDetail(), [
+      makeEvent('item/started', {
+        item: {
+          id: 'item-1',
+          type: 'agentMessage',
+          text: '',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+      makeEvent('item/completed', {
+        item: {
+          id: 'item-1',
+          type: 'agentMessage',
+          text: 'Hello world',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    ]) as ThreadDetail
+
+    const completedSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Hello world',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: completedSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello world',
+      clientRenderMode: 'animate-once',
     })
     expect(resolved?.turns[0]?.items[0]?.phase).toBeUndefined()
   })

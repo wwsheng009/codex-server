@@ -283,12 +283,15 @@ export function ThreadWorkbenchSurface({
           >
             {selectedThread ? (
               threadDetailIsLoading && !displayedTurns.length ? (
-                <LoadingState
-                  message={i18n._({
-                    id: 'Loading thread surface…',
-                    message: 'Loading thread surface…',
-                  })}
-                />
+                <div className="workbench-log__loading">
+                  <LoadingState
+                    fill={false}
+                    message={i18n._({
+                      id: 'Loading thread surface…',
+                      message: 'Loading thread surface…',
+                    })}
+                  />
+                </div>
               ) : threadDetailError && !displayedTurns.length ? (
                 <InlineNotice
                   details={threadLoadErrorMessage}

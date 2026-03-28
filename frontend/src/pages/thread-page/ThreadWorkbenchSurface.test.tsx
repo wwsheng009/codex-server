@@ -208,6 +208,72 @@ describe('ThreadWorkbenchSurface', () => {
     expect(html).toContain('composer-probe')
   })
 
+  it('uses a compact loading state while a selected thread detail is loading', () => {
+    const html = renderToStaticMarkup(
+      <ThreadWorkbenchSurface
+        activeSurfacePanelSide="right"
+        approvalAnswers={{}}
+        approvalErrors={{}}
+        approvals={[]}
+        createThreadErrorMessage={undefined}
+        displayedTurns={[]}
+        hasMoreTurnsBefore={false}
+        hasThreads={true}
+        hiddenTurnsCount={0}
+        isCreateThreadPending={false}
+        isLoadingOlderTurns={false}
+        isThreadsLoaded={true}
+        isThreadSelectionLoading={false}
+        isMobileViewport={false}
+        isSurfacePanelResizing={false}
+        isThreadPinnedToLatest={true}
+        isThreadProcessing={false}
+        isThreadViewportInteracting={false}
+        isWaitingForThreadData={false}
+        liveTimelineEntries={[]}
+        onChangeApprovalAnswer={() => undefined}
+        onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
+        onCreateThread={() => undefined}
+        onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
+        onRespondApproval={() => undefined}
+        onRetryServerRequest={() => undefined}
+        onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
+        onSurfacePanelResizeStart={() => undefined}
+        onThreadViewportScroll={() => undefined}
+        onToggleSurfacePanelSide={() => undefined}
+        respondingToApproval={false}
+        selectedThread={{
+          id: 'thread-1',
+          workspaceId: 'ws-1',
+          name: 'Thread 1',
+          status: 'idle',
+          archived: false,
+          createdAt: '2026-03-20T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:00.000Z',
+        }}
+        surfacePanelView={null}
+        threadDetailError={null}
+        threadDetailIsLoading={true}
+        threadLogStyle={{}}
+        threadViewportRef={{ current: null }}
+        timelineIdentity="thread-1"
+        workspaceName="workspace"
+      >
+        <div>composer-probe</div>
+      </ThreadWorkbenchSurface>,
+    )
+
+    expect(html).toContain('Loading thread surface…')
+    expect(html).toContain('workbench-log__loading')
+    expect(html).not.toContain('loading-state--fill')
+    expect(html).toContain('composer-probe')
+  })
+
   it('does not render the pending reply prompt while the thread is waiting', () => {
     const html = renderToStaticMarkup(
       <ThreadWorkbenchSurface

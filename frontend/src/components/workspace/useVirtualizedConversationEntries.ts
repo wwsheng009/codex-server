@@ -535,6 +535,9 @@ export function useVirtualizedConversationEntries<T>({
     ) {
       return
     }
+    if (!previousLayout) {
+      return
+    }
 
     const anchorEntry = entries[targetRange.startIndex]
     const offsetDelta = resolveVirtualizedViewportAnchorOffsetDelta({

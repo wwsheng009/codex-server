@@ -50,6 +50,9 @@ const threadDetailStreamingMethods = new Set([
 
 const THREAD_VIEWPORT_NEAR_BOTTOM_THRESHOLD_PX = 72
 const THREAD_DETAIL_OPEN_STREAM_STALE_EVENT_THRESHOLD_MS = 2_000
+const COMPLETED_AGENT_MESSAGE_REVEAL_CHARACTERS_PER_SECOND = 90
+const COMPLETED_AGENT_MESSAGE_REVEAL_MIN_DELAY_MS = 480
+const COMPLETED_AGENT_MESSAGE_REVEAL_MAX_DELAY_MS = 2_200
 
 const threadDisplayMetricsCache = new WeakMap<ThreadTurn[], ThreadDisplayMetrics>()
 const threadTurnDisplayMetricsCache = new WeakMap<ThreadTurn, ThreadDisplayMetrics>()
@@ -94,6 +97,33 @@ export function shouldFallbackRefreshThreadDetailDuringOpenStream(
   }
 
   return nowMs - lastLiveThreadEventAtMs >= staleAfterMs
+}
+
+export function completedAgentMessageRefreshDelayMs(event: {
+  method?: string
+  payload?: unknown
+}) {
+  if (event.method !== 'item/completed') {
+    return null
+  }
+
+  const item = asObject(asObject(event.payload).item)
+  if (stringField(item.type) !== 'agentMessage') {
+    return null
+  }
+
+  const textLength = stringField(item.text).length
+  if (textLength === 0) {
+    return null
+  }
+
+  const revealDurationMs = Math.ceil(
+    (textLength / COMPLETED_AGENT_MESSAGE_REVEAL_CHARACTERS_PER_SECOND) * 1_000,
+  )
+  return Math.max(
+    COMPLETED_AGENT_MESSAGE_REVEAL_MIN_DELAY_MS,
+    Math.min(COMPLETED_AGENT_MESSAGE_REVEAL_MAX_DELAY_MS, revealDurationMs + 120),
+  )
 }
 
 export function shouldRefreshApprovalsForEvent(method?: string, serverRequestId?: string | null) {
@@ -468,4 +498,8 @@ function stringField(value: unknown) {
 
 function numberField(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function asObject(value: unknown) {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 }

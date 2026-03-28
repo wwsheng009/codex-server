@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import {
+  frontendDebugLog,
+  summarizeServerEventForDebug,
+  summarizeThreadDetailForDebug,
+} from '../../lib/frontend-runtime-mode'
 import { resolveLiveThreadDetail } from '../threadLiveState'
 import { useSessionStore } from '../../stores/session-store'
 import type { ServerEvent, ThreadDetail } from '../../types/api'
@@ -61,6 +66,19 @@ export function useThreadPageSessionState({
     )
   }, [selectedThreadEvents, selectedThreadId, threadDetail])
 
+  useEffect(() => {
+    if (!selectedThreadId || selectedThreadEvents.length === 0) {
+      return
+    }
+
+    frontendDebugLog('thread-session', 'selected thread events updated', {
+      workspaceId,
+      selectedThreadId,
+      eventCount: selectedThreadEvents.length,
+      latestEvent: summarizeServerEventForDebug(selectedThreadEvents[selectedThreadEvents.length - 1]),
+    })
+  }, [selectedThreadEvents, selectedThreadId, workspaceId])
+
   const liveThreadDetail = useMemo(
     () =>
       liveThreadDetailState?.id === (selectedThreadId ?? threadDetail?.id)
@@ -94,6 +112,18 @@ export function useThreadPageSessionState({
       ),
     [commandSessions],
   )
+
+  useEffect(() => {
+    if (!selectedThreadId || !liveThreadDetail) {
+      return
+    }
+
+    frontendDebugLog('thread-session', 'live thread detail recalculated', {
+      workspaceId,
+      selectedThreadId,
+      summary: summarizeThreadDetailForDebug(liveThreadDetail),
+    })
+  }, [liveThreadDetail, selectedThreadId, workspaceId])
 
   return {
     activeCommandCount,

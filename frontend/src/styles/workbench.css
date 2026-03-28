@@ -915,6 +915,16 @@
   padding-bottom: var(--thread-bottom-clearance);
 }
 
+.workbench-log__loading {
+  width: min(100%, var(--conversation-stage-width, 980px));
+  margin: 0 auto;
+  padding: 18px 0 24px;
+}
+
+.workbench-log__loading .loading-state {
+  padding: 24px 20px;
+}
+
 .conversation-history-window {
   display: flex;
   justify-content: center;

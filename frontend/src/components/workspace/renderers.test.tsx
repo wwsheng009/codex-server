@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { ThreadTurn } from '../../types/api'
 import {
   areTurnTimelinePropsEqual,
+  nextStreamingRevealLength,
   shouldVirtualizeTurnTimeline,
   TurnTimeline,
 } from './renderers'
@@ -169,6 +170,60 @@ describe('TurnTimeline', () => {
     expect(html).toContain('conversation-bubble--streaming')
     expect(html).toContain('conversation-bubble__cursor')
     expect(html).toContain('Streaming reply')
+  })
+
+  it('uses the typewriter renderer for completed-only assistant messages flagged by the client', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-3b',
+        status: 'completed',
+        items: [
+          {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: 'Completed reply',
+            clientRenderMode: 'animate-once',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('conversation-bubble--streaming')
+    expect(html).toContain('Completed reply')
+    expect(html).not.toContain('conversation-bubble__cursor')
+  })
+
+  it('does not render an empty assistant bubble before the first text chunk arrives', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-3c',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: '',
+            phase: 'streaming',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).not.toContain('conversation-row--assistant')
+    expect(html).not.toContain('conversation-bubble--streaming')
+  })
+
+  it('reveals streaming agent text progressively when a large delta arrives', () => {
+    expect(nextStreamingRevealLength(12, 12, 16)).toBe(12)
+    expect(nextStreamingRevealLength(0, 40, 16)).toBeLessThan(40)
+    expect(nextStreamingRevealLength(0, 40, 16)).toBeGreaterThan(0)
+    expect(nextStreamingRevealLength(10, 240, 16)).toBeLessThan(240)
+    expect(nextStreamingRevealLength(10, 240, 16)).toBeGreaterThan(10)
+    expect(nextStreamingRevealLength(220, 240, 16)).toBe(222)
   })
 
   it('renders markdown formatting inside chat bubbles', () => {

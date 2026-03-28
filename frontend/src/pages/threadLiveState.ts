@@ -174,8 +174,23 @@ export function applyThreadEventToDetail(
 
       return updateTurnItem(detail, turnId, itemId, (current) => {
         const merged = mergeThreadItem(current, item)
+        const previousText = stringField(current?.text)
+        const nextText = stringField(merged.text)
+        if (
+          event.method === 'item/started' &&
+          merged.type === 'agentMessage' &&
+          !stringField(merged.phase)
+        ) {
+          merged.phase = 'streaming'
+          delete merged.clientRenderMode
+        }
         if (event.method === 'item/completed' && merged.type === 'agentMessage') {
           delete merged.phase
+          if (!previousText && nextText) {
+            merged.clientRenderMode = 'animate-once'
+          } else {
+            delete merged.clientRenderMode
+          }
         }
         return merged
       }, event.ts)
@@ -194,6 +209,7 @@ export function applyThreadEventToDetail(
         type: 'agentMessage',
         text: `${stringField(current?.text)}${delta}`,
         phase: 'streaming',
+        clientRenderMode: undefined,
       }), event.ts)
     }
     case 'item/plan/delta': {
@@ -499,10 +515,6 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
   let detailChanged = false
 
   const turns = threadDetail.turns.map((snapshotTurn) => {
-    if (!turnStatusLooksInterruptible(snapshotTurn.status)) {
-      return snapshotTurn
-    }
-
     const currentTurn = currentLiveDetail.turns.find(
       (turn) => turn.id === snapshotTurn.id,
     )
@@ -520,12 +532,7 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
       const currentItem = currentTurn.items.find(
         (item) => stringField(item.id) === snapshotItemId,
       )
-      if (
-        !currentItem ||
-        stringField(currentItem.type) !== 'agentMessage' ||
-        !stringsEqualFold(stringField(currentItem.phase), 'streaming') ||
-        stringField(snapshotItem.type) !== 'agentMessage'
-      ) {
+      if (!currentItem || stringField(snapshotItem.type) !== 'agentMessage') {
         return snapshotItem
       }
 
@@ -535,12 +542,31 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
         return snapshotItem
       }
 
+      const shouldPreserveStreamingPhase =
+        stringField(currentItem.type) === 'agentMessage' &&
+        turnStatusLooksInterruptible(snapshotTurn.status) &&
+        stringsEqualFold(stringField(currentItem.phase), 'streaming')
+      const shouldPreserveClientRenderMode =
+        stringField(currentItem.type) === 'agentMessage' &&
+        stringField(currentItem.clientRenderMode) === 'animate-once'
+
+      if (!shouldPreserveStreamingPhase && !shouldPreserveClientRenderMode) {
+        return snapshotItem
+      }
+
       turnChanged = true
-      return {
+      const reconciledItem: Record<string, unknown> = {
         ...snapshotItem,
         text: currentText || snapshotText,
-        phase: 'streaming',
       }
+      if (shouldPreserveStreamingPhase) {
+        reconciledItem.phase = 'streaming'
+      }
+      if (shouldPreserveClientRenderMode) {
+        reconciledItem.clientRenderMode = 'animate-once'
+      }
+
+      return reconciledItem
     })
 
     if (!turnChanged) {

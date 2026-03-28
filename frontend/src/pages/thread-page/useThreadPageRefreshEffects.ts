@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { i18n } from '../../i18n/runtime'
 import {
+  completedAgentMessageRefreshDelayMs,
   shouldFallbackRefreshThreadDetailDuringOpenStream,
   shouldRefreshMcpServerStatusForEvent,
   shouldRefreshLoadedThreadsForEvent,
@@ -257,6 +258,12 @@ export function useThreadPageRefreshEffects({
     }
 
     if (!shouldReconcileThreadDetailWithSnapshot(latestEvent.method)) {
+      return
+    }
+
+    const completedAgentRefreshDelay = completedAgentMessageRefreshDelayMs(latestEvent)
+    if (completedAgentRefreshDelay !== null) {
+      scheduleThreadDetailRefresh(completedAgentRefreshDelay)
       return
     }
 

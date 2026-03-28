@@ -674,6 +674,67 @@ describe('buildThreadPageTurnDisplayState', () => {
     expect(secondState.displayedTurns[0]).toBe(firstState.displayedTurns[0])
   })
 
+  it('prefers live turns over overlapping historical turns so streamed updates stay visible', () => {
+    const historicalTurns: ThreadDetail['turns'] = [
+      {
+        id: 'turn-1',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'msg-1',
+            type: 'agentMessage',
+            text: '',
+            phase: 'streaming',
+          },
+        ],
+      },
+    ]
+    const liveThreadDetail: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'inProgress',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:02.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: 'streamed text',
+              phase: 'streaming',
+            },
+          ],
+        },
+      ],
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {},
+      historicalTurns,
+      liveThreadDetail,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(state.displayedTurns).toHaveLength(1)
+    expect(state.displayedTurns[0]).toBe(liveThreadDetail.turns[0])
+    expect(state.displayedTurns[0].items[0]).toMatchObject({
+      id: 'msg-1',
+      type: 'agentMessage',
+      text: 'streamed text',
+      phase: 'streaming',
+    })
+  })
+
   it('reuses the same display-state result for identical inputs', () => {
     const liveThreadDetail: ThreadDetail = {
       id: 'thread-1',

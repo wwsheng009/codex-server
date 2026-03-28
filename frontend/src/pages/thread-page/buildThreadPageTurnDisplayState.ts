@@ -1159,6 +1159,11 @@ function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: Thread
 
   const seenTurnIds = new Set<string>()
   const mergedTurns: ThreadTurn[] = []
+  const liveTurnsById = new Map<string, ThreadTurn>()
+
+  for (const turn of liveTurns) {
+    liveTurnsById.set(turn.id, turn)
+  }
 
   for (const turn of historicalTurns) {
     if (seenTurnIds.has(turn.id)) {
@@ -1166,7 +1171,7 @@ function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: Thread
     }
 
     seenTurnIds.add(turn.id)
-    mergedTurns.push(turn)
+    mergedTurns.push(liveTurnsById.get(turn.id) ?? turn)
   }
 
   for (const turn of liveTurns) {

@@ -51,6 +51,9 @@ import type { PendingApproval, ThreadTurn } from '../../types/api'
 const EXPANDABLE_MESSAGE_THRESHOLD_CHARS = 4_000
 const EXPANDABLE_MESSAGE_PREVIEW_CHARS = 1_200
 const FULL_TURN_OVERRIDE_TTL_MS = 30_000
+const STREAMING_TYPEWRITER_CHARACTERS_PER_SECOND = 90
+const STREAMING_TYPEWRITER_FALLBACK_FRAME_MS = 16
+const STREAMING_TYPEWRITER_MAX_STEP = 48
 const VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD = 80
 const conversationEntriesCache = new WeakMap<ThreadTurn[], ConversationEntry[]>()
 const turnConversationEntriesCache = new WeakMap<ThreadTurn, ConversationEntry[]>()
@@ -1066,6 +1069,127 @@ function CompactSystemStatusIcon({ tone }: CompactSystemStatusIconProps) {
   )
 }
 
+export function nextStreamingRevealLength(
+  currentLength: number,
+  targetLength: number,
+  elapsedMs: number,
+) {
+  if (targetLength <= currentLength) {
+    return targetLength
+  }
+
+  const normalizedElapsedMs =
+    Number.isFinite(elapsedMs) && elapsedMs > 0
+      ? elapsedMs
+      : STREAMING_TYPEWRITER_FALLBACK_FRAME_MS
+  const backlog = targetLength - currentLength
+  const timeBasedStep = Math.ceil(
+    (normalizedElapsedMs / 1_000) * STREAMING_TYPEWRITER_CHARACTERS_PER_SECOND,
+  )
+  const catchUpStep = Math.ceil(backlog / 18)
+  const step = Math.max(
+    1,
+    Math.min(STREAMING_TYPEWRITER_MAX_STEP, Math.max(timeBasedStep, catchUpStep)),
+  )
+
+  return Math.min(targetLength, currentLength + step)
+}
+
+function initialStreamingRevealLength(targetLength: number) {
+  if (typeof window === 'undefined') {
+    return targetLength
+  }
+
+  return nextStreamingRevealLength(0, targetLength, STREAMING_TYPEWRITER_FALLBACK_FRAME_MS)
+}
+
+function cancelStreamingFrame(
+  frameRef: { current: number | null },
+  lastTimestampRef: { current: number | null },
+) {
+  if (frameRef.current !== null) {
+    window.cancelAnimationFrame(frameRef.current)
+    frameRef.current = null
+  }
+  lastTimestampRef.current = null
+}
+
+function StreamingAgentMessage({ content }: { content: string }) {
+  const initialVisibleLength = initialStreamingRevealLength(content.length)
+  const [visibleLength, setVisibleLength] = useState(initialVisibleLength)
+  const contentRef = useRef(content)
+  const targetLengthRef = useRef(content.length)
+  const visibleLengthRef = useRef(initialVisibleLength)
+  const previousContentRef = useRef(content)
+  const frameRef = useRef<number | null>(null)
+  const lastTimestampRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    visibleLengthRef.current = visibleLength
+  }, [visibleLength])
+
+  useEffect(() => {
+    return () => {
+      cancelStreamingFrame(frameRef, lastTimestampRef)
+    }
+  }, [])
+
+  useEffect(() => {
+    const previousContent = previousContentRef.current
+    previousContentRef.current = content
+    contentRef.current = content
+    targetLengthRef.current = content.length
+
+    const isContentReset =
+      content.length < visibleLengthRef.current ||
+      (Boolean(previousContent) && !content.startsWith(previousContent))
+
+    if (isContentReset) {
+      cancelStreamingFrame(frameRef, lastTimestampRef)
+      visibleLengthRef.current = content.length
+      setVisibleLength(content.length)
+      return
+    }
+
+    if (content.length <= visibleLengthRef.current || frameRef.current !== null) {
+      return
+    }
+
+    const advance = (timestamp: number) => {
+      const elapsedMs =
+        lastTimestampRef.current === null
+          ? STREAMING_TYPEWRITER_FALLBACK_FRAME_MS
+          : timestamp - lastTimestampRef.current
+      lastTimestampRef.current = timestamp
+
+      const nextLength = nextStreamingRevealLength(
+        visibleLengthRef.current,
+        targetLengthRef.current,
+        elapsedMs,
+      )
+      visibleLengthRef.current = nextLength
+      setVisibleLength(nextLength)
+
+      if (nextLength >= targetLengthRef.current) {
+        frameRef.current = null
+        lastTimestampRef.current = null
+        return
+      }
+
+      frameRef.current = window.requestAnimationFrame(advance)
+    }
+
+    frameRef.current = window.requestAnimationFrame(advance)
+  }, [content])
+
+  const visibleContent =
+    visibleLength >= contentRef.current.length
+      ? contentRef.current
+      : contentRef.current.slice(0, visibleLength)
+
+  return <ThreadPlainText content={visibleContent} />
+}
+
 function TimelineItem({
   item,
   onReleaseFullTurn,
@@ -1112,9 +1236,13 @@ function TimelineItem({
     case 'agentMessage': {
       const text = stringField(item.text)
       const phase = stringField(item.phase)
+      const clientRenderMode = stringField(item.clientRenderMode)
       const isStreaming = phase === 'streaming'
+      const shouldAnimateCompletedMessage =
+        clientRenderMode === 'animate-once' && text !== ''
+      const hasStreamingPresentation = isStreaming || shouldAnimateCompletedMessage
 
-      if (!text && !isStreaming) {
+      if (!text) {
         return null
       }
 
@@ -1122,14 +1250,18 @@ function TimelineItem({
         <article className="conversation-row conversation-row--assistant">
           <div
             className={
-              isStreaming
+              hasStreamingPresentation
                 ? 'conversation-bubble conversation-bubble--assistant conversation-bubble--streaming'
                 : 'conversation-bubble conversation-bubble--assistant'
             }
           >
             <CopyableMessageBody className="conversation-bubble__content" source={text} tone="assistant">
               {text ? (
-                isStreaming ? (
+                shouldAnimateCompletedMessage ? (
+                  <StreamingAgentMessage content={text} />
+                ) : isStreaming ? (
+                  // True streaming content is already chunked by the backend.
+                  // Rendering it immediately avoids a second local typewriter lag.
                   <ThreadPlainText content={text} />
                 ) : (
                   <ExpandableThreadMessage
