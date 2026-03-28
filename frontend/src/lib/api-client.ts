@@ -91,9 +91,5 @@ function defaultApiBaseUrl() {
     return 'http://localhost:18080'
   }
 
-  if (import.meta.env.DEV) {
-    return ''
-  }
-
   return `${window.location.protocol}//${window.location.hostname}:18080`
 }

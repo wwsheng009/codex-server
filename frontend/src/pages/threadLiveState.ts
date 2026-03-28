@@ -484,7 +484,84 @@ function selectLiveThreadDetailBase(
     return currentLiveDetail
   }
 
-  return snapshotMs >= currentMs ? threadDetail : currentLiveDetail
+  return snapshotMs >= currentMs
+    ? reconcileStreamingSnapshotWithCurrentLiveDetail(
+        threadDetail,
+        currentLiveDetail,
+      )
+    : currentLiveDetail
+}
+
+function reconcileStreamingSnapshotWithCurrentLiveDetail(
+  threadDetail: ThreadDetail,
+  currentLiveDetail: ThreadDetail,
+) {
+  let detailChanged = false
+
+  const turns = threadDetail.turns.map((snapshotTurn) => {
+    if (!turnStatusLooksInterruptible(snapshotTurn.status)) {
+      return snapshotTurn
+    }
+
+    const currentTurn = currentLiveDetail.turns.find(
+      (turn) => turn.id === snapshotTurn.id,
+    )
+    if (!currentTurn) {
+      return snapshotTurn
+    }
+
+    let turnChanged = false
+    const items = snapshotTurn.items.map((snapshotItem) => {
+      const snapshotItemId = stringField(snapshotItem.id)
+      if (!snapshotItemId) {
+        return snapshotItem
+      }
+
+      const currentItem = currentTurn.items.find(
+        (item) => stringField(item.id) === snapshotItemId,
+      )
+      if (
+        !currentItem ||
+        stringField(currentItem.type) !== 'agentMessage' ||
+        !stringsEqualFold(stringField(currentItem.phase), 'streaming') ||
+        stringField(snapshotItem.type) !== 'agentMessage'
+      ) {
+        return snapshotItem
+      }
+
+      const currentText = stringField(currentItem.text)
+      const snapshotText = stringField(snapshotItem.text)
+      if (snapshotText.length > currentText.length) {
+        return snapshotItem
+      }
+
+      turnChanged = true
+      return {
+        ...snapshotItem,
+        text: currentText || snapshotText,
+        phase: 'streaming',
+      }
+    })
+
+    if (!turnChanged) {
+      return snapshotTurn
+    }
+
+    detailChanged = true
+    return {
+      ...snapshotTurn,
+      items,
+    }
+  })
+
+  if (!detailChanged) {
+    return threadDetail
+  }
+
+  return {
+    ...threadDetail,
+    turns,
+  }
 }
 
 function isServerRequestMethod(method: string) {
@@ -503,4 +580,13 @@ function isServerRequestMethod(method: string) {
 
 function requestItemId(requestId: string) {
   return `server-request-${requestId}`
+}
+
+function turnStatusLooksInterruptible(value: string | undefined) {
+  const normalized = stringField(value).toLowerCase().replace(/[\s_-]+/g, '')
+  return ['running', 'processing', 'sending', 'waiting', 'inprogress', 'started'].includes(normalized)
+}
+
+function stringsEqualFold(left: string | undefined, right: string) {
+  return stringField(left).toLowerCase() === right.toLowerCase()
 }

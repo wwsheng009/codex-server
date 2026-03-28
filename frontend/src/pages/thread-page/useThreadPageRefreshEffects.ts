@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { i18n } from '../../i18n/runtime'
 import {
+  shouldFallbackRefreshThreadDetailDuringOpenStream,
   shouldRefreshMcpServerStatusForEvent,
   shouldRefreshLoadedThreadsForEvent,
   shouldRefreshRuntimeCatalogForEvent,
@@ -34,6 +35,7 @@ export function useThreadPageRefreshEffects({
   const previousStreamStateRef = useRef(streamState)
   const lastProcessedThreadEventKeyRef = useRef('')
   const lastProcessedWorkspaceActivityEventKeyRef = useRef('')
+  const lastLiveThreadEventAtRef = useRef<number | null>(null)
   const mcpServerStatusRefreshTimerRef = useRef<number | null>(null)
   const pendingThreadListRefreshRef = useRef(false)
   const runtimeCatalogRefreshTimerRef = useRef<number | null>(null)
@@ -41,6 +43,7 @@ export function useThreadPageRefreshEffects({
 
   useEffect(() => {
     lastProcessedThreadEventKeyRef.current = ''
+    lastLiveThreadEventAtRef.current = null
   }, [selectedThreadId])
 
   useEffect(() => {
@@ -131,6 +134,14 @@ export function useThreadPageRefreshEffects({
   }
 
   useEffect(() => {
+    if (!selectedThreadId || !selectedThreadEvents.length) {
+      return
+    }
+
+    lastLiveThreadEventAtRef.current = Date.now()
+  }, [selectedThreadEvents, selectedThreadId])
+
+  useEffect(() => {
     if (
       !selectedThreadId ||
       !activePendingTurn ||
@@ -141,11 +152,22 @@ export function useThreadPageRefreshEffects({
       return
     }
 
+    const intervalMs = streamState === 'open' ? 2_000 : 1_000
     const intervalId = window.setInterval(() => {
+      if (
+        streamState === 'open' &&
+        !shouldFallbackRefreshThreadDetailDuringOpenStream(
+          lastLiveThreadEventAtRef.current,
+          Date.now(),
+        )
+      ) {
+        return
+      }
+
       void queryClient.invalidateQueries({
         queryKey: ['thread-detail', workspaceId, selectedThreadId],
       })
-    }, streamState === 'open' ? 400 : 1_000)
+    }, intervalMs)
 
     return () => {
       window.clearInterval(intervalId)
@@ -202,11 +224,6 @@ export function useThreadPageRefreshEffects({
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
-      selectedThreadId
-        ? queryClient.invalidateQueries({
-            queryKey: ['thread-detail', workspaceId, selectedThreadId],
-          })
-        : Promise.resolve(),
     ])
   }, [isDocumentVisible, queryClient, selectedThreadId, streamState, workspaceId])
 

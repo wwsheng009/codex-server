@@ -5,8 +5,11 @@ import {
   computeThreadPinnedToLatest,
   resolveOlderTurnsRestoreTarget,
   resolveThreadViewportAutoScrollChange,
+  resolveThreadViewportContentFollowThrottleState,
   resolveThreadViewportPinnedState,
+  resolveThreadViewportScrollExecution,
   resolveThreadViewportScrollDeferState,
+  shouldCoalesceThreadViewportScheduledFrame,
 } from './threadViewportAutoScrollUtils'
 
 function buildTestThreadContentSignature(suffix: string) {
@@ -187,6 +190,127 @@ describe('resolveThreadViewportAutoScrollChange', () => {
       }),
     ).toMatchObject({
       shouldDefer: true,
+    })
+  })
+
+  it('skips no-op writes when the viewport is already at the clamped bottom target', () => {
+    expect(
+      resolveThreadViewportScrollExecution({
+        clientHeight: 858,
+        currentScrollTop: 10_080,
+        requestedTargetTop: 10_938,
+        scrollHeight: 10_938,
+      }),
+    ).toEqual({
+      nextTargetTop: 10_080,
+      shouldScroll: false,
+    })
+  })
+
+  it('keeps follow-latest writes when content growth moved the actual bottom', () => {
+    expect(
+      resolveThreadViewportScrollExecution({
+        clientHeight: 858,
+        currentScrollTop: 10_080,
+        requestedTargetTop: 11_120,
+        scrollHeight: 11_120,
+      }),
+    ).toEqual({
+      nextTargetTop: 10_262,
+      shouldScroll: true,
+    })
+  })
+
+  it('keeps small but real follow deltas so the viewport can finish reaching bottom', () => {
+    expect(
+      resolveThreadViewportScrollExecution({
+        clientHeight: 858,
+        currentScrollTop: 2_475,
+        requestedTargetTop: 2_483,
+        scrollHeight: 3_341,
+      }),
+    ).toEqual({
+      nextTargetTop: 2_483,
+      shouldScroll: true,
+    })
+  })
+
+  it('coalesces same-frame auto follow requests without affecting other scroll policies', () => {
+    expect(
+      shouldCoalesceThreadViewportScheduledFrame({
+        nextTaskBehavior: 'auto',
+        nextTaskPolicy: 'follow-latest',
+        pendingTaskBehavior: 'auto',
+        pendingTaskPolicy: 'follow-latest',
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldCoalesceThreadViewportScheduledFrame({
+        nextTaskBehavior: 'smooth',
+        nextTaskPolicy: 'follow-latest',
+        pendingTaskBehavior: 'auto',
+        pendingTaskPolicy: 'follow-latest',
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldCoalesceThreadViewportScheduledFrame({
+        nextTaskBehavior: 'auto',
+        nextTaskPolicy: 'preserve-position',
+        pendingTaskBehavior: 'auto',
+        pendingTaskPolicy: 'follow-latest',
+      }),
+    ).toBe(false)
+  })
+
+  it('throttles only high-frequency content-change follow requests', () => {
+    expect(
+      resolveThreadViewportContentFollowThrottleState({
+        lastAutoFollowScrollAtMs: 1_000,
+        nowMs: 1_020,
+        policy: 'follow-latest',
+        source: 'content-change-follow',
+      }),
+    ).toEqual({
+      delayMs: 28,
+      shouldDefer: true,
+    })
+
+    expect(
+      resolveThreadViewportContentFollowThrottleState({
+        lastAutoFollowScrollAtMs: 1_000,
+        nowMs: 1_060,
+        policy: 'follow-latest',
+        source: 'content-change-follow',
+      }),
+    ).toEqual({
+      delayMs: 0,
+      shouldDefer: false,
+    })
+
+    expect(
+      resolveThreadViewportContentFollowThrottleState({
+        lastAutoFollowScrollAtMs: 1_000,
+        nowMs: 1_020,
+        policy: 'follow-latest',
+        source: 'content-layout-follow',
+      }),
+    ).toEqual({
+      delayMs: 28,
+      shouldDefer: true,
+    })
+
+    expect(
+      resolveThreadViewportContentFollowThrottleState({
+        lastAutoFollowScrollAtMs: 1_000,
+        nowMs: 1_020,
+        policy: 'follow-latest',
+        source: 'jump-to-latest',
+      }),
+    ).toEqual({
+      delayMs: 0,
+      shouldDefer: false,
     })
   })
 

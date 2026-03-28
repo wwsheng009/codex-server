@@ -49,6 +49,7 @@ const threadDetailStreamingMethods = new Set([
 ])
 
 const THREAD_VIEWPORT_NEAR_BOTTOM_THRESHOLD_PX = 72
+const THREAD_DETAIL_OPEN_STREAM_STALE_EVENT_THRESHOLD_MS = 2_000
 
 const threadDisplayMetricsCache = new WeakMap<ThreadTurn[], ThreadDisplayMetrics>()
 const threadTurnDisplayMetricsCache = new WeakMap<ThreadTurn, ThreadDisplayMetrics>()
@@ -81,6 +82,18 @@ export function shouldRefreshThreadDetailForEvent(method?: string) {
 
 export function shouldThrottleThreadDetailRefreshForEvent(method?: string) {
   return typeof method === 'string' && threadDetailStreamingMethods.has(method)
+}
+
+export function shouldFallbackRefreshThreadDetailDuringOpenStream(
+  lastLiveThreadEventAtMs: number | null,
+  nowMs: number,
+  staleAfterMs = THREAD_DETAIL_OPEN_STREAM_STALE_EVENT_THRESHOLD_MS,
+) {
+  if (lastLiveThreadEventAtMs === null) {
+    return true
+  }
+
+  return nowMs - lastLiveThreadEventAtMs >= staleAfterMs
 }
 
 export function shouldRefreshApprovalsForEvent(method?: string, serverRequestId?: string | null) {

@@ -2,7 +2,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { ThreadTurn } from '../../types/api'
-import { shouldVirtualizeTurnTimeline, TurnTimeline } from './renderers'
+import {
+  areTurnTimelinePropsEqual,
+  shouldVirtualizeTurnTimeline,
+  TurnTimeline,
+} from './renderers'
 
 describe('TurnTimeline', () => {
   it('only enables virtualization for timelines that exceed the threshold with a viewport ref', () => {
@@ -36,6 +40,31 @@ describe('TurnTimeline', () => {
         entryCount: 120,
         hasScrollViewportRef: false,
         timelineIdentity: 'thread-1',
+      }),
+    ).toBe(false)
+  })
+
+  it('invalidates the memoized timeline when virtualization control props change', () => {
+    const turns: ThreadTurn[] = []
+    const viewportRef = { current: null }
+    const previous = {
+      freezeVirtualization: false,
+      scrollViewportRef: viewportRef,
+      timelineIdentity: 'thread-1',
+      turns,
+    }
+
+    expect(
+      areTurnTimelinePropsEqual(previous, {
+        ...previous,
+        freezeVirtualization: true,
+      }),
+    ).toBe(false)
+
+    expect(
+      areTurnTimelinePropsEqual(previous, {
+        ...previous,
+        disableVirtualization: true,
       }),
     ).toBe(false)
   })

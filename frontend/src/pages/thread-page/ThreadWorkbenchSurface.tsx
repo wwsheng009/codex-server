@@ -103,8 +103,31 @@ export function triggerOlderTurnsLoadWithAnchor({
   onLoadOlderTurns()
 }
 
+export function shouldFreezeThreadTimelineVirtualization({
+  activePendingTurnPhase,
+  isThreadPinnedToLatest,
+  isThreadProcessing,
+  isThreadViewportInteracting,
+}: Pick<
+  ThreadWorkbenchSurfaceProps,
+  | 'activePendingTurnPhase'
+  | 'isThreadPinnedToLatest'
+  | 'isThreadProcessing'
+  | 'isThreadViewportInteracting'
+>) {
+  if (!isThreadPinnedToLatest || isThreadViewportInteracting) {
+    return true
+  }
+
+  return (
+    isThreadProcessing ||
+    activePendingTurnPhase === 'sending' ||
+    activePendingTurnPhase === 'waiting'
+  )
+}
+
 export function ThreadWorkbenchSurface({
-  activePendingTurnPhase: _activePendingTurnPhase,
+  activePendingTurnPhase,
   activeSurfacePanelSide,
   approvalAnswers,
   approvalErrors,
@@ -237,6 +260,12 @@ export function ThreadWorkbenchSurface({
     !selectedThread && !isThreadSelectionLoading && isThreadsLoaded && !hasThreads
   const showThreadsLoadingState =
     isThreadSelectionLoading || (!selectedThread && !isThreadsLoaded)
+  const freezeThreadTimelineVirtualization = shouldFreezeThreadTimelineVirtualization({
+    activePendingTurnPhase,
+    isThreadPinnedToLatest,
+    isThreadProcessing,
+    isThreadViewportInteracting,
+  })
 
   return (
     <div className="workbench-stage__canvas">
@@ -320,9 +349,7 @@ export function ThreadWorkbenchSurface({
                     </div>
                   ) : null}
                   <TurnTimeline
-                    freezeVirtualization={
-                      !isThreadPinnedToLatest || isThreadViewportInteracting
-                    }
+                    freezeVirtualization={freezeThreadTimelineVirtualization}
                     onReleaseFullTurn={onReleaseFullTurn}
                     onRetainFullTurn={onRetainFullTurn}
                     onRequestFullTurn={onRequestFullTurn}

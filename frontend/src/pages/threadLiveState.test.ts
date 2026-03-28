@@ -328,6 +328,108 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('preserves streaming phase when a newer in-progress snapshot omits it', () => {
+    const currentLiveDetail = applyThreadEventsToDetail(makeDetail(), [
+      makeEvent('turn/started', {
+        turn: {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [],
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+      makeEvent('item/agentMessage/delta', {
+        delta: 'Hello world',
+        itemId: 'item-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    ]) as ThreadDetail
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Hello world',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello world',
+      phase: 'streaming',
+    })
+  })
+
+  it('does not preserve streaming phase once a newer snapshot marks the turn completed', () => {
+    const currentLiveDetail = applyThreadEventsToDetail(makeDetail(), [
+      makeEvent('turn/started', {
+        turn: {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [],
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+      makeEvent('item/agentMessage/delta', {
+        delta: 'Hello world',
+        itemId: 'item-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    ]) as ThreadDetail
+
+    const completedSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Hello world',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: completedSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello world',
+    })
+    expect(resolved?.turns[0]?.items[0]?.phase).toBeUndefined()
+  })
+
   it('projects pending and resolved server requests into the live thread detail', () => {
     const detail = applyThreadEventsToDetail(makeDetail(), [
       {

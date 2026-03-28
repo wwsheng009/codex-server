@@ -163,6 +163,8 @@ export function AppShell() {
   const activeLocale = getActiveLocale()
   const isMobileViewport = useMediaQuery('(max-width: 900px)')
   const isSettingsRoute = location.pathname.startsWith('/settings')
+  const shouldDeferOffscreenWorkspaceThreadQueries =
+    location.pathname.startsWith('/workspaces/')
   const [isSidebarResizing, setIsSidebarResizing] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readLeftSidebarCollapsed)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
@@ -177,6 +179,8 @@ export function AppShell() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
   const [visibleThreadCountByWorkspace, setVisibleThreadCountByWorkspace] = useState<Record<string, number>>({})
   const [refreshingWorkspaceIds, setRefreshingWorkspaceIds] = useState<Set<string>>(new Set())
+  const [areDeferredWorkspaceThreadQueriesEnabled, setAreDeferredWorkspaceThreadQueriesEnabled] =
+    useState(() => !shouldDeferOffscreenWorkspaceThreadQueries)
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
@@ -201,8 +205,12 @@ export function AppShell() {
       const requestedThreadCount =
         visibleThreadCountByWorkspace[workspace.id] ?? DEFAULT_VISIBLE_THREADS
       const workspaceRouteActive = location.pathname.startsWith(`/workspaces/${workspace.id}`)
+      const preferCachedThreadPage = !refreshingWorkspaceIds.has(workspace.id)
       const shouldLoadWorkspaceThreads =
         !isSettingsRoute && (isWorkspaceGroupExpanded(workspace.id) || workspaceRouteActive)
+      const shouldEnableThreadQuery =
+        shouldLoadWorkspaceThreads &&
+        (workspaceRouteActive || areDeferredWorkspaceThreadQueriesEnabled)
 
       return {
         queryKey: [
@@ -211,6 +219,7 @@ export function AppShell() {
           {
             archived: false,
             limit: requestedThreadCount,
+            preferCached: preferCachedThreadPage,
             sortKey: 'updated_at',
           },
         ],
@@ -218,9 +227,10 @@ export function AppShell() {
           listThreadsPage(workspace.id, {
             archived: false,
             limit: requestedThreadCount,
+            preferCached: preferCachedThreadPage,
             sortKey: 'updated_at',
           }),
-        enabled: shouldLoadWorkspaceThreads,
+        enabled: shouldEnableThreadQuery,
         placeholderData: (previous: ThreadListPage | undefined) => previous,
         staleTime: 30_000,
         refetchOnReconnect: false,
@@ -228,6 +238,37 @@ export function AppShell() {
       }
     }),
   })
+
+  useEffect(() => {
+    if (!shouldDeferOffscreenWorkspaceThreadQueries) {
+      setAreDeferredWorkspaceThreadQueriesEnabled(true)
+      return
+    }
+
+    setAreDeferredWorkspaceThreadQueriesEnabled(false)
+    if (typeof window === 'undefined') {
+      setAreDeferredWorkspaceThreadQueriesEnabled(true)
+      return
+    }
+
+    const enableDeferredQueries = () => {
+      setAreDeferredWorkspaceThreadQueriesEnabled(true)
+    }
+
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleCallbackId = window.requestIdleCallback(enableDeferredQueries, {
+        timeout: 800,
+      })
+      return () => {
+        window.cancelIdleCallback(idleCallbackId)
+      }
+    }
+
+    const timeoutId = window.setTimeout(enableDeferredQueries, 250)
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [shouldDeferOffscreenWorkspaceThreadQueries])
 
   useEffect(() => {
     writeLeftSidebarCollapsed(isSidebarCollapsed)

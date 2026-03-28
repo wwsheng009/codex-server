@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { i18n } from '../../i18n/runtime'
 import {
   shouldScheduleOlderTurnsAutoload,
+  shouldFreezeThreadTimelineVirtualization,
   ThreadWorkbenchSurface,
   triggerOlderTurnsLoadWithAnchor,
 } from './ThreadWorkbenchSurface'
@@ -58,6 +59,37 @@ describe('ThreadWorkbenchSurface', () => {
         hasMoreTurnsBefore: true,
         isLoadingOlderTurns: false,
         scrollTop: 120,
+      }),
+    ).toBe(false)
+  })
+
+  it('freezes timeline virtualization while a pinned thread is streaming or waiting', () => {
+    expect(
+      shouldFreezeThreadTimelineVirtualization({
+        activePendingTurnPhase: 'waiting',
+        isThreadPinnedToLatest: true,
+        isThreadProcessing: false,
+        isThreadViewportInteracting: false,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldFreezeThreadTimelineVirtualization({
+        activePendingTurnPhase: undefined,
+        isThreadPinnedToLatest: true,
+        isThreadProcessing: true,
+        isThreadViewportInteracting: false,
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps timeline virtualization live only when the viewport is pinned and idle', () => {
+    expect(
+      shouldFreezeThreadTimelineVirtualization({
+        activePendingTurnPhase: undefined,
+        isThreadPinnedToLatest: true,
+        isThreadProcessing: false,
+        isThreadViewportInteracting: false,
       }),
     ).toBe(false)
   })

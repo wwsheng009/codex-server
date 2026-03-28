@@ -4,7 +4,13 @@ import type { ThreadContentSignature } from './threadContentSignature'
 
 const THREAD_VIEWPORT_ENTER_PIN_THRESHOLD_PX = 12
 const THREAD_VIEWPORT_EXIT_PIN_THRESHOLD_PX = 96
+const THREAD_VIEWPORT_SCROLL_NOOP_THRESHOLD_PX = 1
 const THREAD_VIEWPORT_SCROLL_RETRY_MS = 32
+const THREAD_VIEWPORT_CONTENT_FOLLOW_THROTTLE_MS = 48
+const THREAD_VIEWPORT_THROTTLED_FOLLOW_SOURCES = new Set([
+  'content-change-follow',
+  'content-layout-follow',
+])
 
 export type ThreadViewportProgrammaticScrollPolicy =
   | 'follow-latest'
@@ -168,6 +174,85 @@ export function resolveThreadViewportScrollDeferState({
   return {
     delayMs: 0,
     shouldDefer: false,
+  }
+}
+
+export type ResolveThreadViewportScrollExecutionInput = {
+  clientHeight: number
+  currentScrollTop: number
+  requestedTargetTop: number
+  scrollHeight: number
+}
+
+export function resolveThreadViewportScrollExecution({
+  clientHeight,
+  currentScrollTop,
+  requestedTargetTop,
+  scrollHeight,
+}: ResolveThreadViewportScrollExecutionInput) {
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
+  const nextTargetTop = Math.min(Math.max(0, requestedTargetTop), maxScrollTop)
+
+  return {
+    nextTargetTop,
+    shouldScroll:
+      Math.abs(nextTargetTop - currentScrollTop) > THREAD_VIEWPORT_SCROLL_NOOP_THRESHOLD_PX,
+  }
+}
+
+export function shouldCoalesceThreadViewportScheduledFrame({
+  nextTaskBehavior,
+  nextTaskPolicy,
+  pendingTaskBehavior,
+  pendingTaskPolicy,
+}: {
+  nextTaskBehavior: ScrollBehavior
+  nextTaskPolicy: ThreadViewportProgrammaticScrollPolicy
+  pendingTaskBehavior: ScrollBehavior | null
+  pendingTaskPolicy: ThreadViewportProgrammaticScrollPolicy | null
+}) {
+  return (
+    pendingTaskPolicy === 'follow-latest' &&
+    nextTaskPolicy === 'follow-latest' &&
+    pendingTaskBehavior === 'auto' &&
+    nextTaskBehavior === 'auto'
+  )
+}
+
+export function resolveThreadViewportContentFollowThrottleState({
+  lastAutoFollowScrollAtMs,
+  nowMs,
+  policy,
+  source,
+}: {
+  lastAutoFollowScrollAtMs: number
+  nowMs: number
+  policy: ThreadViewportProgrammaticScrollPolicy
+  source: string
+}) {
+  if (
+    policy !== 'follow-latest' ||
+    !THREAD_VIEWPORT_THROTTLED_FOLLOW_SOURCES.has(source)
+  ) {
+    return {
+      delayMs: 0,
+      shouldDefer: false,
+    }
+  }
+
+  const remainingThrottleMs =
+    lastAutoFollowScrollAtMs + THREAD_VIEWPORT_CONTENT_FOLLOW_THROTTLE_MS - nowMs
+
+  if (remainingThrottleMs <= 0) {
+    return {
+      delayMs: 0,
+      shouldDefer: false,
+    }
+  }
+
+  return {
+    delayMs: remainingThrottleMs,
+    shouldDefer: true,
   }
 }
 

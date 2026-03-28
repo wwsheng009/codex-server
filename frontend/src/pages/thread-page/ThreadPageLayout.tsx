@@ -1,10 +1,16 @@
+import { Suspense, lazy } from 'react'
+
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { ThreadTerminalDock } from '../../features/thread-terminal'
 import { i18n } from '../../i18n/runtime'
 import { ThreadComposerDock } from './ThreadComposerDock'
 import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
 import { ThreadWorkbenchSurface } from './ThreadWorkbenchSurface'
 import type { ThreadPageLayoutProps } from './threadPageLayoutPropTypes'
+
+const ThreadTerminalDock = lazy(async () => {
+  const module = await import('../../features/thread-terminal')
+  return { default: module.ThreadTerminalDock }
+})
 
 export function ThreadPageLayout({
   closeWorkbenchOverlay,
@@ -43,7 +49,11 @@ export function ThreadPageLayout({
               <ThreadComposerDock {...composerDockProps} />
             </ThreadWorkbenchSurface>
 
-            {terminalDockProps ? <ThreadTerminalDock {...terminalDockProps} /> : null}
+            {terminalDockProps ? (
+              <Suspense fallback={null}>
+                <ThreadTerminalDock {...terminalDockProps} />
+              </Suspense>
+            ) : null}
           </section>
         </section>
 

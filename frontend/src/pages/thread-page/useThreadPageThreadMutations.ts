@@ -14,7 +14,12 @@ import {
   unarchiveThread,
 } from '../../features/threads/api'
 import { interruptTurn, startTurn } from '../../features/turns/api'
-import type { PendingApproval, Thread, TurnResult } from '../../types/api'
+import type { PendingApproval, Thread, ThreadDetail, TurnResult } from '../../types/api'
+import {
+  reconcileInterruptedThreadDetail,
+  settleInterruptedThreadStatusInList,
+  shouldReconcileNoActiveTurn,
+} from '../threadPageTurnHelpers'
 import type {
   ThreadPageRenameThreadMutationInput,
   ThreadPageRespondApprovalInput,
@@ -45,6 +50,23 @@ export function useThreadPageThreadMutations({
       queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
     ])
+  }
+
+  function reconcileInterruptedThreadLocally(threadId: string, updatedAt = new Date().toISOString()) {
+    queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
+      settleInterruptedThreadStatusInList(current, threadId, updatedAt),
+    )
+    queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
+      settleInterruptedThreadStatusInList(current, threadId, updatedAt),
+    )
+
+    for (const [queryKey] of queryClient.getQueriesData({
+      queryKey: ['thread-detail', workspaceId, threadId],
+    })) {
+      queryClient.setQueryData<ThreadDetail | undefined>(queryKey, (current) =>
+        reconcileInterruptedThreadDetail(current, updatedAt),
+      )
+    }
   }
 
   const createThreadMutation = useMutation({
@@ -173,14 +195,33 @@ export function useThreadPageThreadMutations({
 
   const interruptTurnMutation = useMutation({
     mutationFn: () => interruptTurn(workspaceId, selectedThreadId ?? ''),
-    onSuccess: async () => {
+    onSuccess: () => {
+      const settledAt = new Date().toISOString()
       if (selectedThreadId) {
         clearPendingTurn(selectedThreadId)
+        reconcileInterruptedThreadLocally(selectedThreadId, settledAt)
       }
-      await Promise.all([
+      void Promise.all([
         queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] }),
-        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
-        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+        invalidateThreadQueries(),
+      ])
+    },
+    onError: (error) => {
+      if (!selectedThreadId || !shouldReconcileNoActiveTurn(error)) {
+        return
+      }
+
+      const settledAt = new Date().toISOString()
+      clearPendingTurn(selectedThreadId)
+      reconcileInterruptedThreadLocally(selectedThreadId, settledAt)
+      void Promise.all([
+        queryClient.refetchQueries({
+          queryKey: ['thread-detail', workspaceId, selectedThreadId],
+          type: 'active',
+        }),
+        queryClient.refetchQueries({ queryKey: ['threads', workspaceId], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['shell-threads', workspaceId], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['loaded-threads', workspaceId], type: 'active' }),
       ])
     },
   })

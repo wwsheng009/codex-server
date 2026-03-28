@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { accountQueryKey, getAccount } from '../../features/account/api'
@@ -5,7 +6,7 @@ import { listPendingApprovals } from '../../features/approvals/api'
 import { listModels, listSkills } from '../../features/catalog/api'
 import { listCommandSessions } from '../../features/commands/api'
 import { fuzzyFileSearch, readConfig } from '../../features/settings/api'
-import { getThread, listLoadedThreadIds, listThreads } from '../../features/threads/api'
+import { getThread, listLoadedThreadIds, listThreadsPage } from '../../features/threads/api'
 import { getWorkspace, getWorkspaceRuntimeState } from '../../features/workspaces/api'
 import type { PendingApproval } from '../../types/api'
 import type { UseThreadPageQueriesInput } from './threadPageRuntimeTypes'
@@ -20,6 +21,39 @@ export function useThreadPageQueries({
   workspaceId,
 }: UseThreadPageQueriesInput) {
   const queryClient = useQueryClient()
+  const [areBackgroundQueriesEnabled, setAreBackgroundQueriesEnabled] = useState(false)
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setAreBackgroundQueriesEnabled(false)
+      return
+    }
+
+    setAreBackgroundQueriesEnabled(false)
+    if (typeof window === 'undefined') {
+      setAreBackgroundQueriesEnabled(true)
+      return
+    }
+
+    const enableBackgroundQueries = () => {
+      setAreBackgroundQueriesEnabled(true)
+    }
+
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleCallbackId = window.requestIdleCallback(enableBackgroundQueries, {
+        timeout: 800,
+      })
+      return () => {
+        window.cancelIdleCallback(idleCallbackId)
+      }
+    }
+
+    const timeoutId = window.setTimeout(enableBackgroundQueries, 250)
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [workspaceId])
+
   const workspaceQuery = useQuery({
     queryKey: ['workspace', workspaceId],
     queryFn: () => getWorkspace(workspaceId),
@@ -32,7 +66,7 @@ export function useThreadPageQueries({
   const workspaceRuntimeStateQuery = useQuery({
     queryKey: ['workspace-runtime-state', workspaceId],
     queryFn: () => getWorkspaceRuntimeState(workspaceId),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
     staleTime: 10_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -41,7 +75,7 @@ export function useThreadPageQueries({
   const accountQuery = useQuery({
     queryKey: accountQueryKey(workspaceId),
     queryFn: () => getAccount(workspaceId),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
     staleTime: 15_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -49,7 +83,13 @@ export function useThreadPageQueries({
 
   const threadsQuery = useQuery({
     queryKey: ['threads', workspaceId],
-    queryFn: () => listThreads(workspaceId),
+    queryFn: () =>
+      listThreadsPage(workspaceId, {
+        archived: false,
+        limit: 200,
+        preferCached: true,
+        sortKey: 'updated_at',
+      }).then((page) => page.data),
     enabled: Boolean(workspaceId),
     staleTime: 30_000,
     refetchOnReconnect: false,
@@ -60,7 +100,7 @@ export function useThreadPageQueries({
   const loadedThreadsQuery = useQuery({
     queryKey: ['loaded-threads', workspaceId],
     queryFn: () => listLoadedThreadIds(workspaceId),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
     staleTime: 15_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -69,7 +109,7 @@ export function useThreadPageQueries({
   const modelsQuery = useQuery({
     queryKey: ['models', workspaceId],
     queryFn: () => listModels(workspaceId),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
     staleTime: 60_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -78,7 +118,7 @@ export function useThreadPageQueries({
   const skillsQuery = useQuery({
     queryKey: ['skills', workspaceId],
     queryFn: () => listSkills(workspaceId),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
     staleTime: 60_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -127,7 +167,7 @@ export function useThreadPageQueries({
   const environmentConfigQuery = useQuery({
     queryKey: ['thread-page-environment-config', workspaceId],
     queryFn: () => readConfig(workspaceId, { includeLayers: false }),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
     staleTime: 15_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

@@ -9,6 +9,7 @@ import {
   primeThreadDisplayMetrics,
   primeThreadDisplayMetricsForTurnReplacements,
   shouldRefreshApprovalsForEvent,
+  shouldFallbackRefreshThreadDetailDuringOpenStream,
   shouldRefreshLoadedThreadsForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
@@ -42,6 +43,12 @@ describe('threadPageUtils', () => {
     expect(shouldThrottleThreadDetailRefreshForEvent('item/agentMessage/delta')).toBe(true)
     expect(shouldThrottleThreadDetailRefreshForEvent('item/reasoning/textDelta')).toBe(true)
     expect(shouldThrottleThreadDetailRefreshForEvent('turn/completed')).toBe(false)
+  })
+
+  it('only falls back to thread-detail refresh when the open stream has gone stale', () => {
+    expect(shouldFallbackRefreshThreadDetailDuringOpenStream(null, 10_000)).toBe(true)
+    expect(shouldFallbackRefreshThreadDetailDuringOpenStream(9_000, 10_500)).toBe(false)
+    expect(shouldFallbackRefreshThreadDetailDuringOpenStream(8_000, 10_500)).toBe(true)
   })
 
   it('refreshes approvals for server requests and resolutions', () => {

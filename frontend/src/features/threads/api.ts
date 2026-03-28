@@ -11,6 +11,7 @@ export type ListThreadsPageInput = {
   archived?: boolean
   cursor?: string
   limit?: number
+  preferCached?: boolean
   sortKey?: 'created_at' | 'updated_at'
 }
 
@@ -65,6 +66,9 @@ export function listThreadsPage(
   }
   if (input.limit && input.limit > 0) {
     query.set('limit', String(input.limit))
+  }
+  if (typeof input.preferCached === 'boolean') {
+    query.set('preferCached', String(input.preferCached))
   }
   if (input.sortKey) {
     query.set('sortKey', input.sortKey)

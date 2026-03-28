@@ -199,14 +199,24 @@ export const TurnTimeline = memo(function TurnTimeline({
       </div>
     </ConversationRenderProfilerBoundary>
   )
-}, (previous, next) => {
+}, areTurnTimelinePropsEqual)
+
+export function areTurnTimelinePropsEqual(
+  previous: TurnTimelineProps,
+  next: TurnTimelineProps,
+) {
   return (
+    previous.disableVirtualization === next.disableVirtualization &&
+    previous.freezeVirtualization === next.freezeVirtualization &&
     previous.onReleaseFullTurn === next.onReleaseFullTurn &&
     previous.onRequestFullTurn === next.onRequestFullTurn &&
     previous.onRetainFullTurn === next.onRetainFullTurn &&
+    previous.onRetryServerRequest === next.onRetryServerRequest &&
+    previous.scrollViewportRef === next.scrollViewportRef &&
+    previous.timelineIdentity === next.timelineIdentity &&
     previous.turns === next.turns
   )
-})
+}
 
 export function shouldVirtualizeTurnTimeline({
   disableVirtualization = false,
