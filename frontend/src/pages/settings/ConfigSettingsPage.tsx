@@ -38,16 +38,45 @@ import {
 } from '../../features/settings/runtime-sensitive-config'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { Input } from '../../components/ui/Input'
+import { Switch } from '../../components/ui/Switch'
 import { TextArea } from '../../components/ui/TextArea'
 import { i18n } from '../../i18n/runtime'
 import { formatLocaleDateTime } from '../../i18n/format'
 import { getErrorMessage } from '../../lib/error-utils'
+import {
+  readFrontendRuntimeMode,
+  writeFrontendRuntimeMode,
+} from '../../lib/frontend-runtime-mode'
+import {
+  buildConfiguredBackendThreadTracePayload,
+  buildDraftBackendThreadTracePayload,
+} from './configSettingsPageRuntimePreferences'
 import { SelectControl } from '../../components/ui/SelectControl'
 import type { SelectOption } from '../../components/ui/selectControlTypes'
 import { activateStoredTab, Tabs } from '../../components/ui/Tabs'
 import { useUIStore } from '../../stores/ui-store'
 import { ContextIcon, FeedIcon, RefreshIcon, SettingsIcon, SparkIcon, TerminalIcon } from '../../components/ui/RailControls'
 import { getWorkspaceRuntimeState, restartWorkspace } from '../../features/workspaces/api'
+import type { RuntimePreferencesResult } from '../../types/api'
+
+type RuntimePreferencesMutationInput = {
+  modelCatalogPath?: string
+  defaultShellType?: string
+  defaultTerminalShell?: string
+  modelShellTypeOverrides?: Record<string, string>
+  outboundProxyUrl?: string
+  defaultTurnApprovalPolicy?: string
+  defaultTurnSandboxPolicy?: Record<string, unknown>
+  defaultCommandSandboxPolicy?: Record<string, unknown>
+  backendThreadTraceEnabled?: boolean | null
+  backendThreadTraceWorkspaceId?: string
+  backendThreadTraceThreadId?: string
+}
+
+type RuntimePreferencesMutationRequest = {
+  input?: RuntimePreferencesMutationInput
+  backendThreadTraceSource?: 'draft' | 'configured'
+}
 
 export function ConfigSettingsPage() {
   const navigate = useNavigate()
@@ -65,6 +94,15 @@ export function ConfigSettingsPage() {
   const [defaultTurnSandboxPolicyInput, setDefaultTurnSandboxPolicyInput] = useState('')
   const [defaultCommandSandboxPolicyInput, setDefaultCommandSandboxPolicyInput] = useState('')
   const [shellEnvironmentPolicyInput, setShellEnvironmentPolicyInput] = useState('')
+  const [frontendRuntimeMode, setFrontendRuntimeMode] = useState(() => readFrontendRuntimeMode())
+  const [backendThreadTraceEnabled, setBackendThreadTraceEnabled] = useState(false)
+  const [backendThreadTraceWorkspaceId, setBackendThreadTraceWorkspaceId] = useState('')
+  const [backendThreadTraceThreadId, setBackendThreadTraceThreadId] = useState('')
+  const [savedBackendThreadTraceEnabled, setSavedBackendThreadTraceEnabled] = useState<boolean | null>(
+    null,
+  )
+  const [savedBackendThreadTraceWorkspaceId, setSavedBackendThreadTraceWorkspaceId] = useState('')
+  const [savedBackendThreadTraceThreadId, setSavedBackendThreadTraceThreadId] = useState('')
 
   const configQuery = useQuery({
     queryKey: ['settings-config', workspaceId],
@@ -100,17 +138,11 @@ export function ConfigSettingsPage() {
     [advancedConfigScenarios, configQuery.data?.config],
   )
 
-  function buildRuntimePreferencesPayload(input?: {
-    modelCatalogPath?: string
-    defaultShellType?: string
-    defaultTerminalShell?: string
-    modelShellTypeOverrides?: Record<string, string>
-    outboundProxyUrl?: string
-    defaultTurnApprovalPolicy?: string
-    defaultTurnSandboxPolicy?: Record<string, unknown>
-    defaultCommandSandboxPolicy?: Record<string, unknown>
-  }) {
-    return {
+  function buildRuntimePreferencesPayload(
+    input?: RuntimePreferencesMutationInput,
+    backendThreadTraceSource: 'draft' | 'configured' = 'draft',
+  ) {
+    const payload = {
       modelCatalogPath: (input?.modelCatalogPath ?? modelCatalogPath).trim(),
       defaultShellType: input?.defaultShellType ?? defaultShellType,
       defaultTerminalShell: input?.defaultTerminalShell ?? defaultTerminalShell,
@@ -125,6 +157,60 @@ export function ConfigSettingsPage() {
         input?.defaultCommandSandboxPolicy ??
         parseSandboxPolicyInput(defaultCommandSandboxPolicyInput),
     }
+
+    const backendThreadTracePayload =
+      backendThreadTraceSource === 'configured'
+        ? buildConfiguredBackendThreadTracePayload({
+            configuredBackendThreadTraceEnabled: savedBackendThreadTraceEnabled,
+            configuredBackendThreadTraceWorkspaceId: savedBackendThreadTraceWorkspaceId,
+            configuredBackendThreadTraceThreadId: savedBackendThreadTraceThreadId,
+          })
+        : buildDraftBackendThreadTracePayload(
+            {
+              backendThreadTraceEnabled,
+              backendThreadTraceWorkspaceId,
+              backendThreadTraceThreadId,
+            },
+            input,
+          )
+
+    return {
+      ...payload,
+      ...backendThreadTracePayload,
+    }
+  }
+
+  function syncRuntimePreferencesForm(result: RuntimePreferencesResult) {
+    setModelCatalogPath(result.configuredModelCatalogPath)
+    setDefaultShellType(result.configuredDefaultShellType)
+    setDefaultTerminalShell(result.configuredDefaultTerminalShell)
+    setModelShellTypeOverridesInput(
+      JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
+    )
+    setOutboundProxyUrl(result.configuredOutboundProxyUrl ?? '')
+    setDefaultTurnApprovalPolicy(result.configuredDefaultTurnApprovalPolicy ?? '')
+    setDefaultTurnSandboxPolicyInput(
+      stringifyJsonInput(result.configuredDefaultTurnSandboxPolicy),
+    )
+    setDefaultCommandSandboxPolicyInput(
+      stringifyJsonInput(result.configuredDefaultCommandSandboxPolicy),
+    )
+    setBackendThreadTraceEnabled(
+      result.configuredBackendThreadTraceEnabled ?? result.effectiveBackendThreadTraceEnabled ?? false,
+    )
+    setBackendThreadTraceWorkspaceId(
+      result.configuredBackendThreadTraceWorkspaceId ||
+        result.effectiveBackendThreadTraceWorkspaceId ||
+        '',
+    )
+    setBackendThreadTraceThreadId(
+      result.configuredBackendThreadTraceThreadId ||
+        result.effectiveBackendThreadTraceThreadId ||
+        '',
+    )
+    setSavedBackendThreadTraceEnabled(result.configuredBackendThreadTraceEnabled ?? null)
+    setSavedBackendThreadTraceWorkspaceId(result.configuredBackendThreadTraceWorkspaceId ?? '')
+    setSavedBackendThreadTraceThreadId(result.configuredBackendThreadTraceThreadId ?? '')
   }
 
   const restartRuntimeMutation = useMutation({
@@ -293,31 +379,15 @@ export function ConfigSettingsPage() {
     },
   })
   const writeRuntimePreferencesMutation = useMutation({
-    mutationFn: async (input?: {
-      modelCatalogPath?: string
-      defaultShellType?: string
-      defaultTerminalShell?: string
-      modelShellTypeOverrides?: Record<string, string>
-      outboundProxyUrl?: string
-      defaultTurnApprovalPolicy?: string
-      defaultTurnSandboxPolicy?: Record<string, unknown>
-      defaultCommandSandboxPolicy?: Record<string, unknown>
-    }) => writeRuntimePreferences(buildRuntimePreferencesPayload(input)),
+    mutationFn: async (request?: RuntimePreferencesMutationRequest) =>
+      writeRuntimePreferences(
+        buildRuntimePreferencesPayload(
+          request?.input,
+          request?.backendThreadTraceSource ?? 'draft',
+        ),
+      ),
     onSuccess: async (result) => {
-      setModelCatalogPath(result.configuredModelCatalogPath)
-      setDefaultShellType(result.configuredDefaultShellType)
-      setDefaultTerminalShell(result.configuredDefaultTerminalShell)
-      setModelShellTypeOverridesInput(
-        JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
-      )
-      setOutboundProxyUrl(result.configuredOutboundProxyUrl ?? '')
-      setDefaultTurnApprovalPolicy(result.configuredDefaultTurnApprovalPolicy ?? '')
-      setDefaultTurnSandboxPolicyInput(
-        stringifyJsonInput(result.configuredDefaultTurnSandboxPolicy),
-      )
-      setDefaultCommandSandboxPolicyInput(
-        stringifyJsonInput(result.configuredDefaultCommandSandboxPolicy),
-      )
+      syncRuntimePreferencesForm(result)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['settings-runtime-preferences'] }),
         queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
@@ -332,13 +402,19 @@ export function ConfigSettingsPage() {
           message: 'Runtime overrides applied',
         }),
         message: i18n._({
-          id: 'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}.',
-          message: 'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}.',
+          id: 'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
+          message:
+            'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
           values: {
             shell: shellLabel,
             terminal: terminalLabel,
             turnSandbox: formatSandboxPolicyLabel(result.effectiveDefaultTurnSandboxPolicy),
             commandSandbox: formatSandboxPolicyLabel(result.effectiveDefaultCommandSandboxPolicy),
+            backendTrace: formatBackendThreadTraceSummary(
+              result.effectiveBackendThreadTraceEnabled,
+              result.effectiveBackendThreadTraceWorkspaceId,
+              result.effectiveBackendThreadTraceThreadId,
+            ),
           },
         }),
         tone: 'success',
@@ -353,6 +429,18 @@ export function ConfigSettingsPage() {
       })
     },
   })
+
+  function submitRuntimePreferences(
+    input?: RuntimePreferencesMutationInput,
+    options?: {
+      backendThreadTraceSource?: 'draft' | 'configured'
+    },
+  ) {
+    writeRuntimePreferencesMutation.mutate({
+      input,
+      backendThreadTraceSource: options?.backendThreadTraceSource ?? 'draft',
+    })
+  }
 
   const detectExternalMutation = useMutation({
     mutationFn: () => detectExternalAgentConfig(workspaceId!, { includeHome: true }),
@@ -410,20 +498,7 @@ export function ConfigSettingsPage() {
   const importModelCatalogMutation = useMutation({
     mutationFn: importRuntimeModelCatalogTemplate,
     onSuccess: async (result) => {
-      setModelCatalogPath(result.configuredModelCatalogPath)
-      setDefaultShellType(result.configuredDefaultShellType)
-      setDefaultTerminalShell(result.configuredDefaultTerminalShell)
-      setModelShellTypeOverridesInput(
-        JSON.stringify(result.configuredModelShellTypeOverrides ?? {}, null, 2),
-      )
-      setOutboundProxyUrl(result.configuredOutboundProxyUrl ?? '')
-      setDefaultTurnApprovalPolicy(result.configuredDefaultTurnApprovalPolicy ?? '')
-      setDefaultTurnSandboxPolicyInput(
-        stringifyJsonInput(result.configuredDefaultTurnSandboxPolicy),
-      )
-      setDefaultCommandSandboxPolicyInput(
-        stringifyJsonInput(result.configuredDefaultCommandSandboxPolicy),
-      )
+      syncRuntimePreferencesForm(result)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['settings-runtime-preferences'] }),
         queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
@@ -457,20 +532,7 @@ export function ConfigSettingsPage() {
       return
     }
 
-    setModelCatalogPath(runtimePreferencesQuery.data.configuredModelCatalogPath)
-    setDefaultShellType(runtimePreferencesQuery.data.configuredDefaultShellType)
-    setDefaultTerminalShell(runtimePreferencesQuery.data.configuredDefaultTerminalShell)
-    setModelShellTypeOverridesInput(
-      JSON.stringify(runtimePreferencesQuery.data.configuredModelShellTypeOverrides ?? {}, null, 2),
-    )
-    setOutboundProxyUrl(runtimePreferencesQuery.data.configuredOutboundProxyUrl ?? '')
-    setDefaultTurnApprovalPolicy(runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy ?? '')
-    setDefaultTurnSandboxPolicyInput(
-      stringifyJsonInput(runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy),
-    )
-    setDefaultCommandSandboxPolicyInput(
-      stringifyJsonInput(runtimePreferencesQuery.data.configuredDefaultCommandSandboxPolicy),
-    )
+    syncRuntimePreferencesForm(runtimePreferencesQuery.data)
   }, [runtimePreferencesQuery.data])
 
   useEffect(() => {
@@ -491,6 +553,13 @@ export function ConfigSettingsPage() {
   )
   const approvalPolicyOptions = getApprovalPolicyOptions()
   const directWriteRequiresRestart = isRuntimeSensitiveConfigKey(configKeyPath)
+  const backendThreadTraceOverrideActive = Boolean(
+    runtimePreferencesQuery.data &&
+      (runtimePreferencesQuery.data.configuredBackendThreadTraceEnabled !== null &&
+        runtimePreferencesQuery.data.configuredBackendThreadTraceEnabled !== undefined ||
+        runtimePreferencesQuery.data.configuredBackendThreadTraceWorkspaceId ||
+        runtimePreferencesQuery.data.configuredBackendThreadTraceThreadId),
+  )
   const runtimeSummary = {
     catalogBound: Boolean(runtimePreferencesQuery.data?.effectiveModelCatalogPath),
     defaultShellType:
@@ -516,6 +585,11 @@ export function ConfigSettingsPage() {
     ),
     commandSandboxPolicy: formatSandboxPolicyLabel(
       runtimePreferencesQuery.data?.effectiveDefaultCommandSandboxPolicy,
+    ),
+    backendThreadTrace: formatBackendThreadTraceSummary(
+      runtimePreferencesQuery.data?.effectiveBackendThreadTraceEnabled ?? false,
+      runtimePreferencesQuery.data?.effectiveBackendThreadTraceWorkspaceId,
+      runtimePreferencesQuery.data?.effectiveBackendThreadTraceThreadId,
     ),
     configLoadStatus:
       workspaceRuntimeStateQuery.data?.configLoadStatus ??
@@ -554,6 +628,14 @@ export function ConfigSettingsPage() {
     {
       label: i18n._({ id: 'Approval', message: 'Approval' }),
       value: runtimeSummary.turnApprovalPolicy,
+    },
+    {
+      label: i18n._({ id: 'Trace', message: 'Trace' }),
+      value: runtimeSummary.backendThreadTrace,
+      tone:
+        runtimePreferencesQuery.data?.effectiveBackendThreadTraceEnabled
+          ? 'active'
+          : 'paused',
     },
     {
       label: i18n._({ id: 'Config', message: 'Config' }),
@@ -791,11 +873,184 @@ export function ConfigSettingsPage() {
                 </div>
               </div>
 
+              <section className="mode-panel">
+                <div className="section-header">
+                  <div>
+                    <h2>{i18n._({ id: 'Frontend Runtime Mode', message: 'Frontend Runtime Mode' })}</h2>
+                    <p>
+                      {i18n._({
+                        id: 'Controls browser-side diagnostics only. Debug mode prints workspace stream events and live thread output composition details into the developer console.',
+                        message:
+                          'Controls browser-side diagnostics only. Debug mode prints workspace stream events and live thread output composition details into the developer console.',
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={frontendRuntimeMode === 'debug'}
+                  hint={i18n._({
+                    id: 'When enabled, the browser console records websocket events, batched deltas, and live thread state reconciliation for debugging.',
+                    message:
+                      'When enabled, the browser console records websocket events, batched deltas, and live thread state reconciliation for debugging.',
+                  })}
+                  label={i18n._({ id: 'Enable Frontend Debug Mode', message: 'Enable Frontend Debug Mode' })}
+                  onChange={(event) => {
+                    const nextMode = event.target.checked ? 'debug' : 'normal'
+                    setFrontendRuntimeMode(nextMode)
+                    writeFrontendRuntimeMode(nextMode)
+                  }}
+                />
+              </section>
+
               <form
                 className="config-card"
                 onSubmit={(event: FormEvent<HTMLFormElement>) => {
                   event.preventDefault()
-                  writeRuntimePreferencesMutation.mutate(undefined)
+                  submitRuntimePreferences({
+                    backendThreadTraceEnabled,
+                    backendThreadTraceWorkspaceId,
+                    backendThreadTraceThreadId,
+                  })
+                }}
+              >
+                <div className="config-card__header">
+                  <strong>{i18n._({ id: 'Backend Thread Trace', message: 'Backend Thread Trace' })}</strong>
+                  <div className="setting-row__actions">
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={writeRuntimePreferencesMutation.isPending}
+                      onClick={() =>
+                        submitRuntimePreferences({
+                          backendThreadTraceEnabled: null,
+                          backendThreadTraceWorkspaceId: '',
+                          backendThreadTraceThreadId: '',
+                        })
+                      }
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Reset To Env Defaults',
+                        message: 'Reset To Env Defaults',
+                      })}
+                    </button>
+                    <button className="ide-button ide-button--primary ide-button--sm" type="submit">
+                      {writeRuntimePreferencesMutation.isPending
+                        ? i18n._({ id: 'Applying…', message: 'Applying…' })
+                        : i18n._({ id: 'Apply Trace Settings', message: 'Apply Trace Settings' })}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-stack">
+                  <p className="config-inline-note">
+                    {i18n._({
+                      id: 'Controls backend-side thread pipeline logging. When enabled, codex-server prints turn/start, runtime notifications, hub publish, projection, and websocket delivery checkpoints to the backend stdout immediately without restarting the backend process.',
+                      message:
+                        'Controls backend-side thread pipeline logging. When enabled, codex-server prints turn/start, runtime notifications, hub publish, projection, and websocket delivery checkpoints to the backend stdout immediately without restarting the backend process.',
+                    })}
+                  </p>
+
+                  <Switch
+                    checked={backendThreadTraceEnabled}
+                    hint={i18n._({
+                      id: 'Use this together with frontend debug mode to compare websocket arrival, live state reconciliation, and backend thread pipeline logs for the same turn.',
+                      message:
+                        'Use this together with frontend debug mode to compare websocket arrival, live state reconciliation, and backend thread pipeline logs for the same turn.',
+                    })}
+                    label={i18n._({
+                      id: 'Enable Backend Thread Trace',
+                      message: 'Enable Backend Thread Trace',
+                    })}
+                    onChange={(event) => setBackendThreadTraceEnabled(event.target.checked)}
+                  />
+
+                  <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <Input
+                      hint={i18n._({
+                        id: 'Leave blank to trace all workspaces. Use the current workspace id to limit noise while reproducing a thread rendering issue.',
+                        message:
+                          'Leave blank to trace all workspaces. Use the current workspace id to limit noise while reproducing a thread rendering issue.',
+                      })}
+                      label={i18n._({ id: 'Workspace Filter', message: 'Workspace Filter' })}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        setBackendThreadTraceWorkspaceId(event.target.value)
+                      }
+                      placeholder={workspaceId ?? i18n._({ id: 'all workspaces', message: 'all workspaces' })}
+                      value={backendThreadTraceWorkspaceId}
+                    />
+
+                    <Input
+                      hint={i18n._({
+                        id: 'Optional thread id filter. Leave blank to trace every thread inside the selected workspace scope.',
+                        message:
+                          'Optional thread id filter. Leave blank to trace every thread inside the selected workspace scope.',
+                      })}
+                      label={i18n._({ id: 'Thread Filter', message: 'Thread Filter' })}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        setBackendThreadTraceThreadId(event.target.value)
+                      }
+                      placeholder="019d33ed-7caf-7510-8af7-23f34f3a83c3"
+                      value={backendThreadTraceThreadId}
+                    />
+                  </div>
+
+                  <div className="setting-row__actions">
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={!workspaceId}
+                      onClick={() => setBackendThreadTraceWorkspaceId(workspaceId ?? '')}
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Use Current Workspace',
+                        message: 'Use Current Workspace',
+                      })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      onClick={() => setBackendThreadTraceThreadId('')}
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Clear Thread Filter',
+                        message: 'Clear Thread Filter',
+                      })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      onClick={() => setBackendThreadTraceWorkspaceId('')}
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Clear Workspace Filter',
+                        message: 'Clear Workspace Filter',
+                      })}
+                    </button>
+                  </div>
+
+                  <p className="config-inline-note">
+                    {backendThreadTraceOverrideActive
+                      ? i18n._({
+                          id: 'Saved trace override is active. Reset to env defaults if you want codex-server to follow CODEX_TRACE_THREAD_PIPELINE / CODEX_TRACE_WORKSPACE_ID / CODEX_TRACE_THREAD_ID again.',
+                          message:
+                            'Saved trace override is active. Reset to env defaults if you want codex-server to follow CODEX_TRACE_THREAD_PIPELINE / CODEX_TRACE_WORKSPACE_ID / CODEX_TRACE_THREAD_ID again.',
+                        })
+                      : i18n._({
+                          id: 'No saved trace override is active. Effective values currently follow backend environment defaults.',
+                          message:
+                            'No saved trace override is active. Effective values currently follow backend environment defaults.',
+                        })}
+                  </p>
+                </div>
+              </form>
+
+              <form
+                className="config-card"
+                onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                  event.preventDefault()
+                  submitRuntimePreferences(undefined, {
+                    backendThreadTraceSource: 'configured',
+                  })
                 }}
               >
                 <div className="config-card__header">
@@ -810,11 +1065,16 @@ export function ConfigSettingsPage() {
                       className="ide-button ide-button--secondary ide-button--sm"
                       disabled={writeRuntimePreferencesMutation.isPending}
                       onClick={() =>
-                        writeRuntimePreferencesMutation.mutate({
-                          defaultShellType: '',
-                          defaultTerminalShell: '',
-                          modelShellTypeOverrides: {},
-                        })
+                        submitRuntimePreferences(
+                          {
+                            defaultShellType: '',
+                            defaultTerminalShell: '',
+                            modelShellTypeOverrides: {},
+                          },
+                          {
+                            backendThreadTraceSource: 'configured',
+                          },
+                        )
                       }
                       type="button"
                     >
@@ -827,9 +1087,14 @@ export function ConfigSettingsPage() {
                       className="ide-button ide-button--secondary ide-button--sm"
                       disabled={writeRuntimePreferencesMutation.isPending}
                       onClick={() =>
-                        writeRuntimePreferencesMutation.mutate({
-                          outboundProxyUrl: '',
-                        })
+                        submitRuntimePreferences(
+                          {
+                            outboundProxyUrl: '',
+                          },
+                          {
+                            backendThreadTraceSource: 'configured',
+                          },
+                        )
                       }
                       type="button"
                     >
@@ -842,11 +1107,16 @@ export function ConfigSettingsPage() {
                       className="ide-button ide-button--secondary ide-button--sm"
                       disabled={writeRuntimePreferencesMutation.isPending}
                       onClick={() =>
-                        writeRuntimePreferencesMutation.mutate({
-                          defaultTurnApprovalPolicy: '',
-                          defaultTurnSandboxPolicy: {},
-                          defaultCommandSandboxPolicy: {},
-                        })
+                        submitRuntimePreferences(
+                          {
+                            defaultTurnApprovalPolicy: '',
+                            defaultTurnSandboxPolicy: {},
+                            defaultCommandSandboxPolicy: {},
+                          },
+                          {
+                            backendThreadTraceSource: 'configured',
+                          },
+                        )
                       }
                       type="button"
                     >
@@ -1060,6 +1330,13 @@ export function ConfigSettingsPage() {
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnSandboxPolicy,
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultCommandSandboxPolicy,
+                              backendThreadTrace: {
+                                enabled: runtimePreferencesQuery.data.effectiveBackendThreadTraceEnabled,
+                                workspaceId:
+                                  runtimePreferencesQuery.data.effectiveBackendThreadTraceWorkspaceId,
+                                threadId:
+                                  runtimePreferencesQuery.data.effectiveBackendThreadTraceThreadId,
+                              },
                               command: runtimePreferencesQuery.data.effectiveCommand,
                             }}
                           />
@@ -1085,6 +1362,13 @@ export function ConfigSettingsPage() {
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy,
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultCommandSandboxPolicy,
+                              backendThreadTrace: {
+                                enabled: runtimePreferencesQuery.data.configuredBackendThreadTraceEnabled,
+                                workspaceId:
+                                  runtimePreferencesQuery.data.configuredBackendThreadTraceWorkspaceId,
+                                threadId:
+                                  runtimePreferencesQuery.data.configuredBackendThreadTraceThreadId,
+                              },
                             }}
                           />
                         ),
@@ -2191,6 +2475,48 @@ function formatSandboxPolicyLabel(value?: Record<string, unknown> | null) {
   }
 
   return rawType
+}
+
+function formatBackendThreadTraceSummary(
+  enabled?: boolean | null,
+  workspaceId?: string | null,
+  threadId?: string | null,
+) {
+  if (!enabled) {
+    return i18n._({ id: 'off', message: 'off' })
+  }
+
+  const trimmedWorkspaceId = (workspaceId ?? '').trim()
+  const trimmedThreadId = (threadId ?? '').trim()
+
+  if (trimmedWorkspaceId && trimmedThreadId) {
+    return i18n._({
+      id: 'workspace {workspaceId} / thread {threadId}',
+      message: 'workspace {workspaceId} / thread {threadId}',
+      values: {
+        workspaceId: trimmedWorkspaceId,
+        threadId: trimmedThreadId,
+      },
+    })
+  }
+
+  if (trimmedWorkspaceId) {
+    return i18n._({
+      id: 'workspace {workspaceId}',
+      message: 'workspace {workspaceId}',
+      values: { workspaceId: trimmedWorkspaceId },
+    })
+  }
+
+  if (trimmedThreadId) {
+    return i18n._({
+      id: 'thread {threadId}',
+      message: 'thread {threadId}',
+      values: { threadId: trimmedThreadId },
+    })
+  }
+
+  return i18n._({ id: 'all workspaces', message: 'all workspaces' })
 }
 
 function formatTerminalShellLabel(value?: string | null) {

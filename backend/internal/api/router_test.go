@@ -17,11 +17,13 @@ import (
 	"codex-server/backend/internal/bots"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/configfs"
+	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
+	"codex-server/backend/internal/runtimeprefs"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turns"
@@ -685,6 +687,17 @@ func TestBotConnectionRoutesAndWebhook(t *testing.T) {
 		t.Fatalf("expected 200 from list bot connections, got %d", listResponse.Code)
 	}
 
+	updateRuntimeModeResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-connections/"+created.Data.ID+"/runtime-mode",
+		`{"runtimeMode":"debug"}`,
+	)
+	if updateRuntimeModeResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from runtime mode update, got %d", updateRuntimeModeResponse.Code)
+	}
+
 	webhookRequest := httptest.NewRequest(
 		http.MethodPost,
 		"/hooks/bots/"+created.Data.ID,
@@ -763,6 +776,77 @@ func TestRestartWorkspaceRouteIsWired(t *testing.T) {
 
 	if restartResponse.Code != http.StatusAccepted && restartResponse.Code != http.StatusBadGateway {
 		t.Fatalf("expected restart workspace route to be wired, got %d", restartResponse.Code)
+	}
+}
+
+func TestRuntimePreferencesRoutePersistsBackendThreadTrace(t *testing.T) {
+	diagnostics.ConfigureThreadTrace(false, "", "")
+	t.Cleanup(func() {
+		diagnostics.ConfigureThreadTrace(false, "", "")
+	})
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+
+	writeResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/runtime/preferences",
+		`{"backendThreadTraceEnabled":true,"backendThreadTraceWorkspaceId":" ws_trace ","backendThreadTraceThreadId":" thread_trace "}`,
+	)
+	if writeResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from runtime preferences write, got %d", writeResponse.Code)
+	}
+
+	var written struct {
+		Data struct {
+			ConfiguredBackendThreadTraceEnabled     *bool  `json:"configuredBackendThreadTraceEnabled"`
+			ConfiguredBackendThreadTraceWorkspaceID string `json:"configuredBackendThreadTraceWorkspaceId"`
+			ConfiguredBackendThreadTraceThreadID    string `json:"configuredBackendThreadTraceThreadId"`
+			EffectiveBackendThreadTraceEnabled      bool   `json:"effectiveBackendThreadTraceEnabled"`
+			EffectiveBackendThreadTraceWorkspaceID  string `json:"effectiveBackendThreadTraceWorkspaceId"`
+			EffectiveBackendThreadTraceThreadID     string `json:"effectiveBackendThreadTraceThreadId"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, writeResponse, &written)
+
+	if written.Data.ConfiguredBackendThreadTraceEnabled == nil || !*written.Data.ConfiguredBackendThreadTraceEnabled {
+		t.Fatalf("expected explicit backend trace enable flag, got %#v", written.Data.ConfiguredBackendThreadTraceEnabled)
+	}
+	if written.Data.EffectiveBackendThreadTraceWorkspaceID != "ws_trace" {
+		t.Fatalf("unexpected effective workspace filter %q", written.Data.EffectiveBackendThreadTraceWorkspaceID)
+	}
+	if written.Data.EffectiveBackendThreadTraceThreadID != "thread_trace" {
+		t.Fatalf("unexpected effective thread filter %q", written.Data.EffectiveBackendThreadTraceThreadID)
+	}
+
+	readResponse := performJSONRequest(t, router, http.MethodGet, "/api/runtime/preferences", "")
+	if readResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from runtime preferences read, got %d", readResponse.Code)
+	}
+
+	var readBack struct {
+		Data struct {
+			ConfiguredBackendThreadTraceEnabled     *bool  `json:"configuredBackendThreadTraceEnabled"`
+			ConfiguredBackendThreadTraceWorkspaceID string `json:"configuredBackendThreadTraceWorkspaceId"`
+			ConfiguredBackendThreadTraceThreadID    string `json:"configuredBackendThreadTraceThreadId"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, readResponse, &readBack)
+	if readBack.Data.ConfiguredBackendThreadTraceEnabled == nil || !*readBack.Data.ConfiguredBackendThreadTraceEnabled {
+		t.Fatalf("expected persisted backend trace enable flag, got %#v", readBack.Data.ConfiguredBackendThreadTraceEnabled)
+	}
+	if readBack.Data.ConfiguredBackendThreadTraceWorkspaceID != "ws_trace" {
+		t.Fatalf("unexpected persisted workspace filter %q", readBack.Data.ConfiguredBackendThreadTraceWorkspaceID)
+	}
+	if readBack.Data.ConfiguredBackendThreadTraceThreadID != "thread_trace" {
+		t.Fatalf("unexpected persisted thread filter %q", readBack.Data.ConfiguredBackendThreadTraceThreadID)
 	}
 }
 
@@ -1097,6 +1181,17 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	eventHub := events.NewHub()
 	eventHub.AttachStore(dataStore)
 	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	runtimePrefsService := runtimeprefs.NewService(
+		dataStore,
+		runtimeManager,
+		"codex app-server --listen stdio://",
+		"",
+		nil,
+		"",
+		false,
+		"",
+		"",
+	)
 
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
@@ -1106,7 +1201,6 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
 	notificationsService := notifications.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
-	catalogService := catalog.NewService(runtimeManager)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
 	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
@@ -1121,11 +1215,12 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 		Threads:        threadService,
 		Turns:          turnService,
 		Approvals:      approvalsService,
-		Catalog:        catalogService,
+		Catalog:        catalog.NewService(runtimeManager, runtimePrefsService),
 		ConfigFS:       configFSService,
 		ExecFS:         execfsService,
 		Feedback:       feedbackService,
 		Events:         eventHub,
+		RuntimePrefs:   runtimePrefsService,
 	})
 }
 

@@ -35,6 +35,7 @@ describe('botsPageUtils', () => {
         collaboration_mode: 'plan',
       },
       settings: {
+        runtime_mode: 'normal',
         telegram_delivery_mode: 'webhook',
       },
       secrets: {
@@ -69,6 +70,7 @@ describe('botsPageUtils', () => {
         store: 'false',
       },
       settings: {
+        runtime_mode: 'normal',
         telegram_delivery_mode: 'webhook',
         openai_base_url: 'https://api.openai.com/v1/responses',
       },
@@ -98,11 +100,25 @@ describe('botsPageUtils', () => {
         collaboration_mode: 'default',
       },
       settings: {
+        runtime_mode: 'normal',
         telegram_delivery_mode: 'polling',
       },
       secrets: {
         bot_token: 'token-3',
       },
+    })
+  })
+
+  it('writes debug runtime mode into bot settings', () => {
+    const input = buildBotConnectionCreateInput({
+      ...EMPTY_BOTS_PAGE_DRAFT,
+      runtimeMode: 'debug',
+      telegramBotToken: 'token-debug',
+    })
+
+    expect(input.settings).toEqual({
+      runtime_mode: 'debug',
+      telegram_delivery_mode: 'webhook',
     })
   })
 

@@ -6,6 +6,7 @@ export type BotsPageDraft = {
   workspaceId: string
   provider: string
   name: string
+  runtimeMode: string
   telegramDeliveryMode: string
   publicBaseUrl: string
   aiBackend: string
@@ -25,6 +26,7 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   workspaceId: '',
   provider: 'telegram',
   name: '',
+  runtimeMode: 'normal',
   telegramDeliveryMode: 'webhook',
   publicBaseUrl: '',
   aiBackend: 'workspace_thread',
@@ -48,6 +50,7 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   if (draft.provider === 'telegram') {
     settings.telegram_delivery_mode = draft.telegramDeliveryMode.trim() || 'webhook'
   }
+  settings.runtime_mode = draft.runtimeMode.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
 
   if (draft.aiBackend === 'workspace_thread') {
     if (draft.workspaceModel.trim()) {

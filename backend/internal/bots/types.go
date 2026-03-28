@@ -27,6 +27,8 @@ type threadExecutor interface {
 	Create(ctx context.Context, workspaceID string, input threads.CreateInput) (store.Thread, error)
 	GetDetail(ctx context.Context, workspaceID string, threadID string) (store.ThreadDetail, error)
 	GetTurn(ctx context.Context, workspaceID string, threadID string, turnID string, contentMode string) (store.ThreadTurn, error)
+	Rename(ctx context.Context, workspaceID string, threadID string, name string) (store.Thread, error)
+	Archive(ctx context.Context, workspaceID string, threadID string) (store.Thread, error)
 }
 
 type turnExecutor interface {
@@ -149,6 +151,10 @@ type CreateConnectionInput struct {
 
 type ResumeConnectionInput struct {
 	PublicBaseURL string `json:"publicBaseUrl"`
+}
+
+type UpdateConnectionRuntimeModeInput struct {
+	RuntimeMode string `json:"runtimeMode"`
 }
 
 type ConnectionView struct {

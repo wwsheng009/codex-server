@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codex-server/backend/internal/diagnostics"
 )
 
 var (
@@ -316,6 +318,9 @@ func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
 	if len(prefs.DefaultCommandSandboxPolicy) > 0 {
 		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 	}
+	prefs.BackendThreadTraceEnabled = cloneOptionalBool(prefs.BackendThreadTraceEnabled)
+	prefs.BackendThreadTraceWorkspaceID = strings.TrimSpace(prefs.BackendThreadTraceWorkspaceID)
+	prefs.BackendThreadTraceThreadID = strings.TrimSpace(prefs.BackendThreadTraceThreadID)
 	return prefs
 }
 
@@ -347,11 +352,23 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 	} else {
 		prefs.DefaultCommandSandboxPolicy = nil
 	}
+	prefs.BackendThreadTraceEnabled = cloneOptionalBool(prefs.BackendThreadTraceEnabled)
+	prefs.BackendThreadTraceWorkspaceID = strings.TrimSpace(prefs.BackendThreadTraceWorkspaceID)
+	prefs.BackendThreadTraceThreadID = strings.TrimSpace(prefs.BackendThreadTraceThreadID)
 	prefs.UpdatedAt = time.Now().UTC()
 	s.runtimePrefs = prefs
 	s.persistLocked()
 
 	return s.runtimePrefs
+}
+
+func cloneOptionalBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+
+	cloned := *value
+	return &cloned
 }
 
 func NewPersistentStore(path string) (*MemoryStore, error) {
@@ -1468,12 +1485,43 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 			Turns:        []ThreadTurn{},
 		}
 	}
+	beforeStatus := projection.Status
+	beforeTurnCount := len(projection.Turns)
+	beforeMessageCount := projection.MessageCount
 
 	if !applyThreadEventToProjection(&projection, event) {
+		diagnostics.LogThreadTrace(
+			event.WorkspaceID,
+			event.ThreadID,
+			"thread projection ignored event",
+			diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload)...,
+		)
 		return
 	}
 
 	s.projections[key] = projection
+	diagnostics.LogThreadTrace(
+		event.WorkspaceID,
+		event.ThreadID,
+		"thread projection updated",
+		append(
+			diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+			"statusBefore",
+			beforeStatus,
+			"statusAfter",
+			projection.Status,
+			"turnCountBefore",
+			beforeTurnCount,
+			"turnCountAfter",
+			len(projection.Turns),
+			"messageCountBefore",
+			beforeMessageCount,
+			"messageCountAfter",
+			projection.MessageCount,
+			"snapshotComplete",
+			projection.SnapshotComplete,
+		)...,
+	)
 	// Delta events can arrive at very high frequency while a turn is streaming.
 	// Keep the in-memory projection hot, but avoid rewriting the full store file
 	// for every incremental chunk. A later lifecycle event or snapshot refresh

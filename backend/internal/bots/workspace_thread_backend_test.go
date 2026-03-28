@@ -141,7 +141,7 @@ func TestCollectBotVisibleMessagesIncludesNonAgentOutputs(t *testing.T) {
 	if messages[1].Text != "Command: go test ./...\nOutput:\nok  codex-server/backend/internal/bots" {
 		t.Fatalf("unexpected commandExecution message %#v", messages[1])
 	}
-	if messages[2].Text != "Files:\n- backend/internal/bots/service.go (Update)\n- backend/internal/bots/telegram.go (Update)" {
+	if messages[2].Text != "Files (2):\n- backend/internal/bots/service.go (Update)\n- backend/internal/bots/telegram.go (Update)" {
 		t.Fatalf("unexpected fileChange message %#v", messages[2])
 	}
 	if messages[3].Text != "Tool Call: search_query · Completed" {
@@ -1236,6 +1236,30 @@ func (f *fakeWorkspaceThreads) GetTurn(
 	}
 
 	return store.ThreadTurn{}, store.ErrThreadNotFound
+}
+
+func (f *fakeWorkspaceThreads) Rename(_ context.Context, _ string, threadID string, name string) (store.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.thread.ID != threadID {
+		return store.Thread{}, store.ErrThreadNotFound
+	}
+	f.thread.Name = strings.TrimSpace(name)
+	f.detail.Thread.Name = f.thread.Name
+	return f.thread, nil
+}
+
+func (f *fakeWorkspaceThreads) Archive(_ context.Context, _ string, threadID string) (store.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.thread.ID != threadID {
+		return store.Thread{}, store.ErrThreadNotFound
+	}
+	f.thread.Archived = true
+	f.detail.Thread.Archived = true
+	return f.thread, nil
 }
 
 func (f *fakeWorkspaceThreads) setCompletedTurn(turn store.ThreadTurn) {

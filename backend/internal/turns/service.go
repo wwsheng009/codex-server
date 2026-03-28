@@ -8,6 +8,7 @@ import (
 
 	"codex-server/backend/internal/bridge"
 	appconfig "codex-server/backend/internal/config"
+	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 )
@@ -54,10 +55,25 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 		if !isThreadResumeRequired(err) {
 			return Result{}, err
 		}
+		diagnostics.LogThreadTrace(
+			workspaceID,
+			threadID,
+			"turn/start requires thread resume",
+			"error",
+			err,
+		)
 
 		if err := s.resumeThread(ctx, workspaceID, threadID); err != nil {
+			diagnostics.LogThreadTrace(
+				workspaceID,
+				threadID,
+				"thread/resume failed before retrying turn/start",
+				"error",
+				err,
+			)
 			return Result{}, err
 		}
+		diagnostics.LogThreadTrace(workspaceID, threadID, "thread/resume completed, retrying turn/start")
 
 		response, err = s.startTurn(ctx, workspaceID, threadID, input, options)
 		if err != nil {
@@ -80,10 +96,36 @@ func (s *Service) startTurn(ctx context.Context, workspaceID string, threadID st
 	if err != nil {
 		return turnStartResponse{}, err
 	}
+	diagnostics.LogThreadTrace(
+		workspaceID,
+		threadID,
+		"turn/start requested",
+		diagnostics.TurnStartTraceAttrs(payload)...,
+	)
 
 	if err := s.runtimes.Call(ctx, workspaceID, "turn/start", payload, &response); err != nil {
+		diagnostics.LogThreadTrace(
+			workspaceID,
+			threadID,
+			"turn/start failed",
+			append(
+				diagnostics.TurnStartTraceAttrs(payload),
+				"error",
+				err,
+			)...,
+		)
 		return turnStartResponse{}, err
 	}
+	diagnostics.LogThreadTrace(
+		workspaceID,
+		threadID,
+		"turn/start acknowledged",
+		append(
+			diagnostics.TurnStartTraceAttrs(payload),
+			"turnId",
+			response.Turn.ID,
+		)...,
+	)
 
 	return response, nil
 }
@@ -486,10 +528,22 @@ func (s *Service) resumeThread(ctx context.Context, workspaceID string, threadID
 		Thread map[string]any `json:"thread"`
 	}
 
-	return s.runtimes.Call(ctx, workspaceID, "thread/resume", map[string]any{
+	diagnostics.LogThreadTrace(workspaceID, threadID, "thread/resume requested")
+	err := s.runtimes.Call(ctx, workspaceID, "thread/resume", map[string]any{
 		"cwd":      s.runtimes.RootPath(workspaceID),
 		"threadId": threadID,
 	}, &response)
+	if err != nil {
+		return err
+	}
+	diagnostics.LogThreadTrace(
+		workspaceID,
+		threadID,
+		"thread/resume acknowledged",
+		"responseFieldCount",
+		len(response.Thread),
+	)
+	return nil
 }
 
 func isThreadResumeRequired(err error) bool {

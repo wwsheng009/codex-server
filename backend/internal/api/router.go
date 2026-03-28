@@ -16,6 +16,7 @@ import (
 	"codex-server/backend/internal/bots"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/configfs"
+	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
@@ -180,6 +181,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/", server.handleListBotConnections)
 				r.Post("/", server.handleCreateBotConnection)
 				r.Get("/{connectionId}", server.handleGetBotConnection)
+				r.Post("/{connectionId}/runtime-mode", server.handleUpdateBotConnectionRuntimeMode)
 				r.Post("/{connectionId}/pause", server.handlePauseBotConnection)
 				r.Post("/{connectionId}/resume", server.handleResumeBotConnection)
 				r.Delete("/{connectionId}", server.handleDeleteBotConnection)
@@ -266,14 +268,17 @@ func (s *Server) handleReadRuntimePreferences(w http.ResponseWriter, _ *http.Req
 
 func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		ModelCatalogPath            string            `json:"modelCatalogPath"`
-		DefaultShellType            string            `json:"defaultShellType"`
-		DefaultTerminalShell        string            `json:"defaultTerminalShell"`
-		ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides"`
-		OutboundProxyURL            string            `json:"outboundProxyUrl"`
-		DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy"`
-		DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy"`
-		DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy"`
+		ModelCatalogPath              string            `json:"modelCatalogPath"`
+		DefaultShellType              string            `json:"defaultShellType"`
+		DefaultTerminalShell          string            `json:"defaultTerminalShell"`
+		ModelShellTypeOverrides       map[string]string `json:"modelShellTypeOverrides"`
+		OutboundProxyURL              string            `json:"outboundProxyUrl"`
+		DefaultTurnApprovalPolicy     string            `json:"defaultTurnApprovalPolicy"`
+		DefaultTurnSandboxPolicy      map[string]any    `json:"defaultTurnSandboxPolicy"`
+		DefaultCommandSandboxPolicy   map[string]any    `json:"defaultCommandSandboxPolicy"`
+		BackendThreadTraceEnabled     *bool             `json:"backendThreadTraceEnabled"`
+		BackendThreadTraceWorkspaceID string            `json:"backendThreadTraceWorkspaceId"`
+		BackendThreadTraceThreadID    string            `json:"backendThreadTraceThreadId"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -282,14 +287,17 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 	}
 
 	result, err := s.runtimePrefs.Write(runtimeprefs.WriteInput{
-		ModelCatalogPath:            request.ModelCatalogPath,
-		DefaultShellType:            request.DefaultShellType,
-		DefaultTerminalShell:        request.DefaultTerminalShell,
-		ModelShellTypeOverrides:     request.ModelShellTypeOverrides,
-		OutboundProxyURL:            request.OutboundProxyURL,
-		DefaultTurnApprovalPolicy:   request.DefaultTurnApprovalPolicy,
-		DefaultTurnSandboxPolicy:    request.DefaultTurnSandboxPolicy,
-		DefaultCommandSandboxPolicy: request.DefaultCommandSandboxPolicy,
+		ModelCatalogPath:              request.ModelCatalogPath,
+		DefaultShellType:              request.DefaultShellType,
+		DefaultTerminalShell:          request.DefaultTerminalShell,
+		ModelShellTypeOverrides:       request.ModelShellTypeOverrides,
+		OutboundProxyURL:              request.OutboundProxyURL,
+		DefaultTurnApprovalPolicy:     request.DefaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:      request.DefaultTurnSandboxPolicy,
+		DefaultCommandSandboxPolicy:   request.DefaultCommandSandboxPolicy,
+		BackendThreadTraceEnabled:     request.BackendThreadTraceEnabled,
+		BackendThreadTraceWorkspaceID: request.BackendThreadTraceWorkspaceID,
+		BackendThreadTraceThreadID:    request.BackendThreadTraceThreadID,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "runtime_preferences_invalid", err.Error())
@@ -647,6 +655,26 @@ func (s *Server) handleGetBotConnection(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, connection)
+}
+
+func (s *Server) handleUpdateBotConnectionRuntimeMode(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpdateConnectionRuntimeModeInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	connection, err := s.bots.UpdateConnectionRuntimeMode(
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, connection)
 }
 
 func (s *Server) handlePauseBotConnection(w http.ResponseWriter, r *http.Request) {
@@ -1961,6 +1989,12 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	diagnostics.LogWorkspaceTrace(
+		workspaceID,
+		"workspace stream connected",
+		"remoteAddr",
+		r.RemoteAddr,
+	)
 
 	eventsCh, cancel := s.events.Subscribe(workspaceID)
 	defer cancel()
@@ -1974,6 +2008,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		ServerRequestID: nil,
 		TS:              time.Now().UTC(),
 	}); err != nil {
+		diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream bootstrap write failed", "method", "workspace/connected", "error", err)
 		return
 	}
 
@@ -1986,11 +2021,13 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		ServerRequestID: nil,
 		TS:              time.Now().UTC(),
 	}); err != nil {
+		diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream bootstrap write failed", "method", "command/exec/stateSnapshot", "error", err)
 		return
 	}
 
 	for _, event := range s.execfs.BuildCommandSessionResumeEvents(workspaceID, commandResumeCursors) {
 		if err := conn.WriteJSON(event); err != nil {
+			diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream bootstrap write failed", "method", event.Method, "error", err)
 			return
 		}
 	}
@@ -2004,19 +2041,38 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		ServerRequestID: nil,
 		TS:              time.Now().UTC(),
 	}); err != nil {
+		diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream bootstrap write failed", "method", "approvals/snapshot", "error", err)
 		return
 	}
 
 	for {
 		select {
 		case <-r.Context().Done():
+			diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream closed by request context")
 			return
 		case event, ok := <-eventsCh:
 			if !ok {
+				diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream closed because subscription ended")
 				return
 			}
 
+			diagnostics.LogTrace(
+				workspaceID,
+				event.ThreadID,
+				"workspace stream sending event",
+				diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload)...,
+			)
 			if err := conn.WriteJSON(event); err != nil {
+				diagnostics.LogTrace(
+					workspaceID,
+					event.ThreadID,
+					"workspace stream write failed",
+					append(
+						diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+						"error",
+						err,
+					)...,
+				)
 				return
 			}
 		}

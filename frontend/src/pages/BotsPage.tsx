@@ -18,6 +18,7 @@ import {
   listBotConversations,
   pauseBotConnection,
   resumeBotConnection,
+  updateBotConnectionRuntimeMode,
   type CreateBotConnectionInput,
 } from '../features/bots/api'
 import { listWorkspaces } from '../features/workspaces/api'
@@ -127,6 +128,21 @@ export function BotsPage() {
     },
   })
 
+  const runtimeModeMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      connectionId,
+      runtimeMode,
+    }: {
+      workspaceId: string
+      connectionId: string
+      runtimeMode: string
+    }) => updateBotConnectionRuntimeMode(workspaceId, connectionId, { runtimeMode }),
+    onSuccess: async (connection) => {
+      await queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] })
+    },
+  })
+
   const workspaces = workspacesQuery.data ?? []
   const connections = connectionsQuery.data ?? []
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null
@@ -198,9 +214,12 @@ export function BotsPage() {
   const formErrorMessage = formError || (createMutation.error ? getErrorMessage(createMutation.error) : '')
   const actionErrorMessage = actionMutation.error ? getErrorMessage(actionMutation.error) : ''
   const deleteErrorMessage = deleteMutation.error ? getErrorMessage(deleteMutation.error) : ''
+  const runtimeModeErrorMessage = runtimeModeMutation.error ? getErrorMessage(runtimeModeMutation.error) : ''
   const draftTelegramDeliveryMode = draft.telegramDeliveryMode.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
   const selectedTelegramDeliveryMode =
     selectedConnection?.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
+  const selectedRuntimeMode =
+    selectedConnection?.settings?.runtime_mode?.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
 
   function openCreateModal() {
     createMutation.reset()
@@ -208,6 +227,7 @@ export function BotsPage() {
     setDraft((current) => ({
       ...EMPTY_BOTS_PAGE_DRAFT,
       workspaceId: selectedWorkspaceId || workspaces[0]?.id || '',
+      runtimeMode: current.runtimeMode,
       telegramDeliveryMode: current.telegramDeliveryMode,
       publicBaseUrl: current.publicBaseUrl,
     }))
@@ -483,6 +503,17 @@ export function BotsPage() {
                 </InlineNotice>
               ) : null}
 
+              {runtimeModeErrorMessage ? (
+                <InlineNotice
+                  dismissible
+                  noticeKey={`bot-runtime-mode-${runtimeModeErrorMessage}`}
+                  title={i18n._({ id: 'Runtime Mode Update Failed', message: 'Runtime Mode Update Failed' })}
+                  tone="error"
+                >
+                  {runtimeModeErrorMessage}
+                </InlineNotice>
+              ) : null}
+
               <section className="content-section">
                 <div className="section-header section-header--inline">
                   <div>
@@ -602,7 +633,7 @@ export function BotsPage() {
                       <InlineNotice
                         dismissible
                         noticeKey={`bot-last-error-${selectedConnection.id}-${selectedConnection.lastError}`}
-                        title={i18n._({ id: 'Last Delivery Error', message: 'Last Delivery Error' })}
+                        title={i18n._({ id: 'Last Bot Error', message: 'Last Bot Error' })}
                         tone="error"
                       >
                         {selectedConnection.lastError}
@@ -627,6 +658,14 @@ export function BotsPage() {
                         <div className="detail-row">
                           <span>{i18n._({ id: 'AI Backend', message: 'AI Backend' })}</span>
                           <strong>{formatBotBackendLabel(selectedConnection.aiBackend)}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Runtime Mode', message: 'Runtime Mode' })}</span>
+                          <strong>
+                            {selectedRuntimeMode === 'debug'
+                              ? i18n._({ id: 'Debug', message: 'Debug' })
+                              : i18n._({ id: 'Normal', message: 'Normal' })}
+                          </strong>
                         </div>
                         <div className="detail-row">
                           <span>{i18n._({ id: 'Telegram Mode', message: 'Telegram Mode' })}</span>
@@ -655,6 +694,38 @@ export function BotsPage() {
                           <strong>{summarizeBotMap(selectedConnection.aiConfig)}</strong>
                         </div>
                       </div>
+                    </section>
+
+                    <section className="mode-panel">
+                      <div className="section-header">
+                        <div>
+                          <h2>{i18n._({ id: 'Runtime Diagnostics', message: 'Runtime Diagnostics' })}</h2>
+                          <p>
+                            {i18n._({
+                              id: 'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and Telegram delivery operations.',
+                              message:
+                                'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and Telegram delivery operations.',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={selectedRuntimeMode === 'debug'}
+                        disabled={runtimeModeMutation.isPending}
+                        hint={i18n._({
+                          id: 'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
+                          message:
+                            'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
+                        })}
+                        label={i18n._({ id: 'Enable Backend Debug Logging', message: 'Enable Backend Debug Logging' })}
+                        onChange={(event) =>
+                          runtimeModeMutation.mutate({
+                            workspaceId: selectedConnection.workspaceId,
+                            connectionId: selectedConnection.id,
+                            runtimeMode: event.target.checked ? 'debug' : 'normal',
+                          })
+                        }
+                      />
                     </section>
 
                     <section className="mode-panel mode-panel--flush">
@@ -851,6 +922,19 @@ export function BotsPage() {
                 value={draft.name}
               />
             </div>
+
+            <Switch
+              checked={draft.runtimeMode === 'debug'}
+              hint={i18n._({
+                id: 'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and Telegram delivery steps.',
+                message:
+                  'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and Telegram delivery steps.',
+              })}
+              label={i18n._({ id: 'Enable Backend Debug Mode', message: 'Enable Backend Debug Mode' })}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, runtimeMode: event.target.checked ? 'debug' : 'normal' }))
+              }
+            />
 
             {draftTelegramDeliveryMode === 'webhook' ? (
               <Input

@@ -15,6 +15,10 @@ export type ResumeBotConnectionInput = {
   publicBaseUrl?: string
 }
 
+export type UpdateBotConnectionRuntimeModeInput = {
+  runtimeMode: string
+}
+
 export function listBotConnections(workspaceId: string) {
   return apiRequest<BotConnection[]>(`/api/workspaces/${workspaceId}/bot-connections`)
 }
@@ -44,6 +48,17 @@ export function resumeBotConnection(
   return apiRequest<BotConnection>(`/api/workspaces/${workspaceId}/bot-connections/${connectionId}/resume`, {
     method: 'POST',
     body: JSON.stringify(input ?? {}),
+  })
+}
+
+export function updateBotConnectionRuntimeMode(
+  workspaceId: string,
+  connectionId: string,
+  input: UpdateBotConnectionRuntimeModeInput,
+) {
+  return apiRequest<BotConnection>(`/api/workspaces/${workspaceId}/bot-connections/${connectionId}/runtime-mode`, {
+    method: 'POST',
+    body: JSON.stringify(input),
   })
 }
 

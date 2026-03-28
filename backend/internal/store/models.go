@@ -19,16 +19,19 @@ type Workspace struct {
 }
 
 type RuntimePreferences struct {
-	ModelCatalogPath            string            `json:"modelCatalogPath"`
-	LocalShellModels            []string          `json:"localShellModels,omitempty"`
-	DefaultShellType            string            `json:"defaultShellType,omitempty"`
-	DefaultTerminalShell        string            `json:"defaultTerminalShell,omitempty"`
-	ModelShellTypeOverrides     map[string]string `json:"modelShellTypeOverrides,omitempty"`
-	OutboundProxyURL            string            `json:"outboundProxyUrl,omitempty"`
-	DefaultTurnApprovalPolicy   string            `json:"defaultTurnApprovalPolicy,omitempty"`
-	DefaultTurnSandboxPolicy    map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
-	DefaultCommandSandboxPolicy map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
-	UpdatedAt                   time.Time         `json:"updatedAt,omitempty"`
+	ModelCatalogPath              string            `json:"modelCatalogPath"`
+	LocalShellModels              []string          `json:"localShellModels,omitempty"`
+	DefaultShellType              string            `json:"defaultShellType,omitempty"`
+	DefaultTerminalShell          string            `json:"defaultTerminalShell,omitempty"`
+	ModelShellTypeOverrides       map[string]string `json:"modelShellTypeOverrides,omitempty"`
+	OutboundProxyURL              string            `json:"outboundProxyUrl,omitempty"`
+	DefaultTurnApprovalPolicy     string            `json:"defaultTurnApprovalPolicy,omitempty"`
+	DefaultTurnSandboxPolicy      map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
+	DefaultCommandSandboxPolicy   map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
+	BackendThreadTraceEnabled     *bool             `json:"backendThreadTraceEnabled"`
+	BackendThreadTraceWorkspaceID string            `json:"backendThreadTraceWorkspaceId,omitempty"`
+	BackendThreadTraceThreadID    string            `json:"backendThreadTraceThreadId,omitempty"`
+	UpdatedAt                     time.Time         `json:"updatedAt,omitempty"`
 }
 
 type Automation struct {

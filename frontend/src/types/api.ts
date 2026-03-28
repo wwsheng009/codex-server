@@ -339,6 +339,9 @@ export type RuntimePreferencesResult = {
   configuredDefaultTurnApprovalPolicy: string
   configuredDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   configuredDefaultCommandSandboxPolicy?: Record<string, unknown> | null
+  configuredBackendThreadTraceEnabled?: boolean | null
+  configuredBackendThreadTraceWorkspaceId: string
+  configuredBackendThreadTraceThreadId: string
   defaultModelCatalogPath: string
   defaultDefaultShellType: string
   defaultDefaultTerminalShell: string
@@ -347,6 +350,9 @@ export type RuntimePreferencesResult = {
   defaultDefaultTurnApprovalPolicy: string
   defaultDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   defaultDefaultCommandSandboxPolicy?: Record<string, unknown> | null
+  defaultBackendThreadTraceEnabled: boolean
+  defaultBackendThreadTraceWorkspaceId: string
+  defaultBackendThreadTraceThreadId: string
   effectiveModelCatalogPath: string
   effectiveDefaultShellType: string
   effectiveDefaultTerminalShell: string
@@ -355,6 +361,9 @@ export type RuntimePreferencesResult = {
   effectiveDefaultTurnApprovalPolicy: string
   effectiveDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   effectiveDefaultCommandSandboxPolicy?: Record<string, unknown> | null
+  effectiveBackendThreadTraceEnabled: boolean
+  effectiveBackendThreadTraceWorkspaceId: string
+  effectiveBackendThreadTraceThreadId: string
   effectiveCommand: string
 }
 

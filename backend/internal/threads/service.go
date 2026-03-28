@@ -11,6 +11,7 @@ import (
 
 	"codex-server/backend/internal/bridge"
 	appconfig "codex-server/backend/internal/config"
+	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 )
@@ -509,18 +510,58 @@ func (s *Service) GetDetailWindow(
 
 	if beforeTurnID != "" {
 		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok && threadDetailHasTurnID(cachedDetail, beforeTurnID) {
+			diagnostics.LogThreadTrace(
+				workspaceID,
+				threadID,
+				"thread detail served from cache",
+				appendThreadDetailTraceAttrs(
+					[]any{
+						"reason", "before_turn_cached",
+						"beforeTurnId", beforeTurnID,
+						"requestedTurnLimit", turnLimit,
+						"contentMode", contentMode,
+					},
+					cachedDetail,
+				)...,
+			)
 			return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 		}
 	}
 
 	if turnLimit > 0 && beforeTurnID == "" && s.shouldServeCurrentWindowFromCache(workspaceID, threadID) {
 		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+			diagnostics.LogThreadTrace(
+				workspaceID,
+				threadID,
+				"thread detail served from cache",
+				appendThreadDetailTraceAttrs(
+					[]any{
+						"reason", "current_window_cached",
+						"requestedTurnLimit", turnLimit,
+						"contentMode", contentMode,
+					},
+					cachedDetail,
+				)...,
+			)
 			return finalizeThreadDetailResponse(cachedDetail, turnLimit, "", contentMode), nil
 		}
 	}
 
 	if turnLimit > 0 && !runtimeStateIsLive(s.runtimes.State(workspaceID).Status) {
 		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+			diagnostics.LogThreadTrace(
+				workspaceID,
+				threadID,
+				"thread detail served from cache",
+				appendThreadDetailTraceAttrs(
+					[]any{
+						"reason", "runtime_not_live_cached",
+						"requestedTurnLimit", turnLimit,
+						"contentMode", contentMode,
+					},
+					cachedDetail,
+				)...,
+			)
 			return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 		}
 	}
@@ -529,6 +570,20 @@ func (s *Service) GetDetailWindow(
 	if err != nil {
 		if !isThreadTurnsUnavailableBeforeFirstUserMessage(err) {
 			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+				diagnostics.LogThreadTrace(
+					workspaceID,
+					threadID,
+					"thread detail served from cache after runtime read failure",
+					appendThreadDetailTraceAttrs(
+						[]any{
+							"reason", "runtime_read_failed_cached",
+							"error", err,
+							"requestedTurnLimit", turnLimit,
+							"contentMode", contentMode,
+						},
+						cachedDetail,
+					)...,
+				)
 				return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 			}
 			return store.ThreadDetail{}, err
@@ -537,6 +592,20 @@ func (s *Service) GetDetailWindow(
 		threadData, err = s.readThread(ctx, workspaceID, threadID, false)
 		if err != nil {
 			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+				diagnostics.LogThreadTrace(
+					workspaceID,
+					threadID,
+					"thread detail served from cache after turns-unavailable fallback failed",
+					appendThreadDetailTraceAttrs(
+						[]any{
+							"reason", "turns_unavailable_cached",
+							"error", err,
+							"requestedTurnLimit", turnLimit,
+							"contentMode", contentMode,
+						},
+						cachedDetail,
+					)...,
+				)
 				return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
 			}
 			return store.ThreadDetail{}, err
@@ -566,11 +635,38 @@ func (s *Service) GetDetailWindow(
 		HasMoreTurns: false,
 		Turns:        turns,
 	}
+	diagnostics.LogThreadTrace(
+		workspaceID,
+		threadID,
+		"thread detail loaded from runtime snapshot",
+		appendThreadDetailTraceAttrs(
+			[]any{
+				"contentMode", contentMode,
+				"requestedTurnLimit", turnLimit,
+				"beforeTurnId", beforeTurnID,
+			},
+			detail,
+		)...,
+	)
 
 	projectedDetail := applyStoredProjection(detail, s.store, s.runtimes, workspaceID, threadID)
 	projectedDetail = reconcileSettledThreadDetail(projectedDetail, s.runtimes.ActiveTurnID(workspaceID, threadID))
 	projectedDetail.TurnCount = len(projectedDetail.Turns)
 	projectedDetail.MessageCount = countThreadMessages(projectedDetail.Turns)
+	diagnostics.LogThreadTrace(
+		workspaceID,
+		threadID,
+		"thread detail merged with projection",
+		appendThreadDetailTraceAttrs(
+			[]any{
+				"contentMode", contentMode,
+				"requestedTurnLimit", turnLimit,
+				"beforeTurnId", beforeTurnID,
+				"activeTurnId", s.runtimes.ActiveTurnID(workspaceID, threadID),
+			},
+			projectedDetail,
+		)...,
+	)
 	s.store.UpsertThreadProjectionSnapshot(projectedDetail)
 
 	return finalizeThreadDetailResponse(projectedDetail, turnLimit, beforeTurnID, contentMode), nil
@@ -1514,8 +1610,15 @@ func applyStoredProjection(
 ) store.ThreadDetail {
 	projection, ok := dataStore.GetThreadProjection(workspaceID, threadID)
 	if !ok {
+		diagnostics.LogThreadTrace(workspaceID, threadID, "no stored thread projection available")
 		return detail
 	}
+	diagnostics.LogThreadTrace(
+		workspaceID,
+		threadID,
+		"applying stored thread projection",
+		appendProjectionTraceAttrs(nil, projection)...,
+	)
 
 	if projection.Status != "" {
 		detail.Status = projection.Status
@@ -1531,8 +1634,40 @@ func applyStoredProjection(
 	if runtimes != nil {
 		detail = reconcileSettledThreadDetail(detail, runtimes.ActiveTurnID(workspaceID, threadID))
 	}
+	diagnostics.LogThreadTrace(
+		workspaceID,
+		threadID,
+		"stored thread projection applied",
+		appendThreadDetailTraceAttrs(nil, detail)...,
+	)
 
 	return detail
+}
+
+func appendProjectionTraceAttrs(attrs []any, projection store.ThreadProjection) []any {
+	attrs = append(attrs,
+		"projectionStatus", projection.Status,
+		"projectionTurnCount", len(projection.Turns),
+		"projectionMessageCount", projection.MessageCount,
+		"projectionSnapshotComplete", projection.SnapshotComplete,
+	)
+	if !projection.UpdatedAt.IsZero() {
+		attrs = append(attrs, "projectionUpdatedAt", projection.UpdatedAt.Format(time.RFC3339))
+	}
+	return attrs
+}
+
+func appendThreadDetailTraceAttrs(attrs []any, detail store.ThreadDetail) []any {
+	attrs = append(attrs,
+		"status", detail.Status,
+		"turnCount", len(detail.Turns),
+		"messageCount", countThreadMessages(detail.Turns),
+		"hasMoreTurns", detail.HasMoreTurns,
+	)
+	if !detail.UpdatedAt.IsZero() {
+		attrs = append(attrs, "updatedAt", detail.UpdatedAt.Format(time.RFC3339))
+	}
+	return attrs
 }
 
 func mergeProjectedTurns(base []store.ThreadTurn, overlay []store.ThreadTurn) []store.ThreadTurn {

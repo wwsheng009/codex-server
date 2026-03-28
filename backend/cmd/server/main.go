@@ -18,6 +18,7 @@ import (
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/config"
 	"codex-server/backend/internal/configfs"
+	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
@@ -64,7 +65,14 @@ func main() {
 		cfg.CodexModelCatalogJSON,
 		cfg.CodexLocalShellModels,
 		cfg.OutboundProxyURL,
+		cfg.TraceThreadPipeline,
+		cfg.TraceWorkspaceID,
+		cfg.TraceThreadID,
 	)
+	runtimePrefsState, err := runtimePrefsService.Read()
+	if err != nil {
+		panic(err)
+	}
 
 	authService := auth.NewService(dataStore, runtimeManager)
 	approvalsService := approvals.NewService(runtimeManager)
@@ -120,7 +128,22 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+	diagnostics.ConfigureThreadTrace(
+		runtimePrefsState.EffectiveBackendThreadTraceEnabled,
+		runtimePrefsState.EffectiveBackendThreadTraceWorkspaceID,
+		runtimePrefsState.EffectiveBackendThreadTraceThreadID,
+	)
 	logger.Info("starting codex-server backend", "addr", cfg.Addr)
+	if runtimePrefsState.EffectiveBackendThreadTraceEnabled {
+		logger.Info(
+			"thread pipeline trace logging enabled",
+			"workspaceId",
+			runtimePrefsState.EffectiveBackendThreadTraceWorkspaceID,
+			"threadId",
+			runtimePrefsState.EffectiveBackendThreadTraceThreadID,
+		)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

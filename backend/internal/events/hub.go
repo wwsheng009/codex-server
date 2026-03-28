@@ -3,6 +3,7 @@ package events
 import (
 	"sync"
 
+	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/store"
 )
 
@@ -95,6 +96,20 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 		globalSubscribers = append(globalSubscribers, subscriber)
 	}
 	h.mu.RUnlock()
+	diagnostics.LogTrace(
+		event.WorkspaceID,
+		event.ThreadID,
+		"event hub publishing thread event",
+		append(
+			diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+			"workspaceSubscriberCount",
+			len(workspaceSubscribers),
+			"globalSubscriberCount",
+			len(globalSubscribers),
+			"storeAttached",
+			dataStore != nil,
+		)...,
+	)
 
 	overflowedWorkspaceSubscribers := make([]chan store.EventEnvelope, 0)
 	for _, subscriber := range workspaceSubscribers {
@@ -119,6 +134,16 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 	if len(overflowedWorkspaceSubscribers) == 0 {
 		return
 	}
+	diagnostics.LogTrace(
+		event.WorkspaceID,
+		event.ThreadID,
+		"event hub subscriber overflow detected",
+		append(
+			diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+			"overflowedSubscriberCount",
+			len(overflowedWorkspaceSubscribers),
+		)...,
+	)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()

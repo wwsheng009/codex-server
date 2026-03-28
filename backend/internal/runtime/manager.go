@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"codex-server/backend/internal/bridge"
+	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
 )
@@ -300,10 +301,12 @@ func (m *Manager) RememberActiveTurn(workspaceID string, threadID string, turnID
 
 	if strings.TrimSpace(turnID) == "" {
 		delete(runtime.activeTurns, threadID)
+		diagnostics.LogThreadTrace(workspaceID, threadID, "runtime active turn cleared")
 		return
 	}
 
 	runtime.activeTurns[threadID] = turnID
+	diagnostics.LogThreadTrace(workspaceID, threadID, "runtime active turn remembered", "turnId", turnID)
 }
 
 func (m *Manager) FirstWorkspaceID() string {
@@ -400,6 +403,14 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 	r.state.RootPath = rootPath
 	r.state.UpdatedAt = time.Now().UTC()
 	r.mu.Unlock()
+	diagnostics.LogWorkspaceTrace(
+		r.workspaceID,
+		"runtime ensure-start requested",
+		"rootPath",
+		rootPath,
+		"command",
+		diagnostics.TruncateString(r.manager.command, 240),
+	)
 
 	client, err := bridge.Start(ctx, bridge.Config{
 		Command:         r.manager.command,
@@ -415,6 +426,7 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 		r.state.UpdatedAt = time.Now().UTC()
 		state := r.state
 		r.mu.Unlock()
+		diagnostics.LogWorkspaceTrace(r.workspaceID, "runtime ensure-start failed", "error", err)
 		return state, err
 	}
 
@@ -429,6 +441,14 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 	r.state.UpdatedAt = now
 	state := r.state
 	r.mu.Unlock()
+	diagnostics.LogWorkspaceTrace(
+		r.workspaceID,
+		"runtime ready",
+		"rootPath",
+		rootPath,
+		"startedAt",
+		now.Format(time.RFC3339),
+	)
 
 	return state, nil
 }
@@ -444,6 +464,12 @@ func (r *instance) HandleNotification(method string, params json.RawMessage) {
 	threadID, turnID := extractContext(payload)
 
 	r.trackTurn(method, threadID, turnID)
+	diagnostics.LogTrace(
+		r.workspaceID,
+		threadID,
+		"runtime notification received",
+		diagnostics.EventTraceAttrs(method, turnID, payload)...,
+	)
 
 	r.manager.events.Publish(store.EventEnvelope{
 		WorkspaceID: r.workspaceID,
@@ -476,6 +502,16 @@ func (r *instance) HandleRequest(id json.RawMessage, method string, params json.
 	r.manager.mu.Lock()
 	r.manager.requests[requestID] = request
 	r.manager.mu.Unlock()
+	diagnostics.LogTrace(
+		r.workspaceID,
+		threadID,
+		"runtime request received",
+		append(
+			diagnostics.EventTraceAttrs(method, turnID, payload),
+			"requestId",
+			requestID,
+		)...,
+	)
 
 	r.manager.events.Publish(store.EventEnvelope{
 		WorkspaceID:     r.workspaceID,
@@ -493,6 +529,12 @@ func (r *instance) HandleStderr(line string) {
 	r.state.LastError = line
 	r.state.UpdatedAt = time.Now().UTC()
 	r.mu.Unlock()
+	diagnostics.LogWorkspaceTrace(
+		r.workspaceID,
+		"runtime stderr",
+		"line",
+		diagnostics.TruncateString(line, 300),
+	)
 }
 
 func (r *instance) HandleClosed(err error) {
@@ -513,6 +555,14 @@ func (r *instance) HandleClosed(err error) {
 		r.state.LastError = ""
 	}
 	r.mu.Unlock()
+	diagnostics.LogWorkspaceTrace(
+		r.workspaceID,
+		"runtime closed",
+		"expectedClose",
+		expectClose,
+		"error",
+		err,
+	)
 }
 
 func (r *instance) trackTurn(method string, threadID string, turnID string) {
@@ -640,6 +690,22 @@ func (r *instance) queueCommandOutputDelta(params json.RawMessage) bool {
 		r.commandOutputFlushTimer.Stop()
 		r.commandOutputFlushTimer = nil
 	}
+	diagnostics.LogWorkspaceTrace(
+		r.workspaceID,
+		"runtime command output delta queued",
+		"method",
+		"command/exec/outputDelta",
+		"processId",
+		processID,
+		"stream",
+		stream,
+		"deltaLen",
+		len(delta),
+		"pendingBytes",
+		r.pendingCommandOutputLen,
+		"flushImmediately",
+		shouldFlushImmediately,
+	)
 	r.mu.Unlock()
 
 	if shouldFlushImmediately {
@@ -664,6 +730,12 @@ func (r *instance) flushPendingCommandOutput() {
 	r.pendingCommandOutputLen = 0
 	r.pendingCommandOutput = nil
 	r.mu.Unlock()
+	diagnostics.LogWorkspaceTrace(
+		r.workspaceID,
+		"runtime command output delta flushed",
+		"chunkCount",
+		len(chunks),
+	)
 
 	now := time.Now().UTC()
 	for _, chunk := range chunks {

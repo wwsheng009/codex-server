@@ -3,6 +3,8 @@ package bots
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -14,14 +16,17 @@ import (
 	"codex-server/backend/internal/events"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
+	"codex-server/backend/internal/threads"
 )
 
 const (
-	defaultWorkerQueueSize      = 32
-	defaultWorkerIdleTimeout    = 2 * time.Minute
-	defaultStreamingPendingText = "Working..."
-	defaultStreamingFailureText = "The bot could not process your message right now.\nTechnical details: no additional error details were available from the bot backend."
-	botFailureDetailCharLimit   = 1200
+	defaultWorkerQueueSize       = 32
+	defaultWorkerIdleTimeout     = 2 * time.Minute
+	defaultStreamingPendingText  = "Working..."
+	defaultStreamingFailureText  = "The bot could not process your message right now.\nTechnical details: no additional error details were available from the bot backend."
+	botFailureDetailCharLimit    = 1200
+	botConversationContextKey    = "_bot_context_version"
+	botConversationThreadListKey = "_bot_known_thread_ids"
 )
 
 type Service struct {
@@ -58,6 +63,12 @@ type botApprovalCommand struct {
 	requestID   string
 	action      string
 	answerInput string
+}
+
+type botConversationCommand struct {
+	kind     string
+	threadID string
+	title    string
 }
 
 type inboundWorker struct {
@@ -196,6 +207,11 @@ func (s *Service) CreateConnection(
 		return ConnectionView{}, ErrAIBackendUnsupported
 	}
 
+	normalizedSettings, err := normalizeBotConnectionSettings(input.Settings)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
 	connection := store.BotConnection{
 		ID:          store.NewID("bot"),
 		WorkspaceID: workspaceID,
@@ -204,8 +220,12 @@ func (s *Service) CreateConnection(
 		Status:      "active",
 		AIBackend:   aiBackendName,
 		AIConfig:    cloneStringMapLocal(input.AIConfig),
-		Settings:    cloneStringMapLocal(input.Settings),
+		Settings:    normalizedSettings,
 		Secrets:     cloneStringMapLocal(input.Secrets),
+	}
+
+	if err := s.validatePollingConnectionOwnership(connection); err != nil {
+		return ConnectionView{}, err
 	}
 
 	activation, err := provider.Activate(ctx, connection, s.resolvePublicBaseURL(input.PublicBaseURL))
@@ -230,6 +250,10 @@ func (s *Service) CreateConnection(
 		"name":         created.Name,
 		"status":       created.Status,
 	})
+	logBotDebug(ctx, created, "connection created",
+		slog.String("aiBackend", created.AIBackend),
+		slog.String("deliveryMode", strings.TrimSpace(created.Settings[telegramDeliveryModeSetting])),
+	)
 
 	return connectionViewFromStore(created), nil
 }
@@ -260,6 +284,7 @@ func (s *Service) PauseConnection(ctx context.Context, workspaceID string, conne
 	s.publish(updated.WorkspaceID, "", "bot/connection/paused", map[string]any{
 		"connectionId": updated.ID,
 	})
+	s.syncPollingConnections()
 
 	return connectionViewFromStore(updated), nil
 }
@@ -273,6 +298,10 @@ func (s *Service) ResumeConnection(
 	connection, ok := s.store.GetBotConnection(workspaceID, connectionID)
 	if !ok {
 		return ConnectionView{}, store.ErrBotConnectionNotFound
+	}
+
+	if err := s.validatePollingConnectionOwnership(connection); err != nil {
+		return ConnectionView{}, err
 	}
 
 	provider, ok := s.providers[normalizeProviderName(connection.Provider)]
@@ -302,6 +331,37 @@ func (s *Service) ResumeConnection(
 	s.publish(updated.WorkspaceID, "", "bot/connection/resumed", map[string]any{
 		"connectionId": updated.ID,
 	})
+	logBotDebug(ctx, updated, "connection resumed")
+
+	return connectionViewFromStore(updated), nil
+}
+
+func (s *Service) UpdateConnectionRuntimeMode(
+	workspaceID string,
+	connectionID string,
+	input UpdateConnectionRuntimeModeInput,
+) (ConnectionView, error) {
+	runtimeMode, err := normalizeBotRuntimeMode(input.RuntimeMode)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	updated, err := s.store.UpdateBotConnection(workspaceID, connectionID, func(current store.BotConnection) store.BotConnection {
+		if current.Settings == nil {
+			current.Settings = map[string]string{}
+		}
+		current.Settings[botRuntimeModeSetting] = runtimeMode
+		return current
+	})
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	s.publish(updated.WorkspaceID, "", "bot/connection/runtime_mode_updated", map[string]any{
+		"connectionId": updated.ID,
+		"runtimeMode":  runtimeMode,
+	})
+	logBotDebug(nil, updated, "runtime mode updated", slog.String("newMode", runtimeMode))
 
 	return connectionViewFromStore(updated), nil
 }
@@ -327,6 +387,7 @@ func (s *Service) DeleteConnection(ctx context.Context, workspaceID string, conn
 	s.publish(workspaceID, "", "bot/connection/deleted", map[string]any{
 		"connectionId": connectionID,
 	})
+	s.syncPollingConnections()
 	return nil
 }
 
@@ -472,7 +533,18 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		return nil
 	}
 
+	ctx = withBotDebugTrace(ctx, connection.ID, delivery.ID)
 	message := inboundMessageFromDelivery(delivery)
+	logBotDebug(ctx, connection, "claimed inbound delivery",
+		slog.String("deliveryId", delivery.ID),
+		slog.String("deliveryStatus", delivery.Status),
+		slog.String("messageId", strings.TrimSpace(message.MessageID)),
+		slog.String("conversationId", strings.TrimSpace(message.ConversationID)),
+		slog.String("externalChatId", strings.TrimSpace(message.ExternalChatID)),
+		slog.String("externalThreadId", strings.TrimSpace(message.ExternalThreadID)),
+		slog.Int("textLength", len([]rune(message.Text))),
+		slog.String("textPreview", debugTextPreview(message.Text)),
+	)
 
 	provider, ok := s.providers[normalizeProviderName(connection.Provider)]
 	if !ok {
@@ -485,8 +557,36 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		_, _ = s.store.FailBotInboundDelivery(connection.WorkspaceID, delivery.ID, err.Error())
 		return err
 	}
+	logBotDebug(ctx, connection, "resolved bot conversation",
+		slog.String("conversationStoreId", conversation.ID),
+		slog.String("threadId", strings.TrimSpace(conversation.ThreadID)),
+		slog.String("externalConversationId", strings.TrimSpace(conversation.ExternalConversationID)),
+	)
+
+	if handled, updatedConversation, controlText, controlErr := s.handleConversationCommand(ctx, provider, connection, conversation, message); handled {
+		logBotDebug(ctx, connection, "processing conversation control command",
+			slog.String("conversationStoreId", conversation.ID),
+			slog.String("textPreview", debugTextPreview(message.Text)),
+		)
+		if controlErr != nil {
+			_, _ = s.store.FailBotInboundDelivery(connection.WorkspaceID, delivery.ID, controlErr.Error())
+			return controlErr
+		}
+		updatedConversation = s.recordConversationOutcome(connection, updatedConversation, AIResult{}, message, controlText)
+		_, _ = s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID)
+		s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/processed", map[string]any{
+			"connectionId":   connection.ID,
+			"conversationId": updatedConversation.ID,
+			"threadId":       updatedConversation.ThreadID,
+		})
+		return nil
+	}
 
 	if handled, controlText, controlErr := s.handleApprovalCommand(ctx, provider, connection, conversation, message); handled {
+		logBotDebug(ctx, connection, "processing control command",
+			slog.String("conversationStoreId", conversation.ID),
+			slog.String("textPreview", debugTextPreview(message.Text)),
+		)
 		if controlErr != nil {
 			_, _ = s.store.FailBotInboundDelivery(connection.WorkspaceID, delivery.ID, controlErr.Error())
 			return controlErr
@@ -505,10 +605,15 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 	defer cancel()
 
 	if reply, ok := aiResultFromDelivery(delivery); ok {
+		logBotDebug(messageCtx, connection, "replaying saved reply snapshot",
+			slog.String("conversationStoreId", conversation.ID),
+			slog.String("replyThreadId", strings.TrimSpace(reply.ThreadID)),
+			slog.Any("messages", debugOutboundMessages(reply.Messages)),
+		)
 		if err := provider.SendMessages(messageCtx, connection, conversation, reply.Messages); err != nil {
-			return s.handleReplyDeliveryFailure(connection, conversation, delivery, message, reply, err)
+			return s.handleReplyDeliveryFailure(messageCtx, connection, conversation, delivery, message, reply, err)
 		}
-		return s.completeInboundDeliveryWithReply(connection, conversation, delivery, message, reply)
+		return s.completeInboundDeliveryWithReply(messageCtx, connection, conversation, delivery, message, reply)
 	}
 
 	aiBackend, ok := s.aiBackends[normalizeAIBackendName(connection.AIBackend)]
@@ -547,9 +652,15 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 
 	reply, failureDelivered, failureText, err := s.executeAIReply(messageCtx, provider, aiBackend, connection, conversation, message)
 	if err != nil {
+		logBotDebug(messageCtx, connection, "ai reply execution failed",
+			slog.String("conversationStoreId", conversation.ID),
+			slog.String("error", err.Error()),
+			slog.Bool("failureDelivered", failureDelivered),
+			slog.String("failureTextPreview", debugTextPreview(failureText)),
+		)
 		var deliveryErr *replyDeliveryError
 		if errors.As(err, &deliveryErr) {
-			return s.handleReplyDeliveryFailure(connection, conversation, delivery, message, deliveryErr.reply, deliveryErr)
+			return s.handleReplyDeliveryFailure(messageCtx, connection, conversation, delivery, message, deliveryErr.reply, deliveryErr)
 		}
 
 		if !failureDelivered {
@@ -588,7 +699,7 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		return nil
 	}
 
-	return s.completeInboundDeliveryWithReply(connection, conversation, delivery, message, reply)
+	return s.completeInboundDeliveryWithReply(messageCtx, connection, conversation, delivery, message, reply)
 }
 
 func (s *Service) executeAIReply(
@@ -602,9 +713,18 @@ func (s *Service) executeAIReply(
 	streamingProvider, providerSupportsStreaming := provider.(StreamingProvider)
 	streamingBackend, backendSupportsStreaming := aiBackend.(StreamingAIBackend)
 	if !providerSupportsStreaming || !backendSupportsStreaming {
+		logBotDebug(ctx, connection, "executing final ai reply",
+			slog.String("backend", aiBackend.Name()),
+			slog.Bool("streamingProvider", providerSupportsStreaming),
+			slog.Bool("streamingBackend", backendSupportsStreaming),
+		)
 		reply, err := s.executeFinalAIReply(ctx, provider, aiBackend, connection, conversation, inbound)
 		return reply, false, "", err
 	}
+	logBotDebug(ctx, connection, "starting streaming ai reply",
+		slog.String("backend", aiBackend.Name()),
+		slog.String("provider", provider.Name()),
+	)
 
 	session, err := streamingProvider.StartStreamingReply(ctx, connection, conversation)
 	if err != nil {
@@ -620,9 +740,15 @@ func (s *Service) executeAIReply(
 		conversation,
 		inbound,
 		func(updateCtx context.Context, update StreamingUpdate) error {
-			if len(normalizeStreamingMessages(update)) == 0 {
+			normalized := normalizeStreamingMessages(update)
+			if len(normalized) == 0 {
 				return nil
 			}
+			logBotDebug(updateCtx, connection, "streaming update received",
+				slog.String("conversationStoreId", conversation.ID),
+				slog.Int("messageCount", len(normalized)),
+				slog.Any("messages", debugOutboundMessages(normalized)),
+			)
 			return session.Update(updateCtx, update)
 		},
 	)
@@ -646,6 +772,11 @@ func (s *Service) executeAIReply(
 			cause:        err,
 		}
 	}
+	logBotDebug(ctx, connection, "streaming ai reply completed",
+		slog.String("conversationStoreId", conversation.ID),
+		slog.String("replyThreadId", strings.TrimSpace(reply.ThreadID)),
+		slog.Any("messages", debugOutboundMessages(reply.Messages)),
+	)
 
 	return reply, false, "", nil
 }
@@ -662,6 +793,11 @@ func (s *Service) executeFinalAIReply(
 	if err != nil {
 		return AIResult{}, wrapAIBackendError(aiBackend.Name(), err)
 	}
+	logBotDebug(ctx, connection, "final ai reply produced",
+		slog.String("conversationStoreId", conversation.ID),
+		slog.String("replyThreadId", strings.TrimSpace(reply.ThreadID)),
+		slog.Any("messages", debugOutboundMessages(reply.Messages)),
+	)
 
 	if err := provider.SendMessages(ctx, connection, conversation, reply.Messages); err != nil {
 		return AIResult{}, &replyDeliveryError{
@@ -676,6 +812,7 @@ func (s *Service) executeFinalAIReply(
 }
 
 func (s *Service) completeInboundDeliveryWithReply(
+	ctx context.Context,
 	connection store.BotConnection,
 	conversation store.BotConversation,
 	delivery store.BotInboundDelivery,
@@ -686,6 +823,13 @@ func (s *Service) completeInboundDeliveryWithReply(
 	if _, err := s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID); err != nil {
 		return err
 	}
+	logBotDebug(ctx, connection, "completed inbound delivery",
+		slog.String("deliveryId", delivery.ID),
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", strings.TrimSpace(updatedConversation.ThreadID)),
+		slog.Int("messageCount", len(reply.Messages)),
+		slog.Any("messages", debugOutboundMessages(reply.Messages)),
+	)
 
 	s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/sent", map[string]any{
 		"connectionId":   connection.ID,
@@ -698,6 +842,7 @@ func (s *Service) completeInboundDeliveryWithReply(
 }
 
 func (s *Service) handleReplyDeliveryFailure(
+	ctx context.Context,
 	connection store.BotConnection,
 	conversation store.BotConversation,
 	delivery store.BotInboundDelivery,
@@ -735,6 +880,14 @@ func (s *Service) handleReplyDeliveryFailure(
 		current.LastError = lastError.Error()
 		return current
 	})
+	logBotDebug(ctx, connection, "reply delivery failed",
+		slog.String("deliveryId", delivery.ID),
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", strings.TrimSpace(updatedConversation.ThreadID)),
+		slog.Int("messageCount", len(reply.Messages)),
+		slog.Any("messages", debugOutboundMessages(reply.Messages)),
+		slog.String("error", lastError.Error()),
+	)
 
 	if saveErr != nil || failErr != nil {
 		return lastError
@@ -782,6 +935,122 @@ func (s *Service) resolvePublicBaseURL(override string) string {
 	return s.publicBaseURL
 }
 
+func (s *Service) validatePollingConnectionOwnership(connection store.BotConnection) error {
+	conflict, ok := s.findConflictingTelegramPollingConnection(connection)
+	if !ok {
+		return nil
+	}
+	return telegramPollingConflictError(conflict.ID)
+}
+
+func (s *Service) findConflictingTelegramPollingConnection(connection store.BotConnection) (store.BotConnection, bool) {
+	token := telegramPollingTokenForValidation(connection)
+	if token == "" {
+		return store.BotConnection{}, false
+	}
+
+	var conflict store.BotConnection
+	found := false
+	for _, workspace := range s.store.ListWorkspaces() {
+		for _, candidate := range s.store.ListBotConnections(workspace.ID) {
+			if candidate.ID == connection.ID {
+				continue
+			}
+			if telegramPollingToken(candidate) != token {
+				continue
+			}
+			if !found || botConnectionSortsBefore(candidate, conflict) {
+				conflict = candidate
+				found = true
+			}
+		}
+	}
+
+	return conflict, found
+}
+
+func (s *Service) telegramPollingOwner(connection store.BotConnection) (store.BotConnection, bool) {
+	token := telegramPollingToken(connection)
+	if token == "" {
+		return store.BotConnection{}, false
+	}
+
+	owner := connection
+	found := false
+	for _, workspace := range s.store.ListWorkspaces() {
+		for _, candidate := range s.store.ListBotConnections(workspace.ID) {
+			if telegramPollingToken(candidate) != token {
+				continue
+			}
+			if !found || botConnectionSortsBefore(candidate, owner) {
+				owner = candidate
+				found = true
+			}
+		}
+	}
+
+	if !found {
+		return store.BotConnection{}, false
+	}
+	return owner, true
+}
+
+func isActiveTelegramPollingConnection(connection store.BotConnection) bool {
+	return strings.EqualFold(strings.TrimSpace(connection.Status), "active") &&
+		normalizeProviderName(connection.Provider) == telegramProviderName &&
+		telegramDeliveryMode(connection) == telegramDeliveryModePolling &&
+		strings.TrimSpace(connection.Secrets["bot_token"]) != ""
+}
+
+func telegramPollingTokenForValidation(connection store.BotConnection) string {
+	if normalizeProviderName(connection.Provider) != telegramProviderName {
+		return ""
+	}
+	if telegramDeliveryMode(connection) != telegramDeliveryModePolling {
+		return ""
+	}
+	return strings.TrimSpace(connection.Secrets["bot_token"])
+}
+
+func telegramPollingToken(connection store.BotConnection) string {
+	if !isActiveTelegramPollingConnection(connection) {
+		return ""
+	}
+	return strings.TrimSpace(connection.Secrets["bot_token"])
+}
+
+func botConnectionSortsBefore(left store.BotConnection, right store.BotConnection) bool {
+	if right.ID == "" {
+		return true
+	}
+	if left.CreatedAt.IsZero() && !right.CreatedAt.IsZero() {
+		return false
+	}
+	if !left.CreatedAt.IsZero() && right.CreatedAt.IsZero() {
+		return true
+	}
+	if !left.CreatedAt.Equal(right.CreatedAt) {
+		return left.CreatedAt.Before(right.CreatedAt)
+	}
+	return left.ID < right.ID
+}
+
+func telegramPollingConflictError(ownerConnectionID string) error {
+	message := "telegram polling token is already claimed by another active polling connection"
+	if owner := strings.TrimSpace(ownerConnectionID); owner != "" {
+		message += " (" + owner + ")"
+	}
+	message += "; pause or delete the other polling connection, or switch one connection to webhook mode"
+	return fmt.Errorf("%w: %s", ErrInvalidInput, message)
+}
+
+func (s *Service) setConnectionLastError(workspaceID string, connectionID string, lastError string) {
+	_, _ = s.store.UpdateBotConnection(workspaceID, connectionID, func(current store.BotConnection) store.BotConnection {
+		current.LastError = strings.TrimSpace(lastError)
+		return current
+	})
+}
+
 func (s *Service) syncPollingConnections() {
 	for _, workspace := range s.store.ListWorkspaces() {
 		for _, connection := range s.store.ListBotConnections(workspace.ID) {
@@ -795,6 +1064,15 @@ func (s *Service) syncPollingConnection(connection store.BotConnection) {
 	if !shouldPoll {
 		s.stopPollingConnection(connection.ID)
 		return
+	}
+
+	if owner, ok := s.telegramPollingOwner(connection); ok && owner.ID != connection.ID {
+		s.stopPollingConnection(connection.ID)
+		s.setConnectionLastError(connection.WorkspaceID, connection.ID, telegramPollingConflictError(owner.ID).Error())
+		return
+	}
+	if strings.TrimSpace(connection.LastError) != "" {
+		s.setConnectionLastError(connection.WorkspaceID, connection.ID, "")
 	}
 
 	s.mu.Lock()
@@ -946,7 +1224,7 @@ func (s *Service) workerContext() context.Context {
 }
 
 func (s *Service) workerKeyForJob(job inboundJob) string {
-	if _, ok, _ := parseBotApprovalCommand(job.message.Text); ok {
+	if isBotControlCommand(job.message.Text) {
 		return job.connectionID + "\x00control"
 	}
 	return job.connectionID + "\x00" + job.message.ConversationID
@@ -973,6 +1251,16 @@ func resetWorkerTimer(timer *time.Timer, delay time.Duration) {
 		}
 	}
 	timer.Reset(delay)
+}
+
+func isBotControlCommand(text string) bool {
+	if _, ok, _ := parseBotConversationCommand(text); ok {
+		return true
+	}
+	if _, ok, _ := parseBotApprovalCommand(text); ok {
+		return true
+	}
+	return false
 }
 
 func (s *Service) publish(workspaceID string, threadID string, method string, payload map[string]any) {
@@ -1032,6 +1320,122 @@ func mergeStringMaps(base map[string]string, overlay map[string]string) map[stri
 	next := cloneStringMapLocal(base)
 	for key, value := range overlay {
 		next[key] = value
+	}
+	return next
+}
+
+func conversationContextVersion(conversation store.BotConversation) int {
+	return conversationContextVersionFromState(conversation.BackendState)
+}
+
+func conversationContextVersionFromState(state map[string]string) int {
+	trimmed := strings.TrimSpace(state[botConversationContextKey])
+	if trimmed == "" {
+		return 0
+	}
+
+	version, err := strconv.Atoi(trimmed)
+	if err != nil || version < 0 {
+		return 0
+	}
+	return version
+}
+
+func conversationBackendStateWithVersion(state map[string]string, version int) map[string]string {
+	next := cloneStringMapLocal(state)
+	if next == nil {
+		next = make(map[string]string)
+	}
+	next[botConversationContextKey] = strconv.Itoa(version)
+	return next
+}
+
+func knownConversationThreadIDs(conversation store.BotConversation) []string {
+	return knownConversationThreadIDsFromState(conversation.BackendState)
+}
+
+func knownConversationThreadIDsFromState(state map[string]string) []string {
+	raw := strings.TrimSpace(state[botConversationThreadListKey])
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, "\n")
+	items := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		threadID := strings.TrimSpace(part)
+		if threadID == "" {
+			continue
+		}
+		if _, ok := seen[threadID]; ok {
+			continue
+		}
+		seen[threadID] = struct{}{}
+		items = append(items, threadID)
+	}
+	return items
+}
+
+func appendKnownConversationThreadID(state map[string]string, threadID string) []string {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return knownConversationThreadIDsFromState(state)
+	}
+
+	items := knownConversationThreadIDsFromState(state)
+	for _, existing := range items {
+		if existing == threadID {
+			return items
+		}
+	}
+	return append(items, threadID)
+}
+
+func conversationBackendStateWithKnownThreads(state map[string]string, threadIDs []string) map[string]string {
+	next := stripConversationInternalBackendState(state)
+	if len(threadIDs) == 0 {
+		return next
+	}
+	if next == nil {
+		next = make(map[string]string)
+	}
+	next[botConversationThreadListKey] = strings.Join(threadIDs, "\n")
+	return next
+}
+
+func mergeConversationBackendState(base map[string]string, overlay map[string]string, version int) map[string]string {
+	knownThreadIDs := knownConversationThreadIDsFromState(base)
+	for _, threadID := range knownConversationThreadIDsFromState(overlay) {
+		knownThreadIDs = appendKnownConversationThreadID(
+			conversationBackendStateWithKnownThreads(nil, knownThreadIDs),
+			threadID,
+		)
+	}
+
+	merged := mergeStringMaps(
+		stripConversationInternalBackendState(base),
+		stripConversationInternalBackendState(overlay),
+	)
+	merged = conversationBackendStateWithKnownThreads(merged, knownThreadIDs)
+	return conversationBackendStateWithVersion(merged, version)
+}
+
+func stripConversationInternalBackendState(state map[string]string) map[string]string {
+	if len(state) == 0 {
+		return nil
+	}
+
+	next := make(map[string]string, len(state))
+	for key, value := range state {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == botConversationContextKey || trimmedKey == botConversationThreadListKey {
+			continue
+		}
+		next[key] = value
+	}
+	if len(next) == 0 {
+		return nil
 	}
 	return next
 }
@@ -1227,6 +1631,63 @@ func (s *Service) handleApprovalCommand(
 	}
 }
 
+func (s *Service) handleConversationCommand(
+	ctx context.Context,
+	provider Provider,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	inbound InboundMessage,
+) (bool, store.BotConversation, string, error) {
+	command, recognized, err := parseBotConversationCommand(inbound.Text)
+	if !recognized {
+		return false, conversation, "", nil
+	}
+
+	if err != nil {
+		text := botConversationCommandHelp(err.Error())
+		return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+	}
+
+	switch command.kind {
+	case "new_thread":
+		updatedConversation, text, commandErr := s.startNewConversationThread(ctx, connection, conversation, inbound, command.title)
+		if commandErr != nil {
+			text = "The bot could not start a new thread right now: " + commandErr.Error()
+			return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+		}
+		return true, updatedConversation, text, provider.SendMessages(ctx, connection, updatedConversation, []OutboundMessage{{Text: text}})
+	case "show_thread":
+		text := s.renderCurrentConversationThread(ctx, connection, conversation)
+		return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+	case "list_threads":
+		text := s.renderKnownConversationThreads(ctx, connection, conversation)
+		return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+	case "rename_thread":
+		updatedConversation, text, commandErr := s.renameConversationThread(ctx, connection, conversation, command.title)
+		if commandErr != nil {
+			text = "The bot could not rename the current thread right now: " + commandErr.Error()
+			return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+		}
+		return true, updatedConversation, text, provider.SendMessages(ctx, connection, updatedConversation, []OutboundMessage{{Text: text}})
+	case "archive_thread":
+		updatedConversation, text, commandErr := s.archiveConversationThread(ctx, connection, conversation)
+		if commandErr != nil {
+			text = "The bot could not archive the current thread right now: " + commandErr.Error()
+			return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+		}
+		return true, updatedConversation, text, provider.SendMessages(ctx, connection, updatedConversation, []OutboundMessage{{Text: text}})
+	case "use_thread":
+		updatedConversation, text, commandErr := s.switchConversationThread(ctx, connection, conversation, command.threadID)
+		if commandErr != nil {
+			text = "The bot could not switch threads right now: " + commandErr.Error()
+			return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+		}
+		return true, updatedConversation, text, provider.SendMessages(ctx, connection, updatedConversation, []OutboundMessage{{Text: text}})
+	default:
+		return false, conversation, "", nil
+	}
+}
+
 func parseBotApprovalCommand(text string) (botApprovalCommand, bool, error) {
 	commandToken, remainder := splitBotCommandText(text)
 	if commandToken == "" || !strings.HasPrefix(commandToken, "/") {
@@ -1263,6 +1724,52 @@ func parseBotApprovalCommand(text string) (botApprovalCommand, bool, error) {
 		}, true, nil
 	default:
 		return botApprovalCommand{}, false, nil
+	}
+}
+
+func parseBotConversationCommand(text string) (botConversationCommand, bool, error) {
+	commandToken, remainder := splitBotCommandText(text)
+	if commandToken == "" || !strings.HasPrefix(commandToken, "/") {
+		return botConversationCommand{}, false, nil
+	}
+
+	switch normalizeBotCommandName(commandToken) {
+	case "newthread":
+		return botConversationCommand{
+			kind:  "new_thread",
+			title: strings.TrimSpace(remainder),
+		}, true, nil
+	case "thread":
+		subcommand, extra := splitBotCommandText(remainder)
+		switch strings.ToLower(strings.TrimSpace(subcommand)) {
+		case "":
+			return botConversationCommand{kind: "show_thread"}, true, nil
+		case "list":
+			if strings.TrimSpace(extra) != "" {
+				return botConversationCommand{}, true, errors.New("usage: /thread list")
+			}
+			return botConversationCommand{kind: "list_threads"}, true, nil
+		case "rename":
+			if strings.TrimSpace(extra) == "" {
+				return botConversationCommand{}, true, errors.New("usage: /thread rename <title>")
+			}
+			return botConversationCommand{kind: "rename_thread", title: strings.TrimSpace(extra)}, true, nil
+		case "archive":
+			if strings.TrimSpace(extra) != "" {
+				return botConversationCommand{}, true, errors.New("usage: /thread archive")
+			}
+			return botConversationCommand{kind: "archive_thread"}, true, nil
+		case "use":
+			threadID, trailing := splitBotCommandText(extra)
+			if strings.TrimSpace(threadID) == "" || strings.TrimSpace(trailing) != "" {
+				return botConversationCommand{}, true, errors.New("usage: /thread use <thread_id>")
+			}
+			return botConversationCommand{kind: "use_thread", threadID: strings.TrimSpace(threadID)}, true, nil
+		default:
+			return botConversationCommand{}, true, errors.New("usage: /thread | /thread list | /thread rename <title> | /thread archive | /thread use <thread_id>")
+		}
+	default:
+		return botConversationCommand{}, false, nil
 	}
 }
 
@@ -1305,6 +1812,22 @@ func botApprovalCommandHelp(reason string) string {
 	return strings.Join(lines, "\n")
 }
 
+func botConversationCommandHelp(reason string) string {
+	lines := []string{
+		"Bot conversation commands:",
+		"/newthread [title]",
+		"/thread",
+		"/thread list",
+		"/thread rename <title>",
+		"/thread archive",
+		"/thread use <thread_id>",
+	}
+	if strings.TrimSpace(reason) != "" {
+		lines = append([]string{"Conversation command error: " + strings.TrimSpace(reason)}, lines...)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func renderPendingApprovalsForBot(items []store.PendingApproval, currentThreadID string) string {
 	if len(items) == 0 {
 		return "No pending approvals right now."
@@ -1325,6 +1848,350 @@ func renderPendingApprovalsForBot(items []store.PendingApproval, currentThreadID
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (s *Service) startNewConversationThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	inbound InboundMessage,
+	title string,
+) (store.BotConversation, string, error) {
+	nextContextVersion := conversationContextVersion(conversation) + 1
+	nextThreadID := ""
+	responseText := "Started a new conversation context. Future messages in this chat will use a fresh backend session."
+
+	if normalizeAIBackendName(connection.AIBackend) == defaultAIBackend {
+		if s.threads == nil {
+			return store.BotConversation{}, "", errors.New("workspace thread service is not configured")
+		}
+
+		thread, err := s.threads.Create(ctx, connection.WorkspaceID, threads.CreateInput{
+			Name:  buildThreadNameWithTarget(connection, firstNonEmpty(strings.TrimSpace(title), strings.TrimSpace(inbound.Title), strings.TrimSpace(inbound.Username), strings.TrimSpace(inbound.ConversationID))),
+			Model: strings.TrimSpace(connection.AIConfig["model"]),
+		})
+		if err != nil {
+			return store.BotConversation{}, "", err
+		}
+		nextThreadID = thread.ID
+		responseLines := []string{"Started a new workspace thread: " + nextThreadID}
+		if strings.TrimSpace(thread.Name) != "" {
+			responseLines = append(responseLines, "Name: "+strings.TrimSpace(thread.Name))
+		}
+		responseLines = append(responseLines, "Future messages in this chat will use the new thread.")
+		responseText = strings.Join(responseLines, "\n")
+	}
+
+	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		knownThreadIDs := appendKnownConversationThreadID(current.BackendState, current.ThreadID)
+		knownThreadIDs = appendKnownConversationThreadID(conversationBackendStateWithKnownThreads(nil, knownThreadIDs), nextThreadID)
+		current.ThreadID = strings.TrimSpace(nextThreadID)
+		current.BackendState = conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, knownThreadIDs),
+			nextContextVersion,
+		)
+		return current
+	})
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	logBotDebug(ctx, connection, "started new conversation thread context",
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", strings.TrimSpace(updatedConversation.ThreadID)),
+		slog.Int("contextVersion", conversationContextVersion(updatedConversation)),
+	)
+
+	return updatedConversation, responseText, nil
+}
+
+func (s *Service) switchConversationThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	selection string,
+) (store.BotConversation, string, error) {
+	threadID, err := s.resolveConversationThreadSelection(ctx, connection, conversation, selection)
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+	if threadID == "" {
+		return store.BotConversation{}, "", errors.New("thread id is required")
+	}
+	if normalizeAIBackendName(connection.AIBackend) == defaultAIBackend {
+		if s.threads == nil {
+			return store.BotConversation{}, "", errors.New("workspace thread service is not configured")
+		}
+		if _, err := s.threads.GetDetail(ctx, connection.WorkspaceID, threadID); err != nil {
+			return store.BotConversation{}, "", err
+		}
+	}
+
+	nextContextVersion := conversationContextVersion(conversation) + 1
+	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		knownThreadIDs := appendKnownConversationThreadID(current.BackendState, current.ThreadID)
+		knownThreadIDs = appendKnownConversationThreadID(conversationBackendStateWithKnownThreads(nil, knownThreadIDs), threadID)
+		current.ThreadID = threadID
+		current.BackendState = conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, knownThreadIDs),
+			nextContextVersion,
+		)
+		return current
+	})
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	logBotDebug(ctx, connection, "switched conversation thread",
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", threadID),
+		slog.Int("contextVersion", conversationContextVersion(updatedConversation)),
+	)
+
+	return updatedConversation, "Switched the current conversation to thread: " + threadID, nil
+}
+
+func (s *Service) renameConversationThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	title string,
+) (store.BotConversation, string, error) {
+	threadID := strings.TrimSpace(conversation.ThreadID)
+	if threadID == "" {
+		return store.BotConversation{}, "", errors.New("this conversation is not currently bound to a workspace thread")
+	}
+	if s.threads == nil {
+		return store.BotConversation{}, "", errors.New("workspace thread service is not configured")
+	}
+	thread, err := s.threads.Rename(ctx, connection.WorkspaceID, threadID, strings.TrimSpace(title))
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	logBotDebug(ctx, connection, "renamed conversation thread",
+		slog.String("conversationStoreId", conversation.ID),
+		slog.String("threadId", threadID),
+		slog.String("threadName", strings.TrimSpace(thread.Name)),
+	)
+
+	return conversation, "Renamed the current thread to: " + strings.TrimSpace(thread.Name), nil
+}
+
+func (s *Service) archiveConversationThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (store.BotConversation, string, error) {
+	threadID := strings.TrimSpace(conversation.ThreadID)
+	if threadID == "" {
+		return store.BotConversation{}, "", errors.New("this conversation is not currently bound to a workspace thread")
+	}
+	if s.threads == nil {
+		return store.BotConversation{}, "", errors.New("workspace thread service is not configured")
+	}
+	thread, err := s.threads.Archive(ctx, connection.WorkspaceID, threadID)
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	nextContextVersion := conversationContextVersion(conversation) + 1
+	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		knownThreadIDs := appendKnownConversationThreadID(current.BackendState, current.ThreadID)
+		current.ThreadID = ""
+		current.BackendState = conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, knownThreadIDs),
+			nextContextVersion,
+		)
+		return current
+	})
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	logBotDebug(ctx, connection, "archived conversation thread",
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", threadID),
+		slog.Bool("archived", thread.Archived),
+		slog.Int("contextVersion", conversationContextVersion(updatedConversation)),
+	)
+
+	return updatedConversation, "Archived the current thread: " + threadID + "\nFuture messages in this chat will require /newthread or /thread use.", nil
+}
+
+type botThreadSummary struct {
+	ID        string
+	Name      string
+	Preview   string
+	Archived  bool
+	UpdatedAt time.Time
+}
+
+func (s *Service) renderCurrentConversationThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) string {
+	currentThreadID := strings.TrimSpace(conversation.ThreadID)
+	if currentThreadID == "" {
+		return "This conversation is not currently bound to a workspace thread."
+	}
+
+	lines := []string{
+		"Current workspace thread: " + currentThreadID,
+	}
+	if summary, ok := s.lookupConversationThreadSummary(ctx, connection, currentThreadID); ok {
+		if summary.Archived {
+			lines = append(lines, "Status: archived")
+		}
+		if strings.TrimSpace(summary.Name) != "" {
+			lines = append(lines, "Name: "+summary.Name)
+		}
+		if preview := formatBotThreadPreview(summary.Preview); preview != "" {
+			lines = append(lines, "Preview: "+preview)
+		}
+		if formatted := formatBotThreadTimestamp(summary.UpdatedAt); formatted != "" {
+			lines = append(lines, "Updated: "+formatted)
+		}
+	}
+	if versions := conversationContextVersion(conversation); versions > 0 {
+		lines = append(lines, "Conversation context version: "+strconv.Itoa(versions))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *Service) renderKnownConversationThreads(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) string {
+	threadIDs := knownConversationThreadIDs(conversation)
+	currentThreadID := strings.TrimSpace(conversation.ThreadID)
+	if currentThreadID != "" {
+		threadIDs = appendKnownConversationThreadID(
+			conversationBackendStateWithKnownThreads(nil, threadIDs),
+			currentThreadID,
+		)
+	}
+	if len(threadIDs) == 0 {
+		return "No workspace threads have been recorded for this conversation yet."
+	}
+
+	lines := []string{"Known workspace threads:"}
+	for index, threadID := range threadIDs {
+		line := fmt.Sprintf("%d. %s", index+1, threadID)
+		if threadID == currentThreadID {
+			line += " (current)"
+		}
+		if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok {
+			if summary.Archived {
+				line += " (archived)"
+			}
+			if strings.TrimSpace(summary.Name) != "" {
+				line += " | " + summary.Name
+			}
+			if preview := formatBotThreadPreview(summary.Preview); preview != "" {
+				line += " | " + preview
+			}
+			if formatted := formatBotThreadTimestamp(summary.UpdatedAt); formatted != "" {
+				line += " | updated " + formatted
+			}
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *Service) resolveConversationThreadSelection(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	selection string,
+) (string, error) {
+	selection = strings.TrimSpace(selection)
+	if selection == "" {
+		return "", errors.New("thread id is required")
+	}
+
+	threadIDs := knownConversationThreadIDs(conversation)
+	if currentThreadID := strings.TrimSpace(conversation.ThreadID); currentThreadID != "" {
+		threadIDs = appendKnownConversationThreadID(
+			conversationBackendStateWithKnownThreads(nil, threadIDs),
+			currentThreadID,
+		)
+	}
+
+	for _, threadID := range threadIDs {
+		if threadID == selection {
+			if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok && summary.Archived {
+				return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", threadID)
+			}
+			return threadID, nil
+		}
+	}
+
+	index, err := strconv.Atoi(selection)
+	if err == nil && index >= 1 && index <= len(threadIDs) {
+		threadID := threadIDs[index-1]
+		if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok && summary.Archived {
+			return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", threadID)
+		}
+		return threadID, nil
+	}
+
+	if normalizeAIBackendName(connection.AIBackend) == defaultAIBackend && s.threads != nil {
+		if detail, err := s.threads.GetDetail(ctx, connection.WorkspaceID, selection); err == nil {
+			if detail.Archived {
+				return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", selection)
+			}
+			return selection, nil
+		}
+	}
+
+	return "", fmt.Errorf("thread %q is not known in this conversation; use /thread list to inspect available threads", selection)
+}
+
+func (s *Service) lookupConversationThreadSummary(
+	ctx context.Context,
+	connection store.BotConnection,
+	threadID string,
+) (botThreadSummary, bool) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || s.threads == nil {
+		return botThreadSummary{}, false
+	}
+
+	detail, err := s.threads.GetDetail(ctx, connection.WorkspaceID, threadID)
+	if err != nil {
+		return botThreadSummary{}, false
+	}
+	return botThreadSummary{
+		ID:        threadID,
+		Name:      strings.TrimSpace(detail.Name),
+		Preview:   strings.TrimSpace(detail.Preview),
+		Archived:  detail.Archived,
+		UpdatedAt: detail.UpdatedAt,
+	}, true
+}
+
+func formatBotThreadTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format("2006-01-02 15:04:05 MST")
+}
+
+func formatBotThreadPreview(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\r\n", "\n"))
+	if value == "" {
+		return ""
+	}
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) <= 120 {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:120])) + "..."
 }
 
 func prioritizePendingApprovals(items []store.PendingApproval, currentThreadID string) []store.PendingApproval {
@@ -1630,12 +2497,27 @@ func (s *Service) recordConversationOutcome(
 	if len(reply.Messages) > 0 {
 		lastOutboundText = strings.TrimSpace(reply.Messages[len(reply.Messages)-1].Text)
 	}
+	expectedContextVersion := conversationContextVersion(conversation)
 
 	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		currentContextVersion := conversationContextVersion(current)
+		if currentContextVersion != expectedContextVersion {
+			return current
+		}
+
 		if strings.TrimSpace(reply.ThreadID) != "" {
 			current.ThreadID = reply.ThreadID
 		}
-		current.BackendState = mergeStringMaps(current.BackendState, reply.BackendState)
+		current.BackendState = mergeConversationBackendState(current.BackendState, reply.BackendState, currentContextVersion)
+		if strings.TrimSpace(reply.ThreadID) != "" {
+			current.BackendState = conversationBackendStateWithVersion(
+				conversationBackendStateWithKnownThreads(
+					current.BackendState,
+					appendKnownConversationThreadID(current.BackendState, reply.ThreadID),
+				),
+				currentContextVersion,
+			)
+		}
 		current.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
 		current.LastInboundText = strings.TrimSpace(inbound.Text)
 		current.LastOutboundText = lastOutboundText
@@ -1643,13 +2525,24 @@ func (s *Service) recordConversationOutcome(
 	})
 	if err != nil {
 		updatedConversation = conversation
-		if strings.TrimSpace(reply.ThreadID) != "" {
+		if strings.TrimSpace(reply.ThreadID) != "" && conversationContextVersion(updatedConversation) == expectedContextVersion {
 			updatedConversation.ThreadID = reply.ThreadID
 		}
-		updatedConversation.BackendState = mergeStringMaps(updatedConversation.BackendState, reply.BackendState)
-		updatedConversation.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
-		updatedConversation.LastInboundText = strings.TrimSpace(inbound.Text)
-		updatedConversation.LastOutboundText = lastOutboundText
+		updatedConversation.BackendState = mergeConversationBackendState(updatedConversation.BackendState, reply.BackendState, expectedContextVersion)
+		if strings.TrimSpace(reply.ThreadID) != "" && conversationContextVersion(updatedConversation) == expectedContextVersion {
+			updatedConversation.BackendState = conversationBackendStateWithVersion(
+				conversationBackendStateWithKnownThreads(
+					updatedConversation.BackendState,
+					appendKnownConversationThreadID(updatedConversation.BackendState, reply.ThreadID),
+				),
+				expectedContextVersion,
+			)
+		}
+		if conversationContextVersion(updatedConversation) == expectedContextVersion {
+			updatedConversation.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
+			updatedConversation.LastInboundText = strings.TrimSpace(inbound.Text)
+			updatedConversation.LastOutboundText = lastOutboundText
+		}
 	}
 	return updatedConversation
 }

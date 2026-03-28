@@ -11,6 +11,7 @@ const (
 	botCommandOutputCharLimit     = 1800
 	botFileChangeEntryLimit       = 8
 	botToolValuePreviewLimit      = 160
+	botUnknownItemPreviewLimit    = 240
 )
 
 func renderBotVisibleItem(item map[string]any) string {
@@ -34,8 +35,7 @@ func renderBotVisibleItem(item map[string]any) string {
 	case "serverRequest":
 		return renderBotServerRequestItem(item)
 	default:
-		text := strings.TrimSpace(firstNonEmpty(stringValue(item["text"]), stringValue(item["message"])))
-		return text
+		return renderBotFallbackItem(item)
 	}
 }
 
@@ -101,7 +101,11 @@ func renderBotFileChangeItem(item map[string]any) string {
 	}
 
 	lines := make([]string, 0, minInt(len(changes), botFileChangeEntryLimit)+2)
-	lines = append(lines, "Files:")
+	if len(changes) > botFileChangeEntryLimit {
+		lines = append(lines, fmt.Sprintf("Files (showing %d of %d):", botFileChangeEntryLimit, len(changes)))
+	} else {
+		lines = append(lines, fmt.Sprintf("Files (%d):", len(changes)))
+	}
 	limit := minInt(len(changes), botFileChangeEntryLimit)
 	for index := 0; index < limit; index += 1 {
 		change := changes[index]
@@ -112,7 +116,7 @@ func renderBotFileChangeItem(item map[string]any) string {
 		lines = append(lines, line)
 	}
 	if len(changes) > limit {
-		lines = append(lines, fmt.Sprintf("+%d more file changes", len(changes)-limit))
+		lines = append(lines, fmt.Sprintf("... %d more file changes not shown", len(changes)-limit))
 	}
 
 	return strings.Join(lines, "\n")
@@ -287,33 +291,36 @@ func botToolCallSummary(item map[string]any) string {
 	status := strings.TrimSpace(stringValue(item["status"]))
 	server := strings.TrimSpace(stringValue(item["server"]))
 	receiverThreadIDs := stringSliceValue(item["receiverThreadIds"])
+	parts := make([]string, 0, 4)
 
 	switch itemType {
 	case "mcpToolCall":
 		if server != "" {
-			if status != "" {
-				return "Server " + server + " · " + humanizeBotStatus(status)
-			}
-			return "Server " + server
+			parts = append(parts, "Server "+server)
 		}
 	case "collabAgentToolCall":
 		if len(receiverThreadIDs) > 0 {
-			return fmt.Sprintf("%d target thread%s", len(receiverThreadIDs), pluralSuffix(len(receiverThreadIDs)))
+			parts = append(parts, fmt.Sprintf("%d target thread%s", len(receiverThreadIDs), pluralSuffix(len(receiverThreadIDs))))
 		}
 	}
 
 	if status != "" {
-		return humanizeBotStatus(status)
+		parts = append(parts, humanizeBotStatus(status))
 	}
 
 	if preview := botPreviewValue(item["error"]); preview != "" {
-		return preview
+		parts = append(parts, "Error: "+preview)
+		return strings.Join(parts, " · ")
 	}
 	if preview := botPreviewValue(item["result"]); preview != "" {
-		return preview
+		parts = append(parts, "Result: "+preview)
 	}
 	if preview := botPreviewValue(item["contentItems"]); preview != "" {
-		return preview
+		parts = append(parts, "Content: "+preview)
+	}
+
+	if len(parts) > 0 {
+		return strings.Join(parts, " · ")
 	}
 	return ""
 }
@@ -386,7 +393,7 @@ func botServerRequestExpiredMessage(reason string) string {
 func botPreviewValue(value any) string {
 	switch typed := value.(type) {
 	case string:
-		return truncateBotSingleLine(typed, botToolValuePreviewLimit)
+		return truncateBotSingleLine(botPreviewString(typed), botToolValuePreviewLimit)
 	default:
 		if value == nil {
 			return ""
@@ -400,29 +407,39 @@ func botPreviewValue(value any) string {
 }
 
 func tailBotCommandOutput(output string) string {
-	normalized := strings.TrimSpace(strings.ReplaceAll(output, "\r\n", "\n"))
+	normalized := strings.ReplaceAll(output, "\r\n", "\n")
 	if normalized == "" {
 		return ""
 	}
 
+	totalLines := strings.Count(normalized, "\n") + 1
 	lines := strings.Split(normalized, "\n")
-	truncated := false
+	lineTruncated := false
 	if len(lines) > botCommandOutputTailLineLimit {
 		lines = lines[len(lines)-botCommandOutputTailLineLimit:]
-		truncated = true
+		lineTruncated = true
 	}
 
 	text := strings.Join(lines, "\n")
+	charTruncated := false
 	if len([]rune(text)) > botCommandOutputCharLimit {
 		runes := []rune(text)
 		text = string(runes[len(runes)-botCommandOutputCharLimit:])
-		truncated = true
+		charTruncated = true
 	}
 
-	if truncated {
-		return "Latest Output:\n...\n" + text
+	if !lineTruncated && !charTruncated {
+		return "Output:\n" + text
 	}
-	return "Output:\n" + text
+
+	notes := make([]string, 0, 2)
+	if lineTruncated {
+		notes = append(notes, fmt.Sprintf("showing last %d of %d lines", botCommandOutputTailLineLimit, totalLines))
+	}
+	if charTruncated {
+		notes = append(notes, fmt.Sprintf("tail excerpt capped at %d chars", botCommandOutputCharLimit))
+	}
+	return "Output (" + strings.Join(notes, "; ") + "):\n...\n" + text
 }
 
 func humanizeBotStatus(value string) string {
@@ -457,13 +474,90 @@ func humanizeBotItemType(value string) string {
 }
 
 func truncateBotSingleLine(value string, maxLength int) string {
-	compact := strings.TrimSpace(strings.Join(strings.Fields(value), " "))
+	compact := strings.TrimSpace(value)
+	if compact == "" {
+		return ""
+	}
 	if maxLength <= 0 || len([]rune(compact)) <= maxLength {
 		return compact
 	}
 
 	runes := []rune(compact)
-	return string(runes[:maxLength-1]) + "…"
+	visibleLength := maxLength
+	if visibleLength < 1 {
+		visibleLength = 1
+	}
+	return fmt.Sprintf("%s ... [truncated, %d more chars]", string(runes[:visibleLength]), len(runes)-visibleLength)
+}
+
+func renderBotFallbackItem(item map[string]any) string {
+	text := strings.TrimSpace(firstNonEmpty(
+		stringValue(item["text"]),
+		stringValue(item["message"]),
+		stringValue(item["summary"]),
+		stringValue(item["title"]),
+		stringValue(item["reason"]),
+	))
+	if text != "" {
+		return text
+	}
+
+	parts := make([]string, 0, 4)
+	if status := strings.TrimSpace(stringValue(item["status"])); status != "" {
+		parts = append(parts, "Status: "+humanizeBotStatus(status))
+	}
+	if preview := botPreviewValue(item["error"]); preview != "" {
+		parts = append(parts, "Error: "+preview)
+	}
+	if preview := botPreviewValue(item["result"]); preview != "" {
+		parts = append(parts, "Result: "+preview)
+	}
+	if preview := truncateBotSingleLine(botPreviewStructuredValue(item["details"]), botUnknownItemPreviewLimit); preview != "" {
+		parts = append(parts, "Details: "+preview)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+
+	title := humanizeBotItemType(strings.TrimSpace(stringValue(item["type"])))
+	if title == "" {
+		return strings.Join(parts, "\n")
+	}
+	return title + ":\n" + strings.Join(parts, "\n")
+}
+
+func botPreviewStructuredValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func botPreviewString(value string) string {
+	if value == "" {
+		return ""
+	}
+	if shouldQuoteBotPreviewString(value) {
+		data, err := json.Marshal(value)
+		if err == nil {
+			return string(data)
+		}
+	}
+	return value
+}
+
+func shouldQuoteBotPreviewString(value string) bool {
+	if value != strings.TrimSpace(value) {
+		return true
+	}
+	if strings.Contains(value, "  ") {
+		return true
+	}
+	return strings.ContainsAny(value, "\r\n\t")
 }
 
 func pluralSuffix(count int) string {

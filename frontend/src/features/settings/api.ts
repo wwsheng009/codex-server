@@ -22,6 +22,9 @@ export type WriteRuntimePreferencesInput = {
   defaultTurnApprovalPolicy?: string
   defaultTurnSandboxPolicy?: Record<string, unknown>
   defaultCommandSandboxPolicy?: Record<string, unknown>
+  backendThreadTraceEnabled?: boolean | null
+  backendThreadTraceWorkspaceId?: string
+  backendThreadTraceThreadId?: string
 }
 
 export type WriteConfigValueInput = {

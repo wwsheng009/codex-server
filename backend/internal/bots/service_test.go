@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"codex-server/backend/internal/approvals"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
+	"codex-server/backend/internal/threads"
+	"codex-server/backend/internal/turns"
 )
 
 func TestServiceCreatesConnectionAndSanitizesSecrets(t *testing.T) {
@@ -48,6 +51,38 @@ func TestServiceCreatesConnectionAndSanitizesSecrets(t *testing.T) {
 	}
 	if _, ok := dataStore.GetBotConnection(workspace.ID, connection.ID); !ok {
 		t.Fatal("expected bot connection to be persisted")
+	}
+}
+
+func TestServiceCreatesConnectionWithDebugRuntimeMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	if connection.Settings[botRuntimeModeSetting] != botRuntimeModeDebug {
+		t.Fatalf("expected debug runtime mode, got %#v", connection.Settings)
 	}
 }
 
@@ -138,6 +173,607 @@ func TestHandleWebhookCreatesConversationAndSendsReply(t *testing.T) {
 	}
 }
 
+func TestServiceUpdatesConnectionRuntimeMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	updated, err := service.UpdateConnectionRuntimeMode(workspace.ID, connection.ID, UpdateConnectionRuntimeModeInput{
+		RuntimeMode: botRuntimeModeDebug,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConnectionRuntimeMode() error = %v", err)
+	}
+
+	if updated.Settings[botRuntimeModeSetting] != botRuntimeModeDebug {
+		t.Fatalf("expected debug runtime mode after update, got %#v", updated.Settings)
+	}
+}
+
+func TestHandleWebhookNewThreadCommandStartsFreshWorkspaceThread(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  5 * time.Millisecond,
+		TurnTimeout:   time.Second,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.turnSettleDelay = 5 * time.Millisecond
+		backend.pollInterval = 5 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendWebhook := func(payload string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(payload))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	expectSingleReply := func(expected string) {
+		select {
+		case sent := <-provider.sentCh:
+			if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
+				t.Fatalf("expected sent message %q, got %#v", expected, sent.Messages)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sent message %q", expected)
+		}
+	}
+
+	sendWebhook(`{"conversationId":"chat-1","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello"}`)
+	expectSingleReply("reply: hello")
+
+	sendWebhook(`{"conversationId":"chat-1","messageId":"msg-2","userId":"user-1","username":"alice","title":"Alice","text":"/newthread Incident 42"}`)
+	expectSingleReply("Started a new workspace thread: thread-bot-2\nName: Bot Connection · Incident 42\nFuture messages in this chat will use the new thread.")
+
+	sendWebhook(`{"conversationId":"chat-1","messageId":"msg-3","userId":"user-1","username":"alice","title":"Alice","text":"hello again"}`)
+	expectSingleReply("reply: hello again")
+
+	threadCalls := turnsExec.threadCalls()
+	if len(threadCalls) != 2 {
+		t.Fatalf("expected two AI turns, got %#v", threadCalls)
+	}
+	if threadCalls[0] != "thread-bot-1" || threadCalls[1] != "thread-bot-2" {
+		t.Fatalf("expected AI turns to run on thread-bot-1 then thread-bot-2, got %#v", threadCalls)
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %#v", conversations)
+	}
+	if conversations[0].ThreadID != "thread-bot-2" {
+		t.Fatalf("expected current conversation thread to switch to thread-bot-2, got %#v", conversations[0])
+	}
+	if conversationContextVersion(conversations[0]) != 1 {
+		t.Fatalf("expected conversation context version 1 after /newthread, got %#v", conversations[0].BackendState)
+	}
+}
+
+func TestRecordConversationOutcomeIgnoresStaleReplyAfterNewThreadSwitch(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		ID:          "bot-1",
+		WorkspaceID: workspace.ID,
+		Provider:    "fakechat",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspace.ID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-1",
+		ExternalChatID:         "chat-1",
+		ThreadID:               "thread-old",
+		BackendState:           conversationBackendStateWithVersion(map[string]string{"previous_response_id": "resp-old"}, 0),
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	updatedConversation, err := dataStore.UpdateBotConversation(workspace.ID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		current.ThreadID = "thread-new"
+		current.BackendState = conversationBackendStateWithVersion(nil, 1)
+		return current
+	})
+	if err != nil {
+		t.Fatalf("UpdateBotConversation() error = %v", err)
+	}
+	if updatedConversation.ThreadID != "thread-new" {
+		t.Fatalf("expected current thread-new binding, got %#v", updatedConversation)
+	}
+
+	service.recordConversationOutcome(connection, conversation, AIResult{
+		ThreadID: "thread-old",
+		Messages: []OutboundMessage{{Text: "stale reply"}},
+		BackendState: map[string]string{
+			"previous_response_id": "resp-stale",
+		},
+	}, InboundMessage{
+		MessageID: "msg-stale",
+		Text:      "old in-flight message",
+	}, "")
+
+	storedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected bot conversation to remain persisted")
+	}
+	if storedConversation.ThreadID != "thread-new" {
+		t.Fatalf("expected stale reply not to overwrite new thread binding, got %#v", storedConversation)
+	}
+	if conversationContextVersion(storedConversation) != 1 {
+		t.Fatalf("expected context version 1 to be preserved, got %#v", storedConversation.BackendState)
+	}
+	if storedConversation.LastOutboundText != "" {
+		t.Fatalf("expected stale reply not to overwrite last outbound text, got %#v", storedConversation)
+	}
+}
+
+func TestHandleWebhookThreadCommandsShowListAndUseKnownThreads(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  5 * time.Millisecond,
+		TurnTimeout:   time.Second,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.turnSettleDelay = 5 * time.Millisecond
+		backend.pollInterval = 5 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendWebhook := func(payload string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(payload))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	expectSingleReply := func(expected string) {
+		select {
+		case sent := <-provider.sentCh:
+			if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
+				t.Fatalf("expected sent message %q, got %#v", expected, sent.Messages)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sent message %q", expected)
+		}
+	}
+
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello"}`)
+	expectSingleReply("reply: hello")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 && conversations[0].ThreadID == "thread-bot-1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected first thread binding to settle, got %#v", conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-2","userId":"user-1","username":"alice","title":"Alice","text":"/newthread Incident 42"}`)
+	expectSingleReply("Started a new workspace thread: thread-bot-2\nName: Bot Connection · Incident 42\nFuture messages in this chat will use the new thread.")
+
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-3","userId":"user-1","username":"alice","title":"Alice","text":"hello on second thread"}`)
+	expectSingleReply("reply: hello on second thread")
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 {
+			known := knownConversationThreadIDs(conversations[0])
+			if len(known) == 2 && known[0] == "thread-bot-1" && known[1] == "thread-bot-2" {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected known thread history to settle, got %#v", service.ListConversations(workspace.ID, connection.ID))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-4","userId":"user-1","username":"alice","title":"Alice","text":"/thread"}`)
+	expectSingleReply("Current workspace thread: thread-bot-2\nName: Bot Connection · Incident 42\nPreview: reply: hello on second thread\nUpdated: 2026-03-28 12:02:30 UTC\nConversation context version: 1")
+
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread list"}`)
+	expectSingleReply("Known workspace threads:\n1. thread-bot-1 | Bot Connection · Alice | reply: hello | updated 2026-03-28 12:01:30 UTC\n2. thread-bot-2 (current) | Bot Connection · Incident 42 | reply: hello on second thread | updated 2026-03-28 12:02:30 UTC")
+
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-6","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 1"}`)
+	expectSingleReply("Switched the current conversation to thread: thread-bot-1")
+
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-7","userId":"user-1","username":"alice","title":"Alice","text":"hello after switch back"}`)
+	expectSingleReply("reply: hello after switch back")
+
+	threadCalls := turnsExec.threadCalls()
+	if len(threadCalls) != 3 {
+		t.Fatalf("expected three AI turns, got %#v", threadCalls)
+	}
+	if threadCalls[0] != "thread-bot-1" || threadCalls[1] != "thread-bot-2" || threadCalls[2] != "thread-bot-1" {
+		t.Fatalf("expected AI turns on thread-bot-1, thread-bot-2, then thread-bot-1, got %#v", threadCalls)
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %#v", conversations)
+	}
+	if conversations[0].ThreadID != "thread-bot-1" {
+		t.Fatalf("expected conversation to switch back to thread-bot-1, got %#v", conversations[0])
+	}
+	if conversationContextVersion(conversations[0]) != 2 {
+		t.Fatalf("expected context version 2 after /newthread and /thread use, got %#v", conversations[0].BackendState)
+	}
+	if got := knownConversationThreadIDs(conversations[0]); len(got) != 2 || got[0] != "thread-bot-1" || got[1] != "thread-bot-2" {
+		t.Fatalf("expected known threads [thread-bot-1 thread-bot-2], got %#v", got)
+	}
+}
+
+func TestHandleWebhookThreadRenameAndArchiveCommands(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  5 * time.Millisecond,
+		TurnTimeout:   time.Second,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.turnSettleDelay = 5 * time.Millisecond
+		backend.pollInterval = 5 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendWebhook := func(payload string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(payload))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	expectSingleReply := func(expected string) {
+		select {
+		case sent := <-provider.sentCh:
+			if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
+				t.Fatalf("expected sent message %q, got %#v", expected, sent.Messages)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sent message %q", expected)
+		}
+	}
+
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello"}`)
+	expectSingleReply("reply: hello")
+
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-2","userId":"user-1","username":"alice","title":"Alice","text":"/thread rename Release Review"}`)
+	expectSingleReply("Renamed the current thread to: Release Review")
+
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-3","userId":"user-1","username":"alice","title":"Alice","text":"/thread archive"}`)
+	expectSingleReply("Archived the current thread: thread-bot-1\nFuture messages in this chat will require /newthread or /thread use.")
+
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-4","userId":"user-1","username":"alice","title":"Alice","text":"/thread list"}`)
+	expectSingleReply("Known workspace threads:\n1. thread-bot-1 (archived) | Release Review | reply: hello | updated 2026-03-28 12:02:00 UTC")
+
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 1"}`)
+	expectSingleReply("The bot could not switch threads right now: thread \"thread-bot-1\" is archived; start a new thread or use an active thread instead")
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %#v", conversations)
+	}
+	if conversations[0].ThreadID != "" {
+		t.Fatalf("expected archived current thread to unbind conversation, got %#v", conversations[0])
+	}
+	if conversationContextVersion(conversations[0]) != 1 {
+		t.Fatalf("expected context version 1 after archive, got %#v", conversations[0].BackendState)
+	}
+	if got := knownConversationThreadIDs(conversations[0]); len(got) != 1 || got[0] != "thread-bot-1" {
+		t.Fatalf("expected archived thread to remain in known history, got %#v", got)
+	}
+
+	detail, err := threadsExec.GetDetail(context.Background(), workspace.ID, "thread-bot-1")
+	if err != nil {
+		t.Fatalf("GetDetail(thread-bot-1) error = %v", err)
+	}
+	if !detail.Archived {
+		t.Fatalf("expected thread-bot-1 to be archived, got %#v", detail.Thread)
+	}
+	if detail.Name != "Release Review" {
+		t.Fatalf("expected renamed thread title to persist, got %#v", detail.Thread)
+	}
+}
+
+func TestServiceRejectsDuplicateTelegramPollingTokenOnCreate(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	provider := newFakeTelegramPollingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+
+	first, err := service.CreateConnection(context.Background(), workspaceA.ID, CreateConnectionInput{
+		Provider:  "telegram",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{
+			"bot_token": "shared-telegram-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection(first) error = %v", err)
+	}
+
+	_, err = service.CreateConnection(context.Background(), workspaceB.ID, CreateConnectionInput{
+		Provider:  "telegram",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{
+			"bot_token": "shared-telegram-token",
+		},
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for duplicate telegram polling token, got %v", err)
+	}
+	if !strings.Contains(err.Error(), first.ID) {
+		t.Fatalf("expected conflict error to mention first connection %q, got %v", first.ID, err)
+	}
+}
+
+func TestServiceRejectsResumeWhenAnotherTelegramPollingConnectionOwnsToken(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeTelegramPollingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+
+	first, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "telegram",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{
+			"bot_token": "shared-telegram-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection(first) error = %v", err)
+	}
+
+	if _, err := service.PauseConnection(context.Background(), workspace.ID, first.ID); err != nil {
+		t.Fatalf("PauseConnection(first) error = %v", err)
+	}
+
+	second, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "telegram",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{
+			"bot_token": "shared-telegram-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection(second) error = %v", err)
+	}
+
+	_, err = service.ResumeConnection(context.Background(), workspace.ID, first.ID, ResumeConnectionInput{})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput when resuming duplicate telegram polling token, got %v", err)
+	}
+	if !strings.Contains(err.Error(), second.ID) {
+		t.Fatalf("expected conflict error to mention active owner %q, got %v", second.ID, err)
+	}
+}
+
+func TestServiceStartsOnlyOneTelegramPollerPerToken(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	provider := newFakeTelegramPollingProvider()
+
+	olderCreatedAt := time.Now().Add(-2 * time.Hour).UTC()
+	newerCreatedAt := olderCreatedAt.Add(10 * time.Minute)
+	older := store.BotConnection{
+		ID:          "bot-owner",
+		WorkspaceID: workspaceA.ID,
+		Provider:    "telegram",
+		Name:        "Owner",
+		Status:      "active",
+		AIBackend:   "fake_ai",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{
+			"bot_token": "shared-telegram-token",
+		},
+		CreatedAt: olderCreatedAt,
+		UpdatedAt: olderCreatedAt,
+	}
+	newer := store.BotConnection{
+		ID:          "bot-duplicate",
+		WorkspaceID: workspaceB.ID,
+		Provider:    "telegram",
+		Name:        "Duplicate",
+		Status:      "active",
+		AIBackend:   "fake_ai",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{
+			"bot_token": "shared-telegram-token",
+		},
+		CreatedAt: newerCreatedAt,
+		UpdatedAt: newerCreatedAt,
+	}
+	if _, err := dataStore.CreateBotConnection(older); err != nil {
+		t.Fatalf("CreateBotConnection(older) error = %v", err)
+	}
+	if _, err := dataStore.CreateBotConnection(newer); err != nil {
+		t.Fatalf("CreateBotConnection(newer) error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(ctx)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if provider.startedCount() == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if provider.startedCount() != 1 {
+		t.Fatalf("expected exactly one telegram poller to start, got %d", provider.startedCount())
+	}
+
+	startedIDs := provider.startedConnectionIDs()
+	if len(startedIDs) != 1 || startedIDs[0] != older.ID {
+		t.Fatalf("expected older connection %q to own telegram polling token, got %#v", older.ID, startedIDs)
+	}
+
+	conflicted, ok := dataStore.GetBotConnection(workspaceB.ID, newer.ID)
+	if !ok {
+		t.Fatal("expected duplicate bot connection to remain persisted")
+	}
+	if !strings.Contains(conflicted.LastError, older.ID) {
+		t.Fatalf("expected duplicate connection last error to mention owner %q, got %q", older.ID, conflicted.LastError)
+	}
+}
+
 func TestHandleWebhookSeparatesTelegramTopicsIntoDistinctConversations(t *testing.T) {
 	t.Parallel()
 
@@ -207,23 +843,27 @@ func TestHandleWebhookSeparatesTelegramTopicsIntoDistinctConversations(t *testin
 		}
 	}
 
-	conversations := service.ListConversations(workspace.ID, connection.ID)
-	if len(conversations) != 2 {
-		t.Fatalf("expected 2 bot conversations, got %#v", conversations)
-	}
-
+	deadline := time.Now().Add(2 * time.Second)
+	var conversations []store.BotConversation
 	threadIDs := make(map[string]string, 2)
-	for _, conversation := range conversations {
-		if conversation.ExternalChatID != "chat-group" {
-			t.Fatalf("expected shared external chat id chat-group, got %#v", conversation)
+	for {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		threadIDs = map[string]string{}
+		for _, conversation := range conversations {
+			if conversation.ExternalChatID != "chat-group" {
+				t.Fatalf("expected shared external chat id chat-group, got %#v", conversation)
+			}
+			threadIDs[conversation.ExternalThreadID] = conversation.ThreadID
 		}
-		threadIDs[conversation.ExternalThreadID] = conversation.ThreadID
-	}
-	if threadIDs["11"] != "thr_chat-group:thread:11" {
-		t.Fatalf("expected topic 11 thread mapping, got %#v", threadIDs)
-	}
-	if threadIDs["22"] != "thr_chat-group:thread:22" {
-		t.Fatalf("expected topic 22 thread mapping, got %#v", threadIDs)
+		if len(conversations) == 2 &&
+			threadIDs["11"] == "thr_chat-group:thread:11" &&
+			threadIDs["22"] == "thr_chat-group:thread:22" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected topic conversations to settle, got conversations=%#v threadIDs=%#v", conversations, threadIDs)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -475,15 +1115,18 @@ func TestServiceStreamsReplyWhenProviderAndBackendSupportStreaming(t *testing.T)
 		t.Fatalf("unexpected completed messages %#v", completedMessages)
 	}
 
-	conversations := service.ListConversations(workspace.ID, connection.ID)
-	if len(conversations) != 1 {
-		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
-	}
-	if conversations[0].ThreadID != "thr_chat-stream-1" {
-		t.Fatalf("expected conversation thread id thr_chat-stream-1, got %q", conversations[0].ThreadID)
-	}
-	if conversations[0].LastOutboundText != "final: hello streaming" {
-		t.Fatalf("expected last outbound text to be persisted, got %q", conversations[0].LastOutboundText)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == "thr_chat-stream-1" &&
+			conversations[0].LastOutboundText == "final: hello streaming" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected streaming conversation state to settle, got %#v", conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -1003,12 +1646,16 @@ func TestServiceRecoversPendingInboundDeliveriesOnStart(t *testing.T) {
 		t.Fatal("timed out waiting for recovered provider SendMessages call")
 	}
 
-	conversations := service.ListConversations(workspace.ID, connection.ID)
-	if len(conversations) != 1 {
-		t.Fatalf("expected 1 recovered bot conversation, got %d", len(conversations))
-	}
-	if conversations[0].LastInboundMessageID != "msg-recover-1" {
-		t.Fatalf("expected recovered inbound message id to be persisted, got %q", conversations[0].LastInboundMessageID)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 && conversations[0].LastInboundMessageID == "msg-recover-1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected recovered inbound message id to be persisted, got %#v", conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -1764,6 +2411,223 @@ func waitForWorkerCount(service *Service, expected int, timeout time.Duration) e
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+type fakeTelegramPollingProvider struct {
+	mu         sync.Mutex
+	startedIDs []string
+}
+
+func newFakeTelegramPollingProvider() *fakeTelegramPollingProvider {
+	return &fakeTelegramPollingProvider{}
+}
+
+func (p *fakeTelegramPollingProvider) Name() string {
+	return telegramProviderName
+}
+
+func (p *fakeTelegramPollingProvider) Activate(_ context.Context, connection store.BotConnection, _ string) (ActivationResult, error) {
+	return ActivationResult{
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryMode(connection),
+		},
+	}, nil
+}
+
+func (p *fakeTelegramPollingProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *fakeTelegramPollingProvider) ParseWebhook(*http.Request, store.BotConnection) ([]InboundMessage, error) {
+	return nil, ErrWebhookIgnored
+}
+
+func (p *fakeTelegramPollingProvider) SendMessages(context.Context, store.BotConnection, store.BotConversation, []OutboundMessage) error {
+	return nil
+}
+
+func (p *fakeTelegramPollingProvider) SupportsPolling(connection store.BotConnection) bool {
+	return telegramDeliveryMode(connection) == telegramDeliveryModePolling
+}
+
+func (p *fakeTelegramPollingProvider) RunPolling(
+	ctx context.Context,
+	connection store.BotConnection,
+	_ PollingMessageHandler,
+	_ PollingSettingsHandler,
+) error {
+	p.mu.Lock()
+	p.startedIDs = append(p.startedIDs, connection.ID)
+	p.mu.Unlock()
+
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (p *fakeTelegramPollingProvider) startedCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.startedIDs)
+}
+
+func (p *fakeTelegramPollingProvider) startedConnectionIDs() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.startedIDs...)
+}
+
+type fakeBotThreads struct {
+	mu      sync.Mutex
+	nextID  int
+	details map[string]store.ThreadDetail
+}
+
+func newFakeBotThreads() *fakeBotThreads {
+	return &fakeBotThreads{
+		details: make(map[string]store.ThreadDetail),
+	}
+}
+
+func (f *fakeBotThreads) Create(_ context.Context, workspaceID string, input threads.CreateInput) (store.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.nextID += 1
+	threadID := fmt.Sprintf("thread-bot-%d", f.nextID)
+	now := time.Date(2026, time.March, 28, 12, f.nextID, 0, 0, time.UTC)
+	thread := store.Thread{
+		ID:          threadID,
+		WorkspaceID: workspaceID,
+		Name:        input.Name,
+		Status:      "idle",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	f.details[threadID] = store.ThreadDetail{
+		Thread: thread,
+		Turns:  []store.ThreadTurn{},
+	}
+	return thread, nil
+}
+
+func (f *fakeBotThreads) GetDetail(_ context.Context, _ string, threadID string) (store.ThreadDetail, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	detail, ok := f.details[threadID]
+	if !ok {
+		return store.ThreadDetail{}, store.ErrThreadNotFound
+	}
+	return cloneThreadDetailForTest(detail), nil
+}
+
+func (f *fakeBotThreads) GetTurn(_ context.Context, _ string, threadID string, turnID string, _ string) (store.ThreadTurn, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	detail, ok := f.details[threadID]
+	if !ok {
+		return store.ThreadTurn{}, store.ErrThreadNotFound
+	}
+	for _, turn := range detail.Turns {
+		if turn.ID == turnID {
+			return cloneThreadDetailForTest(store.ThreadDetail{Turns: []store.ThreadTurn{turn}}).Turns[0], nil
+		}
+	}
+	return store.ThreadTurn{}, store.ErrThreadNotFound
+}
+
+func (f *fakeBotThreads) Rename(_ context.Context, _ string, threadID string, name string) (store.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	detail, ok := f.details[threadID]
+	if !ok {
+		return store.Thread{}, store.ErrThreadNotFound
+	}
+	detail.Thread.Name = strings.TrimSpace(name)
+	detail.Thread.UpdatedAt = detail.Thread.UpdatedAt.Add(15 * time.Second)
+	f.details[threadID] = detail
+	return detail.Thread, nil
+}
+
+func (f *fakeBotThreads) Archive(_ context.Context, _ string, threadID string) (store.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	detail, ok := f.details[threadID]
+	if !ok {
+		return store.Thread{}, store.ErrThreadNotFound
+	}
+	detail.Thread.Archived = true
+	detail.Thread.UpdatedAt = detail.Thread.UpdatedAt.Add(15 * time.Second)
+	f.details[threadID] = detail
+	return detail.Thread, nil
+}
+
+func (f *fakeBotThreads) setCompletedTurn(threadID string, turn store.ThreadTurn) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	detail := f.details[threadID]
+	replaced := false
+	for index, existing := range detail.Turns {
+		if existing.ID == turn.ID {
+			detail.Turns[index] = turn
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		detail.Turns = append(detail.Turns, turn)
+	}
+	for _, item := range turn.Items {
+		if strings.TrimSpace(stringValue(item["type"])) != "agentMessage" {
+			continue
+		}
+		if text := strings.TrimSpace(stringValue(item["text"])); text != "" {
+			detail.Preview = text
+			break
+		}
+	}
+	detail.Thread.UpdatedAt = detail.Thread.UpdatedAt.Add(30 * time.Second)
+	f.details[threadID] = detail
+}
+
+type fakeBotTurns struct {
+	mu      sync.Mutex
+	threads *fakeBotThreads
+	calls   []string
+}
+
+func (f *fakeBotTurns) Start(_ context.Context, _ string, threadID string, input string, _ turns.StartOptions) (turns.Result, error) {
+	f.mu.Lock()
+	callIndex := len(f.calls) + 1
+	f.calls = append(f.calls, threadID)
+	f.mu.Unlock()
+
+	turnID := fmt.Sprintf("turn-bot-%d", callIndex)
+	f.threads.setCompletedTurn(threadID, store.ThreadTurn{
+		ID:     turnID,
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":   "assistant-" + turnID,
+				"type": "agentMessage",
+				"text": "reply: " + input,
+			},
+		},
+	})
+	return turns.Result{
+		TurnID: turnID,
+		Status: "completed",
+	}, nil
+}
+
+func (f *fakeBotTurns) threadCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
 }
 
 type fakeAIBackend struct{}

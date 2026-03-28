@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -97,6 +98,7 @@ type telegramUser struct {
 type telegramStreamingReplySession struct {
 	mu         sync.Mutex
 	provider   *telegramProvider
+	connection store.BotConnection
 	token      string
 	chatID     string
 	threadID   string
@@ -344,8 +346,23 @@ func (p *telegramProvider) SendMessages(
 		return fmt.Errorf("%w: telegram external chat id is required", ErrInvalidInput)
 	}
 	threadID := strings.TrimSpace(conversation.ExternalThreadID)
+	chunks := telegramMessageChunks(messages, telegramTextLimitRunes)
+	logBotDebug(ctx, connection, "telegram send messages requested",
+		slog.String("externalChatId", chatID),
+		slog.String("externalThreadId", threadID),
+		slog.Int("messageCount", len(messages)),
+		slog.Int("chunkCount", len(chunks)),
+		slog.Any("messages", debugOutboundMessages(messages)),
+	)
 
-	for _, chunk := range telegramMessageChunks(messages, telegramTextLimitRunes) {
+	for index, chunk := range chunks {
+		logBotDebug(ctx, connection, "telegram sending chunk",
+			slog.String("externalChatId", chatID),
+			slog.String("externalThreadId", threadID),
+			slog.Int("chunkIndex", index),
+			slog.Int("chunkLength", len([]rune(chunk))),
+			slog.String("chunkPreview", debugTextPreview(chunk)),
+		)
 		if _, err := p.sendTextMessage(ctx, token, chatID, threadID, chunk); err != nil {
 			return err
 		}
@@ -370,10 +387,11 @@ func (p *telegramProvider) StartStreamingReply(
 	}
 
 	return &telegramStreamingReplySession{
-		provider: p,
-		token:    token,
-		chatID:   chatID,
-		threadID: strings.TrimSpace(conversation.ExternalThreadID),
+		provider:   p,
+		connection: connection,
+		token:      token,
+		chatID:     chatID,
+		threadID:   strings.TrimSpace(conversation.ExternalThreadID),
 	}, nil
 }
 
@@ -970,6 +988,14 @@ func (s *telegramStreamingReplySession) reconcile(
 	shrink bool,
 ) error {
 	chunks := telegramMessageChunks(messages, telegramTextLimitRunes)
+	logBotDebug(ctx, s.connection, "telegram reconcile streaming reply",
+		slog.String("externalChatId", s.chatID),
+		slog.String("externalThreadId", s.threadID),
+		slog.Int("messageCount", len(messages)),
+		slog.Int("chunkCount", len(chunks)),
+		slog.Bool("shrink", shrink),
+		slog.Any("messages", debugOutboundMessages(messages)),
+	)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -979,6 +1005,14 @@ func (s *telegramStreamingReplySession) reconcile(
 			if index < len(s.lastChunks) && chunk == s.lastChunks[index] {
 				continue
 			}
+			logBotDebug(ctx, s.connection, "telegram editing streamed chunk",
+				slog.String("externalChatId", s.chatID),
+				slog.String("externalThreadId", s.threadID),
+				slog.Int("chunkIndex", index),
+				slog.Int64("messageId", s.messageIDs[index]),
+				slog.Int("chunkLength", len([]rune(chunk))),
+				slog.String("chunkPreview", debugTextPreview(chunk)),
+			)
 			if err := s.provider.editTextMessage(ctx, s.token, s.chatID, s.messageIDs[index], chunk); err != nil && !isTelegramMessageNotModified(err) {
 				return err
 			}
@@ -986,6 +1020,13 @@ func (s *telegramStreamingReplySession) reconcile(
 			continue
 		}
 
+		logBotDebug(ctx, s.connection, "telegram sending streamed chunk",
+			slog.String("externalChatId", s.chatID),
+			slog.String("externalThreadId", s.threadID),
+			slog.Int("chunkIndex", index),
+			slog.Int("chunkLength", len([]rune(chunk))),
+			slog.String("chunkPreview", debugTextPreview(chunk)),
+		)
 		sent, err := s.provider.sendTextMessage(ctx, s.token, s.chatID, s.threadID, chunk)
 		if err != nil {
 			return err
@@ -999,6 +1040,12 @@ func (s *telegramStreamingReplySession) reconcile(
 	}
 
 	for index := len(s.messageIDs) - 1; index >= len(chunks); index-- {
+		logBotDebug(ctx, s.connection, "telegram deleting extra streamed chunk",
+			slog.String("externalChatId", s.chatID),
+			slog.String("externalThreadId", s.threadID),
+			slog.Int("chunkIndex", index),
+			slog.Int64("messageId", s.messageIDs[index]),
+		)
 		if err := s.provider.deleteTextMessage(ctx, s.token, s.chatID, s.messageIDs[index]); err != nil {
 			return err
 		}

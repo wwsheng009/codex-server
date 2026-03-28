@@ -27,6 +27,9 @@ type Config struct {
 	BotPollInterval       time.Duration
 	BotTurnTimeout        time.Duration
 	EnableRequestLogging  bool
+	TraceThreadPipeline   bool
+	TraceWorkspaceID      string
+	TraceThreadID         string
 	BaseCodexCommand      string
 	CodexCommand          string
 	CodexModelCatalogJSON string
@@ -76,6 +79,9 @@ func FromEnv() (Config, error) {
 		BotPollInterval:       getEnvDuration("CODEX_SERVER_BOT_POLL_INTERVAL", 0),
 		BotTurnTimeout:        getEnvDuration("CODEX_SERVER_BOT_TURN_TIMEOUT", 0),
 		EnableRequestLogging:  getEnvBool("CODEX_SERVER_REQUEST_LOGGING", false),
+		TraceThreadPipeline:   getEnvBool("CODEX_TRACE_THREAD_PIPELINE", false),
+		TraceWorkspaceID:      strings.TrimSpace(getEnv("CODEX_TRACE_WORKSPACE_ID", "")),
+		TraceThreadID:         strings.TrimSpace(getEnv("CODEX_TRACE_THREAD_ID", "")),
 		BaseCodexCommand:      codexCommand,
 		CodexCommand:          resolved.Command,
 		CodexModelCatalogJSON: resolved.Preferences.ModelCatalogPath,
@@ -135,8 +141,10 @@ func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (Resolved
 		effectiveCatalogPath = generatedCatalogPath
 	}
 
+	command := applyModelCatalogOverride(baseCommand, effectiveCatalogPath)
+
 	return ResolvedRuntime{
-		Command:                   applyModelCatalogOverride(baseCommand, effectiveCatalogPath),
+		Command:                   command,
 		EffectiveModelCatalogPath: effectiveCatalogPath,
 		Preferences: RuntimePreferences{
 			ModelCatalogPath:            modelCatalogPath,

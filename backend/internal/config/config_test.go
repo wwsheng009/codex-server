@@ -78,6 +78,26 @@ func TestFromEnvReadsBotTimeoutOverrides(t *testing.T) {
 	}
 }
 
+func TestFromEnvReadsThreadTraceOverrides(t *testing.T) {
+	t.Setenv("CODEX_TRACE_THREAD_PIPELINE", "true")
+	t.Setenv("CODEX_TRACE_WORKSPACE_ID", " ws_123 ")
+	t.Setenv("CODEX_TRACE_THREAD_ID", " thread_456 ")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+	if !cfg.TraceThreadPipeline {
+		t.Fatal("expected TraceThreadPipeline to be enabled")
+	}
+	if cfg.TraceWorkspaceID != "ws_123" {
+		t.Fatalf("TraceWorkspaceID = %q", cfg.TraceWorkspaceID)
+	}
+	if cfg.TraceThreadID != "thread_456" {
+		t.Fatalf("TraceThreadID = %q", cfg.TraceThreadID)
+	}
+}
+
 func TestFromEnvIgnoresInvalidBotTimeoutOverrides(t *testing.T) {
 	t.Setenv("CODEX_SERVER_BOT_MESSAGE_TIMEOUT", "still-not-a-duration")
 	t.Setenv("CODEX_SERVER_BOT_POLL_INTERVAL", "not-a-duration")
@@ -267,6 +287,18 @@ func TestResolveCodexRuntimeRejectsUnknownShellType(t *testing.T) {
 		DefaultShellType: "powershell",
 	}); err == nil {
 		t.Fatal("expected ResolveCodexRuntime to reject unknown shell type")
+	}
+}
+
+func TestResolveCodexRuntimeDoesNotInjectRealtimeConversationFeature(t *testing.T) {
+	command := "codex app-server --listen stdio://"
+
+	resolved, err := ResolveCodexRuntime(command, RuntimePreferences{})
+	if err != nil {
+		t.Fatalf("ResolveCodexRuntime() error = %v", err)
+	}
+	if resolved.Command != command {
+		t.Fatalf("expected command to remain unchanged, got %q", resolved.Command)
 	}
 }
 
