@@ -5,6 +5,7 @@ import {
   buildVisibleVirtualizedEntries,
   expandVirtualizedRenderWindow,
   resolveVirtualizedViewportAnchorOffsetDelta,
+  shouldApplyVirtualizedViewportAnchorCorrection,
 } from './useVirtualizedConversationEntries'
 
 describe('buildVirtualizedConversationEntryLayout', () => {
@@ -177,5 +178,35 @@ describe('buildVirtualizedConversationEntryLayout', () => {
         previousLayout,
       }),
     ).toBe(80)
+  })
+
+  it('skips anchor correction when the real viewport is already near the actual bottom', () => {
+    expect(
+      shouldApplyVirtualizedViewportAnchorCorrection({
+        freezeLayout: false,
+        hasPreviousLayout: true,
+        isUserScrolling: false,
+        scrollTop: 10_080,
+        targetStartIndex: 75,
+        viewportHeight: 858,
+        viewportScrollHeight: 10_938,
+        virtualTotalHeight: 12_781,
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps anchor correction enabled for mid-thread layout shifts away from the bottom', () => {
+    expect(
+      shouldApplyVirtualizedViewportAnchorCorrection({
+        freezeLayout: false,
+        hasPreviousLayout: true,
+        isUserScrolling: false,
+        scrollTop: 5_200,
+        targetStartIndex: 75,
+        viewportHeight: 858,
+        viewportScrollHeight: 10_938,
+        virtualTotalHeight: 12_781,
+      }),
+    ).toBe(true)
   })
 })

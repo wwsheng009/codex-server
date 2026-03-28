@@ -522,15 +522,16 @@ export function useVirtualizedConversationEntries<T>({
 
     if (
       !viewport ||
-      !previousLayout ||
-      isUserScrolling ||
-      freezeLayout ||
-      targetRange.startIndex <= 0 ||
-      isViewportNearBottom(
-        viewport.scrollTop,
-        entryLayout.totalHeight,
-        scrollState.viewportHeight,
-      )
+      !shouldApplyVirtualizedViewportAnchorCorrection({
+        freezeLayout,
+        hasPreviousLayout: Boolean(previousLayout),
+        isUserScrolling,
+        scrollTop: viewport.scrollTop,
+        targetStartIndex: targetRange.startIndex,
+        viewportHeight: viewport.clientHeight,
+        viewportScrollHeight: viewport.scrollHeight,
+        virtualTotalHeight: entryLayout.totalHeight,
+      })
     ) {
       return
     }
@@ -847,6 +848,47 @@ export function expandVirtualizedRenderWindow({
     paddingTop: nextPaddingTop,
     startIndex: nextStartIndex,
   }
+}
+
+export function shouldApplyVirtualizedViewportAnchorCorrection({
+  freezeLayout,
+  hasPreviousLayout,
+  isUserScrolling,
+  scrollTop,
+  targetStartIndex,
+  viewportHeight,
+  viewportScrollHeight,
+  virtualTotalHeight,
+}: {
+  freezeLayout: boolean
+  hasPreviousLayout: boolean
+  isUserScrolling: boolean
+  scrollTop: number
+  targetStartIndex: number
+  viewportHeight: number
+  viewportScrollHeight: number
+  virtualTotalHeight: number
+}) {
+  if (
+    !hasPreviousLayout ||
+    isUserScrolling ||
+    freezeLayout ||
+    targetStartIndex <= 0
+  ) {
+    return false
+  }
+
+  // The real DOM viewport wins here. When the browser is already near the
+  // actual bottom, preserving a stale virtual anchor causes visible snap-back.
+  if (isViewportNearBottom(scrollTop, viewportScrollHeight, viewportHeight)) {
+    return false
+  }
+
+  if (isViewportNearBottom(scrollTop, virtualTotalHeight, viewportHeight)) {
+    return false
+  }
+
+  return true
 }
 
 function shouldPreserveExpandedRenderWindow(
