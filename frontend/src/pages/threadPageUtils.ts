@@ -445,8 +445,19 @@ function renderableThreadItemKeySuffix(item: Record<string, unknown>) {
       const changeCount = Array.isArray(item.changes) ? item.changes.length : 0
       return changeCount > 0 ? `file:${changeCount}` : ''
     }
-    case 'reasoning':
-      return ''
+    case 'reasoning': {
+      const summary = Array.isArray(item.summary)
+        ? item.summary.filter((entry): entry is string => typeof entry === 'string').join('\n').trim()
+        : ''
+      const content = Array.isArray(item.content)
+        ? item.content.filter((entry): entry is string => typeof entry === 'string').join('\n').trim()
+        : ''
+      if (!summary && !content) {
+        return ''
+      }
+
+      return `reasoning:${summary.length}:${content.length}`
+    }
     default: {
       const text = stringField(item.text) || stringField(item.message)
       const status = stringField(item.status)

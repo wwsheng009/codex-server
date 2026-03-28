@@ -145,6 +145,7 @@ export type TimelineItemProps = {
   onRetainFullTurn?: ThreadTurnContentHandler
   onRequestFullTurn?: ThreadTurnContentHandler
   onRetryServerRequest?: RetryServerRequestHandler
+  showStreamingCursor?: boolean
   turnId: string
 }
 

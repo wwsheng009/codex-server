@@ -189,11 +189,38 @@ describe('threadPageUtils', () => {
     ).toBe('turn-3:assistant-3:agent:streaming:15')
   })
 
-  it('tracks the latest renderable timeline item and ignores hidden reasoning deltas', () => {
+  it('tracks the latest renderable timeline item and ignores empty reasoning items', () => {
     expect(
       latestRenderableThreadItemKey([
         {
           id: 'turn-4',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'command-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n…\nline 1200',
+              outputLineCount: 1200,
+              status: 'inProgress',
+            },
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: [],
+              content: [],
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-4:command-1:command:inProgress:8:18:1200')
+  })
+
+  it('treats populated reasoning items as renderable timeline entries', () => {
+    expect(
+      latestRenderableThreadItemKey([
+        {
+          id: 'turn-5',
           status: 'inProgress',
           items: [
             {
@@ -213,7 +240,7 @@ describe('threadPageUtils', () => {
           ],
         },
       ]),
-    ).toBe('turn-4:command-1:command:inProgress:8:18:1200')
+    ).toBe('turn-5:reasoning-1:reasoning:16:15')
   })
 
   it('collects thread display metrics in a single pass', () => {

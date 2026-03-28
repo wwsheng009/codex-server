@@ -86,8 +86,8 @@ describe('TurnTimeline', () => {
           },
           {
             type: 'reasoning',
-            summary: ['internal summary'],
-            content: ['internal detail'],
+            summary: [],
+            content: [],
           },
         ],
       },
@@ -105,8 +105,6 @@ describe('TurnTimeline', () => {
     expect(html).not.toContain('Codex')
     expect(html).not.toContain('Assistant Output')
     expect(html).not.toContain('Prompt')
-    expect(html).not.toContain('internal summary')
-    expect(html).not.toContain('internal detail')
   })
 
   it('keeps plan, command, and file changes as compact system cards', () => {
@@ -149,6 +147,77 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Update')
   })
 
+  it('renders web search actions as compact system cards', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-web-search',
+        status: 'completed',
+        items: [
+          {
+            type: 'webSearch',
+            query: 'site:platform.openai.com/docs realtime websocket',
+            action: {
+              type: 'search',
+              queries: [
+                'site:platform.openai.com/docs realtime websocket',
+                'site:platform.openai.com/docs realtime webrtc',
+              ],
+            },
+          },
+          {
+            type: 'webSearch',
+            query: 'https://platform.openai.com/docs/guides/realtime',
+            action: {
+              type: 'openPage',
+              url: 'https://platform.openai.com/docs/guides/realtime',
+            },
+          },
+          {
+            type: 'webSearch',
+            query: '\'Realtime API\' in https://platform.openai.com/docs/guides/realtime',
+            action: {
+              type: 'findInPage',
+              pattern: 'Realtime API',
+              url: 'https://platform.openai.com/docs/guides/realtime',
+            },
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Web Search')
+    expect(html).toContain('Search')
+    expect(html).toContain('Open Page')
+    expect(html).toContain('Find In Page')
+    expect(html).toContain('site:platform.openai.com/docs realtime websocket')
+    expect(html).toContain('Realtime API')
+    expect(html).toContain('href="https://platform.openai.com/docs/guides/realtime"')
+  })
+
+  it('renders reasoning items when they include summary or content', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-reasoning',
+        status: 'completed',
+        items: [
+          {
+            type: 'reasoning',
+            summary: ['Checked the latest snapshot.'],
+            content: ['Compared websocket events with rendered entries.'],
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Reasoning')
+    expect(html).toContain('Checked the latest snapshot.')
+    expect(html).toContain('Compared websocket events with rendered entries.')
+  })
+
   it('renders a live cursor for streaming agent messages', () => {
     const turns: ThreadTurn[] = [
       {
@@ -170,6 +239,80 @@ describe('TurnTimeline', () => {
     expect(html).toContain('conversation-bubble--streaming')
     expect(html).toContain('conversation-bubble__cursor')
     expect(html).toContain('Streaming reply')
+  })
+
+  it('renders the live cursor only for the latest streaming agent message', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-3d-old',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'item-old',
+            type: 'agentMessage',
+            text: 'Older streaming reply',
+            phase: 'streaming',
+          },
+        ],
+      },
+      {
+        id: 'turn-3d-new',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'item-new',
+            type: 'agentMessage',
+            text: 'Newest streaming reply',
+            phase: 'streaming',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+    const cursorMatches = html.match(/conversation-bubble__cursor/g) ?? []
+
+    expect(cursorMatches).toHaveLength(1)
+    expect(html.indexOf('Older streaming reply')).toBeLessThan(
+      html.indexOf('Newest streaming reply'),
+    )
+    expect(html.lastIndexOf('conversation-bubble__cursor')).toBeGreaterThan(
+      html.indexOf('Newest streaming reply'),
+    )
+  })
+
+  it('does not leave the live cursor on the previous reply when the newest streaming message is still empty', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-3e-old',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'item-old',
+            type: 'agentMessage',
+            text: 'Previous reply',
+            phase: 'streaming',
+          },
+        ],
+      },
+      {
+        id: 'turn-3e-new',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'item-new',
+            type: 'agentMessage',
+            text: '',
+            phase: 'streaming',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Previous reply')
+    expect(html).not.toContain('conversation-bubble__cursor')
   })
 
   it('uses the typewriter renderer for completed-only assistant messages flagged by the client', () => {

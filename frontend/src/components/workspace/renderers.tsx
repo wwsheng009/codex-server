@@ -47,6 +47,7 @@ import type {
 } from './renderersTypes'
 import { ConversationRenderProfilerBoundary } from './threadConversationProfiler'
 import { useVirtualizedConversationEntries } from './useVirtualizedConversationEntries'
+import { frontendDebugLog } from '../../lib/frontend-runtime-mode'
 import type { PendingApproval, ThreadTurn } from '../../types/api'
 const EXPANDABLE_MESSAGE_THRESHOLD_CHARS = 4_000
 const EXPANDABLE_MESSAGE_PREVIEW_CHARS = 1_200
@@ -57,6 +58,7 @@ const STREAMING_TYPEWRITER_MAX_STEP = 48
 const VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD = 80
 const conversationEntriesCache = new WeakMap<ThreadTurn[], ConversationEntry[]>()
 const turnConversationEntriesCache = new WeakMap<ThreadTurn, ConversationEntry[]>()
+const itemRenderSuppressionDebugCache = new WeakMap<Record<string, unknown>, string>()
 
 const selectionChangeSubscribers = new Set<() => void>()
 
@@ -109,6 +111,10 @@ export const TurnTimeline = memo(function TurnTimeline({
   onRetryServerRequest,
 }: TurnTimelineProps) {
   const entries = useMemo(() => buildConversationEntries(turns), [turns])
+  const activeStreamingAgentItemKey = useMemo(
+    () => findActiveStreamingAgentItemKey(turns),
+    [turns],
+  )
   const isVirtualizedTimeline = shouldVirtualizeTurnTimeline({
     disableVirtualization,
     entryCount: entries.length,
@@ -155,6 +161,10 @@ export const TurnTimeline = memo(function TurnTimeline({
           onRetainFullTurn={onRetainFullTurn}
           onRequestFullTurn={onRequestFullTurn}
           onRetryServerRequest={handleRetryServerRequest}
+          showStreamingCursor={
+            entry.kind === 'item' &&
+            getStreamingAgentItemKey(entry.turnId, entry.item) === activeStreamingAgentItemKey
+          }
           turnId={entry.turnId}
         />
       )}
@@ -164,6 +174,25 @@ export const TurnTimeline = memo(function TurnTimeline({
     onReleaseFullTurn,
     onRequestFullTurn,
     onRetainFullTurn,
+  ])
+
+  useEffect(() => {
+    frontendDebugLog('thread-render', 'timeline render window updated', {
+      timelineIdentity: timelineIdentity ?? '',
+      isVirtualizedTimeline,
+      totalEntryCount: entries.length,
+      visibleEntryCount: visibleEntries.length,
+      paddingTop,
+      paddingBottom,
+      visibleEntries: visibleEntries.slice(-8).map(summarizeConversationEntryForDebug),
+    })
+  }, [
+    entries,
+    isVirtualizedTimeline,
+    paddingBottom,
+    paddingTop,
+    timelineIdentity,
+    visibleEntries,
   ])
 
   return (
@@ -1196,6 +1225,7 @@ function TimelineItem({
   onRetainFullTurn,
   onRequestFullTurn,
   onRetryServerRequest,
+  showStreamingCursor = false,
   turnId,
 }: TimelineItemProps) {
   const type = stringField(item.type)
@@ -1207,6 +1237,7 @@ function TimelineItem({
       const text = userMessageText(item)
 
       if (!text) {
+        logSuppressedTimelineItem(item, turnId, 'userMessage without text')
         return null
       }
 
@@ -1243,6 +1274,7 @@ function TimelineItem({
       const hasStreamingPresentation = isStreaming || shouldAnimateCompletedMessage
 
       if (!text) {
+        logSuppressedTimelineItem(item, turnId, 'agentMessage without text')
         return null
       }
 
@@ -1280,7 +1312,9 @@ function TimelineItem({
                   />
                 )
               ) : null}
-              {isStreaming ? <span aria-hidden="true" className="conversation-bubble__cursor" /> : null}
+              {showStreamingCursor ? (
+                <span aria-hidden="true" className="conversation-bubble__cursor" />
+              ) : null}
             </CopyableMessageBody>
           </div>
         </article>
@@ -1311,6 +1345,7 @@ function TimelineItem({
           : outputLineCount ?? countOutputLines(output)
 
       if (!command && !output && !status) {
+        logSuppressedTimelineItem(item, turnId, 'commandExecution without command/output/status')
         return null
       }
 
@@ -1385,6 +1420,7 @@ function TimelineItem({
       const steps = planSteps(item)
 
       if (!steps.length) {
+        logSuppressedTimelineItem(item, turnId, 'plan without steps')
         return null
       }
 
@@ -1410,6 +1446,7 @@ function TimelineItem({
       const changes = fileChanges(item)
 
       if (!changes.length) {
+        logSuppressedTimelineItem(item, turnId, 'fileChange without changes')
         return null
       }
 
@@ -1443,6 +1480,8 @@ function TimelineItem({
           turnId={turnId}
         />
       )
+    case 'webSearch':
+      return <WebSearchTimelineCard item={item} />
     case 'serverRequest':
       return (
         <ServerRequestTimelineCard
@@ -1454,12 +1493,51 @@ function TimelineItem({
           turnId={turnId}
         />
       )
-    case 'reasoning':
-      return null
+    case 'reasoning': {
+      const summaryText = reasoningSummaryText(item)
+      const contentText = reasoningContentText(item)
+
+      if (!summaryText && !contentText) {
+        logSuppressedTimelineItem(item, turnId, 'reasoning without content')
+        return null
+      }
+
+      return (
+        <SystemTimelineCard
+          className="conversation-card--reasoning"
+          summary={reasoningCardSummary(item)}
+          title="Reasoning"
+        >
+          {summaryText ? (
+            <div className="conversation-tool-call__section">
+              <div className="conversation-tool-call__section-header">
+                <strong>Summary</strong>
+              </div>
+              <ThreadPlainText
+                className="conversation-tool-call__text"
+                content={summaryText}
+              />
+            </div>
+          ) : null}
+          {contentText ? (
+            <div className="conversation-tool-call__section">
+              <div className="conversation-tool-call__section-header">
+                <strong>Content</strong>
+              </div>
+              <ThreadPlainText
+                className="conversation-tool-call__text"
+                content={contentText}
+              />
+            </div>
+          ) : null}
+        </SystemTimelineCard>
+      )
+    }
     default: {
       const text = stringField(item.text) || stringField(item.message)
 
       if (!text) {
+        logSuppressedTimelineItem(item, turnId, `${type || 'unknown'} without text`)
         return null
       }
 
@@ -1484,6 +1562,7 @@ const MemoTimelineItem = memo(TimelineItem, (previous, next) => {
     previous.onRequestFullTurn === next.onRequestFullTurn &&
     previous.onRetainFullTurn === next.onRetainFullTurn &&
     previous.onRetryServerRequest === next.onRetryServerRequest &&
+    previous.showStreamingCursor === next.showStreamingCursor &&
     previous.turnId === next.turnId
   )
 })
@@ -1586,6 +1665,102 @@ function SystemTimelineCard({
         {shouldRenderDetails ? <div className="conversation-card__details">{children}</div> : null}
       </details>
     </article>
+  )
+}
+
+function WebSearchTimelineCard({
+  item,
+}: {
+  item: Record<string, unknown>
+}) {
+  const actionType = webSearchActionType(item)
+  const actionLabel = webSearchActionLabel(actionType)
+  const queries = webSearchQueries(item)
+  const url = webSearchURL(item)
+  const pattern = webSearchPattern(item)
+  const summary = webSearchCardSummary(item) || 'Web search activity'
+  const meta = actionLabel || undefined
+
+  return (
+    <SystemTimelineCard
+      className="conversation-card--tool"
+      meta={meta}
+      summary={summary}
+      title="Web Search"
+    >
+      <div className="conversation-tool-call__meta-grid">
+        <div className="conversation-tool-call__meta-row">
+          <span>Action</span>
+          <strong>{actionLabel || 'Web Search'}</strong>
+        </div>
+        {queries.length ? (
+          <div className="conversation-tool-call__meta-row">
+            <span>{queries.length === 1 ? 'Query' : 'Queries'}</span>
+            <strong>{queries.length === 1 ? queries[0] : `${queries.length} queries`}</strong>
+          </div>
+        ) : null}
+        {url ? (
+          <div className="conversation-tool-call__meta-row">
+            <span>Target</span>
+            <strong>{url}</strong>
+          </div>
+        ) : null}
+        {pattern ? (
+          <div className="conversation-tool-call__meta-row">
+            <span>Pattern</span>
+            <strong>{pattern}</strong>
+          </div>
+        ) : null}
+      </div>
+      {queries.length ? (
+        <div className="conversation-tool-call__section">
+          <div className="conversation-tool-call__section-header">
+            <strong>{queries.length === 1 ? 'Query' : 'Queries'}</strong>
+          </div>
+          <div className="conversation-tool-call__structured">
+            {queries.map((query, index) => (
+              <div className="conversation-tool-call__subsection" key={`${query}-${index}`}>
+                {queries.length > 1 ? (
+                  <span className="conversation-tool-call__subsection-label">
+                    Query {index + 1}
+                  </span>
+                ) : null}
+                <ThreadPlainText
+                  className="conversation-tool-call__text"
+                  content={query}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {pattern ? (
+        <div className="conversation-tool-call__section">
+          <div className="conversation-tool-call__section-header">
+            <strong>Pattern</strong>
+          </div>
+          <ThreadPlainText
+            className="conversation-tool-call__text"
+            content={pattern}
+          />
+        </div>
+      ) : null}
+      {url ? (
+        <div className="conversation-tool-call__section">
+          <div className="conversation-tool-call__section-header">
+            <strong>Page</strong>
+          </div>
+          <a
+            className="conversation-tool-call__link"
+            href={url}
+            rel="noreferrer noopener"
+            target="_blank"
+          >
+            {url}
+          </a>
+        </div>
+      ) : null}
+    </SystemTimelineCard>
   )
 }
 
@@ -2463,6 +2638,127 @@ function toolCallSummary(item: Record<string, unknown>) {
   return humanizeToolStatus(status) || 'Expand for details'
 }
 
+function webSearchAction(item: Record<string, unknown>) {
+  return asObject(item.action)
+}
+
+function trimmedStringArray(value: unknown) {
+  return stringArray(value)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function reasoningSummaryLines(item: Record<string, unknown>) {
+  return trimmedStringArray(item.summary)
+}
+
+function reasoningContentLines(item: Record<string, unknown>) {
+  return trimmedStringArray(item.content)
+}
+
+function reasoningSummaryText(item: Record<string, unknown>) {
+  return reasoningSummaryLines(item).join('\n')
+}
+
+function reasoningContentText(item: Record<string, unknown>) {
+  return reasoningContentLines(item).join('\n')
+}
+
+function reasoningCardSummary(item: Record<string, unknown>) {
+  const summaryLines = reasoningSummaryLines(item)
+  if (summaryLines.length) {
+    return summaryLines.length === 1
+      ? truncateSingleLine(summaryLines[0], 104)
+      : `${truncateSingleLine(summaryLines[0], 84)} +${summaryLines.length - 1}`
+  }
+
+  const contentLines = reasoningContentLines(item)
+  if (!contentLines.length) {
+    return 'Reasoning'
+  }
+
+  return contentLines.length === 1
+    ? truncateSingleLine(contentLines[0], 104)
+    : `${truncateSingleLine(contentLines[0], 84)} +${contentLines.length - 1}`
+}
+
+function reasoningDisplayText(item: Record<string, unknown>) {
+  const parts = [reasoningSummaryText(item), reasoningContentText(item)].filter(Boolean)
+  return parts.join('\n')
+}
+
+function webSearchActionType(item: Record<string, unknown>) {
+  return stringField(webSearchAction(item).type)
+}
+
+function webSearchActionLabel(value: string) {
+  switch (value) {
+    case 'search':
+      return 'Search'
+    case 'openPage':
+      return 'Open Page'
+    case 'findInPage':
+      return 'Find In Page'
+    default:
+      return value ? humanizeItemType(value) : 'Web Search'
+  }
+}
+
+function webSearchQueries(item: Record<string, unknown>) {
+  const action = webSearchAction(item)
+  const values = [stringField(action.query), stringField(item.query), ...stringArray(action.queries)]
+  const deduped: string[] = []
+
+  for (const value of values) {
+    const normalized = value.trim()
+    if (!normalized || deduped.includes(normalized)) {
+      continue
+    }
+    deduped.push(normalized)
+  }
+
+  return deduped
+}
+
+function webSearchURL(item: Record<string, unknown>) {
+  return stringField(webSearchAction(item).url)
+}
+
+function webSearchPattern(item: Record<string, unknown>) {
+  return stringField(webSearchAction(item).pattern)
+}
+
+function webSearchCardSummary(item: Record<string, unknown>) {
+  const actionType = webSearchActionType(item)
+  const queries = webSearchQueries(item)
+  const url = webSearchURL(item)
+  const pattern = webSearchPattern(item)
+
+  switch (actionType) {
+    case 'search':
+      if (!queries.length) {
+        return ''
+      }
+      return queries.length === 1
+        ? truncateSingleLine(queries[0], 104)
+        : `${truncateSingleLine(queries[0], 84)} +${queries.length - 1}`
+    case 'openPage':
+      return truncateMiddle(url || queries[0] || 'Open page', 104)
+    case 'findInPage':
+      if (pattern && url) {
+        return `${truncateSingleLine(pattern, 42)} in ${truncateMiddle(url, 52)}`
+      }
+      if (pattern) {
+        return truncateSingleLine(pattern, 104)
+      }
+      return truncateMiddle(url || queries[0] || 'Find in page', 104)
+    default: {
+      const fallback = queries[0] || url || pattern
+      return fallback ? truncateSingleLine(fallback, 104) : ''
+    }
+  }
+}
+
 function hasMeaningfulValue(value: unknown) {
   if (value === null || value === undefined) {
     return false
@@ -2501,6 +2797,21 @@ function buildConversationEntries(turns: ThreadTurn[]): ConversationEntry[] {
   }
 
   conversationEntriesCache.set(turns, entries)
+  frontendDebugLog('thread-render', 'conversation entries rebuilt', {
+    turnCount: turns.length,
+    totalEntryCount,
+    turns: turns.map((turn) => {
+      const turnItems = Array.isArray(turn.items) ? turn.items : []
+      return {
+        id: turn.id,
+        status: turn.status,
+        itemCount: turnItems.length,
+        itemTypes: turnItems.map((item) => stringField(item.type) || 'unknown'),
+        hasError: Boolean(turn.error),
+      }
+    }),
+    entries: entries.slice(-12).map(summarizeConversationEntryForDebug),
+  })
   return entries
 }
 
@@ -2581,6 +2892,10 @@ function estimateConversationEntryHeight(entry: ConversationEntry) {
       return estimateTextEntryHeight(userMessageText(entry.item), 72)
     case 'agentMessage':
       return estimateTextEntryHeight(stringField(entry.item.text), 88)
+    case 'reasoning':
+      return estimateTextEntryHeight(reasoningDisplayText(entry.item), 112)
+    case 'webSearch':
+      return 176
     case 'commandExecution': {
       const output = stringField(entry.item.aggregatedOutput)
       const lineCount = integerField(entry.item.outputLineCount) ?? countOutputLines(output)
@@ -2607,32 +2922,178 @@ function estimateTextEntryHeight(text: string, baseHeight: number) {
   return baseHeight + Math.min(Math.max(lineCount, wrappedLineCount), 12) * 22
 }
 
+function getStreamingAgentItemKey(
+  turnId: string,
+  item: Record<string, unknown>,
+) {
+  const itemId = stringField(item.id)
+  if (!turnId || !itemId || stringField(item.type) !== 'agentMessage') {
+    return null
+  }
+
+  return `${turnId}:${itemId}`
+}
+
+function findActiveStreamingAgentItemKey(turns: ThreadTurn[]) {
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = turns[turnIndex]
+    const turnId = stringField(turn.id)
+    const items = Array.isArray(turn.items) ? turn.items : []
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = items[itemIndex]
+      if (
+        stringField(item.type) !== 'agentMessage' ||
+        stringField(item.phase) !== 'streaming'
+      ) {
+        continue
+      }
+
+      const itemId = stringField(item.id)
+      if (!turnId || !itemId) {
+        continue
+      }
+
+      return `${turnId}:${itemId}`
+    }
+  }
+
+  return null
+}
+
+function conversationEntryOmissionReason(item: Record<string, unknown>) {
+  const type = stringField(item.type)
+
+  switch (type) {
+    case 'userMessage':
+      return userMessageText(item) ? null : 'userMessage without text'
+    case 'agentMessage':
+      return stringField(item.text) ? null : 'agentMessage without text'
+    case 'commandExecution': {
+      const command = stringField(item.command)
+      const output = stringField(item.aggregatedOutput)
+      const status = stringField(item.status)
+      return command || output || status
+        ? null
+        : 'commandExecution without command/output/status'
+    }
+    case 'plan':
+      return planSteps(item).length ? null : 'plan without steps'
+    case 'fileChange':
+      return fileChanges(item).length ? null : 'fileChange without changes'
+    case 'reasoning':
+      return reasoningDisplayText(item) ? null : 'reasoning without content'
+    case 'webSearch':
+      return webSearchCardSummary(item) ? null : 'webSearch without details'
+    case 'mcpToolCall':
+    case 'dynamicToolCall':
+    case 'collabAgentToolCall':
+    case 'serverRequest':
+      return null
+    default: {
+      const text = stringField(item.text) || stringField(item.message)
+      return text ? null : `${type || 'unknown'} without text`
+    }
+  }
+}
+
 function collectTurnConversationEntries(turn: ThreadTurn) {
   const cached = turnConversationEntriesCache.get(turn)
   if (cached) {
     return cached
   }
 
-  const entries = new Array<ConversationEntry>(turn.items.length + (turn.error ? 1 : 0))
-  let nextIndex = 0
-  for (let itemIndex = 0; itemIndex < turn.items.length; itemIndex += 1) {
-    entries[nextIndex] = {
+  const entries: ConversationEntry[] = []
+  const turnItems = Array.isArray(turn.items) ? turn.items : []
+  for (let itemIndex = 0; itemIndex < turnItems.length; itemIndex += 1) {
+    const item = turnItems[itemIndex]
+    const omissionReason = conversationEntryOmissionReason(item)
+    if (omissionReason) {
+      logSuppressedTimelineItem(item, turn.id, `conversation entry omitted: ${omissionReason}`)
+      continue
+    }
+
+    entries.push({
       kind: 'item',
       key: `${turn.id}-${itemIndex}`,
-      item: turn.items[itemIndex],
+      item,
       turnId: turn.id,
-    }
-    nextIndex += 1
+    })
   }
 
   if (turn.error) {
-    entries[nextIndex] = {
+    entries.push({
       kind: 'error',
       key: `${turn.id}-error`,
       error: turn.error,
-    }
+    })
   }
 
   turnConversationEntriesCache.set(turn, entries)
   return entries
+}
+
+function logSuppressedTimelineItem(
+  item: Record<string, unknown>,
+  turnId: string,
+  reason: string,
+) {
+  const summary = JSON.stringify({
+    reason,
+    turnId,
+    summary: summarizeTimelineItemForDebug(item),
+  })
+  if (itemRenderSuppressionDebugCache.get(item) === summary) {
+    return
+  }
+
+  itemRenderSuppressionDebugCache.set(item, summary)
+  frontendDebugLog('thread-render', 'timeline item suppressed', {
+    reason,
+    turnId,
+    item: summarizeTimelineItemForDebug(item),
+  })
+}
+
+function summarizeConversationEntryForDebug(entry: ConversationEntry) {
+  if (entry.kind === 'error') {
+    return {
+      key: entry.key,
+      kind: entry.kind,
+      error: 'present',
+    }
+  }
+
+  return {
+    key: entry.key,
+    kind: entry.kind,
+    turnId: entry.turnId,
+    item: summarizeTimelineItemForDebug(entry.item),
+  }
+}
+
+function summarizeTimelineItemForDebug(item: Record<string, unknown>) {
+  const text = stringField(item.text) || stringField(item.message)
+  return {
+    id: stringField(item.id) || null,
+    type: stringField(item.type) || 'unknown',
+    phase: stringField(item.phase) || null,
+    status: stringField(item.status) || null,
+    textLength: text.length,
+    textPreview: previewRenderDebugText(text),
+    contentLength: Array.isArray(item.content) ? item.content.length : 0,
+    summaryLength: Array.isArray(item.summary) ? item.summary.length : 0,
+  }
+}
+
+function previewRenderDebugText(value: string) {
+  const normalized = value.trim()
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized.length <= 160) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, 160)} ... [truncated, ${normalized.length - 160} more chars]`
 }

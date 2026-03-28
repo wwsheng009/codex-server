@@ -1736,6 +1736,10 @@
   border-color: var(--border-accent);
 }
 
+.conversation-card--reasoning {
+  border-color: color-mix(in srgb, var(--border-accent) 55%, var(--border-warning));
+}
+
 .conversation-card--request {
   border-color: var(--border-warning);
 }
