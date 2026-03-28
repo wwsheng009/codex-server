@@ -69,6 +69,7 @@ type botConversationCommand struct {
 	kind     string
 	threadID string
 	title    string
+	filter   string
 }
 
 type inboundWorker struct {
@@ -1660,7 +1661,7 @@ func (s *Service) handleConversationCommand(
 		text := s.renderCurrentConversationThread(ctx, connection, conversation)
 		return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
 	case "list_threads":
-		text := s.renderKnownConversationThreads(ctx, connection, conversation)
+		text := s.renderKnownConversationThreads(ctx, connection, conversation, command.filter)
 		return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
 	case "rename_thread":
 		updatedConversation, text, commandErr := s.renameConversationThread(ctx, connection, conversation, command.title)
@@ -1673,6 +1674,13 @@ func (s *Service) handleConversationCommand(
 		updatedConversation, text, commandErr := s.archiveConversationThread(ctx, connection, conversation)
 		if commandErr != nil {
 			text = "The bot could not archive the current thread right now: " + commandErr.Error()
+			return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
+		}
+		return true, updatedConversation, text, provider.SendMessages(ctx, connection, updatedConversation, []OutboundMessage{{Text: text}})
+	case "unarchive_thread":
+		updatedConversation, text, commandErr := s.unarchiveConversationThread(ctx, connection, conversation, command.threadID)
+		if commandErr != nil {
+			text = "The bot could not unarchive the selected thread right now: " + commandErr.Error()
 			return true, conversation, text, provider.SendMessages(ctx, connection, conversation, []OutboundMessage{{Text: text}})
 		}
 		return true, updatedConversation, text, provider.SendMessages(ctx, connection, updatedConversation, []OutboundMessage{{Text: text}})
@@ -1745,10 +1753,15 @@ func parseBotConversationCommand(text string) (botConversationCommand, bool, err
 		case "":
 			return botConversationCommand{kind: "show_thread"}, true, nil
 		case "list":
-			if strings.TrimSpace(extra) != "" {
-				return botConversationCommand{}, true, errors.New("usage: /thread list")
+			filter := strings.ToLower(strings.TrimSpace(extra))
+			switch filter {
+			case "", "all":
+				return botConversationCommand{kind: "list_threads", filter: "all"}, true, nil
+			case "active", "archived":
+				return botConversationCommand{kind: "list_threads", filter: filter}, true, nil
+			default:
+				return botConversationCommand{}, true, errors.New("usage: /thread list [active|archived|all]")
 			}
-			return botConversationCommand{kind: "list_threads"}, true, nil
 		case "rename":
 			if strings.TrimSpace(extra) == "" {
 				return botConversationCommand{}, true, errors.New("usage: /thread rename <title>")
@@ -1759,14 +1772,20 @@ func parseBotConversationCommand(text string) (botConversationCommand, bool, err
 				return botConversationCommand{}, true, errors.New("usage: /thread archive")
 			}
 			return botConversationCommand{kind: "archive_thread"}, true, nil
+		case "unarchive":
+			threadID, trailing := splitBotCommandText(extra)
+			if strings.TrimSpace(threadID) == "" || strings.TrimSpace(trailing) != "" {
+				return botConversationCommand{}, true, errors.New("usage: /thread unarchive <thread_id|index>")
+			}
+			return botConversationCommand{kind: "unarchive_thread", threadID: strings.TrimSpace(threadID)}, true, nil
 		case "use":
 			threadID, trailing := splitBotCommandText(extra)
 			if strings.TrimSpace(threadID) == "" || strings.TrimSpace(trailing) != "" {
-				return botConversationCommand{}, true, errors.New("usage: /thread use <thread_id>")
+				return botConversationCommand{}, true, errors.New("usage: /thread use <thread_id|index>")
 			}
 			return botConversationCommand{kind: "use_thread", threadID: strings.TrimSpace(threadID)}, true, nil
 		default:
-			return botConversationCommand{}, true, errors.New("usage: /thread | /thread list | /thread rename <title> | /thread archive | /thread use <thread_id>")
+			return botConversationCommand{}, true, errors.New("usage: /thread | /thread list [active|archived|all] | /thread rename <title> | /thread archive | /thread unarchive <thread_id|index> | /thread use <thread_id|index>")
 		}
 	default:
 		return botConversationCommand{}, false, nil
@@ -1817,10 +1836,12 @@ func botConversationCommandHelp(reason string) string {
 		"Bot conversation commands:",
 		"/newthread [title]",
 		"/thread",
-		"/thread list",
+		"/thread list [active|archived|all]",
+		"  lists current thread first, then recent approvals/activity",
 		"/thread rename <title>",
 		"/thread archive",
-		"/thread use <thread_id>",
+		"/thread unarchive <thread_id|index>",
+		"/thread use <thread_id|index>",
 	}
 	if strings.TrimSpace(reason) != "" {
 		lines = append([]string{"Conversation command error: " + strings.TrimSpace(reason)}, lines...)
@@ -1911,7 +1932,7 @@ func (s *Service) switchConversationThread(
 	conversation store.BotConversation,
 	selection string,
 ) (store.BotConversation, string, error) {
-	threadID, err := s.resolveConversationThreadSelection(ctx, connection, conversation, selection)
+	threadID, err := s.resolveConversationThreadSelection(ctx, connection, conversation, selection, "active")
 	if err != nil {
 		return store.BotConversation{}, "", err
 	}
@@ -2019,6 +2040,48 @@ func (s *Service) archiveConversationThread(
 	return updatedConversation, "Archived the current thread: " + threadID + "\nFuture messages in this chat will require /newthread or /thread use.", nil
 }
 
+func (s *Service) unarchiveConversationThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	selection string,
+) (store.BotConversation, string, error) {
+	if s.threads == nil {
+		return store.BotConversation{}, "", errors.New("workspace thread service is not configured")
+	}
+
+	threadID, err := s.resolveConversationThreadSelection(ctx, connection, conversation, selection, "archived")
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+	thread, err := s.threads.Unarchive(ctx, connection.WorkspaceID, threadID)
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		knownThreadIDs := appendKnownConversationThreadID(current.BackendState, current.ThreadID)
+		knownThreadIDs = appendKnownConversationThreadID(conversationBackendStateWithKnownThreads(nil, knownThreadIDs), threadID)
+		current.BackendState = mergeConversationBackendState(
+			current.BackendState,
+			conversationBackendStateWithKnownThreads(nil, knownThreadIDs),
+			conversationContextVersion(current),
+		)
+		return current
+	})
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	logBotDebug(ctx, connection, "unarchived conversation thread",
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", threadID),
+		slog.Bool("archived", thread.Archived),
+	)
+
+	return updatedConversation, "Unarchived thread: " + threadID + "\nUse /thread use " + threadID + " to switch this conversation back.", nil
+}
+
 type botThreadSummary struct {
 	ID        string
 	Name      string
@@ -2027,14 +2090,32 @@ type botThreadSummary struct {
 	UpdatedAt time.Time
 }
 
+type botThreadApprovalSummary struct {
+	Count       int
+	KindSummary string
+	LatestText  string
+	LatestAt    time.Time
+}
+
 func (s *Service) renderCurrentConversationThread(
 	ctx context.Context,
 	connection store.BotConnection,
 	conversation store.BotConversation,
 ) string {
 	currentThreadID := strings.TrimSpace(conversation.ThreadID)
+	approvalSummaries := s.pendingApprovalSummariesByThread(connection.WorkspaceID)
 	if currentThreadID == "" {
-		return "This conversation is not currently bound to a workspace thread."
+		lines := []string{
+			"This conversation is not currently bound to a workspace thread.",
+			"Use /newthread to start a new thread.",
+		}
+		if activeThreadIDs := s.orderedConversationThreadIDsForDisplay(ctx, connection, conversation, "active", approvalSummaries); len(activeThreadIDs) > 0 {
+			lines = append(lines, formatThreadListHint("active", len(activeThreadIDs)))
+		}
+		if archivedThreadIDs := s.orderedConversationThreadIDsForDisplay(ctx, connection, conversation, "archived", approvalSummaries); len(archivedThreadIDs) > 0 {
+			lines = append(lines, formatThreadListHint("archived", len(archivedThreadIDs)))
+		}
+		return strings.Join(lines, "\n")
 	}
 
 	lines := []string{
@@ -2054,6 +2135,9 @@ func (s *Service) renderCurrentConversationThread(
 			lines = append(lines, "Updated: "+formatted)
 		}
 	}
+	if pendingSummary, ok := approvalSummaries[currentThreadID]; ok && pendingSummary.Count > 0 {
+		lines = append(lines, formatCurrentThreadPendingApprovalLine(pendingSummary))
+	}
 	if versions := conversationContextVersion(conversation); versions > 0 {
 		lines = append(lines, "Conversation context version: "+strconv.Itoa(versions))
 	}
@@ -2064,20 +2148,32 @@ func (s *Service) renderKnownConversationThreads(
 	ctx context.Context,
 	connection store.BotConnection,
 	conversation store.BotConversation,
+	filter string,
 ) string {
-	threadIDs := knownConversationThreadIDs(conversation)
-	currentThreadID := strings.TrimSpace(conversation.ThreadID)
-	if currentThreadID != "" {
-		threadIDs = appendKnownConversationThreadID(
-			conversationBackendStateWithKnownThreads(nil, threadIDs),
-			currentThreadID,
-		)
-	}
+	filter = normalizeConversationThreadFilter(filter)
+	approvalSummaries := s.pendingApprovalSummariesByThread(connection.WorkspaceID)
+	threadIDs := s.orderedConversationThreadIDsForDisplay(ctx, connection, conversation, filter, approvalSummaries)
 	if len(threadIDs) == 0 {
-		return "No workspace threads have been recorded for this conversation yet."
+		switch filter {
+		case "active":
+			return "No active workspace threads are currently recorded for this conversation."
+		case "archived":
+			return "No archived workspace threads are currently recorded for this conversation."
+		default:
+			return "No workspace threads have been recorded for this conversation yet."
+		}
 	}
 
-	lines := []string{"Known workspace threads:"}
+	currentThreadID := strings.TrimSpace(conversation.ThreadID)
+	heading := "Known workspace threads (current first, then recent approvals/activity):"
+	switch filter {
+	case "active":
+		heading = "Known active workspace threads (current first, then recent approvals/activity):"
+	case "archived":
+		heading = "Known archived workspace threads (recent approvals/activity first):"
+	}
+
+	lines := []string{heading}
 	for index, threadID := range threadIDs {
 		line := fmt.Sprintf("%d. %s", index+1, threadID)
 		if threadID == currentThreadID {
@@ -2093,6 +2189,9 @@ func (s *Service) renderKnownConversationThreads(
 			if preview := formatBotThreadPreview(summary.Preview); preview != "" {
 				line += " | " + preview
 			}
+			if pendingSummary, ok := approvalSummaries[threadID]; ok && pendingSummary.Count > 0 {
+				line += " | " + formatThreadPendingApprovalLabel(pendingSummary)
+			}
 			if formatted := formatBotThreadTimestamp(summary.UpdatedAt); formatted != "" {
 				line += " | updated " + formatted
 			}
@@ -2107,12 +2206,100 @@ func (s *Service) resolveConversationThreadSelection(
 	connection store.BotConnection,
 	conversation store.BotConversation,
 	selection string,
+	filter string,
 ) (string, error) {
 	selection = strings.TrimSpace(selection)
 	if selection == "" {
 		return "", errors.New("thread id is required")
 	}
 
+	filter = normalizeConversationThreadFilter(filter)
+	approvalSummaries := s.pendingApprovalSummariesByThread(connection.WorkspaceID)
+	allThreadIDs := s.orderedConversationThreadIDsForDisplay(ctx, connection, conversation, "all", approvalSummaries)
+	threadIDs := s.orderedConversationThreadIDsForDisplay(ctx, connection, conversation, filter, approvalSummaries)
+
+	for _, threadID := range threadIDs {
+		if threadID == selection {
+			return threadID, nil
+		}
+	}
+
+	for _, threadID := range allThreadIDs {
+		if threadID != selection {
+			continue
+		}
+		if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok {
+			switch filter {
+			case "active":
+				if summary.Archived {
+					return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", threadID)
+				}
+			case "archived":
+				if !summary.Archived {
+					return "", fmt.Errorf("thread %q is already active", threadID)
+				}
+			}
+		}
+		return "", s.unknownConversationThreadSelectionError(selection, filter)
+	}
+
+	index, err := strconv.Atoi(selection)
+	if err == nil && index >= 1 && index <= len(threadIDs) {
+		return threadIDs[index-1], nil
+	}
+	if err == nil && index >= 1 && index <= len(allThreadIDs) {
+		threadID := allThreadIDs[index-1]
+		if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok {
+			switch filter {
+			case "active":
+				if summary.Archived {
+					return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", threadID)
+				}
+			case "archived":
+				if !summary.Archived {
+					return "", fmt.Errorf("thread %q is already active", threadID)
+				}
+			}
+		}
+	}
+
+	if normalizeAIBackendName(connection.AIBackend) == defaultAIBackend && s.threads != nil {
+		if detail, err := s.threads.GetDetail(ctx, connection.WorkspaceID, selection); err == nil {
+			switch filter {
+			case "active":
+				if detail.Archived {
+					return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", selection)
+				}
+			case "archived":
+				if !detail.Archived {
+					return "", fmt.Errorf("thread %q is already active", selection)
+				}
+			}
+			return selection, nil
+		}
+	}
+
+	return "", s.unknownConversationThreadSelectionError(selection, filter)
+}
+
+func normalizeConversationThreadFilter(filter string) string {
+	switch strings.ToLower(strings.TrimSpace(filter)) {
+	case "active":
+		return "active"
+	case "archived":
+		return "archived"
+	default:
+		return "all"
+	}
+}
+
+func (s *Service) filteredConversationThreadIDs(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	filter string,
+) []string {
+	filter = normalizeConversationThreadFilter(filter)
 	threadIDs := knownConversationThreadIDs(conversation)
 	if currentThreadID := strings.TrimSpace(conversation.ThreadID); currentThreadID != "" {
 		threadIDs = appendKnownConversationThreadID(
@@ -2120,35 +2307,104 @@ func (s *Service) resolveConversationThreadSelection(
 			currentThreadID,
 		)
 	}
+	if filter == "all" {
+		return threadIDs
+	}
 
+	filtered := make([]string, 0, len(threadIDs))
 	for _, threadID := range threadIDs {
-		if threadID == selection {
-			if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok && summary.Archived {
-				return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", threadID)
+		summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID)
+		if !ok {
+			if filter == "active" {
+				filtered = append(filtered, threadID)
 			}
-			return threadID, nil
+			continue
+		}
+		if filter == "archived" && summary.Archived {
+			filtered = append(filtered, threadID)
+			continue
+		}
+		if filter == "active" && !summary.Archived {
+			filtered = append(filtered, threadID)
 		}
 	}
+	return filtered
+}
 
-	index, err := strconv.Atoi(selection)
-	if err == nil && index >= 1 && index <= len(threadIDs) {
-		threadID := threadIDs[index-1]
-		if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok && summary.Archived {
-			return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", threadID)
-		}
-		return threadID, nil
+func (s *Service) orderedConversationThreadIDsForDisplay(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	filter string,
+	approvalSummaries map[string]botThreadApprovalSummary,
+) []string {
+	threadIDs := s.filteredConversationThreadIDs(ctx, connection, conversation, filter)
+	if len(threadIDs) <= 1 {
+		return threadIDs
 	}
 
-	if normalizeAIBackendName(connection.AIBackend) == defaultAIBackend && s.threads != nil {
-		if detail, err := s.threads.GetDetail(ctx, connection.WorkspaceID, selection); err == nil {
-			if detail.Archived {
-				return "", fmt.Errorf("thread %q is archived; start a new thread or use an active thread instead", selection)
+	currentThreadID := strings.TrimSpace(conversation.ThreadID)
+	type rankedThread struct {
+		threadID   string
+		index      int
+		isCurrent  bool
+		latestAt   time.Time
+		updatedAt  time.Time
+	}
+
+	ranked := make([]rankedThread, 0, len(threadIDs))
+	for index, threadID := range threadIDs {
+		item := rankedThread{
+			threadID:  threadID,
+			index:     index,
+			isCurrent: threadID == currentThreadID,
+		}
+		if approvalSummary, ok := approvalSummaries[threadID]; ok {
+			item.latestAt = approvalSummary.LatestAt
+		}
+		if summary, ok := s.lookupConversationThreadSummary(ctx, connection, threadID); ok {
+			item.updatedAt = summary.UpdatedAt
+		}
+		ranked = append(ranked, item)
+	}
+
+	sort.SliceStable(ranked, func(i int, j int) bool {
+		left := ranked[i]
+		right := ranked[j]
+		if left.isCurrent != right.isCurrent {
+			return left.isCurrent
+		}
+		if !left.latestAt.Equal(right.latestAt) {
+			if left.latestAt.IsZero() != right.latestAt.IsZero() {
+				return !left.latestAt.IsZero()
 			}
-			return selection, nil
+			return left.latestAt.After(right.latestAt)
 		}
-	}
+		if !left.updatedAt.Equal(right.updatedAt) {
+			if left.updatedAt.IsZero() != right.updatedAt.IsZero() {
+				return !left.updatedAt.IsZero()
+			}
+			return left.updatedAt.After(right.updatedAt)
+		}
+		return left.index < right.index
+	})
 
-	return "", fmt.Errorf("thread %q is not known in this conversation; use /thread list to inspect available threads", selection)
+	ordered := make([]string, 0, len(ranked))
+	for _, item := range ranked {
+		ordered = append(ordered, item.threadID)
+	}
+	return ordered
+}
+
+func (s *Service) unknownConversationThreadSelectionError(selection string, filter string) error {
+	switch normalizeConversationThreadFilter(filter) {
+	case "active":
+		return fmt.Errorf("thread %q is not known as an active thread in this conversation; use /thread list active to inspect available threads", selection)
+	case "archived":
+		return fmt.Errorf("thread %q is not known as an archived thread in this conversation; use /thread list archived to inspect available threads", selection)
+	default:
+		return fmt.Errorf("thread %q is not known in this conversation; use /thread list to inspect available threads", selection)
+	}
 }
 
 func (s *Service) lookupConversationThreadSummary(
@@ -2192,6 +2448,183 @@ func formatBotThreadPreview(value string) string {
 		return value
 	}
 	return strings.TrimSpace(string(runes[:120])) + "..."
+}
+
+func (s *Service) pendingApprovalSummariesByThread(workspaceID string) map[string]botThreadApprovalSummary {
+	if s.approvals == nil {
+		return nil
+	}
+
+	type accumulator struct {
+		count             int
+		kindCount         map[string]int
+		latestRequestedAt time.Time
+		latestSummary     string
+	}
+
+	accumulators := make(map[string]*accumulator)
+	for _, item := range s.approvals.List(workspaceID) {
+		threadID := strings.TrimSpace(item.ThreadID)
+		if threadID == "" {
+			continue
+		}
+		entry := accumulators[threadID]
+		if entry == nil {
+			entry = &accumulator{kindCount: make(map[string]int)}
+			accumulators[threadID] = entry
+		}
+		entry.count += 1
+		entry.kindCount[humanizeApprovalKind(item.Kind)] += 1
+		if item.RequestedAt.After(entry.latestRequestedAt) || entry.latestRequestedAt.IsZero() {
+			entry.latestRequestedAt = item.RequestedAt
+			entry.latestSummary = strings.TrimSpace(item.Summary)
+		}
+	}
+
+	if len(accumulators) == 0 {
+		return nil
+	}
+
+	summaries := make(map[string]botThreadApprovalSummary, len(accumulators))
+	for threadID, entry := range accumulators {
+		summaries[threadID] = botThreadApprovalSummary{
+			Count:       entry.count,
+			KindSummary: formatThreadApprovalKindSummary(entry.kindCount),
+			LatestText:  formatBotApprovalSummaryPreview(entry.latestSummary),
+			LatestAt:    entry.latestRequestedAt,
+		}
+	}
+	return summaries
+}
+
+func formatThreadPendingApprovalLabel(summary botThreadApprovalSummary) string {
+	if summary.Count <= 0 {
+		return ""
+	}
+	details := make([]string, 0, 2)
+	if summary.KindSummary != "" {
+		details = append(details, summary.KindSummary)
+	}
+	if summary.LatestText != "" {
+		details = append(details, "latest: "+summary.LatestText)
+	}
+	if formatted := formatBotThreadTimestamp(summary.LatestAt); formatted != "" {
+		details = append(details, "requested "+formatted)
+	}
+	if len(details) > 0 {
+		if summary.Count == 1 {
+			return "1 pending approval: " + strings.Join(details, "; ")
+		}
+		return fmt.Sprintf("%d pending approvals: %s", summary.Count, strings.Join(details, "; "))
+	}
+	if summary.Count == 1 {
+		return "1 pending approval"
+	}
+	return fmt.Sprintf("%d pending approvals", summary.Count)
+}
+
+func formatCurrentThreadPendingApprovalLine(summary botThreadApprovalSummary) string {
+	if summary.Count <= 0 {
+		return ""
+	}
+	details := make([]string, 0, 3)
+	if summary.KindSummary != "" {
+		details = append(details, summary.KindSummary)
+	}
+	if summary.LatestText != "" {
+		details = append(details, "latest: "+summary.LatestText)
+	}
+	if formatted := formatBotThreadTimestamp(summary.LatestAt); formatted != "" {
+		details = append(details, "requested "+formatted)
+	}
+	details = append(details, "use /approvals")
+	if len(details) > 1 {
+		if summary.Count == 1 {
+			return "Pending approval: 1 (" + strings.Join(details, "; ") + ")"
+		}
+		return fmt.Sprintf("Pending approvals: %d (%s)", summary.Count, strings.Join(details, "; "))
+	}
+	if summary.Count == 1 {
+		return "Pending approval: 1 (use /approvals)"
+	}
+	return fmt.Sprintf("Pending approvals: %d (use /approvals)", summary.Count)
+}
+
+func formatThreadApprovalKindSummary(kindCounts map[string]int) string {
+	if len(kindCounts) == 0 {
+		return ""
+	}
+
+	type item struct {
+		label string
+		count int
+	}
+
+	items := make([]item, 0, len(kindCounts))
+	for label, count := range kindCounts {
+		label = strings.TrimSpace(label)
+		if label == "" || count <= 0 {
+			continue
+		}
+		items = append(items, item{label: label, count: count})
+	}
+	if len(items) == 0 {
+		return ""
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].count != items[j].count {
+			return items[i].count > items[j].count
+		}
+		return items[i].label < items[j].label
+	})
+
+	limit := minInt(len(items), 2)
+	parts := make([]string, 0, limit+1)
+	for index := 0; index < limit; index++ {
+		parts = append(parts, fmt.Sprintf("%s x%d", items[index].label, items[index].count))
+	}
+	if len(items) > limit {
+		parts = append(parts, fmt.Sprintf("+%d more type(s)", len(items)-limit))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatBotApprovalSummaryPreview(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\r\n", "\n"))
+	if value == "" {
+		return ""
+	}
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) <= 80 {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:80])) + "..."
+}
+
+func formatThreadListHint(filter string, count int) string {
+	filter = normalizeConversationThreadFilter(filter)
+	if count <= 0 {
+		return ""
+	}
+	switch filter {
+	case "active":
+		if count == 1 {
+			return "Use /thread list active to inspect 1 known active thread."
+		}
+		return fmt.Sprintf("Use /thread list active to inspect %d known active threads.", count)
+	case "archived":
+		if count == 1 {
+			return "Use /thread list archived to inspect 1 archived thread."
+		}
+		return fmt.Sprintf("Use /thread list archived to inspect %d archived threads.", count)
+	default:
+		if count == 1 {
+			return "Use /thread list to inspect 1 known thread."
+		}
+		return fmt.Sprintf("Use /thread list to inspect %d known threads.", count)
+	}
 }
 
 func prioritizePendingApprovals(items []store.PendingApproval, currentThreadID string) []store.PendingApproval {

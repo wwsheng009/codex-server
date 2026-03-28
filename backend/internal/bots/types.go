@@ -29,6 +29,7 @@ type threadExecutor interface {
 	GetTurn(ctx context.Context, workspaceID string, threadID string, turnID string, contentMode string) (store.ThreadTurn, error)
 	Rename(ctx context.Context, workspaceID string, threadID string, name string) (store.Thread, error)
 	Archive(ctx context.Context, workspaceID string, threadID string) (store.Thread, error)
+	Unarchive(ctx context.Context, workspaceID string, threadID string) (store.Thread, error)
 }
 
 type turnExecutor interface {

@@ -1262,6 +1262,18 @@ func (f *fakeWorkspaceThreads) Archive(_ context.Context, _ string, threadID str
 	return f.thread, nil
 }
 
+func (f *fakeWorkspaceThreads) Unarchive(_ context.Context, _ string, threadID string) (store.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.thread.ID != threadID {
+		return store.Thread{}, store.ErrThreadNotFound
+	}
+	f.thread.Archived = false
+	f.detail.Thread.Archived = false
+	return f.thread, nil
+}
+
 func (f *fakeWorkspaceThreads) setCompletedTurn(turn store.ThreadTurn) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -465,9 +465,9 @@ func TestHandleWebhookThreadCommandsShowListAndUseKnownThreads(t *testing.T) {
 	expectSingleReply("Current workspace thread: thread-bot-2\nName: Bot Connection · Incident 42\nPreview: reply: hello on second thread\nUpdated: 2026-03-28 12:02:30 UTC\nConversation context version: 1")
 
 	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread list"}`)
-	expectSingleReply("Known workspace threads:\n1. thread-bot-1 | Bot Connection · Alice | reply: hello | updated 2026-03-28 12:01:30 UTC\n2. thread-bot-2 (current) | Bot Connection · Incident 42 | reply: hello on second thread | updated 2026-03-28 12:02:30 UTC")
+	expectSingleReply("Known workspace threads (current first, then recent approvals/activity):\n1. thread-bot-2 (current) | Bot Connection · Incident 42 | reply: hello on second thread | updated 2026-03-28 12:02:30 UTC\n2. thread-bot-1 | Bot Connection · Alice | reply: hello | updated 2026-03-28 12:01:30 UTC")
 
-	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-6","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 1"}`)
+	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-6","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 2"}`)
 	expectSingleReply("Switched the current conversation to thread: thread-bot-1")
 
 	sendWebhook(`{"conversationId":"chat-2","messageId":"msg-7","userId":"user-1","username":"alice","title":"Alice","text":"hello after switch back"}`)
@@ -561,10 +561,13 @@ func TestHandleWebhookThreadRenameAndArchiveCommands(t *testing.T) {
 	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-3","userId":"user-1","username":"alice","title":"Alice","text":"/thread archive"}`)
 	expectSingleReply("Archived the current thread: thread-bot-1\nFuture messages in this chat will require /newthread or /thread use.")
 
-	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-4","userId":"user-1","username":"alice","title":"Alice","text":"/thread list"}`)
-	expectSingleReply("Known workspace threads:\n1. thread-bot-1 (archived) | Release Review | reply: hello | updated 2026-03-28 12:02:00 UTC")
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-4","userId":"user-1","username":"alice","title":"Alice","text":"/thread"}`)
+	expectSingleReply("This conversation is not currently bound to a workspace thread.\nUse /newthread to start a new thread.\nUse /thread list archived to inspect 1 archived thread.")
 
-	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 1"}`)
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread list"}`)
+	expectSingleReply("Known workspace threads (current first, then recent approvals/activity):\n1. thread-bot-1 (archived) | Release Review | reply: hello | updated 2026-03-28 12:02:00 UTC")
+
+	sendWebhook(`{"conversationId":"chat-3","messageId":"msg-6","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 1"}`)
 	expectSingleReply("The bot could not switch threads right now: thread \"thread-bot-1\" is archived; start a new thread or use an active thread instead")
 
 	conversations := service.ListConversations(workspace.ID, connection.ID)
@@ -590,6 +593,351 @@ func TestHandleWebhookThreadRenameAndArchiveCommands(t *testing.T) {
 	}
 	if detail.Name != "Release Review" {
 		t.Fatalf("expected renamed thread title to persist, got %#v", detail.Thread)
+	}
+}
+
+func TestHandleWebhookThreadListFiltersAndUnarchiveCommands(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  5 * time.Millisecond,
+		TurnTimeout:   time.Second,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.turnSettleDelay = 5 * time.Millisecond
+		backend.pollInterval = 5 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendWebhook := func(payload string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(payload))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	expectSingleReply := func(expected string) {
+		select {
+		case sent := <-provider.sentCh:
+			if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
+				t.Fatalf("expected sent message %q, got %#v", expected, sent.Messages)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sent message %q", expected)
+		}
+	}
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello"}`)
+	expectSingleReply("reply: hello")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-2","userId":"user-1","username":"alice","title":"Alice","text":"/thread archive"}`)
+	expectSingleReply("Archived the current thread: thread-bot-1\nFuture messages in this chat will require /newthread or /thread use.")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-3","userId":"user-1","username":"alice","title":"Alice","text":"/newthread Incident 84"}`)
+	expectSingleReply("Started a new workspace thread: thread-bot-2\nName: Bot Connection · Incident 84\nFuture messages in this chat will use the new thread.")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-4","userId":"user-1","username":"alice","title":"Alice","text":"hello on second thread"}`)
+	expectSingleReply("reply: hello on second thread")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread list active"}`)
+	expectSingleReply("Known active workspace threads (current first, then recent approvals/activity):\n1. thread-bot-2 (current) | Bot Connection · Incident 84 | reply: hello on second thread | updated 2026-03-28 12:02:30 UTC")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-6","userId":"user-1","username":"alice","title":"Alice","text":"/thread list archived"}`)
+	expectSingleReply("Known archived workspace threads (recent approvals/activity first):\n1. thread-bot-1 (archived) | Bot Connection · Alice | reply: hello | updated 2026-03-28 12:01:45 UTC")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-7","userId":"user-1","username":"alice","title":"Alice","text":"/thread unarchive 1"}`)
+	expectSingleReply("Unarchived thread: thread-bot-1\nUse /thread use thread-bot-1 to switch this conversation back.")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-8","userId":"user-1","username":"alice","title":"Alice","text":"/thread list archived"}`)
+	expectSingleReply("No archived workspace threads are currently recorded for this conversation.")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-9","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 2"}`)
+	expectSingleReply("Switched the current conversation to thread: thread-bot-1")
+
+	sendWebhook(`{"conversationId":"chat-4","messageId":"msg-10","userId":"user-1","username":"alice","title":"Alice","text":"hello after unarchive"}`)
+	expectSingleReply("reply: hello after unarchive")
+
+	threadCalls := turnsExec.threadCalls()
+	if len(threadCalls) != 3 {
+		t.Fatalf("expected three AI turns, got %#v", threadCalls)
+	}
+	if threadCalls[0] != "thread-bot-1" || threadCalls[1] != "thread-bot-2" || threadCalls[2] != "thread-bot-1" {
+		t.Fatalf("expected AI turns on thread-bot-1, thread-bot-2, then thread-bot-1, got %#v", threadCalls)
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %#v", conversations)
+	}
+	if conversations[0].ThreadID != "thread-bot-1" {
+		t.Fatalf("expected conversation to switch back to thread-bot-1, got %#v", conversations[0])
+	}
+	if conversationContextVersion(conversations[0]) != 3 {
+		t.Fatalf("expected context version 3 after archive, /newthread, and /thread use, got %#v", conversations[0].BackendState)
+	}
+	if got := knownConversationThreadIDs(conversations[0]); len(got) != 2 || got[0] != "thread-bot-1" || got[1] != "thread-bot-2" {
+		t.Fatalf("expected known threads [thread-bot-1 thread-bot-2], got %#v", got)
+	}
+
+	detail, err := threadsExec.GetDetail(context.Background(), workspace.ID, "thread-bot-1")
+	if err != nil {
+		t.Fatalf("GetDetail(thread-bot-1) error = %v", err)
+	}
+	if detail.Archived {
+		t.Fatalf("expected thread-bot-1 to be unarchived, got %#v", detail.Thread)
+	}
+}
+
+func TestHandleWebhookThreadCommandsShowPendingApprovalCounts(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+	approvalsSvc := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_thr1_a",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thread-bot-1",
+			Kind:        "item/permissions/requestApproval",
+			Summary:     "Approve edit",
+			Status:      "pending",
+			RequestedAt: time.Date(2026, time.March, 28, 12, 1, 40, 0, time.UTC),
+		},
+		{
+			ID:          "req_thr1_b",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thread-bot-1",
+			Kind:        "item/tool/requestUserInput",
+			Summary:     "Need input",
+			Status:      "pending",
+			RequestedAt: time.Date(2026, time.March, 28, 12, 1, 50, 0, time.UTC),
+		},
+		{
+			ID:          "req_thr2_a",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thread-bot-2",
+			Kind:        "item/tool/call",
+			Summary:     "Tool input required",
+			Status:      "pending",
+			RequestedAt: time.Date(2026, time.March, 28, 12, 2, 40, 0, time.UTC),
+		},
+	})
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  5 * time.Millisecond,
+		TurnTimeout:   time.Second,
+		Approvals:     approvalsSvc,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.turnSettleDelay = 5 * time.Millisecond
+		backend.pollInterval = 5 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendWebhook := func(payload string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(payload))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	expectSingleReply := func(expected string) {
+		select {
+		case sent := <-provider.sentCh:
+			if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
+				t.Fatalf("expected sent message %q, got %#v", expected, sent.Messages)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sent message %q", expected)
+		}
+	}
+
+	sendWebhook(`{"conversationId":"chat-5","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello"}`)
+	expectSingleReply("reply: hello")
+
+	sendWebhook(`{"conversationId":"chat-5","messageId":"msg-2","userId":"user-1","username":"alice","title":"Alice","text":"/newthread Review Queue"}`)
+	expectSingleReply("Started a new workspace thread: thread-bot-2\nName: Bot Connection · Review Queue\nFuture messages in this chat will use the new thread.")
+
+	sendWebhook(`{"conversationId":"chat-5","messageId":"msg-3","userId":"user-1","username":"alice","title":"Alice","text":"hello on second thread"}`)
+	expectSingleReply("reply: hello on second thread")
+
+	sendWebhook(`{"conversationId":"chat-5","messageId":"msg-4","userId":"user-1","username":"alice","title":"Alice","text":"/thread"}`)
+	expectSingleReply("Current workspace thread: thread-bot-2\nName: Bot Connection · Review Queue\nPreview: reply: hello on second thread\nUpdated: 2026-03-28 12:02:30 UTC\nPending approval: 1 (Tool Response Request x1; latest: Tool input required; requested 2026-03-28 12:02:40 UTC; use /approvals)\nConversation context version: 1")
+
+	sendWebhook(`{"conversationId":"chat-5","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread list"}`)
+	expectSingleReply("Known workspace threads (current first, then recent approvals/activity):\n1. thread-bot-2 (current) | Bot Connection · Review Queue | reply: hello on second thread | 1 pending approval: Tool Response Request x1; latest: Tool input required; requested 2026-03-28 12:02:40 UTC | updated 2026-03-28 12:02:30 UTC\n2. thread-bot-1 | Bot Connection · Alice | reply: hello | 2 pending approvals: Permissions Request x1, User Input Request x1; latest: Need input; requested 2026-03-28 12:01:50 UTC | updated 2026-03-28 12:01:30 UTC")
+}
+
+func TestBotConversationCommandHelpMentionsThreadListOrdering(t *testing.T) {
+	t.Parallel()
+
+	text := botConversationCommandHelp("")
+	expected := strings.Join([]string{
+		"Bot conversation commands:",
+		"/newthread [title]",
+		"/thread",
+		"/thread list [active|archived|all]",
+		"  lists current thread first, then recent approvals/activity",
+		"/thread rename <title>",
+		"/thread archive",
+		"/thread unarchive <thread_id|index>",
+		"/thread use <thread_id|index>",
+	}, "\n")
+	if text != expected {
+		t.Fatalf("expected help text %q, got %q", expected, text)
+	}
+}
+
+func TestRenderCurrentConversationThreadWithoutBindingSuggestsNextCommands(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	thread1, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Thread One"})
+	if err != nil {
+		t.Fatalf("Create(thread1) error = %v", err)
+	}
+	thread2, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Thread Two"})
+	if err != nil {
+		t.Fatalf("Create(thread2) error = %v", err)
+	}
+	if _, err := threadsExec.Archive(context.Background(), workspace.ID, thread2.ID); err != nil {
+		t.Fatalf("Archive(thread2) error = %v", err)
+	}
+
+	conversation := store.BotConversation{
+		BackendState: conversationBackendStateWithKnownThreads(nil, []string{thread1.ID, thread2.ID}),
+	}
+	text := service.renderCurrentConversationThread(context.Background(), store.BotConnection{WorkspaceID: workspace.ID}, conversation)
+	expected := "This conversation is not currently bound to a workspace thread.\nUse /newthread to start a new thread.\nUse /thread list active to inspect 1 known active thread.\nUse /thread list archived to inspect 1 archived thread."
+	if text != expected {
+		t.Fatalf("expected current thread guidance %q, got %q", expected, text)
+	}
+}
+
+func TestRenderKnownConversationThreadsPrioritizesCurrentAndRecentApprovals(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	approvalsSvc := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_thr1_old",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thread-bot-1",
+			Kind:        "item/permissions/requestApproval",
+			Summary:     "Older approval",
+			Status:      "pending",
+			RequestedAt: time.Date(2026, time.March, 28, 12, 1, 10, 0, time.UTC),
+		},
+		{
+			ID:          "req_thr2_new",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thread-bot-2",
+			Kind:        "item/tool/call",
+			Summary:     "Newest approval",
+			Status:      "pending",
+			RequestedAt: time.Date(2026, time.March, 28, 12, 2, 50, 0, time.UTC),
+		},
+	})
+
+	service := NewService(dataStore, threadsExec, nil, nil, Config{
+		Approvals: approvalsSvc,
+	})
+
+	createThread := func(name string) string {
+		thread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: name})
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		return thread.ID
+	}
+
+	thread1 := createThread("Thread One")
+	thread2 := createThread("Thread Two")
+	thread3 := createThread("Thread Three")
+
+	threadsExec.setCompletedTurn(thread1, store.ThreadTurn{
+		ID:     "turn-1",
+		Status: "completed",
+		Items: []map[string]any{{"id": "assistant-1", "type": "agentMessage", "text": "reply one"}},
+	})
+	threadsExec.setCompletedTurn(thread2, store.ThreadTurn{
+		ID:     "turn-2",
+		Status: "completed",
+		Items: []map[string]any{{"id": "assistant-2", "type": "agentMessage", "text": "reply two"}},
+	})
+	threadsExec.setCompletedTurn(thread3, store.ThreadTurn{
+		ID:     "turn-3",
+		Status: "completed",
+		Items: []map[string]any{{"id": "assistant-3", "type": "agentMessage", "text": "reply three"}},
+	})
+
+	connection := store.BotConnection{WorkspaceID: workspace.ID}
+	conversation := store.BotConversation{
+		ThreadID: thread3,
+		BackendState: conversationBackendStateWithKnownThreads(nil, []string{
+			thread1,
+			thread2,
+			thread3,
+		}),
+	}
+
+	text := service.renderKnownConversationThreads(context.Background(), connection, conversation, "all")
+	expected := "Known workspace threads (current first, then recent approvals/activity):\n1. thread-bot-3 (current) | Thread Three | reply three | updated 2026-03-28 12:03:30 UTC\n2. thread-bot-2 | Thread Two | reply two | 1 pending approval: Tool Response Request x1; latest: Newest approval; requested 2026-03-28 12:02:50 UTC | updated 2026-03-28 12:02:30 UTC\n3. thread-bot-1 | Thread One | reply one | 1 pending approval: Permissions Request x1; latest: Older approval; requested 2026-03-28 12:01:10 UTC | updated 2026-03-28 12:01:30 UTC"
+	if text != expected {
+		t.Fatalf("expected ordered thread list %q, got %q", expected, text)
 	}
 }
 
@@ -2560,6 +2908,20 @@ func (f *fakeBotThreads) Archive(_ context.Context, _ string, threadID string) (
 		return store.Thread{}, store.ErrThreadNotFound
 	}
 	detail.Thread.Archived = true
+	detail.Thread.UpdatedAt = detail.Thread.UpdatedAt.Add(15 * time.Second)
+	f.details[threadID] = detail
+	return detail.Thread, nil
+}
+
+func (f *fakeBotThreads) Unarchive(_ context.Context, _ string, threadID string) (store.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	detail, ok := f.details[threadID]
+	if !ok {
+		return store.Thread{}, store.ErrThreadNotFound
+	}
+	detail.Thread.Archived = false
 	detail.Thread.UpdatedAt = detail.Thread.UpdatedAt.Add(15 * time.Second)
 	f.details[threadID] = detail
 	return detail.Thread, nil
