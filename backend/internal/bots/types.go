@@ -26,6 +26,7 @@ const defaultAIBackend = "workspace_thread"
 type threadExecutor interface {
 	Create(ctx context.Context, workspaceID string, input threads.CreateInput) (store.Thread, error)
 	GetDetail(ctx context.Context, workspaceID string, threadID string) (store.ThreadDetail, error)
+	GetTurn(ctx context.Context, workspaceID string, threadID string, turnID string, contentMode string) (store.ThreadTurn, error)
 }
 
 type turnExecutor interface {
@@ -102,6 +103,7 @@ type Config struct {
 	PublicBaseURL    string
 	OutboundProxyURL string
 	HTTPClient       *http.Client
+	MessageTimeout   time.Duration
 	PollInterval     time.Duration
 	TurnTimeout      time.Duration
 	Approvals        ApprovalResponder
@@ -115,14 +117,14 @@ type ActivationResult struct {
 }
 
 type InboundMessage struct {
-	ConversationID string
-	ExternalChatID string
+	ConversationID   string
+	ExternalChatID   string
 	ExternalThreadID string
-	MessageID      string
-	UserID         string
-	Username       string
-	Title          string
-	Text           string
+	MessageID        string
+	UserID           string
+	Username         string
+	Title            string
+	Text             string
 }
 
 type OutboundMessage struct {

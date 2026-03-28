@@ -19,9 +19,9 @@ import (
 const (
 	defaultWorkerQueueSize      = 32
 	defaultWorkerIdleTimeout    = 2 * time.Minute
-	defaultMessageTimeout       = 3 * time.Minute
 	defaultStreamingPendingText = "Working..."
-	defaultStreamingFailureText = "Request failed. Please try again."
+	defaultStreamingFailureText = "The bot could not process your message right now.\nTechnical details: no additional error details were available from the bot backend."
+	botFailureDetailCharLimit   = 1200
 )
 
 type Service struct {
@@ -42,6 +42,7 @@ type Service struct {
 	baseCtx           context.Context
 	workers           map[string]*inboundWorker
 	pollers           map[string]*pollerHandle
+	messageTimeout    time.Duration
 	queueSize         int
 	workerIdleTimeout time.Duration
 }
@@ -69,6 +70,38 @@ type pollerHandle struct {
 	cancel context.CancelFunc
 }
 
+type replyDeliveryError struct {
+	reply        AIResult
+	providerName string
+	phase        string
+	cause        error
+}
+
+func (e *replyDeliveryError) Error() string {
+	if e == nil {
+		return ""
+	}
+
+	label := "bot reply delivery failed"
+	if providerLabel := formatFailureLabel(e.providerName); providerLabel != "" {
+		label = providerLabel + " delivery failed"
+	}
+	if phase := strings.TrimSpace(e.phase); phase != "" {
+		label += " during " + phase
+	}
+	if e.cause == nil {
+		return label
+	}
+	return label + ": " + e.cause.Error()
+}
+
+func (e *replyDeliveryError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
 func NewService(
 	dataStore *store.MemoryStore,
 	threadService threadExecutor,
@@ -94,6 +127,7 @@ func NewService(
 		aiBackends:        make(map[string]AIBackend),
 		workers:           make(map[string]*inboundWorker),
 		pollers:           make(map[string]*pollerHandle),
+		messageTimeout:    cfg.MessageTimeout,
 		queueSize:         defaultWorkerQueueSize,
 		workerIdleTimeout: defaultWorkerIdleTimeout,
 	}
@@ -467,8 +501,15 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		return nil
 	}
 
-	messageCtx, cancel := context.WithTimeout(ctx, defaultMessageTimeout)
+	messageCtx, cancel := withOptionalTimeout(ctx, s.messageTimeout)
 	defer cancel()
+
+	if reply, ok := aiResultFromDelivery(delivery); ok {
+		if err := provider.SendMessages(messageCtx, connection, conversation, reply.Messages); err != nil {
+			return s.handleReplyDeliveryFailure(connection, conversation, delivery, message, reply, err)
+		}
+		return s.completeInboundDeliveryWithReply(connection, conversation, delivery, message, reply)
+	}
 
 	aiBackend, ok := s.aiBackends[normalizeAIBackendName(connection.AIBackend)]
 	if !ok {
@@ -506,6 +547,11 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 
 	reply, failureDelivered, failureText, err := s.executeAIReply(messageCtx, provider, aiBackend, connection, conversation, message)
 	if err != nil {
+		var deliveryErr *replyDeliveryError
+		if errors.As(err, &deliveryErr) {
+			return s.handleReplyDeliveryFailure(connection, conversation, delivery, message, deliveryErr.reply, deliveryErr)
+		}
+
 		if !failureDelivered {
 			var notifyErr error
 			failureText, notifyErr = s.sendFailureReply(messageCtx, provider, connection, conversation, err)
@@ -542,19 +588,7 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		return nil
 	}
 
-	updatedConversation := s.recordConversationOutcome(connection, conversation, reply, message, "")
-	if _, err := s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID); err != nil {
-		return err
-	}
-
-	s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/sent", map[string]any{
-		"connectionId":   connection.ID,
-		"conversationId": updatedConversation.ID,
-		"threadId":       updatedConversation.ThreadID,
-		"messageCount":   len(reply.Messages),
-	})
-
-	return nil
+	return s.completeInboundDeliveryWithReply(connection, conversation, delivery, message, reply)
 }
 
 func (s *Service) executeAIReply(
@@ -593,14 +627,24 @@ func (s *Service) executeAIReply(
 		},
 	)
 	if processErr != nil {
-		if failErr := session.Fail(ctx, defaultStreamingFailureText); failErr != nil {
+		processErr = wrapAIBackendError(aiBackend.Name(), processErr)
+		failureText := strings.TrimSpace(failureReplyText(processErr))
+		if failureText == "" {
+			failureText = defaultStreamingFailureText
+		}
+		if failErr := session.Fail(ctx, failureText); failErr != nil {
 			return AIResult{}, false, "", errors.Join(processErr, failErr)
 		}
-		return AIResult{}, true, defaultStreamingFailureText, processErr
+		return AIResult{}, true, failureText, processErr
 	}
 
 	if err := session.Complete(ctx, reply.Messages); err != nil {
-		return AIResult{}, false, "", err
+		return AIResult{}, false, "", &replyDeliveryError{
+			reply:        reply,
+			providerName: provider.Name(),
+			phase:        "stream completion",
+			cause:        err,
+		}
 	}
 
 	return reply, false, "", nil
@@ -616,14 +660,86 @@ func (s *Service) executeFinalAIReply(
 ) (AIResult, error) {
 	reply, err := aiBackend.ProcessMessage(ctx, connection, conversation, inbound)
 	if err != nil {
-		return AIResult{}, err
+		return AIResult{}, wrapAIBackendError(aiBackend.Name(), err)
 	}
 
 	if err := provider.SendMessages(ctx, connection, conversation, reply.Messages); err != nil {
-		return AIResult{}, err
+		return AIResult{}, &replyDeliveryError{
+			reply:        reply,
+			providerName: provider.Name(),
+			phase:        "final message send",
+			cause:        err,
+		}
 	}
 
 	return reply, nil
+}
+
+func (s *Service) completeInboundDeliveryWithReply(
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	delivery store.BotInboundDelivery,
+	message InboundMessage,
+	reply AIResult,
+) error {
+	updatedConversation := s.recordConversationOutcome(connection, conversation, reply, message, "")
+	if _, err := s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID); err != nil {
+		return err
+	}
+
+	s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/sent", map[string]any{
+		"connectionId":   connection.ID,
+		"conversationId": updatedConversation.ID,
+		"threadId":       updatedConversation.ThreadID,
+		"messageCount":   len(reply.Messages),
+	})
+
+	return nil
+}
+
+func (s *Service) handleReplyDeliveryFailure(
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	delivery store.BotInboundDelivery,
+	message InboundMessage,
+	reply AIResult,
+	deliveryErr error,
+) error {
+	updatedConversation := s.recordConversationOutcome(connection, conversation, reply, message, "")
+
+	replyTexts := outboundMessageTexts(reply.Messages)
+	saveErr := error(nil)
+	if _, err := s.store.SaveBotInboundDeliveryReply(connection.WorkspaceID, delivery.ID, reply.ThreadID, replyTexts); err != nil {
+		saveErr = err
+	}
+
+	lastError := deliveryErr
+	if saveErr != nil {
+		lastError = errors.Join(lastError, saveErr)
+	}
+
+	failErr := error(nil)
+	if _, err := s.store.FailBotInboundDelivery(connection.WorkspaceID, delivery.ID, lastError.Error()); err != nil {
+		failErr = err
+		lastError = errors.Join(lastError, failErr)
+	}
+
+	s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/delivery_failed", map[string]any{
+		"connectionId":   connection.ID,
+		"conversationId": updatedConversation.ID,
+		"threadId":       updatedConversation.ThreadID,
+		"messageCount":   len(reply.Messages),
+		"error":          lastError.Error(),
+	})
+	_, _ = s.store.UpdateBotConnection(connection.WorkspaceID, connection.ID, func(current store.BotConnection) store.BotConnection {
+		current.LastError = lastError.Error()
+		return current
+	})
+
+	if saveErr != nil || failErr != nil {
+		return lastError
+	}
+	return nil
 }
 
 func (s *Service) resolveConversation(
@@ -954,18 +1070,109 @@ func (s *Service) sendFailureReply(
 }
 
 func failureReplyText(err error) string {
+	summary := failureReplySummary(err)
+	detail := failureReplyDetail(err)
+
 	switch {
+	case summary == "" && detail == "":
+		return ""
+	case summary == "":
+		return detail
+	case detail == "":
+		return summary
+	case strings.Contains(summary, detail):
+		return summary
+	default:
+		return summary + "\nTechnical details: " + detail
+	}
+}
+
+func failureReplySummary(err error) string {
+	switch {
+	case err == nil:
+		return "The bot failed, but the backend did not record a structured error."
 	case errors.Is(err, appRuntime.ErrRuntimeNotConfigured):
 		return "The bot runtime is not configured right now. Please contact the workspace admin."
+	case errors.Is(err, context.Canceled):
+		return "The bot backend stopped before finishing your message. Please try again."
 	case errors.Is(err, context.DeadlineExceeded):
-		return "The bot backend timed out while processing your message. Please try again."
+		return "The bot backend stopped before finishing your message. Please try again."
 	case errors.Is(err, ErrAIBackendUnsupported):
 		return "The bot AI backend is not configured correctly right now."
 	case errors.Is(err, ErrInvalidInput):
 		return "The bot configuration is incomplete right now."
-	default:
-		return "The bot could not process your message right now. Please try again later."
 	}
+
+	var deliveryErr *replyDeliveryError
+	if errors.As(err, &deliveryErr) {
+		providerLabel := formatFailureLabel(deliveryErr.providerName)
+		if providerLabel == "" {
+			return "The bot generated a reply, but the final delivery step failed."
+		}
+		return "The bot generated a reply, but the final delivery step to " + providerLabel + " failed."
+	}
+
+	var turnErr *workspaceTurnTerminalError
+	if errors.As(err, &turnErr) {
+		switch strings.ToLower(strings.TrimSpace(turnErr.Status)) {
+		case "interrupted", "canceled", "cancelled":
+			return "The workspace turn stopped before finishing your reply."
+		case "failed":
+			return "The workspace turn failed before producing a final bot reply."
+		default:
+			return "The workspace turn ended without a successful bot reply."
+		}
+	}
+
+	var noReplyErr *botVisibleReplyMissingError
+	if errors.As(err, &noReplyErr) {
+		return "The AI backend finished, but it did not produce any bot-visible reply."
+	}
+
+	var backendErr *aiBackendExecutionError
+	if errors.As(err, &backendErr) {
+		if backendLabel := formatFailureLabel(backendErr.backend); backendLabel != "" {
+			return "The " + backendLabel + " AI backend failed while processing your message."
+		}
+		return "The AI backend failed while processing your message."
+	}
+
+	return "The bot could not process your message right now. Please try again later."
+}
+
+func failureReplyDetail(err error) string {
+	if err == nil {
+		return "no error object was provided by the bot backend"
+	}
+
+	normalized := strings.ReplaceAll(err.Error(), "\r\n", "\n")
+	parts := strings.Split(normalized, "\n")
+	lines := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		line := strings.TrimSpace(part)
+		if line == "" {
+			continue
+		}
+		if _, ok := seen[line]; ok {
+			continue
+		}
+		seen[line] = struct{}{}
+		lines = append(lines, line)
+		if len(lines) >= 4 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return "the bot backend returned an empty error message"
+	}
+
+	detail := strings.Join(lines, " | ")
+	runes := []rune(detail)
+	if len(runes) > botFailureDetailCharLimit {
+		detail = strings.TrimSpace(string(runes[:botFailureDetailCharLimit])) + "..."
+	}
+	return detail
 }
 
 func (s *Service) handleApprovalCommand(
@@ -1458,6 +1665,45 @@ func inboundMessageFromDelivery(delivery store.BotInboundDelivery) InboundMessag
 		Title:            strings.TrimSpace(delivery.Title),
 		Text:             strings.TrimSpace(delivery.Text),
 	}
+}
+
+func aiResultFromDelivery(delivery store.BotInboundDelivery) (AIResult, bool) {
+	if len(delivery.ReplyTexts) == 0 {
+		return AIResult{}, false
+	}
+
+	messages := make([]OutboundMessage, 0, len(delivery.ReplyTexts))
+	for _, text := range delivery.ReplyTexts {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		messages = append(messages, OutboundMessage{Text: text})
+	}
+	if len(messages) == 0 {
+		return AIResult{}, false
+	}
+
+	return AIResult{
+		ThreadID: strings.TrimSpace(delivery.ReplyThreadID),
+		Messages: messages,
+	}, true
+}
+
+func outboundMessageTexts(messages []OutboundMessage) []string {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	texts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		text := strings.TrimSpace(message.Text)
+		if text == "" {
+			continue
+		}
+		texts = append(texts, text)
+	}
+	return texts
 }
 
 func connectionViewFromStore(connection store.BotConnection) ConnectionView {

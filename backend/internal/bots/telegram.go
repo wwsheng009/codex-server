@@ -809,14 +809,14 @@ func inboundMessageFromTelegramUpdate(update telegramUpdate) (InboundMessage, er
 	threadID := telegramThreadID(update.Message.MessageThreadID)
 
 	return InboundMessage{
-		ConversationID:  telegramConversationID(chatID, threadID),
-		ExternalChatID:  chatID,
+		ConversationID:   telegramConversationID(chatID, threadID),
+		ExternalChatID:   chatID,
 		ExternalThreadID: threadID,
-		MessageID:       strconv.FormatInt(update.Message.MessageID, 10),
-		UserID:          userID,
-		Username:        username,
-		Title:           title,
-		Text:            text,
+		MessageID:        strconv.FormatInt(update.Message.MessageID, 10),
+		UserID:           userID,
+		Username:         username,
+		Title:            title,
+		Text:             text,
 	}, nil
 }
 
@@ -837,17 +837,16 @@ func telegramThreadID(messageThreadID int64) string {
 }
 
 func splitTelegramText(value string, maxRunes int) []string {
-	text := strings.TrimSpace(value)
-	if text == "" {
+	if value == "" {
 		return nil
 	}
 	if maxRunes <= 0 {
-		return []string{text}
+		return []string{value}
 	}
 
-	runes := []rune(text)
+	runes := []rune(value)
 	if len(runes) <= maxRunes {
-		return []string{text}
+		return []string{value}
 	}
 
 	chunks := make([]string, 0, (len(runes)+maxRunes-1)/maxRunes)
@@ -857,10 +856,8 @@ func splitTelegramText(value string, maxRunes int) []string {
 			size = len(runes)
 		}
 
-		chunk := strings.TrimSpace(string(runes[:size]))
-		if chunk != "" {
-			chunks = append(chunks, chunk)
-		}
+		chunk := string(runes[:size])
+		chunks = append(chunks, chunk)
 		runes = runes[size:]
 	}
 
@@ -961,7 +958,7 @@ func (s *telegramStreamingReplySession) Complete(ctx context.Context, messages [
 func (s *telegramStreamingReplySession) Fail(ctx context.Context, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		text = "Request failed. Please try again."
+		text = defaultStreamingFailureText
 	}
 
 	return s.reconcile(ctx, []OutboundMessage{{Text: text}}, true)

@@ -603,6 +603,68 @@ func TestTelegramProviderSendMessagesPreservesTopicThreadIDAcrossChunks(t *testi
 	}
 }
 
+func TestSplitTelegramTextPreservesWhitespaceExactly(t *testing.T) {
+	t.Parallel()
+
+	original := "  leading\n" + strings.Repeat("a", telegramTextLimitRunes+5) + "\ntrailing  "
+	chunks := splitTelegramText(original, telegramTextLimitRunes)
+	if len(chunks) != 2 {
+		t.Fatalf("expected 2 chunks, got %#v", chunks)
+	}
+	if strings.Join(chunks, "") != original {
+		t.Fatalf("expected split/join to preserve original text exactly")
+	}
+}
+
+func TestTelegramProviderSendMessagesPreservesLongTextWhitespaceAcrossChunks(t *testing.T) {
+	t.Parallel()
+
+	sendPayloads := make([]map[string]any, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/sendMessage" {
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode sendMessage payload error = %v", err)
+		}
+		sendPayloads = append(sendPayloads, payload)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": map[string]any{
+				"message_id": 820 + len(sendPayloads),
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	original := "  leading\n" + strings.Repeat("a", telegramTextLimitRunes+5) + "\ntrailing  "
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID: "1001",
+	}, []OutboundMessage{{Text: original}})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if len(sendPayloads) != 2 {
+		t.Fatalf("expected 2 sendMessage payloads, got %#v", sendPayloads)
+	}
+
+	texts := make([]string, 0, len(sendPayloads))
+	for _, payload := range sendPayloads {
+		texts = append(texts, payload["text"].(string))
+	}
+	if strings.Join(texts, "") != original {
+		t.Fatalf("expected sent chunks to preserve original text exactly")
+	}
+}
+
 func TestTelegramProviderRunPollingPreservesTopicThreadID(t *testing.T) {
 	t.Parallel()
 

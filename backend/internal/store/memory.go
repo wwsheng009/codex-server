@@ -1095,6 +1095,19 @@ func (s *MemoryStore) CompleteBotInboundDelivery(workspaceID string, deliveryID 
 	})
 }
 
+func (s *MemoryStore) SaveBotInboundDeliveryReply(
+	workspaceID string,
+	deliveryID string,
+	threadID string,
+	replyTexts []string,
+) (BotInboundDelivery, error) {
+	return s.updateBotInboundDelivery(workspaceID, deliveryID, func(current BotInboundDelivery) BotInboundDelivery {
+		current.ReplyThreadID = strings.TrimSpace(threadID)
+		current.ReplyTexts = cloneStringSlice(replyTexts)
+		return current
+	})
+}
+
 func (s *MemoryStore) FailBotInboundDelivery(workspaceID string, deliveryID string, lastError string) (BotInboundDelivery, error) {
 	return s.updateBotInboundDelivery(workspaceID, deliveryID, func(current BotInboundDelivery) BotInboundDelivery {
 		current.Status = "failed"
@@ -1118,6 +1131,15 @@ func (s *MemoryStore) PrepareBotInboundDeliveriesForRecovery(workspaceID string,
 		}
 		switch strings.TrimSpace(delivery.Status) {
 		case "processing":
+			delivery.Status = "received"
+			delivery.UpdatedAt = time.Now().UTC()
+			s.botInbound[id] = delivery
+			changed = true
+			items = append(items, cloneBotInboundDelivery(delivery))
+		case "failed":
+			if len(delivery.ReplyTexts) == 0 {
+				continue
+			}
 			delivery.Status = "received"
 			delivery.UpdatedAt = time.Now().UTC()
 			s.botInbound[id] = delivery
@@ -1452,7 +1474,13 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	}
 
 	s.projections[key] = projection
-	s.persistLocked()
+	// Delta events can arrive at very high frequency while a turn is streaming.
+	// Keep the in-memory projection hot, but avoid rewriting the full store file
+	// for every incremental chunk. A later lifecycle event or snapshot refresh
+	// will persist the settled state.
+	if shouldPersistThreadProjectionEvent(event.Method) {
+		s.persistLocked()
+	}
 }
 
 func (s *MemoryStore) RemoveThread(workspaceID string, threadID string) {
@@ -1966,7 +1994,9 @@ func cloneBotConversation(conversation BotConversation) BotConversation {
 }
 
 func cloneBotInboundDelivery(delivery BotInboundDelivery) BotInboundDelivery {
-	return delivery
+	next := delivery
+	next.ReplyTexts = cloneStringSlice(delivery.ReplyTexts)
+	return next
 }
 
 func normalizeBotConversationExternalRouting(conversation BotConversation) BotConversation {
@@ -2077,6 +2107,16 @@ func cloneStringMap(values map[string]string) map[string]string {
 	for key, value := range values {
 		cloned[key] = value
 	}
+	return cloned
+}
+
+func cloneStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make([]string, len(values))
+	copy(cloned, values)
 	return cloned
 }
 

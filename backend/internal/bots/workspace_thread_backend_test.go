@@ -290,6 +290,28 @@ func TestBotVisibleItemStreamMergeCompletedTurnItemsPrefersCompletedMessageText(
 	}
 }
 
+func TestBotVisibleItemStreamMergeCompletedTurnItemsKeepsCompletedTextEvenIfStreamIsLonger(t *testing.T) {
+	t.Parallel()
+
+	stream := botVisibleItemStream{}
+	stream.AddTextDelta("assistant-1", "agentMessage", "hello world from stale stream")
+
+	merged := stream.mergeCompletedTurnItems([]map[string]any{
+		{
+			"id":   "assistant-1",
+			"type": "agentMessage",
+			"text": "hello world",
+		},
+	})
+
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 merged item, got %#v", merged)
+	}
+	if stringValue(merged[0]["text"]) != "hello world" {
+		t.Fatalf("expected completed turn text to remain authoritative, got %#v", merged[0])
+	}
+}
+
 func TestBotVisibleItemStreamMergeCompletedTurnItemsPreservesCompletedServerRequestStatus(t *testing.T) {
 	t.Parallel()
 
@@ -723,6 +745,131 @@ func TestWorkspaceThreadAIBackendKeepsWaitingWhenStreamingDeliveryFails(t *testi
 	}
 }
 
+func TestWorkspaceThreadAIBackendRecoversStreamingContentAfterEventSubscriptionOverflow(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-overflow-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-overflow-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeOverflowThenSnapshotTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 20 * time.Millisecond
+
+	snapshots := make([][]OutboundMessage, 0, 4)
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-stream-overflow-1",
+		Text:           "hello",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		if len(update.Messages) == 0 {
+			return nil
+		}
+		snapshots = append(snapshots, cloneOutboundMessages(update.Messages))
+		if len(snapshots) == 1 {
+			time.Sleep(80 * time.Millisecond)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 || result.Messages[0].Text != "hello world overflow recovered" {
+		t.Fatalf("expected final messages to recover from overflowed subscription, got %#v", result.Messages)
+	}
+
+	foundRecoveredSnapshot := false
+	for _, snapshot := range snapshots {
+		if len(snapshot) == 1 && snapshot[0].Text == "hello world overflow recovered" {
+			foundRecoveredSnapshot = true
+			break
+		}
+	}
+	if !foundRecoveredSnapshot {
+		t.Fatalf("expected a later streaming snapshot to recover after overflow, got %#v", snapshots)
+	}
+}
+
+func TestWorkspaceThreadAIBackendRecoversAfterOverflowBeforeTerminalSnapshotSettles(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-overflow-2",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-overflow-2",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeOverflowBeforeCompletionTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, time.Second, 2*time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 20 * time.Millisecond
+
+	startedAt := time.Now()
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-stream-overflow-2",
+		Text:           "hello",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		if len(update.Messages) == 0 {
+			return nil
+		}
+		time.Sleep(80 * time.Millisecond)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 || result.Messages[0].Text != "hello recovered before poll timeout" {
+		t.Fatalf("expected fast snapshot recovery after overflow, got %#v", result.Messages)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 900*time.Millisecond {
+		t.Fatalf("expected recovery before fallback poll interval, got %s", elapsed)
+	}
+}
+
 func TestWorkspaceThreadAIBackendTreatsInterruptedTurnAsTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -776,6 +923,18 @@ func TestWorkspaceThreadAIBackendTreatsInterruptedTurnAsTerminal(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "interrupted") {
 		t.Fatalf("expected interrupted status in error, got %v", err)
+	}
+}
+
+func TestNewWorkspaceThreadAIBackendDefaultsToNoTurnTimeout(t *testing.T) {
+	t.Parallel()
+
+	backend := newWorkspaceThreadAIBackend(nil, nil, nil, 0, 0).(*workspaceThreadAIBackend)
+	if backend.turnTimeout != 0 {
+		t.Fatalf("expected no default turn timeout, got %v", backend.turnTimeout)
+	}
+	if backend.pollInterval != defaultThreadPollInterval {
+		t.Fatalf("expected default poll interval %v, got %v", defaultThreadPollInterval, backend.pollInterval)
 	}
 }
 
@@ -905,7 +1064,7 @@ func TestWorkspaceThreadAIBackendReturnsTypedNoReplyError(t *testing.T) {
 	}
 }
 
-func TestWorkspaceThreadAIBackendPollsSingleTurnInsteadOfFullDetail(t *testing.T) {
+func TestWorkspaceThreadAIBackendUsesFreshDetailForTerminalTurnConfirmation(t *testing.T) {
 	t.Parallel()
 
 	threadsExec := &fakeWorkspaceThreads{
@@ -958,12 +1117,20 @@ func TestWorkspaceThreadAIBackendPollsSingleTurnInsteadOfFullDetail(t *testing.T
 		t.Fatalf("unexpected final messages %#v", result.Messages)
 	}
 
-	detailCalls, turnCalls := threadsExec.callCounts()
-	if detailCalls != 0 {
-		t.Fatalf("expected no full-detail polling calls, got %d", detailCalls)
+	deadline := time.Now().Add(200 * time.Millisecond)
+	detailCalls, turnCalls := 0, 0
+	for time.Now().Before(deadline) {
+		detailCalls, turnCalls = threadsExec.callCounts()
+		if detailCalls > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if turnCalls == 0 {
-		t.Fatal("expected single-turn polling calls")
+	if detailCalls == 0 {
+		t.Fatal("expected fresh detail lookups for terminal turn confirmation")
+	}
+	if turnCalls != 0 {
+		t.Fatalf("expected terminal confirmation to bypass cached single-turn lookups, got %d", turnCalls)
 	}
 }
 
@@ -1011,12 +1178,20 @@ func TestWorkspaceThreadAIBackendPrefersTurnEventsBeforeFallbackPolling(t *testi
 		t.Fatalf("unexpected final messages %#v", result.Messages)
 	}
 
-	detailCalls, turnCalls := threadsExec.callCounts()
-	if detailCalls != 0 {
-		t.Fatalf("expected no full-detail polling calls, got %d", detailCalls)
+	deadline := time.Now().Add(200 * time.Millisecond)
+	detailCalls, turnCalls := 0, 0
+	for time.Now().Before(deadline) {
+		detailCalls, turnCalls = threadsExec.callCounts()
+		if detailCalls > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if turnCalls > 3 {
-		t.Fatalf("expected event-first waiting to avoid repeated fallback polls, got %d turn lookups", turnCalls)
+	if detailCalls == 0 {
+		t.Fatal("expected event-driven wait to confirm terminal state from fresh detail")
+	}
+	if turnCalls != 0 {
+		t.Fatalf("expected event-driven wait to avoid cached single-turn lookups, got %d", turnCalls)
 	}
 }
 
@@ -1545,6 +1720,139 @@ func (f *fakeDelayedCompletedTurnSnapshotTurns) Start(_ context.Context, workspa
 
 	return turns.Result{
 		TurnID: "turn-stream-4c",
+		Status: "running",
+	}, nil
+}
+
+type fakeOverflowThenSnapshotTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeOverflowThenSnapshotTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-overflow-1",
+			Method:      "item/agentMessage/delta",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-overflow-1",
+				"itemId":   "msg-1",
+				"delta":    "hello",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		for index := 0; index < 160; index++ {
+			f.hub.Publish(store.EventEnvelope{
+				WorkspaceID: workspaceID,
+				ThreadID:    threadID,
+				TurnID:      "turn-stream-overflow-1",
+				Method:      "item/agentMessage/delta",
+				Payload: map[string]any{
+					"threadId": threadID,
+					"turnId":   "turn-stream-overflow-1",
+					"itemId":   "msg-1",
+					"delta":    "!",
+				},
+				TS: time.Now().UTC(),
+			})
+		}
+
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-stream-overflow-1",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "msg-1",
+					"type": "agentMessage",
+					"text": "hello world overflow recovered",
+				},
+			},
+		})
+
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-overflow-1",
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-overflow-1",
+				"turn": map[string]any{
+					"id":     "turn-stream-overflow-1",
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-stream-overflow-1",
+		Status: "running",
+	}, nil
+}
+
+type fakeOverflowBeforeCompletionTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeOverflowBeforeCompletionTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-overflow-2",
+			Method:      "item/agentMessage/delta",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-overflow-2",
+				"itemId":   "msg-1",
+				"delta":    "hello",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		for index := 0; index < 160; index++ {
+			f.hub.Publish(store.EventEnvelope{
+				WorkspaceID: workspaceID,
+				ThreadID:    threadID,
+				TurnID:      "turn-stream-overflow-2",
+				Method:      "item/agentMessage/delta",
+				Payload: map[string]any{
+					"threadId": threadID,
+					"turnId":   "turn-stream-overflow-2",
+					"itemId":   "msg-1",
+					"delta":    ".",
+				},
+				TS: time.Now().UTC(),
+			})
+		}
+
+		time.Sleep(40 * time.Millisecond)
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-stream-overflow-2",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "msg-1",
+					"type": "agentMessage",
+					"text": "hello recovered before poll timeout",
+				},
+			},
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-stream-overflow-2",
 		Status: "running",
 	}, nil
 }

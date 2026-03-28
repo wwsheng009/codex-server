@@ -769,6 +769,31 @@ func TestFailureReplyTextIncludesFallbackDetailWhenErrorMessageIsBlank(t *testin
 	}
 }
 
+func TestFailureReplyTextClassifiesDeadlineExceededWithoutTimeoutWording(t *testing.T) {
+	t.Parallel()
+
+	text := failureReplyText(context.DeadlineExceeded)
+
+	if !strings.Contains(text, "The bot backend stopped before finishing your message. Please try again.") {
+		t.Fatalf("expected stopped-before-finishing summary, got %q", text)
+	}
+	if strings.Contains(strings.ToLower(text), "timed out") {
+		t.Fatalf("did not expect timeout wording, got %q", text)
+	}
+	if !strings.Contains(strings.ToLower(text), "deadline exceeded") {
+		t.Fatalf("expected technical detail to preserve deadline information, got %q", text)
+	}
+}
+
+func TestNewServiceDefaultsToNoMessageTimeout(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(store.NewMemoryStore(), nil, nil, nil, Config{})
+	if service.messageTimeout != 0 {
+		t.Fatalf("expected no default bot message timeout, got %v", service.messageTimeout)
+	}
+}
+
 func TestServiceSendsFailureReplyWhenAIBackendFails(t *testing.T) {
 	t.Parallel()
 

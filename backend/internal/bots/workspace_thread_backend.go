@@ -16,10 +16,8 @@ import (
 
 const (
 	defaultThreadPollInterval  = 1500 * time.Millisecond
-	defaultThreadTurnTimeout   = 2 * time.Minute
 	defaultStreamFlushInterval = 400 * time.Millisecond
 	defaultTurnSettleDelay     = 300 * time.Millisecond
-	threadTurnContentModeFull  = "full"
 )
 
 type workspaceThreadAIBackend struct {
@@ -46,9 +44,6 @@ func newWorkspaceThreadAIBackend(
 ) AIBackend {
 	if pollInterval <= 0 {
 		pollInterval = defaultThreadPollInterval
-	}
-	if turnTimeout <= 0 {
-		turnTimeout = defaultThreadTurnTimeout
 	}
 
 	return &workspaceThreadAIBackend{
@@ -118,7 +113,7 @@ func (b *workspaceThreadAIBackend) processMessage(
 		return AIResult{}, err
 	}
 
-	turnCtx, cancel := context.WithTimeout(ctx, b.turnTimeout)
+	turnCtx, cancel := withOptionalTimeout(ctx, b.turnTimeout)
 	defer cancel()
 
 	var turn store.ThreadTurn
@@ -194,7 +189,8 @@ func (b *workspaceThreadAIBackend) waitForTurn(
 	stability := terminalTurnStability{}
 	defer stopTimer(settleTimer)
 
-	if turn, ok := b.lookupTurn(ctx, workspaceID, threadID, turnID); ok && isTerminalTurnStatus(turn.Status) {
+	if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
+		stability.Observe(turn)
 		resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 	}
 
@@ -219,7 +215,8 @@ func (b *workspaceThreadAIBackend) waitForTurn(
 			if !shouldUseFallbackPoll(lastTurnEventAt, b.pollInterval) {
 				continue
 			}
-			if _, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok && settleCh == nil {
+			if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok && settleCh == nil {
+				stability.Observe(turn)
 				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 			}
 		case event, ok := <-eventCh:
@@ -233,6 +230,11 @@ func (b *workspaceThreadAIBackend) waitForTurn(
 			}
 			lastTurnEventAt = time.Now()
 			if settleCh != nil || isTerminalTurnEventMethod(event.Method) {
+				if isTerminalTurnEventMethod(event.Method) {
+					if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
+						stability.Observe(turn)
+					}
+				}
 				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 			}
 		}
@@ -259,8 +261,9 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 	stability := terminalTurnStability{}
 	defer stopTimer(settleTimer)
 
-	if turn, ok := b.lookupTurn(ctx, workspaceID, threadID, turnID); ok && isTerminalTurnStatus(turn.Status) {
+	if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
 		turn.Items = stream.mergeCompletedTurnItems(turn.Items)
+		stability.Observe(turn)
 		resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 	}
 
@@ -278,19 +281,29 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 		return nil
 	}
 
+	syncStreamFromTurn := func(turn store.ThreadTurn) (store.ThreadTurn, error) {
+		stream.MergeSnapshotItems(turn.Items)
+		if err := flushStream(); err != nil {
+			return store.ThreadTurn{}, err
+		}
+		turn.Items = stream.mergeCompletedTurnItems(turn.Items)
+		return turn, nil
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return store.ThreadTurn{}, ctx.Err()
 		case <-settleCh:
 			if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
-				turn.Items = stream.mergeCompletedTurnItems(turn.Items)
+				var syncErr error
+				turn, syncErr = syncStreamFromTurn(turn)
+				if syncErr != nil {
+					return store.ThreadTurn{}, syncErr
+				}
 				if !stability.Observe(turn) {
 					resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 					continue
-				}
-				if err := flushStream(); err != nil {
-					return store.ThreadTurn{}, err
 				}
 				return turn, nil
 			}
@@ -301,17 +314,47 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 			if err := flushStream(); err != nil {
 				return store.ThreadTurn{}, err
 			}
+			if turn, ok := b.lookupTurnSnapshot(ctx, workspaceID, threadID, turnID); ok && isTerminalTurnStatus(turn.Status) {
+				var syncErr error
+				turn, syncErr = syncStreamFromTurn(turn)
+				if syncErr != nil {
+					return store.ThreadTurn{}, syncErr
+				}
+				if settleCh == nil {
+					stability.Observe(turn)
+					resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+				}
+			}
 		case <-pollTicker.C:
 			if !shouldUseFallbackPoll(lastTurnEventAt, b.pollInterval) {
 				continue
 			}
-			if _, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok && settleCh == nil {
-				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+			if turn, ok := b.lookupTurnSnapshot(ctx, workspaceID, threadID, turnID); ok {
+				var syncErr error
+				turn, syncErr = syncStreamFromTurn(turn)
+				if syncErr != nil {
+					return store.ThreadTurn{}, syncErr
+				}
+				if isTerminalTurnStatus(turn.Status) && settleCh == nil {
+					stability.Observe(turn)
+					resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+				}
 			}
 		case event, ok := <-eventCh:
 			if !ok {
 				eventCh = nil
 				lastTurnEventAt = time.Time{}
+				if turn, ok := b.lookupTurnSnapshot(ctx, workspaceID, threadID, turnID); ok {
+					var syncErr error
+					turn, syncErr = syncStreamFromTurn(turn)
+					if syncErr != nil {
+						return store.ThreadTurn{}, syncErr
+					}
+					if isTerminalTurnStatus(turn.Status) && settleCh == nil {
+						stability.Observe(turn)
+						resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+					}
+				}
 				continue
 			}
 			if !matchesTurnEvent(event, threadID, turnID) {
@@ -342,7 +385,11 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 				if stream.ApplyServerRequestEvent(event) {
 					flushImmediately = len(stream.lastEmitted) == 0
 				}
-			case "turn/completed":
+			case "turn/completed", "turn/failed", "turn/interrupted", "turn/canceled", "turn/cancelled":
+				if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
+					turn.Items = stream.mergeCompletedTurnItems(turn.Items)
+					stability.Observe(turn)
+				}
 				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 			default:
 				if isBotVisibleServerRequestEvent(event) && stream.ApplyServerRequestEvent(event) {
@@ -368,7 +415,7 @@ func (b *workspaceThreadAIBackend) lookupCompletedTurn(
 	threadID string,
 	turnID string,
 ) (store.ThreadTurn, bool) {
-	turn, ok := b.lookupTurn(ctx, workspaceID, threadID, turnID)
+	turn, ok := b.lookupTurnSnapshot(ctx, workspaceID, threadID, turnID)
 	if !ok {
 		return store.ThreadTurn{}, false
 	}
@@ -379,14 +426,18 @@ func (b *workspaceThreadAIBackend) lookupCompletedTurn(
 	return turn, true
 }
 
-func (b *workspaceThreadAIBackend) lookupTurn(
+func (b *workspaceThreadAIBackend) lookupTurnSnapshot(
 	ctx context.Context,
 	workspaceID string,
 	threadID string,
 	turnID string,
 ) (store.ThreadTurn, bool) {
-	turn, err := b.threads.GetTurn(ctx, workspaceID, threadID, turnID, threadTurnContentModeFull)
+	detail, err := b.threads.GetDetail(ctx, workspaceID, threadID)
 	if err != nil {
+		return store.ThreadTurn{}, false
+	}
+	turn, ok := findThreadTurn(detail, turnID)
+	if !ok {
 		return store.ThreadTurn{}, false
 	}
 	return turn, true
@@ -514,6 +565,8 @@ func isTerminalTurnEventMethod(method string) bool {
 }
 
 func shouldUseFallbackPoll(lastTurnEventAt time.Time, pollInterval time.Duration) bool {
+	// Polling is only a degraded-mode recovery path when turn events go quiet
+	// or the subscription drops; it should not be treated as a deadline.
 	if pollInterval <= 0 || lastTurnEventAt.IsZero() {
 		return true
 	}
@@ -642,6 +695,12 @@ func (s *botVisibleItemStream) MergeItem(item map[string]any) {
 	}
 	if strings.TrimSpace(renderBotVisibleItemState(target)) != previousRendered {
 		s.dirty = true
+	}
+}
+
+func (s *botVisibleItemStream) MergeSnapshotItems(items []map[string]any) {
+	for _, item := range items {
+		s.MergeItem(item)
 	}
 }
 
@@ -1036,10 +1095,6 @@ func preferMoreCompleteString(authoritative string, fallback string) string {
 	switch {
 	case strings.TrimSpace(authoritative) == "":
 		return fallback
-	case strings.TrimSpace(fallback) == "":
-		return authoritative
-	case runeCount(fallback) > runeCount(authoritative):
-		return fallback
 	default:
 		return authoritative
 	}
@@ -1051,25 +1106,9 @@ func preferMoreCompleteStringSlice(authoritative []string, fallback []string) []
 		return nil
 	case len(authoritative) == 0:
 		return stringArrayToAnySlice(fallback)
-	case len(fallback) == 0:
-		return stringArrayToAnySlice(authoritative)
-	case totalStringSliceRunes(fallback) > totalStringSliceRunes(authoritative):
-		return stringArrayToAnySlice(fallback)
 	default:
 		return stringArrayToAnySlice(authoritative)
 	}
-}
-
-func totalStringSliceRunes(items []string) int {
-	total := 0
-	for _, item := range items {
-		total += runeCount(item)
-	}
-	return total
-}
-
-func runeCount(value string) int {
-	return len([]rune(value))
 }
 
 func isMissingBotItemValue(value any) bool {
