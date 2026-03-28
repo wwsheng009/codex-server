@@ -441,6 +441,71 @@ func TestTelegramStreamingReplySessionDeletesTrailingMessagesWhenReplyShrinks(t 
 	}
 }
 
+func TestTelegramStreamingReplySessionFailUsesDetailedFallbackText(t *testing.T) {
+	t.Parallel()
+
+	editPayloads := make([]map[string]any, 0, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:abc/sendMessage":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 900,
+				},
+			})
+		case "/bot123:abc/editMessageText":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode editMessageText payload error = %v", err)
+			}
+			editPayloads = append(editPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 900,
+				},
+			})
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID: "1001",
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "working"}},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if err := session.Fail(context.Background(), ""); err != nil {
+		t.Fatalf("Fail() error = %v", err)
+	}
+
+	if len(editPayloads) != 1 {
+		t.Fatalf("expected 1 editMessageText payload, got %#v", editPayloads)
+	}
+	if editPayloads[0]["text"] != defaultStreamingFailureText {
+		t.Fatalf("expected detailed fallback failure text, got %#v", editPayloads[0])
+	}
+	if strings.Contains(editPayloads[0]["text"].(string), "Request failed. Please try again.") {
+		t.Fatalf("did not expect legacy generic failure text, got %#v", editPayloads[0])
+	}
+}
+
 func TestTelegramProviderSendMessagesIncludesTopicThreadID(t *testing.T) {
 	t.Parallel()
 
@@ -616,6 +681,118 @@ func TestTelegramProviderRunPollingPreservesTopicThreadID(t *testing.T) {
 	}
 	if persistedSettings[telegramUpdateOffsetSetting] != "16" {
 		t.Fatalf("expected telegram update offset 16, got %#v", persistedSettings)
+	}
+}
+
+func TestTelegramProviderRunPollingSkipsIgnoredUpdatesAndAdvancesOffset(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:abc/getUpdates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": []map[string]any{
+					{
+						"update_id": 20,
+						"message": map[string]any{
+							"message_id": 1,
+							"text":       "bot echo",
+							"chat": map[string]any{
+								"id":    1001,
+								"title": "Alice",
+							},
+							"from": map[string]any{
+								"id":         9001,
+								"username":   "demo_bot",
+								"first_name": "Demo Bot",
+								"is_bot":     true,
+							},
+						},
+					},
+					{
+						"update_id": 21,
+						"message": map[string]any{
+							"message_id": 2,
+							"text":       "   ",
+							"chat": map[string]any{
+								"id":    1001,
+								"title": "Alice",
+							},
+							"from": map[string]any{
+								"id":         5001,
+								"username":   "alice",
+								"first_name": "Alice",
+								"is_bot":     false,
+							},
+						},
+					},
+					{
+						"update_id": 22,
+						"message": map[string]any{
+							"message_id": 3,
+							"text":       "hello after ignored updates",
+							"chat": map[string]any{
+								"id":    1001,
+								"title": "Alice",
+							},
+							"from": map[string]any{
+								"id":         5001,
+								"username":   "alice",
+								"first_name": "Alice",
+								"is_bot":     false,
+							},
+						},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	connection := store.BotConnection{
+		ID: "bot_004",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}
+
+	handled := make([]InboundMessage, 0, 1)
+	offsets := make([]string, 0, 3)
+	err := provider.RunPolling(
+		context.Background(),
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			handled = append(handled, message)
+			return nil
+		},
+		func(_ context.Context, settings map[string]string) error {
+			offsets = append(offsets, settings[telegramUpdateOffsetSetting])
+			if settings[telegramUpdateOffsetSetting] == "23" {
+				return context.Canceled
+			}
+			return nil
+		},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected polling to stop with context.Canceled, got %v", err)
+	}
+
+	if len(handled) != 1 {
+		t.Fatalf("expected one handled polling message, got %#v", handled)
+	}
+	if handled[0].Text != "hello after ignored updates" {
+		t.Fatalf("unexpected handled polling message %#v", handled[0])
+	}
+	expectedOffsets := []string{"21", "22", "23"}
+	if strings.Join(offsets, ",") != strings.Join(expectedOffsets, ",") {
+		t.Fatalf("expected offset progression %#v, got %#v", expectedOffsets, offsets)
 	}
 }
 

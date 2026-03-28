@@ -283,6 +283,124 @@ func TestServiceRunsPollingProvidersWithoutPublicBaseURL(t *testing.T) {
 	}
 }
 
+func TestPollingApprovalCommandsBypassBlockedConversationWorker(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeScriptedPollingProvider([]InboundMessage{
+		{
+			ConversationID: "chat-poll-ctrl",
+			MessageID:      "msg-poll-ctrl-1",
+			UserID:         "user-1",
+			Username:       "alice",
+			Title:          "Alice",
+			Text:           "hello from polling control",
+		},
+		{
+			ConversationID: "chat-poll-ctrl",
+			MessageID:      "msg-poll-ctrl-2",
+			UserID:         "user-1",
+			Username:       "alice",
+			Title:          "Alice",
+			Text:           "/approve@demo_bot req_poll_ctrl_1",
+		},
+	})
+	approvalService := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_poll_ctrl_1",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thr_chat-poll-ctrl",
+			Kind:        "item/commandExecution/requestApproval",
+			Summary:     "go test ./...",
+			Status:      "pending",
+			Actions:     []string{"accept", "decline", "cancel"},
+			RequestedAt: time.Now().UTC(),
+		},
+	})
+	blockingBackend := newBlockingAIBackend()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Approvals:  approvalService,
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{blockingBackend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "pollscript",
+		AIBackend: "blocking_ai",
+		Settings: map[string]string{
+			"delivery_mode": "polling",
+		},
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	select {
+	case <-blockingBackend.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for blocking ai backend to start")
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected control reply for connection %q, got %q", connection.ID, sent.ConnectionID)
+		}
+		if len(sent.Messages) != 1 ||
+			!strings.Contains(sent.Messages[0].Text, "req_poll_ctrl_1") ||
+			!strings.Contains(sent.Messages[0].Text, "was approved") {
+			t.Fatalf("expected approval confirmation before blocked ai reply, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for polling approval confirmation")
+	}
+
+	call := approvalService.lastCall()
+	if call.requestID != "req_poll_ctrl_1" {
+		t.Fatalf("expected approval request id req_poll_ctrl_1, got %#v", call)
+	}
+	if call.input.Action != "accept" {
+		t.Fatalf("expected approval action accept, got %#v", call.input)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if ok && storedConnection.Settings["poll_cursor"] == "2" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected polling connection to be persisted")
+	}
+	if storedConnection.Settings["poll_cursor"] != "2" {
+		t.Fatalf("expected poll cursor 2 after scripted polling updates, got %#v", storedConnection.Settings)
+	}
+
+	close(blockingBackend.release)
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected ai reply for connection %q, got %q", connection.ID, sent.ConnectionID)
+		}
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello from polling control" {
+			t.Fatalf("expected blocked ai reply after release, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for released polling ai reply")
+	}
+}
+
 func TestServiceStreamsReplyWhenProviderAndBackendSupportStreaming(t *testing.T) {
 	t.Parallel()
 
@@ -369,6 +487,288 @@ func TestServiceStreamsReplyWhenProviderAndBackendSupportStreaming(t *testing.T)
 	}
 }
 
+func TestServiceRetriesStoredStreamingReplyWithoutRerunningAI(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeStreamingProvider()
+	provider.pushCompleteError(errors.New("telegram complete failed"))
+	backend := &countingStreamingAIBackend{}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "streamchat",
+		AIBackend: "counting_stream_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	requestBody := `{
+		"conversationId":"chat-stream-retry-1",
+		"messageId":"msg-stream-retry-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello streaming retry"
+	}`
+
+	firstRequest := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(requestBody))
+	firstRequest.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(firstRequest, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook(first) error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected first webhook to accept 1 message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if ok && strings.Contains(storedConnection.LastError, "telegram complete failed") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation after initial streaming failure, got %d", len(conversations))
+	}
+	if conversations[0].LastOutboundText != "final: hello streaming retry" {
+		t.Fatalf("expected final reply to be recorded despite delivery failure, got %q", conversations[0].LastOutboundText)
+	}
+
+	provider.mu.Lock()
+	failTexts := append([]string(nil), provider.failTexts...)
+	provider.mu.Unlock()
+	if len(failTexts) != 0 {
+		t.Fatalf("did not expect streaming failure fallback after successful ai reply, got %#v", failTexts)
+	}
+
+	secondRequest := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(requestBody))
+	secondRequest.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err = service.HandleWebhook(secondRequest, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook(second) error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected second webhook to re-accept the failed delivery, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "final: hello streaming retry" {
+			t.Fatalf("expected stored final reply to be redelivered, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for stored streaming reply redelivery")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected ai backend to run once, got %d calls", backend.callCount())
+	}
+}
+
+func TestServiceStreamsDetailedFailureReplyWhenStreamingBackendFails(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeStreamingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{failingStreamingAIBackend{err: errors.New("workspace thread crashed while applying patch")}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "streamchat",
+		AIBackend: "failing_stream_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-stream-fail-1",
+		"messageId":"msg-stream-fail-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello streaming failure"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var failTexts []string
+	for time.Now().Before(deadline) {
+		provider.mu.Lock()
+		failTexts = append([]string(nil), provider.failTexts...)
+		provider.mu.Unlock()
+		if len(failTexts) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(failTexts) == 0 {
+		t.Fatal("timed out waiting for streaming failure text")
+	}
+	if !strings.Contains(failTexts[0], "Technical details:") {
+		t.Fatalf("expected detailed streaming failure text, got %q", failTexts[0])
+	}
+	if !strings.Contains(failTexts[0], "workspace thread crashed while applying patch") {
+		t.Fatalf("expected underlying streaming error in failure text, got %q", failTexts[0])
+	}
+}
+
+func TestServiceStreamsWorkspaceTurnFailureSummaryWhenStreamingBackendFails(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeStreamingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends: []AIBackend{failingStreamingAIBackend{err: &workspaceTurnTerminalError{
+			Backend: "workspace_thread",
+			Status:  "failed",
+			Detail:  "permission denied",
+		}}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "streamchat",
+		AIBackend: "failing_stream_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-stream-fail-2",
+		"messageId":"msg-stream-fail-2",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello workspace failure"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var failTexts []string
+	for time.Now().Before(deadline) {
+		provider.mu.Lock()
+		failTexts = append([]string(nil), provider.failTexts...)
+		provider.mu.Unlock()
+		if len(failTexts) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(failTexts) == 0 {
+		t.Fatal("timed out waiting for streaming failure text")
+	}
+	if !strings.Contains(failTexts[0], "The workspace turn failed before producing a final bot reply.") {
+		t.Fatalf("expected workspace turn failure summary, got %q", failTexts[0])
+	}
+	if !strings.Contains(failTexts[0], "permission denied") {
+		t.Fatalf("expected workspace turn failure detail, got %q", failTexts[0])
+	}
+}
+
+func TestFailureReplyTextClassifiesGenericAIBackendErrors(t *testing.T) {
+	t.Parallel()
+
+	text := failureReplyText(wrapAIBackendError("openai_responses", errors.New("rate limit exceeded")))
+
+	if !strings.Contains(text, "The OpenAI responses AI backend failed while processing your message.") {
+		t.Fatalf("expected AI backend summary, got %q", text)
+	}
+	if !strings.Contains(text, "rate limit exceeded") {
+		t.Fatalf("expected technical detail in failure text, got %q", text)
+	}
+}
+
+func TestFailureReplyTextClassifiesMissingBotVisibleReply(t *testing.T) {
+	t.Parallel()
+
+	text := failureReplyText(&botVisibleReplyMissingError{Backend: "workspace_thread"})
+
+	if !strings.Contains(text, "The AI backend finished, but it did not produce any bot-visible reply.") {
+		t.Fatalf("expected no-reply summary, got %q", text)
+	}
+	if !strings.Contains(text, "workspace thread AI backend returned no bot-visible reply") {
+		t.Fatalf("expected no-reply detail, got %q", text)
+	}
+}
+
+func TestFailureReplyTextIncludesFallbackDetailWhenErrorIsNil(t *testing.T) {
+	t.Parallel()
+
+	text := failureReplyText(nil)
+
+	if !strings.Contains(text, "The bot failed, but the backend did not record a structured error.") {
+		t.Fatalf("expected nil-error summary, got %q", text)
+	}
+	if !strings.Contains(text, "Technical details: no error object was provided by the bot backend") {
+		t.Fatalf("expected nil-error detail, got %q", text)
+	}
+}
+
+func TestFailureReplyTextIncludesFallbackDetailWhenErrorMessageIsBlank(t *testing.T) {
+	t.Parallel()
+
+	text := failureReplyText(errors.New(""))
+
+	if !strings.Contains(text, "The bot could not process your message right now. Please try again later.") {
+		t.Fatalf("expected generic fallback summary, got %q", text)
+	}
+	if !strings.Contains(text, "Technical details: the bot backend returned an empty error message") {
+		t.Fatalf("expected blank-error detail, got %q", text)
+	}
+}
+
 func TestServiceSendsFailureReplyWhenAIBackendFails(t *testing.T) {
 	t.Parallel()
 
@@ -414,20 +814,28 @@ func TestServiceSendsFailureReplyWhenAIBackendFails(t *testing.T) {
 
 	select {
 	case sent := <-provider.sentCh:
-		if len(sent.Messages) != 1 || sent.Messages[0].Text != failureReplyText(appRuntime.ErrRuntimeNotConfigured) {
+		expected := failureReplyText(wrapAIBackendError("failing_ai", appRuntime.ErrRuntimeNotConfigured))
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
 			t.Fatalf("expected failure reply to be forwarded, got %#v", sent.Messages)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for provider SendMessages call")
 	}
 
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if ok && strings.Contains(storedConnection.LastError, appRuntime.ErrRuntimeNotConfigured.Error()) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
 	storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
 	if !ok {
 		t.Fatal("expected bot connection to be persisted")
 	}
-	if !strings.Contains(storedConnection.LastError, appRuntime.ErrRuntimeNotConfigured.Error()) {
-		t.Fatalf("expected last error to mention runtime configuration, got %q", storedConnection.LastError)
-	}
+	t.Fatalf("expected last error to mention runtime configuration, got %q", storedConnection.LastError)
 }
 
 func TestServiceRetriesFailedInboundMessageWhenWebhookRedeliversSameMessage(t *testing.T) {
@@ -436,7 +844,6 @@ func TestServiceRetriesFailedInboundMessageWhenWebhookRedeliversSameMessage(t *t
 	dataStore := store.NewMemoryStore()
 	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
 	provider := newFakeProvider()
-	provider.pushSendError(errors.New("transient telegram outage"))
 	provider.pushSendError(errors.New("transient telegram outage"))
 
 	service := NewService(dataStore, nil, nil, nil, Config{
@@ -577,6 +984,82 @@ func TestServiceRecoversPendingInboundDeliveriesOnStart(t *testing.T) {
 	}
 	if conversations[0].LastInboundMessageID != "msg-recover-1" {
 		t.Fatalf("expected recovered inbound message id to be persisted, got %q", conversations[0].LastInboundMessageID)
+	}
+}
+
+func TestServiceRecoversStoredReplyDeliveryOnStartWithoutRerunningAI(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	initialProvider := newFakeProvider()
+	initialProvider.pushSendError(errors.New("transient delivery outage"))
+	backend := &countingAIBackend{}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{initialProvider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "counting_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-recover-reply-1",
+		"messageId":"msg-recover-reply-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello after delivery failure"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if ok && strings.Contains(storedConnection.LastError, "transient delivery outage") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	recoveryProvider := newFakeProvider()
+	recoveryService := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{recoveryProvider},
+		AIBackends:    []AIBackend{backend},
+	})
+	recoveryService.Start(context.Background())
+
+	select {
+	case sent := <-recoveryProvider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello after delivery failure" {
+			t.Fatalf("expected stored reply to be resent on start, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for stored reply recovery on start")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected ai backend to run once across restart recovery, got %d calls", backend.callCount())
 	}
 }
 
@@ -754,6 +1237,74 @@ func TestHandleWebhookApprovalCommandsBypassBlockedConversationWorker(t *testing
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for released ai reply")
+	}
+}
+
+func TestHandleWebhookApprovalListCommandSupportsTelegramBotMentions(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	approvalService := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_list_mention_1",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thr_chat-list-mention",
+			Kind:        "item/commandExecution/requestApproval",
+			Summary:     "go test ./...",
+			Status:      "pending",
+			Actions:     []string{"accept", "decline", "cancel"},
+			RequestedAt: time.Now().UTC(),
+		},
+	})
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Approvals:     approvalService,
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-list-mention",
+		"messageId":"msg-list-mention-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"/approvals@demo_bot"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 ||
+			!strings.Contains(sent.Messages[0].Text, "Pending approvals:") ||
+			!strings.Contains(sent.Messages[0].Text, "req_list_mention_1") {
+			t.Fatalf("expected approvals list message, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for approvals list response")
 	}
 }
 
@@ -1205,6 +1756,34 @@ func (fakeAIBackend) ProcessMessage(_ context.Context, _ store.BotConnection, _ 
 	}, nil
 }
 
+type countingAIBackend struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (*countingAIBackend) Name() string {
+	return "counting_ai"
+}
+
+func (b *countingAIBackend) ProcessMessage(_ context.Context, _ store.BotConnection, _ store.BotConversation, inbound InboundMessage) (AIResult, error) {
+	b.mu.Lock()
+	b.calls += 1
+	b.mu.Unlock()
+
+	return AIResult{
+		ThreadID: "thr_" + inbound.ConversationID,
+		Messages: []OutboundMessage{
+			{Text: "reply: " + inbound.Text},
+		},
+	}, nil
+}
+
+func (b *countingAIBackend) callCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.calls
+}
+
 type failingAIBackend struct{}
 
 func (failingAIBackend) Name() string {
@@ -1385,16 +1964,102 @@ func (p *fakePollingProvider) RunPolling(
 	return ctx.Err()
 }
 
+type fakeScriptedPollingProvider struct {
+	mu        sync.Mutex
+	delivered map[string]bool
+	messages  []InboundMessage
+	sentCh    chan fakeSentPayload
+}
+
+func newFakeScriptedPollingProvider(messages []InboundMessage) *fakeScriptedPollingProvider {
+	return &fakeScriptedPollingProvider{
+		delivered: make(map[string]bool),
+		messages:  append([]InboundMessage(nil), messages...),
+		sentCh:    make(chan fakeSentPayload, 8),
+	}
+}
+
+func (p *fakeScriptedPollingProvider) Name() string {
+	return "pollscript"
+}
+
+func (p *fakeScriptedPollingProvider) Activate(_ context.Context, connection store.BotConnection, _ string) (ActivationResult, error) {
+	mode := strings.ToLower(strings.TrimSpace(connection.Settings["delivery_mode"]))
+	if mode == "" {
+		mode = "polling"
+	}
+	return ActivationResult{
+		Settings: map[string]string{
+			"delivery_mode": mode,
+		},
+	}, nil
+}
+
+func (p *fakeScriptedPollingProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *fakeScriptedPollingProvider) ParseWebhook(*http.Request, store.BotConnection) ([]InboundMessage, error) {
+	return nil, ErrWebhookIgnored
+}
+
+func (p *fakeScriptedPollingProvider) SendMessages(_ context.Context, connection store.BotConnection, _ store.BotConversation, messages []OutboundMessage) error {
+	p.sentCh <- fakeSentPayload{
+		ConnectionID: connection.ID,
+		Messages:     append([]OutboundMessage(nil), messages...),
+	}
+	return nil
+}
+
+func (p *fakeScriptedPollingProvider) SupportsPolling(connection store.BotConnection) bool {
+	return strings.EqualFold(strings.TrimSpace(connection.Settings["delivery_mode"]), "polling")
+}
+
+func (p *fakeScriptedPollingProvider) RunPolling(
+	ctx context.Context,
+	connection store.BotConnection,
+	handleMessage PollingMessageHandler,
+	updateSettings PollingSettingsHandler,
+) error {
+	p.mu.Lock()
+	delivered := p.delivered[connection.ID]
+	if !delivered {
+		p.delivered[connection.ID] = true
+	}
+	messages := append([]InboundMessage(nil), p.messages...)
+	p.mu.Unlock()
+
+	if !delivered {
+		for index, message := range messages {
+			if err := handleMessage(ctx, message); err != nil {
+				return err
+			}
+			if err := updateSettings(ctx, map[string]string{
+				"poll_cursor": intToString(index + 1),
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 type fakeStreamingProvider struct {
 	mu                sync.Mutex
 	updates           [][]OutboundMessage
 	completedMessages []OutboundMessage
 	sendMessagesCalls int
+	sentCh            chan fakeSentPayload
 	completedCh       chan struct{}
+	completeErrors    []error
+	failTexts         []string
 }
 
 func newFakeStreamingProvider() *fakeStreamingProvider {
 	return &fakeStreamingProvider{
+		sentCh:      make(chan fakeSentPayload, 8),
 		completedCh: make(chan struct{}, 1),
 	}
 }
@@ -1433,11 +2098,21 @@ func (p *fakeStreamingProvider) ParseWebhook(r *http.Request, _ store.BotConnect
 	return []InboundMessage{payload}, nil
 }
 
-func (p *fakeStreamingProvider) SendMessages(_ context.Context, _ store.BotConnection, _ store.BotConversation, _ []OutboundMessage) error {
+func (p *fakeStreamingProvider) SendMessages(_ context.Context, connection store.BotConnection, _ store.BotConversation, messages []OutboundMessage) error {
 	p.mu.Lock()
 	p.sendMessagesCalls += 1
 	p.mu.Unlock()
+	p.sentCh <- fakeSentPayload{
+		ConnectionID: connection.ID,
+		Messages:     append([]OutboundMessage(nil), messages...),
+	}
 	return nil
+}
+
+func (p *fakeStreamingProvider) pushCompleteError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.completeErrors = append(p.completeErrors, err)
 }
 
 func (p *fakeStreamingProvider) StartStreamingReply(
@@ -1462,7 +2137,16 @@ func (s *fakeStreamingReplySession) Update(_ context.Context, update StreamingUp
 func (s *fakeStreamingReplySession) Complete(_ context.Context, messages []OutboundMessage) error {
 	s.provider.mu.Lock()
 	s.provider.completedMessages = append([]OutboundMessage(nil), messages...)
+	var completeErr error
+	if len(s.provider.completeErrors) > 0 {
+		completeErr = s.provider.completeErrors[0]
+		s.provider.completeErrors = append([]error(nil), s.provider.completeErrors[1:]...)
+	}
 	s.provider.mu.Unlock()
+
+	if completeErr != nil {
+		return completeErr
+	}
 
 	select {
 	case s.provider.completedCh <- struct{}{}:
@@ -1471,7 +2155,10 @@ func (s *fakeStreamingReplySession) Complete(_ context.Context, messages []Outbo
 	return nil
 }
 
-func (s *fakeStreamingReplySession) Fail(context.Context, string) error {
+func (s *fakeStreamingReplySession) Fail(_ context.Context, text string) error {
+	s.provider.mu.Lock()
+	s.provider.failTexts = append(s.provider.failTexts, text)
+	s.provider.mu.Unlock()
 	return nil
 }
 
@@ -1493,6 +2180,88 @@ func (fakeStreamingAIBackend) ProcessMessage(
 			{Text: "final: " + inbound.Text},
 		},
 	}, nil
+}
+
+type countingStreamingAIBackend struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (*countingStreamingAIBackend) Name() string {
+	return "counting_stream_ai"
+}
+
+func (b *countingStreamingAIBackend) ProcessMessage(
+	_ context.Context,
+	_ store.BotConnection,
+	_ store.BotConversation,
+	inbound InboundMessage,
+) (AIResult, error) {
+	return AIResult{
+		ThreadID: "thr_" + inbound.ConversationID,
+		Messages: []OutboundMessage{
+			{Text: "final: " + inbound.Text},
+		},
+	}, nil
+}
+
+func (b *countingStreamingAIBackend) ProcessMessageStream(
+	ctx context.Context,
+	_ store.BotConnection,
+	_ store.BotConversation,
+	inbound InboundMessage,
+	handle StreamingUpdateHandler,
+) (AIResult, error) {
+	b.mu.Lock()
+	b.calls += 1
+	b.mu.Unlock()
+
+	if err := handle(ctx, StreamingUpdate{Messages: []OutboundMessage{{Text: "thinking..."}}}); err != nil {
+		return AIResult{}, err
+	}
+	if err := handle(ctx, StreamingUpdate{Messages: []OutboundMessage{{Text: "reply: " + inbound.Text}}}); err != nil {
+		return AIResult{}, err
+	}
+
+	return AIResult{
+		ThreadID: "thr_" + inbound.ConversationID,
+		Messages: []OutboundMessage{
+			{Text: "final: " + inbound.Text},
+		},
+	}, nil
+}
+
+func (b *countingStreamingAIBackend) callCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.calls
+}
+
+type failingStreamingAIBackend struct {
+	err error
+}
+
+func (failingStreamingAIBackend) Name() string {
+	return "failing_stream_ai"
+}
+
+func (f failingStreamingAIBackend) ProcessMessage(
+	_ context.Context,
+	_ store.BotConnection,
+	_ store.BotConversation,
+	_ InboundMessage,
+) (AIResult, error) {
+	return AIResult{}, f.err
+}
+
+func (f failingStreamingAIBackend) ProcessMessageStream(
+	_ context.Context,
+	_ store.BotConnection,
+	_ store.BotConversation,
+	_ InboundMessage,
+	_ StreamingUpdateHandler,
+) (AIResult, error) {
+	return AIResult{}, f.err
 }
 
 func (fakeStreamingAIBackend) ProcessMessageStream(

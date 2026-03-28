@@ -2,6 +2,7 @@ package bots
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -154,6 +155,29 @@ func TestCollectBotVisibleMessagesIncludesNonAgentOutputs(t *testing.T) {
 	}
 }
 
+func TestCollectBotVisibleMessagesIncludesUnknownTextItems(t *testing.T) {
+	t.Parallel()
+
+	messages := collectBotVisibleMessages(store.ThreadTurn{
+		ID:     "turn-unknown-1",
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":      "custom-1",
+				"type":    "customStatus",
+				"message": "Rendered in the web UI and should reach the bot.",
+			},
+		},
+	})
+
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 bot-visible message, got %#v", messages)
+	}
+	if messages[0].Text != "Rendered in the web UI and should reach the bot." {
+		t.Fatalf("unexpected unknown item message %#v", messages[0])
+	}
+}
+
 func TestBotVisibleItemStreamBuildsSnapshotFromMixedOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -189,6 +213,32 @@ func TestBotVisibleItemStreamBuildsSnapshotFromMixedOutputs(t *testing.T) {
 	}
 }
 
+func TestBotVisibleItemStreamCapturesUnknownCompletedItems(t *testing.T) {
+	t.Parallel()
+
+	stream := botVisibleItemStream{}
+	stream.MergeItem(map[string]any{
+		"id":      "custom-1",
+		"type":    "customStatus",
+		"message": "Unknown item types should still reach the bot.",
+	})
+
+	updates := make([][]OutboundMessage, 0, 1)
+	if err := stream.Flush(context.Background(), func(_ context.Context, update StreamingUpdate) error {
+		updates = append(updates, cloneOutboundMessages(update.Messages))
+		return nil
+	}); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 snapshot update, got %#v", updates)
+	}
+	if len(updates[0]) != 1 || updates[0][0].Text != "Unknown item types should still reach the bot." {
+		t.Fatalf("unexpected unknown-item snapshot %#v", updates)
+	}
+}
+
 func TestBotVisibleItemStreamCapturesServerRequestEvents(t *testing.T) {
 	t.Parallel()
 
@@ -215,6 +265,62 @@ func TestBotVisibleItemStreamCapturesServerRequestEvents(t *testing.T) {
 	}
 	if len(updates[0]) != 1 || updates[0][0].Text != "User Input Request: 1 question waiting for input [Pending]\nRequest ID: req_123\nReply with /answer req_123 <text>\nReply with /decline req_123\nReply with /cancel req_123" {
 		t.Fatalf("unexpected server request snapshot %#v", updates[0])
+	}
+}
+
+func TestBotVisibleItemStreamMergeCompletedTurnItemsPrefersCompletedMessageText(t *testing.T) {
+	t.Parallel()
+
+	stream := botVisibleItemStream{}
+	stream.AddTextDelta("assistant-1", "agentMessage", "hello")
+
+	merged := stream.mergeCompletedTurnItems([]map[string]any{
+		{
+			"id":   "assistant-1",
+			"type": "agentMessage",
+			"text": "hello world",
+		},
+	})
+
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 merged item, got %#v", merged)
+	}
+	if stringValue(merged[0]["text"]) != "hello world" {
+		t.Fatalf("expected completed turn text to win over partial stream text, got %#v", merged[0])
+	}
+}
+
+func TestBotVisibleItemStreamMergeCompletedTurnItemsPreservesCompletedServerRequestStatus(t *testing.T) {
+	t.Parallel()
+
+	stream := botVisibleItemStream{}
+	requestID := "req_merge_1"
+	stream.ApplyServerRequestEvent(store.EventEnvelope{
+		Method:          "item/tool/requestUserInput",
+		ServerRequestID: &requestID,
+		Payload: map[string]any{
+			"questions": []any{map[string]any{"id": "q1"}},
+		},
+	})
+
+	merged := stream.mergeCompletedTurnItems([]map[string]any{
+		{
+			"id":          "server-request-" + requestID,
+			"type":        "serverRequest",
+			"requestId":   requestID,
+			"requestKind": "item/tool/requestUserInput",
+			"status":      "resolved",
+			"details": map[string]any{
+				"questions": []any{map[string]any{"id": "q1"}},
+			},
+		},
+	})
+
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 merged server request item, got %#v", merged)
+	}
+	if stringValue(merged[0]["status"]) != "resolved" {
+		t.Fatalf("expected completed server request status to be preserved, got %#v", merged[0])
 	}
 }
 
@@ -387,10 +493,539 @@ func TestWorkspaceThreadAIBackendPreservesCommandOrderAfterTurnCompletion(t *tes
 	}
 }
 
+func TestWorkspaceThreadAIBackendUsesStreamSnapshotWhenCompletedTurnLags(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-4",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-4",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeLaggingCompletedTurnTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 40 * time.Millisecond
+
+	snapshots := make([][]OutboundMessage, 0, 2)
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-4",
+		Text:           "hello",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		snapshots = append(snapshots, cloneOutboundMessages(update.Messages))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 || result.Messages[0].Text != "hello world" {
+		t.Fatalf("expected final messages to fall back to streamed snapshot, got %#v", result.Messages)
+	}
+
+	foundSnapshot := false
+	for _, snapshot := range snapshots {
+		if len(snapshot) == 1 && snapshot[0].Text == "hello world" {
+			foundSnapshot = true
+			break
+		}
+	}
+	if !foundSnapshot {
+		t.Fatalf("expected streamed snapshot with agent reply, got %#v", snapshots)
+	}
+}
+
+func TestWorkspaceThreadAIBackendPrefersCompletedTurnContentOverPartialStreamSnapshot(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-4b",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-4b",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeCompletedTurnWinsOverPartialStreamTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 20 * time.Millisecond
+
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-4b",
+		Text:           "hello",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 || result.Messages[0].Text != "hello world" {
+		t.Fatalf("expected completed turn content to win over partial stream snapshot, got %#v", result.Messages)
+	}
+}
+
+func TestWorkspaceThreadAIBackendWaitsWhenTurnSnapshotLagsTerminalEvent(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-4c",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-4c",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeDelayedCompletedTurnSnapshotTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 20 * time.Millisecond
+
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-4c",
+		Text:           "hello",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 || result.Messages[0].Text != "hello world" {
+		t.Fatalf("expected backend to wait until the completed turn snapshot is available, got %#v", result.Messages)
+	}
+}
+
+func TestWorkspaceThreadAIBackendKeepsWaitingWhenStreamingDeliveryFails(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-5",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-5",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeStreamingTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 40 * time.Millisecond
+
+	updateAttempts := 0
+	snapshots := make([][]OutboundMessage, 0, 2)
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-5",
+		Text:           "hello",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		updateAttempts += 1
+		if updateAttempts == 1 {
+			return errors.New("telegram edit failed")
+		}
+		snapshots = append(snapshots, cloneOutboundMessages(update.Messages))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 || result.Messages[0].Text != "hello world" {
+		t.Fatalf("expected final messages despite streaming delivery failure, got %#v", result.Messages)
+	}
+	if updateAttempts < 2 {
+		t.Fatalf("expected streaming delivery to continue after the first failure, got %d attempts", updateAttempts)
+	}
+
+	foundSnapshot := false
+	for _, snapshot := range snapshots {
+		if len(snapshot) == 1 && snapshot[0].Text == "hello world" {
+			foundSnapshot = true
+			break
+		}
+	}
+	if !foundSnapshot {
+		t.Fatalf("expected a later streaming snapshot after the initial delivery failure, got %#v", snapshots)
+	}
+}
+
+func TestWorkspaceThreadAIBackendTreatsInterruptedTurnAsTerminal(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-terminal-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-terminal-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	turnsExec := &fakeTerminalTurns{
+		threads: threadsExec,
+		turn: store.ThreadTurn{
+			ID:     "turn-terminal-1",
+			Status: "interrupted",
+		},
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, nil, 10*time.Millisecond, 200*time.Millisecond).(*workspaceThreadAIBackend)
+	backend.turnSettleDelay = 20 * time.Millisecond
+	_, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-terminal-1",
+		Text:           "hello",
+	})
+	if err == nil {
+		t.Fatal("expected interrupted terminal turn to fail fast")
+	}
+	var turnErr *workspaceTurnTerminalError
+	if !errors.As(err, &turnErr) {
+		t.Fatalf("expected workspaceTurnTerminalError, got %T (%v)", err, err)
+	}
+	if turnErr.Status != "interrupted" {
+		t.Fatalf("expected interrupted status in typed error, got %#v", turnErr)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "deadline") {
+		t.Fatalf("expected interrupted status instead of timeout, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "interrupted") {
+		t.Fatalf("expected interrupted status in error, got %v", err)
+	}
+}
+
+func TestWorkspaceThreadAIBackendTreatsFailedStreamingTurnAsTerminal(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-terminal-2",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-terminal-2",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeTerminalStreamingTurns{
+		hub:     hub,
+		threads: threadsExec,
+		turn: store.ThreadTurn{
+			ID:     "turn-terminal-2",
+			Status: "failed",
+			Error: map[string]any{
+				"message": "permission denied",
+			},
+		},
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, 200*time.Millisecond).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 20 * time.Millisecond
+
+	_, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-terminal-2",
+		Text:           "hello",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected failed terminal streaming turn to return an error")
+	}
+	var turnErr *workspaceTurnTerminalError
+	if !errors.As(err, &turnErr) {
+		t.Fatalf("expected workspaceTurnTerminalError, got %T (%v)", err, err)
+	}
+	if turnErr.Status != "failed" {
+		t.Fatalf("expected failed status in typed error, got %#v", turnErr)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "deadline") {
+		t.Fatalf("expected failed status instead of timeout, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("expected failed turn error message, got %v", err)
+	}
+}
+
+func TestWorkspaceThreadAIBackendReturnsTypedNoReplyError(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-terminal-3",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-terminal-3",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	turnsExec := &fakeTerminalTurns{
+		threads: threadsExec,
+		turn: store.ThreadTurn{
+			ID:     "turn-terminal-3",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "reasoning-1",
+					"type": "reasoning",
+					"text": "internal trace only",
+				},
+			},
+		},
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, nil, 10*time.Millisecond, 200*time.Millisecond).(*workspaceThreadAIBackend)
+	backend.turnSettleDelay = 20 * time.Millisecond
+
+	_, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-terminal-3",
+		Text:           "hello",
+	})
+	if err == nil {
+		t.Fatal("expected completed turn without visible reply to return an error")
+	}
+	var noReplyErr *botVisibleReplyMissingError
+	if !errors.As(err, &noReplyErr) {
+		t.Fatalf("expected botVisibleReplyMissingError, got %T (%v)", err, err)
+	}
+	if noReplyErr.Backend != "workspace_thread" {
+		t.Fatalf("expected workspace_thread backend in typed error, got %#v", noReplyErr)
+	}
+	if !strings.Contains(err.Error(), "no bot-visible reply") {
+		t.Fatalf("expected no-reply error text, got %v", err)
+	}
+}
+
+func TestWorkspaceThreadAIBackendPollsSingleTurnInsteadOfFullDetail(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-turn-lookup-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-turn-lookup-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	turnsExec := &fakeTerminalTurns{
+		threads: threadsExec,
+		turn: store.ThreadTurn{
+			ID:     "turn-turn-lookup-1",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "assistant-1",
+					"type": "agentMessage",
+					"text": "done",
+				},
+			},
+		},
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, nil, 10*time.Millisecond, 200*time.Millisecond).(*workspaceThreadAIBackend)
+	backend.turnSettleDelay = 20 * time.Millisecond
+
+	result, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-turn-lookup-1",
+		Text:           "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].Text != "done" {
+		t.Fatalf("unexpected final messages %#v", result.Messages)
+	}
+
+	detailCalls, turnCalls := threadsExec.callCounts()
+	if detailCalls != 0 {
+		t.Fatalf("expected no full-detail polling calls, got %d", detailCalls)
+	}
+	if turnCalls == 0 {
+		t.Fatal("expected single-turn polling calls")
+	}
+}
+
+func TestWorkspaceThreadAIBackendPrefersTurnEventsBeforeFallbackPolling(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-turn-events-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-turn-events-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeEventDrivenTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 40*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.turnSettleDelay = 15 * time.Millisecond
+
+	result, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-turn-events-1",
+		Text:           "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].Text != "done" {
+		t.Fatalf("unexpected final messages %#v", result.Messages)
+	}
+
+	detailCalls, turnCalls := threadsExec.callCounts()
+	if detailCalls != 0 {
+		t.Fatalf("expected no full-detail polling calls, got %d", detailCalls)
+	}
+	if turnCalls > 3 {
+		t.Fatalf("expected event-first waiting to avoid repeated fallback polls, got %d turn lookups", turnCalls)
+	}
+}
+
 type fakeWorkspaceThreads struct {
-	mu     sync.Mutex
-	thread store.Thread
-	detail store.ThreadDetail
+	mu          sync.Mutex
+	thread      store.Thread
+	detail      store.ThreadDetail
+	detailCalls int
+	turnCalls   int
 }
 
 func (f *fakeWorkspaceThreads) Create(_ context.Context, _ string, _ threads.CreateInput) (store.Thread, error) {
@@ -402,13 +1037,42 @@ func (f *fakeWorkspaceThreads) Create(_ context.Context, _ string, _ threads.Cre
 func (f *fakeWorkspaceThreads) GetDetail(_ context.Context, _ string, _ string) (store.ThreadDetail, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.detailCalls += 1
 	return cloneThreadDetailForTest(f.detail), nil
+}
+
+func (f *fakeWorkspaceThreads) GetTurn(
+	_ context.Context,
+	_ string,
+	_ string,
+	turnID string,
+	_ string,
+) (store.ThreadTurn, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.turnCalls += 1
+
+	for _, turn := range f.detail.Turns {
+		if turn.ID != turnID {
+			continue
+		}
+
+		return cloneThreadDetailForTest(store.ThreadDetail{Turns: []store.ThreadTurn{turn}}).Turns[0], nil
+	}
+
+	return store.ThreadTurn{}, store.ErrThreadNotFound
 }
 
 func (f *fakeWorkspaceThreads) setCompletedTurn(turn store.ThreadTurn) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.detail.Turns = []store.ThreadTurn{turn}
+}
+
+func (f *fakeWorkspaceThreads) callCounts() (detailCalls int, turnCalls int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.detailCalls, f.turnCalls
 }
 
 type fakeStreamingTurns struct {
@@ -712,6 +1376,299 @@ func (f *fakeCommandThenAgentTurns) Start(_ context.Context, workspaceID string,
 
 	return turns.Result{
 		TurnID: "turn-stream-3",
+		Status: "running",
+	}, nil
+}
+
+type fakeLaggingCompletedTurnTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeLaggingCompletedTurnTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-4",
+			Method:      "item/agentMessage/delta",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-4",
+				"itemId":   "msg-1",
+				"delta":    "hello world",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-stream-4",
+			Status: "completed",
+			Items:  []map[string]any{},
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-4",
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-4",
+				"turn": map[string]any{
+					"id":     "turn-stream-4",
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-stream-4",
+		Status: "running",
+	}, nil
+}
+
+type fakeCompletedTurnWinsOverPartialStreamTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeCompletedTurnWinsOverPartialStreamTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-4b",
+			Method:      "item/agentMessage/delta",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-4b",
+				"itemId":   "msg-1",
+				"delta":    "hello",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-stream-4b",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "msg-1",
+					"type": "agentMessage",
+					"text": "hello world",
+				},
+			},
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-4b",
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-4b",
+				"turn": map[string]any{
+					"id":     "turn-stream-4b",
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-stream-4b",
+		Status: "running",
+	}, nil
+}
+
+type fakeDelayedCompletedTurnSnapshotTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeDelayedCompletedTurnSnapshotTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-4c",
+			Method:      "item/agentMessage/delta",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-4c",
+				"itemId":   "msg-1",
+				"delta":    "hello",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-4c",
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-4c",
+				"turn": map[string]any{
+					"id":     "turn-stream-4c",
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(35 * time.Millisecond)
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-stream-4c",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "msg-1",
+					"type": "agentMessage",
+					"text": "hello world",
+				},
+			},
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-stream-4c",
+		Status: "running",
+	}, nil
+}
+
+type fakeTerminalTurns struct {
+	threads *fakeWorkspaceThreads
+	turn    store.ThreadTurn
+}
+
+func (f *fakeTerminalTurns) Start(_ context.Context, _ string, _ string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.threads.setCompletedTurn(f.turn)
+	}()
+
+	return turns.Result{
+		TurnID: f.turn.ID,
+		Status: "running",
+	}, nil
+}
+
+type fakeTerminalStreamingTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+	turn    store.ThreadTurn
+}
+
+func (f *fakeTerminalStreamingTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.threads.setCompletedTurn(f.turn)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      f.turn.ID,
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   f.turn.ID,
+				"turn": map[string]any{
+					"id":     f.turn.ID,
+					"status": f.turn.Status,
+					"error":  f.turn.Error,
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: f.turn.ID,
+		Status: "running",
+	}, nil
+}
+
+type fakeEventDrivenTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeEventDrivenTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-turn-events-1",
+			Method:      "turn/started",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-turn-events-1",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		for _, delta := range []string{"d", "o", "n", "e"} {
+			time.Sleep(5 * time.Millisecond)
+			f.hub.Publish(store.EventEnvelope{
+				WorkspaceID: workspaceID,
+				ThreadID:    threadID,
+				TurnID:      "turn-turn-events-1",
+				Method:      "item/agentMessage/delta",
+				Payload: map[string]any{
+					"threadId": threadID,
+					"turnId":   "turn-turn-events-1",
+					"itemId":   "assistant-1",
+					"delta":    delta,
+				},
+				TS: time.Now().UTC(),
+			})
+		}
+
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-turn-events-1",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "assistant-1",
+					"type": "agentMessage",
+					"text": "done",
+				},
+			},
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-turn-events-1",
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-turn-events-1",
+				"turn": map[string]any{
+					"id":     "turn-turn-events-1",
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-turn-events-1",
 		Status: "running",
 	}, nil
 }

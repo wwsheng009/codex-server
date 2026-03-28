@@ -2,6 +2,8 @@ package bots
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,7 +18,8 @@ const (
 	defaultThreadPollInterval  = 1500 * time.Millisecond
 	defaultThreadTurnTimeout   = 2 * time.Minute
 	defaultStreamFlushInterval = 400 * time.Millisecond
-	defaultTurnSettleDelay     = 600 * time.Millisecond
+	defaultTurnSettleDelay     = 300 * time.Millisecond
+	threadTurnContentModeFull  = "full"
 )
 
 type workspaceThreadAIBackend struct {
@@ -27,6 +30,11 @@ type workspaceThreadAIBackend struct {
 	turnTimeout         time.Duration
 	streamFlushInterval time.Duration
 	turnSettleDelay     time.Duration
+}
+
+type terminalTurnStability struct {
+	fingerprint string
+	observed    bool
 }
 
 func newWorkspaceThreadAIBackend(
@@ -95,7 +103,7 @@ func (b *workspaceThreadAIBackend) processMessage(
 
 	var eventCh <-chan store.EventEnvelope
 	cancelEvents := func() {}
-	if handle != nil && b.events != nil {
+	if b.events != nil {
 		eventCh, cancelEvents = b.events.Subscribe(connection.WorkspaceID)
 	}
 	defer cancelEvents()
@@ -117,19 +125,29 @@ func (b *workspaceThreadAIBackend) processMessage(
 	if handle != nil && eventCh != nil {
 		turn, err = b.waitForTurnStream(turnCtx, connection.WorkspaceID, threadID, result.TurnID, eventCh, handle)
 	} else {
-		turn, err = b.waitForTurn(turnCtx, connection.WorkspaceID, threadID, result.TurnID)
+		turn, err = b.waitForTurn(turnCtx, connection.WorkspaceID, threadID, result.TurnID, eventCh)
 	}
 	if err != nil {
 		return AIResult{}, err
 	}
 
-	if errMessage := formatTurnError(turn.Error); errMessage != "" {
-		return AIResult{}, fmt.Errorf("ai turn failed: %s", errMessage)
+	if errMessage := formatTurnFailure(turn); errMessage != "" {
+		return AIResult{}, &workspaceTurnTerminalError{
+			Backend:  b.Name(),
+			ThreadID: threadID,
+			TurnID:   turn.ID,
+			Status:   strings.TrimSpace(turn.Status),
+			Detail:   strings.TrimSpace(errMessage),
+		}
 	}
 
 	messages := collectBotVisibleMessages(turn)
 	if len(messages) == 0 {
-		return AIResult{}, fmt.Errorf("ai backend %s returned no reply", b.Name())
+		return AIResult{}, &botVisibleReplyMissingError{
+			Backend:  b.Name(),
+			ThreadID: threadID,
+			TurnID:   turn.ID,
+		}
 	}
 
 	return AIResult{
@@ -166,36 +184,57 @@ func (b *workspaceThreadAIBackend) waitForTurn(
 	workspaceID string,
 	threadID string,
 	turnID string,
+	eventCh <-chan store.EventEnvelope,
 ) (store.ThreadTurn, error) {
 	ticker := time.NewTicker(b.pollInterval)
 	defer ticker.Stop()
 
 	var settleTimer *time.Timer
 	var settleCh <-chan time.Time
+	stability := terminalTurnStability{}
 	defer stopTimer(settleTimer)
 
-	for {
-		detail, err := b.threads.GetDetail(ctx, workspaceID, threadID)
-		if err == nil {
-			if turn, ok := findThreadTurn(detail, turnID); ok {
-				if strings.EqualFold(strings.TrimSpace(turn.Status), "completed") {
-					if settleCh == nil {
-						resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
-					}
-				}
-			}
-		}
+	if turn, ok := b.lookupTurn(ctx, workspaceID, threadID, turnID); ok && isTerminalTurnStatus(turn.Status) {
+		resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+	}
 
+	var lastTurnEventAt time.Time
+
+	for {
 		select {
 		case <-ctx.Done():
 			return store.ThreadTurn{}, ctx.Err()
 		case <-settleCh:
 			if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
+				if !stability.Observe(turn) {
+					resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+					continue
+				}
 				return turn, nil
 			}
+			stability.Reset()
 			settleCh = nil
 			settleTimer = nil
 		case <-ticker.C:
+			if !shouldUseFallbackPoll(lastTurnEventAt, b.pollInterval) {
+				continue
+			}
+			if _, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok && settleCh == nil {
+				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+			}
+		case event, ok := <-eventCh:
+			if !ok {
+				eventCh = nil
+				lastTurnEventAt = time.Time{}
+				continue
+			}
+			if !matchesTurnEvent(event, threadID, turnID) {
+				continue
+			}
+			lastTurnEventAt = time.Now()
+			if settleCh != nil || isTerminalTurnEventMethod(event.Method) {
+				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+			}
 		}
 	}
 }
@@ -217,7 +256,27 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 	stream := botVisibleItemStream{}
 	var settleTimer *time.Timer
 	var settleCh <-chan time.Time
+	stability := terminalTurnStability{}
 	defer stopTimer(settleTimer)
+
+	if turn, ok := b.lookupTurn(ctx, workspaceID, threadID, turnID); ok && isTerminalTurnStatus(turn.Status) {
+		turn.Items = stream.mergeCompletedTurnItems(turn.Items)
+		resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+	}
+
+	var lastTurnEventAt time.Time
+
+	flushStream := func() error {
+		if err := stream.Flush(ctx, handle); err != nil {
+			// Streaming delivery is best-effort. A transient Telegram update/edit
+			// failure should not abort the turn while the workspace thread is still
+			// producing a valid final result.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	for {
 		select {
@@ -225,33 +284,40 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 			return store.ThreadTurn{}, ctx.Err()
 		case <-settleCh:
 			if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
-				turn.Items = stream.reorderCompletedTurnItems(turn.Items)
-				if err := stream.Flush(ctx, handle); err != nil {
+				turn.Items = stream.mergeCompletedTurnItems(turn.Items)
+				if !stability.Observe(turn) {
+					resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
+					continue
+				}
+				if err := flushStream(); err != nil {
 					return store.ThreadTurn{}, err
 				}
 				return turn, nil
 			}
+			stability.Reset()
 			settleCh = nil
 			settleTimer = nil
 		case <-streamTicker.C:
-			if err := stream.Flush(ctx, handle); err != nil {
+			if err := flushStream(); err != nil {
 				return store.ThreadTurn{}, err
 			}
 		case <-pollTicker.C:
-			if turn, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok {
-				_ = turn
-				if settleCh == nil {
-					resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
-				}
+			if !shouldUseFallbackPoll(lastTurnEventAt, b.pollInterval) {
+				continue
+			}
+			if _, ok := b.lookupCompletedTurn(ctx, workspaceID, threadID, turnID); ok && settleCh == nil {
+				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 			}
 		case event, ok := <-eventCh:
 			if !ok {
 				eventCh = nil
+				lastTurnEventAt = time.Time{}
 				continue
 			}
 			if !matchesTurnEvent(event, threadID, turnID) {
 				continue
 			}
+			lastTurnEventAt = time.Now()
 
 			flushImmediately := false
 			switch event.Method {
@@ -288,7 +354,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 				resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
 			}
 			if flushImmediately {
-				if err := stream.Flush(ctx, handle); err != nil {
+				if err := flushStream(); err != nil {
 					return store.ThreadTurn{}, err
 				}
 			}
@@ -302,19 +368,27 @@ func (b *workspaceThreadAIBackend) lookupCompletedTurn(
 	threadID string,
 	turnID string,
 ) (store.ThreadTurn, bool) {
-	detail, err := b.threads.GetDetail(ctx, workspaceID, threadID)
-	if err != nil {
-		return store.ThreadTurn{}, false
-	}
-
-	turn, ok := findThreadTurn(detail, turnID)
+	turn, ok := b.lookupTurn(ctx, workspaceID, threadID, turnID)
 	if !ok {
 		return store.ThreadTurn{}, false
 	}
-	if !strings.EqualFold(strings.TrimSpace(turn.Status), "completed") {
+	if !isTerminalTurnStatus(turn.Status) {
 		return store.ThreadTurn{}, false
 	}
 
+	return turn, true
+}
+
+func (b *workspaceThreadAIBackend) lookupTurn(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	turnID string,
+) (store.ThreadTurn, bool) {
+	turn, err := b.threads.GetTurn(ctx, workspaceID, threadID, turnID, threadTurnContentModeFull)
+	if err != nil {
+		return store.ThreadTurn{}, false
+	}
 	return turn, true
 }
 
@@ -380,6 +454,21 @@ func formatTurnError(value any) string {
 	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 
+func formatTurnFailure(turn store.ThreadTurn) string {
+	if errMessage := formatTurnError(turn.Error); errMessage != "" {
+		return errMessage
+	}
+	if isSuccessfulTurnStatus(turn.Status) {
+		return ""
+	}
+
+	status := strings.TrimSpace(turn.Status)
+	if status == "" {
+		return "turn ended without a successful status"
+	}
+	return "turn ended with status " + status
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -400,6 +489,35 @@ func objectValue(value any) map[string]any {
 		return map[string]any{}
 	}
 	return object
+}
+
+func isTerminalTurnStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "failed", "interrupted", "canceled", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSuccessfulTurnStatus(status string) bool {
+	return strings.EqualFold(strings.TrimSpace(status), "completed")
+}
+
+func isTerminalTurnEventMethod(method string) bool {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "turn/completed", "turn/failed", "turn/interrupted", "turn/canceled", "turn/cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldUseFallbackPoll(lastTurnEventAt time.Time, pollInterval time.Duration) bool {
+	if pollInterval <= 0 || lastTurnEventAt.IsZero() {
+		return true
+	}
+	return time.Since(lastTurnEventAt) >= pollInterval
 }
 
 func matchesTurnEvent(event store.EventEnvelope, threadID string, turnID string) bool {
@@ -490,6 +608,7 @@ func (s *botVisibleItemStream) MergeItem(item map[string]any) {
 	}
 
 	target := s.ensureItem(itemID, itemType)
+	previousRendered := strings.TrimSpace(renderBotVisibleItemState(target))
 	target.Raw = mergeBotItemMap(target.Raw, item)
 	switch itemType {
 	case "agentMessage", "plan":
@@ -520,6 +639,9 @@ func (s *botVisibleItemStream) MergeItem(item map[string]any) {
 			target.AggregatedOutput = output
 			s.dirty = true
 		}
+	}
+	if strings.TrimSpace(renderBotVisibleItemState(target)) != previousRendered {
+		s.dirty = true
 	}
 }
 
@@ -606,36 +728,63 @@ func (s *botVisibleItemStream) messages() []OutboundMessage {
 	return messages
 }
 
-func (s *botVisibleItemStream) reorderCompletedTurnItems(items []map[string]any) []map[string]any {
-	if len(items) == 0 || len(s.order) == 0 {
+func (s *botVisibleItemStream) mergeCompletedTurnItems(items []map[string]any) []map[string]any {
+	if len(s.order) == 0 {
 		return cloneBotVisibleItems(items)
 	}
 
-	ordered := make([]map[string]any, 0, len(items))
-	used := make(map[int]struct{}, len(items))
+	completed := cloneBotVisibleItems(items)
+	streamItems := s.materializedItems()
+	if len(completed) == 0 {
+		return streamItems
+	}
+	if len(streamItems) == 0 {
+		return completed
+	}
 
+	streamByID := make(map[string]map[string]any, len(streamItems))
+	for _, item := range streamItems {
+		itemID := strings.TrimSpace(stringValue(item["id"]))
+		if itemID == "" {
+			continue
+		}
+		streamByID[itemID] = item
+	}
+
+	merged := make([]map[string]any, 0, len(completed)+len(streamItems))
+	usedCompleted := make(map[int]struct{}, len(completed))
 	for _, itemID := range s.order {
-		for index, item := range items {
-			if _, ok := used[index]; ok {
+		streamItem, ok := streamByID[itemID]
+		if !ok {
+			continue
+		}
+
+		matched := false
+		for index, item := range completed {
+			if _, ok := usedCompleted[index]; ok {
 				continue
 			}
 			if strings.TrimSpace(stringValue(item["id"])) != itemID {
 				continue
 			}
-			ordered = append(ordered, mergeBotItemMap(nil, item))
-			used[index] = struct{}{}
+			merged = append(merged, mergeCompletedItemWithStreamFallback(item, streamItem))
+			usedCompleted[index] = struct{}{}
+			matched = true
 			break
 		}
+		if !matched {
+			merged = append(merged, mergeBotItemMap(nil, streamItem))
+		}
 	}
 
-	for index, item := range items {
-		if _, ok := used[index]; ok {
+	for index, item := range completed {
+		if _, ok := usedCompleted[index]; ok {
 			continue
 		}
-		ordered = append(ordered, mergeBotItemMap(nil, item))
+		merged = append(merged, item)
 	}
 
-	return ordered
+	return merged
 }
 
 func (s *botVisibleItemStream) ensureItem(itemID string, itemType string) *botVisibleItemState {
@@ -673,6 +822,31 @@ func renderBotVisibleItemState(item *botVisibleItemState) string {
 		return ""
 	}
 
+	renderItem := materializeBotVisibleItemState(item)
+	return renderBotVisibleItem(renderItem)
+}
+
+func (s *botVisibleItemStream) materializedItems() []map[string]any {
+	if len(s.order) == 0 {
+		return nil
+	}
+
+	items := make([]map[string]any, 0, len(s.order))
+	for _, itemID := range s.order {
+		item := s.items[itemID]
+		if item == nil || !isBotVisibleItemType(strings.TrimSpace(item.ItemType)) {
+			continue
+		}
+		items = append(items, materializeBotVisibleItemState(item))
+	}
+	return items
+}
+
+func materializeBotVisibleItemState(item *botVisibleItemState) map[string]any {
+	if item == nil {
+		return map[string]any{}
+	}
+
 	renderItem := mergeBotItemMap(nil, item.Raw)
 	renderItem["type"] = firstNonEmpty(strings.TrimSpace(item.ItemType), stringValue(renderItem["type"]))
 	if item.Text != "" {
@@ -690,15 +864,15 @@ func renderBotVisibleItemState(item *botVisibleItemState) string {
 	if item.AggregatedOutput != "" {
 		renderItem["aggregatedOutput"] = item.AggregatedOutput
 	}
-	return renderBotVisibleItem(renderItem)
+	return renderItem
 }
 
 func isBotVisibleItemType(itemType string) bool {
 	switch strings.TrimSpace(itemType) {
-	case "agentMessage", "plan", "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "serverRequest":
-		return true
-	default:
+	case "", "userMessage", "reasoning":
 		return false
+	default:
+		return true
 	}
 }
 
@@ -814,6 +988,138 @@ func mergeBotItemMap(base map[string]any, overlay map[string]any) map[string]any
 		next[key] = value
 	}
 	return next
+}
+
+func mergeCompletedItemWithStreamFallback(completed map[string]any, stream map[string]any) map[string]any {
+	merged := mergeBotItemMap(nil, completed)
+	for key, value := range stream {
+		switch key {
+		case "text", "message", "aggregatedOutput", "command":
+			merged[key] = preferMoreCompleteString(stringValue(merged[key]), stringValue(value))
+		case "summary", "content":
+			merged[key] = preferMoreCompleteStringSlice(stringSliceValue(merged[key]), stringSliceValue(value))
+		case "details":
+			merged[key] = mergeBotItemMapWithFallback(objectValue(merged[key]), objectValue(value))
+		default:
+			if isMissingBotItemValue(merged[key]) {
+				merged[key] = value
+			}
+		}
+	}
+	return merged
+}
+
+func mergeBotItemMapWithFallback(authoritative map[string]any, fallback map[string]any) map[string]any {
+	if len(authoritative) == 0 {
+		return mergeBotItemMap(nil, fallback)
+	}
+
+	merged := mergeBotItemMap(nil, authoritative)
+	for key, value := range fallback {
+		current, exists := merged[key]
+		if !exists || isMissingBotItemValue(current) {
+			merged[key] = value
+			continue
+		}
+
+		currentMap, currentIsMap := current.(map[string]any)
+		fallbackMap, fallbackIsMap := value.(map[string]any)
+		if currentIsMap && fallbackIsMap {
+			merged[key] = mergeBotItemMapWithFallback(currentMap, fallbackMap)
+		}
+	}
+
+	return merged
+}
+
+func preferMoreCompleteString(authoritative string, fallback string) string {
+	switch {
+	case strings.TrimSpace(authoritative) == "":
+		return fallback
+	case strings.TrimSpace(fallback) == "":
+		return authoritative
+	case runeCount(fallback) > runeCount(authoritative):
+		return fallback
+	default:
+		return authoritative
+	}
+}
+
+func preferMoreCompleteStringSlice(authoritative []string, fallback []string) []any {
+	switch {
+	case len(authoritative) == 0 && len(fallback) == 0:
+		return nil
+	case len(authoritative) == 0:
+		return stringArrayToAnySlice(fallback)
+	case len(fallback) == 0:
+		return stringArrayToAnySlice(authoritative)
+	case totalStringSliceRunes(fallback) > totalStringSliceRunes(authoritative):
+		return stringArrayToAnySlice(fallback)
+	default:
+		return stringArrayToAnySlice(authoritative)
+	}
+}
+
+func totalStringSliceRunes(items []string) int {
+	total := 0
+	for _, item := range items {
+		total += runeCount(item)
+	}
+	return total
+}
+
+func runeCount(value string) int {
+	return len([]rune(value))
+}
+
+func isMissingBotItemValue(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case []any:
+		return len(typed) == 0
+	case []string:
+		return len(typed) == 0
+	case map[string]any:
+		return len(typed) == 0
+	default:
+		return false
+	}
+}
+
+func (s *terminalTurnStability) Observe(turn store.ThreadTurn) bool {
+	fingerprint := terminalTurnFingerprint(turn)
+	if !s.observed || s.fingerprint != fingerprint {
+		s.fingerprint = fingerprint
+		s.observed = true
+		return false
+	}
+	return true
+}
+
+func (s *terminalTurnStability) Reset() {
+	s.fingerprint = ""
+	s.observed = false
+}
+
+func terminalTurnFingerprint(turn store.ThreadTurn) string {
+	payload, err := json.Marshal(struct {
+		ID     string           `json:"id"`
+		Status string           `json:"status"`
+		Error  any              `json:"error,omitempty"`
+		Items  []map[string]any `json:"items,omitempty"`
+	}{
+		ID:     turn.ID,
+		Status: turn.Status,
+		Error:  turn.Error,
+		Items:  turn.Items,
+	})
+	if err != nil {
+		return strings.TrimSpace(fmt.Sprintf("%s|%s|%v|%v", turn.ID, turn.Status, turn.Error, turn.Items))
+	}
+	return string(payload)
 }
 
 func isBotVisibleServerRequestEvent(event store.EventEnvelope) bool {
