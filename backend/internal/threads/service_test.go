@@ -171,6 +171,133 @@ func TestFilterStoredThreadsKeepsCreatedUnmaterializedEntries(t *testing.T) {
 	}
 }
 
+func TestBuildStoredThreadListPageSortsByUpdatedAtAndSignalsMoreResults(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	now := time.Now().UTC()
+	for _, thread := range []store.Thread{
+		{
+			ID:           "thread-1",
+			WorkspaceID:  workspace.ID,
+			Cwd:          workspace.RootPath,
+			Materialized: true,
+			Name:         "Older update",
+			Status:       "idle",
+			CreatedAt:    now.Add(-3 * time.Hour),
+			UpdatedAt:    now.Add(-2 * time.Hour),
+		},
+		{
+			ID:           "thread-2",
+			WorkspaceID:  workspace.ID,
+			Cwd:          workspace.RootPath,
+			Materialized: true,
+			Name:         "Newest update",
+			Status:       "idle",
+			CreatedAt:    now.Add(-2 * time.Hour),
+			UpdatedAt:    now.Add(-15 * time.Minute),
+		},
+		{
+			ID:           "thread-3",
+			WorkspaceID:  workspace.ID,
+			Cwd:          workspace.RootPath,
+			Materialized: true,
+			Name:         "Middle update",
+			Status:       "idle",
+			CreatedAt:    now.Add(-90 * time.Minute),
+			UpdatedAt:    now.Add(-45 * time.Minute),
+		},
+	} {
+		dataStore.UpsertThread(thread)
+	}
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+	page := service.buildStoredThreadListPage(
+		workspace.ID,
+		false,
+		normalizePath(workspace.RootPath),
+		2,
+		threadSortKeyUpdatedAt,
+	)
+
+	if len(page.Data) != 2 {
+		t.Fatalf("expected 2 threads in the first page, got %d", len(page.Data))
+	}
+	if page.Data[0].ID != "thread-2" || page.Data[1].ID != "thread-3" {
+		t.Fatalf("expected updated_at order [thread-2 thread-3], got [%s %s]", page.Data[0].ID, page.Data[1].ID)
+	}
+	if page.NextCursor == nil || strings.TrimSpace(*page.NextCursor) == "" {
+		t.Fatal("expected stored snapshot page to signal more results")
+	}
+}
+
+func TestBuildStoredThreadListPageSortsByCreatedAt(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	now := time.Now().UTC()
+	for _, thread := range []store.Thread{
+		{
+			ID:           "thread-1",
+			WorkspaceID:  workspace.ID,
+			Cwd:          workspace.RootPath,
+			Materialized: true,
+			Name:         "Newest create",
+			Status:       "idle",
+			CreatedAt:    now.Add(-10 * time.Minute),
+			UpdatedAt:    now.Add(-30 * time.Minute),
+		},
+		{
+			ID:           "thread-2",
+			WorkspaceID:  workspace.ID,
+			Cwd:          workspace.RootPath,
+			Materialized: true,
+			Name:         "Oldest create",
+			Status:       "idle",
+			CreatedAt:    now.Add(-4 * time.Hour),
+			UpdatedAt:    now.Add(-5 * time.Minute),
+		},
+		{
+			ID:           "thread-3",
+			WorkspaceID:  workspace.ID,
+			Cwd:          workspace.RootPath,
+			Materialized: true,
+			Name:         "Middle create",
+			Status:       "idle",
+			CreatedAt:    now.Add(-2 * time.Hour),
+			UpdatedAt:    now.Add(-20 * time.Minute),
+		},
+	} {
+		dataStore.UpsertThread(thread)
+	}
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+	page := service.buildStoredThreadListPage(
+		workspace.ID,
+		false,
+		normalizePath(workspace.RootPath),
+		10,
+		threadSortKeyCreatedAt,
+	)
+
+	if len(page.Data) != 3 {
+		t.Fatalf("expected all threads to fit in the page, got %d", len(page.Data))
+	}
+	if page.Data[0].ID != "thread-1" || page.Data[1].ID != "thread-3" || page.Data[2].ID != "thread-2" {
+		t.Fatalf(
+			"expected created_at order [thread-1 thread-3 thread-2], got [%s %s %s]",
+			page.Data[0].ID,
+			page.Data[1].ID,
+			page.Data[2].ID,
+		)
+	}
+	if page.NextCursor != nil {
+		t.Fatalf("expected no next cursor when stored page fits entirely, got %q", *page.NextCursor)
+	}
+}
+
 func TestBuildThreadStartPayloadUsesDefaultPermissions(t *testing.T) {
 	t.Parallel()
 
@@ -546,6 +673,84 @@ func TestApplyStoredProjectionPreservesProjectedItemOrderAcrossCompletion(t *tes
 	}
 }
 
+func TestApplyStoredProjectionSettlesProjectedFinalAnswerWithoutActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "active",
+			UpdatedAt:   time.Unix(100, 0).UTC(),
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "inProgress",
+				Items: []map[string]any{
+					{
+						"id":    "msg-1",
+						"type":  "agentMessage",
+						"text":  "done",
+						"phase": "final_answer",
+					},
+					{
+						"id":               "cmd-1",
+						"type":             "commandExecution",
+						"command":          "go test ./...",
+						"aggregatedOutput": "ok",
+						"status":           "inProgress",
+					},
+				},
+			},
+		},
+	})
+
+	detail := applyStoredProjection(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "idle",
+			UpdatedAt:   time.Unix(90, 0).UTC(),
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":    "msg-1",
+						"type":  "agentMessage",
+						"text":  "done",
+						"phase": "final_answer",
+					},
+					{
+						"id":               "cmd-1",
+						"type":             "commandExecution",
+						"command":          "go test ./...",
+						"aggregatedOutput": "ok",
+						"status":           "completed",
+					},
+				},
+			},
+		},
+	}, dataStore, runtime.NewManager("codex app-server --listen stdio://", nil), workspace.ID, "thread-1")
+
+	if detail.Status != "idle" {
+		t.Fatalf("expected settled thread status to become idle, got %q", detail.Status)
+	}
+	if detail.Turns[0].Status != "completed" {
+		t.Fatalf("expected stale turn with final answer to complete, got %q", detail.Turns[0].Status)
+	}
+	if got := stringValue(detail.Turns[0].Items[1]["status"]); got != "completed" {
+		t.Fatalf("expected stale command status to complete, got %q", got)
+	}
+}
+
 func TestSliceThreadDetailTurnsKeepsLatestWindow(t *testing.T) {
 	t.Parallel()
 
@@ -745,6 +950,78 @@ func TestGetDetailWindowUsesCachedSnapshotWhenRuntimeIsNotLive(t *testing.T) {
 	}
 }
 
+func TestCachedThreadDetailSettlesHistoricalProjectedActiveTurnWithoutActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-cache",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Cached Thread",
+		Status:      "idle",
+		UpdatedAt:   time.Unix(90, 0).UTC(),
+	}
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          thread.ID,
+			WorkspaceID: thread.WorkspaceID,
+			Cwd:         thread.Cwd,
+			Name:        thread.Name,
+			Status:      "active",
+			UpdatedAt:   time.Unix(120, 0).UTC(),
+		},
+		Cwd:       thread.Cwd,
+		TurnCount: 2,
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "inProgress",
+				Items: []map[string]any{
+					{
+						"id":      "cmd-1",
+						"type":    "commandExecution",
+						"command": "go test ./...",
+						"status":  "inProgress",
+					},
+				},
+			},
+			{
+				ID:     "turn-2",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":   "msg-2",
+						"type": "agentMessage",
+						"text": "next reply",
+					},
+				},
+			},
+		},
+	})
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+	detail, ok := service.cachedThreadDetail(workspace.ID, thread.ID)
+	if !ok {
+		t.Fatal("expected cached detail to be available")
+	}
+
+	if detail.Status != "idle" {
+		t.Fatalf("expected settled cached thread status to become idle, got %q", detail.Status)
+	}
+	if detail.Turns[0].Status != "completed" {
+		t.Fatalf("expected historical stale turn to settle, got %q", detail.Turns[0].Status)
+	}
+	if got := stringValue(detail.Turns[0].Items[0]["status"]); got != "completed" {
+		t.Fatalf("expected historical stale command to settle, got %q", got)
+	}
+	if detail.Turns[1].Status != "completed" {
+		t.Fatalf("expected later completed turn to stay completed, got %q", detail.Turns[1].Status)
+	}
+}
+
 func TestCachedThreadDetailRejectsIncompleteProjection(t *testing.T) {
 	t.Parallel()
 
@@ -834,6 +1111,130 @@ func TestShouldServeCurrentWindowFromCacheRejectsActiveTurns(t *testing.T) {
 	service := NewService(dataStore, runtimeManager)
 	if service.shouldServeCurrentWindowFromCache(workspace.ID, thread.ID) {
 		t.Fatal("expected active thread to bypass current-window cache")
+	}
+}
+
+func TestShouldServeCurrentWindowFromCacheRejectsActiveProjectionWithoutActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-stale-active",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Stale Active Thread",
+		Status:      "running",
+		UpdatedAt:   time.Unix(100, 0).UTC(),
+	}
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread:    thread,
+		Cwd:       thread.Cwd,
+		TurnCount: 1,
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "inProgress",
+				Items: []map[string]any{
+					{
+						"id":     "cmd-1",
+						"type":   "commandExecution",
+						"status": "inProgress",
+					},
+				},
+			},
+		},
+	})
+
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", nil)
+	runtimeManager.Configure(workspace.ID, workspace.RootPath)
+
+	service := NewService(dataStore, runtimeManager)
+	if service.shouldServeCurrentWindowFromCache(workspace.ID, thread.ID) {
+		t.Fatal("expected stale active projection to bypass current-window cache when no active turn is tracked")
+	}
+}
+
+func TestReconcileSettledThreadDetailInterruptsStaleActiveTurns(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Unix(200, 0).UTC()
+	detail := reconcileSettledThreadDetail(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: "ws-1",
+			Name:        "Thread 1",
+			Status:      "active",
+			UpdatedAt:   ts,
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "inProgress",
+				Items: []map[string]any{
+					{
+						"id":    "msg-1",
+						"type":  "agentMessage",
+						"phase": "streaming",
+						"text":  "partial",
+					},
+					{
+						"id":     "cmd-1",
+						"type":   "commandExecution",
+						"status": "inProgress",
+					},
+				},
+			},
+		},
+	}, "")
+
+	if detail.Turns[0].Status != "interrupted" {
+		t.Fatalf("expected stale turn status to be interrupted, got %q", detail.Turns[0].Status)
+	}
+	if detail.Status != "idle" {
+		t.Fatalf("expected stale thread status to become idle, got %q", detail.Status)
+	}
+	if got := stringValue(detail.Turns[0].Items[1]["status"]); got != "interrupted" {
+		t.Fatalf("expected stale command item status to be interrupted, got %q", got)
+	}
+	if _, ok := detail.Turns[0].Items[0]["phase"]; ok {
+		t.Fatalf("expected stale streaming phase to be cleared, got %#v", detail.Turns[0].Items[0]["phase"])
+	}
+}
+
+func TestReconcileSettledThreadDetailPreservesPendingServerRequests(t *testing.T) {
+	t.Parallel()
+
+	original := store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: "ws-1",
+			Name:        "Thread 1",
+			Status:      "active",
+			UpdatedAt:   time.Unix(200, 0).UTC(),
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "inProgress",
+				Items: []map[string]any{
+					{
+						"id":     "server-request-1",
+						"type":   "serverRequest",
+						"status": "pending",
+					},
+				},
+			},
+		},
+	}
+
+	reconciled := reconcileSettledThreadDetail(original, "")
+	if reconciled.Turns[0].Status != "inProgress" {
+		t.Fatalf("expected pending approval turn to stay inProgress, got %q", reconciled.Turns[0].Status)
+	}
+	if got := stringValue(reconciled.Turns[0].Items[0]["status"]); got != "pending" {
+		t.Fatalf("expected pending server request to be preserved, got %q", got)
 	}
 }
 

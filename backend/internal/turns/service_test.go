@@ -1,9 +1,12 @@
 package turns
 
 import (
+	"context"
 	"testing"
 
 	"codex-server/backend/internal/bridge"
+	"codex-server/backend/internal/runtime"
+	"codex-server/backend/internal/store"
 )
 
 func TestIsThreadResumeRequiredForNotLoaded(t *testing.T) {
@@ -163,5 +166,23 @@ func TestBuildCollaborationModePayloadPrefersExplicitOverrides(t *testing.T) {
 	}
 	if settings["reasoning_effort"] != "low" {
 		t.Fatalf("expected explicit reasoning effort override, got %#v", settings["reasoning_effort"])
+	}
+}
+
+func TestInterruptIsIdempotentWithoutActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", nil)
+	service := NewService(runtimeManager, store.NewMemoryStore())
+
+	result, err := service.Interrupt(context.Background(), "ws-1", "thread-1")
+	if err != nil {
+		t.Fatalf("Interrupt() error = %v", err)
+	}
+	if result.Status != "interrupted" {
+		t.Fatalf("expected interrupted status, got %#v", result.Status)
+	}
+	if result.TurnID != "" {
+		t.Fatalf("expected empty turn id for idempotent interrupt, got %#v", result.TurnID)
 	}
 }

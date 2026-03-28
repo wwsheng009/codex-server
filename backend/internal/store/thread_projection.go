@@ -203,6 +203,19 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 	return changed
 }
 
+func shouldPersistThreadProjectionEvent(method string) bool {
+	switch method {
+	case "item/agentMessage/delta",
+		"item/plan/delta",
+		"item/reasoning/summaryTextDelta",
+		"item/reasoning/textDelta",
+		"item/commandExecution/outputDelta":
+		return false
+	default:
+		return true
+	}
+}
+
 func projectedMessageCount(turns []ThreadTurn) int {
 	count := 0
 	for _, turn := range turns {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"codex-server/backend/internal/bridge"
 	appconfig "codex-server/backend/internal/config"
@@ -27,6 +28,8 @@ type Result struct {
 	TurnID string `json:"turnId"`
 	Status string `json:"status"`
 }
+
+const interruptRuntimeCallTimeout = 5 * time.Second
 
 type turnStartResponse struct {
 	Turn struct {
@@ -377,13 +380,33 @@ func (s *Service) Steer(ctx context.Context, workspaceID string, threadID string
 func (s *Service) Interrupt(ctx context.Context, workspaceID string, threadID string) (Result, error) {
 	turnID := s.runtimes.ActiveTurnID(workspaceID, threadID)
 	if turnID == "" {
-		return Result{}, runtime.ErrNoActiveTurn
+		return Result{
+			TurnID: "",
+			Status: "interrupted",
+		}, nil
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "turn/interrupt", map[string]any{
+	callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, interruptRuntimeCallTimeout)
+	defer cancel()
+
+	if err := s.runtimes.Call(callCtx, workspaceID, "turn/interrupt", map[string]any{
 		"threadId": threadID,
 		"turnId":   turnID,
 	}, nil); err != nil {
+		if errors.Is(err, runtime.ErrNoActiveTurn) {
+			s.runtimes.RememberActiveTurn(workspaceID, threadID, "")
+			return Result{
+				TurnID: "",
+				Status: "interrupted",
+			}, nil
+		}
+		if runtimeCallTimedOut(err, timeoutApplied) {
+			s.runtimes.Recycle(workspaceID)
+			return Result{
+				TurnID: turnID,
+				Status: "interrupted",
+			}, nil
+		}
 		return Result{}, err
 	}
 
@@ -393,6 +416,30 @@ func (s *Service) Interrupt(ctx context.Context, workspaceID string, threadID st
 		TurnID: turnID,
 		Status: "interrupted",
 	}, nil
+}
+
+func runtimeCallContext(
+	ctx context.Context,
+	timeout time.Duration,
+) (context.Context, context.CancelFunc, bool) {
+	if timeout <= 0 {
+		callCtx, cancel := context.WithCancel(ctx)
+		return callCtx, cancel, false
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		if time.Until(deadline) <= timeout {
+			callCtx, cancel := context.WithCancel(ctx)
+			return callCtx, cancel, false
+		}
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	return callCtx, cancel, true
+}
+
+func runtimeCallTimedOut(err error, timeoutApplied bool) bool {
+	return timeoutApplied && errors.Is(err, context.DeadlineExceeded)
 }
 
 func (s *Service) Review(ctx context.Context, workspaceID string, threadID string) (Result, error) {

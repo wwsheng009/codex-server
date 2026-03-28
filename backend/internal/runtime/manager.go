@@ -344,6 +344,16 @@ func (m *Manager) Remove(workspaceID string) {
 	}
 }
 
+func (m *Manager) Recycle(workspaceID string) {
+	rootPath := m.RootPath(workspaceID)
+	m.Remove(workspaceID)
+	if strings.TrimSpace(rootPath) == "" {
+		return
+	}
+
+	m.Configure(workspaceID, rootPath)
+}
+
 func (m *Manager) getOrCreateLocked(workspaceID string) *instance {
 	if runtime, ok := m.runtimes[workspaceID]; ok {
 		return runtime

@@ -94,7 +94,9 @@ npm run test:e2e
 
 默认地址：`http://localhost:15173`
 
-开发环境下，Vite 现在会把同源的 `/api` 请求和 WebSocket 代理到后端，默认目标是 `http://localhost:18080`。
+开发环境下，前端默认会直接请求当前主机的 `:18080`，例如 `http://localhost:15173` 会请求 `http://localhost:18080`。
+
+Vite 仍然保留了 `/api` 和 WebSocket 代理能力，默认目标是 `http://localhost:18080`，可用于特殊调试场景。
 
 如需修改代理目标，可设置：
 
@@ -125,8 +127,8 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173 npm run test:e2e
 
 如果未设置 `VITE_API_BASE_URL`：
 
-- 开发环境会优先走 Vite 同源代理
-- 非开发环境会按当前访问主机拼接 `:18080`，例如 `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
+- 开发环境会按当前访问主机拼接 `:18080`，例如 `http://localhost:15173` 会请求 `http://localhost:18080`
+- 非开发环境也会按当前访问主机拼接 `:18080`，例如 `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
 
 ## 启用 LocalShell
 

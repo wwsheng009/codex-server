@@ -73,6 +73,9 @@ func main() {
 	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
 		PublicBaseURL:    cfg.PublicBaseURL,
 		OutboundProxyURL: cfg.OutboundProxyURL,
+		MessageTimeout:   cfg.BotMessageTimeout,
+		PollInterval:     cfg.BotPollInterval,
+		TurnTimeout:      cfg.BotTurnTimeout,
 	})
 	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
 	notificationsService := notifications.NewService(dataStore)
@@ -92,21 +95,22 @@ func main() {
 	}
 
 	handler := api.NewRouter(api.Dependencies{
-		FrontendOrigin: cfg.FrontendOrigin,
-		Auth:           authService,
-		Workspaces:     workspaceService,
-		Bots:           botService,
-		Automations:    automationService,
-		Notifications:  notificationsService,
-		Threads:        threadService,
-		Turns:          turnService,
-		Approvals:      approvalsService,
-		Catalog:        catalogService,
-		ConfigFS:       configFSService,
-		ExecFS:         execfsService,
-		Feedback:       feedbackService,
-		Events:         eventHub,
-		RuntimePrefs:   runtimePrefsService,
+		FrontendOrigin:       cfg.FrontendOrigin,
+		EnableRequestLogging: cfg.EnableRequestLogging,
+		Auth:                 authService,
+		Workspaces:           workspaceService,
+		Bots:                 botService,
+		Automations:          automationService,
+		Notifications:        notificationsService,
+		Threads:              threadService,
+		Turns:                turnService,
+		Approvals:            approvalsService,
+		Catalog:              catalogService,
+		ConfigFS:             configFSService,
+		ExecFS:               execfsService,
+		Feedback:             feedbackService,
+		Events:               eventHub,
+		RuntimePrefs:         runtimePrefsService,
 	})
 
 	server := &http.Server{

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestApplyModelCatalogOverride(t *testing.T) {
@@ -54,6 +55,46 @@ func TestFromEnvBuildsCodexCommand(t *testing.T) {
 	}
 	if cfg.CodexCommand == "codex app-server --listen stdio://" {
 		t.Fatalf("CodexCommand should include model catalog override, got %q", cfg.CodexCommand)
+	}
+}
+
+func TestFromEnvReadsBotTimeoutOverrides(t *testing.T) {
+	t.Setenv("CODEX_SERVER_BOT_MESSAGE_TIMEOUT", "12m")
+	t.Setenv("CODEX_SERVER_BOT_POLL_INTERVAL", "750ms")
+	t.Setenv("CODEX_SERVER_BOT_TURN_TIMEOUT", "5m")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+	if cfg.BotMessageTimeout != 12*time.Minute {
+		t.Fatalf("BotMessageTimeout = %v", cfg.BotMessageTimeout)
+	}
+	if cfg.BotPollInterval != 750*time.Millisecond {
+		t.Fatalf("BotPollInterval = %v", cfg.BotPollInterval)
+	}
+	if cfg.BotTurnTimeout != 5*time.Minute {
+		t.Fatalf("BotTurnTimeout = %v", cfg.BotTurnTimeout)
+	}
+}
+
+func TestFromEnvIgnoresInvalidBotTimeoutOverrides(t *testing.T) {
+	t.Setenv("CODEX_SERVER_BOT_MESSAGE_TIMEOUT", "still-not-a-duration")
+	t.Setenv("CODEX_SERVER_BOT_POLL_INTERVAL", "not-a-duration")
+	t.Setenv("CODEX_SERVER_BOT_TURN_TIMEOUT", "definitely-not-a-duration")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+	if cfg.BotMessageTimeout != 0 {
+		t.Fatalf("BotMessageTimeout = %v, want 0", cfg.BotMessageTimeout)
+	}
+	if cfg.BotPollInterval != 0 {
+		t.Fatalf("BotPollInterval = %v, want 0", cfg.BotPollInterval)
+	}
+	if cfg.BotTurnTimeout != 0 {
+		t.Fatalf("BotTurnTimeout = %v, want 0", cfg.BotTurnTimeout)
 	}
 }
 

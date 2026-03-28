@@ -34,21 +34,22 @@ import (
 )
 
 type Dependencies struct {
-	FrontendOrigin string
-	Auth           *auth.Service
-	Workspaces     *workspace.Service
-	Bots           *bots.Service
-	Automations    *automations.Service
-	Notifications  *notifications.Service
-	Threads        *threads.Service
-	Turns          *turns.Service
-	Approvals      *approvals.Service
-	Catalog        *catalog.Service
-	ConfigFS       *configfs.Service
-	ExecFS         *execfs.Service
-	Feedback       *feedback.Service
-	Events         *events.Hub
-	RuntimePrefs   *runtimeprefs.Service
+	FrontendOrigin       string
+	EnableRequestLogging bool
+	Auth                 *auth.Service
+	Workspaces           *workspace.Service
+	Bots                 *bots.Service
+	Automations          *automations.Service
+	Notifications        *notifications.Service
+	Threads              *threads.Service
+	Turns                *turns.Service
+	Approvals            *approvals.Service
+	Catalog              *catalog.Service
+	ConfigFS             *configfs.Service
+	ExecFS               *execfs.Service
+	Feedback             *feedback.Service
+	Events               *events.Hub
+	RuntimePrefs         *runtimeprefs.Service
 }
 
 type Server struct {
@@ -93,7 +94,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
-	router.Use(middleware.Logger)
+	if deps.EnableRequestLogging {
+		router.Use(middleware.Logger)
+	}
 	router.Use(middleware.Recoverer)
 	router.Use(cors.Handler(cors.Options{
 		AllowOriginFunc:  originMatcher.AllowRequest,
@@ -734,6 +737,11 @@ func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "bad_request", "invalid archived query")
 			return
 		}
+		preferCached, err := parseOptionalBoolQuery(query.Get("preferCached"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid preferCached query")
+			return
+		}
 
 		sortKey := strings.TrimSpace(query.Get("sortKey"))
 		if sortKey != "" && sortKey != "created_at" && sortKey != "updated_at" {
@@ -742,10 +750,11 @@ func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
 		}
 
 		page, err := s.threads.ListPage(r.Context(), workspaceID, threads.ListPageInput{
-			Archived: archived,
-			Cursor:   strings.TrimSpace(query.Get("cursor")),
-			Limit:    limit,
-			SortKey:  sortKey,
+			Archived:     archived,
+			Cursor:       strings.TrimSpace(query.Get("cursor")),
+			Limit:        limit,
+			SortKey:      sortKey,
+			PreferCached: preferCached != nil && *preferCached,
 		})
 		if err != nil {
 			s.writeStoreError(w, err)

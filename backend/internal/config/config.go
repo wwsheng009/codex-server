@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -21,6 +23,10 @@ type Config struct {
 	FrontendOrigin        string
 	PublicBaseURL         string
 	OutboundProxyURL      string
+	BotMessageTimeout     time.Duration
+	BotPollInterval       time.Duration
+	BotTurnTimeout        time.Duration
+	EnableRequestLogging  bool
 	BaseCodexCommand      string
 	CodexCommand          string
 	CodexModelCatalogJSON string
@@ -66,6 +72,10 @@ func FromEnv() (Config, error) {
 		FrontendOrigin:        getEnv("CODEX_FRONTEND_ORIGIN", "http://0.0.0.0:15173"),
 		PublicBaseURL:         getEnv("CODEX_SERVER_PUBLIC_BASE_URL", ""),
 		OutboundProxyURL:      resolved.Preferences.OutboundProxyURL,
+		BotMessageTimeout:     getEnvDuration("CODEX_SERVER_BOT_MESSAGE_TIMEOUT", 0),
+		BotPollInterval:       getEnvDuration("CODEX_SERVER_BOT_POLL_INTERVAL", 0),
+		BotTurnTimeout:        getEnvDuration("CODEX_SERVER_BOT_TURN_TIMEOUT", 0),
+		EnableRequestLogging:  getEnvBool("CODEX_SERVER_REQUEST_LOGGING", false),
 		BaseCodexCommand:      codexCommand,
 		CodexCommand:          resolved.Command,
 		CodexModelCatalogJSON: resolved.Preferences.ModelCatalogPath,
@@ -148,6 +158,34 @@ func getEnv(key string, fallback string) string {
 	}
 
 	return value
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }
 
 func applyModelCatalogOverride(command string, modelCatalogPath string) string {

@@ -766,6 +766,59 @@ func TestRestartWorkspaceRouteIsWired(t *testing.T) {
 	}
 }
 
+func TestInterruptTurnRouteIsIdempotentWithoutActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces",
+		`{"name":"Workspace A","rootPath":"E:/projects/ai/codex-server"}`,
+	)
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+
+	interruptResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+created.Data.ID+"/threads/thread-idle/turns/interrupt",
+		"",
+	)
+
+	if interruptResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected idempotent interrupt to return 202, got %d", interruptResponse.Code)
+	}
+
+	var payload struct {
+		Data struct {
+			TurnID string `json:"turnId"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, interruptResponse, &payload)
+
+	if payload.Data.Status != "interrupted" {
+		t.Fatalf("expected interrupted status, got %#v", payload.Data.Status)
+	}
+	if payload.Data.TurnID != "" {
+		t.Fatalf("expected empty turn id for idle interrupt, got %#v", payload.Data.TurnID)
+	}
+}
+
 func TestDeleteThreadRouteMarksThreadDeleted(t *testing.T) {
 	t.Parallel()
 

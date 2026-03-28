@@ -26,6 +26,8 @@ const (
 	threadOutputModeTail     = "tail"
 	threadSortKeyCreatedAt   = "created_at"
 	threadSortKeyUpdatedAt   = "updated_at"
+	threadRuntimeReadTimeout = 5 * time.Second
+	threadRuntimeListTimeout = 5 * time.Second
 
 	threadSummaryPreviewLimit                = 400
 	threadSummaryPlanTextLimit               = 1_200
@@ -46,10 +48,11 @@ type CreateInput struct {
 }
 
 type ListPageInput struct {
-	Archived *bool
-	Cursor   string
-	Limit    int
-	SortKey  string
+	Archived     *bool
+	Cursor       string
+	Limit        int
+	SortKey      string
+	PreferCached bool
 }
 
 type ThreadListPage struct {
@@ -109,13 +112,27 @@ func (s *Service) ListPage(
 	rootPath := normalizePath(s.runtimes.RootPath(workspaceID))
 	cursor := strings.TrimSpace(input.Cursor)
 	sortKey := normalizeThreadListSortKey(input.SortKey)
+	pageLimit := normalizeThreadListPageLimit(input.Limit)
 	archived := false
 	if input.Archived != nil {
 		archived = *input.Archived
 	}
 
-	items := make([]store.Thread, 0, normalizeThreadListPageLimit(input.Limit))
-	pageLimit := cap(items)
+	if input.PreferCached && cursor == "" {
+		fallback := s.buildStoredThreadListPage(workspaceID, archived, rootPath, pageLimit, sortKey)
+		if len(fallback.Data) > 0 {
+			return fallback, nil
+		}
+	}
+
+	if !runtimeStateIsLive(s.runtimes.State(workspaceID).Status) {
+		fallback := s.buildStoredThreadListPage(workspaceID, archived, rootPath, pageLimit, sortKey)
+		if len(fallback.Data) > 0 {
+			return fallback, nil
+		}
+	}
+
+	items := make([]store.Thread, 0, pageLimit)
 	for page := 0; page < 20 && len(items) < pageLimit; page++ {
 		var response struct {
 			Data       []map[string]any `json:"data"`
@@ -133,7 +150,14 @@ func (s *Service) ListPage(
 			params["sortKey"] = sortKey
 		}
 
-		if err := s.runtimes.Call(ctx, workspaceID, "thread/list", params, &response); err != nil {
+		callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeListTimeout)
+		err := s.runtimes.Call(callCtx, workspaceID, "thread/list", params, &response)
+		cancel()
+		if err != nil {
+			if runtimeCallTimedOut(err, timeoutApplied) {
+				s.runtimes.Recycle(workspaceID)
+				return s.buildStoredThreadListPage(workspaceID, archived, rootPath, pageLimit, sortKey), nil
+			}
 			return ThreadListPage{}, err
 		}
 
@@ -160,6 +184,7 @@ func (s *Service) ListPage(
 	}
 
 	items = s.enrichThreadListCounts(workspaceID, items)
+	sortThreadsForListPage(items, sortKey)
 
 	var nextCursor *string
 	if cursor != "" {
@@ -171,6 +196,34 @@ func (s *Service) ListPage(
 		Data:       items,
 		NextCursor: nextCursor,
 	}, nil
+}
+
+func (s *Service) buildStoredThreadListPage(
+	workspaceID string,
+	archived bool,
+	workspaceRoot string,
+	limit int,
+	sortKey string,
+) ThreadListPage {
+	items := fallbackStoredThreadsByArchived(workspaceID, archived, workspaceRoot, s.store)
+	if len(items) == 0 {
+		return ThreadListPage{Data: []store.Thread{}}
+	}
+
+	items = s.enrichThreadListCounts(workspaceID, items)
+	sortThreadsForListPage(items, sortKey)
+
+	if limit <= 0 || len(items) <= limit {
+		return ThreadListPage{
+			Data: append([]store.Thread(nil), items...),
+		}
+	}
+
+	nextCursor := "stored-snapshot"
+	return ThreadListPage{
+		Data:       append([]store.Thread(nil), items[:limit]...),
+		NextCursor: &nextCursor,
+	}
 }
 
 func (s *Service) Create(ctx context.Context, workspaceID string, input CreateInput) (store.Thread, error) {
@@ -515,6 +568,7 @@ func (s *Service) GetDetailWindow(
 	}
 
 	projectedDetail := applyStoredProjection(detail, s.store, s.runtimes, workspaceID, threadID)
+	projectedDetail = reconcileSettledThreadDetail(projectedDetail, s.runtimes.ActiveTurnID(workspaceID, threadID))
 	projectedDetail.TurnCount = len(projectedDetail.Turns)
 	projectedDetail.MessageCount = countThreadMessages(projectedDetail.Turns)
 	s.store.UpsertThreadProjectionSnapshot(projectedDetail)
@@ -558,6 +612,7 @@ func (s *Service) cachedThreadDetail(workspaceID string, threadID string) (store
 
 	detail := buildCachedThreadDetail(thread, projection)
 	detail.Turns = reconcileServerRequestStatuses(detail.Turns, s.runtimes)
+	detail = reconcileSettledThreadDetail(detail, s.runtimes.ActiveTurnID(workspaceID, threadID))
 	detail.TurnCount = len(detail.Turns)
 	detail.MessageCount = countThreadMessages(detail.Turns)
 	return detail, true
@@ -641,12 +696,233 @@ func (s *Service) shouldServeCurrentWindowFromCache(workspaceID string, threadID
 		return false
 	}
 
+	if projectionLooksActive(projection) {
+		return false
+	}
+
 	thread, ok := s.store.GetThread(workspaceID, threadID)
 	if !ok {
 		return true
 	}
 
 	return !projection.UpdatedAt.Before(thread.UpdatedAt)
+}
+
+func projectionLooksActive(projection store.ThreadProjection) bool {
+	if statusLooksActive(projection.Status) {
+		return true
+	}
+
+	for _, turn := range projection.Turns {
+		if statusLooksActive(turn.Status) {
+			return true
+		}
+
+		for _, item := range turn.Items {
+			if itemLooksActive(item) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func itemLooksActive(item map[string]any) bool {
+	if statusLooksActive(stringValue(item["status"])) {
+		return true
+	}
+
+	if strings.EqualFold(strings.TrimSpace(stringValue(item["phase"])), "streaming") {
+		return true
+	}
+
+	return stringValue(item["type"]) == "serverRequest" &&
+		strings.EqualFold(strings.TrimSpace(stringValue(item["status"])), "pending")
+}
+
+func statusLooksActive(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	normalized = strings.ReplaceAll(normalized, "-", "")
+
+	switch normalized {
+	case "active", "running", "processing", "sending", "waiting", "inprogress", "started":
+		return true
+	default:
+		return false
+	}
+}
+
+func reconcileSettledThreadDetail(detail store.ThreadDetail, activeTurnID string) store.ThreadDetail {
+	if strings.TrimSpace(activeTurnID) != "" {
+		return detail
+	}
+
+	changed := false
+	nextTurns := cloneThreadTurnsLocal(detail.Turns)
+	for turnIndex, turn := range nextTurns {
+		nextTurn, turnChanged := reconcileSettledThreadTurn(
+			turn,
+			detail.UpdatedAt,
+			turnIndex < len(nextTurns)-1,
+		)
+		if !turnChanged {
+			continue
+		}
+
+		nextTurns[turnIndex] = nextTurn
+		changed = true
+	}
+
+	nextDetail := detail
+	if changed {
+		nextDetail.Turns = nextTurns
+		nextDetail.TurnCount = len(nextTurns)
+		nextDetail.MessageCount = countThreadMessages(nextTurns)
+	}
+	if len(nextDetail.Turns) > 0 && statusLooksActive(nextDetail.Status) && !threadTurnsLookActive(nextDetail.Turns) {
+		nextDetail.Status = "idle"
+		changed = true
+	}
+
+	if !changed {
+		return detail
+	}
+
+	return nextDetail
+}
+
+func reconcileSettledThreadTurn(turn store.ThreadTurn, ts time.Time, hasLaterTurn bool) (store.ThreadTurn, bool) {
+	if turnHasPendingServerRequest(turn) {
+		return turn, false
+	}
+
+	settlementStatus, shouldSettle := settledTurnStatus(turn, hasLaterTurn)
+	if !shouldSettle {
+		return turn, false
+	}
+
+	turnChanged := false
+	nextTurn := cloneThreadTurn(turn)
+	if statusLooksActive(turn.Status) {
+		nextTurn.Status = settlementStatus
+		turnChanged = true
+	}
+
+	nextItems := cloneItems(turn.Items)
+	itemChanged := false
+	for itemIndex, item := range nextItems {
+		nextItem, changed := reconcileSettledThreadItem(item, ts, settlementStatus)
+		nextItems[itemIndex] = nextItem
+		itemChanged = itemChanged || changed
+	}
+
+	if itemChanged {
+		nextTurn.Items = nextItems
+		turnChanged = true
+	}
+
+	return nextTurn, turnChanged
+}
+
+func reconcileSettledThreadItem(item map[string]any, ts time.Time, settlementStatus string) (map[string]any, bool) {
+	status := stringValue(item["status"])
+	phase := strings.TrimSpace(stringValue(item["phase"]))
+	itemType := stringValue(item["type"])
+
+	if itemType == "serverRequest" {
+		return item, false
+	}
+	if !statusLooksActive(status) && !strings.EqualFold(phase, "streaming") {
+		return item, false
+	}
+
+	nextItem := cloneItem(item)
+	changed := false
+
+	if statusLooksActive(status) {
+		nextItem["status"] = settlementStatus
+		changed = true
+	}
+
+	if strings.EqualFold(phase, "streaming") {
+		delete(nextItem, "phase")
+		changed = true
+	}
+
+	return nextItem, changed
+}
+
+func settledTurnStatus(turn store.ThreadTurn, hasLaterTurn bool) (string, bool) {
+	if !turnLooksActive(turn) {
+		return "", false
+	}
+	if turn.Error != nil {
+		return "failed", true
+	}
+	if hasLaterTurn || turnHasFinalAnswer(turn) || !turnHasActiveItemSignals(turn) {
+		return "completed", true
+	}
+	return "interrupted", true
+}
+
+func threadTurnsLookActive(turns []store.ThreadTurn) bool {
+	for _, turn := range turns {
+		if turnLooksActive(turn) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func turnLooksActive(turn store.ThreadTurn) bool {
+	if statusLooksActive(turn.Status) {
+		return true
+	}
+
+	return turnHasActiveItemSignals(turn)
+}
+
+func turnHasActiveItemSignals(turn store.ThreadTurn) bool {
+	for _, item := range turn.Items {
+		if itemLooksActive(item) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func turnHasPendingServerRequest(turn store.ThreadTurn) bool {
+	for _, item := range turn.Items {
+		if stringValue(item["type"]) != "serverRequest" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(stringValue(item["status"])), "pending") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func turnHasFinalAnswer(turn store.ThreadTurn) bool {
+	for _, item := range turn.Items {
+		if stringValue(item["type"]) != "agentMessage" {
+			continue
+		}
+
+		phase := strings.ToLower(strings.TrimSpace(stringValue(item["phase"])))
+		phase = strings.ReplaceAll(phase, "_", "")
+		phase = strings.ReplaceAll(phase, "-", "")
+		if phase == "finalanswer" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func runtimeStateIsLive(status string) bool {
@@ -656,6 +932,30 @@ func runtimeStateIsLive(status string) bool {
 	default:
 		return false
 	}
+}
+
+func runtimeCallContext(
+	ctx context.Context,
+	timeout time.Duration,
+) (context.Context, context.CancelFunc, bool) {
+	if timeout <= 0 {
+		callCtx, cancel := context.WithCancel(ctx)
+		return callCtx, cancel, false
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		if time.Until(deadline) <= timeout {
+			callCtx, cancel := context.WithCancel(ctx)
+			return callCtx, cancel, false
+		}
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	return callCtx, cancel, true
+}
+
+func runtimeCallTimedOut(err error, timeoutApplied bool) bool {
+	return timeoutApplied && errors.Is(err, context.DeadlineExceeded)
 }
 
 func threadDetailHasTurnID(detail store.ThreadDetail, turnID string) bool {
@@ -725,10 +1025,16 @@ func (s *Service) readThread(ctx context.Context, workspaceID string, threadID s
 		Thread map[string]any `json:"thread"`
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/read", map[string]any{
+	callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeReadTimeout)
+	defer cancel()
+
+	if err := s.runtimes.Call(callCtx, workspaceID, "thread/read", map[string]any{
 		"includeTurns": includeTurns,
 		"threadId":     threadID,
 	}, &response); err != nil {
+		if runtimeCallTimedOut(err, timeoutApplied) {
+			s.runtimes.Recycle(workspaceID)
+		}
 		return nil, err
 	}
 
@@ -736,13 +1042,27 @@ func (s *Service) readThread(ctx context.Context, workspaceID string, threadID s
 }
 
 func (s *Service) ListLoaded(ctx context.Context, workspaceID string) ([]string, error) {
+	if !runtimeStateIsLive(s.runtimes.State(workspaceID).Status) {
+		fallback := fallbackStoredLoadedThreadIDs(workspaceID, s.store)
+		if len(fallback) > 0 {
+			return fallback, nil
+		}
+	}
+
 	var response struct {
 		Data []string `json:"data"`
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/loaded/list", map[string]any{
+	callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeListTimeout)
+	defer cancel()
+
+	if err := s.runtimes.Call(callCtx, workspaceID, "thread/loaded/list", map[string]any{
 		"limit": 200,
 	}, &response); err != nil {
+		if runtimeCallTimedOut(err, timeoutApplied) {
+			s.runtimes.Recycle(workspaceID)
+			return fallbackStoredLoadedThreadIDs(workspaceID, s.store), nil
+		}
 		return nil, err
 	}
 
@@ -961,6 +1281,13 @@ func (s *Service) runThreadShellCommand(ctx context.Context, workspaceID string,
 
 func (s *Service) listByArchived(ctx context.Context, workspaceID string, archived bool) ([]store.Thread, error) {
 	rootPath := normalizePath(s.runtimes.RootPath(workspaceID))
+	if !runtimeStateIsLive(s.runtimes.State(workspaceID).Status) {
+		fallback := fallbackStoredThreadsByArchived(workspaceID, archived, rootPath, s.store)
+		if len(fallback) > 0 {
+			return fallback, nil
+		}
+	}
+
 	cursor := ""
 	items := make([]store.Thread, 0)
 
@@ -978,7 +1305,14 @@ func (s *Service) listByArchived(ctx context.Context, workspaceID string, archiv
 			params["cursor"] = cursor
 		}
 
-		if err := s.runtimes.Call(ctx, workspaceID, "thread/list", params, &response); err != nil {
+		callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeListTimeout)
+		err := s.runtimes.Call(callCtx, workspaceID, "thread/list", params, &response)
+		cancel()
+		if err != nil {
+			if runtimeCallTimedOut(err, timeoutApplied) {
+				s.runtimes.Recycle(workspaceID)
+				return fallbackStoredThreadsByArchived(workspaceID, archived, rootPath, s.store), nil
+			}
 			return nil, err
 		}
 
@@ -1031,6 +1365,59 @@ func filterStoredThreads(items []store.Thread, workspaceRoot string) []store.Thr
 	}
 
 	return filtered
+}
+
+func filterThreadsByArchived(items []store.Thread, archived bool) []store.Thread {
+	filtered := make([]store.Thread, 0, len(items))
+	for _, thread := range items {
+		if thread.Archived == archived {
+			filtered = append(filtered, thread)
+		}
+	}
+
+	return filtered
+}
+
+func fallbackStoredThreadsByArchived(
+	workspaceID string,
+	archived bool,
+	workspaceRoot string,
+	dataStore *store.MemoryStore,
+) []store.Thread {
+	items := filterStoredThreads(dataStore.ListThreads(workspaceID), workspaceRoot)
+	items = filterThreadsByArchived(items, archived)
+	items = filterDeletedThreads(items, workspaceID, dataStore)
+	return items
+}
+
+func sortThreadsForListPage(items []store.Thread, sortKey string) {
+	sort.SliceStable(items, func(i int, j int) bool {
+		switch sortKey {
+		case threadSortKeyCreatedAt:
+			if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+				return items[i].UpdatedAt.After(items[j].UpdatedAt)
+			}
+			return items[i].CreatedAt.After(items[j].CreatedAt)
+		default:
+			if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+				return items[i].CreatedAt.After(items[j].CreatedAt)
+			}
+			return items[i].UpdatedAt.After(items[j].UpdatedAt)
+		}
+	})
+}
+
+func fallbackStoredLoadedThreadIDs(workspaceID string, dataStore *store.MemoryStore) []string {
+	threads := dataStore.ListThreads(workspaceID)
+	ids := make([]string, 0, len(threads))
+	for _, thread := range threads {
+		if strings.TrimSpace(thread.ID) == "" || thread.Archived {
+			continue
+		}
+		ids = append(ids, thread.ID)
+	}
+
+	return ids
 }
 
 func filterDeletedThreads(items []store.Thread, workspaceID string, dataStore *store.MemoryStore) []store.Thread {
@@ -1141,6 +1528,9 @@ func applyStoredProjection(
 	}
 	detail.Turns = mergeProjectedTurns(detail.Turns, projection.Turns)
 	detail.Turns = reconcileServerRequestStatuses(detail.Turns, runtimes)
+	if runtimes != nil {
+		detail = reconcileSettledThreadDetail(detail, runtimes.ActiveTurnID(workspaceID, threadID))
+	}
 
 	return detail
 }
