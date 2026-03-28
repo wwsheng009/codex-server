@@ -7,6 +7,7 @@ const THREAD_VIEWPORT_EXIT_PIN_THRESHOLD_PX = 96
 const THREAD_VIEWPORT_SCROLL_NOOP_THRESHOLD_PX = 1
 const THREAD_VIEWPORT_SCROLL_RETRY_MS = 32
 const THREAD_VIEWPORT_CONTENT_FOLLOW_THROTTLE_MS = 48
+const THREAD_VIEWPORT_USER_SCROLL_INTENT_THRESHOLD_PX = 2
 const THREAD_VIEWPORT_THROTTLED_FOLLOW_SOURCES = new Set([
   'content-change-follow',
   'content-layout-follow',
@@ -254,6 +255,81 @@ export function resolveThreadViewportContentFollowThrottleState({
     delayMs: remainingThrottleMs,
     shouldDefer: true,
   }
+}
+
+export function resolveThreadViewportUserScrollIntent({
+  currentScrollTop,
+  followMode,
+  isPointerGestureActive,
+  previousScrollTop,
+}: {
+  currentScrollTop: number
+  followMode: 'detached' | 'follow'
+  isPointerGestureActive: boolean
+  previousScrollTop: number
+}) {
+  if (!isPointerGestureActive) {
+    return {
+      releaseFollow: false,
+      shouldMarkUserIntent: false,
+    }
+  }
+
+  const scrollDelta = currentScrollTop - previousScrollTop
+  const scrolledUp =
+    scrollDelta <= -THREAD_VIEWPORT_USER_SCROLL_INTENT_THRESHOLD_PX
+  const scrolledDown =
+    scrollDelta >= THREAD_VIEWPORT_USER_SCROLL_INTENT_THRESHOLD_PX
+
+  if (scrolledUp) {
+    return {
+      releaseFollow: true,
+      shouldMarkUserIntent: true,
+    }
+  }
+
+  if (scrolledDown && followMode === 'detached') {
+    return {
+      releaseFollow: false,
+      shouldMarkUserIntent: true,
+    }
+  }
+
+  return {
+    releaseFollow: false,
+    shouldMarkUserIntent: false,
+  }
+}
+
+export function shouldCorrectThreadViewportFollowTail({
+  clientHeight,
+  currentScrollTop,
+  isThreadViewportInteracting,
+  scrollHeight,
+  shouldFollowThread,
+  userScrollLockActive,
+}: {
+  clientHeight: number
+  currentScrollTop: number
+  isThreadViewportInteracting: boolean
+  scrollHeight: number
+  shouldFollowThread: boolean
+  userScrollLockActive: boolean
+}) {
+  if (
+    !shouldFollowThread ||
+    isThreadViewportInteracting ||
+    userScrollLockActive
+  ) {
+    return false
+  }
+
+  return !computeThreadPinnedToLatest(
+    currentScrollTop,
+    scrollHeight,
+    clientHeight,
+    true,
+  )
 }
 
 export type ResolveThreadViewportScrollDeferStateInput = {

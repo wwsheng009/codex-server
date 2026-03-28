@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { recordConversationScrollDiagnosticEvent } from '../../components/workspace/threadConversationProfiler'
+import { frontendDebugLog } from '../../lib/frontend-runtime-mode'
 import {
   createThreadViewportCoordinatorState,
   reduceThreadViewportContentChange,
@@ -17,9 +18,11 @@ import {
   resolveOlderTurnsRestoreTarget,
   resolveThreadViewportAutoScrollChange,
   resolveThreadViewportContentFollowThrottleState,
+  resolveThreadViewportUserScrollIntent,
   resolveThreadViewportScrollExecution,
   resolveThreadViewportPinnedState,
   resolveThreadViewportScrollDeferState,
+  shouldCorrectThreadViewportFollowTail,
   shouldCoalesceThreadViewportScheduledFrame,
   type ThreadViewportProgrammaticScrollPolicy,
 } from './threadViewportAutoScrollUtils'
@@ -38,6 +41,12 @@ import type {
 const THREAD_VIEWPORT_INTERACTION_LOCK_MS = 220
 const THREAD_OPEN_SETTLE_MAX_MS = 600
 const THREAD_OPEN_SETTLE_STABLE_FRAME_COUNT = 2
+type ThreadViewportUserIntentSource =
+  | 'pointer-gesture-scroll'
+  | 'touch-down'
+  | 'touch-up'
+  | 'wheel-down'
+  | 'wheel-up'
 
 export function useThreadViewportAutoScroll({
   displayedTurnsLength,
@@ -64,6 +73,8 @@ export function useThreadViewportAutoScroll({
   const pendingViewportSyncFrameRef = useRef<number | null>(null)
   const pendingContentResizeFrameRef = useRef<number | null>(null)
   const pendingThreadOpenSettleFrameRef = useRef<number | null>(null)
+  const pendingFollowTailCorrectionFrameRef = useRef<number | null>(null)
+  const pendingStreamingFollowFrameRef = useRef<number | null>(null)
   const pendingFollowScrollTaskRef = useRef<ThreadViewportScrollTask | null>(null)
   const pendingFollowScrollTimeoutRef = useRef<number | null>(null)
   const pendingOlderTurnsAnchorSyncRef = useRef(false)
@@ -73,9 +84,17 @@ export function useThreadViewportAutoScroll({
   const lastObservedThreadScrollHeightRef = useRef<number | null>(null)
   const lastViewportScrollTopRef = useRef(0)
   const lastViewportClientHeightRef = useRef<number | null>(null)
+  const pointerGestureActiveRef = useRef(false)
   const touchStartYRef = useRef<number | null>(null)
   const userScrollLockUntilRef = useRef(0)
   const viewportInteractionTimeoutRef = useRef<number | null>(null)
+
+  function logThreadViewport(message: string, details?: unknown) {
+    frontendDebugLog('thread-viewport', message, {
+      selectedThreadId: selectedThreadId ?? null,
+      ...(typeof details === 'object' && details !== null ? details : { details }),
+    })
+  }
 
   function getCoordinatorState() {
     return coordinatorStateRef.current
@@ -196,6 +215,10 @@ export function useThreadViewportAutoScroll({
 
     const requestedTargetTop = resolveTargetTop(viewport)
     if (requestedTargetTop === null) {
+      logThreadViewport('scroll task skipped because target resolved to null', {
+        policy: taskPolicy,
+        source,
+      })
       return
     }
 
@@ -206,8 +229,28 @@ export function useThreadViewportAutoScroll({
       scrollHeight: viewport.scrollHeight,
     })
     if (!shouldScroll) {
+      logThreadViewport('scroll task skipped because viewport is already at target', {
+        clientHeight: viewport.clientHeight,
+        currentScrollTop: viewport.scrollTop,
+        policy: taskPolicy,
+        requestedTargetTop,
+        resolvedTargetTop: nextTargetTop,
+        scrollHeight: viewport.scrollHeight,
+        source,
+      })
       return
     }
+
+    logThreadViewport('executing programmatic viewport scroll', {
+      behavior,
+      clientHeight: viewport.clientHeight,
+      currentScrollTop: viewport.scrollTop,
+      policy: taskPolicy,
+      requestedTargetTop,
+      resolvedTargetTop: nextTargetTop,
+      scrollHeight: viewport.scrollHeight,
+      source,
+    })
 
     recordConversationScrollDiagnosticEvent({
       behavior,
@@ -231,6 +274,10 @@ export function useThreadViewportAutoScroll({
 
     if (behavior === 'auto') {
       lastViewportScrollTopRef.current = nextTargetTop
+    }
+
+    if (taskPolicy === 'follow-latest' && behavior === 'auto') {
+      scheduleThreadViewportFollowTailCorrection()
     }
   }
 
@@ -340,6 +387,16 @@ export function useThreadViewportAutoScroll({
     })
 
     if (deferState.shouldDefer) {
+      logThreadViewport('deferring viewport scroll request', {
+        delayMs: deferState.delayMs,
+        interacting: isThreadViewportInteractingRef.current,
+        policy: task.policy,
+        source: task.source,
+        userScrollLockRemainingMs: Math.max(
+          0,
+          userScrollLockUntilRef.current - nowMs,
+        ),
+      })
       pendingFollowScrollTaskRef.current = task
       cancelPendingFollowScrollTimeout()
       pendingFollowScrollTimeoutRef.current = window.setTimeout(
@@ -356,6 +413,11 @@ export function useThreadViewportAutoScroll({
       source: task.source,
     })
     if (throttleState.shouldDefer) {
+      logThreadViewport('throttling viewport scroll request', {
+        delayMs: throttleState.delayMs,
+        policy: task.policy,
+        source: task.source,
+      })
       pendingFollowScrollTaskRef.current = task
       cancelPendingFollowScrollTimeout()
       pendingFollowScrollTimeoutRef.current = window.setTimeout(
@@ -366,6 +428,11 @@ export function useThreadViewportAutoScroll({
     }
 
     clearPendingFollowScrollTask()
+    logThreadViewport('scheduling viewport scroll request', {
+      behavior: task.behavior,
+      policy: task.policy,
+      source: task.source,
+    })
     scheduleThreadViewportScrollTask(task, onAfterScroll)
   }
 
@@ -385,6 +452,24 @@ export function useThreadViewportAutoScroll({
 
     window.cancelAnimationFrame(pendingContentResizeFrameRef.current)
     pendingContentResizeFrameRef.current = null
+  }
+
+  function cancelPendingFollowTailCorrectionFrame() {
+    if (pendingFollowTailCorrectionFrameRef.current === null) {
+      return
+    }
+
+    window.cancelAnimationFrame(pendingFollowTailCorrectionFrameRef.current)
+    pendingFollowTailCorrectionFrameRef.current = null
+  }
+
+  function cancelPendingStreamingFollowFrame() {
+    if (pendingStreamingFollowFrameRef.current === null) {
+      return
+    }
+
+    window.cancelAnimationFrame(pendingStreamingFollowFrameRef.current)
+    pendingStreamingFollowFrameRef.current = null
   }
 
   function cancelPendingThreadOpenSettleFrame() {
@@ -417,22 +502,75 @@ export function useThreadViewportAutoScroll({
     })
   }
 
-  function markUserScrollIntent(releaseFollow = false) {
+  function scheduleThreadViewportFollowTailCorrection() {
+    if (pendingFollowTailCorrectionFrameRef.current !== null) {
+      return
+    }
+
+    pendingFollowTailCorrectionFrameRef.current = window.requestAnimationFrame(() => {
+      pendingFollowTailCorrectionFrameRef.current = null
+      const viewport = threadViewportRef.current
+      if (
+        !viewport ||
+        !selectedThreadId ||
+        !shouldCorrectThreadViewportFollowTail({
+          clientHeight: viewport.clientHeight,
+          currentScrollTop: viewport.scrollTop,
+          isThreadViewportInteracting: isThreadViewportInteractingRef.current,
+          scrollHeight: viewport.scrollHeight,
+          shouldFollowThread: getCoordinatorState().followMode === 'follow',
+          userScrollLockActive: Date.now() < userScrollLockUntilRef.current,
+        })
+      ) {
+        return
+      }
+
+      logThreadViewport('requesting follow-tail correction', {
+        clientHeight: viewport.clientHeight,
+        scrollHeight: viewport.scrollHeight,
+        scrollTop: viewport.scrollTop,
+      })
+
+      requestThreadViewportScroll({
+        behavior: 'auto',
+        policy: 'follow-latest',
+        resolveTargetTop: (currentViewport) => currentViewport.scrollHeight,
+        source: 'follow-tail-correction',
+      })
+    })
+  }
+
+  function markUserScrollIntent(
+    releaseFollow = false,
+    source: ThreadViewportUserIntentSource = 'pointer-gesture-scroll',
+  ) {
     const viewport = threadViewportRef.current
     userScrollLockUntilRef.current = Date.now() + 600
     clearPendingFollowScrollTask('follow-latest')
     cancelPendingAutoScrollFrame()
     cancelPendingViewportSyncFrame()
     cancelPendingThreadOpenSettleFrame()
+    cancelPendingFollowTailCorrectionFrame()
 
     if (hasActiveViewportProgrammaticScroll()) {
       stopViewportAutoScrollAnimation()
     }
 
+    logThreadViewport(`applying user scroll intent (${source})`, {
+      clientHeight: viewport?.clientHeight ?? null,
+      releaseFollow,
+      scrollHeight: viewport?.scrollHeight ?? null,
+      scrollTop: viewport?.scrollTop ?? null,
+      source,
+    })
+
     recordConversationScrollDiagnosticEvent({
       clientHeight: viewport?.clientHeight,
       detail: releaseFollow ? 'detach-follow' : 'keep-follow-state',
       kind: 'user-intent',
+      metadata: {
+        inputSource: source,
+      },
       scrollHeight: viewport?.scrollHeight,
       scrollTop: viewport?.scrollTop,
       source: 'mark-user-scroll-intent',
@@ -574,9 +712,12 @@ export function useThreadViewportAutoScroll({
     cancelPendingAutoScrollFrame()
     cancelPendingViewportSyncFrame()
     cancelPendingContentResizeFrame()
+    cancelPendingFollowTailCorrectionFrame()
+    cancelPendingStreamingFollowFrame()
     lastViewportScrollTopRef.current = 0
     lastObservedThreadScrollHeightRef.current = null
     lastViewportClientHeightRef.current = null
+    pointerGestureActiveRef.current = false
     touchStartYRef.current = null
     userScrollLockUntilRef.current = 0
     programmaticScrollUntilRef.current = 0
@@ -595,7 +736,11 @@ export function useThreadViewportAutoScroll({
 
     applyCoordinatorResult(reduceThreadViewportSelection(selectedThreadId))
 
-    return () => cancelPendingAutoScrollFrame()
+    return () => {
+      cancelPendingAutoScrollFrame()
+      cancelPendingFollowTailCorrectionFrame()
+      cancelPendingStreamingFollowFrame()
+    }
   }, [selectedThreadId])
 
   useEffect(() => {
@@ -662,6 +807,69 @@ export function useThreadViewportAutoScroll({
 
     flushPendingFollowScrollTask()
   }, [isThreadViewportInteracting, selectedThreadId])
+
+  useEffect(() => {
+    if (!selectedThreadId || !threadContentSignature.pendingPhase) {
+      cancelPendingStreamingFollowFrame()
+      return
+    }
+
+    let isCancelled = false
+
+    const maintainStreamingFollow = () => {
+      pendingStreamingFollowFrameRef.current = null
+      if (isCancelled) {
+        return
+      }
+
+      const viewport = threadViewportRef.current
+      if (
+        viewport &&
+        shouldCorrectThreadViewportFollowTail({
+          clientHeight: viewport.clientHeight,
+          currentScrollTop: viewport.scrollTop,
+          isThreadViewportInteracting: isThreadViewportInteractingRef.current,
+          scrollHeight: viewport.scrollHeight,
+          shouldFollowThread: getCoordinatorState().followMode === 'follow',
+          userScrollLockActive: Date.now() < userScrollLockUntilRef.current,
+        })
+      ) {
+        logThreadViewport('requesting streaming follow maintenance', {
+          clientHeight: viewport.clientHeight,
+          pendingPhase: threadContentSignature.pendingPhase,
+          scrollHeight: viewport.scrollHeight,
+          scrollTop: viewport.scrollTop,
+        })
+        requestThreadViewportScroll({
+          behavior: 'auto',
+          policy: 'follow-latest',
+          resolveTargetTop: (currentViewport) => currentViewport.scrollHeight,
+          source: 'stream-follow-maintenance',
+        })
+      }
+
+      if (isCancelled) {
+        return
+      }
+
+      pendingStreamingFollowFrameRef.current = window.requestAnimationFrame(
+        maintainStreamingFollow,
+      )
+    }
+
+    pendingStreamingFollowFrameRef.current = window.requestAnimationFrame(
+      maintainStreamingFollow,
+    )
+
+    return () => {
+      isCancelled = true
+      cancelPendingStreamingFollowFrame()
+    }
+  }, [
+    selectedThreadId,
+    threadContentSignature.pendingPhase,
+    threadContentSignature.pendingTurnId,
+  ])
 
   useEffect(() => {
     if (
@@ -744,6 +952,8 @@ export function useThreadViewportAutoScroll({
     if (!selectedThreadId) {
       lastObservedThreadScrollHeightRef.current = null
       cancelPendingContentResizeFrame()
+      cancelPendingFollowTailCorrectionFrame()
+      cancelPendingStreamingFollowFrame()
       return
     }
 
@@ -821,12 +1031,12 @@ export function useThreadViewportAutoScroll({
     function handleWheel(event: WheelEvent) {
       markViewportInteraction()
       if (event.deltaY < -2) {
-        markUserScrollIntent(true)
+        markUserScrollIntent(true, 'wheel-up')
         return
       }
 
       if (event.deltaY > 2 && getCoordinatorState().followMode !== 'follow') {
-        markUserScrollIntent(false)
+        markUserScrollIntent(false, 'wheel-down')
       }
     }
 
@@ -845,20 +1055,36 @@ export function useThreadViewportAutoScroll({
 
       const delta = currentY - startY
       if (delta > 3) {
-        markUserScrollIntent(true)
+        markUserScrollIntent(true, 'touch-up')
       } else if (delta < -3 && getCoordinatorState().followMode !== 'follow') {
-        markUserScrollIntent(false)
+        markUserScrollIntent(false, 'touch-down')
       }
+    }
+
+    function handlePointerDown() {
+      markViewportInteraction()
+      pointerGestureActiveRef.current = true
+    }
+
+    function clearPointerGesture() {
+      pointerGestureActiveRef.current = false
     }
 
     viewport.addEventListener('wheel', handleWheel, { passive: true })
     viewport.addEventListener('touchstart', handleTouchStart, { passive: true })
     viewport.addEventListener('touchmove', handleTouchMove, { passive: true })
+    viewport.addEventListener('pointerdown', handlePointerDown, { passive: true })
+    window.addEventListener('pointerup', clearPointerGesture, { passive: true })
+    window.addEventListener('pointercancel', clearPointerGesture, { passive: true })
 
     return () => {
       viewport.removeEventListener('wheel', handleWheel)
       viewport.removeEventListener('touchstart', handleTouchStart)
       viewport.removeEventListener('touchmove', handleTouchMove)
+      viewport.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('pointerup', clearPointerGesture)
+      window.removeEventListener('pointercancel', clearPointerGesture)
+      pointerGestureActiveRef.current = false
     }
   }, [selectedThreadId])
 
@@ -870,13 +1096,32 @@ export function useThreadViewportAutoScroll({
       return true
     }
 
-    if (Date.now() >= programmaticScrollUntilRef.current) {
-      markViewportInteraction()
-    }
-
+    const nowMs = Date.now()
     const currentScrollTop = viewport.scrollTop
     const previousScrollTop = lastViewportScrollTopRef.current
     lastViewportScrollTopRef.current = currentScrollTop
+    const userScrollIntent = resolveThreadViewportUserScrollIntent({
+      currentScrollTop,
+      followMode: getCoordinatorState().followMode,
+      isPointerGestureActive: pointerGestureActiveRef.current,
+      previousScrollTop,
+    })
+    if (userScrollIntent.shouldMarkUserIntent) {
+      logThreadViewport('detected manual viewport scroll intent', {
+        currentScrollTop,
+        previousScrollTop,
+        releaseFollow: userScrollIntent.releaseFollow,
+      })
+      markUserScrollIntent(
+        userScrollIntent.releaseFollow,
+        'pointer-gesture-scroll',
+      )
+    }
+
+    if (nowMs >= programmaticScrollUntilRef.current) {
+      markViewportInteraction()
+    }
+
     const coordinatorState = getCoordinatorState()
     const pinnedState = resolveThreadViewportPinnedState({
       clientHeight: viewport.clientHeight,
@@ -946,11 +1191,14 @@ export function useThreadViewportAutoScroll({
       cancelPendingViewportSyncFrame()
       cancelPendingContentResizeFrame()
       cancelPendingThreadOpenSettleFrame()
+      cancelPendingFollowTailCorrectionFrame()
+      cancelPendingStreamingFollowFrame()
       pendingOlderTurnsAnchorSyncRef.current = false
       programmaticScrollUntilRef.current = 0
       programmaticScrollPolicyRef.current = null
       lastAutoFollowScrollAtRef.current = 0
       lastObservedThreadScrollHeightRef.current = null
+      pointerGestureActiveRef.current = false
       coordinatorStateRef.current = createThreadViewportCoordinatorState()
       if (viewportInteractionTimeoutRef.current !== null) {
         window.clearTimeout(viewportInteractionTimeoutRef.current)

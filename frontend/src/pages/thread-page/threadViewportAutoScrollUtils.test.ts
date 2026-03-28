@@ -9,6 +9,8 @@ import {
   resolveThreadViewportPinnedState,
   resolveThreadViewportScrollExecution,
   resolveThreadViewportScrollDeferState,
+  resolveThreadViewportUserScrollIntent,
+  shouldCorrectThreadViewportFollowTail,
   shouldCoalesceThreadViewportScheduledFrame,
 } from './threadViewportAutoScrollUtils'
 
@@ -312,6 +314,93 @@ describe('resolveThreadViewportAutoScrollChange', () => {
       delayMs: 0,
       shouldDefer: false,
     })
+  })
+
+  it('treats upward manual scrolling as a detach intent, even during programmatic follow when pointer dragging is active', () => {
+    expect(
+      resolveThreadViewportUserScrollIntent({
+        currentScrollTop: 640,
+        followMode: 'follow',
+        isPointerGestureActive: false,
+        previousScrollTop: 700,
+      }),
+    ).toEqual({
+      releaseFollow: false,
+      shouldMarkUserIntent: false,
+    })
+
+    expect(
+      resolveThreadViewportUserScrollIntent({
+        currentScrollTop: 640,
+        followMode: 'follow',
+        isPointerGestureActive: true,
+        previousScrollTop: 700,
+      }),
+    ).toEqual({
+      releaseFollow: true,
+      shouldMarkUserIntent: true,
+    })
+  })
+
+  it('keeps the user scroll lock when a detached viewport is manually scrolled downward', () => {
+    expect(
+      resolveThreadViewportUserScrollIntent({
+        currentScrollTop: 760,
+        followMode: 'detached',
+        isPointerGestureActive: false,
+        previousScrollTop: 700,
+      }),
+    ).toEqual({
+      releaseFollow: false,
+      shouldMarkUserIntent: false,
+    })
+
+    expect(
+      resolveThreadViewportUserScrollIntent({
+        currentScrollTop: 760,
+        followMode: 'detached',
+        isPointerGestureActive: true,
+        previousScrollTop: 700,
+      }),
+    ).toEqual({
+      releaseFollow: false,
+      shouldMarkUserIntent: true,
+    })
+  })
+
+  it('requests follow-tail correction only when follow mode should stay attached but the viewport is still off bottom', () => {
+    expect(
+      shouldCorrectThreadViewportFollowTail({
+        clientHeight: 500,
+        currentScrollTop: 560,
+        isThreadViewportInteracting: false,
+        scrollHeight: 1_200,
+        shouldFollowThread: true,
+        userScrollLockActive: false,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldCorrectThreadViewportFollowTail({
+        clientHeight: 500,
+        currentScrollTop: 700,
+        isThreadViewportInteracting: false,
+        scrollHeight: 1_200,
+        shouldFollowThread: true,
+        userScrollLockActive: false,
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldCorrectThreadViewportFollowTail({
+        clientHeight: 500,
+        currentScrollTop: 560,
+        isThreadViewportInteracting: true,
+        scrollHeight: 1_200,
+        shouldFollowThread: true,
+        userScrollLockActive: false,
+      }),
+    ).toBe(false)
   })
 
   it('defers position-preserving writes during active user interaction', () => {
