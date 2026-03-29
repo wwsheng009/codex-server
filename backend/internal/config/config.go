@@ -22,6 +22,7 @@ type Config struct {
 	Addr                  string
 	FrontendOrigin        string
 	PublicBaseURL         string
+	LogPath               string
 	OutboundProxyURL      string
 	BotMessageTimeout     time.Duration
 	BotPollInterval       time.Duration
@@ -55,6 +56,7 @@ type ResolvedRuntime struct {
 }
 
 func FromEnv() (Config, error) {
+	storePath := getEnv("CODEX_SERVER_STORE_PATH", "data/metadata.json")
 	modelCatalogPath := strings.TrimSpace(getEnv("CODEX_MODEL_CATALOG_JSON", ""))
 	if modelCatalogPath == "" {
 		modelCatalogPath = discoverModelCatalogPath()
@@ -74,6 +76,7 @@ func FromEnv() (Config, error) {
 		Addr:                  getEnv("CODEX_SERVER_ADDR", ":18080"),
 		FrontendOrigin:        getEnv("CODEX_FRONTEND_ORIGIN", "http://0.0.0.0:15173"),
 		PublicBaseURL:         getEnv("CODEX_SERVER_PUBLIC_BASE_URL", ""),
+		LogPath:               resolveServerLogPath(strings.TrimSpace(getEnv("CODEX_SERVER_LOG_PATH", "")), storePath),
 		OutboundProxyURL:      resolved.Preferences.OutboundProxyURL,
 		BotMessageTimeout:     getEnvDuration("CODEX_SERVER_BOT_MESSAGE_TIMEOUT", 0),
 		BotPollInterval:       getEnvDuration("CODEX_SERVER_BOT_POLL_INTERVAL", 0),
@@ -86,8 +89,25 @@ func FromEnv() (Config, error) {
 		CodexCommand:          resolved.Command,
 		CodexModelCatalogJSON: resolved.Preferences.ModelCatalogPath,
 		CodexLocalShellModels: resolved.Preferences.LocalShellModels,
-		StorePath:             getEnv("CODEX_SERVER_STORE_PATH", "data/metadata.json"),
+		StorePath:             storePath,
 	}, nil
+}
+
+func resolveServerLogPath(explicitPath string, storePath string) string {
+	if explicitPath != "" {
+		return explicitPath
+	}
+
+	storePath = strings.TrimSpace(storePath)
+	if storePath == "" {
+		return "backend-runtime.log"
+	}
+
+	dir := filepath.Dir(storePath)
+	if dir == "" || dir == "." {
+		return "backend-runtime.log"
+	}
+	return filepath.Join(dir, "backend-runtime.log")
 }
 
 func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (ResolvedRuntime, error) {

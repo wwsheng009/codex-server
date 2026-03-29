@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +21,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/logging"
 	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/runtimeprefs"
@@ -36,6 +36,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	logRuntime, err := logging.Configure(logging.Config{
+		LogPath: cfg.LogPath,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		_ = logRuntime.Close()
+	}()
+	logger := logRuntime.Logger
 
 	dataStore, err := store.NewPersistentStore(cfg.StorePath)
 	if err != nil {
@@ -127,8 +138,6 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
 	diagnostics.ConfigureThreadTrace(
 		runtimePrefsState.EffectiveBackendThreadTraceEnabled,
 		runtimePrefsState.EffectiveBackendThreadTraceWorkspaceID,

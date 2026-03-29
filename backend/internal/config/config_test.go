@@ -78,6 +78,36 @@ func TestFromEnvReadsBotTimeoutOverrides(t *testing.T) {
 	}
 }
 
+func TestFromEnvResolvesDefaultLogPathFromStorePath(t *testing.T) {
+	t.Setenv("CODEX_SERVER_STORE_PATH", filepath.Join("runtime-data", "metadata.json"))
+	t.Setenv("CODEX_SERVER_LOG_PATH", "")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+
+	want := filepath.Join("runtime-data", "backend-runtime.log")
+	if cfg.LogPath != want {
+		t.Fatalf("LogPath = %q, want %q", cfg.LogPath, want)
+	}
+}
+
+func TestFromEnvUsesExplicitLogPathOverride(t *testing.T) {
+	t.Setenv("CODEX_SERVER_STORE_PATH", filepath.Join("runtime-data", "metadata.json"))
+	t.Setenv("CODEX_SERVER_LOG_PATH", filepath.Join("custom-logs", "backend.log"))
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+
+	want := filepath.Join("custom-logs", "backend.log")
+	if cfg.LogPath != want {
+		t.Fatalf("LogPath = %q, want %q", cfg.LogPath, want)
+	}
+}
+
 func TestFromEnvReadsThreadTraceOverrides(t *testing.T) {
 	t.Setenv("CODEX_TRACE_THREAD_PIPELINE", "true")
 	t.Setenv("CODEX_TRACE_WORKSPACE_ID", " ws_123 ")
