@@ -272,7 +272,7 @@ func (b *workspaceThreadAIBackend) waitForTurn(
 				continue
 			}
 			lastTurnEventAt = time.Now()
-			logBotDebug(ctx, connection, "workspace turn event received", debugEventAttrs(event)...)
+			logBotDebug(ctx, connection, debugWorkspaceEventMessage("workspace turn event received", event), debugEventAttrs(event)...)
 			if settleCh != nil || isTerminalTurnEventMethod(event.Method) {
 				if isTerminalTurnEventMethod(event.Method) {
 					if turn, ok := b.lookupCompletedTurn(ctx, connection.WorkspaceID, threadID, turnID); ok {
@@ -305,7 +305,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 	stability := terminalTurnStability{}
 	defer stopTimer(settleTimer)
 
-	if turn, ok := b.lookupCompletedTurn(ctx, connection.WorkspaceID, threadID, turnID); ok {
+	if turn, ok := b.lookupCompletedTurnStreaming(ctx, connection.WorkspaceID, threadID, turnID); ok {
 		turn.Items = stream.mergeCompletedTurnItems(turn.Items)
 		stability.Observe(turn)
 		resetTimer(&settleTimer, &settleCh, b.turnSettleDelay)
@@ -350,7 +350,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 		case <-ctx.Done():
 			return store.ThreadTurn{}, ctx.Err()
 		case <-settleCh:
-			if turn, ok := b.lookupCompletedTurn(ctx, connection.WorkspaceID, threadID, turnID); ok {
+			if turn, ok := b.lookupCompletedTurnStreaming(ctx, connection.WorkspaceID, threadID, turnID); ok {
 				var syncErr error
 				turn, syncErr = syncStreamFromTurn(turn)
 				if syncErr != nil {
@@ -374,7 +374,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 			if err := flushStream(); err != nil {
 				return store.ThreadTurn{}, err
 			}
-			if turn, ok := b.lookupTurnSnapshot(ctx, connection.WorkspaceID, threadID, turnID); ok && isTerminalTurnStatus(turn.Status) {
+			if turn, ok := b.lookupTurnSnapshotStreaming(ctx, connection.WorkspaceID, threadID, turnID); ok && isTerminalTurnStatus(turn.Status) {
 				var syncErr error
 				turn, syncErr = syncStreamFromTurn(turn)
 				if syncErr != nil {
@@ -389,7 +389,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 			if !shouldUseFallbackPoll(lastTurnEventAt, b.pollInterval) {
 				continue
 			}
-			if turn, ok := b.lookupTurnSnapshot(ctx, connection.WorkspaceID, threadID, turnID); ok {
+			if turn, ok := b.lookupTurnSnapshotStreaming(ctx, connection.WorkspaceID, threadID, turnID); ok {
 				var syncErr error
 				turn, syncErr = syncStreamFromTurn(turn)
 				if syncErr != nil {
@@ -408,7 +408,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 					slog.String("threadId", threadID),
 					slog.String("turnId", turnID),
 				)
-				if turn, ok := b.lookupTurnSnapshot(ctx, connection.WorkspaceID, threadID, turnID); ok {
+				if turn, ok := b.lookupTurnSnapshotStreaming(ctx, connection.WorkspaceID, threadID, turnID); ok {
 					var syncErr error
 					turn, syncErr = syncStreamFromTurn(turn)
 					if syncErr != nil {
@@ -425,7 +425,9 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 				continue
 			}
 			lastTurnEventAt = time.Now()
-			logBotDebug(ctx, connection, "workspace streaming event received", debugEventAttrs(event)...)
+			if shouldLogWorkspaceStreamingEvent(event) {
+				logBotDebug(ctx, connection, debugWorkspaceEventMessage("workspace streaming event received", event), debugEventAttrs(event)...)
+			}
 
 			flushImmediately := false
 			switch event.Method {
@@ -451,7 +453,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 					flushImmediately = len(stream.lastEmitted) == 0
 				}
 			case "turn/completed", "turn/failed", "turn/interrupted", "turn/canceled", "turn/cancelled":
-				if turn, ok := b.lookupCompletedTurn(ctx, connection.WorkspaceID, threadID, turnID); ok {
+				if turn, ok := b.lookupCompletedTurnStreaming(ctx, connection.WorkspaceID, threadID, turnID); ok {
 					turn.Items = stream.mergeCompletedTurnItems(turn.Items)
 					stability.Observe(turn)
 				}
@@ -491,6 +493,57 @@ func (b *workspaceThreadAIBackend) lookupCompletedTurn(
 	return turn, true
 }
 
+func debugWorkspaceEventMessage(prefix string, event store.EventEnvelope) string {
+	method := strings.TrimSpace(event.Method)
+	if method == "" {
+		return prefix
+	}
+	return prefix + ": " + method
+}
+
+func shouldLogWorkspaceStreamingEvent(event store.EventEnvelope) bool {
+	switch strings.TrimSpace(event.Method) {
+	case "turn/started",
+		"turn/completed",
+		"turn/failed",
+		"turn/interrupted",
+		"turn/canceled",
+		"turn/cancelled",
+		"item/agentMessage/delta",
+		"item/plan/delta",
+		"item/commandExecution/outputDelta":
+		return true
+	case "item/started", "item/completed":
+		payload := objectValue(event.Payload)
+		item := objectValue(payload["item"])
+		return isBotVisibleItemType(strings.TrimSpace(stringValue(item["type"])))
+	case "server/request/resolved", "server/request/expired":
+		if event.ServerRequestID == nil {
+			return false
+		}
+		return strings.TrimSpace(*event.ServerRequestID) != ""
+	default:
+		return isBotVisibleServerRequestEvent(event)
+	}
+}
+
+func (b *workspaceThreadAIBackend) lookupCompletedTurnStreaming(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	turnID string,
+) (store.ThreadTurn, bool) {
+	turn, ok := b.lookupTurnSnapshotStreaming(ctx, workspaceID, threadID, turnID)
+	if !ok {
+		return store.ThreadTurn{}, false
+	}
+	if !isTerminalTurnStatus(turn.Status) {
+		return store.ThreadTurn{}, false
+	}
+
+	return turn, true
+}
+
 func (b *workspaceThreadAIBackend) lookupTurnSnapshot(
 	ctx context.Context,
 	workspaceID string,
@@ -503,6 +556,19 @@ func (b *workspaceThreadAIBackend) lookupTurnSnapshot(
 	}
 	turn, ok := findThreadTurn(detail, turnID)
 	if !ok {
+		return store.ThreadTurn{}, false
+	}
+	return turn, true
+}
+
+func (b *workspaceThreadAIBackend) lookupTurnSnapshotStreaming(
+	ctx context.Context,
+	workspaceID string,
+	threadID string,
+	turnID string,
+) (store.ThreadTurn, bool) {
+	turn, err := b.threads.GetTurn(ctx, workspaceID, threadID, turnID, "full")
+	if err != nil {
 		return store.ThreadTurn{}, false
 	}
 	return turn, true

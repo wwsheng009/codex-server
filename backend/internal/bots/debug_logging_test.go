@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
+	"codex-server/backend/internal/turns"
 )
 
 func TestServiceDebugLogsCarryTraceIDAcrossProcessingSteps(t *testing.T) {
@@ -172,6 +174,224 @@ func TestTelegramProviderDebugLogsIncludeTraceID(t *testing.T) {
 	if !foundRequested || !foundChunk {
 		t.Fatalf("expected telegram debug logs for request and chunk send, got %#v", logs)
 	}
+}
+
+func TestLogBotDebugDoesNotDuplicateDeliveryIDAttribute(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	previous := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(previous)
+
+	connection := store.BotConnection{
+		ID:          "bot_debug_delivery",
+		WorkspaceID: "ws_debug",
+		Provider:    "telegram",
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+	}
+
+	logBotDebug(
+		withBotDebugTrace(context.Background(), connection.ID, "bid_debug_delivery"),
+		connection,
+		"claimed inbound delivery",
+		slog.String("messageId", "message-1"),
+	)
+
+	line := strings.TrimSpace(buffer.String())
+	if line == "" {
+		t.Fatal("expected a text log line")
+	}
+	if count := strings.Count(line, "deliveryId="); count != 1 {
+		t.Fatalf("expected deliveryId to appear once, got count=%d line=%q", count, line)
+	}
+}
+
+func TestWorkspaceThreadStreamingDebugLogsSkipNonBotVisibleItemLifecycle(t *testing.T) {
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-debug-1",
+			WorkspaceID: "ws_debug",
+			Name:        "Debug Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-debug-1",
+				WorkspaceID: "ws_debug",
+				Name:        "Debug Thread",
+				Status:      "idle",
+			},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeDebugLoggingStreamingTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 5 * time.Millisecond
+
+	connection := store.BotConnection{
+		ID:          "bot_debug_workspace",
+		WorkspaceID: "ws_debug",
+		Provider:    "telegram",
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+	}
+
+	logs := captureBotDebugLogs(t, func() {
+		_, err := backend.ProcessMessageStream(
+			withBotDebugTrace(context.Background(), connection.ID, "bid_debug_workspace"),
+			connection,
+			store.BotConversation{},
+			InboundMessage{
+				ConversationID: "chat-debug",
+				Text:           "/help",
+			},
+			func(_ context.Context, _ StreamingUpdate) error { return nil },
+		)
+		if err != nil {
+			t.Fatalf("ProcessMessageStream() error = %v", err)
+		}
+	})
+
+	streamingMessages := make([]string, 0)
+	for _, entry := range filterDebugLogsWithTrace(logs) {
+		message := debugLogStringField(entry["msg"])
+		if strings.HasPrefix(message, "bot debug: workspace streaming event received") {
+			streamingMessages = append(streamingMessages, message)
+		}
+	}
+
+	required := map[string]bool{
+		"bot debug: workspace streaming event received: turn/started":            false,
+		"bot debug: workspace streaming event received: item/agentMessage/delta": false,
+		"bot debug: workspace streaming event received: turn/completed":          false,
+	}
+	for _, message := range streamingMessages {
+		if _, ok := required[message]; ok {
+			required[message] = true
+		}
+		if strings.HasSuffix(message, "item/started") || strings.HasSuffix(message, "item/completed") {
+			t.Fatalf("expected non-bot-visible item lifecycle events to be suppressed, got %#v", streamingMessages)
+		}
+	}
+
+	for message, found := range required {
+		if !found {
+			t.Fatalf("expected streaming debug log %q, got %#v", message, streamingMessages)
+		}
+	}
+}
+
+type fakeDebugLoggingStreamingTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeDebugLoggingStreamingTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		turnID := "turn-debug-1"
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      turnID,
+			Method:      "turn/started",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   turnID,
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      turnID,
+			Method:      "item/started",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   turnID,
+				"item": map[string]any{
+					"id":   "user-1",
+					"type": "userMessage",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      turnID,
+			Method:      "item/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   turnID,
+				"item": map[string]any{
+					"id":   "user-1",
+					"type": "userMessage",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      turnID,
+			Method:      "item/agentMessage/delta",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   turnID,
+				"itemId":   "assistant-1",
+				"delta":    "help text",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     turnID,
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "assistant-1",
+					"type": "agentMessage",
+					"text": "help text",
+				},
+			},
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      turnID,
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   turnID,
+				"turn": map[string]any{
+					"id":     turnID,
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-debug-1",
+		Status: "running",
+	}, nil
 }
 
 func captureBotDebugLogs(t *testing.T, run func()) []map[string]any {

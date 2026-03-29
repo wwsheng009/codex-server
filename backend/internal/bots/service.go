@@ -537,7 +537,6 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 	ctx = withBotDebugTrace(ctx, connection.ID, delivery.ID)
 	message := inboundMessageFromDelivery(delivery)
 	logBotDebug(ctx, connection, "claimed inbound delivery",
-		slog.String("deliveryId", delivery.ID),
 		slog.String("deliveryStatus", delivery.Status),
 		slog.String("messageId", strings.TrimSpace(message.MessageID)),
 		slog.String("conversationId", strings.TrimSpace(message.ConversationID)),
@@ -825,7 +824,6 @@ func (s *Service) completeInboundDeliveryWithReply(
 		return err
 	}
 	logBotDebug(ctx, connection, "completed inbound delivery",
-		slog.String("deliveryId", delivery.ID),
 		slog.String("conversationStoreId", updatedConversation.ID),
 		slog.String("threadId", strings.TrimSpace(updatedConversation.ThreadID)),
 		slog.Int("messageCount", len(reply.Messages)),
@@ -882,7 +880,6 @@ func (s *Service) handleReplyDeliveryFailure(
 		return current
 	})
 	logBotDebug(ctx, connection, "reply delivery failed",
-		slog.String("deliveryId", delivery.ID),
 		slog.String("conversationStoreId", updatedConversation.ID),
 		slog.String("threadId", strings.TrimSpace(updatedConversation.ThreadID)),
 		slog.Int("messageCount", len(reply.Messages)),

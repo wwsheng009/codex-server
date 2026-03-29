@@ -868,6 +868,14 @@ func TestWorkspaceThreadAIBackendRecoversAfterOverflowBeforeTerminalSnapshotSett
 	if elapsed := time.Since(startedAt); elapsed >= 900*time.Millisecond {
 		t.Fatalf("expected recovery before fallback poll interval, got %s", elapsed)
 	}
+
+	detailCalls, turnCalls := threadsExec.callCounts()
+	if detailCalls != 0 {
+		t.Fatalf("expected streaming recovery to avoid fresh detail lookups, got %d", detailCalls)
+	}
+	if turnCalls == 0 {
+		t.Fatal("expected streaming recovery to use single-turn snapshots")
+	}
 }
 
 func TestWorkspaceThreadAIBackendTreatsInterruptedTurnAsTerminal(t *testing.T) {
