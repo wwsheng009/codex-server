@@ -96,20 +96,22 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 		globalSubscribers = append(globalSubscribers, subscriber)
 	}
 	h.mu.RUnlock()
-	diagnostics.LogTrace(
-		event.WorkspaceID,
-		event.ThreadID,
-		"event hub publishing thread event",
-		append(
-			diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
-			"workspaceSubscriberCount",
-			len(workspaceSubscribers),
-			"globalSubscriberCount",
-			len(globalSubscribers),
-			"storeAttached",
-			dataStore != nil,
-		)...,
-	)
+	if diagnostics.ShouldLogEventTrace("event hub publishing thread event", event.Method) {
+		diagnostics.LogTrace(
+			event.WorkspaceID,
+			event.ThreadID,
+			"event hub publishing thread event",
+			append(
+				diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+				"workspaceSubscriberCount",
+				len(workspaceSubscribers),
+				"globalSubscriberCount",
+				len(globalSubscribers),
+				"storeAttached",
+				dataStore != nil,
+			)...,
+		)
+	}
 
 	overflowedWorkspaceSubscribers := make([]chan store.EventEnvelope, 0)
 	for _, subscriber := range workspaceSubscribers {

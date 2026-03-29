@@ -1490,38 +1490,42 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	beforeMessageCount := projection.MessageCount
 
 	if !applyThreadEventToProjection(&projection, event) {
-		diagnostics.LogThreadTrace(
-			event.WorkspaceID,
-			event.ThreadID,
-			"thread projection ignored event",
-			diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload)...,
-		)
+		if diagnostics.ShouldLogEventTrace("thread projection ignored event", event.Method) {
+			diagnostics.LogThreadTrace(
+				event.WorkspaceID,
+				event.ThreadID,
+				"thread projection ignored event",
+				diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload)...,
+			)
+		}
 		return
 	}
 
 	s.projections[key] = projection
-	diagnostics.LogThreadTrace(
-		event.WorkspaceID,
-		event.ThreadID,
-		"thread projection updated",
-		append(
-			diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
-			"statusBefore",
-			beforeStatus,
-			"statusAfter",
-			projection.Status,
-			"turnCountBefore",
-			beforeTurnCount,
-			"turnCountAfter",
-			len(projection.Turns),
-			"messageCountBefore",
-			beforeMessageCount,
-			"messageCountAfter",
-			projection.MessageCount,
-			"snapshotComplete",
-			projection.SnapshotComplete,
-		)...,
-	)
+	if diagnostics.ShouldLogEventTrace("thread projection updated", event.Method) {
+		diagnostics.LogThreadTrace(
+			event.WorkspaceID,
+			event.ThreadID,
+			"thread projection updated",
+			append(
+				diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+				"statusBefore",
+				beforeStatus,
+				"statusAfter",
+				projection.Status,
+				"turnCountBefore",
+				beforeTurnCount,
+				"turnCountAfter",
+				len(projection.Turns),
+				"messageCountBefore",
+				beforeMessageCount,
+				"messageCountAfter",
+				projection.MessageCount,
+				"snapshotComplete",
+				projection.SnapshotComplete,
+			)...,
+		)
+	}
 	// Delta events can arrive at very high frequency while a turn is streaming.
 	// Keep the in-memory projection hot, but avoid rewriting the full store file
 	// for every incremental chunk. A later lifecycle event or snapshot refresh

@@ -2056,12 +2056,14 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			diagnostics.LogTrace(
-				workspaceID,
-				event.ThreadID,
-				"workspace stream sending event",
-				diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload)...,
-			)
+			if diagnostics.ShouldLogEventTrace("workspace stream sending event", event.Method) {
+				diagnostics.LogTrace(
+					workspaceID,
+					event.ThreadID,
+					"workspace stream sending event",
+					diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload)...,
+				)
+			}
 			if err := conn.WriteJSON(event); err != nil {
 				diagnostics.LogTrace(
 					workspaceID,

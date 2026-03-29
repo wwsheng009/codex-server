@@ -464,12 +464,14 @@ func (r *instance) HandleNotification(method string, params json.RawMessage) {
 	threadID, turnID := extractContext(payload)
 
 	r.trackTurn(method, threadID, turnID)
-	diagnostics.LogTrace(
-		r.workspaceID,
-		threadID,
-		"runtime notification received",
-		diagnostics.EventTraceAttrs(method, turnID, payload)...,
-	)
+	if diagnostics.ShouldLogEventTrace("runtime notification received", method) {
+		diagnostics.LogTrace(
+			r.workspaceID,
+			threadID,
+			"runtime notification received",
+			diagnostics.EventTraceAttrs(method, turnID, payload)...,
+		)
+	}
 
 	r.manager.events.Publish(store.EventEnvelope{
 		WorkspaceID: r.workspaceID,
@@ -690,22 +692,24 @@ func (r *instance) queueCommandOutputDelta(params json.RawMessage) bool {
 		r.commandOutputFlushTimer.Stop()
 		r.commandOutputFlushTimer = nil
 	}
-	diagnostics.LogWorkspaceTrace(
-		r.workspaceID,
-		"runtime command output delta queued",
-		"method",
-		"command/exec/outputDelta",
-		"processId",
-		processID,
-		"stream",
-		stream,
-		"deltaLen",
-		len(delta),
-		"pendingBytes",
-		r.pendingCommandOutputLen,
-		"flushImmediately",
-		shouldFlushImmediately,
-	)
+	if diagnostics.ShouldLogEventTrace("runtime command output delta queued", "command/exec/outputDelta") {
+		diagnostics.LogWorkspaceTrace(
+			r.workspaceID,
+			"runtime command output delta queued",
+			"method",
+			"command/exec/outputDelta",
+			"processId",
+			processID,
+			"stream",
+			stream,
+			"deltaLen",
+			len(delta),
+			"pendingBytes",
+			r.pendingCommandOutputLen,
+			"flushImmediately",
+			shouldFlushImmediately,
+		)
+	}
 	r.mu.Unlock()
 
 	if shouldFlushImmediately {

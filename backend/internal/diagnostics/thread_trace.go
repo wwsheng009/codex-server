@@ -100,6 +100,24 @@ func LogTrace(workspaceID string, threadID string, msg string, attrs ...any) {
 	LogWorkspaceTrace(workspaceID, msg, attrs...)
 }
 
+func ShouldLogEventTrace(msg string, method string) bool {
+	msg = strings.TrimSpace(msg)
+	method = strings.TrimSpace(method)
+	if msg == "" || method == "" {
+		return true
+	}
+
+	if msg == "runtime command output delta queued" {
+		return !isHighVolumeEventMethod(method)
+	}
+
+	if isEventRelayTraceMessage(msg) {
+		return !isHighVolumeEventMethod(method)
+	}
+
+	return true
+}
+
 func EventTraceAttrs(method string, turnID string, payload any) []any {
 	attrs := make([]any, 0, 18)
 
@@ -257,4 +275,33 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func isEventRelayTraceMessage(msg string) bool {
+	switch msg {
+	case "runtime notification received",
+		"event hub publishing thread event",
+		"workspace stream sending event",
+		"thread projection updated",
+		"thread projection ignored event":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHighVolumeEventMethod(method string) bool {
+	method = strings.TrimSpace(method)
+	if method == "" {
+		return false
+	}
+
+	switch method {
+	case "thread/tokenUsage/updated",
+		"command/exec/outputDelta",
+		"item/commandExecution/outputDelta":
+		return true
+	}
+
+	return strings.HasSuffix(method, "/delta")
 }

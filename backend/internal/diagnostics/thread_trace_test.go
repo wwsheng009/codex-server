@@ -92,3 +92,28 @@ func TestTurnStartTraceAttrsSummarizesPayload(t *testing.T) {
 		t.Fatalf("inputTextLength = %#v", got["inputTextLength"])
 	}
 }
+
+func TestShouldLogEventTraceSuppressesHighVolumeRelayEvents(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		msg    string
+		method string
+		want   bool
+	}{
+		{msg: "runtime notification received", method: "item/agentMessage/delta", want: false},
+		{msg: "event hub publishing thread event", method: "thread/tokenUsage/updated", want: false},
+		{msg: "workspace stream sending event", method: "command/exec/outputDelta", want: false},
+		{msg: "thread projection updated", method: "item/plan/delta", want: false},
+		{msg: "thread projection ignored event", method: "item/commandExecution/outputDelta", want: false},
+		{msg: "runtime command output delta queued", method: "command/exec/outputDelta", want: false},
+		{msg: "runtime notification received", method: "turn/completed", want: true},
+		{msg: "thread projection updated", method: "item/completed", want: true},
+	}
+
+	for _, tc := range cases {
+		if got := ShouldLogEventTrace(tc.msg, tc.method); got != tc.want {
+			t.Fatalf("ShouldLogEventTrace(%q, %q) = %v, want %v", tc.msg, tc.method, got, tc.want)
+		}
+	}
+}
