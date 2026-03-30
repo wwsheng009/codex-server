@@ -6,19 +6,7 @@ import type {
   PluginDetailResult,
   PluginInstallResult,
   PluginListResult,
-  RemoteSkillSummary,
-  RemoteSkillWriteResult,
 } from '../../types/api'
-
-export type ListRemoteSkillsInput = {
-  enabled?: boolean
-  hazelnutScope?: string
-  productSurface?: string
-}
-
-export type ExportRemoteSkillInput = {
-  hazelnutId: string
-}
 
 export type ReadPluginInput = {
   marketplacePath: string
@@ -40,29 +28,6 @@ export function listModels(workspaceId: string) {
 
 export function listSkills(workspaceId: string) {
   return apiRequest<CatalogItem[]>(`/api/workspaces/${workspaceId}/skills`)
-}
-
-export function listRemoteSkills(
-  workspaceId: string,
-  input: ListRemoteSkillsInput,
-) {
-  return apiRequest<{ data: RemoteSkillSummary[] }>(
-    `/api/workspaces/${workspaceId}/skills/remote/list`,
-    {
-      method: 'POST',
-      body: JSON.stringify(input),
-    },
-  )
-}
-
-export function exportRemoteSkill(workspaceId: string, input: ExportRemoteSkillInput) {
-  return apiRequest<RemoteSkillWriteResult>(
-    `/api/workspaces/${workspaceId}/skills/remote/export`,
-    {
-      method: 'POST',
-      body: JSON.stringify(input),
-    },
-  )
 }
 
 export function listApps(workspaceId: string) {

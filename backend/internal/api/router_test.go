@@ -1029,8 +1029,6 @@ func TestConfigAndSearchRoutesValidateRequestBody(t *testing.T) {
 		"/api/workspaces/" + created.Data.ID + "/config/batch-write",
 		"/api/workspaces/" + created.Data.ID + "/external-agent/detect",
 		"/api/workspaces/" + created.Data.ID + "/external-agent/import",
-		"/api/workspaces/" + created.Data.ID + "/skills/remote/list",
-		"/api/workspaces/" + created.Data.ID + "/skills/remote/export",
 		"/api/workspaces/" + created.Data.ID + "/skills/config/write",
 		"/api/workspaces/" + created.Data.ID + "/search/files",
 		"/api/workspaces/" + created.Data.ID + "/feedback/upload",
@@ -1040,6 +1038,16 @@ func TestConfigAndSearchRoutesValidateRequestBody(t *testing.T) {
 		response := performJSONRequest(t, router, http.MethodPost, path, `{`)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for invalid body on %s, got %d", path, response.Code)
+		}
+	}
+
+	for _, path := range []string{
+		"/api/workspaces/" + created.Data.ID + "/skills/remote/list",
+		"/api/workspaces/" + created.Data.ID + "/skills/remote/export",
+	} {
+		response := performJSONRequest(t, router, http.MethodPost, path, `{}`)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for removed route %s, got %d", path, response.Code)
 		}
 	}
 

@@ -415,8 +415,6 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 
 - `GET /api/workspaces/:workspaceId/models`
 - `GET /api/workspaces/:workspaceId/skills`
-- `POST /api/workspaces/:workspaceId/skills/remote/list`
-- `POST /api/workspaces/:workspaceId/skills/remote/export`
 - `POST /api/workspaces/:workspaceId/skills/config/write`
 - `GET /api/workspaces/:workspaceId/apps`
 - `GET /api/workspaces/:workspaceId/plugins`

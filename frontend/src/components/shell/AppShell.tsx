@@ -912,8 +912,8 @@ export function AppShell() {
         group: 'Nav',
         title: i18n._({ id: 'Open Skills', message: 'Open Skills' }),
         subtitle: i18n._({
-          id: 'Browse installed and remote skills',
-          message: 'Browse installed and remote skills',
+          id: 'Browse installed workspace skills',
+          message: 'Browse installed workspace skills',
         }),
         keywords: ['skills', 'catalog', 'directory'],
         priority: currentSection === 'skills' ? 40 : 13,

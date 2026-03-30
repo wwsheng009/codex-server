@@ -20,7 +20,6 @@ export type CatalogSectionItem = {
 export type CatalogQueryData = {
   models: CatalogSectionItem[]
   skills: CatalogSectionItem[]
-  remoteSkills: CatalogSectionItem[]
   apps: CatalogSectionItem[]
   plugins: CatalogSectionItem[]
   pluginRemoteSyncError?: string | null

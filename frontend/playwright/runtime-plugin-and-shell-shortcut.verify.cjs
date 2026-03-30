@@ -109,10 +109,6 @@ async function installRuntimeCatalogMocks(page) {
       return fulfill([])
     }
 
-    if (pathname === `/api/workspaces/${WORKSPACE_ID}/skills/remote/list`) {
-      return fulfill({ data: [] })
-    }
-
     if (pathname === `/api/workspaces/${WORKSPACE_ID}/apps`) {
       return fulfill([])
     }

@@ -1,15 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import {
-  exportRemoteSkill,
   installPlugin,
   listApps,
   listCollaborationModes,
   listModels,
   listPlugins,
-  listRemoteSkills,
   listSkills,
   readPlugin,
   uninstallPlugin,
@@ -19,8 +17,10 @@ import { listWorkspaces } from '../features/workspaces/api'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { SelectControl } from '../components/ui/SelectControl'
+import { Tabs, activateStoredTab } from '../components/ui/Tabs'
 import { TextArea } from '../components/ui/TextArea'
 import { Switch } from '../components/ui/Switch'
+import { formatLocaleNumber } from '../i18n/format'
 import { getActiveLocale, i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { InlineNotice } from '../components/ui/InlineNotice'
@@ -30,19 +30,108 @@ import type {
   RuntimeSectionProps,
 } from './catalogPageTypes'
 
+type RuntimeSectionData = {
+  title: string
+  description: string
+  marker: string
+  items: CatalogSectionItem[]
+}
+
+type RuntimeInventoryGroup = {
+  id: string
+  label: string
+  description: string
+  summary: string
+  sections: RuntimeSectionData[]
+  count: number
+}
+
+type RuntimeMetaChip = {
+  label: string
+  tone?: 'default' | 'good' | 'warn'
+}
+
+type RuntimeFact = {
+  label: string
+  value: string
+  code?: boolean
+}
+
+type RuntimeInventoryGroupPanelProps = {
+  title: string
+  description: string
+  query: string
+  loading: boolean
+  sections: RuntimeSectionData[]
+  onInstallPlugin?: (item: CatalogSectionItem) => void
+  onReadPlugin?: (item: CatalogSectionItem) => void
+  onUninstallPlugin?: (item: CatalogSectionItem) => void
+  pluginInstallPendingId?: string | null
+  pluginReadPendingId?: string | null
+  pluginUninstallPendingId?: string | null
+}
+
+type RuntimeActionConsoleTabsProps = {
+  consoleStorageKey: string
+  workspaceId?: string
+  marketplacePath: string
+  pluginName: string
+  pluginId: string
+  searchQuery: string
+  feedbackClassification: string
+  feedbackReason: string
+  includeLogs: boolean
+  onMarketplacePathChange: (value: string) => void
+  onPluginNameChange: (value: string) => void
+  onPluginIdChange: (value: string) => void
+  onSearchQueryChange: (value: string) => void
+  onFeedbackClassificationChange: (value: string) => void
+  onFeedbackReasonChange: (value: string) => void
+  onIncludeLogsChange: (value: boolean) => void
+  readPluginMutation: {
+    mutate: (input: { marketplacePath: string; pluginName: string }) => void
+    isPending: boolean
+    data?: unknown
+  }
+  installPluginMutation: {
+    mutate: (input: { marketplacePath: string; pluginName: string }) => void
+    isPending: boolean
+    data?: unknown
+  }
+  uninstallPluginMutation: {
+    mutate: (input: { pluginId: string }) => void
+    isPending: boolean
+    data?: unknown
+  }
+  searchMutation: {
+    mutate: () => void
+    data?: { files?: unknown }
+    error?: unknown
+  }
+  feedbackMutation: {
+    mutate: () => void
+    data?: unknown
+    error?: unknown
+  }
+}
+
+const INVENTORY_TAB_STORAGE_KEY = 'runtime-catalog-inventory-tab'
+const CONSOLE_TAB_STORAGE_KEY = 'runtime-catalog-console-tab'
+
 export function CatalogPage() {
   const activeLocale = getActiveLocale()
   const queryClient = useQueryClient()
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [modelShellTypeFilter, setModelShellTypeFilter] = useState('all')
-  const [hazelnutId, setHazelnutId] = useState('')
   const [marketplacePath, setMarketplacePath] = useState('')
   const [pluginName, setPluginName] = useState('')
   const [pluginId, setPluginId] = useState('')
+  const [inventoryQuery, setInventoryQuery] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [feedbackClassification, setFeedbackClassification] = useState('bug')
   const [feedbackReason, setFeedbackReason] = useState('')
   const [includeLogs, setIncludeLogs] = useState(true)
+  const deferredInventoryQuery = useDeferredValue(inventoryQuery)
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
@@ -61,14 +150,9 @@ export function CatalogPage() {
     queryKey: ['runtime-catalog', workspaceId],
     enabled: Boolean(workspaceId),
     queryFn: async () => {
-      const [models, skills, remoteSkills, apps, plugins, modes] = await Promise.all([
+      const [models, skills, apps, plugins, modes] = await Promise.all([
         listModels(workspaceId!),
         listSkills(workspaceId!),
-        listRemoteSkills(workspaceId!, {
-          enabled: false,
-          hazelnutScope: 'example',
-          productSurface: 'codex',
-        }),
         listApps(workspaceId!),
         listPlugins(workspaceId!),
         listCollaborationModes(workspaceId!),
@@ -77,17 +161,12 @@ export function CatalogPage() {
       return {
         models,
         skills,
-        remoteSkills: remoteSkills.data,
         apps,
         plugins: plugins.plugins,
         pluginRemoteSyncError: plugins.remoteSyncError ?? null,
         modes,
       } satisfies CatalogQueryData
     },
-  })
-
-  const exportRemoteSkillMutation = useMutation({
-    mutationFn: () => exportRemoteSkill(workspaceId!, { hazelnutId }),
   })
   const readPluginMutation = useMutation({
     mutationFn: (input: { marketplacePath: string; pluginName: string }) =>
@@ -166,7 +245,8 @@ export function CatalogPage() {
       })),
     ]
   }, [activeLocale, catalogQuery.data?.models])
-  const catalogSections = useMemo(
+  const normalizedInventoryQuery = deferredInventoryQuery.trim().toLowerCase()
+  const catalogSections = useMemo<RuntimeSectionData[]>(
     () => [
       {
         title: i18n._({ id: 'Models', message: 'Models' }),
@@ -185,15 +265,6 @@ export function CatalogPage() {
         }),
         marker: 'SK',
         items: catalogQuery.data?.skills ?? [],
-      },
-      {
-        title: i18n._({ id: 'Remote skills', message: 'Remote skills' }),
-        description: i18n._({
-          id: 'Remote skills available to export into the current workspace.',
-          message: 'Remote skills available to export into the current workspace.',
-        }),
-        marker: 'RM',
-        items: catalogQuery.data?.remoteSkills ?? [],
       },
       {
         title: i18n._({ id: 'Apps', message: 'Apps' }),
@@ -225,7 +296,77 @@ export function CatalogPage() {
     ],
     [activeLocale, catalogQuery.data, filteredModels],
   )
-  const totalInventoryCount = catalogSections.reduce((count, section) => count + section.items.length, 0)
+  const filteredCatalogSections = useMemo(
+    () =>
+      catalogSections.map((section) => ({
+        ...section,
+        items: filterCatalogItems(section.items, normalizedInventoryQuery),
+      })),
+    [catalogSections, normalizedInventoryQuery],
+  )
+  const catalogSectionMap = useMemo(
+    () =>
+      new Map(filteredCatalogSections.map((section) => [section.marker, section] as const)),
+    [filteredCatalogSections],
+  )
+  const totalInventoryCount = useMemo(
+    () => catalogSections.reduce((count, section) => count + section.items.length, 0),
+    [catalogSections],
+  )
+  const visibleInventoryCount = useMemo(
+    () => filteredCatalogSections.reduce((count, section) => count + section.items.length, 0),
+    [filteredCatalogSections],
+  )
+  const inventoryGroups = useMemo<RuntimeInventoryGroup[]>(
+    () => [
+      {
+        id: 'runtime-core',
+        label: i18n._({ id: 'Core runtime', message: 'Core runtime' }),
+        description: i18n._({
+          id: 'Execution posture, shell behavior, and collaboration defaults.',
+          message: 'Execution posture, shell behavior, and collaboration defaults.',
+        }),
+        summary: i18n._({
+          id: 'Models and modes define how the runtime executes work.',
+          message: 'Models and modes define how the runtime executes work.',
+        }),
+        sections: [catalogSectionMap.get('MO'), catalogSectionMap.get('MD')].filter(Boolean) as RuntimeSectionData[],
+        count: sumCatalogSectionItems(catalogSectionMap.get('MO'), catalogSectionMap.get('MD')),
+      },
+      {
+        id: 'runtime-capabilities',
+        label: i18n._({ id: 'Skills and apps', message: 'Skills and apps' }),
+        description: i18n._({
+          id: 'Mounted skills and connected app surfaces.',
+          message: 'Mounted skills and connected app surfaces.',
+        }),
+        summary: i18n._({
+          id: 'Workspace abilities are easier to scan when they stay in one lane.',
+          message: 'Workspace abilities are easier to scan when they stay in one lane.',
+        }),
+        sections: [catalogSectionMap.get('SK'), catalogSectionMap.get('AP')].filter(Boolean) as RuntimeSectionData[],
+        count: sumCatalogSectionItems(catalogSectionMap.get('SK'), catalogSectionMap.get('AP')),
+      },
+      {
+        id: 'runtime-extensions',
+        label: i18n._({ id: 'Plugins and extensions', message: 'Plugins and extensions' }),
+        description: i18n._({
+          id: 'Installed or discoverable extension points for the active workspace.',
+          message: 'Installed or discoverable extension points for the active workspace.',
+        }),
+        summary: i18n._({
+          id: 'Marketplace-driven inventory deserves a dedicated extension board.',
+          message: 'Marketplace-driven inventory deserves a dedicated extension board.',
+        }),
+        sections: [catalogSectionMap.get('PL')].filter(Boolean) as RuntimeSectionData[],
+        count: sumCatalogSectionItems(catalogSectionMap.get('PL')),
+      },
+    ],
+    [activeLocale, catalogSectionMap],
+  )
+  const coreInventoryCount = inventoryGroups[0]?.count ?? 0
+  const capabilityInventoryCount = inventoryGroups[1]?.count ?? 0
+  const extensionInventoryCount = inventoryGroups[2]?.count ?? 0
 
   function focusPluginActionTarget(item: CatalogSectionItem) {
     setMarketplacePath(item.marketplacePath ?? '')
@@ -268,6 +409,34 @@ export function CatalogPage() {
     })
   }
 
+  const pluginInstallPendingId = installPluginMutation.isPending
+    ? `${marketplacePath}:${pluginName}`
+    : null
+  const pluginReadPendingId = readPluginMutation.isPending
+    ? `${marketplacePath}:${pluginName}`
+    : null
+  const pluginUninstallPendingId = uninstallPluginMutation.isPending ? pluginId : null
+  const inventoryTabItems = inventoryGroups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    badge: formatLocaleNumber(group.count),
+    content: (
+      <RuntimeInventoryGroupPanel
+        description={group.description}
+        loading={catalogQuery.isLoading}
+        onInstallPlugin={handleInstallPluginItem}
+        onReadPlugin={handleReadPluginItem}
+        onUninstallPlugin={handleUninstallPluginItem}
+        pluginInstallPendingId={pluginInstallPendingId}
+        pluginReadPendingId={pluginReadPendingId}
+        pluginUninstallPendingId={pluginUninstallPendingId}
+        query={normalizedInventoryQuery}
+        sections={group.sections}
+        title={group.label}
+      />
+    ),
+  }))
+
   return (
     <section className="screen">
       <header className="mode-strip">
@@ -280,9 +449,9 @@ export function CatalogPage() {
           </div>
           <div className="mode-strip__description">
             {i18n._({
-              id: 'Inspect runtime inventory and run export or plugin actions from a tighter control-surface layout.',
+              id: 'Inspect runtime inventory and run plugin and workspace actions from a tighter control-surface layout.',
               message:
-                'Inspect runtime inventory and run export or plugin actions from a tighter control-surface layout.',
+                'Inspect runtime inventory and run plugin and workspace actions from a tighter control-surface layout.',
             })}
           </div>
         </div>
@@ -352,14 +521,27 @@ export function CatalogPage() {
                 value={workspaceId ?? ''}
               />
             </label>
+            <Input
+              label={i18n._({ id: 'Inventory search', message: 'Inventory search' })}
+              onChange={(event) => setInventoryQuery(event.target.value)}
+              placeholder={i18n._({
+                id: 'Filter models, skills, apps, plugins…',
+                message: 'Filter models, skills, apps, plugins…',
+              })}
+              value={inventoryQuery}
+            />
             <div className="detail-list">
               <div className="detail-row">
                 <span>{i18n._({ id: 'Current scope', message: 'Current scope' })}</span>
                 <strong>{workspaceName}</strong>
               </div>
               <div className="detail-row">
-                <span>{i18n._({ id: 'Inventory entries', message: 'Inventory entries' })}</span>
-                <strong>{totalInventoryCount}</strong>
+                <span>{i18n._({ id: 'Visible entries', message: 'Visible entries' })}</span>
+                <strong>
+                  {normalizedInventoryQuery
+                    ? `${formatLocaleNumber(visibleInventoryCount)} / ${formatLocaleNumber(totalInventoryCount)}`
+                    : formatLocaleNumber(totalInventoryCount)}
+                </strong>
               </div>
               <div className="detail-row">
                 <span>{i18n._({ id: 'Model filter', message: 'Model filter' })}</span>
@@ -387,26 +569,30 @@ export function CatalogPage() {
             </div>
             <div className="mode-metrics">
               <div className="mode-metric">
-                <span>{i18n._({ id: 'Models', message: 'Models' })}</span>
-                <strong>{catalogQuery.data?.models.length ?? 0}</strong>
+                <span>{i18n._({ id: 'Core', message: 'Core' })}</span>
+                <strong>{formatLocaleNumber(coreInventoryCount)}</strong>
               </div>
               <div className="mode-metric">
-                <span>{i18n._({ id: 'Plugins', message: 'Plugins' })}</span>
-                <strong>{catalogQuery.data?.plugins.length ?? 0}</strong>
+                <span>{i18n._({ id: 'Skills and apps', message: 'Skills and apps' })}</span>
+                <strong>{formatLocaleNumber(capabilityInventoryCount)}</strong>
               </div>
               <div className="mode-metric">
-                <span>{i18n._({ id: 'Modes', message: 'Modes' })}</span>
-                <strong>{catalogQuery.data?.modes.length ?? 0}</strong>
+                <span>{i18n._({ id: 'Extensions', message: 'Extensions' })}</span>
+                <strong>{formatLocaleNumber(extensionInventoryCount)}</strong>
               </div>
             </div>
             <div className="detail-list">
               <div className="detail-row">
-                <span>{i18n._({ id: 'Apps', message: 'Apps' })}</span>
-                <strong>{catalogQuery.data?.apps.length ?? 0}</strong>
+                <span>{i18n._({ id: 'Models', message: 'Models' })}</span>
+                <strong>{formatLocaleNumber(catalogQuery.data?.models.length ?? 0)}</strong>
               </div>
               <div className="detail-row">
-                <span>{i18n._({ id: 'Remote skills', message: 'Remote skills' })}</span>
-                <strong>{catalogQuery.data?.remoteSkills.length ?? 0}</strong>
+                <span>{i18n._({ id: 'Apps', message: 'Apps' })}</span>
+                <strong>{formatLocaleNumber(catalogQuery.data?.apps.length ?? 0)}</strong>
+              </div>
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Plugins', message: 'Plugins' })}</span>
+                <strong>{formatLocaleNumber(catalogQuery.data?.plugins.length ?? 0)}</strong>
               </div>
             </div>
             <label className="field">
@@ -459,298 +645,71 @@ export function CatalogPage() {
             </InlineNotice>
           ) : null}
 
-          <div className="runtime-board">
-            {catalogSections.map((section) => (
-              <RuntimeSection
-                description={section.description}
-                items={section.items}
-                key={section.title}
-                loading={catalogQuery.isLoading}
-                marker={section.marker}
-                onInstallPlugin={section.marker === 'PL' ? handleInstallPluginItem : undefined}
-                onReadPlugin={section.marker === 'PL' ? handleReadPluginItem : undefined}
-                onUninstallPlugin={section.marker === 'PL' ? handleUninstallPluginItem : undefined}
-                pluginInstallPendingId={
-                  installPluginMutation.isPending ? `${marketplacePath}:${pluginName}` : null
-                }
-                pluginReadPendingId={
-                  readPluginMutation.isPending ? `${marketplacePath}:${pluginName}` : null
-                }
-                pluginUninstallPendingId={uninstallPluginMutation.isPending ? pluginId : null}
-                title={section.title}
-              />
-            ))}
-          </div>
-
-          <div className="mode-console-grid">
-            <section className="mode-console">
-              <div className="section-header">
+          <section className="mode-panel mode-panel--compact">
+            <div className="mode-panel__body">
+              <div className="section-header section-header--inline">
                 <div>
-                  <h2>{i18n._({ id: 'Remote skill export', message: 'Remote skill export' })}</h2>
+                  <h2>{i18n._({ id: 'Inventory board', message: 'Inventory board' })}</h2>
                   <p>
                     {i18n._({
-                      id: 'Export remote skills into the selected workspace from a dedicated runtime console.',
+                      id: 'Start from grouped summaries, then drill into the active lane instead of scanning every inventory panel at once.',
                       message:
-                        'Export remote skills into the selected workspace from a dedicated runtime console.',
+                        'Start from grouped summaries, then drill into the active lane instead of scanning every inventory panel at once.',
                     })}
                   </p>
                 </div>
+                <div className="section-header__meta">{formatLocaleNumber(visibleInventoryCount)}</div>
               </div>
-              <form
-                className="form-stack"
-                onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                  event.preventDefault()
-                  if (workspaceId && hazelnutId.trim()) {
-                    exportRemoteSkillMutation.mutate()
-                  }
-                }}
-              >
-              <Input
-                label={i18n._({ id: 'Hazelnut ID', message: 'Hazelnut ID' })}
-                onChange={(event) => setHazelnutId(event.target.value)}
-                value={hazelnutId}
+              <div className="runtime-summary-grid">
+                {inventoryGroups.map((group) => (
+                  <button
+                    className="runtime-summary-card"
+                    key={group.id}
+                    onClick={() => activateStoredTab(INVENTORY_TAB_STORAGE_KEY, group.id)}
+                    type="button"
+                  >
+                    <span className="runtime-summary-card__eyebrow">{group.label}</span>
+                    <strong>{formatLocaleNumber(group.count)}</strong>
+                    <p>{group.summary}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="runtime-tabs-shell">
+              <Tabs
+                ariaLabel={i18n._({
+                  id: 'Runtime inventory groups',
+                  message: 'Runtime inventory groups',
+                })}
+                items={inventoryTabItems}
+                storageKey={INVENTORY_TAB_STORAGE_KEY}
               />
-              <div className="setting-row__actions" style={{ marginTop: '10px' }}>
-                <button className="ide-button" disabled={!workspaceId || !hazelnutId.trim()} type="submit">
-                  {exportRemoteSkillMutation.isPending
-                    ? i18n._({
-                        id: 'Exporting…',
-                        message: 'Exporting…',
-                      })
-                    : i18n._({
-                        id: 'Export skill',
-                        message: 'Export skill',
-                      })}
-                </button>
-              </div>
-                {exportRemoteSkillMutation.data ? (
-                  <pre className="code-block mode-console__output">{JSON.stringify(exportRemoteSkillMutation.data, null, 2)}</pre>
-                ) : null}
-              </form>
-            </section>
+            </div>
+          </section>
 
-            <section className="mode-console">
-              <div className="section-header">
-                <div>
-                  <h2>{i18n._({ id: 'Plugin actions', message: 'Plugin actions' })}</h2>
-                  <p>
-                    {i18n._({
-                      id: 'Read, install, and remove plugins without leaving the runtime surface.',
-                      message: 'Read, install, and remove plugins without leaving the runtime surface.',
-                    })}
-                  </p>
-                </div>
-              </div>
-              <div className="stack-screen">
-                <form
-                  className="form-stack"
-                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                    event.preventDefault()
-                    if (workspaceId && marketplacePath.trim() && pluginName.trim()) {
-                      readPluginMutation.mutate({
-                        marketplacePath,
-                        pluginName,
-                      })
-                    }
-                  }}
-                >
-                  <Input
-                    label={i18n._({ id: 'Marketplace path', message: 'Marketplace path' })}
-                    onChange={(event) => setMarketplacePath(event.target.value)}
-                    value={marketplacePath}
-                  />
-                  <Input
-                    label={i18n._({ id: 'Plugin name', message: 'Plugin name' })}
-                    onChange={(event) => setPluginName(event.target.value)}
-                    value={pluginName}
-                  />
-                  <div className="header-actions" style={{ marginTop: '10px' }}>
-                    <button className="ide-button" disabled={!workspaceId || !marketplacePath.trim() || !pluginName.trim()} type="submit">
-                      {readPluginMutation.isPending
-                        ? i18n._({
-                            id: 'Reading…',
-                            message: 'Reading…',
-                          })
-                        : i18n._({
-                            id: 'Read plugin',
-                            message: 'Read plugin',
-                          })}
-                    </button>
-                    <button
-                      className="ide-button ide-button--secondary"
-                      disabled={!workspaceId || !marketplacePath.trim() || !pluginName.trim()}
-                      onClick={() =>
-                        installPluginMutation.mutate({
-                          marketplacePath,
-                          pluginName,
-                        })
-                      }
-                      type="button"
-                    >
-                      {installPluginMutation.isPending
-                        ? i18n._({
-                            id: 'Installing…',
-                            message: 'Installing…',
-                          })
-                        : i18n._({
-                            id: 'Install',
-                            message: 'Install',
-                          })}
-                    </button>
-                  </div>
-                </form>
-
-                {readPluginMutation.data ? (
-                  <pre className="code-block mode-console__output">{JSON.stringify(readPluginMutation.data, null, 2)}</pre>
-                ) : null}
-                {installPluginMutation.data ? (
-                  <pre className="code-block mode-console__output">{JSON.stringify(installPluginMutation.data, null, 2)}</pre>
-                ) : null}
-
-                <form
-                  className="form-stack form-stack--separated"
-                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                    event.preventDefault()
-                    if (workspaceId && pluginId.trim()) {
-                      uninstallPluginMutation.mutate({
-                        pluginId,
-                      })
-                    }
-                  }}
-                >
-                  <Input
-                    label={i18n._({ id: 'Plugin ID', message: 'Plugin ID' })}
-                    onChange={(event) => setPluginId(event.target.value)}
-                    value={pluginId}
-                  />
-                  <div className="setting-row__actions" style={{ marginTop: '10px' }}>
-                    <button className="ide-button ide-button--secondary" disabled={!workspaceId || !pluginId.trim()} type="submit">
-                      {uninstallPluginMutation.isPending
-                        ? i18n._({
-                            id: 'Uninstalling…',
-                            message: 'Uninstalling…',
-                          })
-                        : i18n._({
-                            id: 'Uninstall',
-                            message: 'Uninstall',
-                          })}
-                    </button>
-                  </div>
-                  {uninstallPluginMutation.data ? (
-                    <pre className="code-block mode-console__output">{JSON.stringify(uninstallPluginMutation.data, null, 2)}</pre>
-                  ) : null}
-                </form>
-              </div>
-            </section>
-
-            <section className="mode-console">
-              <div className="section-header">
-                <div>
-                  <h2>{i18n._({ id: 'Workspace utilities', message: 'Workspace utilities' })}</h2>
-                  <p>
-                    {i18n._({
-                      id: 'Run lightweight operational actions from runtime instead of burying them inside settings.',
-                      message:
-                        'Run lightweight operational actions from runtime instead of burying them inside settings.',
-                    })}
-                  </p>
-                </div>
-              </div>
-              <div className="stack-screen">
-                <form
-                  className="form-stack"
-                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                    event.preventDefault()
-                    if (workspaceId && searchQuery.trim()) {
-                      searchMutation.mutate()
-                    }
-                  }}
-                >
-                  <Input
-                    label={i18n._({ id: 'Fuzzy search query', message: 'Fuzzy search query' })}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    value={searchQuery}
-                  />
-                  <div className="setting-row__actions" style={{ marginTop: '10px' }}>
-                    <button className="ide-button" disabled={!workspaceId || !searchQuery.trim()} type="submit">
-                      {i18n._({ id: 'Search files', message: 'Search files' })}
-                    </button>
-                  </div>
-                  {searchMutation.data ? (
-                    <pre className="code-block mode-console__output">{JSON.stringify(searchMutation.data.files, null, 2)}</pre>
-                  ) : null}
-                  {searchMutation.error ? (
-                    <InlineNotice
-                      details={getErrorMessage(searchMutation.error)}
-                      dismissible
-                      noticeKey={`catalog-search-${searchMutation.error instanceof Error ? searchMutation.error.message : 'unknown'}`}
-                      onRetry={() => searchMutation.mutate()}
-                      title={i18n._({
-                        id: 'Search failed',
-                        message: 'Search failed',
-                      })}
-                      tone="error"
-                    >
-                      {getErrorMessage(searchMutation.error)}
-                    </InlineNotice>
-                  ) : null}
-                </form>
-
-                <form
-                  className="form-stack form-stack--separated"
-                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                    event.preventDefault()
-                    if (workspaceId) {
-                      feedbackMutation.mutate()
-                    }
-                  }}
-                >
-                  <Input
-                    label={i18n._({
-                      id: 'Feedback classification',
-                      message: 'Feedback classification',
-                    })}
-                    onChange={(event) => setFeedbackClassification(event.target.value)}
-                    value={feedbackClassification}
-                  />
-                  <TextArea
-                    label={i18n._({ id: 'Reason', message: 'Reason' })}
-                    onChange={(event) => setFeedbackReason(event.target.value)}
-                    rows={4}
-                    value={feedbackReason}
-                  />
-                  <Switch
-                    label={i18n._({ id: 'Include logs', message: 'Include logs' })}
-                    checked={includeLogs}
-                    onChange={(event) => setIncludeLogs(event.target.checked)}
-                  />
-                  <div className="setting-row__actions" style={{ marginTop: '10px' }}>
-                    <button className="ide-button ide-button--secondary" disabled={!workspaceId} type="submit">
-                      {i18n._({ id: 'Upload feedback', message: 'Upload feedback' })}
-                    </button>
-                  </div>
-                  {feedbackMutation.data ? (
-                    <pre className="code-block mode-console__output">{JSON.stringify(feedbackMutation.data, null, 2)}</pre>
-                  ) : null}
-                  {feedbackMutation.error ? (
-                    <InlineNotice
-                      details={getErrorMessage(feedbackMutation.error)}
-                      dismissible
-                      noticeKey={`catalog-feedback-${feedbackMutation.error instanceof Error ? feedbackMutation.error.message : 'unknown'}`}
-                      onRetry={() => feedbackMutation.mutate()}
-                      title={i18n._({
-                        id: 'Feedback upload failed',
-                        message: 'Feedback upload failed',
-                      })}
-                      tone="error"
-                    >
-                      {getErrorMessage(feedbackMutation.error)}
-                    </InlineNotice>
-                  ) : null}
-                </form>
-              </div>
-            </section>
-          </div>
+          <RuntimeActionConsoleTabs
+            consoleStorageKey={CONSOLE_TAB_STORAGE_KEY}
+            feedbackClassification={feedbackClassification}
+            feedbackMutation={feedbackMutation}
+            feedbackReason={feedbackReason}
+            includeLogs={includeLogs}
+            installPluginMutation={installPluginMutation}
+            marketplacePath={marketplacePath}
+            onFeedbackClassificationChange={setFeedbackClassification}
+            onFeedbackReasonChange={setFeedbackReason}
+            onIncludeLogsChange={setIncludeLogs}
+            onMarketplacePathChange={setMarketplacePath}
+            onPluginIdChange={setPluginId}
+            onPluginNameChange={setPluginName}
+            onSearchQueryChange={setSearchQuery}
+            pluginId={pluginId}
+            pluginName={pluginName}
+            readPluginMutation={readPluginMutation}
+            searchMutation={searchMutation}
+            searchQuery={searchQuery}
+            uninstallPluginMutation={uninstallPluginMutation}
+            workspaceId={workspaceId}
+          />
         </div>
       </div>
     </section>
@@ -774,6 +733,406 @@ function formatShellTypeLabel(value: string) {
   }
 }
 
+function sumCatalogSectionItems(...sections: Array<RuntimeSectionData | undefined>) {
+  return sections.reduce((count, section) => count + (section?.items.length ?? 0), 0)
+}
+
+function filterCatalogItems(items: CatalogSectionItem[], query: string) {
+  if (!query) {
+    return items
+  }
+
+  return items.filter((item) =>
+    [
+      item.name,
+      item.description,
+      item.value,
+      item.shellType,
+      item.marketplaceName,
+      item.sourceType,
+      item.sourcePath,
+      item.category,
+      item.authPolicy,
+      item.installPolicy,
+      item.capabilities?.join(' '),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(query),
+  )
+}
+
+function RuntimeActionConsoleTabs({
+  consoleStorageKey,
+  workspaceId,
+  marketplacePath,
+  pluginName,
+  pluginId,
+  searchQuery,
+  feedbackClassification,
+  feedbackReason,
+  includeLogs,
+  onMarketplacePathChange,
+  onPluginNameChange,
+  onPluginIdChange,
+  onSearchQueryChange,
+  onFeedbackClassificationChange,
+  onFeedbackReasonChange,
+  onIncludeLogsChange,
+  readPluginMutation,
+  installPluginMutation,
+  uninstallPluginMutation,
+  searchMutation,
+  feedbackMutation,
+}: RuntimeActionConsoleTabsProps) {
+  return (
+    <section className="mode-panel mode-panel--compact">
+      <div className="mode-panel__body">
+        <div className="section-header section-header--inline">
+          <div>
+            <h2>{i18n._({ id: 'Action console', message: 'Action console' })}</h2>
+            <p>
+              {i18n._({
+                id: 'Operational actions now live in their own tabbed console instead of competing with inventory cards for attention.',
+                message:
+                  'Operational actions now live in their own tabbed console instead of competing with inventory cards for attention.',
+              })}
+            </p>
+          </div>
+          <div className="section-header__meta">{i18n._({ id: '2 lanes', message: '2 lanes' })}</div>
+        </div>
+      </div>
+      <div className="runtime-tabs-shell">
+        <Tabs
+          ariaLabel={i18n._({
+            id: 'Runtime action groups',
+            message: 'Runtime action groups',
+          })}
+          items={[
+            {
+              id: 'runtime-console-plugins',
+              label: i18n._({ id: 'Plugins', message: 'Plugins' }),
+              badge: '1',
+              content: (
+                <section className="runtime-console-panel">
+                  <div className="section-header">
+                    <div>
+                      <h2>{i18n._({ id: 'Plugin actions', message: 'Plugin actions' })}</h2>
+                      <p>
+                        {i18n._({
+                          id: 'Read, install, and remove plugins without leaving the runtime surface.',
+                          message: 'Read, install, and remove plugins without leaving the runtime surface.',
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="stack-screen">
+                    <form
+                      className="form-stack"
+                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                        event.preventDefault()
+                        if (workspaceId && marketplacePath.trim() && pluginName.trim()) {
+                          readPluginMutation.mutate({
+                            marketplacePath,
+                            pluginName,
+                          })
+                        }
+                      }}
+                    >
+                      <Input
+                        label={i18n._({ id: 'Marketplace path', message: 'Marketplace path' })}
+                        onChange={(event) => onMarketplacePathChange(event.target.value)}
+                        value={marketplacePath}
+                      />
+                      <Input
+                        label={i18n._({ id: 'Plugin name', message: 'Plugin name' })}
+                        onChange={(event) => onPluginNameChange(event.target.value)}
+                        value={pluginName}
+                      />
+                      <div className="header-actions" style={{ marginTop: '10px' }}>
+                        <button className="ide-button" disabled={!workspaceId || !marketplacePath.trim() || !pluginName.trim()} type="submit">
+                          {readPluginMutation.isPending
+                            ? i18n._({
+                                id: 'Reading…',
+                                message: 'Reading…',
+                              })
+                            : i18n._({
+                                id: 'Read plugin',
+                                message: 'Read plugin',
+                              })}
+                        </button>
+                        <button
+                          className="ide-button ide-button--secondary"
+                          disabled={!workspaceId || !marketplacePath.trim() || !pluginName.trim()}
+                          onClick={() =>
+                            installPluginMutation.mutate({
+                              marketplacePath,
+                              pluginName,
+                            })
+                          }
+                          type="button"
+                        >
+                          {installPluginMutation.isPending
+                            ? i18n._({
+                                id: 'Installing…',
+                                message: 'Installing…',
+                              })
+                            : i18n._({
+                                id: 'Install',
+                                message: 'Install',
+                              })}
+                        </button>
+                      </div>
+                    </form>
+
+                    {readPluginMutation.data ? (
+                      <pre className="code-block mode-console__output">
+                        {JSON.stringify(readPluginMutation.data, null, 2)}
+                      </pre>
+                    ) : null}
+                    {installPluginMutation.data ? (
+                      <pre className="code-block mode-console__output">
+                        {JSON.stringify(installPluginMutation.data, null, 2)}
+                      </pre>
+                    ) : null}
+
+                    <form
+                      className="form-stack form-stack--separated"
+                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                        event.preventDefault()
+                        if (workspaceId && pluginId.trim()) {
+                          uninstallPluginMutation.mutate({
+                            pluginId,
+                          })
+                        }
+                      }}
+                    >
+                      <Input
+                        label={i18n._({ id: 'Plugin ID', message: 'Plugin ID' })}
+                        onChange={(event) => onPluginIdChange(event.target.value)}
+                        value={pluginId}
+                      />
+                      <div className="setting-row__actions" style={{ marginTop: '10px' }}>
+                        <button className="ide-button ide-button--secondary" disabled={!workspaceId || !pluginId.trim()} type="submit">
+                          {uninstallPluginMutation.isPending
+                            ? i18n._({
+                                id: 'Uninstalling…',
+                                message: 'Uninstalling…',
+                              })
+                            : i18n._({
+                                id: 'Uninstall',
+                                message: 'Uninstall',
+                              })}
+                        </button>
+                      </div>
+                      {uninstallPluginMutation.data ? (
+                        <pre className="code-block mode-console__output">
+                          {JSON.stringify(uninstallPluginMutation.data, null, 2)}
+                        </pre>
+                      ) : null}
+                    </form>
+                  </div>
+                </section>
+              ),
+            },
+            {
+              id: 'runtime-console-workspace',
+              label: i18n._({ id: 'Workspace utilities', message: 'Workspace utilities' }),
+              badge: '2',
+              content: (
+                <section className="runtime-console-panel">
+                  <div className="section-header">
+                    <div>
+                      <h2>{i18n._({ id: 'Workspace utilities', message: 'Workspace utilities' })}</h2>
+                      <p>
+                        {i18n._({
+                          id: 'Run lightweight operational actions from runtime instead of burying them inside settings.',
+                          message:
+                            'Run lightweight operational actions from runtime instead of burying them inside settings.',
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="stack-screen">
+                    <form
+                      className="form-stack"
+                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                        event.preventDefault()
+                        if (workspaceId && searchQuery.trim()) {
+                          searchMutation.mutate()
+                        }
+                      }}
+                    >
+                      <Input
+                        label={i18n._({ id: 'Fuzzy search query', message: 'Fuzzy search query' })}
+                        onChange={(event) => onSearchQueryChange(event.target.value)}
+                        value={searchQuery}
+                      />
+                      <div className="setting-row__actions" style={{ marginTop: '10px' }}>
+                        <button className="ide-button" disabled={!workspaceId || !searchQuery.trim()} type="submit">
+                          {i18n._({ id: 'Search files', message: 'Search files' })}
+                        </button>
+                      </div>
+                      {searchMutation.data ? (
+                        <pre className="code-block mode-console__output">
+                          {JSON.stringify(searchMutation.data.files ?? [], null, 2)}
+                        </pre>
+                      ) : null}
+                      {searchMutation.error ? (
+                        <InlineNotice
+                          details={getErrorMessage(searchMutation.error)}
+                          dismissible
+                          noticeKey={`catalog-search-${searchMutation.error instanceof Error ? searchMutation.error.message : 'unknown'}`}
+                          onRetry={() => searchMutation.mutate()}
+                          title={i18n._({
+                            id: 'Search failed',
+                            message: 'Search failed',
+                          })}
+                          tone="error"
+                        >
+                          {getErrorMessage(searchMutation.error)}
+                        </InlineNotice>
+                      ) : null}
+                    </form>
+
+                    <form
+                      className="form-stack form-stack--separated"
+                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                        event.preventDefault()
+                        if (workspaceId) {
+                          feedbackMutation.mutate()
+                        }
+                      }}
+                    >
+                      <Input
+                        label={i18n._({
+                          id: 'Feedback classification',
+                          message: 'Feedback classification',
+                        })}
+                        onChange={(event) => onFeedbackClassificationChange(event.target.value)}
+                        value={feedbackClassification}
+                      />
+                      <TextArea
+                        label={i18n._({ id: 'Reason', message: 'Reason' })}
+                        onChange={(event) => onFeedbackReasonChange(event.target.value)}
+                        rows={4}
+                        value={feedbackReason}
+                      />
+                      <Switch
+                        label={i18n._({ id: 'Include logs', message: 'Include logs' })}
+                        checked={includeLogs}
+                        onChange={(event) => onIncludeLogsChange(event.target.checked)}
+                      />
+                      <div className="setting-row__actions" style={{ marginTop: '10px' }}>
+                        <button className="ide-button ide-button--secondary" disabled={!workspaceId} type="submit">
+                          {i18n._({ id: 'Upload feedback', message: 'Upload feedback' })}
+                        </button>
+                      </div>
+                      {feedbackMutation.data ? (
+                        <pre className="code-block mode-console__output">
+                          {JSON.stringify(feedbackMutation.data, null, 2)}
+                        </pre>
+                      ) : null}
+                      {feedbackMutation.error ? (
+                        <InlineNotice
+                          details={getErrorMessage(feedbackMutation.error)}
+                          dismissible
+                          noticeKey={`catalog-feedback-${feedbackMutation.error instanceof Error ? feedbackMutation.error.message : 'unknown'}`}
+                          onRetry={() => feedbackMutation.mutate()}
+                          title={i18n._({
+                            id: 'Feedback upload failed',
+                            message: 'Feedback upload failed',
+                          })}
+                          tone="error"
+                        >
+                          {getErrorMessage(feedbackMutation.error)}
+                        </InlineNotice>
+                      ) : null}
+                    </form>
+                  </div>
+                </section>
+              ),
+            },
+          ]}
+          storageKey={consoleStorageKey}
+        />
+      </div>
+    </section>
+  )
+}
+
+function RuntimeInventoryGroupPanel({
+  title,
+  description,
+  query,
+  loading,
+  sections,
+  onInstallPlugin,
+  onReadPlugin,
+  onUninstallPlugin,
+  pluginInstallPendingId,
+  pluginReadPendingId,
+  pluginUninstallPendingId,
+}: RuntimeInventoryGroupPanelProps) {
+  const visibleSections = query ? sections.filter((section) => section.items.length > 0) : sections
+  const visibleCount = visibleSections.reduce((count, section) => count + section.items.length, 0)
+
+  return (
+    <div className="runtime-group-panel">
+      <div className="runtime-group-panel__intro">
+        <div>
+          <strong>{title}</strong>
+          <p>{description}</p>
+        </div>
+        {query ? (
+          <span className="meta-pill">
+            {i18n._({
+              id: 'Filter: {query}',
+              message: 'Filter: {query}',
+              values: { query },
+            })}
+          </span>
+        ) : null}
+      </div>
+      {loading ? <div className="notice">{i18n._({ id: 'Loading…', message: 'Loading…' })}</div> : null}
+      {!loading && !visibleCount ? (
+        <div className="empty-state">
+          {query
+            ? i18n._({
+                id: 'No matching entries in this lane.',
+                message: 'No matching entries in this lane.',
+              })
+            : i18n._({
+                id: 'No entries available.',
+                message: 'No entries available.',
+              })}
+        </div>
+      ) : null}
+      {!loading && visibleCount ? (
+        <div className="runtime-stack">
+          {visibleSections.map((section) => (
+            <RuntimeSection
+              description={section.description}
+              items={section.items}
+              key={section.title}
+              loading={false}
+              marker={section.marker}
+              onInstallPlugin={section.marker === 'PL' ? onInstallPlugin : undefined}
+              onReadPlugin={section.marker === 'PL' ? onReadPlugin : undefined}
+              onUninstallPlugin={section.marker === 'PL' ? onUninstallPlugin : undefined}
+              pluginInstallPendingId={pluginInstallPendingId}
+              pluginReadPendingId={pluginReadPendingId}
+              pluginUninstallPendingId={pluginUninstallPendingId}
+              title={section.title}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function RuntimeSection({
   title,
   description,
@@ -788,19 +1147,17 @@ function RuntimeSection({
   pluginUninstallPendingId,
 }: RuntimeSectionProps) {
   return (
-    <section className="mode-panel mode-panel--flush mode-panel--compact">
+    <section className="mode-panel mode-panel--flush mode-panel--compact runtime-section-panel">
       <div className="mode-panel__body">
         <div className="section-header section-header--inline">
           <div>
             <h2>{title}</h2>
           </div>
-          <div className="section-header__meta">{items.length}</div>
+          <div className="section-header__meta">{formatLocaleNumber(items.length)}</div>
         </div>
         <p className="mode-panel__description">{description}</p>
       </div>
-      {loading ? (
-        <div className="notice">{i18n._({ id: 'Loading…', message: 'Loading…' })}</div>
-      ) : null}
+      {loading ? <div className="notice">{i18n._({ id: 'Loading…', message: 'Loading…' })}</div> : null}
       {!loading && !items.length ? (
         <div className="empty-state">
           {i18n._({
@@ -810,135 +1167,308 @@ function RuntimeSection({
         </div>
       ) : null}
       <div className="runtime-list">
-        {items.map((item) => (
-          <article className="runtime-item" key={item.id}>
-            <div className="runtime-item__icon">{marker}</div>
-            <div className="runtime-item__body">
-              <strong>{item.name}</strong>
-              {item.value && item.value !== item.name ? <p><code>{item.value}</code></p> : null}
-              {item.shellType ? (
-                <p>
-                  <code>
-                    {i18n._({ id: 'Shell type', message: 'Shell type' })}: {item.shellType}
-                  </code>
-                </p>
-              ) : null}
-              {item.marketplaceName ? (
-                <p>
-                  <code>
-                    {i18n._({ id: 'Marketplace', message: 'Marketplace' })}: {item.marketplaceName}
-                  </code>
-                </p>
-              ) : null}
-              {hasPluginStatusMetadata(item) ? (
-                <p>
-                  <code>{buildPluginStatusSummary(item)}</code>
-                </p>
-              ) : null}
-              {item.capabilities?.length ? (
-                <p>
-                  <code>
-                    {i18n._({ id: 'Capabilities', message: 'Capabilities' })}: {item.capabilities.join(', ')}
-                  </code>
-                </p>
-              ) : null}
-              {item.sourcePath ? (
-                <p>
-                  <code>
-                    {i18n._({ id: 'Source', message: 'Source' })}: {item.sourceType || 'unknown'} {item.sourcePath}
-                  </code>
-                </p>
-              ) : null}
-              <p>
-                {item.description ||
-                  i18n._({
-                    id: 'No description provided.',
-                    message: 'No description provided.',
-                  })}
-              </p>
-              {marker === 'PL' ? (
-                <div className="header-actions" style={{ marginTop: '10px' }}>
-                  <Button
-                    disabled={!item.marketplacePath}
-                    intent="ghost"
-                    isLoading={pluginReadPendingId === `${item.marketplacePath ?? ''}:${item.name}`}
-                    onClick={() => onReadPlugin?.(item)}
-                    size="sm"
-                  >
-                    {i18n._({ id: 'Read', message: 'Read' })}
-                  </Button>
-                  {!item.installed ? (
-                    <Button
-                      disabled={!item.marketplacePath}
-                      intent="secondary"
-                      isLoading={pluginInstallPendingId === `${item.marketplacePath ?? ''}:${item.name}`}
-                      onClick={() => onInstallPlugin?.(item)}
-                      size="sm"
-                    >
-                      {i18n._({ id: 'Install', message: 'Install' })}
-                    </Button>
-                  ) : (
-                    <Button
-                      intent="ghost"
-                      isLoading={pluginUninstallPendingId === item.id}
-                      onClick={() => onUninstallPlugin?.(item)}
-                      size="sm"
-                    >
-                      {i18n._({ id: 'Uninstall', message: 'Uninstall' })}
-                    </Button>
-                  )}
+        {items.map((item) => {
+          if (marker === 'MO') {
+            return <RuntimeModelItem item={item} key={item.id} marker={marker} />
+          }
+          if (marker === 'PL') {
+            return (
+              <RuntimePluginItem
+                item={item}
+                key={item.id}
+                marker={marker}
+                onInstallPlugin={onInstallPlugin}
+                onReadPlugin={onReadPlugin}
+                onUninstallPlugin={onUninstallPlugin}
+                pluginInstallPendingId={pluginInstallPendingId}
+                pluginReadPendingId={pluginReadPendingId}
+                pluginUninstallPendingId={pluginUninstallPendingId}
+              />
+            )
+          }
+
+          const metaChips = buildRuntimeMetaChips(item)
+          const facts = buildRuntimeFacts(item)
+
+          return (
+            <article className="runtime-item" key={item.id}>
+              <div className="runtime-item__icon">{marker}</div>
+              <div className="runtime-item__body">
+                <div className="runtime-item__header">
+                  <div className="runtime-item__title-row">
+                    <strong>{item.name}</strong>
+                    {metaChips.length ? (
+                      <div className="runtime-item__chips">
+                        {metaChips.map((chip) => (
+                          <span
+                            className={`runtime-chip runtime-chip--${chip.tone ?? 'default'}`}
+                            key={`${item.id}-${chip.label}`}
+                          >
+                            {chip.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              ) : null}
-            </div>
-          </article>
-        ))}
+                <p>
+                  {item.description ||
+                    i18n._({
+                      id: 'No description provided.',
+                      message: 'No description provided.',
+                    })}
+                </p>
+                {facts.length ? (
+                  <div className="runtime-item__fact-grid">
+                    {facts.map((fact) => (
+                      <div className="runtime-item__fact" key={`${item.id}-${fact.label}`}>
+                        <span>{fact.label}</span>
+                        {fact.code ? <code>{fact.value}</code> : <strong>{fact.value}</strong>}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          )
+        })}
       </div>
     </section>
   )
 }
 
-function hasPluginStatusMetadata(item: CatalogSectionItem) {
+function RuntimeModelItem({
+  item,
+  marker,
+}: {
+  item: CatalogSectionItem
+  marker: string
+}) {
+  const modelId = item.value && item.value !== item.name ? item.value : null
+  const shellTypeLabel = item.shellType ? formatShellTypeLabel(item.shellType) : null
+
   return (
-    typeof item.installed === 'boolean' ||
-    typeof item.enabled === 'boolean' ||
-    Boolean(item.installPolicy) ||
-    Boolean(item.authPolicy) ||
-    Boolean(item.category)
+    <article className="runtime-item runtime-item--model">
+      <div className="runtime-item__icon">{marker}</div>
+      <div className="runtime-item__body runtime-item__body--compact">
+        <div className="runtime-item__compact-head">
+          <div className="runtime-item__compact-main">
+            <strong>{item.name}</strong>
+            <p className="runtime-item__summary">
+              {item.description ||
+                i18n._({
+                  id: 'No description provided.',
+                  message: 'No description provided.',
+                })}
+            </p>
+          </div>
+          {shellTypeLabel || modelId ? (
+            <div className="runtime-item__compact-meta">
+              {shellTypeLabel ? <span className="runtime-chip">{shellTypeLabel}</span> : null}
+              {modelId ? <code className="runtime-inline-code">{modelId}</code> : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </article>
   )
 }
 
-function buildPluginStatusSummary(item: CatalogSectionItem) {
-  const parts = [] as string[]
+function RuntimePluginItem({
+  item,
+  marker,
+  onInstallPlugin,
+  onReadPlugin,
+  onUninstallPlugin,
+  pluginInstallPendingId,
+  pluginReadPendingId,
+  pluginUninstallPendingId,
+}: {
+  item: CatalogSectionItem
+  marker: string
+  onInstallPlugin?: (item: CatalogSectionItem) => void
+  onReadPlugin?: (item: CatalogSectionItem) => void
+  onUninstallPlugin?: (item: CatalogSectionItem) => void
+  pluginInstallPendingId?: string | null
+  pluginReadPendingId?: string | null
+  pluginUninstallPendingId?: string | null
+}) {
+  const metaChips = buildRuntimeMetaChips(item)
+  const sourceText = item.sourcePath ? `${item.sourceType || 'unknown'} ${item.sourcePath}` : null
+
+  return (
+    <article className="runtime-item runtime-item--plugin">
+      <div className="runtime-item__icon">{marker}</div>
+      <div className="runtime-item__plugin-stack">
+        <div className="runtime-item__plugin-title-row">
+          <strong>{item.name}</strong>
+          {metaChips.length ? (
+            <div className="runtime-item__chips">
+              {metaChips.map((chip) => (
+                <span
+                  className={`runtime-chip runtime-chip--${chip.tone ?? 'default'}`}
+                  key={`${item.id}-${chip.label}`}
+                >
+                  {chip.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <p className="runtime-item__summary runtime-item__summary--clamped">
+          {item.description ||
+            i18n._({
+              id: 'No description provided.',
+              message: 'No description provided.',
+            })}
+        </p>
+
+        <div className="runtime-inline-meta runtime-inline-meta--dense">
+          {item.marketplaceName ? (
+            <span className="runtime-inline-meta__entry">
+              <span>{i18n._({ id: 'Marketplace', message: 'Marketplace' })}</span>
+              <strong>{item.marketplaceName}</strong>
+            </span>
+          ) : null}
+          {item.installPolicy ? (
+            <span className="runtime-inline-meta__entry">
+              <span>{i18n._({ id: 'Install policy', message: 'Install policy' })}</span>
+              <strong>{formatPluginPolicy(item.installPolicy)}</strong>
+            </span>
+          ) : null}
+          {item.authPolicy ? (
+            <span className="runtime-inline-meta__entry">
+              <span>{i18n._({ id: 'Auth policy', message: 'Auth policy' })}</span>
+              <strong>{formatPluginPolicy(item.authPolicy)}</strong>
+            </span>
+          ) : null}
+          {item.capabilities?.map((capability) => (
+            <span className="runtime-chip runtime-chip--compact" key={`${item.id}-cap-${capability}`}>
+              {capability}
+            </span>
+          ))}
+          {sourceText ? (
+            <code
+              className="runtime-inline-code runtime-inline-code--ellipsis"
+              title={sourceText}
+            >
+              {sourceText}
+            </code>
+          ) : null}
+        </div>
+      </div>
+      <div className="runtime-item__plugin-actions">
+        <Button
+          disabled={!item.marketplacePath}
+          intent="ghost"
+          isLoading={pluginReadPendingId === `${item.marketplacePath ?? ''}:${item.name}`}
+          onClick={() => onReadPlugin?.(item)}
+          size="sm"
+        >
+          {i18n._({ id: 'Read', message: 'Read' })}
+        </Button>
+        {!item.installed ? (
+          <Button
+            disabled={!item.marketplacePath}
+            intent="secondary"
+            isLoading={pluginInstallPendingId === `${item.marketplacePath ?? ''}:${item.name}`}
+            onClick={() => onInstallPlugin?.(item)}
+            size="sm"
+          >
+            {i18n._({ id: 'Install', message: 'Install' })}
+          </Button>
+        ) : (
+          <Button
+            intent="ghost"
+            isLoading={pluginUninstallPendingId === item.id}
+            onClick={() => onUninstallPlugin?.(item)}
+            size="sm"
+          >
+            {i18n._({ id: 'Uninstall', message: 'Uninstall' })}
+          </Button>
+        )}
+      </div>
+    </article>
+  )
+}
+
+function buildRuntimeMetaChips(item: CatalogSectionItem) {
+  const chips = [] as RuntimeMetaChip[]
 
   if (typeof item.installed === 'boolean') {
-    parts.push(
-      item.installed
+    chips.push({
+      label: item.installed
         ? i18n._({ id: 'Installed', message: 'Installed' })
-        : i18n._({ id: 'Not installed', message: 'Not installed' }),
-    )
+        : i18n._({ id: 'Available', message: 'Available' }),
+      tone: item.installed ? 'good' : 'default',
+    })
   }
   if (typeof item.enabled === 'boolean') {
-    parts.push(
-      item.enabled
+    chips.push({
+      label: item.enabled
         ? i18n._({ id: 'Enabled', message: 'Enabled' })
         : i18n._({ id: 'Disabled', message: 'Disabled' }),
-    )
-  }
-  if (item.installPolicy) {
-    parts.push(
-      `${i18n._({ id: 'Install', message: 'Install' })}: ${formatPluginPolicy(item.installPolicy)}`,
-    )
-  }
-  if (item.authPolicy) {
-    parts.push(
-      `${i18n._({ id: 'Auth', message: 'Auth' })}: ${formatPluginPolicy(item.authPolicy)}`,
-    )
+      tone: item.enabled ? 'good' : 'warn',
+    })
   }
   if (item.category) {
-    parts.push(`${i18n._({ id: 'Category', message: 'Category' })}: ${item.category}`)
+    chips.push({ label: item.category })
+  } else if (item.shellType) {
+    chips.push({ label: formatShellTypeLabel(item.shellType) })
   }
 
-  return parts.join(' | ')
+  return chips
+}
+
+function buildRuntimeFacts(item: CatalogSectionItem) {
+  const facts = [] as RuntimeFact[]
+
+  if (item.value && item.value !== item.name) {
+    facts.push({
+      label: i18n._({ id: 'Value', message: 'Value' }),
+      value: item.value,
+      code: true,
+    })
+  }
+  if (item.shellType) {
+    facts.push({
+      label: i18n._({ id: 'Shell type', message: 'Shell type' }),
+      value: formatShellTypeLabel(item.shellType),
+    })
+  }
+  if (item.marketplaceName) {
+    facts.push({
+      label: i18n._({ id: 'Marketplace', message: 'Marketplace' }),
+      value: item.marketplaceName,
+    })
+  }
+  if (item.installPolicy) {
+    facts.push({
+      label: i18n._({ id: 'Install policy', message: 'Install policy' }),
+      value: formatPluginPolicy(item.installPolicy),
+    })
+  }
+  if (item.authPolicy) {
+    facts.push({
+      label: i18n._({ id: 'Auth policy', message: 'Auth policy' }),
+      value: formatPluginPolicy(item.authPolicy),
+    })
+  }
+  if (item.capabilities?.length) {
+    facts.push({
+      label: i18n._({ id: 'Capabilities', message: 'Capabilities' }),
+      value: item.capabilities.join(', '),
+    })
+  }
+  if (item.sourcePath) {
+    facts.push({
+      label: i18n._({ id: 'Source', message: 'Source' }),
+      value: `${item.sourceType || 'unknown'} ${item.sourcePath}`,
+      code: true,
+    })
+  }
+
+  return facts
 }
 
 function formatPluginPolicy(value: string) {

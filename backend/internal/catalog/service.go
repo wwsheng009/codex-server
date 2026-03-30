@@ -64,15 +64,6 @@ type PluginInstallResult struct {
 	AuthPolicy      string           `json:"authPolicy"`
 }
 
-type RemoteSkillResult struct {
-	Data []map[string]any `json:"data"`
-}
-
-type RemoteSkillWriteResult struct {
-	ID   string `json:"id"`
-	Path string `json:"path"`
-}
-
 type ExperimentalFeatureResult struct {
 	Data []map[string]any `json:"data"`
 }
@@ -304,36 +295,6 @@ func trimStringPointer(value *string) *string {
 	}
 
 	return &trimmed
-}
-
-func (s *Service) ListRemoteSkills(ctx context.Context, workspaceID string, enabled bool, hazelnutScope string, productSurface string) (RemoteSkillResult, error) {
-	params := map[string]any{
-		"enabled": enabled,
-	}
-	if hazelnutScope != "" {
-		params["hazelnutScope"] = hazelnutScope
-	}
-	if productSurface != "" {
-		params["productSurface"] = productSurface
-	}
-
-	var response RemoteSkillResult
-	if err := s.runtimes.Call(ctx, workspaceID, "skills/remote/list", params, &response); err != nil {
-		return RemoteSkillResult{}, err
-	}
-
-	return response, nil
-}
-
-func (s *Service) ExportRemoteSkill(ctx context.Context, workspaceID string, hazelnutID string) (RemoteSkillWriteResult, error) {
-	var response RemoteSkillWriteResult
-	if err := s.runtimes.Call(ctx, workspaceID, "skills/remote/export", map[string]any{
-		"hazelnutId": hazelnutID,
-	}, &response); err != nil {
-		return RemoteSkillWriteResult{}, err
-	}
-
-	return response, nil
 }
 
 func (s *Service) ListExperimentalFeatures(ctx context.Context, workspaceID string) (ExperimentalFeatureResult, error) {

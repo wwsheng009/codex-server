@@ -30,11 +30,11 @@
 - 后端已补 `plugins/read`、`plugins/install`、`plugins/uninstall`
 - 后端已补 `config/read`、`config/write`、`config/batch-write`、`search/files`
 - 后端已补 `config/requirements`、`external-agent/detect`、`external-agent/import`
-- 后端已补 `skills/remote/list`、`skills/remote/export`、`feedback/upload`
+- 后端已补 `feedback/upload`
 - 后端已补 `threads/loaded`、`thread metadata`、`thread compact`
 - 后端已补 `skills/config/write`、`experimental-features`、`mcp-server-status`
 - 后端已补 `config/mcp-server/reload`、`windows-sandbox/setup-start`
-- 前端 `Catalog` / `Settings` 页面已接入 remote skills、plugin actions、config、external agent detect、fuzzy file search、feedback upload
+- 前端 `Catalog` / `Settings` 页面已接入 plugin actions、config、external agent detect、fuzzy file search、feedback upload
 - 前端 `Settings` 页面已接入 `account/login/cancel` 和 `mcp/oauth/login`
 - 前端 `Settings > Config` 页面已接入服务级 runtime shell override、turn 权限策略和 sandboxPolicy 配置，可持久化 `model_catalog_json`、`shell_type` override、默认 `turn/start` 权限与默认 `command/exec` 沙箱策略
 - 审批抽屉已支持 `item/tool/call` 与 `account/chatgptAuthTokens/refresh` 的响应表单

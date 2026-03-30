@@ -3,7 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { Input } from '../components/ui/Input'
-import { listRemoteSkills, listSkills } from '../features/catalog/api'
+import { listSkills } from '../features/catalog/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { SelectControl } from '../components/ui/SelectControl'
 import { formatLocaleNumber } from '../i18n/format'
@@ -35,27 +35,10 @@ export function SkillsPage() {
     queryFn: () => listSkills(workspaceId!),
   })
 
-  const remoteSkillsQuery = useQuery({
-    queryKey: ['skills-page-remote', workspaceId],
-    enabled: Boolean(workspaceId),
-    queryFn: async () => {
-      const result = await listRemoteSkills(workspaceId!, {
-        enabled: false,
-        hazelnutScope: 'example',
-        productSurface: 'codex',
-      })
-      return result.data
-    },
-  })
-
   const normalizedQuery = deferredQuery.trim().toLowerCase()
   const localSkills = useMemo(
     () => filterByQuery(localSkillsQuery.data ?? [], normalizedQuery),
     [localSkillsQuery.data, normalizedQuery],
-  )
-  const remoteSkills = useMemo(
-    () => filterByQuery(remoteSkillsQuery.data ?? [], normalizedQuery),
-    [normalizedQuery, remoteSkillsQuery.data],
   )
   const workspaceName =
     workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ??
@@ -63,10 +46,9 @@ export function SkillsPage() {
       id: 'No workspace',
       message: 'No workspace',
     })
-  const filteredCount = localSkills.length + remoteSkills.length
+  const filteredCount = localSkills.length
   const workspacesError = workspacesQuery.error ? getErrorMessage(workspacesQuery.error) : null
   const localSkillsError = localSkillsQuery.error ? getErrorMessage(localSkillsQuery.error) : null
-  const remoteSkillsError = remoteSkillsQuery.error ? getErrorMessage(remoteSkillsQuery.error) : null
 
   return (
     <section className="screen">
@@ -78,9 +60,9 @@ export function SkillsPage() {
           </div>
           <div className="mode-strip__description">
             {i18n._({
-              id: 'Browse installed and remote skills for the active workspace from one tighter directory surface.',
+              id: 'Browse installed skills for the active workspace from one tighter directory surface.',
               message:
-                'Browse installed and remote skills for the active workspace from one tighter directory surface.',
+                'Browse installed skills for the active workspace from one tighter directory surface.',
             })}
           </div>
         </div>
@@ -90,13 +72,6 @@ export function SkillsPage() {
               id: '{count} installed',
               message: '{count} installed',
               values: { count: formatLocaleNumber(localSkillsQuery.data?.length ?? 0) },
-            })}
-          </span>
-          <span className="meta-pill">
-            {i18n._({
-              id: '{count} remote',
-              message: '{count} remote',
-              values: { count: formatLocaleNumber(remoteSkillsQuery.data?.length ?? 0) },
             })}
           </span>
           <span className="meta-pill">
@@ -166,8 +141,8 @@ export function SkillsPage() {
                 <h2>{i18n._({ id: 'Directory Posture', message: 'Directory Posture' })}</h2>
                 <p>
                   {i18n._({
-                    id: 'Installed and remote entries are kept in the same explorer-style scan path.',
-                    message: 'Installed and remote entries are kept in the same explorer-style scan path.',
+                    id: 'Installed entries stay anchored to the active runtime root.',
+                    message: 'Installed entries stay anchored to the active runtime root.',
                   })}
                 </p>
               </div>
@@ -176,10 +151,6 @@ export function SkillsPage() {
               <div className="mode-metric">
                 <span>{i18n._({ id: 'Installed', message: 'Installed' })}</span>
                 <strong>{formatLocaleNumber(localSkillsQuery.data?.length ?? 0)}</strong>
-              </div>
-              <div className="mode-metric">
-                <span>{i18n._({ id: 'Remote', message: 'Remote' })}</span>
-                <strong>{formatLocaleNumber(remoteSkillsQuery.data?.length ?? 0)}</strong>
               </div>
               <div className="mode-metric">
                 <span>{i18n._({ id: 'Visible', message: 'Visible' })}</span>
@@ -207,8 +178,8 @@ export function SkillsPage() {
           {!workspacesQuery.isLoading && !workspacesError && !workspaceId ? (
             <div className="empty-state">
               {i18n._({
-                id: 'Create a workspace first to browse installed and remote skills.',
-                message: 'Create a workspace first to browse installed and remote skills.',
+                id: 'Create a workspace first to browse installed skills.',
+                message: 'Create a workspace first to browse installed skills.',
               })}
             </div>
           ) : null}
@@ -232,27 +203,6 @@ export function SkillsPage() {
               message: 'Failed To Load Installed Skills',
             })}
             title={i18n._({ id: 'Installed Skills', message: 'Installed Skills' })}
-          />
-          <DirectorySection
-            description={i18n._({
-              id: 'Remote skills that can be inspected or brought into the current workspace later.',
-              message: 'Remote skills that can be inspected or brought into the current workspace later.',
-            })}
-            emptyMessage={i18n._({
-              id: 'No remote skills available.',
-              message: 'No remote skills available.',
-            })}
-            errorMessage={remoteSkillsError}
-            items={remoteSkills}
-            loading={remoteSkillsQuery.isLoading}
-            marker="RM"
-            onRetry={() => void remoteSkillsQuery.refetch()}
-            sourceLabel={i18n._({ id: 'Remote', message: 'Remote' })}
-            titleError={i18n._({
-              id: 'Failed To Load Remote Skills',
-              message: 'Failed To Load Remote Skills',
-            })}
-            title={i18n._({ id: 'Remote Skills', message: 'Remote Skills' })}
           />
         </div>
       </div>

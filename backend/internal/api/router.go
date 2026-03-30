@@ -154,8 +154,6 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/{workspaceId}/pending-approvals", server.handleListPendingApprovals)
 			r.Get("/{workspaceId}/models", server.handleListModels)
 			r.Get("/{workspaceId}/skills", server.handleListSkills)
-			r.Post("/{workspaceId}/skills/remote/list", server.handleListRemoteSkills)
-			r.Post("/{workspaceId}/skills/remote/export", server.handleExportRemoteSkill)
 			r.Post("/{workspaceId}/skills/config/write", server.handleWriteSkillConfig)
 			r.Get("/{workspaceId}/apps", server.handleListApps)
 			r.Get("/{workspaceId}/plugins", server.handleListPlugins)
@@ -1542,29 +1540,6 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (s *Server) handleListRemoteSkills(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceId")
-
-	var request struct {
-		Enabled        bool   `json:"enabled"`
-		HazelnutScope  string `json:"hazelnutScope"`
-		ProductSurface string `json:"productSurface"`
-	}
-
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
-		return
-	}
-
-	result, err := s.catalog.ListRemoteSkills(r.Context(), workspaceID, request.Enabled, request.HazelnutScope, request.ProductSurface)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, result)
-}
-
 func (s *Server) handleWriteSkillConfig(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 
@@ -1579,27 +1554,6 @@ func (s *Server) handleWriteSkillConfig(w http.ResponseWriter, r *http.Request) 
 	}
 
 	result, err := s.catalog.WriteSkillConfig(r.Context(), workspaceID, request.Path, request.Enabled)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
-
-	writeJSON(w, http.StatusAccepted, result)
-}
-
-func (s *Server) handleExportRemoteSkill(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceId")
-
-	var request struct {
-		HazelnutID string `json:"hazelnutId"`
-	}
-
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
-		return
-	}
-
-	result, err := s.catalog.ExportRemoteSkill(r.Context(), workspaceID, request.HazelnutID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return

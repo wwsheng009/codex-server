@@ -90,7 +90,6 @@ async function installRuntimeCatalogMocks(page: Parameters<typeof test>[0]['page
         contentType: 'application/json',
         status: 200,
       })
-
     if (pathname === '/api/notifications') {
       return fulfill([])
     }
@@ -121,10 +120,6 @@ async function installRuntimeCatalogMocks(page: Parameters<typeof test>[0]['page
 
     if (pathname === `/api/workspaces/${WORKSPACE_ID}/skills`) {
       return fulfill([])
-    }
-
-    if (pathname === `/api/workspaces/${WORKSPACE_ID}/skills/remote/list`) {
-      return fulfill({ data: [] })
     }
 
     if (pathname === `/api/workspaces/${WORKSPACE_ID}/apps`) {

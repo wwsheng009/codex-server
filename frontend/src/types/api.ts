@@ -285,20 +285,9 @@ export type PluginCatalogItem = {
   brandColor?: string | null
 }
 
-export type RemoteSkillSummary = {
-  id: string
-  name: string
-  description: string
-}
-
 export type PluginListResult = {
   plugins: PluginCatalogItem[]
   remoteSyncError?: string | null
-}
-
-export type RemoteSkillWriteResult = {
-  id: string
-  path: string
 }
 
 export type PluginDetailResult = {
