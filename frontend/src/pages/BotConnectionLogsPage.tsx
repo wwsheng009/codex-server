@@ -1,19 +1,33 @@
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { PageHeader } from '../components/ui/PageHeader'
 import { Button } from '../components/ui/Button'
 import { InlineNotice } from '../components/ui/InlineNotice'
+import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
-import { AutomationRunLog } from '../features/automations/AutomationRunLog'
+import { BotConnectionLogStream } from '../features/bots/BotConnectionLogStream'
 import { getBotConnection, listBotConnectionLogs } from '../features/bots/api'
+import {
+  filterBotConnectionLogs,
+  summarizeBotConnectionLogs,
+  type BotConnectionLogFilter,
+} from '../features/bots/logStreamUtils'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
-import { formatBotBackendLabel, formatBotProviderLabel, formatBotTimestamp } from './botsPageUtils'
+import {
+  formatBotBackendLabel,
+  formatBotCommandOutputModeLabel,
+  formatBotProviderLabel,
+  formatBotTimestamp,
+  resolveBotCommandOutputMode,
+} from './botsPageUtils'
 
 export function BotConnectionLogsPage() {
   const navigate = useNavigate()
   const { workspaceId = '', connectionId = '' } = useParams()
+  const [logFilter, setLogFilter] = useState<BotConnectionLogFilter>('all')
 
   function handleBack() {
     if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -36,6 +50,51 @@ export function BotConnectionLogsPage() {
     enabled: workspaceId.length > 0 && connectionId.length > 0,
     refetchInterval: 5000,
   })
+
+  const logs = logsQuery.data ?? []
+  const logSummary = useMemo(() => summarizeBotConnectionLogs(logs), [logs])
+  const filteredLogs = useMemo(() => filterBotConnectionLogs(logs, logFilter), [logs, logFilter])
+  const visibleLogCount = filteredLogs.length
+  const logCountLabel =
+    logFilter === 'all'
+      ? String(logSummary.totalCount)
+      : i18n._({
+          id: '{visibleLogCount} / {totalLogCount}',
+          message: '{visibleLogCount} / {totalLogCount}',
+          values: {
+            visibleLogCount,
+            totalLogCount: logSummary.totalCount,
+          },
+        })
+  const logFilterOptions = useMemo(
+    () => [
+      {
+        value: 'all',
+        label: i18n._({
+          id: 'All Entries ({count})',
+          message: 'All Entries ({count})',
+          values: { count: logSummary.totalCount },
+        }),
+      },
+      {
+        value: 'suppressed',
+        label: i18n._({
+          id: 'Suppressed Replays ({count})',
+          message: 'Suppressed Replays ({count})',
+          values: { count: logSummary.suppressedCount },
+        }),
+      },
+      {
+        value: 'attention',
+        label: i18n._({
+          id: 'Warnings And Errors ({count})',
+          message: 'Warnings And Errors ({count})',
+          values: { count: logSummary.attentionCount },
+        }),
+      },
+    ],
+    [logSummary.attentionCount, logSummary.suppressedCount, logSummary.totalCount],
+  )
 
   if (!workspaceId || !connectionId) {
     return (
@@ -76,7 +135,6 @@ export function BotConnectionLogsPage() {
   }
 
   const connection = connectionQuery.data
-  const logCount = logsQuery.data?.length ?? 0
 
   return (
     <section className="screen">
@@ -89,9 +147,9 @@ export function BotConnectionLogsPage() {
           </div>
         }
         description={i18n._({
-          id: 'Polling runtime history for this bot connection, including worker start/stop, successful polls, and failures.',
+          id: 'Runtime history for this bot connection, including polling activity, provider failures, and suppressed replay attempts.',
           message:
-            'Polling runtime history for this bot connection, including worker start/stop, successful polls, and failures.',
+            'Runtime history for this bot connection, including polling activity, provider failures, and suppressed replay attempts.',
         })}
         eyebrow={i18n._({ id: 'Bot Logs', message: 'Bot Logs' })}
         meta={
@@ -149,6 +207,12 @@ export function BotConnectionLogsPage() {
             <strong>{connection.status}</strong>
           </div>
           <div className="detail-row">
+            <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+            <strong>
+              {formatBotCommandOutputModeLabel(resolveBotCommandOutputMode(connection.settings?.command_output_mode))}
+            </strong>
+          </div>
+          <div className="detail-row">
             <span>{i18n._({ id: 'Last Poll Status', message: 'Last Poll Status' })}</span>
             <strong>{connection.lastPollStatus ? <StatusPill status={connection.lastPollStatus} /> : '-'}</strong>
           </div>
@@ -169,12 +233,56 @@ export function BotConnectionLogsPage() {
             <h2>{i18n._({ id: 'Runtime Log Stream', message: 'Runtime Log Stream' })}</h2>
             <p>
               {i18n._({
-                id: 'Newest entries first. This stream is specific to the selected bot connection.',
-                message: 'Newest entries first. This stream is specific to the selected bot connection.',
+                id: 'Newest entries first. Filter to isolate suppressed duplicate deliveries, restart replays, and other warning paths.',
+                message:
+                  'Newest entries first. Filter to isolate suppressed duplicate deliveries, restart replays, and other warning paths.',
               })}
             </p>
           </div>
-          <div className="section-header__meta">{logCount}</div>
+          <div className="section-header__meta">{logCountLabel}</div>
+        </div>
+
+        <div className="bot-connection-log-toolbar">
+          <label className="field">
+            <span>{i18n._({ id: 'Log Filter', message: 'Log Filter' })}</span>
+            <SelectControl
+              ariaLabel={i18n._({ id: 'Filter runtime logs', message: 'Filter runtime logs' })}
+              fullWidth
+              onChange={(nextValue) => setLogFilter(nextValue as BotConnectionLogFilter)}
+              options={logFilterOptions}
+              value={logFilter}
+            />
+          </label>
+
+          {logSummary.suppressedCount > 0 ? (
+            <div className="bot-connection-log-toolbar__summary">
+              <span className="meta-pill meta-pill--warning">
+                {i18n._({
+                  id: 'Suppressed replays: {count}',
+                  message: 'Suppressed replays: {count}',
+                  values: { count: logSummary.suppressedCount },
+                })}
+              </span>
+              {logSummary.duplicateSuppressedCount > 0 ? (
+                <span className="meta-pill meta-pill--warning">
+                  {i18n._({
+                    id: 'Duplicate deliveries: {count}',
+                    message: 'Duplicate deliveries: {count}',
+                    values: { count: logSummary.duplicateSuppressedCount },
+                  })}
+                </span>
+              ) : null}
+              {logSummary.recoverySuppressedCount > 0 ? (
+                <span className="meta-pill meta-pill--warning">
+                  {i18n._({
+                    id: 'Restart recoveries: {count}',
+                    message: 'Restart recoveries: {count}',
+                    values: { count: logSummary.recoverySuppressedCount },
+                  })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {logsQuery.error ? (
@@ -188,8 +296,15 @@ export function BotConnectionLogsPage() {
           </InlineNotice>
         ) : logsQuery.isLoading && !logsQuery.data ? (
           <div className="notice">{i18n._({ id: 'Loading runtime logs…', message: 'Loading runtime logs…' })}</div>
+        ) : !filteredLogs.length && logs.length > 0 ? (
+          <div className="notice">
+            {i18n._({
+              id: 'No runtime logs matched the current filter.',
+              message: 'No runtime logs matched the current filter.',
+            })}
+          </div>
         ) : (
-          <AutomationRunLog logs={logsQuery.data ?? []} />
+          <BotConnectionLogStream logs={filteredLogs} />
         )}
       </section>
     </section>

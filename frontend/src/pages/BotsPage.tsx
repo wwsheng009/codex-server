@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toDataURL as toQRCodeDataURL } from 'qrcode'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -14,32 +14,56 @@ import { Switch } from '../components/ui/Switch'
 import { TextArea } from '../components/ui/TextArea'
 import {
   createBotConnection,
+  deleteWeChatAccount,
   deleteWeChatLogin,
   getWeChatLogin,
   deleteBotConnection,
+  listBotConnectionLogs,
+  listWeChatAccounts,
   listBotConnections,
   listBotConversations,
   pauseBotConnection,
   resumeBotConnection,
   startWeChatLogin,
+  updateBotConnection,
+  updateBotConnectionCommandOutputMode,
   updateBotConnectionRuntimeMode,
+  updateWeChatAccount,
+  updateWeChatChannelTiming,
   type CreateBotConnectionInput,
+  type UpdateBotConnectionInput,
 } from '../features/bots/api'
 import { listWorkspaces } from '../features/workspaces/api'
+import { summarizeRecentBotConnectionSuppressions } from '../features/bots/logStreamUtils'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { buildWorkspaceThreadRoute } from '../lib/thread-routes'
 import {
+  BOT_COMMAND_OUTPUT_MODE_BRIEF,
+  BOT_COMMAND_OUTPUT_MODE_DETAILED,
+  BOT_COMMAND_OUTPUT_MODE_FULL,
+  BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
   buildBotConnectionCreateInput,
+  buildBotConnectionUpdateInput,
+  buildBotsPageDraftFromConnection,
+  countWeChatConnectionsForAccount,
   EMPTY_BOTS_PAGE_DRAFT,
   formatBotBackendLabel,
+  formatBotCommandOutputModeLabel,
   formatBotConversationTitle,
   formatBotProviderLabel,
   formatBotTimestamp,
+  findWeChatAccountForConnection,
+  formatWeChatAccountLabel,
+  listWeChatConnectionsForAccount,
+  matchesBotConnectionSearch,
+  matchesWeChatAccountSearch,
+  resolveBotCommandOutputMode,
+  resolveWeChatChannelTimingEnabled,
   summarizeBotMap,
   type BotsPageDraft,
 } from './botsPageUtils'
-import type { BotConnection, WeChatLogin } from '../types/api'
+import type { BotConnection, WeChatAccount, WeChatLogin } from '../types/api'
 
 export function BotsPage() {
   const navigate = useNavigate()
@@ -47,7 +71,17 @@ export function BotsPage() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [selectedConnectionId, setSelectedConnectionId] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<BotConnection | null>(null)
+  const [connectionModalBaselineDraft, setConnectionModalBaselineDraft] = useState<BotsPageDraft | null>(null)
+  const [discardConnectionModalConfirmOpen, setDiscardConnectionModalConfirmOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<BotConnection | null>(null)
+  const [deleteWeChatAccountTarget, setDeleteWeChatAccountTarget] = useState<WeChatAccount | null>(null)
+  const [editWeChatAccountTarget, setEditWeChatAccountTarget] = useState<WeChatAccount | null>(null)
+  const [wechatAccountAliasDraft, setWeChatAccountAliasDraft] = useState('')
+  const [wechatAccountNoteDraft, setWeChatAccountNoteDraft] = useState('')
+  const [connectionSearch, setConnectionSearch] = useState('')
+  const [wechatAccountSearch, setWeChatAccountSearch] = useState('')
+  const [showUnusedWeChatAccountsOnly, setShowUnusedWeChatAccountsOnly] = useState(false)
   const [draft, setDraft] = useState<BotsPageDraft>(EMPTY_BOTS_PAGE_DRAFT)
   const [formError, setFormError] = useState('')
   const [wechatLoginModalOpen, setWechatLoginModalOpen] = useState(false)
@@ -81,11 +115,6 @@ export function BotsPage() {
       if (selectedConnectionId) {
         setSelectedConnectionId('')
       }
-      return
-    }
-
-    if (!selectedConnectionId || !connections.some((connection) => connection.id === selectedConnectionId)) {
-      setSelectedConnectionId(connections[0].id)
     }
   }, [connectionsQuery.data, selectedConnectionId])
 
@@ -108,11 +137,43 @@ export function BotsPage() {
     },
   })
 
+  const wechatAccountsWorkspaceId =
+    createModalOpen && draft.provider.trim().toLowerCase() === 'wechat' ? draft.workspaceId.trim() : selectedWorkspaceId.trim()
+  const wechatAccountsQuery = useQuery({
+    queryKey: ['wechat-accounts', wechatAccountsWorkspaceId],
+    queryFn: () => listWeChatAccounts(wechatAccountsWorkspaceId),
+    enabled: wechatAccountsWorkspaceId.length > 0,
+    refetchInterval: 10000,
+  })
+
   const createMutation = useMutation({
     mutationFn: ({ workspaceId, input }: { workspaceId: string; input: CreateBotConnectionInput }) =>
       createBotConnection(workspaceId, input),
     onSuccess: async (connection) => {
       setCreateModalOpen(false)
+      setEditTarget(null)
+      setConnectionModalBaselineDraft(null)
+      setDiscardConnectionModalConfirmOpen(false)
+      resetWeChatLoginState()
+      setDraft(EMPTY_BOTS_PAGE_DRAFT)
+      setFormError('')
+      setSelectedWorkspaceId(connection.workspaceId)
+      setSelectedConnectionId(connection.id)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-conversations', connection.workspaceId] }),
+      ])
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ workspaceId, connectionId, input }: { workspaceId: string; connectionId: string; input: UpdateBotConnectionInput }) =>
+      updateBotConnection(workspaceId, connectionId, input),
+    onSuccess: async (connection) => {
+      setCreateModalOpen(false)
+      setEditTarget(null)
+      setConnectionModalBaselineDraft(null)
+      setDiscardConnectionModalConfirmOpen(false)
       resetWeChatLoginState()
       setDraft(EMPTY_BOTS_PAGE_DRAFT)
       setFormError('')
@@ -178,6 +239,32 @@ export function BotsPage() {
     },
   })
 
+  const deleteWeChatAccountMutation = useMutation({
+    mutationFn: ({ workspaceId, accountId }: { workspaceId: string; accountId: string }) =>
+      deleteWeChatAccount(workspaceId, accountId),
+    onSuccess: async (_, variables) => {
+      if (draft.wechatSavedAccountId === variables.accountId) {
+        setDraft((current) => ({
+          ...current,
+          wechatSavedAccountId: '',
+        }))
+      }
+      setDeleteWeChatAccountTarget(null)
+      await queryClient.invalidateQueries({ queryKey: ['wechat-accounts', variables.workspaceId] })
+    },
+  })
+
+  const updateWeChatAccountMutation = useMutation({
+    mutationFn: ({ workspaceId, accountId, alias, note }: { workspaceId: string; accountId: string; alias: string; note: string }) =>
+      updateWeChatAccount(workspaceId, accountId, { alias, note }),
+    onSuccess: async (account) => {
+      setEditWeChatAccountTarget(null)
+      setWeChatAccountAliasDraft(account.alias ?? '')
+      setWeChatAccountNoteDraft(account.note ?? '')
+      await queryClient.invalidateQueries({ queryKey: ['wechat-accounts', account.workspaceId] })
+    },
+  })
+
   const runtimeModeMutation = useMutation({
     mutationFn: ({
       workspaceId,
@@ -193,8 +280,47 @@ export function BotsPage() {
     },
   })
 
+  const commandOutputModeMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      connectionId,
+      commandOutputMode,
+    }: {
+      workspaceId: string
+      connectionId: string
+      commandOutputMode: string
+    }) => updateBotConnectionCommandOutputMode(workspaceId, connectionId, { commandOutputMode }),
+    onSuccess: async (connection) => {
+      await queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] })
+    },
+  })
+
+  const wechatChannelTimingMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      connectionId,
+      enabled,
+    }: {
+      workspaceId: string
+      connectionId: string
+      enabled: boolean
+    }) => updateWeChatChannelTiming(workspaceId, connectionId, { enabled }),
+    onSuccess: async (connection) => {
+      await queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] })
+    },
+  })
+
   const workspaces = workspacesQuery.data ?? []
   const connections = connectionsQuery.data ?? []
+  const connectionLogQueries = useQueries({
+    queries: connections.map((connection) => ({
+      queryKey: ['bot-connection-logs-summary', selectedWorkspaceId, connection.id],
+      queryFn: () => listBotConnectionLogs(selectedWorkspaceId, connection.id),
+      enabled: selectedWorkspaceId.length > 0 && connection.id.length > 0,
+      refetchInterval: 15000,
+      staleTime: 5000,
+    })),
+  })
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null
   const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) ?? null
   const conversations = conversationsQuery.data ?? []
@@ -246,8 +372,34 @@ export function BotsPage() {
     [],
   )
 
+  const commandOutputModeOptions = useMemo(
+    () => [
+      {
+        value: BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
+        label: i18n._({ id: 'Single Line', message: 'Single Line' }),
+      },
+      {
+        value: BOT_COMMAND_OUTPUT_MODE_BRIEF,
+        label: i18n._({ id: 'Brief (3-5 lines)', message: 'Brief (3-5 lines)' }),
+      },
+      {
+        value: BOT_COMMAND_OUTPUT_MODE_DETAILED,
+        label: i18n._({ id: 'Detailed', message: 'Detailed' }),
+      },
+      {
+        value: BOT_COMMAND_OUTPUT_MODE_FULL,
+        label: i18n._({ id: 'Full Output', message: 'Full Output' }),
+      },
+    ],
+    [],
+  )
+
   const wechatCredentialSourceOptions = useMemo(
     () => [
+      {
+        value: 'saved',
+        label: i18n._({ id: 'Saved Account', message: 'Saved Account' }),
+      },
       {
         value: 'manual',
         label: i18n._({ id: 'Manual Entry', message: 'Manual Entry' }),
@@ -279,23 +431,116 @@ export function BotsPage() {
   )
 
   const activeConnectionsCount = connections.filter((connection) => connection.status === 'active').length
-  const formErrorMessage = formError || (createMutation.error ? getErrorMessage(createMutation.error) : '')
+  const isEditingConnection = editTarget !== null
+  const connectionModalBaselineKey = connectionModalBaselineDraft ? serializeBotsPageDraft(connectionModalBaselineDraft) : ''
+  const connectionModalDraftKey = serializeBotsPageDraft(draft)
+  const isConnectionModalDirty = createModalOpen && connectionModalBaselineKey !== '' && connectionModalDraftKey !== connectionModalBaselineKey
+  const isSaveConnectionDisabled = isEditingConnection && !isConnectionModalDirty
+  const formErrorMessage =
+    formError || (isEditingConnection ? getErrorMessage(updateMutation.error) : getErrorMessage(createMutation.error))
   const actionErrorMessage = actionMutation.error ? getErrorMessage(actionMutation.error) : ''
   const deleteErrorMessage = deleteMutation.error ? getErrorMessage(deleteMutation.error) : ''
+  const deleteWeChatAccountErrorMessage = deleteWeChatAccountMutation.error
+    ? getErrorMessage(deleteWeChatAccountMutation.error)
+    : ''
   const runtimeModeErrorMessage = runtimeModeMutation.error ? getErrorMessage(runtimeModeMutation.error) : ''
+  const commandOutputModeErrorMessage = commandOutputModeMutation.error
+    ? getErrorMessage(commandOutputModeMutation.error)
+    : ''
+  const wechatChannelTimingErrorMessage = wechatChannelTimingMutation.error
+    ? getErrorMessage(wechatChannelTimingMutation.error)
+    : ''
+  const editingConnectionHasBotToken = editTarget?.secretKeys?.includes('bot_token') ?? false
+  const editingConnectionHasOpenAIApiKey = editTarget?.secretKeys?.includes('openai_api_key') ?? false
   const draftProvider = draft.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
   const draftTelegramDeliveryMode = draft.telegramDeliveryMode.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
-  const draftWeChatCredentialSource = draft.wechatCredentialSource.trim().toLowerCase() === 'qr' ? 'qr' : 'manual'
+  const draftWeChatCredentialSource =
+    draft.wechatCredentialSource.trim().toLowerCase() === 'saved'
+      ? 'saved'
+      : draft.wechatCredentialSource.trim().toLowerCase() === 'qr'
+        ? 'qr'
+        : 'manual'
   const hasDraftWeChatCredentialBundle =
     draft.wechatAccountId.trim().length > 0 &&
     draft.wechatUserId.trim().length > 0 &&
     draft.wechatBotToken.trim().length > 0
+  const hasDraftConfirmedWeChatLoginSession =
+    draft.wechatLoginSessionId.trim().length > 0 && draft.wechatLoginStatus.trim().toLowerCase() === 'confirmed'
   const selectedProvider =
     selectedConnection?.provider?.trim().toLowerCase() === 'wechat'
       ? 'wechat'
       : selectedConnection?.provider?.trim().toLowerCase() === 'telegram'
         ? 'telegram'
         : ''
+  const savedWeChatAccounts = wechatAccountsQuery.data ?? []
+  const linkedWeChatAccountByConnectionID = useMemo(
+    () =>
+      new Map(
+        connections
+          .map((connection) => [connection.id, findWeChatAccountForConnection(savedWeChatAccounts, connection)] as const)
+          .filter((entry) => entry[1] !== null),
+      ),
+    [connections, savedWeChatAccounts],
+  )
+  const recentSuppressionSummaryByConnectionID = useMemo(() => {
+    const now = Date.now()
+    return new Map(
+      connections.map((connection, index) => [
+        connection.id,
+        summarizeRecentBotConnectionSuppressions(connectionLogQueries[index]?.data ?? [], now),
+      ]),
+    )
+  }, [connectionLogQueries, connections])
+  const savedWeChatAccountConnections = useMemo(
+    () =>
+      new Map(
+        savedWeChatAccounts.map((account) => [account.id, listWeChatConnectionsForAccount(connections, account)]),
+      ),
+    [connections, savedWeChatAccounts],
+  )
+  const savedWeChatAccountConnectionCounts = useMemo(
+    () =>
+      new Map(
+        savedWeChatAccounts.map((account) => [
+          account.id,
+          savedWeChatAccountConnections.get(account.id)?.length ?? countWeChatConnectionsForAccount(connections, account),
+        ]),
+      ),
+    [connections, savedWeChatAccountConnections, savedWeChatAccounts],
+  )
+  const filteredSavedWeChatAccounts = useMemo(
+    () =>
+      savedWeChatAccounts.filter((account) => {
+        if (!matchesWeChatAccountSearch(account, wechatAccountSearch)) {
+          return false
+        }
+        if (!showUnusedWeChatAccountsOnly) {
+          return true
+        }
+        return (savedWeChatAccountConnections.get(account.id) ?? []).length === 0
+      }),
+    [savedWeChatAccountConnections, savedWeChatAccounts, showUnusedWeChatAccountsOnly, wechatAccountSearch],
+  )
+  const filteredConnections = useMemo(
+    () =>
+      connections.filter((connection) =>
+        matchesBotConnectionSearch(connection, connectionSearch, linkedWeChatAccountByConnectionID.get(connection.id) ?? null),
+      ),
+    [connectionSearch, connections, linkedWeChatAccountByConnectionID],
+  )
+  const selectedSavedWeChatAccount =
+    savedWeChatAccounts.find((account) => account.id === draft.wechatSavedAccountId.trim()) ?? null
+  const selectedConnectionWeChatAccount =
+    selectedProvider === 'wechat'
+      ? findWeChatAccountForConnection(savedWeChatAccounts, selectedConnection)
+      : null
+  const selectedConnectionSuppressionSummary =
+    (selectedConnection && recentSuppressionSummaryByConnectionID.get(selectedConnection.id)) ?? {
+      suppressedCount: 0,
+      duplicateSuppressedCount: 0,
+      recoverySuppressedCount: 0,
+      latestSuppressedAt: undefined,
+    }
   const selectedTelegramDeliveryMode =
     selectedProvider === 'telegram' && selectedConnection?.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling'
       ? 'polling'
@@ -306,6 +551,11 @@ export function BotsPage() {
     selectedProvider === 'wechat' || (selectedProvider === 'telegram' && selectedDeliveryMode === 'polling')
   const selectedRuntimeMode =
     selectedConnection?.settings?.runtime_mode?.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
+  const selectedCommandOutputMode = resolveBotCommandOutputMode(selectedConnection?.settings?.command_output_mode)
+  const selectedWeChatChannelTimingEnabled =
+    selectedProvider === 'wechat'
+      ? resolveWeChatChannelTimingEnabled(selectedConnection?.settings, selectedRuntimeMode)
+      : false
   const selectedProviderLabel = selectedConnection
     ? formatBotProviderLabel(selectedConnection.provider)
     : i18n._({ id: 'None', message: 'None' })
@@ -318,6 +568,7 @@ export function BotsPage() {
       : selectedDeliveryMode === 'webhook'
         ? i18n._({ id: 'Webhook', message: 'Webhook' })
         : i18n._({ id: 'None', message: 'None' })
+  const selectedCommandOutputModeLabel = formatBotCommandOutputModeLabel(selectedCommandOutputMode)
   const selectedProviderPosture =
     selectedProvider === 'wechat'
       ? i18n._({
@@ -362,6 +613,10 @@ export function BotsPage() {
     getErrorMessage(wechatLoginStartMutation.error) ||
     getErrorMessage(wechatLoginQuery.error) ||
     getErrorMessage(wechatLoginDeleteMutation.error)
+  const wechatAccountsErrorMessage = getErrorMessage(wechatAccountsQuery.error)
+  const updateWeChatAccountErrorMessage = updateWeChatAccountMutation.error
+    ? getErrorMessage(updateWeChatAccountMutation.error)
+    : ''
   const wechatLoginCopyLabel =
     wechatLoginCopyState === 'copied'
       ? i18n._({ id: 'Copied', message: 'Copied' })
@@ -384,18 +639,18 @@ export function BotsPage() {
     : i18n._({ id: 'Not fetched', message: 'Not fetched' })
   const wechatDraftCredentialBundleLabel = hasDraftWeChatCredentialBundle
     ? i18n._({ id: 'Applied to form', message: 'Applied to form' })
-    : activeWeChatLogin?.credentialReady
-      ? i18n._({ id: 'Ready to apply', message: 'Ready to apply' })
+    : hasDraftConfirmedWeChatLoginSession || activeWeChatLogin?.credentialReady
+      ? i18n._({ id: 'Ready to create', message: 'Ready to create' })
       : draft.wechatLoginSessionId
         ? i18n._({ id: 'Pending confirmation', message: 'Pending confirmation' })
         : i18n._({ id: 'Not loaded', message: 'Not loaded' })
   const wechatQrCredentialNotice = hasDraftWeChatCredentialBundle
     ? ''
-    : activeWeChatLogin?.credentialReady
+    : hasDraftConfirmedWeChatLoginSession || activeWeChatLogin?.credentialReady
       ? i18n._({
-          id: 'The remote service has already confirmed this login. Reopen the QR dialog and click Use Credentials to apply the bundle into the form.',
+          id: 'The remote service has already confirmed this login. You can create the connection directly now, or reopen the QR dialog and click Use Credentials to copy the bundle into the form.',
           message:
-            'The remote service has already confirmed this login. Reopen the QR dialog and click Use Credentials to apply the bundle into the form.',
+            'The remote service has already confirmed this login. You can create the connection directly now, or reopen the QR dialog and click Use Credentials to copy the bundle into the form.',
         })
       : draft.wechatLoginSessionId
         ? i18n._({
@@ -408,6 +663,14 @@ export function BotsPage() {
             message:
               'Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service.',
           })
+  const savedWeChatAccountOptions = useMemo(
+    () =>
+      savedWeChatAccounts.map((account: WeChatAccount) => ({
+        value: account.id,
+        label: formatWeChatAccountLabel(account),
+      })),
+    [savedWeChatAccounts],
+  )
 
   useEffect(() => {
     setWechatLoginModalOpen(false)
@@ -470,6 +733,38 @@ export function BotsPage() {
     }
   }, [activeWeChatLogin?.qrCodeContent, wechatLoginModalOpen])
 
+  useEffect(() => {
+    if (activeWeChatLoginStatus !== 'confirmed' || !draft.workspaceId.trim()) {
+      return
+    }
+    void queryClient.invalidateQueries({ queryKey: ['wechat-accounts', draft.workspaceId.trim()] })
+  }, [activeWeChatLoginStatus, draft.workspaceId, queryClient])
+
+  useEffect(() => {
+    setConnectionSearch('')
+    setWeChatAccountSearch('')
+    setShowUnusedWeChatAccountsOnly(false)
+    setEditWeChatAccountTarget(null)
+    setWeChatAccountAliasDraft('')
+    setWeChatAccountNoteDraft('')
+    updateWeChatAccountMutation.reset()
+  }, [selectedWorkspaceId])
+
+  useEffect(() => {
+    if (!connections.length) {
+      return
+    }
+    if (!filteredConnections.length) {
+      if (selectedConnectionId) {
+        setSelectedConnectionId('')
+      }
+      return
+    }
+    if (!selectedConnectionId || !filteredConnections.some((connection) => connection.id === selectedConnectionId)) {
+      setSelectedConnectionId(filteredConnections[0].id)
+    }
+  }, [connections.length, filteredConnections, selectedConnectionId])
+
   function resetWeChatLoginState() {
     setWechatLoginModalOpen(false)
     setWechatLoginId('')
@@ -506,13 +801,27 @@ export function BotsPage() {
   }
 
   function handleWeChatCredentialSourceChange(nextValue: string) {
-    const nextSource = nextValue.trim().toLowerCase() === 'qr' ? 'qr' : 'manual'
+    const nextSource =
+      nextValue.trim().toLowerCase() === 'saved'
+        ? 'saved'
+        : nextValue.trim().toLowerCase() === 'qr'
+          ? 'qr'
+          : 'manual'
     setFormError('')
     if (nextSource === 'manual') {
       resetWeChatLoginState()
       setDraft((current) => ({
         ...current,
         wechatCredentialSource: 'manual',
+        wechatSavedAccountId: '',
+      }))
+      return
+    }
+    if (nextSource === 'saved') {
+      resetWeChatLoginState()
+      setDraft((current) => ({
+        ...current,
+        wechatCredentialSource: 'saved',
       }))
       return
     }
@@ -520,6 +829,7 @@ export function BotsPage() {
     setDraft((current) => ({
       ...current,
       wechatCredentialSource: 'qr',
+      wechatSavedAccountId: '',
       wechatAccountId: current.wechatCredentialSource === 'manual' ? '' : current.wechatAccountId,
       wechatUserId: current.wechatCredentialSource === 'manual' ? '' : current.wechatUserId,
       wechatBotToken: current.wechatCredentialSource === 'manual' ? '' : current.wechatBotToken,
@@ -601,6 +911,7 @@ export function BotsPage() {
       ...current,
       provider: 'wechat',
       wechatCredentialSource: 'qr',
+      wechatSavedAccountId: '',
       wechatBaseUrl: activeWeChatLogin.baseUrl ?? current.wechatBaseUrl,
       wechatAccountId: activeWeChatLogin.accountId ?? current.wechatAccountId,
       wechatUserId: activeWeChatLogin.userId ?? current.wechatUserId,
@@ -623,24 +934,110 @@ export function BotsPage() {
 
   function openCreateModal() {
     createMutation.reset()
+    updateMutation.reset()
     setFormError('')
+    setEditTarget(null)
     resetWeChatLoginState()
-    setDraft((current) => ({
+    const nextDraft = {
       ...EMPTY_BOTS_PAGE_DRAFT,
       workspaceId: selectedWorkspaceId || workspaces[0]?.id || '',
-      runtimeMode: current.runtimeMode,
-      telegramDeliveryMode: current.telegramDeliveryMode,
-      publicBaseUrl: current.publicBaseUrl,
-    }))
+      runtimeMode: draft.runtimeMode,
+      telegramDeliveryMode: draft.telegramDeliveryMode,
+      publicBaseUrl: draft.publicBaseUrl,
+      wechatChannelTimingEnabled: draft.wechatChannelTimingEnabled,
+    }
+    setDraft(nextDraft)
+    setConnectionModalBaselineDraft(nextDraft)
+    setDiscardConnectionModalConfirmOpen(false)
     setCreateModalOpen(true)
   }
 
+  function openCreateModalWithSavedWeChatAccount(account: WeChatAccount) {
+    createMutation.reset()
+    updateMutation.reset()
+    setFormError('')
+    setEditTarget(null)
+    resetWeChatLoginState()
+    const nextDraft = {
+      ...EMPTY_BOTS_PAGE_DRAFT,
+      workspaceId: account.workspaceId,
+      provider: 'wechat',
+      runtimeMode: draft.runtimeMode,
+      telegramDeliveryMode: draft.telegramDeliveryMode,
+      publicBaseUrl: draft.publicBaseUrl,
+      wechatBaseUrl: account.baseUrl,
+      wechatChannelTimingEnabled: draft.wechatChannelTimingEnabled,
+      wechatCredentialSource: 'saved',
+      wechatSavedAccountId: account.id,
+    }
+    setDraft(nextDraft)
+    setConnectionModalBaselineDraft(nextDraft)
+    setDiscardConnectionModalConfirmOpen(false)
+    setCreateModalOpen(true)
+  }
+
+  function openEditModal(connection: BotConnection) {
+    createMutation.reset()
+    updateMutation.reset()
+    setFormError('')
+    resetWeChatLoginState()
+    setSelectedWorkspaceId(connection.workspaceId)
+    setSelectedConnectionId(connection.id)
+    setEditTarget(connection)
+    const nextDraft = buildBotsPageDraftFromConnection(connection, savedWeChatAccounts)
+    setDraft(nextDraft)
+    setConnectionModalBaselineDraft(nextDraft)
+    setDiscardConnectionModalConfirmOpen(false)
+    setCreateModalOpen(true)
+  }
+
+  function openWeChatAccountEditModal(account: WeChatAccount) {
+    updateWeChatAccountMutation.reset()
+    setEditWeChatAccountTarget(account)
+    setWeChatAccountAliasDraft(account.alias ?? '')
+    setWeChatAccountNoteDraft(account.note ?? '')
+  }
+
+  function closeWeChatAccountEditModal() {
+    if (updateWeChatAccountMutation.isPending) {
+      return
+    }
+    setEditWeChatAccountTarget(null)
+    setWeChatAccountAliasDraft('')
+    setWeChatAccountNoteDraft('')
+    updateWeChatAccountMutation.reset()
+  }
+
   function closeCreateModal() {
+    if (createMutation.isPending || updateMutation.isPending) {
+      return
+    }
+
+    if (isConnectionModalDirty) {
+      setDiscardConnectionModalConfirmOpen(true)
+      return
+    }
+
+    forceCloseCreateModal()
+  }
+
+  function forceCloseCreateModal() {
     setCreateModalOpen(false)
+    setEditTarget(null)
+    setConnectionModalBaselineDraft(null)
+    setDiscardConnectionModalConfirmOpen(false)
     resetWeChatLoginState()
     setDraft(EMPTY_BOTS_PAGE_DRAFT)
     setFormError('')
     createMutation.reset()
+    updateMutation.reset()
+  }
+
+  function handleDiscardConnectionModalConfirm() {
+    if (createMutation.isPending || updateMutation.isPending) {
+      return
+    }
+    forceCloseCreateModal()
   }
 
   function handleSubmitCreate() {
@@ -655,17 +1052,17 @@ export function BotsPage() {
       return
     }
 
-    if (draftProvider === 'telegram' && !draft.telegramBotToken.trim()) {
+    if (draftProvider === 'telegram' && !draft.telegramBotToken.trim() && !(isEditingConnection && editingConnectionHasBotToken)) {
       setFormError(
         i18n._({
-          id: 'Telegram bot token is required.',
-          message: 'Telegram bot token is required.',
+          id: 'Telegram bot token is required. Leave it blank only when editing a connection that already stores one.',
+          message: 'Telegram bot token is required. Leave it blank only when editing a connection that already stores one.',
         }),
       )
       return
     }
 
-    if (draftProvider === 'wechat' && !draft.wechatBaseUrl.trim()) {
+    if (draftProvider === 'wechat' && draftWeChatCredentialSource !== 'saved' && !draft.wechatBaseUrl.trim()) {
       setFormError(
         i18n._({
           id: 'WeChat base URL is required.',
@@ -675,11 +1072,26 @@ export function BotsPage() {
       return
     }
 
-    if (draftProvider === 'wechat' && draftWeChatCredentialSource === 'qr' && !hasDraftWeChatCredentialBundle) {
+    if (
+      draftProvider === 'wechat' &&
+      draftWeChatCredentialSource === 'qr' &&
+      !hasDraftWeChatCredentialBundle &&
+      !hasDraftConfirmedWeChatLoginSession
+    ) {
       setFormError(
         i18n._({
-          id: 'Complete WeChat QR login and apply the confirmed credentials before creating the connection.',
-          message: 'Complete WeChat QR login and apply the confirmed credentials before creating the connection.',
+          id: 'Complete WeChat QR login until the session is confirmed before creating the connection.',
+          message: 'Complete WeChat QR login until the session is confirmed before creating the connection.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'wechat' && draftWeChatCredentialSource === 'saved' && !draft.wechatSavedAccountId.trim()) {
+      setFormError(
+        i18n._({
+          id: 'Select a saved WeChat account before creating the connection.',
+          message: 'Select a saved WeChat account before creating the connection.',
         }),
       )
       return
@@ -706,20 +1118,27 @@ export function BotsPage() {
     }
 
     if (draftProvider === 'wechat' && draftWeChatCredentialSource === 'manual' && !draft.wechatBotToken.trim()) {
-      setFormError(
-        i18n._({
-          id: 'WeChat bot token is required.',
-          message: 'WeChat bot token is required.',
-        }),
-      )
-      return
+      if (!(isEditingConnection && editingConnectionHasBotToken)) {
+        setFormError(
+          i18n._({
+            id: 'WeChat bot token is required. Leave it blank only when editing a connection that already stores one.',
+            message: 'WeChat bot token is required. Leave it blank only when editing a connection that already stores one.',
+          }),
+        )
+        return
+      }
     }
 
-    if (draft.aiBackend === 'openai_responses' && !draft.openAIApiKey.trim()) {
+    if (
+      draft.aiBackend === 'openai_responses' &&
+      !draft.openAIApiKey.trim() &&
+      !(isEditingConnection && editingConnectionHasOpenAIApiKey)
+    ) {
       setFormError(
         i18n._({
-          id: 'OpenAI API key is required for the OpenAI Responses backend.',
-          message: 'OpenAI API key is required for the OpenAI Responses backend.',
+          id: 'OpenAI API key is required for the OpenAI Responses backend. Leave it blank only when editing a connection that already stores one.',
+          message:
+            'OpenAI API key is required for the OpenAI Responses backend. Leave it blank only when editing a connection that already stores one.',
         }),
       )
       return
@@ -736,6 +1155,15 @@ export function BotsPage() {
     }
 
     setFormError('')
+    if (editTarget) {
+      updateMutation.mutate({
+        workspaceId,
+        connectionId: editTarget.id,
+        input: buildBotConnectionUpdateInput(draft),
+      })
+      return
+    }
+
     createMutation.mutate({
       workspaceId,
       input: buildBotConnectionCreateInput(draft),
@@ -753,13 +1181,43 @@ export function BotsPage() {
     })
   }
 
+  function handleDeleteWeChatAccountConfirm() {
+    if (!deleteWeChatAccountTarget || deleteWeChatAccountMutation.isPending) {
+      return
+    }
+
+    deleteWeChatAccountMutation.mutate({
+      workspaceId: deleteWeChatAccountTarget.workspaceId,
+      accountId: deleteWeChatAccountTarget.id,
+    })
+  }
+
+  function handleUpdateWeChatAccount() {
+    if (!editWeChatAccountTarget || updateWeChatAccountMutation.isPending) {
+      return
+    }
+
+    updateWeChatAccountMutation.mutate({
+      workspaceId: editWeChatAccountTarget.workspaceId,
+      accountId: editWeChatAccountTarget.id,
+      alias: wechatAccountAliasDraft,
+      note: wechatAccountNoteDraft,
+    })
+  }
+
   const createModalFooter = (
     <>
       <Button intent="secondary" onClick={closeCreateModal}>
         {i18n._({ id: 'Cancel', message: 'Cancel' })}
       </Button>
-      <Button isLoading={createMutation.isPending} onClick={handleSubmitCreate}>
-        {i18n._({ id: 'Create Connection', message: 'Create Connection' })}
+      <Button
+        disabled={isSaveConnectionDisabled}
+        isLoading={isEditingConnection ? updateMutation.isPending : createMutation.isPending}
+        onClick={handleSubmitCreate}
+      >
+        {isEditingConnection
+          ? i18n._({ id: 'Save Changes', message: 'Save Changes' })
+          : i18n._({ id: 'Create Connection', message: 'Create Connection' })}
       </Button>
     </>
   )
@@ -975,13 +1433,53 @@ export function BotsPage() {
                 </InlineNotice>
               ) : null}
 
+              {commandOutputModeErrorMessage ? (
+                <InlineNotice
+                  dismissible
+                  noticeKey={`bot-command-output-mode-${commandOutputModeErrorMessage}`}
+                  title={i18n._({
+                    id: 'Command Output Mode Update Failed',
+                    message: 'Command Output Mode Update Failed',
+                  })}
+                  tone="error"
+                >
+                  {commandOutputModeErrorMessage}
+                </InlineNotice>
+              ) : null}
+
+              {wechatChannelTimingErrorMessage ? (
+                <InlineNotice
+                  dismissible
+                  noticeKey={`bot-wechat-channel-timing-${wechatChannelTimingErrorMessage}`}
+                  title={i18n._({
+                    id: 'WeChat Channel Timing Update Failed',
+                    message: 'WeChat Channel Timing Update Failed',
+                  })}
+                  tone="error"
+                >
+                  {wechatChannelTimingErrorMessage}
+                </InlineNotice>
+              ) : null}
+
               <section className="content-section">
                 <div className="section-header section-header--inline">
                   <div>
                     <h2>{i18n._({ id: 'Connections', message: 'Connections' })}</h2>
                   </div>
-                  <div className="section-header__meta">{connections.length}</div>
+                  <div className="section-header__meta">{filteredConnections.length}</div>
                 </div>
+
+                <Input
+                  hint={i18n._({
+                    id: 'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
+                    message:
+                      'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
+                  })}
+                  label={i18n._({ id: 'Search Connections', message: 'Search Connections' })}
+                  onChange={(event) => setConnectionSearch(event.target.value)}
+                  placeholder={i18n._({ id: 'Support, paused, openai, support queue', message: 'Support, paused, openai, support queue' })}
+                  value={connectionSearch}
+                />
 
                 {connectionsQuery.isLoading ? (
                   <div className="notice">
@@ -999,32 +1497,277 @@ export function BotsPage() {
                   </div>
                 ) : null}
 
+                {!connectionsQuery.isLoading && connections.length > 0 && !filteredConnections.length ? (
+                  <div className="empty-state">
+                    {i18n._({
+                      id: 'No bot connections match the current search.',
+                      message: 'No bot connections match the current search.',
+                    })}
+                  </div>
+                ) : null}
+
                 <div className="automation-compact-list">
-                  {connections.map((connection) => (
-                    <button
-                      className={[
-                        'automation-compact-row',
-                        selectedConnectionId === connection.id ? 'automation-compact-row--active' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      key={connection.id}
-                      onClick={() => setSelectedConnectionId(connection.id)}
-                      type="button"
-                    >
-                      <div className="automation-compact-row__main">
-                        <strong>{connection.name}</strong>
-                        <span>
-                          {formatBotProviderLabel(connection.provider)} | {formatBotBackendLabel(connection.aiBackend)} |{' '}
-                          {formatBotTimestamp(connection.updatedAt)}
-                        </span>
+                  {filteredConnections.map((connection) => {
+                    const linkedWeChatAccount = linkedWeChatAccountByConnectionID.get(connection.id) ?? null
+                    const recentSuppressionSummary = recentSuppressionSummaryByConnectionID.get(connection.id) ?? {
+                      suppressedCount: 0,
+                      duplicateSuppressedCount: 0,
+                      recoverySuppressedCount: 0,
+                      latestSuppressedAt: undefined,
+                    }
+                    return (
+                      <div
+                        className={[
+                          'automation-compact-row',
+                          selectedConnectionId === connection.id ? 'automation-compact-row--active' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        key={connection.id}
+                      >
+                        <button
+                          aria-pressed={selectedConnectionId === connection.id}
+                          className="automation-compact-row__main"
+                          onClick={() => setSelectedConnectionId(connection.id)}
+                          style={{
+                            background: 'transparent',
+                            border: 0,
+                            cursor: 'pointer',
+                            flex: 1,
+                            minWidth: 0,
+                            padding: 0,
+                            textAlign: 'left',
+                          }}
+                          type="button"
+                        >
+                          <strong>{connection.name}</strong>
+                          <span>
+                            {formatBotProviderLabel(connection.provider)} | {formatBotBackendLabel(connection.aiBackend)} |{' '}
+                            {formatBotTimestamp(connection.updatedAt)}
+                          </span>
+                          {linkedWeChatAccount ? (
+                            <span>
+                              {i18n._({ id: 'Saved Account', message: 'Saved Account' })}:{' '}
+                              {formatWeChatAccountLabel(linkedWeChatAccount)}
+                              {linkedWeChatAccount.note?.trim() ? ` | ${linkedWeChatAccount.note.trim()}` : ''}
+                            </span>
+                          ) : null}
+                          {recentSuppressionSummary.suppressedCount > 0 ? (
+                            <div className="automation-compact-row__meta">
+                              <span className="meta-pill meta-pill--warning">
+                                {i18n._({
+                                  id: 'Suppressed 24h: {count}',
+                                  message: 'Suppressed 24h: {count}',
+                                  values: { count: recentSuppressionSummary.suppressedCount },
+                                })}
+                              </span>
+                              {recentSuppressionSummary.duplicateSuppressedCount > 0 ? (
+                                <span className="meta-pill meta-pill--warning">
+                                  {i18n._({
+                                    id: 'Duplicate: {count}',
+                                    message: 'Duplicate: {count}',
+                                    values: { count: recentSuppressionSummary.duplicateSuppressedCount },
+                                  })}
+                                </span>
+                              ) : null}
+                              {recentSuppressionSummary.recoverySuppressedCount > 0 ? (
+                                <span className="meta-pill meta-pill--warning">
+                                  {i18n._({
+                                    id: 'Restart: {count}',
+                                    message: 'Restart: {count}',
+                                    values: { count: recentSuppressionSummary.recoverySuppressedCount },
+                                  })}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </button>
+                        <div className="automation-compact-row__actions">
+                          <StatusPill status={connection.status} />
+                          <Button intent="ghost" onClick={() => openEditModal(connection)} type="button">
+                            {i18n._({ id: 'Edit', message: 'Edit' })}
+                          </Button>
+                        </div>
                       </div>
-                      <div className="automation-compact-row__actions">
-                        <StatusPill status={connection.status} />
-                      </div>
-                    </button>
-                  ))}
+                    )
+                  })}
                 </div>
+              </section>
+
+              <section className="content-section">
+                <div className="section-header section-header--inline">
+                  <div>
+                    <h2>{i18n._({ id: 'Saved WeChat Accounts', message: 'Saved WeChat Accounts' })}</h2>
+                    <p>
+                      {i18n._({
+                        id: 'Confirmed WeChat QR logins are stored per workspace so you can create new connections without rescanning the same account.',
+                        message:
+                          'Confirmed WeChat QR logins are stored per workspace so you can create new connections without rescanning the same account.',
+                      })}
+                    </p>
+                  </div>
+                  <div className="section-header__meta">{filteredSavedWeChatAccounts.length}</div>
+                </div>
+
+                <Input
+                  hint={i18n._({
+                    id: 'Search by alias, note, account ID, user ID, or base URL.',
+                    message: 'Search by alias, note, account ID, user ID, or base URL.',
+                  })}
+                  label={i18n._({ id: 'Search Saved Accounts', message: 'Search Saved Accounts' })}
+                  onChange={(event) => setWeChatAccountSearch(event.target.value)}
+                  placeholder={i18n._({ id: 'Support, acct_123, wechat.example.com', message: 'Support, acct_123, wechat.example.com' })}
+                  value={wechatAccountSearch}
+                />
+
+                <Switch
+                  checked={showUnusedWeChatAccountsOnly}
+                  hint={i18n._({
+                    id: 'Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace.',
+                    message:
+                      'Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace.',
+                  })}
+                  label={i18n._({ id: 'Only Show Unbound Accounts', message: 'Only Show Unbound Accounts' })}
+                  onChange={(event) => setShowUnusedWeChatAccountsOnly(event.target.checked)}
+                />
+
+                {wechatAccountsErrorMessage ? (
+                  <InlineNotice
+                    dismissible
+                    noticeKey={`saved-wechat-accounts-${wechatAccountsErrorMessage}`}
+                    onRetry={() => void wechatAccountsQuery.refetch()}
+                    title={i18n._({
+                      id: 'Failed To Load Saved WeChat Accounts',
+                      message: 'Failed To Load Saved WeChat Accounts',
+                    })}
+                    tone="error"
+                  >
+                    {wechatAccountsErrorMessage}
+                  </InlineNotice>
+                ) : null}
+
+                {wechatAccountsQuery.isLoading ? (
+                  <div className="notice">
+                    {i18n._({ id: 'Loading saved WeChat accounts...', message: 'Loading saved WeChat accounts...' })}
+                  </div>
+                ) : null}
+
+                {!wechatAccountsQuery.isLoading && !savedWeChatAccounts.length ? (
+                  <div className="empty-state">
+                    {i18n._({
+                      id: 'No saved WeChat accounts yet. Complete one confirmed QR login to save an account for reuse in this workspace.',
+                      message:
+                        'No saved WeChat accounts yet. Complete one confirmed QR login to save an account for reuse in this workspace.',
+                    })}
+                  </div>
+                ) : null}
+
+                {!wechatAccountsQuery.isLoading && savedWeChatAccounts.length > 0 && !filteredSavedWeChatAccounts.length ? (
+                  <div className="empty-state">
+                    {i18n._({
+                      id: 'No saved WeChat accounts match the current filters.',
+                      message: 'No saved WeChat accounts match the current filters.',
+                    })}
+                  </div>
+                ) : null}
+
+                {filteredSavedWeChatAccounts.length ? (
+                  <div className="directory-list">
+                    {filteredSavedWeChatAccounts.map((account) => (
+                      <article className="directory-item" key={account.id}>
+                        <div className="directory-item__icon">WX</div>
+                        <div className="directory-item__body">
+                          <strong>{formatWeChatAccountLabel(account)}</strong>
+                          {account.alias?.trim() ? (
+                            <p>
+                              {i18n._({ id: 'Alias', message: 'Alias' })}: {account.alias}
+                            </p>
+                          ) : null}
+                          <p>
+                            {i18n._({ id: 'Base URL', message: 'Base URL' })}: {account.baseUrl}
+                          </p>
+                          <p>
+                            {i18n._({ id: 'Last Confirmed', message: 'Last Confirmed' })}:{' '}
+                            {formatBotTimestamp(account.lastConfirmedAt)}
+                          </p>
+                          {account.note?.trim() ? <p>{account.note}</p> : null}
+                          {(savedWeChatAccountConnections.get(account.id) ?? []).length ? (
+                            <div style={{ display: 'grid', gap: '8px', marginTop: '12px' }}>
+                              <strong>{i18n._({ id: 'Linked Connections', message: 'Linked Connections' })}</strong>
+                              <div style={{ display: 'grid', gap: '8px' }}>
+                                {(savedWeChatAccountConnections.get(account.id) ?? []).map((connection) => (
+                                  <div
+                                    key={connection.id}
+                                    style={{
+                                      alignItems: 'center',
+                                      display: 'flex',
+                                      flexWrap: 'wrap',
+                                      gap: '8px',
+                                      justifyContent: 'space-between',
+                                    }}
+                                  >
+                                    <div style={{ display: 'grid', gap: '4px' }}>
+                                      <strong>{connection.name}</strong>
+                                      <span>
+                                        {formatBotBackendLabel(connection.aiBackend)} | {formatBotTimestamp(connection.updatedAt)}
+                                      </span>
+                                    </div>
+                                    <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                      <StatusPill status={connection.status} />
+                                      <Button intent="ghost" onClick={() => openEditModal(connection)} type="button">
+                                        {i18n._({ id: 'Edit', message: 'Edit' })}
+                                      </Button>
+                                      <Button
+                                        intent="ghost"
+                                        onClick={() => setSelectedConnectionId(connection.id)}
+                                        type="button"
+                                      >
+                                        {i18n._({ id: 'Open Connection', message: 'Open Connection' })}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <p>
+                              {i18n._({
+                                id: 'Not used by any bot connection yet.',
+                                message: 'Not used by any bot connection yet.',
+                              })}
+                            </p>
+                          )}
+                        </div>
+                        <div
+                          className="directory-item__meta"
+                          style={{ alignItems: 'end', display: 'grid', gap: '8px', justifyItems: 'end' }}
+                        >
+                          <span className="meta-pill">
+                            {i18n._({ id: 'Connections', message: 'Connections' })}:{' '}
+                            {savedWeChatAccountConnectionCounts.get(account.id) ?? 0}
+                          </span>
+                          <span className="meta-pill">{formatBotTimestamp(account.updatedAt)}</span>
+                          <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            <Button intent="secondary" onClick={() => openCreateModalWithSavedWeChatAccount(account)} type="button">
+                              {i18n._({ id: 'Use For New Connection', message: 'Use For New Connection' })}
+                            </Button>
+                            <Button intent="ghost" onClick={() => openWeChatAccountEditModal(account)} type="button">
+                              {i18n._({ id: 'Edit Details', message: 'Edit Details' })}
+                            </Button>
+                            <Button
+                              className="ide-button--ghost-danger"
+                              intent="ghost"
+                              onClick={() => setDeleteWeChatAccountTarget(account)}
+                              type="button"
+                            >
+                              {i18n._({ id: 'Delete', message: 'Delete' })}
+                            </Button>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </section>
 
               <section className="content-section">
@@ -1063,6 +1806,9 @@ export function BotsPage() {
                         </div>
                         <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                           <StatusPill status={selectedConnection.status} />
+                          <Button intent="secondary" onClick={() => openEditModal(selectedConnection)}>
+                            {i18n._({ id: 'Edit', message: 'Edit' })}
+                          </Button>
                           <Button
                             intent="secondary"
                             onClick={() => navigate(`/bots/${selectedConnection.workspaceId}/${selectedConnection.id}/logs`)}
@@ -1107,6 +1853,24 @@ export function BotsPage() {
                       </InlineNotice>
                     ) : null}
 
+                    {selectedConnectionSuppressionSummary.suppressedCount > 0 ? (
+                      <InlineNotice
+                        dismissible
+                        noticeKey={`bot-suppression-summary-${selectedConnection.id}-${selectedConnectionSuppressionSummary.suppressedCount}-${selectedConnectionSuppressionSummary.latestSuppressedAt ?? 'none'}`}
+                        title={i18n._({
+                          id: 'Replay Suppressions Recorded',
+                          message: 'Replay Suppressions Recorded',
+                        })}
+                      >
+                        {i18n._({
+                          id: 'The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content.',
+                          message:
+                            'The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content.',
+                          values: { count: selectedConnectionSuppressionSummary.suppressedCount },
+                        })}
+                      </InlineNotice>
+                    ) : null}
+
                     <section className="mode-panel">
                       <div className="section-header">
                         <div>
@@ -1138,6 +1902,10 @@ export function BotsPage() {
                           <span>{i18n._({ id: 'Delivery Mode', message: 'Delivery Mode' })}</span>
                           <strong>{selectedDeliveryModeLabel}</strong>
                         </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+                          <strong>{selectedCommandOutputModeLabel}</strong>
+                        </div>
                         {selectedConnectionUsesPolling ? (
                           <>
                             <div className="detail-row">
@@ -1165,6 +1933,32 @@ export function BotsPage() {
                           <strong>{formatBotTimestamp(selectedConnection.updatedAt)}</strong>
                         </div>
                         <div className="detail-row">
+                          <span>{i18n._({ id: 'Suppressed Replays (24h)', message: 'Suppressed Replays (24h)' })}</span>
+                          <strong>{selectedConnectionSuppressionSummary.suppressedCount || i18n._({ id: 'none', message: 'none' })}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Duplicate Deliveries Suppressed (24h)', message: 'Duplicate Deliveries Suppressed (24h)' })}</span>
+                          <strong>
+                            {selectedConnectionSuppressionSummary.duplicateSuppressedCount ||
+                              i18n._({ id: 'none', message: 'none' })}
+                          </strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Restart Replays Suppressed (24h)', message: 'Restart Replays Suppressed (24h)' })}</span>
+                          <strong>
+                            {selectedConnectionSuppressionSummary.recoverySuppressedCount ||
+                              i18n._({ id: 'none', message: 'none' })}
+                          </strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Last Suppressed Replay', message: 'Last Suppressed Replay' })}</span>
+                          <strong>
+                            {selectedConnectionSuppressionSummary.latestSuppressedAt
+                              ? formatBotTimestamp(selectedConnectionSuppressionSummary.latestSuppressedAt)
+                              : i18n._({ id: 'none', message: 'none' })}
+                          </strong>
+                        </div>
+                        <div className="detail-row">
                           <span>{i18n._({ id: 'Secret Keys', message: 'Secret Keys' })}</span>
                           <strong>
                             {selectedConnection.secretKeys?.join(', ') || i18n._({ id: 'none', message: 'none' })}
@@ -1174,6 +1968,16 @@ export function BotsPage() {
                           <span>{i18n._({ id: 'Provider Settings', message: 'Provider Settings' })}</span>
                           <strong>{summarizeBotMap(selectedConnection.settings)}</strong>
                         </div>
+                        {selectedProvider === 'wechat' ? (
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Saved WeChat Account', message: 'Saved WeChat Account' })}</span>
+                          <strong>
+                            {selectedConnectionWeChatAccount
+                              ? formatWeChatAccountLabel(selectedConnectionWeChatAccount)
+                              : i18n._({ id: 'none', message: 'none' })}
+                          </strong>
+                        </div>
+                        ) : null}
                         <div className="detail-row">
                           <span>{i18n._({ id: 'AI Config', message: 'AI Config' })}</span>
                           <strong>{summarizeBotMap(selectedConnection.aiConfig)}</strong>
@@ -1211,6 +2015,67 @@ export function BotsPage() {
                           })
                         }
                       />
+                    </section>
+
+                    <section className="mode-panel">
+                      <div className="section-header">
+                        <div>
+                          <h2>{i18n._({ id: 'Reply Formatting', message: 'Reply Formatting' })}</h2>
+                          <p>
+                            {i18n._({
+                              id: 'Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat.',
+                              message:
+                                'Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat.',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      <label className="field">
+                        <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+                        <SelectControl
+                          ariaLabel={i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}
+                          disabled={commandOutputModeMutation.isPending}
+                          fullWidth
+                          onChange={(nextValue) =>
+                            commandOutputModeMutation.mutate({
+                              workspaceId: selectedConnection.workspaceId,
+                              connectionId: selectedConnection.id,
+                              commandOutputMode: nextValue,
+                            })
+                          }
+                          options={commandOutputModeOptions}
+                          value={selectedCommandOutputMode}
+                        />
+                      </label>
+                      <p className="config-inline-note">
+                        {i18n._({
+                          id: 'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
+                          message:
+                            'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
+                        })}
+                      </p>
+                      {selectedProvider === 'wechat' ? (
+                        <Switch
+                          checked={selectedWeChatChannelTimingEnabled}
+                          disabled={wechatChannelTimingMutation.isPending}
+                          hint={i18n._({
+                            id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
+                            message:
+                              'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
+                          })}
+                          label={i18n._({
+                            id: 'Append WeChat Channel Timing',
+                            message: 'Append WeChat Channel Timing',
+                          })}
+                          onChange={(event) =>
+                            wechatChannelTimingMutation.mutate({
+                              workspaceId: selectedConnection.workspaceId,
+                              connectionId: selectedConnection.id,
+                              enabled: event.target.checked,
+                            })
+                          }
+                        />
+                      ) : null}
                     </section>
 
                     <section className="mode-panel mode-panel--flush">
@@ -1309,14 +2174,26 @@ export function BotsPage() {
 
       {createModalOpen ? (
         <Modal
-          description={i18n._({
-            id: 'Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
-            message:
-              'Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
-          })}
+          description={
+            isEditingConnection
+              ? i18n._({
+                  id: 'Update the provider delivery settings, credentials, and AI backend binding for this existing bot connection.',
+                  message:
+                    'Update the provider delivery settings, credentials, and AI backend binding for this existing bot connection.',
+                })
+              : i18n._({
+                  id: 'Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
+                  message:
+                    'Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
+                })
+          }
           footer={createModalFooter}
           onClose={closeCreateModal}
-          title={i18n._({ id: 'New Bot Connection', message: 'New Bot Connection' })}
+          title={
+            isEditingConnection
+              ? i18n._({ id: 'Edit Bot Connection', message: 'Edit Bot Connection' })
+              : i18n._({ id: 'New Bot Connection', message: 'New Bot Connection' })
+          }
         >
           <form
             className="form-stack"
@@ -1328,8 +2205,12 @@ export function BotsPage() {
             {formErrorMessage ? (
               <InlineNotice
                 dismissible
-                noticeKey={`create-bot-connection-${formErrorMessage}`}
-                title={i18n._({ id: 'Create Bot Connection Failed', message: 'Create Bot Connection Failed' })}
+                noticeKey={`${isEditingConnection ? 'edit' : 'create'}-bot-connection-${formErrorMessage}`}
+                title={
+                  isEditingConnection
+                    ? i18n._({ id: 'Update Bot Connection Failed', message: 'Update Bot Connection Failed' })
+                    : i18n._({ id: 'Create Bot Connection Failed', message: 'Create Bot Connection Failed' })
+                }
                 tone="error"
               >
                 {formErrorMessage}
@@ -1351,6 +2232,7 @@ export function BotsPage() {
                 <span>{i18n._({ id: 'Target Workspace', message: 'Target Workspace' })}</span>
                 <SelectControl
                   ariaLabel={i18n._({ id: 'Target Workspace', message: 'Target Workspace' })}
+                  disabled={isEditingConnection}
                   fullWidth
                   onChange={(nextValue) => setDraft((current) => ({ ...current, workspaceId: nextValue }))}
                   options={workspaces.map((workspace) => ({
@@ -1364,6 +2246,7 @@ export function BotsPage() {
                 <span>{i18n._({ id: 'Provider', message: 'Provider' })}</span>
                 <SelectControl
                   ariaLabel={i18n._({ id: 'Provider', message: 'Provider' })}
+                  disabled={isEditingConnection}
                   fullWidth
                   onChange={handleDraftProviderChange}
                   options={providerOptions}
@@ -1433,6 +2316,24 @@ export function BotsPage() {
               }
             />
 
+            <label className="field">
+              <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+              <SelectControl
+                ariaLabel={i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}
+                fullWidth
+                onChange={(nextValue) => setDraft((current) => ({ ...current, commandOutputMode: nextValue }))}
+                options={commandOutputModeOptions}
+                value={resolveBotCommandOutputMode(draft.commandOutputMode)}
+              />
+            </label>
+            <p className="config-inline-note">
+              {i18n._({
+                id: 'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
+                message:
+                  'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
+              })}
+            </p>
+
             {draftProvider === 'telegram' ? (
               <>
                 {draftTelegramDeliveryMode === 'webhook' ? (
@@ -1449,6 +2350,15 @@ export function BotsPage() {
                 ) : null}
 
                 <Input
+                  hint={
+                    isEditingConnection
+                      ? i18n._({
+                          id: 'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
+                          message:
+                            'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
+                        })
+                      : undefined
+                  }
                   label={i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
                   onChange={(event) => setDraft((current) => ({ ...current, telegramBotToken: event.target.value }))}
                   placeholder={i18n._({ id: '123456:ABCDEF...', message: '123456:ABCDEF...' })}
@@ -1481,7 +2391,136 @@ export function BotsPage() {
                   </label>
                 </div>
 
-                {draftWeChatCredentialSource === 'manual' ? (
+                <Input
+                  hint={i18n._({
+                    id: 'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
+                    message:
+                      'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
+                  })}
+                  label={i18n._({ id: 'WeChat Route Tag', message: 'WeChat Route Tag' })}
+                  onChange={(event) => setDraft((current) => ({ ...current, wechatRouteTag: event.target.value }))}
+                  placeholder={i18n._({ id: 'route-tag-1', message: 'route-tag-1' })}
+                  value={draft.wechatRouteTag}
+                />
+
+                <Switch
+                  checked={draft.wechatChannelTimingEnabled}
+                  hint={i18n._({
+                    id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
+                    message:
+                      'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
+                  })}
+                  label={i18n._({
+                    id: 'Append WeChat Channel Timing',
+                    message: 'Append WeChat Channel Timing',
+                  })}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, wechatChannelTimingEnabled: event.target.checked }))
+                  }
+                />
+
+                {draftWeChatCredentialSource === 'saved' ? (
+                  <>
+                    <label className="field">
+                      <span>{i18n._({ id: 'Saved WeChat Account', message: 'Saved WeChat Account' })}</span>
+                      <SelectControl
+                        ariaLabel={i18n._({ id: 'Saved WeChat Account', message: 'Saved WeChat Account' })}
+                        fullWidth
+                        onChange={(nextValue) =>
+                          setDraft((current) => ({
+                            ...current,
+                            wechatBaseUrl:
+                              savedWeChatAccounts.find((account) => account.id === nextValue)?.baseUrl ?? current.wechatBaseUrl,
+                            wechatSavedAccountId: nextValue,
+                          }))
+                        }
+                        options={savedWeChatAccountOptions}
+                        value={draft.wechatSavedAccountId}
+                      />
+                    </label>
+
+                    {wechatAccountsErrorMessage ? (
+                      <InlineNotice
+                        dismissible={false}
+                        noticeKey={`wechat-accounts-error-${wechatAccountsErrorMessage}`}
+                        title={i18n._({ id: 'Saved Account Lookup Failed', message: 'Saved Account Lookup Failed' })}
+                      >
+                        {wechatAccountsErrorMessage}
+                      </InlineNotice>
+                    ) : null}
+
+                    {!savedWeChatAccounts.length ? (
+                      <InlineNotice
+                        dismissible={false}
+                        noticeKey="wechat-saved-accounts-empty"
+                        title={i18n._({ id: 'No Saved Accounts Yet', message: 'No Saved Accounts Yet' })}
+                      >
+                        {i18n._({
+                          id: 'Complete one WeChat QR login first. Confirmed accounts are saved automatically and will appear here for reuse.',
+                          message:
+                            'Complete one WeChat QR login first. Confirmed accounts are saved automatically and will appear here for reuse.',
+                        })}
+                      </InlineNotice>
+                    ) : selectedSavedWeChatAccount ? (
+                      <>
+                        <div
+                          style={{
+                            alignItems: 'center',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <strong>{i18n._({ id: 'Saved Account Detail', message: 'Saved Account Detail' })}</strong>
+                          <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            <Button intent="ghost" onClick={() => openWeChatAccountEditModal(selectedSavedWeChatAccount)} type="button">
+                              {i18n._({ id: 'Edit Details', message: 'Edit Details' })}
+                            </Button>
+                            <Button
+                              className="ide-button--ghost-danger"
+                              intent="ghost"
+                              onClick={() => setDeleteWeChatAccountTarget(selectedSavedWeChatAccount)}
+                              type="button"
+                            >
+                              {i18n._({ id: 'Delete Saved Account', message: 'Delete Saved Account' })}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="detail-list">
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Label', message: 'Label' })}</span>
+                            <strong>{formatWeChatAccountLabel(selectedSavedWeChatAccount)}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Alias', message: 'Alias' })}</span>
+                            <strong>{selectedSavedWeChatAccount.alias?.trim() || i18n._({ id: 'none', message: 'none' })}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Account ID', message: 'Account ID' })}</span>
+                            <strong>{selectedSavedWeChatAccount.accountId}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Owner User ID', message: 'Owner User ID' })}</span>
+                            <strong>{selectedSavedWeChatAccount.userId}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Resolved Base URL', message: 'Resolved Base URL' })}</span>
+                            <strong>{selectedSavedWeChatAccount.baseUrl}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Last Confirmed', message: 'Last Confirmed' })}</span>
+                            <strong>{formatBotTimestamp(selectedSavedWeChatAccount.lastConfirmedAt)}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Notes', message: 'Notes' })}</span>
+                            <strong>{selectedSavedWeChatAccount.note?.trim() || i18n._({ id: 'none', message: 'none' })}</strong>
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                ) : draftWeChatCredentialSource === 'manual' ? (
                   <>
                     <div className="form-row">
                       <Input
@@ -1503,10 +2542,18 @@ export function BotsPage() {
                     </div>
 
                     <Input
-                      hint={i18n._({
-                        id: 'Enter the bot token issued by the WeChat iLink backend for this account.',
-                        message: 'Enter the bot token issued by the WeChat iLink backend for this account.',
-                      })}
+                      hint={
+                        isEditingConnection
+                          ? i18n._({
+                              id: 'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
+                              message:
+                                'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
+                            })
+                          : i18n._({
+                              id: 'Enter the bot token issued by the WeChat iLink backend for this account.',
+                              message: 'Enter the bot token issued by the WeChat iLink backend for this account.',
+                            })
+                      }
                       label={i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
                       onChange={(event) => setDraft((current) => ({ ...current, wechatBotToken: event.target.value }))}
                       placeholder={i18n._({ id: 'wechat-token-1', message: 'wechat-token-1' })}
@@ -1568,7 +2615,11 @@ export function BotsPage() {
                       <InlineNotice
                         dismissible={false}
                         noticeKey={`wechat-qr-credential-${draft.wechatLoginSessionId || 'idle'}-${draft.wechatLoginStatus || 'none'}`}
-                        title={i18n._({ id: 'QR Credentials Required', message: 'QR Credentials Required' })}
+                        title={
+                          hasDraftConfirmedWeChatLoginSession
+                            ? i18n._({ id: 'QR Session Ready', message: 'QR Session Ready' })
+                            : i18n._({ id: 'QR Credentials Required', message: 'QR Credentials Required' })
+                        }
                       >
                         {wechatQrCredentialNotice}
                       </InlineNotice>
@@ -1652,6 +2703,15 @@ export function BotsPage() {
               <>
                 <div className="form-row">
                   <Input
+                    hint={
+                      isEditingConnection
+                        ? i18n._({
+                            id: 'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
+                            message:
+                              'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
+                          })
+                        : undefined
+                    }
                     label={i18n._({ id: 'OpenAI API Key', message: 'OpenAI API Key' })}
                     onChange={(event) => setDraft((current) => ({ ...current, openAIApiKey: event.target.value }))}
                     placeholder={i18n._({ id: 'sk-...', message: 'sk-...' })}
@@ -1866,6 +2926,69 @@ export function BotsPage() {
         </Modal>
       ) : null}
 
+      {editWeChatAccountTarget ? (
+        <Modal
+          footer={
+            <>
+              <Button intent="secondary" onClick={closeWeChatAccountEditModal} type="button">
+                {i18n._({ id: 'Cancel', message: 'Cancel' })}
+              </Button>
+              <Button isLoading={updateWeChatAccountMutation.isPending} onClick={handleUpdateWeChatAccount} type="button">
+                {i18n._({ id: 'Save Account Details', message: 'Save Account Details' })}
+              </Button>
+            </>
+          }
+          onClose={closeWeChatAccountEditModal}
+          title={i18n._({ id: 'Edit Saved WeChat Account', message: 'Edit Saved WeChat Account' })}
+        >
+          <div className="form-stack">
+            {updateWeChatAccountErrorMessage ? (
+              <InlineNotice
+                dismissible={false}
+                noticeKey={`update-wechat-account-${updateWeChatAccountErrorMessage}`}
+                title={i18n._({ id: 'Update Saved Account Failed', message: 'Update Saved Account Failed' })}
+                tone="error"
+              >
+                {updateWeChatAccountErrorMessage}
+              </InlineNotice>
+            ) : null}
+
+            <div className="detail-list">
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Account', message: 'Account' })}</span>
+                <strong>{formatWeChatAccountLabel(editWeChatAccountTarget)}</strong>
+              </div>
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Resolved Base URL', message: 'Resolved Base URL' })}</span>
+                <strong>{editWeChatAccountTarget.baseUrl}</strong>
+              </div>
+            </div>
+
+            <Input
+              hint={i18n._({
+                id: 'Optional. Use a short label that makes this WeChat account easier to find later.',
+                message: 'Optional. Use a short label that makes this WeChat account easier to find later.',
+              })}
+              label={i18n._({ id: 'Alias', message: 'Alias' })}
+              onChange={(event) => setWeChatAccountAliasDraft(event.target.value)}
+              placeholder={i18n._({ id: 'Support Queue', message: 'Support Queue' })}
+              value={wechatAccountAliasDraft}
+            />
+
+            <TextArea
+              hint={i18n._({
+                id: 'Optional. Add operational notes such as owner, queue purpose, or handoff details.',
+                message: 'Optional. Add operational notes such as owner, queue purpose, or handoff details.',
+              })}
+              label={i18n._({ id: 'Notes', message: 'Notes' })}
+              onChange={(event) => setWeChatAccountNoteDraft(event.target.value)}
+              rows={5}
+              value={wechatAccountNoteDraft}
+            />
+          </div>
+        </Modal>
+      ) : null}
+
       {deleteTarget ? (
         <ConfirmDialog
           confirmLabel={i18n._({ id: 'Delete Connection', message: 'Delete Connection' })}
@@ -1885,6 +3008,53 @@ export function BotsPage() {
           title={i18n._({ id: 'Delete Bot Connection', message: 'Delete Bot Connection' })}
         />
       ) : null}
+
+      {deleteWeChatAccountTarget ? (
+        <ConfirmDialog
+          confirmLabel={i18n._({ id: 'Delete Saved Account', message: 'Delete Saved Account' })}
+          description={i18n._({
+            id: 'This only removes the saved WeChat account record for future reuse. Existing bot connections keep their own copied credentials.',
+            message:
+              'This only removes the saved WeChat account record for future reuse. Existing bot connections keep their own copied credentials.',
+          })}
+          error={deleteWeChatAccountErrorMessage}
+          isPending={deleteWeChatAccountMutation.isPending}
+          onClose={() => {
+            if (!deleteWeChatAccountMutation.isPending) {
+              setDeleteWeChatAccountTarget(null)
+            }
+          }}
+          onConfirm={handleDeleteWeChatAccountConfirm}
+          subject={formatWeChatAccountLabel(deleteWeChatAccountTarget)}
+          title={i18n._({ id: 'Delete Saved WeChat Account', message: 'Delete Saved WeChat Account' })}
+        />
+      ) : null}
+
+      {discardConnectionModalConfirmOpen ? (
+        <ConfirmDialog
+          cancelLabel={i18n._({ id: 'Keep Editing', message: 'Keep Editing' })}
+          confirmLabel={i18n._({ id: 'Discard Changes', message: 'Discard Changes' })}
+          description={
+            isEditingConnection
+              ? i18n._({
+                  id: 'Close the editor and discard the unsaved bot connection changes.',
+                  message: 'Close the editor and discard the unsaved bot connection changes.',
+                })
+              : i18n._({
+                  id: 'Close the new bot connection form and discard the unsaved draft.',
+                  message: 'Close the new bot connection form and discard the unsaved draft.',
+                })
+          }
+          onClose={() => setDiscardConnectionModalConfirmOpen(false)}
+          onConfirm={handleDiscardConnectionModalConfirm}
+          subject={draft.name.trim() || editTarget?.name || i18n._({ id: 'Untitled Connection', message: 'Untitled Connection' })}
+          title={
+            isEditingConnection
+              ? i18n._({ id: 'Discard Bot Connection Changes', message: 'Discard Bot Connection Changes' })
+              : i18n._({ id: 'Discard New Connection Draft', message: 'Discard New Connection Draft' })
+          }
+        />
+      ) : null}
     </section>
   )
 }
@@ -1902,4 +3072,38 @@ function formatWeChatLoginStatus(status: string) {
     default:
       return status || i18n._({ id: 'Unknown', message: 'Unknown' })
   }
+}
+
+function serializeBotsPageDraft(draft: BotsPageDraft) {
+  return JSON.stringify([
+    draft.workspaceId,
+    draft.provider,
+    draft.name,
+    draft.runtimeMode,
+    draft.commandOutputMode,
+    draft.telegramDeliveryMode,
+    draft.publicBaseUrl,
+    draft.wechatBaseUrl,
+    draft.wechatRouteTag,
+    draft.wechatChannelTimingEnabled,
+    draft.wechatCredentialSource,
+    draft.wechatSavedAccountId,
+    draft.wechatLoginSessionId,
+    draft.wechatLoginStatus,
+    draft.wechatQrCodeContent,
+    draft.aiBackend,
+    draft.telegramBotToken,
+    draft.wechatBotToken,
+    draft.wechatAccountId,
+    draft.wechatUserId,
+    draft.workspaceModel,
+    draft.workspaceReasoning,
+    draft.workspaceCollaborationMode,
+    draft.openAIApiKey,
+    draft.openAIBaseUrl,
+    draft.openAIModel,
+    draft.openAIInstructions,
+    draft.openAIReasoning,
+    draft.openAIStore,
+  ])
 }

@@ -1,16 +1,29 @@
-import type { CreateBotConnectionInput } from '../features/bots/api'
+import type { CreateBotConnectionInput, UpdateBotConnectionInput } from '../features/bots/api'
 import { i18n } from '../i18n/runtime'
-import type { BotConversation } from '../types/api'
+import type { BotConnection, BotConversation, WeChatAccount } from '../types/api'
+
+export const WECHAT_CHANNEL_TIMING_SETTING = 'wechat_channel_timing'
+export const WECHAT_CHANNEL_TIMING_ENABLED = 'enabled'
+export const WECHAT_CHANNEL_TIMING_DISABLED = 'disabled'
+export const BOT_COMMAND_OUTPUT_MODE_SETTING = 'command_output_mode'
+export const BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE = 'single_line'
+export const BOT_COMMAND_OUTPUT_MODE_BRIEF = 'brief'
+export const BOT_COMMAND_OUTPUT_MODE_DETAILED = 'detailed'
+export const BOT_COMMAND_OUTPUT_MODE_FULL = 'full'
 
 export type BotsPageDraft = {
   workspaceId: string
   provider: string
   name: string
   runtimeMode: string
+  commandOutputMode: string
   telegramDeliveryMode: string
   publicBaseUrl: string
   wechatBaseUrl: string
+  wechatRouteTag: string
+  wechatChannelTimingEnabled: boolean
   wechatCredentialSource: string
+  wechatSavedAccountId: string
   wechatLoginSessionId: string
   wechatLoginStatus: string
   wechatQrCodeContent: string
@@ -35,10 +48,14 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   provider: 'telegram',
   name: '',
   runtimeMode: 'normal',
+  commandOutputMode: BOT_COMMAND_OUTPUT_MODE_BRIEF,
   telegramDeliveryMode: 'webhook',
   publicBaseUrl: '',
   wechatBaseUrl: '',
+  wechatRouteTag: '',
+  wechatChannelTimingEnabled: false,
   wechatCredentialSource: 'manual',
+  wechatSavedAccountId: '',
   wechatLoginSessionId: '',
   wechatLoginStatus: '',
   wechatQrCodeContent: '',
@@ -63,6 +80,17 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   const settings: Record<string, string> = {}
   const secrets: Record<string, string> = {}
   const provider = draft.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
+  const commandOutputMode = resolveBotCommandOutputMode(draft.commandOutputMode)
+  const useConfirmedWeChatLoginSession =
+    provider === 'wechat' &&
+    draft.wechatCredentialSource.trim().toLowerCase() === 'qr' &&
+    draft.wechatLoginSessionId.trim().length > 0 &&
+    draft.wechatLoginStatus.trim().toLowerCase() === 'confirmed'
+  const useSavedWeChatAccount =
+    provider === 'wechat' &&
+    draft.wechatCredentialSource.trim().toLowerCase() === 'saved' &&
+    draft.wechatSavedAccountId.trim().length > 0
+  const useInlineWeChatCredentials = provider === 'wechat' && !useConfirmedWeChatLoginSession && !useSavedWeChatAccount
 
   if (provider === 'telegram') {
     settings.telegram_delivery_mode = draft.telegramDeliveryMode.trim() || 'webhook'
@@ -71,14 +99,27 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
     if (draft.wechatBaseUrl.trim()) {
       settings.wechat_base_url = draft.wechatBaseUrl.trim()
     }
-    if (draft.wechatAccountId.trim()) {
+    if (draft.wechatRouteTag.trim()) {
+      settings.wechat_route_tag = draft.wechatRouteTag.trim()
+    }
+    settings[WECHAT_CHANNEL_TIMING_SETTING] = draft.wechatChannelTimingEnabled
+      ? WECHAT_CHANNEL_TIMING_ENABLED
+      : WECHAT_CHANNEL_TIMING_DISABLED
+    if (useSavedWeChatAccount) {
+      settings.wechat_saved_account_id = draft.wechatSavedAccountId.trim()
+    }
+    if (useConfirmedWeChatLoginSession) {
+      settings.wechat_login_session_id = draft.wechatLoginSessionId.trim()
+    }
+    if (useInlineWeChatCredentials && draft.wechatAccountId.trim()) {
       settings.wechat_account_id = draft.wechatAccountId.trim()
     }
-    if (draft.wechatUserId.trim()) {
+    if (useInlineWeChatCredentials && draft.wechatUserId.trim()) {
       settings.wechat_owner_user_id = draft.wechatUserId.trim()
     }
   }
   settings.runtime_mode = draft.runtimeMode.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
+  settings[BOT_COMMAND_OUTPUT_MODE_SETTING] = commandOutputMode
 
   if (draft.aiBackend === 'workspace_thread') {
     if (draft.workspaceModel.trim()) {
@@ -113,7 +154,7 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   if (provider === 'telegram' && draft.telegramBotToken.trim()) {
     secrets.bot_token = draft.telegramBotToken.trim()
   }
-  if (provider === 'wechat' && draft.wechatBotToken.trim()) {
+  if (useInlineWeChatCredentials && draft.wechatBotToken.trim()) {
     secrets.bot_token = draft.wechatBotToken.trim()
   }
 
@@ -129,6 +170,89 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
     settings: Object.keys(settings).length ? settings : undefined,
     secrets: Object.keys(secrets).length ? secrets : undefined,
   }
+}
+
+export function buildBotConnectionUpdateInput(draft: BotsPageDraft): UpdateBotConnectionInput {
+  return buildBotConnectionCreateInput(draft)
+}
+
+export function buildBotsPageDraftFromConnection(
+  connection: BotConnection,
+  savedWeChatAccounts: WeChatAccount[] = [],
+): BotsPageDraft {
+  const provider = connection.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
+  const runtimeMode = connection.settings?.runtime_mode?.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
+  const aiBackend = connection.aiBackend.trim().toLowerCase() === 'openai_responses' ? 'openai_responses' : 'workspace_thread'
+  const linkedWeChatAccount =
+    provider === 'wechat'
+      ? savedWeChatAccounts.find((account) => isWeChatConnectionForAccount(connection, account)) ?? null
+      : null
+
+  return {
+    ...EMPTY_BOTS_PAGE_DRAFT,
+    workspaceId: connection.workspaceId,
+    provider,
+    name: connection.name,
+    runtimeMode,
+    commandOutputMode: resolveBotCommandOutputMode(connection.settings?.[BOT_COMMAND_OUTPUT_MODE_SETTING]),
+    telegramDeliveryMode:
+      provider === 'telegram' && connection.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling'
+        ? 'polling'
+        : 'webhook',
+    publicBaseUrl: resolveBotConnectionPublicBaseUrl(connection),
+    wechatBaseUrl: provider === 'wechat' ? connection.settings?.wechat_base_url?.trim() ?? '' : '',
+    wechatRouteTag: provider === 'wechat' ? connection.settings?.wechat_route_tag?.trim() ?? '' : '',
+    wechatChannelTimingEnabled:
+      provider === 'wechat' ? resolveWeChatChannelTimingEnabled(connection.settings, runtimeMode) : false,
+    wechatCredentialSource: provider === 'wechat' ? (linkedWeChatAccount ? 'saved' : 'manual') : 'manual',
+    wechatSavedAccountId: linkedWeChatAccount?.id ?? '',
+    aiBackend,
+    telegramBotToken: '',
+    wechatBotToken: '',
+    wechatAccountId: provider === 'wechat' ? connection.settings?.wechat_account_id?.trim() ?? '' : '',
+    wechatUserId: provider === 'wechat' ? connection.settings?.wechat_owner_user_id?.trim() ?? '' : '',
+    workspaceModel:
+      aiBackend === 'workspace_thread'
+        ? connection.aiConfig?.model?.trim() || EMPTY_BOTS_PAGE_DRAFT.workspaceModel
+        : EMPTY_BOTS_PAGE_DRAFT.workspaceModel,
+    workspaceReasoning:
+      aiBackend === 'workspace_thread'
+        ? connection.aiConfig?.reasoning_effort?.trim() || EMPTY_BOTS_PAGE_DRAFT.workspaceReasoning
+        : EMPTY_BOTS_PAGE_DRAFT.workspaceReasoning,
+    workspaceCollaborationMode:
+      aiBackend === 'workspace_thread'
+        ? connection.aiConfig?.collaboration_mode?.trim() || EMPTY_BOTS_PAGE_DRAFT.workspaceCollaborationMode
+        : EMPTY_BOTS_PAGE_DRAFT.workspaceCollaborationMode,
+    openAIBaseUrl: aiBackend === 'openai_responses' ? connection.settings?.openai_base_url?.trim() ?? '' : '',
+    openAIModel:
+      aiBackend === 'openai_responses'
+        ? connection.aiConfig?.model?.trim() || EMPTY_BOTS_PAGE_DRAFT.openAIModel
+        : EMPTY_BOTS_PAGE_DRAFT.openAIModel,
+    openAIInstructions: aiBackend === 'openai_responses' ? connection.aiConfig?.instructions?.trim() ?? '' : '',
+    openAIReasoning:
+      aiBackend === 'openai_responses'
+        ? connection.aiConfig?.reasoning_effort?.trim() || EMPTY_BOTS_PAGE_DRAFT.openAIReasoning
+        : EMPTY_BOTS_PAGE_DRAFT.openAIReasoning,
+    openAIStore: resolveBotConnectionOpenAIStore(connection.aiConfig?.store),
+  }
+}
+
+export function resolveBotConnectionPublicBaseUrl(connection: Pick<BotConnection, 'id' | 'provider' | 'settings'>) {
+  if (connection.provider.trim().toLowerCase() !== 'telegram') {
+    return ''
+  }
+
+  const webhookUrl = connection.settings?.webhook_url?.trim() ?? ''
+  const suffix = `/hooks/bots/${connection.id}`
+  if (!webhookUrl || !webhookUrl.endsWith(suffix)) {
+    return ''
+  }
+
+  return webhookUrl.slice(0, webhookUrl.length - suffix.length)
+}
+
+function resolveBotConnectionOpenAIStore(value: string | null | undefined) {
+  return value?.trim().toLowerCase() !== 'false'
 }
 
 export function formatBotProviderLabel(provider: string) {
@@ -152,6 +276,33 @@ export function formatBotBackendLabel(backend: string) {
       return i18n._({ id: 'OpenAI Responses', message: 'OpenAI Responses' })
     default:
       return backend
+  }
+}
+
+export function resolveBotCommandOutputMode(value: string | null | undefined) {
+  switch (value?.trim().toLowerCase()) {
+    case BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE:
+      return BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE
+    case BOT_COMMAND_OUTPUT_MODE_DETAILED:
+      return BOT_COMMAND_OUTPUT_MODE_DETAILED
+    case BOT_COMMAND_OUTPUT_MODE_FULL:
+      return BOT_COMMAND_OUTPUT_MODE_FULL
+    case BOT_COMMAND_OUTPUT_MODE_BRIEF:
+    default:
+      return BOT_COMMAND_OUTPUT_MODE_BRIEF
+  }
+}
+
+export function formatBotCommandOutputModeLabel(value: string) {
+  switch (resolveBotCommandOutputMode(value)) {
+    case BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE:
+      return i18n._({ id: 'Single Line', message: 'Single Line' })
+    case BOT_COMMAND_OUTPUT_MODE_DETAILED:
+      return i18n._({ id: 'Detailed', message: 'Detailed' })
+    case BOT_COMMAND_OUTPUT_MODE_FULL:
+      return i18n._({ id: 'Full Output', message: 'Full Output' })
+    default:
+      return i18n._({ id: 'Brief (3-5 lines)', message: 'Brief (3-5 lines)' })
   }
 }
 
@@ -191,4 +342,111 @@ export function formatBotConversationTitle(conversation: BotConversation) {
   }
 
   return baseTitle
+}
+
+export function formatWeChatAccountLabel(account: Pick<WeChatAccount, 'alias' | 'accountId' | 'userId'>) {
+  const alias = account.alias?.trim() ?? ''
+  const identity = `${account.accountId.trim()} · ${account.userId.trim()}`
+  if (alias === '') {
+    return identity
+  }
+  return `${alias} · ${identity}`
+}
+
+export function matchesWeChatAccountSearch(
+  account: Pick<WeChatAccount, 'alias' | 'note' | 'baseUrl' | 'accountId' | 'userId'>,
+  query: string,
+) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (normalizedQuery === '') {
+    return true
+  }
+
+  return [
+    account.alias ?? '',
+    account.note ?? '',
+    account.baseUrl,
+    account.accountId,
+    account.userId,
+  ].some((value) => value.trim().toLowerCase().includes(normalizedQuery))
+}
+
+export function findWeChatAccountForConnection(
+  accounts: WeChatAccount[],
+  connection: Pick<BotConnection, 'provider' | 'settings'> | null | undefined,
+) {
+  return accounts.find((account) => isWeChatConnectionForAccount(connection, account)) ?? null
+}
+
+export function matchesBotConnectionSearch(
+  connection: Pick<BotConnection, 'name' | 'provider' | 'status' | 'aiBackend'>,
+  query: string,
+  linkedWeChatAccount?: Pick<WeChatAccount, 'alias' | 'note' | 'accountId' | 'userId'> | null,
+) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (normalizedQuery === '') {
+    return true
+  }
+
+  return [
+    connection.name,
+    connection.provider,
+    connection.status,
+    connection.aiBackend,
+    linkedWeChatAccount?.alias ?? '',
+    linkedWeChatAccount?.note ?? '',
+    linkedWeChatAccount?.accountId ?? '',
+    linkedWeChatAccount?.userId ?? '',
+  ].some((value) => value.trim().toLowerCase().includes(normalizedQuery))
+}
+
+export function isWeChatConnectionForAccount(
+  connection: Pick<BotConnection, 'provider' | 'settings'> | null | undefined,
+  account: Pick<WeChatAccount, 'baseUrl' | 'accountId' | 'userId'> | null | undefined,
+) {
+  if (!connection || !account || connection.provider.trim().toLowerCase() !== 'wechat') {
+    return false
+  }
+
+  const connectionAccountId = connection.settings?.wechat_account_id?.trim() ?? ''
+  const connectionUserId = connection.settings?.wechat_owner_user_id?.trim() ?? ''
+  if (connectionAccountId === '' || connectionUserId === '') {
+    return false
+  }
+
+  const accountId = account.accountId.trim()
+  const userId = account.userId.trim()
+  if (connectionAccountId !== accountId || connectionUserId !== userId) {
+    return false
+  }
+
+  const connectionBaseUrl = connection.settings?.wechat_base_url?.trim() ?? ''
+  const accountBaseUrl = account.baseUrl.trim()
+  if (connectionBaseUrl !== '' && accountBaseUrl !== '' && connectionBaseUrl !== accountBaseUrl) {
+    return false
+  }
+
+  return true
+}
+
+export function listWeChatConnectionsForAccount(connections: BotConnection[], account: WeChatAccount) {
+  return connections.filter((connection) => isWeChatConnectionForAccount(connection, account))
+}
+
+export function countWeChatConnectionsForAccount(connections: BotConnection[], account: WeChatAccount) {
+  return listWeChatConnectionsForAccount(connections, account).length
+}
+
+export function resolveWeChatChannelTimingEnabled(
+  settings: Record<string, string> | null | undefined,
+  runtimeMode: string,
+) {
+  const configured = settings?.[WECHAT_CHANNEL_TIMING_SETTING]?.trim().toLowerCase()
+  if (configured === WECHAT_CHANNEL_TIMING_ENABLED) {
+    return true
+  }
+  if (configured === WECHAT_CHANNEL_TIMING_DISABLED) {
+    return false
+  }
+  return runtimeMode.trim().toLowerCase() === 'debug'
 }

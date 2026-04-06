@@ -92,6 +92,8 @@ export type NotificationItem = {
   automationId?: string
   automationTitle?: string
   runId?: string
+  botConnectionId?: string
+  botConnectionName?: string
   kind: string
   title: string
   message: string
@@ -161,6 +163,20 @@ export type WeChatLogin = {
   createdAt: string
   updatedAt: string
   expiresAt?: string
+}
+
+export type WeChatAccount = {
+  id: string
+  workspaceId: string
+  alias?: string
+  note?: string
+  baseUrl: string
+  accountId: string
+  userId: string
+  lastLoginId?: string
+  lastConfirmedAt: string
+  createdAt: string
+  updatedAt: string
 }
 
 export type Thread = {

@@ -781,6 +781,7 @@
 
   .automation-run-card__header,
   .automation-run-card__meta,
+  .automation-run-log__meta,
   .automation-run-log__entry,
   .web-ide__notification-item-header,
   .web-ide__notification-item-meta {
@@ -790,6 +791,12 @@
 
   .automation-run-log__timestamp {
     flex-basis: auto;
+  }
+
+  .bot-connection-log-toolbar,
+  .bot-connection-log-toolbar__summary {
+    align-items: flex-start;
+    justify-content: flex-start;
   }
 
   .directory-item {
