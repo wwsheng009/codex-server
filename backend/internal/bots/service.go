@@ -866,12 +866,6 @@ func (s *Service) startProviderTyping(
 		return nil
 	}
 
-	if _, ok := provider.(StreamingProvider); ok {
-		if _, ok := aiBackend.(StreamingAIBackend); ok {
-			return nil
-		}
-	}
-
 	typingProvider, ok := provider.(TypingProvider)
 	if !ok {
 		return nil

@@ -471,6 +471,163 @@ func (p *wechatProvider) SendMessages(
 	return nil
 }
 
+func (p *wechatProvider) StartStreamingReply(
+	_ context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (StreamingReplySession, error) {
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return nil, fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
+	}
+
+	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
+	if _, err := parseWeChatBaseURL(baseURL); err != nil {
+		return nil, err
+	}
+
+	toUserID := strings.TrimSpace(conversation.ExternalChatID)
+	if toUserID == "" {
+		return nil, fmt.Errorf("%w: wechat external chat id is required", ErrInvalidInput)
+	}
+
+	contextToken := strings.TrimSpace(conversation.ProviderState[wechatContextTokenKey])
+	if contextToken == "" {
+		return nil, fmt.Errorf("%w: wechat context token is required before sending replies", ErrInvalidInput)
+	}
+
+	return &wechatStreamingReplySession{
+		provider:     p,
+		connection:   connection,
+		conversation: conversation,
+	}, nil
+}
+
+type wechatStreamingReplySession struct {
+	provider     *wechatProvider
+	connection   store.BotConnection
+	conversation store.BotConversation
+
+	mu            sync.Mutex
+	sentMessages  []OutboundMessage
+	streamStopped bool
+}
+
+func (s *wechatStreamingReplySession) Update(ctx context.Context, update StreamingUpdate) error {
+	if s == nil || s.provider == nil {
+		return nil
+	}
+
+	current := normalizeStreamingMessages(update)
+	if len(current) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	if s.streamStopped {
+		s.mu.Unlock()
+		return nil
+	}
+
+	toSend, canContinue := nextWeChatStreamingCommittedMessages(s.sentMessages, current)
+	if !canContinue {
+		s.streamStopped = true
+		s.mu.Unlock()
+		return nil
+	}
+	s.sentMessages = append(cloneOutboundMessages(s.sentMessages), cloneOutboundMessages(toSend)...)
+	s.mu.Unlock()
+
+	if len(toSend) == 0 {
+		return nil
+	}
+	return s.provider.SendMessages(ctx, s.connection, s.conversation, toSend)
+}
+
+func (s *wechatStreamingReplySession) Complete(ctx context.Context, messages []OutboundMessage) error {
+	if s == nil || s.provider == nil {
+		return nil
+	}
+
+	finalMessages := cloneOutboundMessages(messages)
+	if len(finalMessages) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	toSend, ok := remainingWeChatStreamingMessages(s.sentMessages, finalMessages)
+	if ok {
+		s.sentMessages = cloneOutboundMessages(finalMessages)
+	}
+	s.mu.Unlock()
+
+	if !ok || len(toSend) == 0 {
+		return nil
+	}
+	return s.provider.SendMessages(ctx, s.connection, s.conversation, toSend)
+}
+
+func (s *wechatStreamingReplySession) Fail(ctx context.Context, text string) error {
+	if s == nil || s.provider == nil {
+		return nil
+	}
+
+	text = strings.TrimSpace(text)
+	if text == "" {
+		text = defaultStreamingFailureText
+	}
+	return s.provider.SendMessages(ctx, s.connection, s.conversation, []OutboundMessage{{Text: text}})
+}
+
+func nextWeChatStreamingCommittedMessages(sent []OutboundMessage, current []OutboundMessage) ([]OutboundMessage, bool) {
+	if len(current) <= 1 {
+		return nil, true
+	}
+
+	commitEnd := len(current) - 1
+	if commitEnd <= len(sent) {
+		return nil, hasOutboundMessagePrefix(current, sent)
+	}
+	if !hasOutboundMessagePrefix(current, sent) {
+		return nil, false
+	}
+
+	return cloneOutboundMessages(current[len(sent):commitEnd]), true
+}
+
+func remainingWeChatStreamingMessages(sent []OutboundMessage, final []OutboundMessage) ([]OutboundMessage, bool) {
+	if len(final) == 0 {
+		return nil, true
+	}
+	if len(sent) == 0 {
+		return cloneOutboundMessages(final), true
+	}
+	if !hasOutboundMessagePrefix(final, sent) {
+		return nil, false
+	}
+	if len(final) <= len(sent) {
+		return nil, true
+	}
+	return cloneOutboundMessages(final[len(sent):]), true
+}
+
+func hasOutboundMessagePrefix(messages []OutboundMessage, prefix []OutboundMessage) bool {
+	if len(prefix) > len(messages) {
+		return false
+	}
+	for index := range prefix {
+		if !equalOutboundMessage(messages[index], prefix[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalOutboundMessage(left OutboundMessage, right OutboundMessage) bool {
+	return strings.TrimSpace(left.Text) == strings.TrimSpace(right.Text) &&
+		equalBotMessageMediaList(left.Media, right.Media)
+}
+
 func (p *wechatProvider) StartTyping(
 	ctx context.Context,
 	connection store.BotConnection,

@@ -395,6 +395,96 @@ func TestWeChatProviderStartTypingUsesGetConfigAndCachesTypingTicket(t *testing.
 	}
 }
 
+func TestWeChatStreamingReplySessionSendsCommittedSegmentsBeforeCompletion(t *testing.T) {
+	t.Parallel()
+
+	var payloads []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ilink/bot/sendmessage" {
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		payloads = append(payloads, payload)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret":     0,
+			"errcode": 0,
+			"errmsg":  "",
+		})
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_stream_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatAccountIDSetting:    "wechat-account-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+	conversation := store.BotConversation{
+		ExternalChatID: "wechat-user-stream-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-stream-1",
+		},
+	}
+
+	session, err := provider.StartStreamingReply(context.Background(), connection, conversation)
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "segment 1"}},
+	}); err != nil {
+		t.Fatalf("first Update() error = %v", err)
+	}
+	if len(payloads) != 0 {
+		t.Fatalf("expected first incomplete segment to stay buffered, got %#v", payloads)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{
+			{Text: "segment 1"},
+			{Text: "segment 2"},
+		},
+	}); err != nil {
+		t.Fatalf("second Update() error = %v", err)
+	}
+	if len(payloads) != 1 {
+		t.Fatalf("expected first committed segment to send before completion, got %#v", payloads)
+	}
+	if got := wechatTextFromSendPayload(payloads[0]); got != "segment 1" {
+		t.Fatalf("expected first committed segment text segment 1, got %q", got)
+	}
+
+	if err := session.Complete(context.Background(), []OutboundMessage{
+		{Text: "segment 1"},
+		{Text: "segment 2"},
+		{Text: "segment 3"},
+	}); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	if len(payloads) != 3 {
+		t.Fatalf("expected remaining segments to flush on completion, got %#v", payloads)
+	}
+	if got := wechatTextFromSendPayload(payloads[1]); got != "segment 2" {
+		t.Fatalf("expected second committed segment text segment 2, got %q", got)
+	}
+	if got := wechatTextFromSendPayload(payloads[2]); got != "segment 3" {
+		t.Fatalf("expected final segment text segment 3, got %q", got)
+	}
+}
+
 func TestBuildWeChatOutboundMediaItemEncodesAESKeyAsBase64HexString(t *testing.T) {
 	t.Parallel()
 
@@ -553,4 +643,15 @@ func TestWeChatProviderRunPollingReceivesEncryptedFileAttachment(t *testing.T) {
 	if !strings.Contains(messages[0].Text, "[WeChat file attachment]") {
 		t.Fatalf("expected message summary text to mention file attachment, got %q", messages[0].Text)
 	}
+}
+
+func wechatTextFromSendPayload(payload map[string]any) string {
+	msg, _ := payload["msg"].(map[string]any)
+	itemList, _ := msg["item_list"].([]any)
+	if len(itemList) == 0 {
+		return ""
+	}
+	firstItem, _ := itemList[0].(map[string]any)
+	textItem, _ := firstItem["text_item"].(map[string]any)
+	return strings.TrimSpace(stringValue(textItem["text"]))
 }
