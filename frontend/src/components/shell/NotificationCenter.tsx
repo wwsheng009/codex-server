@@ -1,21 +1,20 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 import {
   clearReadNotifications,
-  listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from '../../features/notifications/api'
 import {
   buildNotificationItemFromEvent,
-  collectRealtimeNotificationWorkspaceIds,
-  resolveActiveNotificationWorkspaceId,
+  formatNotificationRealtimeDiagnosticsChangeTrigger,
+  formatRealtimeNotificationWorkspaceReason,
   upsertNotificationItem,
 } from '../../features/notifications/notificationStreamUtils'
-import { listWorkspaces } from '../../features/workspaces/api'
+import { useNotificationRealtimeDiagnostics } from '../../features/notifications/useNotificationRealtimeDiagnostics'
 import {
   useWorkspaceEventSubscription,
   useWorkspaceStreams,
@@ -23,7 +22,10 @@ import {
 import { formatLocaleDateTime, formatLocaleNumber } from '../../i18n/format'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
-import { useSessionStore } from '../../stores/session-store'
+import {
+  frontendDebugLog,
+  isFrontendDebugModeEnabled,
+} from '../../lib/frontend-runtime-mode'
 import type { NotificationItem } from '../../types/api'
 import { Button } from '../ui/Button'
 import { InlineNotice } from '../ui/InlineNotice'
@@ -53,7 +55,6 @@ function BellIcon() {
 }
 
 export function NotificationCenter({ compact = false }: NotificationCenterProps) {
-  const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [isOpen, setIsOpen] = useState(false)
@@ -66,19 +67,15 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
   const seenNotificationIdsRef = useRef<Set<string>>(new Set())
   const notificationsInitializedRef = useRef(false)
   const dialogId = useId()
-  const selectedWorkspaceId = useSessionStore((state) => state.selectedWorkspaceId)
-  const workspacesQuery = useQuery({
-    queryKey: ['shell-workspaces'],
-    queryFn: listWorkspaces,
-    staleTime: 30_000,
-  })
-
-  const notificationsQuery = useQuery({
-    queryKey: ['notifications'],
-    queryFn: listNotifications,
-    refetchInterval: 15_000,
-    staleTime: 15_000,
-  })
+  const {
+    diagnosticsHistory,
+    diagnosticsLastChangedAt,
+    liveWorkspaceDiagnostics,
+    liveWorkspaceIds,
+    notifications,
+    notificationsQuery,
+    workspaceNameById,
+  } = useNotificationRealtimeDiagnostics()
   const markReadMutation = useMutation({
     mutationFn: (notificationId: string) => markNotificationRead(notificationId),
     onSuccess: async () => {
@@ -98,26 +95,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
     },
   })
 
-  const notifications = notificationsQuery.data ?? []
-  const workspaceNameById = useMemo(
-    () =>
-      Object.fromEntries(
-        (workspacesQuery.data ?? []).map((workspace) => [workspace.id, workspace.name]),
-      ),
-    [workspacesQuery.data],
-  )
-  const activeWorkspaceId = useMemo(
-    () => resolveActiveNotificationWorkspaceId(location.pathname, selectedWorkspaceId),
-    [location.pathname, selectedWorkspaceId],
-  )
-  const liveWorkspaceIds = useMemo(
-    () =>
-      collectRealtimeNotificationWorkspaceIds({
-        activeWorkspaceId,
-        notifications,
-      }),
-    [activeWorkspaceId, notifications],
-  )
+  const isFrontendDebugMode = isFrontendDebugModeEnabled()
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,
     [notifications],
@@ -126,8 +104,26 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
     () => notifications.some((notification) => notification.read),
     [notifications],
   )
+  const latestDiagnosticsEntry = diagnosticsHistory[0] ?? null
 
   useWorkspaceStreams(liveWorkspaceIds)
+
+  useEffect(() => {
+    if (!latestDiagnosticsEntry) {
+      return
+    }
+
+    frontendDebugLog('notifications', 'live workspace subscriptions updated', {
+      activeWorkspaceId: latestDiagnosticsEntry.activeWorkspaceId || null,
+      changedAt: latestDiagnosticsEntry.changedAt,
+      routePath: latestDiagnosticsEntry.routePath || null,
+      triggers: latestDiagnosticsEntry.changeTriggerCodes,
+      subscriptions: latestDiagnosticsEntry.subscriptions.map((subscription) => ({
+        workspaceId: subscription.workspaceId,
+        reasons: subscription.reasonCodes,
+      })),
+    })
+  }, [latestDiagnosticsEntry])
 
   useWorkspaceEventSubscription(liveWorkspaceIds, (event) => {
     const notification = buildNotificationItemFromEvent(event, workspaceNameById)
@@ -358,6 +354,153 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
               >
                 {getErrorMessage(notificationsQuery.error)}
               </InlineNotice>
+            ) : null}
+
+            {isFrontendDebugMode ? (
+              <details className="web-ide__notification-debug">
+                <summary>
+                  {i18n._({
+                    id: 'Realtime Subscription Diagnostics',
+                    message: 'Realtime Subscription Diagnostics',
+                  })}
+                  <span className="meta-pill meta-pill--warning">
+                    {i18n._({
+                      id: '{count} workspaces live',
+                      message: '{count} workspaces live',
+                      values: { count: formatLocaleNumber(liveWorkspaceDiagnostics.length) },
+                    })}
+                  </span>
+                </summary>
+                <div className="web-ide__notification-debug-copy">
+                  {i18n._({
+                    id: 'Debug mode shows which workspaces keep notification websocket subscriptions active and why.',
+                    message:
+                      'Debug mode shows which workspaces keep notification websocket subscriptions active and why.',
+                  })}
+                </div>
+                <div className="web-ide__notification-debug-copy">
+                  {diagnosticsLastChangedAt
+                    ? i18n._({
+                        id: 'Last changed: {timestamp}',
+                        message: 'Last changed: {timestamp}',
+                        values: {
+                          timestamp: formatTimestamp(diagnosticsLastChangedAt),
+                        },
+                      })
+                    : i18n._({
+                        id: 'No realtime subscription change has been recorded yet in this browser session.',
+                        message:
+                          'No realtime subscription change has been recorded yet in this browser session.',
+                      })}
+                </div>
+                <div className="web-ide__notification-debug-list">
+                  {liveWorkspaceDiagnostics.length ? (
+                    liveWorkspaceDiagnostics.map((subscription) => (
+                      <div className="web-ide__notification-debug-item" key={subscription.workspaceId}>
+                        <div className="web-ide__notification-debug-item-header">
+                          <strong>
+                            {workspaceNameById[subscription.workspaceId] || subscription.workspaceId}
+                          </strong>
+                          <span className="web-ide__notification-debug-item-id">
+                            {subscription.workspaceId}
+                          </span>
+                        </div>
+                        <div className="web-ide__notification-debug-reasons">
+                          {subscription.reasonCodes.map((reasonCode) => (
+                            <span className="meta-pill" key={`${subscription.workspaceId}-${reasonCode}`}>
+                              {formatRealtimeNotificationWorkspaceReason(reasonCode)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="notice">
+                      {i18n._({
+                        id: 'No live workspace subscriptions are currently required.',
+                        message: 'No live workspace subscriptions are currently required.',
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className="web-ide__notification-debug-history">
+                  <strong>
+                    {i18n._({
+                      id: 'Recent Changes',
+                      message: 'Recent Changes',
+                    })}
+                  </strong>
+                  {diagnosticsHistory.length ? (
+                    diagnosticsHistory.map((entry) => (
+                      <div
+                        className="web-ide__notification-debug-history-item"
+                        key={`${entry.changedAt}-${entry.signature}`}
+                      >
+                        <div className="web-ide__notification-debug-history-item-header">
+                          <span>{formatTimestamp(entry.changedAt)}</span>
+                          <span className="meta-pill">
+                            {i18n._({
+                              id: '{count} workspaces',
+                              message: '{count} workspaces',
+                              values: { count: formatLocaleNumber(entry.subscriptions.length) },
+                            })}
+                          </span>
+                        </div>
+                        <div className="web-ide__notification-debug-history-item-triggers">
+                          {entry.changeTriggerCodes.map((triggerCode) => (
+                            <span className="meta-pill" key={`${entry.signature}-${triggerCode}`}>
+                              {formatNotificationRealtimeDiagnosticsChangeTrigger(triggerCode)}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="web-ide__notification-debug-history-item-copy">
+                          {entry.activeWorkspaceId
+                            ? i18n._({
+                                id: 'Active workspace candidate: {workspaceId}',
+                                message: 'Active workspace candidate: {workspaceId}',
+                                values: { workspaceId: entry.activeWorkspaceId },
+                              })
+                            : i18n._({
+                                id: 'No active workspace candidate',
+                                message: 'No active workspace candidate',
+                              })}
+                        </div>
+                        <div className="web-ide__notification-debug-history-item-copy">
+                          {entry.routePath
+                            ? i18n._({
+                                id: 'Route context: {routePath}',
+                                message: 'Route context: {routePath}',
+                                values: { routePath: entry.routePath },
+                              })
+                            : i18n._({
+                                id: 'No route context recorded',
+                                message: 'No route context recorded',
+                              })}
+                        </div>
+                        <div className="web-ide__notification-debug-history-item-copy">
+                          {entry.subscriptions.length
+                            ? entry.subscriptions
+                                .map((subscription) =>
+                                  workspaceNameById[subscription.workspaceId] || subscription.workspaceId,
+                                )
+                                .join(', ')
+                            : i18n._({
+                                id: 'No live workspaces',
+                                message: 'No live workspaces',
+                              })}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="notice">
+                      {i18n._({
+                        id: 'No realtime subscription changes recorded yet.',
+                        message: 'No realtime subscription changes recorded yet.',
+                      })}
+                    </div>
+                  )}
+                </div>
+              </details>
             ) : null}
 
             <div className="web-ide__notification-list">

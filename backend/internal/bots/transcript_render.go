@@ -88,6 +88,10 @@ func renderBotCommandExecutionItem(item map[string]any, config botTranscriptRend
 	status := strings.TrimSpace(stringValue(item["status"]))
 	commandOutputMode := normalizeBotTranscriptRenderConfig(config).CommandOutputMode
 
+	if commandOutputMode == botCommandOutputModeNone {
+		return ""
+	}
+
 	if commandOutputMode == botCommandOutputModeSingleLine {
 		return renderBotCommandExecutionSingleLine(command, status, output)
 	}

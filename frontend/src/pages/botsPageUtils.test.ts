@@ -4,6 +4,7 @@ import { i18n } from '../i18n/runtime'
 import {
   BOT_COMMAND_OUTPUT_MODE_BRIEF,
   BOT_COMMAND_OUTPUT_MODE_FULL,
+  BOT_COMMAND_OUTPUT_MODE_NONE,
   BOT_COMMAND_OUTPUT_MODE_SETTING,
   BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
   buildBotConnectionUpdateInput,
@@ -279,18 +280,20 @@ describe('botsPageUtils', () => {
   it('writes the configured command output mode into bot settings', () => {
     const input = buildBotConnectionCreateInput({
       ...EMPTY_BOTS_PAGE_DRAFT,
-      commandOutputMode: BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
+      commandOutputMode: BOT_COMMAND_OUTPUT_MODE_NONE,
       telegramBotToken: 'token-brief',
     })
 
-    expect(input.settings?.[BOT_COMMAND_OUTPUT_MODE_SETTING]).toBe(BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE)
+    expect(input.settings?.[BOT_COMMAND_OUTPUT_MODE_SETTING]).toBe(BOT_COMMAND_OUTPUT_MODE_NONE)
   })
 
   it('resolves and formats bot command output modes with a brief default', () => {
     expect(resolveBotCommandOutputMode(undefined)).toBe(BOT_COMMAND_OUTPUT_MODE_BRIEF)
     expect(resolveBotCommandOutputMode('unknown')).toBe(BOT_COMMAND_OUTPUT_MODE_BRIEF)
+    expect(resolveBotCommandOutputMode(BOT_COMMAND_OUTPUT_MODE_NONE)).toBe(BOT_COMMAND_OUTPUT_MODE_NONE)
     expect(resolveBotCommandOutputMode(BOT_COMMAND_OUTPUT_MODE_FULL)).toBe(BOT_COMMAND_OUTPUT_MODE_FULL)
 
+    expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_NONE)).toBe('No Command Output')
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE)).toBe('Single Line')
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_BRIEF)).toBe('Brief (3-5 lines)')
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_FULL)).toBe('Full Output')

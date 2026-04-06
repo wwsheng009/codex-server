@@ -9,6 +9,7 @@ import (
 
 const (
 	botCommandOutputModeSetting    = "command_output_mode"
+	botCommandOutputModeNone       = "none"
 	botCommandOutputModeSingleLine = "single_line"
 	botCommandOutputModeBrief      = "brief"
 	botCommandOutputModeDetailed   = "detailed"
@@ -19,6 +20,8 @@ func normalizeBotCommandOutputMode(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", botCommandOutputModeBrief:
 		return botCommandOutputModeBrief, nil
+	case botCommandOutputModeNone:
+		return botCommandOutputModeNone, nil
 	case botCommandOutputModeSingleLine:
 		return botCommandOutputModeSingleLine, nil
 	case botCommandOutputModeDetailed:
@@ -27,7 +30,7 @@ func normalizeBotCommandOutputMode(value string) (string, error) {
 		return botCommandOutputModeFull, nil
 	default:
 		return "", fmt.Errorf(
-			"%w: bot command output mode must be single_line, brief, detailed, or full",
+			"%w: bot command output mode must be none, single_line, brief, detailed, or full",
 			ErrInvalidInput,
 		)
 	}

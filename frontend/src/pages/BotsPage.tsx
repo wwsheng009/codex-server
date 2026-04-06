@@ -42,6 +42,7 @@ import {
   BOT_COMMAND_OUTPUT_MODE_BRIEF,
   BOT_COMMAND_OUTPUT_MODE_DETAILED,
   BOT_COMMAND_OUTPUT_MODE_FULL,
+  BOT_COMMAND_OUTPUT_MODE_NONE,
   BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
   buildBotConnectionCreateInput,
   buildBotConnectionUpdateInput,
@@ -374,6 +375,10 @@ export function BotsPage() {
 
   const commandOutputModeOptions = useMemo(
     () => [
+      {
+        value: BOT_COMMAND_OUTPUT_MODE_NONE,
+        label: i18n._({ id: 'No Command Output', message: 'No Command Output' }),
+      },
       {
         value: BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
         label: i18n._({ id: 'Single Line', message: 'Single Line' }),
@@ -2049,6 +2054,10 @@ export function BotsPage() {
                       </label>
                       <p className="config-inline-note">
                         {i18n._({
+                          id: 'No Command Output omits command items entirely.',
+                          message: 'No Command Output omits command items entirely.',
+                        })}{' '}
+                        {i18n._({
                           id: 'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
                           message:
                             'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
@@ -2327,6 +2336,10 @@ export function BotsPage() {
               />
             </label>
             <p className="config-inline-note">
+              {i18n._({
+                id: 'No Command Output omits command items entirely.',
+                message: 'No Command Output omits command items entirely.',
+              })}{' '}
               {i18n._({
                 id: 'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
                 message:

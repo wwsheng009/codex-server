@@ -3918,6 +3918,18 @@ msgid "No"
 msgstr "No"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:380
+#: src/pages/botsPageUtils.ts:301
+msgid "No Command Output"
+msgstr "No Command Output"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2054
+#: src/pages/BotsPage.tsx:2333
+msgid "No Command Output omits command items entirely."
+msgstr "No Command Output omits command items entirely."
+
+#. js-lingui-explicit-id
 #: src/pages/settings/GeneralSettingsPage.tsx:98
 #: src/pages/thread-page/ThreadComposerDock.tsx:397
 msgid "No account connected"

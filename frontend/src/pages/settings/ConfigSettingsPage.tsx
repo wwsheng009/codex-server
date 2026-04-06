@@ -44,6 +44,11 @@ import { i18n } from '../../i18n/runtime'
 import { formatLocaleDateTime } from '../../i18n/format'
 import { getErrorMessage } from '../../lib/error-utils'
 import {
+  formatNotificationRealtimeDiagnosticsChangeTrigger,
+  formatRealtimeNotificationWorkspaceReason,
+} from '../../features/notifications/notificationStreamUtils'
+import { useNotificationRealtimeDiagnostics } from '../../features/notifications/useNotificationRealtimeDiagnostics'
+import {
   readFrontendRuntimeMode,
   writeFrontendRuntimeMode,
 } from '../../lib/frontend-runtime-mode'
@@ -83,6 +88,14 @@ export function ConfigSettingsPage() {
   const queryClient = useQueryClient()
   const { workspaceId, workspaceName } = useSettingsShellContext()
   const pushToast = useUIStore((state) => state.pushToast)
+  const {
+    activeWorkspaceId: notificationDiagnosticsActiveWorkspaceId,
+    diagnosticsHistory: notificationDiagnosticsHistory,
+    diagnosticsLastChangedAt: notificationDiagnosticsLastChangedAt,
+    liveWorkspaceDiagnostics: notificationRealtimeDiagnostics,
+    notificationsQuery: notificationDiagnosticsQuery,
+    workspaceNameById: notificationDiagnosticsWorkspaceNameById,
+  } = useNotificationRealtimeDiagnostics()
   const [configKeyPath, setConfigKeyPath] = useState('model')
   const [configValue, setConfigValue] = useState('"gpt-5.4"')
   const [modelCatalogPath, setModelCatalogPath] = useState('')
@@ -900,6 +913,220 @@ export function ConfigSettingsPage() {
                     writeFrontendRuntimeMode(nextMode)
                   }}
                 />
+
+                {frontendRuntimeMode === 'debug' ? (
+                  <div className="config-card config-card--muted config-notification-diagnostics">
+                    <div className="config-card__header">
+                      <strong>
+                        {i18n._({
+                          id: 'Notification Realtime Diagnostics',
+                          message: 'Notification Realtime Diagnostics',
+                        })}
+                      </strong>
+                      <div className="setting-row__actions">
+                        <span className="meta-pill meta-pill--warning">
+                          {i18n._({
+                            id: '{count} workspaces live',
+                            message: '{count} workspaces live',
+                            values: { count: notificationRealtimeDiagnostics.length },
+                          })}
+                        </span>
+                        {notificationDiagnosticsActiveWorkspaceId ? (
+                          <span className="meta-pill">
+                            {notificationDiagnosticsActiveWorkspaceId}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <p className="config-inline-note">
+                      {i18n._({
+                        id: 'Mirrors the browser-side NotificationCenter subscription logic for this session. It reflects current route context, unread notifications, and recent bot replay suppression alerts.',
+                        message:
+                          'Mirrors the browser-side NotificationCenter subscription logic for this session. It reflects current route context, unread notifications, and recent bot replay suppression alerts.',
+                      })}
+                    </p>
+                    <p className="config-inline-note">
+                      {notificationDiagnosticsActiveWorkspaceId
+                        ? i18n._({
+                            id: 'Current live active workspace candidate: {workspaceId}. Settings scope may differ if you switched workspaces inside Settings without changing the main app selection.',
+                            message:
+                              'Current live active workspace candidate: {workspaceId}. Settings scope may differ if you switched workspaces inside Settings without changing the main app selection.',
+                            values: { workspaceId: notificationDiagnosticsActiveWorkspaceId },
+                          })
+                        : i18n._({
+                            id: 'No active workspace candidate is currently selected from the main app route context.',
+                            message:
+                              'No active workspace candidate is currently selected from the main app route context.',
+                          })}
+                    </p>
+                    <p className="config-inline-note">
+                      {notificationDiagnosticsLastChangedAt
+                        ? i18n._({
+                            id: 'Last diagnostics change in this browser session: {timestamp}',
+                            message:
+                              'Last diagnostics change in this browser session: {timestamp}',
+                            values: {
+                              timestamp: formatLocaleDateTime(notificationDiagnosticsLastChangedAt),
+                            },
+                          })
+                        : i18n._({
+                            id: 'No realtime subscription change has been recorded yet in this browser session.',
+                            message:
+                              'No realtime subscription change has been recorded yet in this browser session.',
+                          })}
+                    </p>
+
+                    {notificationDiagnosticsQuery.error ? (
+                      <InlineNotice
+                        dismissible
+                        noticeKey={`config-notification-diagnostics-${getErrorMessage(notificationDiagnosticsQuery.error)}`}
+                        title={i18n._({
+                          id: 'Notification Diagnostics Failed',
+                          message: 'Notification Diagnostics Failed',
+                        })}
+                        tone="error"
+                      >
+                        {getErrorMessage(notificationDiagnosticsQuery.error)}
+                      </InlineNotice>
+                    ) : null}
+
+                    <div className="config-notification-diagnostics__list">
+                      {notificationRealtimeDiagnostics.length ? (
+                        notificationRealtimeDiagnostics.map((subscription) => (
+                          <div
+                            className="config-notification-diagnostics__item"
+                            key={subscription.workspaceId}
+                          >
+                            <div className="config-notification-diagnostics__item-header">
+                              <strong>
+                                {notificationDiagnosticsWorkspaceNameById[subscription.workspaceId] ||
+                                  subscription.workspaceId}
+                              </strong>
+                              <span className="config-notification-diagnostics__item-id">
+                                {subscription.workspaceId}
+                              </span>
+                            </div>
+                            <div className="config-notification-diagnostics__reasons">
+                              {subscription.reasonCodes.map((reasonCode) => (
+                                <span
+                                  className="meta-pill"
+                                  key={`${subscription.workspaceId}-${reasonCode}`}
+                                >
+                                  {formatRealtimeNotificationWorkspaceReason(reasonCode)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      ) : notificationDiagnosticsQuery.isLoading ? (
+                        <div className="notice">
+                          {i18n._({
+                            id: 'Loading notification realtime diagnostics…',
+                            message: 'Loading notification realtime diagnostics…',
+                          })}
+                        </div>
+                      ) : (
+                        <div className="notice">
+                          {i18n._({
+                            id: 'No live workspace subscriptions are currently required.',
+                            message: 'No live workspace subscriptions are currently required.',
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="config-notification-diagnostics__history">
+                      <strong>
+                        {i18n._({
+                          id: 'Recent Realtime Subscription Changes',
+                          message: 'Recent Realtime Subscription Changes',
+                        })}
+                      </strong>
+                      {notificationDiagnosticsHistory.length ? (
+                        notificationDiagnosticsHistory.map((entry) => (
+                          <div
+                            className="config-notification-diagnostics__history-item"
+                            key={`${entry.changedAt}-${entry.signature}`}
+                          >
+                            <div className="config-notification-diagnostics__history-item-header">
+                              <span>{formatLocaleDateTime(entry.changedAt)}</span>
+                              <span className="meta-pill">
+                                {i18n._({
+                                  id: '{count} workspaces',
+                                  message: '{count} workspaces',
+                                  values: { count: entry.subscriptions.length },
+                                })}
+                              </span>
+                            </div>
+                            <div className="config-notification-diagnostics__reasons">
+                              {entry.changeTriggerCodes.map((triggerCode) => (
+                                <span
+                                  className="meta-pill"
+                                  key={`${entry.signature}-${triggerCode}`}
+                                >
+                                  {formatNotificationRealtimeDiagnosticsChangeTrigger(triggerCode)}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="config-inline-note">
+                              {entry.activeWorkspaceId
+                                ? i18n._({
+                                    id: 'Active workspace candidate: {workspaceId}',
+                                    message: 'Active workspace candidate: {workspaceId}',
+                                    values: { workspaceId: entry.activeWorkspaceId },
+                                  })
+                                : i18n._({
+                                    id: 'No active workspace candidate',
+                                    message: 'No active workspace candidate',
+                                  })}
+                            </div>
+                            <div className="config-inline-note">
+                              {entry.routePath
+                                ? i18n._({
+                                    id: 'Route context: {routePath}',
+                                    message: 'Route context: {routePath}',
+                                    values: { routePath: entry.routePath },
+                                  })
+                                : i18n._({
+                                    id: 'No route context recorded',
+                                    message: 'No route context recorded',
+                                  })}
+                            </div>
+                            <div className="config-inline-note">
+                              {entry.subscriptions.length
+                                ? entry.subscriptions
+                                    .map((subscription) =>
+                                      notificationDiagnosticsWorkspaceNameById[
+                                        subscription.workspaceId
+                                      ] || subscription.workspaceId,
+                                    )
+                                    .join(', ')
+                                : i18n._({
+                                    id: 'No live workspaces',
+                                    message: 'No live workspaces',
+                                  })}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="notice">
+                          {i18n._({
+                            id: 'No realtime subscription changes recorded yet.',
+                            message: 'No realtime subscription changes recorded yet.',
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="config-inline-note">
+                    {i18n._({
+                      id: 'Enable Frontend Debug Mode to inspect notification realtime workspace subscriptions and the reasons each workspace stays live.',
+                      message:
+                        'Enable Frontend Debug Mode to inspect notification realtime workspace subscriptions and the reasons each workspace stays live.',
+                    })}
+                  </p>
+                )}
               </section>
 
               <form

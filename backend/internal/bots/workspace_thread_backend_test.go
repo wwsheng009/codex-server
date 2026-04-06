@@ -205,6 +205,30 @@ func TestCollectBotVisibleMessagesRespectsCommandOutputMode(t *testing.T) {
 	}
 }
 
+func TestCollectBotVisibleMessagesOmitsCommandsWhenCommandOutputModeIsNone(t *testing.T) {
+	t.Parallel()
+
+	messages := collectBotVisibleMessagesWithConfig(store.ThreadTurn{
+		ID:     "turn-command-mode-none-1",
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":               "command-1",
+				"type":             "commandExecution",
+				"command":          "go test ./...",
+				"status":           "completed",
+				"aggregatedOutput": "line-1\nline-2",
+			},
+		},
+	}, botTranscriptRenderConfig{
+		CommandOutputMode: botCommandOutputModeNone,
+	})
+
+	if len(messages) != 0 {
+		t.Fatalf("expected command item to be omitted when mode is none, got %#v", messages)
+	}
+}
+
 func TestBotVisibleItemStreamBuildsSnapshotFromMixedOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -269,6 +293,39 @@ func TestBotVisibleItemStreamUsesConfiguredCommandOutputMode(t *testing.T) {
 	}
 	if len(updates) != 1 || !equalOutboundMessages(updates[0], expected) {
 		t.Fatalf("unexpected single-line stream snapshot %#v", updates)
+	}
+}
+
+func TestBotVisibleItemStreamOmitsCommandItemsWhenConfiguredToNone(t *testing.T) {
+	t.Parallel()
+
+	stream := botVisibleItemStream{
+		renderConfig: botTranscriptRenderConfig{
+			CommandOutputMode: botCommandOutputModeNone,
+		},
+	}
+	stream.AddOutputDelta("command-1", "line-1\nline-2")
+	stream.MergeItem(map[string]any{
+		"id":      "command-1",
+		"type":    "commandExecution",
+		"command": "go test ./...",
+		"status":  "completed",
+	})
+	stream.AddTextDelta("assistant-1", "agentMessage", "done")
+
+	updates := make([][]OutboundMessage, 0, 1)
+	if err := stream.Flush(context.Background(), func(_ context.Context, update StreamingUpdate) error {
+		updates = append(updates, cloneOutboundMessages(update.Messages))
+		return nil
+	}); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+
+	expected := []OutboundMessage{
+		{Text: "done"},
+	}
+	if len(updates) != 1 || !equalOutboundMessages(updates[0], expected) {
+		t.Fatalf("unexpected stream snapshot when command mode is none %#v", updates)
 	}
 }
 

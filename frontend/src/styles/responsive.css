@@ -783,6 +783,9 @@
   .automation-run-card__meta,
   .automation-run-log__meta,
   .automation-run-log__entry,
+  .web-ide__notification-debug summary,
+  .web-ide__notification-debug-history-item-header,
+  .web-ide__notification-debug-item-header,
   .web-ide__notification-item-header,
   .web-ide__notification-item-meta {
     flex-direction: column;
@@ -914,5 +917,15 @@
 
   .config-summary-card__grid {
     grid-template-columns: 1fr;
+  }
+
+  .config-notification-diagnostics__item-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .config-notification-diagnostics__history-item-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

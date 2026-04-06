@@ -6,6 +6,7 @@ export const WECHAT_CHANNEL_TIMING_SETTING = 'wechat_channel_timing'
 export const WECHAT_CHANNEL_TIMING_ENABLED = 'enabled'
 export const WECHAT_CHANNEL_TIMING_DISABLED = 'disabled'
 export const BOT_COMMAND_OUTPUT_MODE_SETTING = 'command_output_mode'
+export const BOT_COMMAND_OUTPUT_MODE_NONE = 'none'
 export const BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE = 'single_line'
 export const BOT_COMMAND_OUTPUT_MODE_BRIEF = 'brief'
 export const BOT_COMMAND_OUTPUT_MODE_DETAILED = 'detailed'
@@ -281,6 +282,8 @@ export function formatBotBackendLabel(backend: string) {
 
 export function resolveBotCommandOutputMode(value: string | null | undefined) {
   switch (value?.trim().toLowerCase()) {
+    case BOT_COMMAND_OUTPUT_MODE_NONE:
+      return BOT_COMMAND_OUTPUT_MODE_NONE
     case BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE:
       return BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE
     case BOT_COMMAND_OUTPUT_MODE_DETAILED:
@@ -295,6 +298,8 @@ export function resolveBotCommandOutputMode(value: string | null | undefined) {
 
 export function formatBotCommandOutputModeLabel(value: string) {
   switch (resolveBotCommandOutputMode(value)) {
+    case BOT_COMMAND_OUTPUT_MODE_NONE:
+      return i18n._({ id: 'No Command Output', message: 'No Command Output' })
     case BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE:
       return i18n._({ id: 'Single Line', message: 'Single Line' })
     case BOT_COMMAND_OUTPUT_MODE_DETAILED:

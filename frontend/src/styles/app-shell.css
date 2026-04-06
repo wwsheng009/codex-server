@@ -1922,6 +1922,113 @@
   overflow: auto;
 }
 
+.web-ide__notification-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-card) 78%, var(--surface-warning-soft));
+}
+
+.web-ide__notification-debug summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.web-ide__notification-debug-copy {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.web-ide__notification-debug-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.web-ide__notification-debug-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-pane);
+}
+
+.web-ide__notification-debug-item-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.web-ide__notification-debug-item-header strong {
+  color: var(--text-strong);
+}
+
+.web-ide__notification-debug-item-id {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+.web-ide__notification-debug-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.web-ide__notification-debug-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.web-ide__notification-debug-history > strong {
+  color: var(--text-strong);
+  font-size: 0.8rem;
+}
+
+.web-ide__notification-debug-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-card);
+}
+
+.web-ide__notification-debug-history-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+}
+
+.web-ide__notification-debug-history-item-triggers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.web-ide__notification-debug-history-item-copy {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .web-ide__notification-item {
   display: flex;
   flex-direction: column;

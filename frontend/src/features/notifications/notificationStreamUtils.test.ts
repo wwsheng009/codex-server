@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { i18n } from '../../i18n/runtime'
 import type { NotificationItem, ServerEvent } from '../../types/api'
 import {
   buildNotificationItemFromEvent,
+  createEmptyNotificationRealtimeDiagnosticsHistoryState,
   collectRealtimeNotificationWorkspaceIds,
+  describeRealtimeNotificationWorkspaceSubscriptions,
+  formatNotificationRealtimeDiagnosticsChangeTrigger,
   resolveActiveNotificationWorkspaceId,
+  updateNotificationRealtimeDiagnosticsHistory,
   upsertNotificationItem,
 } from './notificationStreamUtils'
 
@@ -40,6 +45,10 @@ function makeNotification(
     ...overrides,
   }
 }
+
+beforeAll(() => {
+  i18n.loadAndActivate({ locale: 'en', messages: {} })
+})
 
 describe('buildNotificationItemFromEvent', () => {
   it('maps notification/created events into notification items', () => {
@@ -221,5 +230,188 @@ describe('collectRealtimeNotificationWorkspaceIds', () => {
     })
 
     expect(next).toEqual(['ws-shared'])
+  })
+})
+
+describe('describeRealtimeNotificationWorkspaceSubscriptions', () => {
+  it('explains each live workspace subscription with stable reason codes', () => {
+    const notifications = [
+      makeNotification('note-active-unread', {
+        workspaceId: 'ws-active',
+        read: false,
+      }),
+      makeNotification('note-suppression', {
+        workspaceId: 'ws-bot',
+        kind: 'bot_recovery_replay_suppressed',
+        read: true,
+        createdAt: '2026-04-06T09:40:00.000Z',
+      }),
+    ]
+
+    const next = describeRealtimeNotificationWorkspaceSubscriptions({
+      activeWorkspaceId: 'ws-active',
+      notifications,
+      now: Date.parse('2026-04-06T10:00:00.000Z'),
+    })
+
+    expect(next).toEqual([
+      {
+        workspaceId: 'ws-active',
+        reasonCodes: ['active_workspace', 'unread_notification'],
+      },
+      {
+        workspaceId: 'ws-bot',
+        reasonCodes: ['recent_suppression'],
+      },
+    ])
+  })
+})
+
+describe('updateNotificationRealtimeDiagnosticsHistory', () => {
+  it('records the first diagnostics snapshot and preserves reason details', () => {
+    const next = updateNotificationRealtimeDiagnosticsHistory(
+      createEmptyNotificationRealtimeDiagnosticsHistoryState(),
+      {
+        activeWorkspaceId: 'ws-active',
+        changedAt: '2026-04-06T10:00:00.000Z',
+        routePath: '/workspaces/ws-active',
+        subscriptions: [
+          {
+            workspaceId: 'ws-active',
+            reasonCodes: ['active_workspace', 'unread_notification'],
+          },
+        ],
+      },
+    )
+
+    expect(next.lastChangedAt).toBe('2026-04-06T10:00:00.000Z')
+    expect(next.history).toEqual([
+      {
+        activeWorkspaceId: 'ws-active',
+        changeTriggerCodes: ['initial_snapshot'],
+        changedAt: '2026-04-06T10:00:00.000Z',
+        routePath: '/workspaces/ws-active',
+        signature: 'ws-active>>/workspaces/ws-active>>ws-active:active_workspace,unread_notification',
+        subscriptions: [
+          {
+            workspaceId: 'ws-active',
+            reasonCodes: ['active_workspace', 'unread_notification'],
+          },
+        ],
+      },
+    ])
+  })
+
+  it('deduplicates identical snapshots and appends only real changes', () => {
+    const initial = updateNotificationRealtimeDiagnosticsHistory(
+      createEmptyNotificationRealtimeDiagnosticsHistoryState(),
+      {
+        activeWorkspaceId: 'ws-active',
+        changedAt: '2026-04-06T10:00:00.000Z',
+        routePath: '/workspaces/ws-active',
+        subscriptions: [
+          {
+            workspaceId: 'ws-active',
+            reasonCodes: ['active_workspace'],
+          },
+        ],
+      },
+    )
+
+    const unchanged = updateNotificationRealtimeDiagnosticsHistory(initial, {
+      activeWorkspaceId: 'ws-active',
+      changedAt: '2026-04-06T10:01:00.000Z',
+      routePath: '/workspaces/ws-active',
+      subscriptions: [
+        {
+          workspaceId: 'ws-active',
+          reasonCodes: ['active_workspace'],
+        },
+      ],
+    })
+
+    const changed = updateNotificationRealtimeDiagnosticsHistory(initial, {
+      activeWorkspaceId: 'ws-active',
+      changedAt: '2026-04-06T10:02:00.000Z',
+      routePath: '/bots/ws-active/connection-1/logs',
+      subscriptions: [
+        {
+          workspaceId: 'ws-active',
+          reasonCodes: ['active_workspace'],
+        },
+        {
+          workspaceId: 'ws-bot',
+          reasonCodes: ['recent_suppression'],
+        },
+      ],
+    })
+
+    expect(unchanged).toBe(initial)
+    expect(changed.lastChangedAt).toBe('2026-04-06T10:02:00.000Z')
+    expect(changed.history).toHaveLength(2)
+    expect(changed.history[0]).toEqual(
+      expect.objectContaining({
+        changedAt: '2026-04-06T10:02:00.000Z',
+        routePath: '/bots/ws-active/connection-1/logs',
+        changeTriggerCodes: [
+          'route_context_changed',
+          'workspace_subscription_added',
+          'recent_suppression_entered',
+        ],
+      }),
+    )
+    expect(changed.history[1]).toEqual(
+      expect.objectContaining({
+        changedAt: '2026-04-06T10:00:00.000Z',
+      }),
+    )
+  })
+
+  it('records route-only changes even when the live workspace set stays the same', () => {
+    const initial = updateNotificationRealtimeDiagnosticsHistory(
+      createEmptyNotificationRealtimeDiagnosticsHistoryState(),
+      {
+        activeWorkspaceId: 'ws-active',
+        changedAt: '2026-04-06T10:00:00.000Z',
+        routePath: '/workspaces/ws-active',
+        subscriptions: [
+          {
+            workspaceId: 'ws-active',
+            reasonCodes: ['active_workspace'],
+          },
+        ],
+      },
+    )
+
+    const changed = updateNotificationRealtimeDiagnosticsHistory(initial, {
+      activeWorkspaceId: 'ws-active',
+      changedAt: '2026-04-06T10:05:00.000Z',
+      routePath: '/workspaces/ws-active/threads/thread-1',
+      subscriptions: [
+        {
+          workspaceId: 'ws-active',
+          reasonCodes: ['active_workspace'],
+        },
+      ],
+    })
+
+    expect(changed).not.toBe(initial)
+    expect(changed.history[0]).toEqual(
+      expect.objectContaining({
+        changedAt: '2026-04-06T10:05:00.000Z',
+        routePath: '/workspaces/ws-active/threads/thread-1',
+        changeTriggerCodes: ['route_context_changed'],
+      }),
+    )
+  })
+})
+
+describe('formatNotificationRealtimeDiagnosticsChangeTrigger', () => {
+  it('maps change trigger codes to readable labels', () => {
+    expect(formatNotificationRealtimeDiagnosticsChangeTrigger('initial_snapshot')).toBe('Session start')
+    expect(formatNotificationRealtimeDiagnosticsChangeTrigger('route_context_changed')).toBe('Route changed')
+    expect(formatNotificationRealtimeDiagnosticsChangeTrigger('recent_suppression_cleared')).toBe(
+      'Suppression cleared',
+    )
   })
 })

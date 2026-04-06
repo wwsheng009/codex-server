@@ -67,6 +67,24 @@ func TestRenderBotCommandExecutionItemSupportsSingleLineMode(t *testing.T) {
 	}
 }
 
+func TestRenderBotCommandExecutionItemOmitsCommandInNoneMode(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItemWithConfig(map[string]any{
+		"id":               "command-none-1",
+		"type":             "commandExecution",
+		"command":          "go test ./...",
+		"status":           "completed",
+		"aggregatedOutput": "line-1\nline-2",
+	}, botTranscriptRenderConfig{
+		CommandOutputMode: botCommandOutputModeNone,
+	})
+
+	if text != "" {
+		t.Fatalf("expected empty render when command output mode is none, got %q", text)
+	}
+}
+
 func TestRenderBotCommandExecutionItemSupportsFullMode(t *testing.T) {
 	t.Parallel()
 

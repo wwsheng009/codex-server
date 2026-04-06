@@ -1119,7 +1119,7 @@ func TestBotConnectionRouteUpdatesCommandOutputMode(t *testing.T) {
 		router,
 		http.MethodPost,
 		"/api/workspaces/"+workspaceRecord.ID+"/bot-connections/"+created.Data.ID+"/command-output-mode",
-		`{"commandOutputMode":"full"}`,
+		`{"commandOutputMode":"none"}`,
 	)
 	if updateResponse.Code != http.StatusAccepted {
 		t.Fatalf("expected 202 from command output mode update, got %d", updateResponse.Code)
@@ -1131,8 +1131,8 @@ func TestBotConnectionRouteUpdatesCommandOutputMode(t *testing.T) {
 		} `json:"data"`
 	}
 	decodeResponseBody(t, updateResponse, &updated)
-	if updated.Data.Settings["command_output_mode"] != "full" {
-		t.Fatalf("expected full command output mode in route response, got %#v", updated.Data.Settings)
+	if updated.Data.Settings["command_output_mode"] != "none" {
+		t.Fatalf("expected none command output mode in route response, got %#v", updated.Data.Settings)
 	}
 }
 

@@ -983,14 +983,14 @@ func TestServiceUpdatesConnectionCommandOutputMode(t *testing.T) {
 	}
 
 	updated, err := service.UpdateConnectionCommandOutputMode(workspace.ID, connection.ID, UpdateConnectionCommandOutputModeInput{
-		CommandOutputMode: botCommandOutputModeFull,
+		CommandOutputMode: botCommandOutputModeNone,
 	})
 	if err != nil {
 		t.Fatalf("UpdateConnectionCommandOutputMode() error = %v", err)
 	}
 
-	if updated.Settings[botCommandOutputModeSetting] != botCommandOutputModeFull {
-		t.Fatalf("expected full command output mode after update, got %#v", updated.Settings)
+	if updated.Settings[botCommandOutputModeSetting] != botCommandOutputModeNone {
+		t.Fatalf("expected none command output mode after update, got %#v", updated.Settings)
 	}
 }
 
