@@ -25,4 +25,5 @@ __pycache__/
 *.sw?
 .gemini/skills/ui-ux-pro-max
 *.exe
+*.exe~
 .codex/
