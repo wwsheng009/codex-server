@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import {
   clearReadNotifications,
@@ -9,9 +9,21 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '../../features/notifications/api'
+import {
+  buildNotificationItemFromEvent,
+  collectRealtimeNotificationWorkspaceIds,
+  resolveActiveNotificationWorkspaceId,
+  upsertNotificationItem,
+} from '../../features/notifications/notificationStreamUtils'
+import { listWorkspaces } from '../../features/workspaces/api'
+import {
+  useWorkspaceEventSubscription,
+  useWorkspaceStreams,
+} from '../../hooks/useWorkspaceStream'
 import { formatLocaleDateTime, formatLocaleNumber } from '../../i18n/format'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
+import { useSessionStore } from '../../stores/session-store'
 import type { NotificationItem } from '../../types/api'
 import { Button } from '../ui/Button'
 import { InlineNotice } from '../ui/InlineNotice'
@@ -41,6 +53,7 @@ function BellIcon() {
 }
 
 export function NotificationCenter({ compact = false }: NotificationCenterProps) {
+  const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [isOpen, setIsOpen] = useState(false)
@@ -53,6 +66,12 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
   const seenNotificationIdsRef = useRef<Set<string>>(new Set())
   const notificationsInitializedRef = useRef(false)
   const dialogId = useId()
+  const selectedWorkspaceId = useSessionStore((state) => state.selectedWorkspaceId)
+  const workspacesQuery = useQuery({
+    queryKey: ['shell-workspaces'],
+    queryFn: listWorkspaces,
+    staleTime: 30_000,
+  })
 
   const notificationsQuery = useQuery({
     queryKey: ['notifications'],
@@ -80,6 +99,25 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
   })
 
   const notifications = notificationsQuery.data ?? []
+  const workspaceNameById = useMemo(
+    () =>
+      Object.fromEntries(
+        (workspacesQuery.data ?? []).map((workspace) => [workspace.id, workspace.name]),
+      ),
+    [workspacesQuery.data],
+  )
+  const activeWorkspaceId = useMemo(
+    () => resolveActiveNotificationWorkspaceId(location.pathname, selectedWorkspaceId),
+    [location.pathname, selectedWorkspaceId],
+  )
+  const liveWorkspaceIds = useMemo(
+    () =>
+      collectRealtimeNotificationWorkspaceIds({
+        activeWorkspaceId,
+        notifications,
+      }),
+    [activeWorkspaceId, notifications],
+  )
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,
     [notifications],
@@ -88,6 +126,27 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
     () => notifications.some((notification) => notification.read),
     [notifications],
   )
+
+  useWorkspaceStreams(liveWorkspaceIds)
+
+  useWorkspaceEventSubscription(liveWorkspaceIds, (event) => {
+    const notification = buildNotificationItemFromEvent(event, workspaceNameById)
+    if (!notification) {
+      return
+    }
+
+    notificationsInitializedRef.current = true
+
+    if (!notification.read && !seenNotificationIdsRef.current.has(notification.id)) {
+      seenNotificationIdsRef.current.add(notification.id)
+      enqueueToast(notification)
+    }
+
+    queryClient.setQueryData<NotificationItem[]>(['notifications'], (current) =>
+      upsertNotificationItem(current, notification),
+    )
+    void queryClient.invalidateQueries({ queryKey: ['notifications'] })
+  })
 
   useEffect(() => {
     if (!notificationsInitializedRef.current) {
@@ -109,11 +168,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
 
     nextToasts.forEach((notification) => {
       seenNotificationIdsRef.current.add(notification.id)
-      setToasts((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 4))
-      toastTimersRef.current[notification.id] = window.setTimeout(() => {
-        setToasts((current) => current.filter((item) => item.id !== notification.id))
-        delete toastTimersRef.current[notification.id]
-      }, 7_000)
+      enqueueToast(notification)
     })
   }, [notifications])
 
@@ -212,9 +267,29 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
       return
     }
 
+    if (notification.workspaceId && notification.botConnectionId) {
+      navigate(`/bots/${notification.workspaceId}/${notification.botConnectionId}/logs`)
+      return
+    }
+
     if (notification.workspaceId) {
       navigate(`/workspaces/${notification.workspaceId}`)
     }
+  }
+
+  function enqueueToast(notification: NotificationItem) {
+    const existingTimer = toastTimersRef.current[notification.id]
+    if (existingTimer) {
+      window.clearTimeout(existingTimer)
+    }
+
+    setToasts((current) =>
+      [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 4),
+    )
+    toastTimersRef.current[notification.id] = window.setTimeout(() => {
+      setToasts((current) => current.filter((item) => item.id !== notification.id))
+      delete toastTimersRef.current[notification.id]
+    }, 7_000)
   }
 
   const triggerClassName = compact
@@ -243,8 +318,8 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                 <strong>{i18n._({ id: 'Notifications', message: 'Notifications' })}</strong>
                 <span>
                   {i18n._({
-                    id: 'Automation runs, failures, and saved outcomes.',
-                    message: 'Automation runs, failures, and saved outcomes.',
+                    id: 'Automation runs, bot monitoring alerts, failures, and saved outcomes.',
+                    message: 'Automation runs, bot monitoring alerts, failures, and saved outcomes.',
                   })}
                 </span>
               </div>
@@ -307,7 +382,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                     <p>{notification.message}</p>
                     <div className="web-ide__notification-item-meta">
                       <span>{formatTimestamp(notification.createdAt)}</span>
-                      <span>{notification.automationTitle || notification.workspaceName}</span>
+                      <span>{notification.botConnectionName || notification.automationTitle || notification.workspaceName}</span>
                     </div>
                   </button>
                 ))

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { buildApiWebSocketUrl } from '../lib/api-client'
 import {
@@ -13,10 +13,12 @@ import type {
 } from './useWorkspaceStreamTypes'
 
 const workspaceStreams = new Map<string, WorkspaceStream>()
+const workspaceEventListeners = new Map<string, Set<(event: ServerEvent) => void>>()
 const reconnectDelaysMs = [1_000, 2_000, 5_000]
 const streamBatchFlushDelayMs = 16
 const commandResumeSessionLimit = 16
 const commandResumeTailLength = 512
+const workspaceIdListSeparator = '\u001f'
 
 type WorkspaceStreamEventHandlers = {
   flushQueuedEvents: (stream: WorkspaceStream) => void
@@ -39,6 +41,55 @@ export function useWorkspaceStream(workspaceId?: string) {
   return useSessionStore((state) =>
     workspaceId ? state.connectionByWorkspace[workspaceId] ?? 'idle' : 'idle',
   )
+}
+
+export function useWorkspaceStreams(workspaceIds?: string[]) {
+  const setConnectionState = useSessionStore((state) => state.setConnectionState)
+  const normalizedWorkspaceIds = useNormalizedWorkspaceIds(workspaceIds)
+  const workspaceIdListKey = normalizedWorkspaceIds.join(workspaceIdListSeparator)
+
+  useEffect(() => {
+    if (!normalizedWorkspaceIds.length) {
+      return
+    }
+
+    const unsubscribeFns = normalizedWorkspaceIds.map((workspaceId) =>
+      subscribeWorkspaceStream(workspaceId, setConnectionState),
+    )
+
+    return () => {
+      unsubscribeFns.forEach((unsubscribe) => unsubscribe())
+    }
+  }, [normalizedWorkspaceIds, setConnectionState, workspaceIdListKey])
+}
+
+export function useWorkspaceEventSubscription(
+  workspaceIds: string[] | undefined,
+  listener: (event: ServerEvent) => void,
+) {
+  const normalizedWorkspaceIds = useNormalizedWorkspaceIds(workspaceIds)
+  const workspaceIdListKey = normalizedWorkspaceIds.join(workspaceIdListSeparator)
+  const listenerRef = useRef(listener)
+
+  useEffect(() => {
+    listenerRef.current = listener
+  }, [listener])
+
+  useEffect(() => {
+    if (!normalizedWorkspaceIds.length) {
+      return
+    }
+
+    const unsubscribeFns = normalizedWorkspaceIds.map((workspaceId) =>
+      subscribeWorkspaceEventListener(workspaceId, (event) => {
+        listenerRef.current(event)
+      }),
+    )
+
+    return () => {
+      unsubscribeFns.forEach((unsubscribe) => unsubscribe())
+    }
+  }, [normalizedWorkspaceIds, workspaceIdListKey])
 }
 
 export function parseWorkspaceStreamEvent(messageData: unknown): ServerEvent | null {
@@ -319,6 +370,7 @@ export function handleWorkspaceStreamEvent(
     }
 
     handlers.ingestImmediateEvent(event)
+    emitWorkspaceStreamEvents([event])
     return
   }
 
@@ -350,6 +402,7 @@ function flushWorkspaceStreamEvents(stream: WorkspaceStream) {
     lastEvent: summarizeServerEventForDebug(queuedEvents[queuedEvents.length - 1]),
   })
   useSessionStore.getState().ingestEvents(queuedEvents)
+  emitWorkspaceStreamEvents(queuedEvents)
 }
 
 function scheduleDeferredWorkspaceEventFlush(stream: WorkspaceStream) {
@@ -395,6 +448,7 @@ function flushDeferredWorkspaceEvents(stream: WorkspaceStream) {
     lastEvent: summarizeServerEventForDebug(deferredEvents[deferredEvents.length - 1]),
   })
   useSessionStore.getState().ingestEvents(deferredEvents)
+  emitWorkspaceStreamEvents(deferredEvents)
 }
 
 function isServerEvent(value: unknown): value is ServerEvent {
@@ -405,4 +459,72 @@ function isServerEvent(value: unknown): value is ServerEvent {
     'method' in value &&
     'ts' in value
   )
+}
+
+function useNormalizedWorkspaceIds(workspaceIds?: string[]) {
+  const workspaceIdListKey = useMemo(
+    () => normalizeWorkspaceIds(workspaceIds).join(workspaceIdListSeparator),
+    [workspaceIds],
+  )
+
+  return useMemo(
+    () => (workspaceIdListKey ? workspaceIdListKey.split(workspaceIdListSeparator) : []),
+    [workspaceIdListKey],
+  )
+}
+
+function normalizeWorkspaceIds(workspaceIds?: string[]) {
+  return Array.from(
+    new Set(
+      (workspaceIds ?? [])
+        .map((workspaceId) => workspaceId.trim())
+        .filter((workspaceId) => workspaceId.length > 0),
+    ),
+  ).sort()
+}
+
+function subscribeWorkspaceEventListener(
+  workspaceId: string,
+  listener: (event: ServerEvent) => void,
+) {
+  let listeners = workspaceEventListeners.get(workspaceId)
+  if (!listeners) {
+    listeners = new Set()
+    workspaceEventListeners.set(workspaceId, listeners)
+  }
+
+  listeners.add(listener)
+
+  return () => {
+    const currentListeners = workspaceEventListeners.get(workspaceId)
+    if (!currentListeners) {
+      return
+    }
+
+    currentListeners.delete(listener)
+    if (currentListeners.size === 0) {
+      workspaceEventListeners.delete(workspaceId)
+    }
+  }
+}
+
+function emitWorkspaceStreamEvents(events: ServerEvent[]) {
+  for (const event of events) {
+    const listeners = workspaceEventListeners.get(event.workspaceId)
+    if (!listeners?.size) {
+      continue
+    }
+
+    for (const listener of [...listeners]) {
+      try {
+        listener(event)
+      } catch (error) {
+        frontendDebugLog('workspace-stream', 'event listener failed', {
+          error: error instanceof Error ? error.message : String(error),
+          method: event.method,
+          workspaceId: event.workspaceId,
+        })
+      }
+    }
+  }
 }
