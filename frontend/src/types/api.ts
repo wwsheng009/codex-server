@@ -112,8 +112,21 @@ export type BotConnection = {
   settings?: Record<string, string> | null
   secretKeys?: string[] | null
   lastError?: string | null
+  lastPollAt?: string | null
+  lastPollStatus?: string | null
+  lastPollMessage?: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type BotConnectionLogEntry = {
+  id: string
+  workspaceId: string
+  connectionId: string
+  ts: string
+  level: string
+  eventType?: string
+  message: string
 }
 
 export type BotConversation = {
@@ -134,6 +147,20 @@ export type BotConversation = {
   lastOutboundText?: string
   createdAt: string
   updatedAt: string
+}
+
+export type WeChatLogin = {
+  loginId: string
+  status: string
+  baseUrl?: string
+  qrCodeContent?: string
+  accountId?: string
+  userId?: string
+  botToken?: string
+  credentialReady: boolean
+  createdAt: string
+  updatedAt: string
+  expiresAt?: string
 }
 
 export type Thread = {

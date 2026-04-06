@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toDataURL as toQRCodeDataURL } from 'qrcode'
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -13,11 +14,14 @@ import { Switch } from '../components/ui/Switch'
 import { TextArea } from '../components/ui/TextArea'
 import {
   createBotConnection,
+  deleteWeChatLogin,
+  getWeChatLogin,
   deleteBotConnection,
   listBotConnections,
   listBotConversations,
   pauseBotConnection,
   resumeBotConnection,
+  startWeChatLogin,
   updateBotConnectionRuntimeMode,
   type CreateBotConnectionInput,
 } from '../features/bots/api'
@@ -35,9 +39,10 @@ import {
   summarizeBotMap,
   type BotsPageDraft,
 } from './botsPageUtils'
-import type { BotConnection } from '../types/api'
+import type { BotConnection, WeChatLogin } from '../types/api'
 
 export function BotsPage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [selectedConnectionId, setSelectedConnectionId] = useState('')
@@ -45,6 +50,10 @@ export function BotsPage() {
   const [deleteTarget, setDeleteTarget] = useState<BotConnection | null>(null)
   const [draft, setDraft] = useState<BotsPageDraft>(EMPTY_BOTS_PAGE_DRAFT)
   const [formError, setFormError] = useState('')
+  const [wechatLoginModalOpen, setWechatLoginModalOpen] = useState(false)
+  const [wechatLoginId, setWechatLoginId] = useState('')
+  const [wechatLoginQRCodeUrl, setWechatLoginQRCodeUrl] = useState('')
+  const [wechatLoginCopyState, setWechatLoginCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
@@ -63,6 +72,7 @@ export function BotsPage() {
     queryKey: ['bot-connections', selectedWorkspaceId],
     queryFn: () => listBotConnections(selectedWorkspaceId),
     enabled: selectedWorkspaceId.length > 0,
+    refetchInterval: 5000,
   })
 
   useEffect(() => {
@@ -85,11 +95,25 @@ export function BotsPage() {
     enabled: selectedWorkspaceId.length > 0 && selectedConnectionId.length > 0,
   })
 
+  const wechatLoginQuery = useQuery({
+    queryKey: ['wechat-login', draft.workspaceId.trim(), wechatLoginId],
+    queryFn: () => getWeChatLogin(draft.workspaceId.trim(), wechatLoginId),
+    enabled: wechatLoginModalOpen && draft.workspaceId.trim().length > 0 && wechatLoginId.trim().length > 0,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status?.trim().toLowerCase() ?? ''
+      if (status === 'confirmed' || status === 'expired') {
+        return false
+      }
+      return 2000
+    },
+  })
+
   const createMutation = useMutation({
     mutationFn: ({ workspaceId, input }: { workspaceId: string; input: CreateBotConnectionInput }) =>
       createBotConnection(workspaceId, input),
     onSuccess: async (connection) => {
       setCreateModalOpen(false)
+      resetWeChatLoginState()
       setDraft(EMPTY_BOTS_PAGE_DRAFT)
       setFormError('')
       setSelectedWorkspaceId(connection.workspaceId)
@@ -98,6 +122,32 @@ export function BotsPage() {
         queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations', connection.workspaceId] }),
       ])
+    },
+  })
+
+  const wechatLoginStartMutation = useMutation({
+    mutationFn: ({ workspaceId, baseUrl }: { workspaceId: string; baseUrl: string }) =>
+      startWeChatLogin(workspaceId, { baseUrl }),
+    onSuccess: (result) => {
+      setWechatLoginId(result.loginId)
+      setWechatLoginCopyState('idle')
+    },
+  })
+
+  const wechatLoginDeleteMutation = useMutation({
+    mutationFn: ({ workspaceId, loginId }: { workspaceId: string; loginId: string }) =>
+      deleteWeChatLogin(workspaceId, loginId),
+    onSuccess: () => {
+      setWechatLoginId('')
+      setWechatLoginQRCodeUrl('')
+      setWechatLoginCopyState('idle')
+      setDraft((current) => ({
+        ...current,
+        wechatLoginSessionId: '',
+        wechatLoginStatus: '',
+        wechatQrCodeContent: '',
+      }))
+      wechatLoginStartMutation.reset()
     },
   })
 
@@ -156,6 +206,10 @@ export function BotsPage() {
         label: i18n._({ id: 'Telegram', message: 'Telegram' }),
       },
       {
+        value: 'wechat',
+        label: i18n._({ id: 'WeChat', message: 'WeChat' }),
+      },
+      {
         value: 'discord',
         label: i18n._({ id: 'Discord (Next)', message: 'Discord (Next)' }),
         disabled: true,
@@ -192,6 +246,20 @@ export function BotsPage() {
     [],
   )
 
+  const wechatCredentialSourceOptions = useMemo(
+    () => [
+      {
+        value: 'manual',
+        label: i18n._({ id: 'Manual Entry', message: 'Manual Entry' }),
+      },
+      {
+        value: 'qr',
+        label: i18n._({ id: 'QR Login', message: 'QR Login' }),
+      },
+    ],
+    [],
+  )
+
   const reasoningOptions = useMemo(
     () => [
       { value: 'low', label: i18n._({ id: 'Low', message: 'Low' }) },
@@ -215,15 +283,348 @@ export function BotsPage() {
   const actionErrorMessage = actionMutation.error ? getErrorMessage(actionMutation.error) : ''
   const deleteErrorMessage = deleteMutation.error ? getErrorMessage(deleteMutation.error) : ''
   const runtimeModeErrorMessage = runtimeModeMutation.error ? getErrorMessage(runtimeModeMutation.error) : ''
+  const draftProvider = draft.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
   const draftTelegramDeliveryMode = draft.telegramDeliveryMode.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
+  const draftWeChatCredentialSource = draft.wechatCredentialSource.trim().toLowerCase() === 'qr' ? 'qr' : 'manual'
+  const hasDraftWeChatCredentialBundle =
+    draft.wechatAccountId.trim().length > 0 &&
+    draft.wechatUserId.trim().length > 0 &&
+    draft.wechatBotToken.trim().length > 0
+  const selectedProvider =
+    selectedConnection?.provider?.trim().toLowerCase() === 'wechat'
+      ? 'wechat'
+      : selectedConnection?.provider?.trim().toLowerCase() === 'telegram'
+        ? 'telegram'
+        : ''
   const selectedTelegramDeliveryMode =
-    selectedConnection?.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
+    selectedProvider === 'telegram' && selectedConnection?.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling'
+      ? 'polling'
+      : 'webhook'
+  const selectedDeliveryMode =
+    selectedProvider === 'wechat' ? 'polling' : selectedProvider === 'telegram' ? selectedTelegramDeliveryMode : ''
+  const selectedConnectionUsesPolling =
+    selectedProvider === 'wechat' || (selectedProvider === 'telegram' && selectedDeliveryMode === 'polling')
   const selectedRuntimeMode =
     selectedConnection?.settings?.runtime_mode?.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
+  const selectedProviderLabel = selectedConnection
+    ? formatBotProviderLabel(selectedConnection.provider)
+    : i18n._({ id: 'None', message: 'None' })
+  const selectedBackendLabel = selectedConnection
+    ? formatBotBackendLabel(selectedConnection.aiBackend)
+    : i18n._({ id: 'None', message: 'None' })
+  const selectedDeliveryModeLabel =
+    selectedDeliveryMode === 'polling'
+      ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
+      : selectedDeliveryMode === 'webhook'
+        ? i18n._({ id: 'Webhook', message: 'Webhook' })
+        : i18n._({ id: 'None', message: 'None' })
+  const selectedProviderPosture =
+    selectedProvider === 'wechat'
+      ? i18n._({
+          id: 'WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation.',
+          message:
+            'WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation.',
+        })
+      : selectedProvider === 'telegram'
+        ? i18n._({
+            id: 'Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only.',
+            message:
+              'Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only.',
+          })
+        : i18n._({
+            id: 'Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context.',
+            message:
+              'Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context.',
+          })
+  const selectedIntakeLabel =
+    selectedProvider === 'telegram' && selectedDeliveryMode === 'webhook'
+      ? i18n._({ id: 'Webhook Route', message: 'Webhook Route' })
+      : i18n._({ id: 'Update Intake', message: 'Update Intake' })
+  const selectedIntakeValue =
+    selectedProvider === 'wechat'
+      ? i18n._({ id: 'WeChat iLink long polling', message: 'WeChat iLink long polling' })
+      : selectedProvider === 'telegram'
+        ? selectedDeliveryMode === 'polling'
+          ? i18n._({ id: 'Telegram getUpdates long polling', message: 'Telegram getUpdates long polling' })
+          : `/hooks/bots/${selectedConnection?.id ?? '{connectionId}'}`
+        : i18n._({ id: 'None', message: 'None' })
+  const selectedPublicUrlValue =
+    selectedProvider === 'telegram' && selectedDeliveryMode === 'webhook'
+      ? selectedConnection?.settings?.webhook_url ??
+        i18n._({ id: 'resolved at activation', message: 'resolved at activation' })
+      : selectedProvider === 'telegram' || selectedProvider === 'wechat'
+        ? i18n._({ id: 'not required in polling mode', message: 'not required in polling mode' })
+        : i18n._({ id: 'None', message: 'None' })
+  const activeWeChatLogin: WeChatLogin | null = wechatLoginQuery.data ?? wechatLoginStartMutation.data ?? null
+  const activeWeChatLoginStatus = activeWeChatLogin?.status?.trim().toLowerCase() ?? ''
+  const wechatLoginWorkspaceId = draft.workspaceId.trim()
+  const wechatLoginErrorMessage =
+    getErrorMessage(wechatLoginStartMutation.error) ||
+    getErrorMessage(wechatLoginQuery.error) ||
+    getErrorMessage(wechatLoginDeleteMutation.error)
+  const wechatLoginCopyLabel =
+    wechatLoginCopyState === 'copied'
+      ? i18n._({ id: 'Copied', message: 'Copied' })
+      : wechatLoginCopyState === 'error'
+        ? i18n._({ id: 'Copy failed', message: 'Copy failed' })
+        : i18n._({ id: 'Copy payload', message: 'Copy payload' })
+  const wechatLoginEntryLabel = hasDraftWeChatCredentialBundle
+    ? i18n._({ id: 'Replace Credentials', message: 'Replace Credentials' })
+    : activeWeChatLogin?.credentialReady
+      ? i18n._({ id: 'Review Credentials', message: 'Review Credentials' })
+      : draft.wechatLoginSessionId
+        ? i18n._({ id: 'Continue QR Login', message: 'Continue QR Login' })
+        : i18n._({ id: 'Start QR Login', message: 'Start QR Login' })
+  const wechatDraftSessionIdLabel = draft.wechatLoginSessionId || i18n._({ id: 'Not started', message: 'Not started' })
+  const wechatDraftSessionStatusLabel = draft.wechatLoginStatus
+    ? formatWeChatLoginStatus(draft.wechatLoginStatus)
+    : i18n._({ id: 'Not started', message: 'Not started' })
+  const wechatDraftPayloadLabel = draft.wechatQrCodeContent.trim()
+    ? i18n._({ id: 'Ready', message: 'Ready' })
+    : i18n._({ id: 'Not fetched', message: 'Not fetched' })
+  const wechatDraftCredentialBundleLabel = hasDraftWeChatCredentialBundle
+    ? i18n._({ id: 'Applied to form', message: 'Applied to form' })
+    : activeWeChatLogin?.credentialReady
+      ? i18n._({ id: 'Ready to apply', message: 'Ready to apply' })
+      : draft.wechatLoginSessionId
+        ? i18n._({ id: 'Pending confirmation', message: 'Pending confirmation' })
+        : i18n._({ id: 'Not loaded', message: 'Not loaded' })
+  const wechatQrCredentialNotice = hasDraftWeChatCredentialBundle
+    ? ''
+    : activeWeChatLogin?.credentialReady
+      ? i18n._({
+          id: 'The remote service has already confirmed this login. Reopen the QR dialog and click Use Credentials to apply the bundle into the form.',
+          message:
+            'The remote service has already confirmed this login. Reopen the QR dialog and click Use Credentials to apply the bundle into the form.',
+        })
+      : draft.wechatLoginSessionId
+        ? i18n._({
+            id: 'A QR login session is already in progress. Reopen the dialog to continue polling until the credential bundle is confirmed.',
+            message:
+              'A QR login session is already in progress. Reopen the dialog to continue polling until the credential bundle is confirmed.',
+          })
+        : i18n._({
+            id: 'Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service.',
+            message:
+              'Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service.',
+          })
+
+  useEffect(() => {
+    setWechatLoginModalOpen(false)
+    setWechatLoginId('')
+    setWechatLoginQRCodeUrl('')
+    setWechatLoginCopyState('idle')
+    setDraft((current) => ({
+      ...current,
+      wechatLoginSessionId: '',
+      wechatLoginStatus: '',
+      wechatQrCodeContent: '',
+    }))
+    wechatLoginStartMutation.reset()
+    wechatLoginDeleteMutation.reset()
+  }, [draft.workspaceId])
+
+  useEffect(() => {
+    setDraft((current) => {
+      const nextLoginID = activeWeChatLogin?.loginId ?? ''
+      const nextStatus = activeWeChatLogin?.status ?? ''
+      const nextQRCodeContent = activeWeChatLogin?.qrCodeContent ?? ''
+      if (
+        current.wechatLoginSessionId === nextLoginID &&
+        current.wechatLoginStatus === nextStatus &&
+        current.wechatQrCodeContent === nextQRCodeContent
+      ) {
+        return current
+      }
+      return {
+        ...current,
+        wechatLoginSessionId: nextLoginID,
+        wechatLoginStatus: nextStatus,
+        wechatQrCodeContent: nextQRCodeContent,
+      }
+    })
+  }, [activeWeChatLogin?.loginId, activeWeChatLogin?.qrCodeContent, activeWeChatLogin?.status])
+
+  useEffect(() => {
+    const qrCodeContent = activeWeChatLogin?.qrCodeContent?.trim() ?? ''
+    if (!wechatLoginModalOpen || qrCodeContent === '') {
+      setWechatLoginQRCodeUrl('')
+      return
+    }
+
+    let cancelled = false
+    void toQRCodeDataURL(qrCodeContent, { margin: 1, width: 320 })
+      .then((nextUrl: string) => {
+        if (!cancelled) {
+          setWechatLoginQRCodeUrl(nextUrl)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWechatLoginQRCodeUrl('')
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeWeChatLogin?.qrCodeContent, wechatLoginModalOpen])
+
+  function resetWeChatLoginState() {
+    setWechatLoginModalOpen(false)
+    setWechatLoginId('')
+    setWechatLoginQRCodeUrl('')
+    setWechatLoginCopyState('idle')
+    setDraft((current) => ({
+      ...current,
+      wechatLoginSessionId: '',
+      wechatLoginStatus: '',
+      wechatQrCodeContent: '',
+    }))
+    wechatLoginStartMutation.reset()
+    wechatLoginDeleteMutation.reset()
+  }
+
+  function dismissWeChatLoginModal() {
+    setWechatLoginModalOpen(false)
+    setWechatLoginQRCodeUrl('')
+    setWechatLoginCopyState('idle')
+    wechatLoginDeleteMutation.reset()
+  }
+
+  function handleDraftProviderChange(nextValue: string) {
+    const nextProvider = nextValue.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
+    if (nextProvider !== 'wechat') {
+      resetWeChatLoginState()
+    }
+    setFormError('')
+    setDraft((current) => ({
+      ...current,
+      provider: nextProvider,
+      wechatCredentialSource: nextProvider === 'wechat' ? current.wechatCredentialSource : 'manual',
+    }))
+  }
+
+  function handleWeChatCredentialSourceChange(nextValue: string) {
+    const nextSource = nextValue.trim().toLowerCase() === 'qr' ? 'qr' : 'manual'
+    setFormError('')
+    if (nextSource === 'manual') {
+      resetWeChatLoginState()
+      setDraft((current) => ({
+        ...current,
+        wechatCredentialSource: 'manual',
+      }))
+      return
+    }
+
+    setDraft((current) => ({
+      ...current,
+      wechatCredentialSource: 'qr',
+      wechatAccountId: current.wechatCredentialSource === 'manual' ? '' : current.wechatAccountId,
+      wechatUserId: current.wechatCredentialSource === 'manual' ? '' : current.wechatUserId,
+      wechatBotToken: current.wechatCredentialSource === 'manual' ? '' : current.wechatBotToken,
+    }))
+  }
+
+  function openWeChatLoginModal() {
+    setWechatLoginModalOpen(true)
+    setWechatLoginCopyState('idle')
+    if (!draft.wechatBaseUrl.trim()) {
+      setDraft((current) => ({
+        ...current,
+        wechatBaseUrl: 'https://ilinkai.weixin.qq.com',
+      }))
+    }
+  }
+
+  function closeWeChatLoginModal() {
+    dismissWeChatLoginModal()
+  }
+
+  function handleStartWeChatLogin() {
+    if (!wechatLoginWorkspaceId) {
+      setFormError(
+        i18n._({
+          id: 'Select a workspace before starting WeChat login.',
+          message: 'Select a workspace before starting WeChat login.',
+        }),
+      )
+      return
+    }
+    if (!draft.wechatBaseUrl.trim()) {
+      setFormError(
+        i18n._({
+          id: 'WeChat base URL is required before starting QR login.',
+          message: 'WeChat base URL is required before starting QR login.',
+        }),
+      )
+      return
+    }
+
+    setFormError('')
+    setWechatLoginId('')
+    setWechatLoginQRCodeUrl('')
+    setWechatLoginCopyState('idle')
+    setDraft((current) => ({
+      ...current,
+      wechatLoginSessionId: '',
+      wechatLoginStatus: '',
+      wechatQrCodeContent: '',
+    }))
+    wechatLoginStartMutation.reset()
+    wechatLoginDeleteMutation.reset()
+    wechatLoginStartMutation.mutate({
+      workspaceId: wechatLoginWorkspaceId,
+      baseUrl: draft.wechatBaseUrl.trim(),
+    })
+  }
+
+  async function handleCopyWeChatPayload() {
+    const value = activeWeChatLogin?.qrCodeContent?.trim() ?? ''
+    if (!value || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      setWechatLoginCopyState('error')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(value)
+      setWechatLoginCopyState('copied')
+    } catch {
+      setWechatLoginCopyState('error')
+    }
+  }
+
+  function handleUseWeChatCredentials() {
+    if (!activeWeChatLogin?.credentialReady) {
+      return
+    }
+    setDraft((current) => ({
+      ...current,
+      provider: 'wechat',
+      wechatCredentialSource: 'qr',
+      wechatBaseUrl: activeWeChatLogin.baseUrl ?? current.wechatBaseUrl,
+      wechatAccountId: activeWeChatLogin.accountId ?? current.wechatAccountId,
+      wechatUserId: activeWeChatLogin.userId ?? current.wechatUserId,
+      wechatBotToken: activeWeChatLogin.botToken ?? current.wechatBotToken,
+    }))
+    setFormError('')
+    resetWeChatLoginState()
+  }
+
+  function handleDeleteWeChatLogin() {
+    if (!wechatLoginWorkspaceId || !wechatLoginId.trim()) {
+      resetWeChatLoginState()
+      return
+    }
+    wechatLoginDeleteMutation.mutate({
+      workspaceId: wechatLoginWorkspaceId,
+      loginId: wechatLoginId.trim(),
+    })
+  }
 
   function openCreateModal() {
     createMutation.reset()
     setFormError('')
+    resetWeChatLoginState()
     setDraft((current) => ({
       ...EMPTY_BOTS_PAGE_DRAFT,
       workspaceId: selectedWorkspaceId || workspaces[0]?.id || '',
@@ -236,6 +637,7 @@ export function BotsPage() {
 
   function closeCreateModal() {
     setCreateModalOpen(false)
+    resetWeChatLoginState()
     setDraft(EMPTY_BOTS_PAGE_DRAFT)
     setFormError('')
     createMutation.reset()
@@ -253,11 +655,61 @@ export function BotsPage() {
       return
     }
 
-    if (!draft.telegramBotToken.trim()) {
+    if (draftProvider === 'telegram' && !draft.telegramBotToken.trim()) {
       setFormError(
         i18n._({
           id: 'Telegram bot token is required.',
           message: 'Telegram bot token is required.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'wechat' && !draft.wechatBaseUrl.trim()) {
+      setFormError(
+        i18n._({
+          id: 'WeChat base URL is required.',
+          message: 'WeChat base URL is required.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'wechat' && draftWeChatCredentialSource === 'qr' && !hasDraftWeChatCredentialBundle) {
+      setFormError(
+        i18n._({
+          id: 'Complete WeChat QR login and apply the confirmed credentials before creating the connection.',
+          message: 'Complete WeChat QR login and apply the confirmed credentials before creating the connection.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'wechat' && draftWeChatCredentialSource === 'manual' && !draft.wechatAccountId.trim()) {
+      setFormError(
+        i18n._({
+          id: 'WeChat account ID is required.',
+          message: 'WeChat account ID is required.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'wechat' && draftWeChatCredentialSource === 'manual' && !draft.wechatUserId.trim()) {
+      setFormError(
+        i18n._({
+          id: 'WeChat owner user ID is required.',
+          message: 'WeChat owner user ID is required.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'wechat' && draftWeChatCredentialSource === 'manual' && !draft.wechatBotToken.trim()) {
+      setFormError(
+        i18n._({
+          id: 'WeChat bot token is required.',
+          message: 'WeChat bot token is required.',
         }),
       )
       return
@@ -312,6 +764,38 @@ export function BotsPage() {
     </>
   )
 
+  const wechatLoginModalFooter = (
+    <>
+      {wechatLoginId ? (
+        <Button
+          intent="secondary"
+          isLoading={wechatLoginDeleteMutation.isPending}
+          onClick={handleDeleteWeChatLogin}
+          type="button"
+        >
+          {activeWeChatLoginStatus === 'confirmed'
+            ? i18n._({ id: 'Discard Session', message: 'Discard Session' })
+            : i18n._({ id: 'Cancel Login', message: 'Cancel Login' })}
+        </Button>
+      ) : (
+        <Button intent="secondary" onClick={closeWeChatLoginModal} type="button">
+          {i18n._({ id: 'Close', message: 'Close' })}
+        </Button>
+      )}
+      {activeWeChatLogin?.credentialReady ? (
+        <Button onClick={handleUseWeChatCredentials} type="button">
+          {i18n._({ id: 'Use Credentials', message: 'Use Credentials' })}
+        </Button>
+      ) : (
+        <Button isLoading={wechatLoginStartMutation.isPending} onClick={handleStartWeChatLogin} type="button">
+          {wechatLoginId
+            ? i18n._({ id: 'Restart Login', message: 'Restart Login' })
+            : i18n._({ id: 'Fetch QR Code', message: 'Fetch QR Code' })}
+        </Button>
+      )}
+    </>
+  )
+
   return (
     <section className="screen">
       <header className="mode-strip">
@@ -322,9 +806,9 @@ export function BotsPage() {
           </div>
           <div className="mode-strip__description">
             {i18n._({
-              id: 'Connect Telegram bots with either webhook or long-polling delivery, then route replies through Workspace Thread or OpenAI Responses.',
+              id: 'Connect Telegram or WeChat bots, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
               message:
-                'Connect Telegram bots with either webhook or long-polling delivery, then route replies through Workspace Thread or OpenAI Responses.',
+                'Connect Telegram or WeChat bots, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
             })}
           </div>
         </div>
@@ -400,54 +884,31 @@ export function BotsPage() {
             <div className="section-header">
               <div>
                 <h2>{i18n._({ id: 'Provider Posture', message: 'Provider Posture' })}</h2>
-                <p>
-                  {i18n._({
-                    id: 'Telegram supports both webhook and long-polling intake. Discord ordinary message intake can be added later through a gateway worker without changing the core orchestration flow.',
-                    message:
-                      'Telegram supports both webhook and long-polling intake. Discord ordinary message intake can be added later through a gateway worker without changing the core orchestration flow.',
-                  })}
-                </p>
+                <p>{selectedProviderPosture}</p>
               </div>
             </div>
             <div className="mode-metrics">
               <div className="mode-metric">
                 <span>{i18n._({ id: 'Provider', message: 'Provider' })}</span>
-                <strong>{selectedConnection ? formatBotProviderLabel(selectedConnection.provider) : 'Telegram'}</strong>
+                <strong>{selectedProviderLabel}</strong>
               </div>
               <div className="mode-metric">
                 <span>{i18n._({ id: 'Backend', message: 'Backend' })}</span>
-                <strong>{selectedConnection ? formatBotBackendLabel(selectedConnection.aiBackend) : 'Workspace Thread'}</strong>
+                <strong>{selectedBackendLabel}</strong>
               </div>
             </div>
             <div className="detail-list">
               <div className="detail-row">
                 <span>{i18n._({ id: 'Delivery Mode', message: 'Delivery Mode' })}</span>
-                <strong>
-                  {selectedTelegramDeliveryMode === 'polling'
-                    ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
-                    : i18n._({ id: 'Webhook', message: 'Webhook' })}
-                </strong>
+                <strong>{selectedDeliveryModeLabel}</strong>
               </div>
               <div className="detail-row">
-                <span>
-                  {selectedTelegramDeliveryMode === 'polling'
-                    ? i18n._({ id: 'Update Intake', message: 'Update Intake' })
-                    : i18n._({ id: 'Webhook Route', message: 'Webhook Route' })}
-                </span>
-                <strong>
-                  {selectedTelegramDeliveryMode === 'polling'
-                    ? i18n._({ id: 'Telegram getUpdates long polling', message: 'Telegram getUpdates long polling' })
-                    : `/hooks/bots/${selectedConnection?.id ?? '{connectionId}'}`}
-                </strong>
+                <span>{selectedIntakeLabel}</span>
+                <strong>{selectedIntakeValue}</strong>
               </div>
               <div className="detail-row">
                 <span>{i18n._({ id: 'Public URL', message: 'Public URL' })}</span>
-                <strong>
-                  {selectedTelegramDeliveryMode === 'polling'
-                    ? i18n._({ id: 'not required in polling mode', message: 'not required in polling mode' })
-                    : selectedConnection?.settings?.webhook_url ??
-                      i18n._({ id: 'resolved at activation', message: 'resolved at activation' })}
-                </strong>
+                <strong>{selectedPublicUrlValue}</strong>
               </div>
             </div>
           </section>
@@ -531,9 +992,9 @@ export function BotsPage() {
                 {!connectionsQuery.isLoading && !connections.length ? (
                   <div className="empty-state">
                     {i18n._({
-                      id: 'No bot connections yet. Start with a Telegram token, then choose webhook or long polling based on your deployment.',
+                      id: 'No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment.',
                       message:
-                        'No bot connections yet. Start with a Telegram token, then choose webhook or long polling based on your deployment.',
+                        'No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment.',
                     })}
                   </div>
                 ) : null}
@@ -603,6 +1064,12 @@ export function BotsPage() {
                         <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                           <StatusPill status={selectedConnection.status} />
                           <Button
+                            intent="secondary"
+                            onClick={() => navigate(`/bots/${selectedConnection.workspaceId}/${selectedConnection.id}/logs`)}
+                          >
+                            {i18n._({ id: 'View Logs', message: 'View Logs' })}
+                          </Button>
+                          <Button
                             intent="ghost"
                             isLoading={
                               actionMutation.isPending && actionMutation.variables?.connection.id === selectedConnection.id
@@ -668,13 +1135,31 @@ export function BotsPage() {
                           </strong>
                         </div>
                         <div className="detail-row">
-                          <span>{i18n._({ id: 'Telegram Mode', message: 'Telegram Mode' })}</span>
-                          <strong>
-                            {selectedTelegramDeliveryMode === 'polling'
-                              ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
-                              : i18n._({ id: 'Webhook', message: 'Webhook' })}
-                          </strong>
+                          <span>{i18n._({ id: 'Delivery Mode', message: 'Delivery Mode' })}</span>
+                          <strong>{selectedDeliveryModeLabel}</strong>
                         </div>
+                        {selectedConnectionUsesPolling ? (
+                          <>
+                            <div className="detail-row">
+                              <span>{i18n._({ id: 'Last Poll Status', message: 'Last Poll Status' })}</span>
+                              <strong>
+                                {selectedConnection.lastPollStatus ? (
+                                  <StatusPill status={selectedConnection.lastPollStatus} />
+                                ) : (
+                                  i18n._({ id: 'none', message: 'none' })
+                                )}
+                              </strong>
+                            </div>
+                            <div className="detail-row">
+                              <span>{i18n._({ id: 'Last Poll Time', message: 'Last Poll Time' })}</span>
+                              <strong>{formatBotTimestamp(selectedConnection.lastPollAt ?? undefined)}</strong>
+                            </div>
+                            <div className="detail-row">
+                              <span>{i18n._({ id: 'Last Poll Message', message: 'Last Poll Message' })}</span>
+                              <strong>{selectedConnection.lastPollMessage?.trim() || i18n._({ id: 'none', message: 'none' })}</strong>
+                            </div>
+                          </>
+                        ) : null}
                         <div className="detail-row">
                           <span>{i18n._({ id: 'Updated', message: 'Updated' })}</span>
                           <strong>{formatBotTimestamp(selectedConnection.updatedAt)}</strong>
@@ -702,9 +1187,9 @@ export function BotsPage() {
                           <h2>{i18n._({ id: 'Runtime Diagnostics', message: 'Runtime Diagnostics' })}</h2>
                           <p>
                             {i18n._({
-                              id: 'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and Telegram delivery operations.',
+                              id: 'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations.',
                               message:
-                                'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and Telegram delivery operations.',
+                                'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations.',
                             })}
                           </p>
                         </div>
@@ -825,9 +1310,9 @@ export function BotsPage() {
       {createModalOpen ? (
         <Modal
           description={i18n._({
-            id: 'Create a provider connection, choose webhook or long polling delivery, and bind it to an AI execution backend.',
+            id: 'Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
             message:
-              'Create a provider connection, choose webhook or long polling delivery, and bind it to an AI execution backend.',
+              'Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
           })}
           footer={createModalFooter}
           onClose={closeCreateModal}
@@ -880,7 +1365,7 @@ export function BotsPage() {
                 <SelectControl
                   ariaLabel={i18n._({ id: 'Provider', message: 'Provider' })}
                   fullWidth
-                  onChange={(nextValue) => setDraft((current) => ({ ...current, provider: nextValue }))}
+                  onChange={handleDraftProviderChange}
                   options={providerOptions}
                   value={draft.provider}
                 />
@@ -888,16 +1373,28 @@ export function BotsPage() {
             </div>
 
             <div className="form-row">
-              <label className="field">
-                <span>{i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}</span>
-                <SelectControl
-                  ariaLabel={i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}
-                  fullWidth
-                  onChange={(nextValue) => setDraft((current) => ({ ...current, telegramDeliveryMode: nextValue }))}
-                  options={telegramDeliveryModeOptions}
-                  value={draft.telegramDeliveryMode}
+              {draftProvider === 'telegram' ? (
+                <label className="field">
+                  <span>{i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}</span>
+                  <SelectControl
+                    ariaLabel={i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}
+                    fullWidth
+                    onChange={(nextValue) => setDraft((current) => ({ ...current, telegramDeliveryMode: nextValue }))}
+                    options={telegramDeliveryModeOptions}
+                    value={draft.telegramDeliveryMode}
+                  />
+                </label>
+              ) : (
+                <Input
+                  disabled
+                  hint={i18n._({
+                    id: 'WeChat currently uses polling-only intake in this phase.',
+                    message: 'WeChat currently uses polling-only intake in this phase.',
+                  })}
+                  label={i18n._({ id: 'WeChat Delivery Mode', message: 'WeChat Delivery Mode' })}
+                  value={i18n._({ id: 'Long Polling only', message: 'Long Polling only' })}
                 />
-              </label>
+              )}
               <label className="field">
                 <span>{i18n._({ id: 'AI Backend', message: 'AI Backend' })}</span>
                 <SelectControl
@@ -926,9 +1423,9 @@ export function BotsPage() {
             <Switch
               checked={draft.runtimeMode === 'debug'}
               hint={i18n._({
-                id: 'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and Telegram delivery steps.',
+                id: 'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
                 message:
-                  'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and Telegram delivery steps.',
+                  'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
               })}
               label={i18n._({ id: 'Enable Backend Debug Mode', message: 'Enable Backend Debug Mode' })}
               onChange={(event) =>
@@ -936,26 +1433,186 @@ export function BotsPage() {
               }
             />
 
-            {draftTelegramDeliveryMode === 'webhook' ? (
-              <Input
-                hint={i18n._({
-                  id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                  message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                })}
-                label={i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
-                onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
-                placeholder="https://bots.example.com"
-                value={draft.publicBaseUrl}
-              />
-            ) : null}
+            {draftProvider === 'telegram' ? (
+              <>
+                {draftTelegramDeliveryMode === 'webhook' ? (
+                  <Input
+                    hint={i18n._({
+                      id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                      message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                    })}
+                    label={i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
+                    onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
+                    placeholder="https://bots.example.com"
+                    value={draft.publicBaseUrl}
+                  />
+                ) : null}
 
-            <Input
-              label={i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
-              onChange={(event) => setDraft((current) => ({ ...current, telegramBotToken: event.target.value }))}
-              placeholder={i18n._({ id: '123456:ABCDEF...', message: '123456:ABCDEF...' })}
-              type="password"
-              value={draft.telegramBotToken}
-            />
+                <Input
+                  label={i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
+                  onChange={(event) => setDraft((current) => ({ ...current, telegramBotToken: event.target.value }))}
+                  placeholder={i18n._({ id: '123456:ABCDEF...', message: '123456:ABCDEF...' })}
+                  type="password"
+                  value={draft.telegramBotToken}
+                />
+              </>
+            ) : (
+              <>
+                <div className="form-row">
+                  <Input
+                    hint={i18n._({
+                      id: 'Required. Use the iLink channel base URL for this WeChat account.',
+                      message: 'Required. Use the iLink channel base URL for this WeChat account.',
+                    })}
+                    label={i18n._({ id: 'WeChat Base URL', message: 'WeChat Base URL' })}
+                    onChange={(event) => setDraft((current) => ({ ...current, wechatBaseUrl: event.target.value }))}
+                    placeholder="https://wechat.example.com"
+                    value={draft.wechatBaseUrl}
+                  />
+                  <label className="field">
+                    <span>{i18n._({ id: 'Credential Source', message: 'Credential Source' })}</span>
+                    <SelectControl
+                      ariaLabel={i18n._({ id: 'Credential Source', message: 'Credential Source' })}
+                      fullWidth
+                      onChange={handleWeChatCredentialSourceChange}
+                      options={wechatCredentialSourceOptions}
+                      value={draftWeChatCredentialSource}
+                    />
+                  </label>
+                </div>
+
+                {draftWeChatCredentialSource === 'manual' ? (
+                  <>
+                    <div className="form-row">
+                      <Input
+                        label={i18n._({ id: 'WeChat Account ID', message: 'WeChat Account ID' })}
+                        onChange={(event) => setDraft((current) => ({ ...current, wechatAccountId: event.target.value }))}
+                        placeholder={i18n._({ id: 'wechat-account-1', message: 'wechat-account-1' })}
+                        value={draft.wechatAccountId}
+                      />
+                      <Input
+                        hint={i18n._({
+                          id: 'Required. This maps to wechat_owner_user_id on the backend.',
+                          message: 'Required. This maps to wechat_owner_user_id on the backend.',
+                        })}
+                        label={i18n._({ id: 'WeChat Owner User ID', message: 'WeChat Owner User ID' })}
+                        onChange={(event) => setDraft((current) => ({ ...current, wechatUserId: event.target.value }))}
+                        placeholder={i18n._({ id: 'wechat-owner-1', message: 'wechat-owner-1' })}
+                        value={draft.wechatUserId}
+                      />
+                    </div>
+
+                    <Input
+                      hint={i18n._({
+                        id: 'Enter the bot token issued by the WeChat iLink backend for this account.',
+                        message: 'Enter the bot token issued by the WeChat iLink backend for this account.',
+                      })}
+                      label={i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
+                      onChange={(event) => setDraft((current) => ({ ...current, wechatBotToken: event.target.value }))}
+                      placeholder={i18n._({ id: 'wechat-token-1', message: 'wechat-token-1' })}
+                      type="password"
+                      value={draft.wechatBotToken}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <section className="mode-panel">
+                      <div
+                        style={{
+                          alignItems: 'start',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '16px',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div style={{ display: 'grid', gap: '6px' }}>
+                          <strong>{i18n._({ id: 'WeChat QR Login', message: 'WeChat QR Login' })}</strong>
+                          <span>
+                            {i18n._({
+                              id: 'Fetch the WeChat credential bundle from the remote iLink service, then apply it back into this form without manual secret entry.',
+                              message:
+                                'Fetch the WeChat credential bundle from the remote iLink service, then apply it back into this form without manual secret entry.',
+                            })}
+                          </span>
+                        </div>
+                        <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {draft.wechatLoginStatus ? <StatusPill status={draft.wechatLoginStatus} /> : null}
+                          <Button intent="secondary" onClick={openWeChatLoginModal} type="button">
+                            {wechatLoginEntryLabel}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="detail-list" style={{ marginTop: '16px' }}>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Login Session', message: 'Login Session' })}</span>
+                          <strong>{wechatDraftSessionIdLabel}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Session Status', message: 'Session Status' })}</span>
+                          <strong>{wechatDraftSessionStatusLabel}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'QR Payload', message: 'QR Payload' })}</span>
+                          <strong>{wechatDraftPayloadLabel}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Credential Bundle', message: 'Credential Bundle' })}</span>
+                          <strong>{wechatDraftCredentialBundleLabel}</strong>
+                        </div>
+                      </div>
+                    </section>
+
+                    {!hasDraftWeChatCredentialBundle ? (
+                      <InlineNotice
+                        dismissible={false}
+                        noticeKey={`wechat-qr-credential-${draft.wechatLoginSessionId || 'idle'}-${draft.wechatLoginStatus || 'none'}`}
+                        title={i18n._({ id: 'QR Credentials Required', message: 'QR Credentials Required' })}
+                      >
+                        {wechatQrCredentialNotice}
+                      </InlineNotice>
+                    ) : (
+                      <>
+                        <div className="form-row">
+                          <Input
+                            hint={i18n._({
+                              id: 'Applied from the confirmed QR login session. Switch back to Manual Entry if you need to override it manually.',
+                              message:
+                                'Applied from the confirmed QR login session. Switch back to Manual Entry if you need to override it manually.',
+                            })}
+                            label={i18n._({ id: 'WeChat Account ID', message: 'WeChat Account ID' })}
+                            readOnly
+                            value={draft.wechatAccountId}
+                          />
+                          <Input
+                            hint={i18n._({
+                              id: 'Read-only while QR Login is selected.',
+                              message: 'Read-only while QR Login is selected.',
+                            })}
+                            label={i18n._({ id: 'WeChat Owner User ID', message: 'WeChat Owner User ID' })}
+                            readOnly
+                            value={draft.wechatUserId}
+                          />
+                        </div>
+
+                        <Input
+                          hint={i18n._({
+                            id: 'Stored in the form and submitted on create. Start a new QR login if you need to rotate it.',
+                            message:
+                              'Stored in the form and submitted on create. Start a new QR login if you need to rotate it.',
+                          })}
+                          label={i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
+                          readOnly
+                          type="password"
+                          value={draft.wechatBotToken}
+                        />
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            )}
 
             {draft.aiBackend === 'workspace_thread' ? (
               <>
@@ -1058,6 +1715,157 @@ export function BotsPage() {
         </Modal>
       ) : null}
 
+      {wechatLoginModalOpen ? (
+        <Modal
+          description={i18n._({
+            id: 'Start a short-lived WeChat login session, display the provider-issued QR code, then pull the confirmed credential bundle back into the connection form.',
+            message:
+              'Start a short-lived WeChat login session, display the provider-issued QR code, then pull the confirmed credential bundle back into the connection form.',
+          })}
+          footer={wechatLoginModalFooter}
+          onClose={closeWeChatLoginModal}
+          title={i18n._({ id: 'WeChat QR Login', message: 'WeChat QR Login' })}
+        >
+          <div className="form-stack">
+            {wechatLoginErrorMessage ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`wechat-login-${wechatLoginErrorMessage}`}
+                title={i18n._({ id: 'WeChat Login Failed', message: 'WeChat Login Failed' })}
+                tone="error"
+              >
+                {wechatLoginErrorMessage}
+              </InlineNotice>
+            ) : null}
+
+            <Input
+              hint={i18n._({
+                id: 'This base URL is used both for fetching the QR code and for the final confirmed credential bundle.',
+                message:
+                  'This base URL is used both for fetching the QR code and for the final confirmed credential bundle.',
+              })}
+              label={i18n._({ id: 'WeChat Base URL', message: 'WeChat Base URL' })}
+              onChange={(event) => setDraft((current) => ({ ...current, wechatBaseUrl: event.target.value }))}
+              placeholder="https://ilinkai.weixin.qq.com"
+              value={draft.wechatBaseUrl}
+            />
+
+            {activeWeChatLogin ? (
+              <div className="mode-panel" style={{ margin: 0 }}>
+                <div className="detail-list">
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Session Status', message: 'Session Status' })}</span>
+                    <strong>{formatWeChatLoginStatus(activeWeChatLogin.status)}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Login ID', message: 'Login ID' })}</span>
+                    <strong>{activeWeChatLogin.loginId}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Expires', message: 'Expires' })}</span>
+                    <strong>{formatBotTimestamp(activeWeChatLogin.expiresAt)}</strong>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {activeWeChatLogin?.qrCodeContent ? (
+              <div
+                style={{
+                  alignItems: 'center',
+                  display: 'grid',
+                  gap: '16px',
+                  justifyItems: 'center',
+                }}
+              >
+                {wechatLoginQRCodeUrl ? (
+                  <img
+                    alt={i18n._({ id: 'WeChat login QR code', message: 'WeChat login QR code' })}
+                    src={wechatLoginQRCodeUrl}
+                    style={{
+                      background: '#fff',
+                      border: '1px solid rgba(15, 23, 42, 0.12)',
+                      borderRadius: '16px',
+                      maxWidth: '100%',
+                      padding: '12px',
+                      width: '320px',
+                    }}
+                  />
+                ) : (
+                  <div className="notice">
+                    {i18n._({ id: 'Rendering QR code...', message: 'Rendering QR code...' })}
+                  </div>
+                )}
+                <Button intent="secondary" onClick={() => void handleCopyWeChatPayload()} type="button">
+                  {wechatLoginCopyLabel}
+                </Button>
+                <TextArea
+                  hint={i18n._({
+                    id: 'Fallback payload for copy or external inspection. The QR image above is rendered locally from this exact value.',
+                    message:
+                      'Fallback payload for copy or external inspection. The QR image above is rendered locally from this exact value.',
+                  })}
+                  label={i18n._({ id: 'QR Payload', message: 'QR Payload' })}
+                  readOnly
+                  rows={3}
+                  value={activeWeChatLogin.qrCodeContent}
+                />
+              </div>
+            ) : null}
+
+            {activeWeChatLoginStatus === 'scaned' ? (
+              <InlineNotice
+                dismissible={false}
+                noticeKey="wechat-login-scanned"
+                title={i18n._({ id: 'QR Code Scanned', message: 'QR Code Scanned' })}
+                tone="info"
+              >
+                {i18n._({
+                  id: 'The QR code has been scanned. Keep this dialog open until the remote service confirms the login and returns the final credential bundle.',
+                  message:
+                    'The QR code has been scanned. Keep this dialog open until the remote service confirms the login and returns the final credential bundle.',
+                })}
+              </InlineNotice>
+            ) : null}
+
+            {activeWeChatLogin?.credentialReady ? (
+              <div className="mode-panel" style={{ margin: 0 }}>
+                <div className="section-header">
+                  <div>
+                    <h2>{i18n._({ id: 'Confirmed Credentials', message: 'Confirmed Credentials' })}</h2>
+                    <p>
+                      {i18n._({
+                        id: 'Review the confirmed credential bundle before applying it back into the connection form.',
+                        message:
+                          'Review the confirmed credential bundle before applying it back into the connection form.',
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <div className="detail-list">
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Base URL', message: 'Base URL' })}</span>
+                    <strong>{activeWeChatLogin.baseUrl ?? '-'}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Account ID', message: 'Account ID' })}</span>
+                    <strong>{activeWeChatLogin.accountId ?? '-'}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Owner User ID', message: 'Owner User ID' })}</span>
+                    <strong>{activeWeChatLogin.userId ?? '-'}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Bot Token', message: 'Bot Token' })}</span>
+                    <strong>{activeWeChatLogin.botToken ? i18n._({ id: 'received', message: 'received' }) : '-'}</strong>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
+
       {deleteTarget ? (
         <ConfirmDialog
           confirmLabel={i18n._({ id: 'Delete Connection', message: 'Delete Connection' })}
@@ -1079,4 +1887,19 @@ export function BotsPage() {
       ) : null}
     </section>
   )
+}
+
+function formatWeChatLoginStatus(status: string) {
+  switch (status.trim().toLowerCase()) {
+    case 'wait':
+      return i18n._({ id: 'Waiting for scan', message: 'Waiting for scan' })
+    case 'scaned':
+      return i18n._({ id: 'Scanned', message: 'Scanned' })
+    case 'confirmed':
+      return i18n._({ id: 'Confirmed', message: 'Confirmed' })
+    case 'expired':
+      return i18n._({ id: 'Expired', message: 'Expired' })
+    default:
+      return status || i18n._({ id: 'Unknown', message: 'Unknown' })
+  }
 }

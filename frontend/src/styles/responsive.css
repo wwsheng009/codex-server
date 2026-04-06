@@ -9,6 +9,7 @@
   .settings-grid,
   .terminal-dock__layout,
   .runtime-board,
+  .runtime-summary-grid,
   .mode-console-grid,
   .workbench-stage__stats,
   .resource-list--two-column,
@@ -265,6 +266,16 @@
 
   .settings-shell__frame {
     grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+  }
+
+  .runtime-item__compact-head,
+  .runtime-item--plugin {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-item__compact-meta,
+  .runtime-item__plugin-actions {
+    justify-content: flex-start;
   }
 
   .workbench-pane {

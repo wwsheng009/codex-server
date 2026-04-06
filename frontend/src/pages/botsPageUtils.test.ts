@@ -109,6 +109,45 @@ describe('botsPageUtils', () => {
     })
   })
 
+  it('builds a wechat polling payload with provider-specific settings', () => {
+    const input = buildBotConnectionCreateInput({
+      ...EMPTY_BOTS_PAGE_DRAFT,
+      provider: 'wechat',
+      wechatCredentialSource: 'qr',
+      wechatLoginSessionId: 'login-123',
+      wechatLoginStatus: 'confirmed',
+      wechatQrCodeContent: 'weixin://qr/abc',
+      name: ' WeChat Support ',
+      publicBaseUrl: ' https://ignored.example.com ',
+      wechatBaseUrl: ' https://wechat.example.com ',
+      wechatAccountId: ' account-7 ',
+      wechatUserId: ' owner-9 ',
+      wechatBotToken: ' wechat-token-3 ',
+    })
+
+    expect(input).toEqual({
+      provider: 'wechat',
+      name: 'WeChat Support',
+      publicBaseUrl: undefined,
+      aiBackend: 'workspace_thread',
+      aiConfig: {
+        model: 'gpt-5.4',
+        reasoning_effort: 'medium',
+        collaboration_mode: 'default',
+      },
+      settings: {
+        runtime_mode: 'normal',
+        wechat_delivery_mode: 'polling',
+        wechat_base_url: 'https://wechat.example.com',
+        wechat_account_id: 'account-7',
+        wechat_owner_user_id: 'owner-9',
+      },
+      secrets: {
+        bot_token: 'wechat-token-3',
+      },
+    })
+  })
+
   it('writes debug runtime mode into bot settings', () => {
     const input = buildBotConnectionCreateInput({
       ...EMPTY_BOTS_PAGE_DRAFT,
@@ -155,5 +194,20 @@ describe('botsPageUtils', () => {
         updatedAt: '2026-03-25T00:00:00.000Z',
       }),
     ).toBe('bob')
+
+    expect(
+      formatBotConversationTitle({
+        id: 'bcn_3',
+        workspaceId: 'ws_1',
+        connectionId: 'bot_2',
+        provider: 'wechat',
+        externalChatId: 'chat_3',
+        externalThreadId: 'topic-like-value',
+        externalUserId: 'user_3',
+        externalTitle: 'Charlie',
+        createdAt: '2026-03-25T00:00:00.000Z',
+        updatedAt: '2026-03-25T00:00:00.000Z',
+      }),
+    ).toBe('Charlie')
   })
 })

@@ -9,8 +9,16 @@ export type BotsPageDraft = {
   runtimeMode: string
   telegramDeliveryMode: string
   publicBaseUrl: string
+  wechatBaseUrl: string
+  wechatCredentialSource: string
+  wechatLoginSessionId: string
+  wechatLoginStatus: string
+  wechatQrCodeContent: string
   aiBackend: string
   telegramBotToken: string
+  wechatBotToken: string
+  wechatAccountId: string
+  wechatUserId: string
   workspaceModel: string
   workspaceReasoning: string
   workspaceCollaborationMode: string
@@ -29,8 +37,16 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   runtimeMode: 'normal',
   telegramDeliveryMode: 'webhook',
   publicBaseUrl: '',
+  wechatBaseUrl: '',
+  wechatCredentialSource: 'manual',
+  wechatLoginSessionId: '',
+  wechatLoginStatus: '',
+  wechatQrCodeContent: '',
   aiBackend: 'workspace_thread',
   telegramBotToken: '',
+  wechatBotToken: '',
+  wechatAccountId: '',
+  wechatUserId: '',
   workspaceModel: 'gpt-5.4',
   workspaceReasoning: 'medium',
   workspaceCollaborationMode: 'default',
@@ -46,9 +62,21 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   const aiConfig: Record<string, string> = {}
   const settings: Record<string, string> = {}
   const secrets: Record<string, string> = {}
+  const provider = draft.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
 
-  if (draft.provider === 'telegram') {
+  if (provider === 'telegram') {
     settings.telegram_delivery_mode = draft.telegramDeliveryMode.trim() || 'webhook'
+  } else {
+    settings.wechat_delivery_mode = 'polling'
+    if (draft.wechatBaseUrl.trim()) {
+      settings.wechat_base_url = draft.wechatBaseUrl.trim()
+    }
+    if (draft.wechatAccountId.trim()) {
+      settings.wechat_account_id = draft.wechatAccountId.trim()
+    }
+    if (draft.wechatUserId.trim()) {
+      settings.wechat_owner_user_id = draft.wechatUserId.trim()
+    }
   }
   settings.runtime_mode = draft.runtimeMode.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
 
@@ -82,15 +110,18 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
     }
   }
 
-  if (draft.telegramBotToken.trim()) {
+  if (provider === 'telegram' && draft.telegramBotToken.trim()) {
     secrets.bot_token = draft.telegramBotToken.trim()
+  }
+  if (provider === 'wechat' && draft.wechatBotToken.trim()) {
+    secrets.bot_token = draft.wechatBotToken.trim()
   }
 
   return {
-    provider: draft.provider,
+    provider,
     name: draft.name.trim(),
     publicBaseUrl:
-      draft.provider === 'telegram' && (draft.telegramDeliveryMode.trim() || 'webhook') === 'webhook'
+      provider === 'telegram' && (draft.telegramDeliveryMode.trim() || 'webhook') === 'webhook'
         ? draft.publicBaseUrl.trim() || undefined
         : undefined,
     aiBackend: draft.aiBackend,
@@ -104,6 +135,8 @@ export function formatBotProviderLabel(provider: string) {
   switch (provider.trim().toLowerCase()) {
     case 'telegram':
       return i18n._({ id: 'Telegram', message: 'Telegram' })
+    case 'wechat':
+      return i18n._({ id: 'WeChat', message: 'WeChat' })
     case 'discord':
       return i18n._({ id: 'Discord', message: 'Discord' })
     default:
@@ -153,7 +186,7 @@ export function formatBotConversationTitle(conversation: BotConversation) {
     conversation.externalUserId ||
     conversation.externalChatId
 
-  if (conversation.externalThreadId) {
+  if (conversation.provider.trim().toLowerCase() === 'telegram' && conversation.externalThreadId) {
     return `${baseTitle} (topic ${conversation.externalThreadId})`
   }
 

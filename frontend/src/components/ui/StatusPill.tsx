@@ -20,6 +20,8 @@ function formatStatusLabel(status: string) {
       return i18n._({ id: 'Ready', message: 'Ready' })
     case 'active':
       return i18n._({ id: 'Active', message: 'Active' })
+    case 'success':
+      return i18n._({ id: 'Success', message: 'Success' })
     case 'connected':
       return i18n._({ id: 'Connected', message: 'Connected' })
     case 'disconnected':

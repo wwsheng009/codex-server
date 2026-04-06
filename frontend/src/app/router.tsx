@@ -29,6 +29,10 @@ const BotsPage = lazy(async () => {
   const module = await import('../pages/BotsPage')
   return { default: module.BotsPage }
 })
+const BotConnectionLogsPage = lazy(async () => {
+  const module = await import('../pages/BotConnectionLogsPage')
+  return { default: module.BotConnectionLogsPage }
+})
 const CatalogPage = lazy(async () => {
   const module = await import('../pages/CatalogPage')
   return { default: module.CatalogPage }
@@ -117,6 +121,7 @@ export const router = createBrowserRouter([
           { path: 'workspaces/:workspaceId/threads/:threadId', element: lazyElement(ThreadPage) },
           { path: 'automations', element: lazyElement(AutomationsPage) },
           { path: 'bots', element: lazyElement(BotsPage) },
+          { path: 'bots/:workspaceId/:connectionId/logs', element: lazyElement(BotConnectionLogsPage) },
           { path: 'automations/:automationId', element: lazyElement(AutomationDetailPage) },
           { path: 'skills', element: lazyElement(SkillsPage) },
           { path: 'runtime', element: lazyElement(CatalogPage) },

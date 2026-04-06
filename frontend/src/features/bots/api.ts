@@ -1,5 +1,5 @@
 import { apiRequest } from '../../lib/api-client'
-import type { BotConnection, BotConversation } from '../../types/api'
+import type { BotConnection, BotConnectionLogEntry, BotConversation, WeChatLogin } from '../../types/api'
 
 export type CreateBotConnectionInput = {
   provider: string
@@ -19,12 +19,20 @@ export type UpdateBotConnectionRuntimeModeInput = {
   runtimeMode: string
 }
 
+export type StartWeChatLoginInput = {
+  baseUrl: string
+}
+
 export function listBotConnections(workspaceId: string) {
   return apiRequest<BotConnection[]>(`/api/workspaces/${workspaceId}/bot-connections`)
 }
 
 export function getBotConnection(workspaceId: string, connectionId: string) {
   return apiRequest<BotConnection>(`/api/workspaces/${workspaceId}/bot-connections/${connectionId}`)
+}
+
+export function listBotConnectionLogs(workspaceId: string, connectionId: string) {
+  return apiRequest<BotConnectionLogEntry[]>(`/api/workspaces/${workspaceId}/bot-connections/${connectionId}/logs`)
 }
 
 export function createBotConnection(workspaceId: string, input: CreateBotConnectionInput) {
@@ -72,4 +80,21 @@ export function listBotConversations(workspaceId: string, connectionId: string) 
   return apiRequest<BotConversation[]>(
     `/api/workspaces/${workspaceId}/bot-connections/${connectionId}/conversations`,
   )
+}
+
+export function startWeChatLogin(workspaceId: string, input: StartWeChatLoginInput) {
+  return apiRequest<WeChatLogin>(`/api/workspaces/${workspaceId}/bot-providers/wechat/login/start`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function getWeChatLogin(workspaceId: string, loginId: string) {
+  return apiRequest<WeChatLogin>(`/api/workspaces/${workspaceId}/bot-providers/wechat/login/${loginId}`)
+}
+
+export function deleteWeChatLogin(workspaceId: string, loginId: string) {
+  return apiRequest<{ status: string }>(`/api/workspaces/${workspaceId}/bot-providers/wechat/login/${loginId}`, {
+    method: 'DELETE',
+  })
 }

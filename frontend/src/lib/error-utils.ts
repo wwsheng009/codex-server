@@ -13,6 +13,10 @@ export function describeError(error: unknown, fallback = 'An unexpected error oc
 }
 
 export function getErrorMessage(error: unknown, fallback?: string) {
+  if (error == null) {
+    return fallback ?? ''
+  }
+
   const rawMessage = readErrorMessage(error).trim()
   if (rawMessage) {
     return rawMessage

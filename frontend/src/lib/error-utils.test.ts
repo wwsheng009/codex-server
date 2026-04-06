@@ -18,6 +18,11 @@ describe('error-utils', () => {
     expect(getErrorMessage(new Error('Failed to fetch'))).toBe('Failed to fetch')
   })
 
+  it('returns an empty string when no error object exists', () => {
+    expect(getErrorMessage(undefined)).toBe('')
+    expect(getErrorMessage(null)).toBe('')
+  })
+
   it('detects authentication errors from common upstream wording', () => {
     expect(isAuthenticationError(new Error('OpenAI authentication is required.'))).toBe(true)
   })
