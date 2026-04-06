@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,13 +20,16 @@ import (
 )
 
 const (
-	wechatLoginStatusWait      = "wait"
-	wechatLoginStatusScanned   = "scaned"
-	wechatLoginStatusConfirmed = "confirmed"
-	wechatLoginStatusExpired   = "expired"
-	wechatLoginSessionTTL      = 8 * time.Minute
-	wechatLoginHTTPTimeout     = 40 * time.Second
-	wechatLoginBotType         = 3
+	wechatLoginStatusWait        = "wait"
+	wechatLoginStatusScanned     = "scaned"
+	wechatLoginStatusRedirecting = "scaned_but_redirect"
+	wechatLoginStatusConfirmed   = "confirmed"
+	wechatLoginStatusExpired     = "expired"
+	wechatLoginSessionTTL        = 8 * time.Minute
+	wechatConfirmedLoginTTL      = 24 * time.Hour
+	wechatLoginHTTPTimeout       = 40 * time.Second
+	wechatLoginBotType           = 3
+	wechatLoginMaxRefreshCount   = 3
 )
 
 var ErrWeChatLoginNotFound = errors.New("wechat login session was not found")
@@ -57,27 +61,30 @@ type wechatQRCodeResponse struct {
 
 type wechatQRCodeStatusResponse struct {
 	wechatAPIResponse
-	Status    string `json:"status"`
-	BotToken  string `json:"bot_token"`
-	AccountID string `json:"ilink_bot_id"`
-	BaseURL   string `json:"baseurl"`
-	OwnerUser string `json:"ilink_user_id"`
-	QRCode    string `json:"qrcode"`
+	Status       string `json:"status"`
+	BotToken     string `json:"bot_token"`
+	AccountID    string `json:"ilink_bot_id"`
+	BaseURL      string `json:"baseurl"`
+	OwnerUser    string `json:"ilink_user_id"`
+	QRCode       string `json:"qrcode"`
+	RedirectHost string `json:"redirect_host"`
 }
 
 type wechatLoginSession struct {
-	id            string
-	workspaceID   string
-	baseURL       string
-	qrCode        string
-	qrCodeContent string
-	status        string
-	accountID     string
-	userID        string
-	botToken      string
-	createdAt     time.Time
-	updatedAt     time.Time
-	expiresAt     time.Time
+	id                 string
+	workspaceID        string
+	baseURL            string
+	currentPollBaseURL string
+	qrCode             string
+	qrCodeContent      string
+	status             string
+	accountID          string
+	userID             string
+	botToken           string
+	refreshCount       int
+	createdAt          time.Time
+	updatedAt          time.Time
+	expiresAt          time.Time
 }
 
 type wechatAuthService struct {
@@ -115,15 +122,16 @@ func (s *wechatAuthService) StartLogin(ctx context.Context, workspaceID string, 
 
 	now := s.now()
 	session := wechatLoginSession{
-		id:            randomWeChatLoginID(),
-		workspaceID:   strings.TrimSpace(workspaceID),
-		baseURL:       parsedBaseURL.String(),
-		qrCode:        qrCode,
-		qrCodeContent: qrCodeContent,
-		status:        wechatLoginStatusWait,
-		createdAt:     now,
-		updatedAt:     now,
-		expiresAt:     now.Add(wechatLoginSessionTTL),
+		id:                 randomWeChatLoginID(),
+		workspaceID:        strings.TrimSpace(workspaceID),
+		baseURL:            parsedBaseURL.String(),
+		currentPollBaseURL: parsedBaseURL.String(),
+		qrCode:             qrCode,
+		qrCodeContent:      qrCodeContent,
+		status:             wechatLoginStatusWait,
+		createdAt:          now,
+		updatedAt:          now,
+		expiresAt:          now.Add(wechatLoginSessionTTL),
 	}
 
 	s.mu.Lock()
@@ -134,10 +142,13 @@ func (s *wechatAuthService) StartLogin(ctx context.Context, workspaceID string, 
 }
 
 func (s *wechatAuthService) GetLoginStatus(ctx context.Context, workspaceID string, loginID string) (WeChatLoginView, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	loginID = strings.TrimSpace(loginID)
+
 	s.mu.Lock()
 	now := s.now()
-	session, ok := s.sessions[strings.TrimSpace(loginID)]
-	if !ok || session.workspaceID != strings.TrimSpace(workspaceID) {
+	session, ok := s.sessions[loginID]
+	if !ok || session.workspaceID != workspaceID {
 		s.mu.Unlock()
 		return WeChatLoginView{}, ErrWeChatLoginNotFound
 	}
@@ -154,7 +165,7 @@ func (s *wechatAuthService) GetLoginStatus(ctx context.Context, workspaceID stri
 	}
 	s.mu.Unlock()
 
-	status, err := s.fetchQRCodeStatus(ctx, session.baseURL, session.qrCode)
+	status, err := s.fetchQRCodeStatus(ctx, firstNonEmpty(strings.TrimSpace(session.currentPollBaseURL), session.baseURL), session.qrCode)
 	if err != nil {
 		if isWeChatLoginPollTimeout(err) {
 			return session.view(), nil
@@ -164,9 +175,9 @@ func (s *wechatAuthService) GetLoginStatus(ctx context.Context, workspaceID stri
 
 	now = s.now()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	current, ok := s.sessions[session.id]
-	if !ok || current.workspaceID != strings.TrimSpace(workspaceID) {
+	if !ok || current.workspaceID != workspaceID {
+		s.mu.Unlock()
 		return WeChatLoginView{}, ErrWeChatLoginNotFound
 	}
 	current.updatedAt = now
@@ -174,16 +185,26 @@ func (s *wechatAuthService) GetLoginStatus(ctx context.Context, workspaceID stri
 	switch normalizeWeChatLoginStatus(status.Status) {
 	case wechatLoginStatusScanned:
 		current.status = wechatLoginStatusScanned
+		if redirected := redirectWeChatPollBaseURL(current.baseURL, status.RedirectHost); redirected != "" {
+			current.currentPollBaseURL = redirected
+		}
 	case wechatLoginStatusConfirmed:
 		current.status = wechatLoginStatusConfirmed
 		current.botToken = strings.TrimSpace(status.BotToken)
 		current.accountID = strings.TrimSpace(status.AccountID)
 		current.userID = strings.TrimSpace(status.OwnerUser)
+		current.expiresAt = now.Add(wechatConfirmedLoginTTL)
 		if parsedBaseURL, err := parseWeChatBaseURL(firstNonEmpty(strings.TrimSpace(status.BaseURL), current.baseURL)); err == nil {
 			current.baseURL = parsedBaseURL.String()
+			current.currentPollBaseURL = current.baseURL
 		}
 	case wechatLoginStatusExpired:
-		current.status = wechatLoginStatusExpired
+		if current.refreshCount >= wechatLoginMaxRefreshCount {
+			current.status = wechatLoginStatusExpired
+			s.sessions[current.id] = current
+			s.mu.Unlock()
+			return current.view(), nil
+		}
 	default:
 		if current.status == "" {
 			current.status = wechatLoginStatusWait
@@ -191,7 +212,17 @@ func (s *wechatAuthService) GetLoginStatus(ctx context.Context, workspaceID stri
 	}
 
 	s.sessions[current.id] = current
-	return current.view(), nil
+	if normalizeWeChatLoginStatus(status.Status) != wechatLoginStatusExpired {
+		s.mu.Unlock()
+		return current.view(), nil
+	}
+	s.mu.Unlock()
+
+	refreshed, err := s.refreshLoginSession(ctx, workspaceID, current.id)
+	if err != nil {
+		return WeChatLoginView{}, err
+	}
+	return refreshed, nil
 }
 
 func (s *wechatAuthService) DeleteLogin(workspaceID string, loginID string) error {
@@ -204,6 +235,73 @@ func (s *wechatAuthService) DeleteLogin(workspaceID string, loginID string) erro
 	}
 	delete(s.sessions, session.id)
 	return nil
+}
+
+func (s *wechatAuthService) ResolveConfirmedLogin(ctx context.Context, workspaceID string, loginID string) (WeChatLoginView, error) {
+	view, err := s.GetLoginStatus(ctx, workspaceID, loginID)
+	if err != nil {
+		return WeChatLoginView{}, err
+	}
+	if normalizeWeChatLoginStatus(view.Status) != wechatLoginStatusConfirmed || !view.CredentialReady {
+		return WeChatLoginView{}, fmt.Errorf("%w: wechat login session is not confirmed yet", ErrInvalidInput)
+	}
+	return view, nil
+}
+
+func (s *wechatAuthService) refreshLoginSession(ctx context.Context, workspaceID string, loginID string) (WeChatLoginView, error) {
+	s.mu.Lock()
+	session, ok := s.sessions[loginID]
+	if !ok || session.workspaceID != workspaceID {
+		s.mu.Unlock()
+		return WeChatLoginView{}, ErrWeChatLoginNotFound
+	}
+	baseURL := session.baseURL
+	refreshCount := session.refreshCount
+	s.mu.Unlock()
+
+	if refreshCount >= wechatLoginMaxRefreshCount {
+		s.mu.Lock()
+		current, ok := s.sessions[loginID]
+		if !ok || current.workspaceID != workspaceID {
+			s.mu.Unlock()
+			return WeChatLoginView{}, ErrWeChatLoginNotFound
+		}
+		current.status = wechatLoginStatusExpired
+		current.updatedAt = s.now()
+		s.sessions[current.id] = current
+		s.mu.Unlock()
+		return current.view(), nil
+	}
+
+	qrCode, qrCodeContent, err := s.fetchQRCode(ctx, baseURL)
+	if err != nil {
+		return WeChatLoginView{}, err
+	}
+
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current, ok := s.sessions[loginID]
+	if !ok || current.workspaceID != workspaceID {
+		return WeChatLoginView{}, ErrWeChatLoginNotFound
+	}
+	if current.refreshCount >= wechatLoginMaxRefreshCount {
+		current.status = wechatLoginStatusExpired
+		current.updatedAt = now
+		s.sessions[current.id] = current
+		return current.view(), nil
+	}
+
+	current.qrCode = qrCode
+	current.qrCodeContent = qrCodeContent
+	current.currentPollBaseURL = current.baseURL
+	current.status = wechatLoginStatusWait
+	current.updatedAt = now
+	current.expiresAt = now.Add(wechatLoginSessionTTL)
+	current.refreshCount += 1
+	s.sessions[current.id] = current
+	return current.view(), nil
 }
 
 func (s *wechatAuthService) fetchQRCode(ctx context.Context, baseURL string) (string, string, error) {
@@ -219,7 +317,7 @@ func (s *wechatAuthService) fetchQRCode(ctx context.Context, baseURL string) (st
 	query := request.URL.Query()
 	query.Set("bot_type", strconv.Itoa(wechatLoginBotType))
 	request.URL.RawQuery = query.Encode()
-	request.Header.Set("iLink-App-ClientVersion", wechatClientVersionHeader)
+	applyWeChatCommonHeaders(request.Header, "")
 
 	response, err := s.client(wechatDefaultHTTPTimeout).Do(request)
 	if err != nil {
@@ -244,13 +342,8 @@ func (s *wechatAuthService) fetchQRCode(ctx context.Context, baseURL string) (st
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		return "", "", fmt.Errorf("decode wechat qrcode response: %w", err)
 	}
-	if payload.Ret != 0 || payload.ErrCode != 0 {
-		return "", "", &wechatRequestError{
-			method:      "/ilink/bot/get_bot_qrcode",
-			statusCode:  payload.ErrCode,
-			status:      "api error",
-			description: firstNonEmpty(strings.TrimSpace(payload.ErrMsg), "wechat api request failed"),
-		}
+	if err := wechatAPIError("/ilink/bot/get_bot_qrcode", payload.wechatAPIResponse); err != nil {
+		return "", "", err
 	}
 
 	qrCode := strings.TrimSpace(payload.QRCode)
@@ -274,7 +367,7 @@ func (s *wechatAuthService) fetchQRCodeStatus(ctx context.Context, baseURL strin
 	query := request.URL.Query()
 	query.Set("qrcode", strings.TrimSpace(qrCode))
 	request.URL.RawQuery = query.Encode()
-	request.Header.Set("iLink-App-ClientVersion", wechatClientVersionHeader)
+	applyWeChatCommonHeaders(request.Header, "")
 
 	response, err := s.client(wechatLoginHTTPTimeout).Do(request)
 	if err != nil {
@@ -299,13 +392,8 @@ func (s *wechatAuthService) fetchQRCodeStatus(ctx context.Context, baseURL strin
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		return wechatQRCodeStatusResponse{}, fmt.Errorf("decode wechat qrcode status response: %w", err)
 	}
-	if payload.Ret != 0 || payload.ErrCode != 0 {
-		return wechatQRCodeStatusResponse{}, &wechatRequestError{
-			method:      "/ilink/bot/get_qrcode_status",
-			statusCode:  payload.ErrCode,
-			status:      "api error",
-			description: firstNonEmpty(strings.TrimSpace(payload.ErrMsg), "wechat api request failed"),
-		}
+	if err := wechatAPIError("/ilink/bot/get_qrcode_status", payload.wechatAPIResponse); err != nil {
+		return wechatQRCodeStatusResponse{}, err
 	}
 	return payload, nil
 }
@@ -349,7 +437,7 @@ func normalizeWeChatLoginStatus(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", wechatLoginStatusWait:
 		return wechatLoginStatusWait
-	case wechatLoginStatusScanned:
+	case wechatLoginStatusScanned, wechatLoginStatusRedirecting:
 		return wechatLoginStatusScanned
 	case wechatLoginStatusConfirmed:
 		return wechatLoginStatusConfirmed
@@ -358,6 +446,28 @@ func normalizeWeChatLoginStatus(value string) string {
 	default:
 		return wechatLoginStatusWait
 	}
+}
+
+func redirectWeChatPollBaseURL(currentBaseURL string, redirectHost string) string {
+	redirectHost = strings.TrimSpace(redirectHost)
+	if redirectHost == "" {
+		return ""
+	}
+
+	if parsed, err := parseWeChatBaseURL(redirectHost); err == nil {
+		return parsed.String()
+	}
+
+	scheme := "https"
+	if parsed, err := parseWeChatBaseURL(currentBaseURL); err == nil && strings.TrimSpace(parsed.Scheme) != "" {
+		scheme = parsed.Scheme
+	}
+
+	redirected := &url.URL{
+		Scheme: scheme,
+		Host:   redirectHost,
+	}
+	return redirected.String()
 }
 
 func isWeChatLoginPollTimeout(err error) bool {

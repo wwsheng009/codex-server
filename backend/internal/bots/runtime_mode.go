@@ -59,6 +59,22 @@ func normalizeBotConnectionSettings(settings map[string]string) (map[string]stri
 		return nil, err
 	}
 	normalized[botRuntimeModeSetting] = mode
+
+	wechatChannelTiming, err := normalizeWeChatChannelTimingSetting(normalized[wechatChannelTimingSetting])
+	if err != nil {
+		return nil, err
+	}
+	if wechatChannelTiming == "" {
+		delete(normalized, wechatChannelTimingSetting)
+	} else {
+		normalized[wechatChannelTimingSetting] = wechatChannelTiming
+	}
+
+	commandOutputMode, err := normalizeBotCommandOutputMode(normalized[botCommandOutputModeSetting])
+	if err != nil {
+		return nil, err
+	}
+	normalized[botCommandOutputModeSetting] = commandOutputMode
 	return normalized, nil
 }
 

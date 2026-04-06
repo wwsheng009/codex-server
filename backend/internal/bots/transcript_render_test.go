@@ -48,6 +48,43 @@ func TestRenderBotToolCallItemIncludesResultPreview(t *testing.T) {
 	}
 }
 
+func TestRenderBotCommandExecutionItemSupportsSingleLineMode(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItemWithConfig(map[string]any{
+		"id":               "command-1",
+		"type":             "commandExecution",
+		"command":          "go test ./...",
+		"status":           "completed",
+		"aggregatedOutput": "ok\nPASS",
+	}, botTranscriptRenderConfig{
+		CommandOutputMode: botCommandOutputModeSingleLine,
+	})
+
+	expected := "Command: go test ./... [Completed] · 2 output lines"
+	if text != expected {
+		t.Fatalf("unexpected single-line command render %q", text)
+	}
+}
+
+func TestRenderBotCommandExecutionItemSupportsFullMode(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItemWithConfig(map[string]any{
+		"id":               "command-2",
+		"type":             "commandExecution",
+		"command":          "go test ./...",
+		"aggregatedOutput": "line-1\nline-2\nline-3\nline-4",
+	}, botTranscriptRenderConfig{
+		CommandOutputMode: botCommandOutputModeFull,
+	})
+
+	expected := "Command: go test ./...\nOutput:\nline-1\nline-2\nline-3\nline-4"
+	if text != expected {
+		t.Fatalf("unexpected full command render %q", text)
+	}
+}
+
 func TestRenderBotVisibleItemFallsBackToStructuredUnknownItem(t *testing.T) {
 	t.Parallel()
 

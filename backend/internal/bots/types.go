@@ -191,12 +191,49 @@ type CreateConnectionInput struct {
 	Secrets       map[string]string `json:"secrets"`
 }
 
+type UpdateConnectionInput struct {
+	Provider      string            `json:"provider"`
+	Name          string            `json:"name"`
+	PublicBaseURL string            `json:"publicBaseUrl"`
+	AIBackend     string            `json:"aiBackend"`
+	AIConfig      map[string]string `json:"aiConfig"`
+	Settings      map[string]string `json:"settings"`
+	Secrets       map[string]string `json:"secrets"`
+}
+
 type ResumeConnectionInput struct {
 	PublicBaseURL string `json:"publicBaseUrl"`
 }
 
 type UpdateConnectionRuntimeModeInput struct {
 	RuntimeMode string `json:"runtimeMode"`
+}
+
+type UpdateConnectionCommandOutputModeInput struct {
+	CommandOutputMode string `json:"commandOutputMode"`
+}
+
+type UpdateWeChatChannelTimingInput struct {
+	Enabled bool `json:"enabled"`
+}
+
+type UpdateWeChatAccountInput struct {
+	Alias string `json:"alias"`
+	Note  string `json:"note"`
+}
+
+type WeChatAccountView struct {
+	ID              string    `json:"id"`
+	WorkspaceID     string    `json:"workspaceId"`
+	Alias           string    `json:"alias,omitempty"`
+	Note            string    `json:"note,omitempty"`
+	BaseURL         string    `json:"baseUrl"`
+	AccountID       string    `json:"accountId"`
+	UserID          string    `json:"userId"`
+	LastLoginID     string    `json:"lastLoginId,omitempty"`
+	LastConfirmedAt time.Time `json:"lastConfirmedAt"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type ConnectionView struct {

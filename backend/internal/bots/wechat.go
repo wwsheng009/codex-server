@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha1"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,39 +23,49 @@ import (
 )
 
 const (
-	wechatProviderName         = "wechat"
-	wechatDeliveryModeSetting  = "wechat_delivery_mode"
-	wechatDeliveryModePolling  = "polling"
-	wechatBaseURLSetting       = "wechat_base_url"
-	wechatCDNBaseURLSetting    = "wechat_cdn_base_url"
-	wechatAccountIDSetting     = "wechat_account_id"
-	wechatOwnerUserIDSetting   = "wechat_owner_user_id"
-	wechatSyncBufSetting       = "wechat_sync_buf"
-	wechatContextTokenKey      = "wechat_context_token"
-	wechatSessionIDKey         = "wechat_session_id"
-	wechatSenderNameKey        = "wechat_sender_name"
-	wechatCreatedAtMSKey       = "wechat_created_at_ms"
-	wechatChannelVersion       = "0.3.0"
-	wechatClientVersionHeader  = "1"
-	wechatLongPollHTTPTimeout  = 70 * time.Second
-	wechatDefaultHTTPTimeout   = 15 * time.Second
-	wechatConfigHTTPTimeout    = 10 * time.Second
-	wechatTypingKeepaliveDelay = 5 * time.Second
-	wechatTypingConfigTTL      = 24 * time.Hour
-	wechatDefaultCDNBaseURL    = "https://novac2c.cdn.weixin.qq.com/c2c"
-	wechatMessageTypeUser      = 1
-	wechatMessageTypeBot       = 2
-	wechatMessageStateComplete = 2
-	wechatTypingStatusTyping   = 1
-	wechatTypingStatusCancel   = 2
-	wechatItemTypeText         = 1
-	wechatItemTypeImage        = 2
-	wechatItemTypeVoice        = 3
-	wechatItemTypeFile         = 4
-	wechatItemTypeVideo        = 5
-	wechatUploadMediaTypeImage = 1
-	wechatUploadMediaTypeVideo = 2
-	wechatUploadMediaTypeFile  = 3
+	wechatProviderName          = "wechat"
+	wechatDeliveryModeSetting   = "wechat_delivery_mode"
+	wechatDeliveryModePolling   = "polling"
+	wechatBaseURLSetting        = "wechat_base_url"
+	wechatCDNBaseURLSetting     = "wechat_cdn_base_url"
+	wechatRouteTagSetting       = "wechat_route_tag"
+	wechatLoginSessionIDSetting = "wechat_login_session_id"
+	wechatSavedAccountIDSetting = "wechat_saved_account_id"
+	wechatAccountIDSetting      = "wechat_account_id"
+	wechatOwnerUserIDSetting    = "wechat_owner_user_id"
+	wechatSyncBufSetting        = "wechat_sync_buf"
+	wechatContextTokenKey       = "wechat_context_token"
+	wechatSessionIDKey          = "wechat_session_id"
+	wechatSenderNameKey         = "wechat_sender_name"
+	wechatCreatedAtMSKey        = "wechat_created_at_ms"
+	wechatAppIDHeader           = "bot"
+	wechatChannelVersion        = "0.3.0"
+	wechatDefaultHTTPTimeout    = 15 * time.Second
+	wechatConfigHTTPTimeout     = 10 * time.Second
+	wechatTypingKeepaliveDelay  = 5 * time.Second
+	wechatTypingConfigTTL       = 24 * time.Hour
+	wechatDefaultCDNBaseURL     = "https://novac2c.cdn.weixin.qq.com/c2c"
+	wechatLongPollTimeoutBuf    = 5 * time.Second
+	wechatMessageTypeUser       = 1
+	wechatMessageTypeBot        = 2
+	wechatMessageStateComplete  = 2
+	wechatTypingStatusTyping    = 1
+	wechatTypingStatusCancel    = 2
+	wechatItemTypeText          = 1
+	wechatItemTypeImage         = 2
+	wechatItemTypeVoice         = 3
+	wechatItemTypeFile          = 4
+	wechatItemTypeVideo         = 5
+	wechatUploadMediaTypeImage  = 1
+	wechatUploadMediaTypeVideo  = 2
+	wechatUploadMediaTypeFile   = 3
+	wechatSessionExpiredErrCode = -14
+)
+
+var (
+	wechatClientVersionHeader    = strconv.FormatUint(uint64(buildWeChatClientVersion(wechatChannelVersion)), 10)
+	wechatDefaultLongPollTimeout = 35 * time.Second
+	wechatSessionPauseDuration   = time.Hour
 )
 
 type wechatProvider struct {
@@ -60,6 +73,9 @@ type wechatProvider struct {
 
 	typingMu    sync.Mutex
 	typingCache map[string]wechatTypingConfigCacheEntry
+
+	sessionMu          sync.Mutex
+	sessionPausedUntil map[string]time.Time
 }
 
 type wechatAPIResponse struct {
@@ -72,6 +88,7 @@ type wechatGetUpdatesResponse struct {
 	wechatAPIResponse
 	Msgs          []wechatMessage `json:"msgs"`
 	GetUpdatesBuf string          `json:"get_updates_buf"`
+	LongPollMS    int             `json:"longpolling_timeout_ms"`
 }
 
 type wechatGetConfigResponse struct {
@@ -240,7 +257,10 @@ func newWeChatProviderWithClientSource(clients httpClientSource) Provider {
 	if clients == nil {
 		clients = staticHTTPClientSource{}
 	}
-	return &wechatProvider{clients: clients}
+	return &wechatProvider{
+		clients:            clients,
+		sessionPausedUntil: make(map[string]time.Time),
+	}
 }
 
 func (p *wechatProvider) Name() string {
@@ -290,6 +310,9 @@ func (p *wechatProvider) Activate(_ context.Context, connection store.BotConnect
 	settings[wechatDeliveryModeSetting] = mode
 	settings[wechatBaseURLSetting] = baseURL
 	settings[wechatCDNBaseURLSetting] = cdnBaseURL
+	if routeTag := strings.TrimSpace(connection.Settings[wechatRouteTagSetting]); routeTag != "" {
+		settings[wechatRouteTagSetting] = routeTag
+	}
 	settings[wechatAccountIDSetting] = accountID
 	settings[wechatOwnerUserIDSetting] = ownerUserID
 
@@ -356,11 +379,29 @@ func (p *wechatProvider) RunPolling(
 		return err
 	}
 	cdnBaseURL := normalizedWeChatCDNBaseURL(connection)
+	routeTag := wechatRouteTag(connection)
 
 	syncBuf := strings.TrimSpace(connection.Settings[wechatSyncBufSetting])
+	pollTimeout := wechatDefaultLongPollTimeout
 	for {
-		response, err := p.getUpdates(ctx, baseURL, token, syncBuf)
+		if err := waitForWeChatSessionPause(ctx, p.remainingSessionPause(connection)); err != nil {
+			return err
+		}
+
+		response, err := p.getUpdates(ctx, baseURL, token, routeTag, syncBuf, pollTimeout)
 		if err != nil {
+			return err
+		}
+		if response.LongPollMS > 0 {
+			pollTimeout = time.Duration(response.LongPollMS) * time.Millisecond
+		}
+		if err := wechatAPIError("/ilink/bot/getupdates", response.wechatAPIResponse); err != nil {
+			if response.ErrCode == wechatSessionExpiredErrCode {
+				if err := waitForWeChatSessionPause(ctx, p.pauseSession(connection)); err != nil {
+					return err
+				}
+				continue
+			}
 			return err
 		}
 
@@ -428,12 +469,16 @@ func (p *wechatProvider) SendMessages(
 	if token == "" {
 		return fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
 	}
+	if err := p.assertSessionActive(connection); err != nil {
+		return err
+	}
 
 	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
 	if _, err := parseWeChatBaseURL(baseURL); err != nil {
 		return err
 	}
 	cdnBaseURL := normalizedWeChatCDNBaseURL(connection)
+	routeTag := wechatRouteTag(connection)
 
 	toUserID := strings.TrimSpace(conversation.ExternalChatID)
 	if toUserID == "" {
@@ -451,7 +496,7 @@ func (p *wechatProvider) SendMessages(
 			if text == "" {
 				continue
 			}
-			if err := p.sendTextMessage(ctx, baseURL, token, toUserID, contextToken, text); err != nil {
+			if err := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, text); err != nil {
 				return err
 			}
 			continue
@@ -462,7 +507,7 @@ func (p *wechatProvider) SendMessages(
 			if index == 0 {
 				caption = text
 			}
-			if err := p.sendMediaMessage(ctx, baseURL, cdnBaseURL, token, toUserID, contextToken, caption, media); err != nil {
+			if err := p.sendMediaMessage(ctx, baseURL, cdnBaseURL, token, routeTag, toUserID, contextToken, caption, media); err != nil {
 				return err
 			}
 		}
@@ -479,6 +524,9 @@ func (p *wechatProvider) StartStreamingReply(
 	token := strings.TrimSpace(connection.Secrets["bot_token"])
 	if token == "" {
 		return nil, fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
+	}
+	if err := p.assertSessionActive(connection); err != nil {
+		return nil, err
 	}
 
 	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
@@ -637,6 +685,9 @@ func (p *wechatProvider) StartTyping(
 	if token == "" {
 		return nil, fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
 	}
+	if err := p.assertSessionActive(connection); err != nil {
+		return nil, err
+	}
 
 	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
 	if _, err := parseWeChatBaseURL(baseURL); err != nil {
@@ -652,8 +703,9 @@ func (p *wechatProvider) StartTyping(
 	if contextToken == "" {
 		return nil, fmt.Errorf("%w: wechat context token is required before typing", ErrInvalidInput)
 	}
+	routeTag := wechatRouteTag(connection)
 
-	typingTicket, err := p.getTypingTicket(ctx, connection, baseURL, token, toUserID, contextToken)
+	typingTicket, err := p.getTypingTicket(ctx, connection, baseURL, token, routeTag, toUserID, contextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -661,7 +713,7 @@ func (p *wechatProvider) StartTyping(
 		return nil, nil
 	}
 
-	if err := p.sendTyping(ctx, baseURL, token, toUserID, typingTicket, wechatTypingStatusTyping); err != nil {
+	if err := p.sendTyping(ctx, baseURL, token, routeTag, toUserID, typingTicket, wechatTypingStatusTyping); err != nil {
 		return nil, err
 	}
 
@@ -670,6 +722,7 @@ func (p *wechatProvider) StartTyping(
 		provider:     p,
 		baseURL:      baseURL,
 		token:        token,
+		routeTag:     routeTag,
 		toUserID:     toUserID,
 		typingTicket: typingTicket,
 		cancel:       cancel,
@@ -683,6 +736,7 @@ type wechatTypingSession struct {
 	provider     *wechatProvider
 	baseURL      string
 	token        string
+	routeTag     string
 	toUserID     string
 	typingTicket string
 	cancel       context.CancelFunc
@@ -703,7 +757,7 @@ func (s *wechatTypingSession) Stop(ctx context.Context) error {
 		if s.done != nil {
 			<-s.done
 		}
-		stopErr = s.provider.sendTyping(ctx, s.baseURL, s.token, s.toUserID, s.typingTicket, wechatTypingStatusCancel)
+		stopErr = s.provider.sendTyping(ctx, s.baseURL, s.token, s.routeTag, s.toUserID, s.typingTicket, wechatTypingStatusCancel)
 	})
 	return stopErr
 }
@@ -719,7 +773,7 @@ func (s *wechatTypingSession) keepalive(ctx context.Context) {
 			return
 		case <-ticker.C:
 			requestCtx, cancel := context.WithTimeout(context.Background(), wechatConfigHTTPTimeout)
-			_ = s.provider.sendTyping(requestCtx, s.baseURL, s.token, s.toUserID, s.typingTicket, wechatTypingStatusTyping)
+			_ = s.provider.sendTyping(requestCtx, s.baseURL, s.token, s.routeTag, s.toUserID, s.typingTicket, wechatTypingStatusTyping)
 			cancel()
 		}
 	}
@@ -730,6 +784,7 @@ func (p *wechatProvider) getTypingTicket(
 	connection store.BotConnection,
 	baseURL string,
 	token string,
+	routeTag string,
 	toUserID string,
 	contextToken string,
 ) (string, error) {
@@ -742,7 +797,7 @@ func (p *wechatProvider) getTypingTicket(
 	}
 	p.typingMu.Unlock()
 
-	response, err := p.getConfig(ctx, baseURL, token, toUserID, contextToken)
+	response, err := p.getConfig(ctx, baseURL, token, routeTag, toUserID, contextToken)
 	if err != nil {
 		return "", err
 	}
@@ -773,9 +828,9 @@ func (p *wechatProvider) typingCacheKey(connection store.BotConnection, baseURL 
 	}, "\n")
 }
 
-func (p *wechatProvider) getUpdates(ctx context.Context, baseURL string, token string, syncBuf string) (wechatGetUpdatesResponse, error) {
+func (p *wechatProvider) getUpdates(ctx context.Context, baseURL string, token string, routeTag string, syncBuf string, timeout time.Duration) (wechatGetUpdatesResponse, error) {
 	var response wechatGetUpdatesResponse
-	err := p.callJSON(ctx, p.pollingClient(), baseURL, token, http.MethodPost, "/ilink/bot/getupdates", map[string]any{
+	err := p.callJSON(ctx, p.client(timeout+wechatLongPollTimeoutBuf), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/getupdates", map[string]any{
 		"get_updates_buf": strings.TrimSpace(syncBuf),
 		"base_info": wechatBaseInfo{
 			ChannelVersion: wechatChannelVersion,
@@ -791,11 +846,12 @@ func (p *wechatProvider) getConfig(
 	ctx context.Context,
 	baseURL string,
 	token string,
+	routeTag string,
 	toUserID string,
 	contextToken string,
 ) (wechatGetConfigResponse, error) {
 	var response wechatGetConfigResponse
-	err := p.callJSON(ctx, p.client(wechatConfigHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/getconfig", map[string]any{
+	err := p.callJSON(ctx, p.client(wechatConfigHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/getconfig", map[string]any{
 		"ilink_user_id": strings.TrimSpace(toUserID),
 		"context_token": strings.TrimSpace(contextToken),
 		"base_info": wechatBaseInfo{
@@ -812,12 +868,13 @@ func (p *wechatProvider) sendTyping(
 	ctx context.Context,
 	baseURL string,
 	token string,
+	routeTag string,
 	toUserID string,
 	typingTicket string,
 	status int,
 ) error {
 	var response wechatAPIResponse
-	return p.callJSON(ctx, p.client(wechatConfigHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/sendtyping", map[string]any{
+	return p.callJSON(ctx, p.client(wechatConfigHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/sendtyping", map[string]any{
 		"ilink_user_id": strings.TrimSpace(toUserID),
 		"typing_ticket": strings.TrimSpace(typingTicket),
 		"status":        status,
@@ -831,12 +888,13 @@ func (p *wechatProvider) sendTextMessage(
 	ctx context.Context,
 	baseURL string,
 	token string,
+	routeTag string,
 	toUserID string,
 	contextToken string,
 	text string,
 ) error {
 	var response wechatAPIResponse
-	return p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
+	return p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
 		Msg: wechatOutboundMessage{
 			FromUserID:   "",
 			ToUserID:     strings.TrimSpace(toUserID),
@@ -989,12 +1047,147 @@ func parseWeChatBaseURL(value string) (*url.URL, error) {
 	return parsed, nil
 }
 
+func buildWeChatClientVersion(version string) uint32 {
+	parts := strings.Split(strings.TrimSpace(version), ".")
+	values := [3]uint64{}
+	for index := 0; index < len(values) && index < len(parts); index++ {
+		parsed, err := strconv.ParseUint(strings.TrimSpace(parts[index]), 10, 8)
+		if err != nil {
+			continue
+		}
+		values[index] = parsed
+	}
+	return uint32((values[0]&0xff)<<16 | (values[1]&0xff)<<8 | (values[2] & 0xff))
+}
+
+func applyWeChatCommonHeaders(headers http.Header, routeTag string) {
+	if headers == nil {
+		return
+	}
+	headers.Set("iLink-App-Id", wechatAppIDHeader)
+	headers.Set("iLink-App-ClientVersion", wechatClientVersionHeader)
+	headers.Set("X-WECHAT-UIN", randomWeChatUIN())
+	if routeTag = strings.TrimSpace(routeTag); routeTag != "" {
+		headers.Set("SKRouteTag", routeTag)
+	}
+}
+
+func randomWeChatUIN() string {
+	buffer := make([]byte, 4)
+	if _, err := rand.Read(buffer); err != nil {
+		return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
+	}
+
+	value := binary.BigEndian.Uint32(buffer)
+	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatUint(uint64(value), 10)))
+}
+
 func randomWeChatClientID() string {
 	buffer := make([]byte, 8)
 	if _, err := rand.Read(buffer); err != nil {
 		return fmt.Sprintf("wechat:%d", time.Now().UnixNano())
 	}
 	return fmt.Sprintf("wechat:%d-%s", time.Now().UnixMilli(), hex.EncodeToString(buffer))
+}
+
+func wechatRouteTag(connection store.BotConnection) string {
+	return strings.TrimSpace(connection.Settings[wechatRouteTagSetting])
+}
+
+func wechatSessionGuardKey(connection store.BotConnection) string {
+	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
+	accountID := strings.TrimSpace(connection.Settings[wechatAccountIDSetting])
+	if accountID == "" {
+		accountID = strings.TrimSpace(connection.ID)
+	}
+	return strings.Join([]string{baseURL, accountID}, "\n")
+}
+
+func (p *wechatProvider) remainingSessionPause(connection store.BotConnection) time.Duration {
+	if p == nil {
+		return 0
+	}
+
+	key := wechatSessionGuardKey(connection)
+	if key == "\n" {
+		return 0
+	}
+
+	p.sessionMu.Lock()
+	defer p.sessionMu.Unlock()
+
+	until, ok := p.sessionPausedUntil[key]
+	if !ok {
+		return 0
+	}
+
+	remaining := time.Until(until)
+	if remaining <= 0 {
+		delete(p.sessionPausedUntil, key)
+		return 0
+	}
+	return remaining
+}
+
+func (p *wechatProvider) pauseSession(connection store.BotConnection) time.Duration {
+	if p == nil {
+		return 0
+	}
+
+	key := wechatSessionGuardKey(connection)
+	if key == "\n" {
+		return 0
+	}
+
+	until := time.Now().Add(wechatSessionPauseDuration)
+	p.sessionMu.Lock()
+	if p.sessionPausedUntil == nil {
+		p.sessionPausedUntil = make(map[string]time.Time)
+	}
+	p.sessionPausedUntil[key] = until
+	p.sessionMu.Unlock()
+	return time.Until(until)
+}
+
+func (p *wechatProvider) assertSessionActive(connection store.BotConnection) error {
+	remaining := p.remainingSessionPause(connection)
+	if remaining <= 0 {
+		return nil
+	}
+
+	rounded := remaining.Round(time.Second)
+	if rounded <= 0 {
+		rounded = remaining
+	}
+	return fmt.Errorf("%w: wechat session is temporarily paused for %s after upstream returned errcode=%d", ErrInvalidInput, rounded, wechatSessionExpiredErrCode)
+}
+
+func waitForWeChatSessionPause(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func wechatAPIError(path string, response wechatAPIResponse) error {
+	if response.Ret == 0 && response.ErrCode == 0 {
+		return nil
+	}
+	return &wechatRequestError{
+		method:      path,
+		statusCode:  response.ErrCode,
+		status:      "api error",
+		description: firstNonEmpty(strings.TrimSpace(response.ErrMsg), "wechat api request failed"),
+	}
 }
 
 func (p *wechatProvider) client(timeout time.Duration) *http.Client {
@@ -1004,15 +1197,12 @@ func (p *wechatProvider) client(timeout time.Duration) *http.Client {
 	return p.clients.Client(timeout)
 }
 
-func (p *wechatProvider) pollingClient() *http.Client {
-	return p.client(wechatLongPollHTTPTimeout)
-}
-
 func (p *wechatProvider) callJSON(
 	ctx context.Context,
 	client *http.Client,
 	baseURL string,
 	token string,
+	routeTag string,
 	method string,
 	path string,
 	payload any,
@@ -1038,7 +1228,7 @@ func (p *wechatProvider) callJSON(
 	}
 	request.Header.Set("AuthorizationType", "ilink_bot_token")
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
-	request.Header.Set("iLink-App-ClientVersion", wechatClientVersionHeader)
+	applyWeChatCommonHeaders(request.Header, routeTag)
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -1076,41 +1266,11 @@ func (p *wechatProvider) callJSON(
 
 	switch typed := target.(type) {
 	case *wechatAPIResponse:
-		if typed.Ret != 0 || typed.ErrCode != 0 {
-			return &wechatRequestError{
-				method:      path,
-				statusCode:  typed.ErrCode,
-				status:      "api error",
-				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
-			}
-		}
-	case *wechatGetUpdatesResponse:
-		if typed.Ret != 0 || typed.ErrCode != 0 {
-			return &wechatRequestError{
-				method:      path,
-				statusCode:  typed.ErrCode,
-				status:      "api error",
-				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
-			}
-		}
+		return wechatAPIError(path, *typed)
 	case *wechatGetUploadURLResponse:
-		if typed.Ret != 0 || typed.ErrCode != 0 {
-			return &wechatRequestError{
-				method:      path,
-				statusCode:  typed.ErrCode,
-				status:      "api error",
-				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
-			}
-		}
+		return wechatAPIError(path, typed.wechatAPIResponse)
 	case *wechatGetConfigResponse:
-		if typed.Ret != 0 || typed.ErrCode != 0 {
-			return &wechatRequestError{
-				method:      path,
-				statusCode:  typed.ErrCode,
-				status:      "api error",
-				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
-			}
-		}
+		return wechatAPIError(path, typed.wechatAPIResponse)
 	}
 
 	return nil

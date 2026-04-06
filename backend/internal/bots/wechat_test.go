@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"codex-server/backend/internal/store"
 )
@@ -29,6 +31,13 @@ func TestWeChatProviderActivateAndRunPolling(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer wechat-token" {
 			t.Fatalf("expected bearer token header, got %q", got)
 		}
+		if got := r.Header.Get("iLink-App-Id"); got != wechatAppIDHeader {
+			t.Fatalf("expected iLink-App-Id %q, got %q", wechatAppIDHeader, got)
+		}
+		if got := r.Header.Get("iLink-App-ClientVersion"); got != wechatClientVersionHeader {
+			t.Fatalf("expected client version header %q, got %q", wechatClientVersionHeader, got)
+		}
+		assertValidWeChatUINHeader(t, r.Header)
 
 		switch r.URL.Path {
 		case "/ilink/bot/getupdates":
@@ -143,6 +152,219 @@ func TestWeChatProviderActivateAndRunPolling(t *testing.T) {
 	}
 }
 
+type recordingHTTPClientSource struct {
+	transport http.RoundTripper
+
+	mu       sync.Mutex
+	timeouts []time.Duration
+}
+
+func (s *recordingHTTPClientSource) Client(timeout time.Duration) *http.Client {
+	s.mu.Lock()
+	s.timeouts = append(s.timeouts, timeout)
+	s.mu.Unlock()
+
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: s.transport,
+	}
+}
+
+func (s *recordingHTTPClientSource) RecordedTimeouts() []time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]time.Duration(nil), s.timeouts...)
+}
+
+func TestWeChatProviderRunPollingUsesServerLongPollTimeout(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ilink/bot/getupdates" {
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+
+		callCount++
+		if callCount == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":                    0,
+				"errcode":                0,
+				"errmsg":                 "",
+				"get_updates_buf":        "sync-timeout-2",
+				"longpolling_timeout_ms": 2000,
+				"msgs":                   []map[string]any{},
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret":             0,
+			"errcode":         0,
+			"errmsg":          "",
+			"get_updates_buf": "sync-timeout-2",
+			"msgs": []map[string]any{
+				{
+					"from_user_id":   "wechat-user-timeout-1",
+					"client_id":      "client-timeout-1",
+					"session_id":     "session-timeout-1",
+					"message_type":   wechatMessageTypeUser,
+					"message_state":  wechatMessageStateComplete,
+					"context_token":  "ctx-timeout-1",
+					"create_time_ms": 1710000002000,
+					"item_list": []map[string]any{
+						{
+							"type": wechatItemTypeText,
+							"text_item": map[string]any{
+								"text": "timeout update",
+							},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	clients := &recordingHTTPClientSource{transport: server.Client().Transport}
+	provider := newWeChatProviderWithClientSource(clients).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_timeout_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatAccountIDSetting:    "wechat-account-timeout-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-timeout-1",
+			wechatSyncBufSetting:      "sync-timeout-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+
+	err := provider.RunPolling(
+		context.Background(),
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			if message.Text != "timeout update" {
+				t.Fatalf("expected timeout update message, got %#v", message)
+			}
+			return context.Canceled
+		},
+		func(_ context.Context, settings map[string]string) error {
+			if got := settings[wechatSyncBufSetting]; got != "sync-timeout-2" {
+				t.Fatalf("expected persisted sync buffer sync-timeout-2, got %#v", settings)
+			}
+			return nil
+		},
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation from handler, got %v", err)
+	}
+
+	timeouts := clients.RecordedTimeouts()
+	if len(timeouts) < 2 {
+		t.Fatalf("expected at least two recorded client timeouts, got %#v", timeouts)
+	}
+	if timeouts[0] != wechatDefaultLongPollTimeout+wechatLongPollTimeoutBuf {
+		t.Fatalf("expected initial long poll timeout %s, got %#v", wechatDefaultLongPollTimeout+wechatLongPollTimeoutBuf, timeouts)
+	}
+	if timeouts[1] != 2*time.Second+wechatLongPollTimeoutBuf {
+		t.Fatalf("expected updated long poll timeout %s, got %#v", 2*time.Second+wechatLongPollTimeoutBuf, timeouts)
+	}
+}
+
+func TestWeChatProviderRunPollingPausesExpiredSessionAndRecovers(t *testing.T) {
+	originalPauseDuration := wechatSessionPauseDuration
+	wechatSessionPauseDuration = 20 * time.Millisecond
+	defer func() {
+		wechatSessionPauseDuration = originalPauseDuration
+	}()
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ilink/bot/getupdates" {
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+
+		callCount++
+		if callCount == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":     wechatSessionExpiredErrCode,
+				"errcode": wechatSessionExpiredErrCode,
+				"errmsg":  "session expired",
+			})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret":             0,
+			"errcode":         0,
+			"errmsg":          "",
+			"get_updates_buf": "sync-session-2",
+			"msgs": []map[string]any{
+				{
+					"from_user_id":   "wechat-user-session-1",
+					"client_id":      "client-session-1",
+					"session_id":     "session-session-1",
+					"message_type":   wechatMessageTypeUser,
+					"message_state":  wechatMessageStateComplete,
+					"context_token":  "ctx-session-1",
+					"create_time_ms": 1710000003000,
+					"item_list": []map[string]any{
+						{
+							"type": wechatItemTypeText,
+							"text_item": map[string]any{
+								"text": "session recovered",
+							},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_session_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatAccountIDSetting:    "wechat-account-session-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-session-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+
+	received := make([]InboundMessage, 0, 1)
+	err := provider.RunPolling(
+		context.Background(),
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			received = append(received, message)
+			return context.Canceled
+		},
+		func(context.Context, map[string]string) error { return nil },
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation from handler, got %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected two polling attempts, got %d", callCount)
+	}
+	if len(received) != 1 || received[0].Text != "session recovered" {
+		t.Fatalf("expected recovered message after pause, got %#v", received)
+	}
+}
+
 func TestWeChatFlexibleStringUnmarshalSupportsStringAndNumber(t *testing.T) {
 	t.Parallel()
 
@@ -184,6 +406,9 @@ func TestWeChatProviderSendMessagesUsesConversationState(t *testing.T) {
 		if r.URL.Path != "/ilink/bot/sendmessage" {
 			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
 		}
+		if got := r.Header.Get("SKRouteTag"); got != "route-tag-send-1" {
+			t.Fatalf("expected SKRouteTag route-tag-send-1, got %q", got)
+		}
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode payload: %v", err)
@@ -204,6 +429,7 @@ func TestWeChatProviderSendMessagesUsesConversationState(t *testing.T) {
 		Settings: map[string]string{
 			wechatDeliveryModeSetting: wechatDeliveryModePolling,
 			wechatBaseURLSetting:      server.URL,
+			wechatRouteTagSetting:     "route-tag-send-1",
 			wechatAccountIDSetting:    "wechat-account-1",
 			wechatOwnerUserIDSetting:  "wechat-owner-1",
 		},
@@ -645,6 +871,262 @@ func TestWeChatProviderRunPollingReceivesEncryptedFileAttachment(t *testing.T) {
 	}
 }
 
+func TestWeChatProviderRunPollingFallsBackToQuotedFileAttachment(t *testing.T) {
+	t.Parallel()
+
+	plaintext := []byte("quoted attachment body\n")
+	aesKey := []byte{0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x10}
+	ciphertext, err := encryptWeChatAESECB(plaintext, aesKey)
+	if err != nil {
+		t.Fatalf("encryptWeChatAESECB() error = %v", err)
+	}
+
+	const downloadParam = "download-param-quoted-file-1"
+	encodedAESKey := base64.StdEncoding.EncodeToString([]byte(hex.EncodeToString(aesKey)))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ilink/bot/getupdates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":             0,
+				"errcode":         0,
+				"errmsg":          "",
+				"get_updates_buf": "sync-quoted-2",
+				"msgs": []map[string]any{
+					{
+						"from_user_id":   "wechat-user-quoted-1",
+						"client_id":      "client-quoted-1",
+						"session_id":     "session-quoted-1",
+						"message_type":   wechatMessageTypeUser,
+						"message_state":  wechatMessageStateComplete,
+						"context_token":  "ctx-quoted-1",
+						"create_time_ms": 1710000004000,
+						"item_list": []map[string]any{
+							{
+								"type": wechatItemTypeText,
+								"text_item": map[string]any{
+									"text": "请查看我引用的附件",
+								},
+								"ref_msg": map[string]any{
+									"title": "quoted file",
+									"message_item": map[string]any{
+										"type": wechatItemTypeFile,
+										"file_item": map[string]any{
+											"file_name": "quoted.txt",
+											"media": map[string]any{
+												"encrypt_query_param": downloadParam,
+												"aes_key":             encodedAESKey,
+												"encrypt_type":        1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		case "/c2c/download":
+			if got := r.URL.Query().Get("encrypted_query_param"); got != downloadParam {
+				t.Fatalf("expected encrypted_query_param %q, got %q", downloadParam, got)
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write(ciphertext)
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_quoted_file_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-quoted-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-quoted-1",
+			wechatSyncBufSetting:      "sync-quoted-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var messages []InboundMessage
+	err = provider.RunPolling(
+		ctx,
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			messages = append(messages, message)
+			cancel()
+			return nil
+		},
+		func(context.Context, map[string]string) error { return nil },
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation after first quoted message, got %v", err)
+	}
+
+	if len(messages) != 1 {
+		t.Fatalf("expected exactly one quoted inbound message, got %#v", messages)
+	}
+	if len(messages[0].Media) != 1 {
+		t.Fatalf("expected quoted fallback to produce one media attachment, got %#v", messages[0].Media)
+	}
+	media := messages[0].Media[0]
+	if media.Kind != botMediaKindFile || media.FileName != "quoted.txt" {
+		t.Fatalf("expected quoted file attachment metadata, got %#v", media)
+	}
+	if media.Path == "" {
+		t.Fatalf("expected quoted file attachment to be persisted locally, got %#v", media)
+	}
+	defer os.Remove(media.Path)
+
+	data, err := os.ReadFile(media.Path)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", media.Path, err)
+	}
+	if string(data) != string(plaintext) {
+		t.Fatalf("expected quoted file contents %q, got %q", string(plaintext), string(data))
+	}
+	if !strings.Contains(messages[0].Text, "[WeChat file attachment]") {
+		t.Fatalf("expected quoted message summary to mention file attachment, got %q", messages[0].Text)
+	}
+}
+
+func TestWeChatProviderRunPollingTranscodesVoiceToWAVWhenDecoderAvailable(t *testing.T) {
+	decoderDir := t.TempDir()
+	decoderPath := filepath.Join(decoderDir, "silk_v3_decoder.cmd")
+	decoderScript := "@echo off\r\ncopy /Y \"%~1\" \"%~2\" >nul\r\n"
+	if err := os.WriteFile(decoderPath, []byte(decoderScript), 0o755); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v", decoderPath, err)
+	}
+	t.Setenv("CODEX_WECHAT_SILK_DECODER", decoderPath)
+
+	plaintext := []byte("fake silk payload")
+	aesKey := []byte{0x31, 0x42, 0x53, 0x64, 0x75, 0x86, 0x97, 0xa8, 0xb9, 0xca, 0xdb, 0xec, 0xfd, 0x0e, 0x1f, 0x20}
+	ciphertext, err := encryptWeChatAESECB(plaintext, aesKey)
+	if err != nil {
+		t.Fatalf("encryptWeChatAESECB() error = %v", err)
+	}
+
+	const downloadParam = "download-param-voice-1"
+	encodedAESKey := base64.StdEncoding.EncodeToString([]byte(hex.EncodeToString(aesKey)))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ilink/bot/getupdates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":             0,
+				"errcode":         0,
+				"errmsg":          "",
+				"get_updates_buf": "sync-voice-2",
+				"msgs": []map[string]any{
+					{
+						"from_user_id":   "wechat-user-voice-1",
+						"client_id":      "client-voice-1",
+						"session_id":     "session-voice-1",
+						"message_type":   wechatMessageTypeUser,
+						"message_state":  wechatMessageStateComplete,
+						"context_token":  "ctx-voice-1",
+						"create_time_ms": 1710000005000,
+						"item_list": []map[string]any{
+							{
+								"type": wechatItemTypeVoice,
+								"voice_item": map[string]any{
+									"media": map[string]any{
+										"encrypt_query_param": downloadParam,
+										"aes_key":             encodedAESKey,
+										"encrypt_type":        1,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		case "/c2c/download":
+			if got := r.URL.Query().Get("encrypted_query_param"); got != downloadParam {
+				t.Fatalf("expected encrypted_query_param %q, got %q", downloadParam, got)
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(ciphertext)
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_voice_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-voice-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-voice-1",
+			wechatSyncBufSetting:      "sync-voice-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var messages []InboundMessage
+	err = provider.RunPolling(
+		ctx,
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			messages = append(messages, message)
+			cancel()
+			return nil
+		},
+		func(context.Context, map[string]string) error { return nil },
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation after first voice message, got %v", err)
+	}
+	if len(messages) != 1 || len(messages[0].Media) != 1 {
+		t.Fatalf("expected one inbound voice message with one attachment, got %#v", messages)
+	}
+
+	media := messages[0].Media[0]
+	if media.Kind != botMediaKindVoice {
+		t.Fatalf("expected voice media kind, got %#v", media)
+	}
+	if media.ContentType != "audio/wav" {
+		t.Fatalf("expected transcoded voice content type audio/wav, got %#v", media)
+	}
+	if !strings.HasSuffix(strings.ToLower(media.FileName), ".wav") {
+		t.Fatalf("expected transcoded voice file name to end with .wav, got %#v", media)
+	}
+	if media.Path == "" {
+		t.Fatalf("expected transcoded voice file path, got %#v", media)
+	}
+	defer os.Remove(media.Path)
+
+	data, err := os.ReadFile(media.Path)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", media.Path, err)
+	}
+	if string(data) != string(plaintext) {
+		t.Fatalf("expected transcoded voice file contents %q, got %q", string(plaintext), string(data))
+	}
+}
+
 func wechatTextFromSendPayload(payload map[string]any) string {
 	msg, _ := payload["msg"].(map[string]any)
 	itemList, _ := msg["item_list"].([]any)
@@ -654,4 +1136,31 @@ func wechatTextFromSendPayload(payload map[string]any) string {
 	firstItem, _ := itemList[0].(map[string]any)
 	textItem, _ := firstItem["text_item"].(map[string]any)
 	return strings.TrimSpace(stringValue(textItem["text"]))
+}
+
+func assertValidWeChatUINHeader(t *testing.T, headers http.Header) {
+	t.Helper()
+	assertValidWeChatUINValue(t, headers.Get("X-WECHAT-UIN"))
+}
+
+func assertValidWeChatUINValue(t *testing.T, value string) {
+	t.Helper()
+
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		t.Fatal("expected X-WECHAT-UIN header to be present")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(trimmed)
+	if err != nil {
+		t.Fatalf("expected X-WECHAT-UIN to be valid base64, got %q: %v", trimmed, err)
+	}
+	if len(decoded) == 0 {
+		t.Fatalf("expected decoded X-WECHAT-UIN to be non-empty, got %q", trimmed)
+	}
+	for _, ch := range string(decoded) {
+		if ch < '0' || ch > '9' {
+			t.Fatalf("expected decoded X-WECHAT-UIN to be decimal digits, got %q", string(decoded))
+		}
+	}
 }

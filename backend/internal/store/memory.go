@@ -23,6 +23,7 @@ var (
 	ErrAutomationRunNotFound      = errors.New("automation run not found")
 	ErrNotificationNotFound       = errors.New("notification not found")
 	ErrBotConnectionNotFound      = errors.New("bot connection not found")
+	ErrWeChatAccountNotFound      = errors.New("wechat account not found")
 	ErrBotConversationNotFound    = errors.New("bot conversation not found")
 	ErrBotInboundDeliveryNotFound = errors.New("bot inbound delivery not found")
 )
@@ -46,6 +47,7 @@ type MemoryStore struct {
 	notifications     map[string]Notification
 	botConnections    map[string]BotConnection
 	botConnectionLogs map[string][]BotConnectionLogEntry
+	wechatAccounts    map[string]WeChatAccount
 	botConversations  map[string]BotConversation
 	botInbound        map[string]BotInboundDelivery
 	botInboundIndex   map[string]string
@@ -65,6 +67,7 @@ type storeSnapshot struct {
 	Notifications       []Notification           `json:"notifications,omitempty"`
 	BotConnections      []BotConnection          `json:"botConnections,omitempty"`
 	BotConnectionLogs   []BotConnectionLogEntry  `json:"botConnectionLogs,omitempty"`
+	WeChatAccounts      []WeChatAccount          `json:"wechatAccounts,omitempty"`
 	BotConversations    []BotConversation        `json:"botConversations,omitempty"`
 	BotInbound          []BotInboundDelivery     `json:"botInbound,omitempty"`
 	Threads             []Thread                 `json:"threads"`
@@ -82,6 +85,7 @@ func NewMemoryStore() *MemoryStore {
 		notifications:     make(map[string]Notification),
 		botConnections:    make(map[string]BotConnection),
 		botConnectionLogs: make(map[string][]BotConnectionLogEntry),
+		wechatAccounts:    make(map[string]WeChatAccount),
 		botConversations:  make(map[string]BotConversation),
 		botInbound:        make(map[string]BotInboundDelivery),
 		botInboundIndex:   make(map[string]string),
@@ -821,6 +825,175 @@ func (s *MemoryStore) ListBotConnectionLogs(workspaceID string, connectionID str
 	return items
 }
 
+func (s *MemoryStore) ListWeChatAccounts(workspaceID string) []WeChatAccount {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]WeChatAccount, 0)
+	for _, account := range s.wechatAccounts {
+		if account.WorkspaceID != workspaceID {
+			continue
+		}
+		items = append(items, cloneWeChatAccount(account))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+	return items
+}
+
+func (s *MemoryStore) GetWeChatAccount(workspaceID string, accountID string) (WeChatAccount, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	account, ok := s.wechatAccounts[accountID]
+	if !ok || account.WorkspaceID != workspaceID {
+		return WeChatAccount{}, false
+	}
+	return cloneWeChatAccount(account), true
+}
+
+func (s *MemoryStore) DeleteWeChatAccount(workspaceID string, accountID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	account, ok := s.wechatAccounts[accountID]
+	if !ok || account.WorkspaceID != workspaceID {
+		return ErrWeChatAccountNotFound
+	}
+
+	delete(s.wechatAccounts, accountID)
+	s.persistLocked()
+	return nil
+}
+
+func (s *MemoryStore) UpdateWeChatAccount(workspaceID string, accountID string, mutate func(WeChatAccount) WeChatAccount) (WeChatAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	account, ok := s.wechatAccounts[accountID]
+	if !ok || account.WorkspaceID != workspaceID {
+		return WeChatAccount{}, ErrWeChatAccountNotFound
+	}
+
+	updated := mutate(cloneWeChatAccount(account))
+	updated.ID = account.ID
+	updated.WorkspaceID = account.WorkspaceID
+	updated.BaseURL = account.BaseURL
+	updated.AccountID = account.AccountID
+	updated.UserID = account.UserID
+	if strings.TrimSpace(updated.BotToken) == "" {
+		updated.BotToken = account.BotToken
+	}
+	updated.LastLoginID = strings.TrimSpace(updated.LastLoginID)
+	if updated.LastLoginID == "" {
+		updated.LastLoginID = account.LastLoginID
+	}
+	if updated.LastConfirmedAt.IsZero() {
+		updated.LastConfirmedAt = account.LastConfirmedAt
+	}
+	if updated.CreatedAt.IsZero() {
+		updated.CreatedAt = account.CreatedAt
+	}
+	updated.Alias = strings.TrimSpace(updated.Alias)
+	updated.Note = strings.TrimSpace(updated.Note)
+	updated.UpdatedAt = time.Now().UTC()
+
+	s.wechatAccounts[accountID] = cloneWeChatAccount(updated)
+	s.persistLocked()
+	return cloneWeChatAccount(updated), nil
+}
+
+func (s *MemoryStore) UpsertWeChatAccount(account WeChatAccount) (WeChatAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[account.WorkspaceID]; !ok {
+		return WeChatAccount{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	account.WorkspaceID = strings.TrimSpace(account.WorkspaceID)
+	account.Alias = strings.TrimSpace(account.Alias)
+	account.Note = strings.TrimSpace(account.Note)
+	account.BaseURL = strings.TrimSpace(account.BaseURL)
+	account.AccountID = strings.TrimSpace(account.AccountID)
+	account.UserID = strings.TrimSpace(account.UserID)
+	account.BotToken = strings.TrimSpace(account.BotToken)
+	account.LastLoginID = strings.TrimSpace(account.LastLoginID)
+
+	existing, found := WeChatAccount{}, false
+	if account.ID != "" {
+		candidate, ok := s.wechatAccounts[account.ID]
+		if ok && candidate.WorkspaceID == account.WorkspaceID {
+			existing = candidate
+			found = true
+		}
+	}
+	if !found && account.AccountID != "" {
+		for _, candidate := range s.wechatAccounts {
+			if candidate.WorkspaceID != account.WorkspaceID {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(candidate.AccountID), account.AccountID) {
+				existing = candidate
+				found = true
+				break
+			}
+		}
+	}
+
+	if found {
+		account.ID = existing.ID
+		if account.CreatedAt.IsZero() {
+			account.CreatedAt = existing.CreatedAt
+		}
+		if account.BaseURL == "" {
+			account.BaseURL = existing.BaseURL
+		}
+		if account.AccountID == "" {
+			account.AccountID = existing.AccountID
+		}
+		if account.UserID == "" {
+			account.UserID = existing.UserID
+		}
+		if account.BotToken == "" {
+			account.BotToken = existing.BotToken
+		}
+		if account.LastLoginID == "" {
+			account.LastLoginID = existing.LastLoginID
+		}
+		if account.Alias == "" {
+			account.Alias = existing.Alias
+		}
+		if account.Note == "" {
+			account.Note = existing.Note
+		}
+		if account.LastConfirmedAt.IsZero() {
+			account.LastConfirmedAt = existing.LastConfirmedAt
+		}
+	} else {
+		if strings.TrimSpace(account.ID) == "" {
+			account.ID = NewID("wca")
+		}
+		if account.CreatedAt.IsZero() {
+			account.CreatedAt = now
+		}
+		if account.LastConfirmedAt.IsZero() {
+			account.LastConfirmedAt = now
+		}
+	}
+
+	account.UpdatedAt = now
+	s.wechatAccounts[account.ID] = cloneWeChatAccount(account)
+	s.persistLocked()
+	return cloneWeChatAccount(account), nil
+}
+
 func (s *MemoryStore) CreateBotConnection(connection BotConnection) (BotConnection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1130,6 +1303,9 @@ func (s *MemoryStore) UpsertBotInboundDelivery(delivery BotInboundDelivery) (Bot
 		case "completed", "received", "processing":
 			return cloneBotInboundDelivery(existing), false, nil
 		case "failed":
+			if botInboundDeliveryHasSavedReply(existing) {
+				return cloneBotInboundDelivery(existing), false, nil
+			}
 			existing.Provider = delivery.Provider
 			existing.ExternalConversationID = effectiveBotInboundExternalConversationID(delivery)
 			existing.ExternalChatID = firstNonEmpty(strings.TrimSpace(delivery.ExternalChatID), existing.ExternalConversationID)
@@ -1223,11 +1399,15 @@ func (s *MemoryStore) FailBotInboundDelivery(workspaceID string, deliveryID stri
 	})
 }
 
-func (s *MemoryStore) PrepareBotInboundDeliveriesForRecovery(workspaceID string, connectionID string) []BotInboundDelivery {
+func (s *MemoryStore) PrepareBotInboundDeliveriesForRecovery(
+	workspaceID string,
+	connectionID string,
+) ([]BotInboundDelivery, []BotInboundDelivery) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	items := make([]BotInboundDelivery, 0)
+	suppressed := make([]BotInboundDelivery, 0)
 	changed := false
 	for id, delivery := range s.botInbound {
 		if strings.TrimSpace(workspaceID) != "" && delivery.WorkspaceID != strings.TrimSpace(workspaceID) {
@@ -1244,7 +1424,12 @@ func (s *MemoryStore) PrepareBotInboundDeliveriesForRecovery(workspaceID string,
 			changed = true
 			items = append(items, cloneBotInboundDelivery(delivery))
 		case "failed":
-			if len(delivery.ReplyMessages) == 0 && len(delivery.ReplyTexts) == 0 {
+			if botInboundDeliveryHasSavedReply(delivery) {
+				// Do not automatically replay failed saved replies on restart.
+				// Providers like WeChat and Telegram send multi-part replies sequentially,
+				// so a failure may happen after some user-visible messages already landed.
+				// Re-queueing those deliveries on startup duplicates old content.
+				suppressed = append(suppressed, cloneBotInboundDelivery(delivery))
 				continue
 			}
 			delivery.Status = "received"
@@ -1267,8 +1452,14 @@ func (s *MemoryStore) PrepareBotInboundDeliveriesForRecovery(workspaceID string,
 		}
 		return items[i].CreatedAt.Before(items[j].CreatedAt)
 	})
+	sort.Slice(suppressed, func(i int, j int) bool {
+		if suppressed[i].CreatedAt.Equal(suppressed[j].CreatedAt) {
+			return suppressed[i].ID < suppressed[j].ID
+		}
+		return suppressed[i].CreatedAt.Before(suppressed[j].CreatedAt)
+	})
 
-	return items
+	return items, suppressed
 }
 
 func (s *MemoryStore) updateBotInboundDelivery(
@@ -1918,6 +2109,12 @@ func (s *MemoryStore) load() error {
 			maxID = value
 		}
 	}
+	for _, account := range snapshot.WeChatAccounts {
+		s.wechatAccounts[account.ID] = cloneWeChatAccount(account)
+		if value := NumericIDSuffix(account.ID); value > maxID {
+			maxID = value
+		}
+	}
 	for _, conversation := range snapshot.BotConversations {
 		s.botConversations[conversation.ID] = cloneBotConversation(conversation)
 		if value := NumericIDSuffix(conversation.ID); value > maxID {
@@ -1972,6 +2169,7 @@ func (s *MemoryStore) persistLocked() {
 		Notifications:       make([]Notification, 0, len(s.notifications)),
 		BotConnections:      make([]BotConnection, 0, len(s.botConnections)),
 		BotConnectionLogs:   make([]BotConnectionLogEntry, 0),
+		WeChatAccounts:      make([]WeChatAccount, 0, len(s.wechatAccounts)),
 		BotConversations:    make([]BotConversation, 0, len(s.botConversations)),
 		BotInbound:          make([]BotInboundDelivery, 0, len(s.botInbound)),
 		Threads:             make([]Thread, 0, len(s.threads)),
@@ -2029,6 +2227,9 @@ func (s *MemoryStore) persistLocked() {
 	for _, logs := range s.botConnectionLogs {
 		snapshot.BotConnectionLogs = append(snapshot.BotConnectionLogs, logs...)
 	}
+	for _, account := range s.wechatAccounts {
+		snapshot.WeChatAccounts = append(snapshot.WeChatAccounts, cloneWeChatAccount(account))
+	}
 	for _, conversation := range s.botConversations {
 		snapshot.BotConversations = append(snapshot.BotConversations, cloneBotConversation(conversation))
 	}
@@ -2080,6 +2281,9 @@ func (s *MemoryStore) persistLocked() {
 			return snapshot.BotConnectionLogs[i].ConnectionID < snapshot.BotConnectionLogs[j].ConnectionID
 		}
 		return snapshot.BotConnectionLogs[i].WorkspaceID < snapshot.BotConnectionLogs[j].WorkspaceID
+	})
+	sort.Slice(snapshot.WeChatAccounts, func(i int, j int) bool {
+		return snapshot.WeChatAccounts[i].ID < snapshot.WeChatAccounts[j].ID
 	})
 	sort.Slice(snapshot.BotConversations, func(i int, j int) bool {
 		return snapshot.BotConversations[i].ID < snapshot.BotConversations[j].ID
@@ -2155,6 +2359,10 @@ func cloneBotConnection(connection BotConnection) BotConnection {
 	return next
 }
 
+func cloneWeChatAccount(account WeChatAccount) WeChatAccount {
+	return account
+}
+
 func cloneBotConversation(conversation BotConversation) BotConversation {
 	next := conversation
 	if len(conversation.BackendState) > 0 {
@@ -2181,6 +2389,10 @@ func cloneBotInboundDelivery(delivery BotInboundDelivery) BotInboundDelivery {
 	next.ReplyMessages = cloneBotReplyMessages(delivery.ReplyMessages)
 	next.ReplyTexts = cloneStringSlice(delivery.ReplyTexts)
 	return next
+}
+
+func botInboundDeliveryHasSavedReply(delivery BotInboundDelivery) bool {
+	return len(delivery.ReplyMessages) > 0 || len(delivery.ReplyTexts) > 0
 }
 
 func cloneBotReplyMessages(messages []BotReplyMessage) []BotReplyMessage {

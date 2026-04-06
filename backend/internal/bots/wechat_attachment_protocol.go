@@ -49,6 +49,7 @@ func normalizeWeChatReplyMessages(messages []OutboundMessage) []OutboundMessage 
 	normalized := make([]OutboundMessage, 0, len(messages))
 	for _, message := range messages {
 		visibleText, parsedMedia := parseWeChatAttachmentProtocol(message.Text)
+		visibleText = filterWeChatMarkdownText(visibleText)
 		combinedMedia := cloneBotMessageMediaList(message.Media)
 		if len(parsedMedia) > 0 {
 			combinedMedia = append(combinedMedia, parsedMedia...)
@@ -238,4 +239,3 @@ func filepathBaseSafe(value string) string {
 	}
 	return strings.TrimSpace(parts[len(parts)-1])
 }
-

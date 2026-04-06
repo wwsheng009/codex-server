@@ -7,14 +7,24 @@ import (
 )
 
 const (
-	botCommandOutputTailLineLimit = 24
-	botCommandOutputCharLimit     = 1800
-	botFileChangeEntryLimit       = 8
-	botToolValuePreviewLimit      = 160
-	botUnknownItemPreviewLimit    = 240
+	botCommandOutputBriefTailLineLimit    = 3
+	botCommandOutputBriefCharLimit        = 480
+	botCommandOutputDetailedTailLineLimit = 24
+	botCommandOutputDetailedCharLimit     = 1800
+	botFileChangeEntryLimit               = 8
+	botToolValuePreviewLimit              = 160
+	botUnknownItemPreviewLimit            = 240
 )
 
 func renderBotVisibleItem(item map[string]any) string {
+	return renderBotVisibleItemWithConfig(item, botTranscriptRenderConfig{})
+}
+
+type botTranscriptRenderConfig struct {
+	CommandOutputMode string
+}
+
+func renderBotVisibleItemWithConfig(item map[string]any, config botTranscriptRenderConfig) string {
 	if len(item) == 0 {
 		return ""
 	}
@@ -27,7 +37,7 @@ func renderBotVisibleItem(item map[string]any) string {
 	case "reasoning":
 		return renderBotReasoningItem(item)
 	case "commandExecution":
-		return renderBotCommandExecutionItem(item)
+		return renderBotCommandExecutionItem(item, config)
 	case "fileChange":
 		return renderBotFileChangeItem(item)
 	case "mcpToolCall", "dynamicToolCall", "collabAgentToolCall":
@@ -72,26 +82,85 @@ func renderBotReasoningItem(item map[string]any) string {
 	return "Reasoning:\n" + strings.Join(parts, "\n")
 }
 
-func renderBotCommandExecutionItem(item map[string]any) string {
+func renderBotCommandExecutionItem(item map[string]any, config botTranscriptRenderConfig) string {
 	command := strings.TrimSpace(stringValue(item["command"]))
 	output := strings.TrimSpace(stringValue(item["aggregatedOutput"]))
 	status := strings.TrimSpace(stringValue(item["status"]))
+	commandOutputMode := normalizeBotTranscriptRenderConfig(config).CommandOutputMode
+
+	if commandOutputMode == botCommandOutputModeSingleLine {
+		return renderBotCommandExecutionSingleLine(command, status, output)
+	}
 
 	lines := make([]string, 0, 3)
-	switch {
-	case command != "" && status != "":
-		lines = append(lines, fmt.Sprintf("Command: %s [%s]", command, humanizeBotStatus(status)))
-	case command != "":
-		lines = append(lines, "Command: "+command)
-	case status != "":
-		lines = append(lines, "Command Status: "+humanizeBotStatus(status))
+	if header := formatBotCommandHeader(command, status); header != "" {
+		lines = append(lines, header)
 	}
 
 	if output != "" {
-		lines = append(lines, tailBotCommandOutput(output))
+		switch commandOutputMode {
+		case botCommandOutputModeFull:
+			lines = append(lines, fullBotCommandOutput(output))
+		case botCommandOutputModeDetailed:
+			lines = append(lines, tailBotCommandOutput(output))
+		default:
+			lines = append(lines, briefBotCommandOutput(output))
+		}
 	}
 
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func normalizeBotTranscriptRenderConfig(config botTranscriptRenderConfig) botTranscriptRenderConfig {
+	commandOutputMode, err := normalizeBotCommandOutputMode(config.CommandOutputMode)
+	if err != nil {
+		commandOutputMode = botCommandOutputModeBrief
+	}
+
+	return botTranscriptRenderConfig{
+		CommandOutputMode: commandOutputMode,
+	}
+}
+
+func renderBotCommandExecutionSingleLine(command string, status string, output string) string {
+	header := formatBotCommandHeader(command, status)
+	summary := botCommandOutputSummary(output)
+	switch {
+	case header != "" && summary != "":
+		return header + " · " + summary
+	case header != "":
+		return header
+	case summary != "":
+		return "Command Output: " + summary
+	default:
+		return ""
+	}
+}
+
+func formatBotCommandHeader(command string, status string) string {
+	switch {
+	case command != "" && status != "":
+		return fmt.Sprintf("Command: %s [%s]", command, humanizeBotStatus(status))
+	case command != "":
+		return "Command: " + command
+	case status != "":
+		return "Command Status: " + humanizeBotStatus(status)
+	default:
+		return ""
+	}
+}
+
+func botCommandOutputSummary(output string) string {
+	normalized := strings.ReplaceAll(output, "\r\n", "\n")
+	if normalized == "" {
+		return ""
+	}
+
+	lineCount := strings.Count(normalized, "\n") + 1
+	if lineCount == 1 {
+		return "1 output line"
+	}
+	return fmt.Sprintf("%d output lines", lineCount)
 }
 
 func renderBotFileChangeItem(item map[string]any) string {
@@ -407,39 +476,103 @@ func botPreviewValue(value any) string {
 }
 
 func tailBotCommandOutput(output string) string {
+	excerpt := buildBotCommandOutputExcerpt(
+		output,
+		botCommandOutputDetailedTailLineLimit,
+		botCommandOutputDetailedCharLimit,
+	)
+	if excerpt.text == "" {
+		return ""
+	}
+
+	if !excerpt.lineTruncated && !excerpt.charTruncated {
+		return "Output:\n" + excerpt.text
+	}
+
+	notes := make([]string, 0, 2)
+	if excerpt.lineTruncated {
+		notes = append(notes, fmt.Sprintf(
+			"showing last %d of %d lines",
+			minInt(botCommandOutputDetailedTailLineLimit, excerpt.totalLines),
+			excerpt.totalLines,
+		))
+	}
+	if excerpt.charTruncated {
+		notes = append(notes, fmt.Sprintf("tail excerpt capped at %d chars", botCommandOutputDetailedCharLimit))
+	}
+	return "Output (" + strings.Join(notes, "; ") + "):\n...\n" + excerpt.text
+}
+
+func briefBotCommandOutput(output string) string {
+	excerpt := buildBotCommandOutputExcerpt(
+		output,
+		botCommandOutputBriefTailLineLimit,
+		botCommandOutputBriefCharLimit,
+	)
+	if excerpt.text == "" {
+		return ""
+	}
+
+	lines := strings.Split(excerpt.text, "\n")
+	rendered := make([]string, 0, len(lines)+1)
+	rendered = append(rendered, "Output: "+lines[0])
+	if len(lines) > 1 {
+		rendered = append(rendered, lines[1:]...)
+	}
+
+	if excerpt.lineTruncated || excerpt.charTruncated {
+		notes := make([]string, 0, 2)
+		if excerpt.lineTruncated {
+			omittedLines := excerpt.totalLines - minInt(botCommandOutputBriefTailLineLimit, excerpt.totalLines)
+			notes = append(notes, fmt.Sprintf("%d earlier line%s omitted", omittedLines, pluralSuffix(omittedLines)))
+		}
+		if excerpt.charTruncated {
+			notes = append(notes, "excerpt trimmed")
+		}
+		rendered = append(rendered, "... ("+strings.Join(notes, "; ")+")")
+	}
+
+	return strings.Join(rendered, "\n")
+}
+
+func fullBotCommandOutput(output string) string {
 	normalized := strings.ReplaceAll(output, "\r\n", "\n")
 	if normalized == "" {
 		return ""
 	}
+	return "Output:\n" + normalized
+}
 
-	totalLines := strings.Count(normalized, "\n") + 1
+type botCommandOutputExcerpt struct {
+	text          string
+	totalLines    int
+	lineTruncated bool
+	charTruncated bool
+}
+
+func buildBotCommandOutputExcerpt(output string, lineLimit int, charLimit int) botCommandOutputExcerpt {
+	normalized := strings.ReplaceAll(output, "\r\n", "\n")
+	if normalized == "" {
+		return botCommandOutputExcerpt{}
+	}
+
 	lines := strings.Split(normalized, "\n")
-	lineTruncated := false
-	if len(lines) > botCommandOutputTailLineLimit {
-		lines = lines[len(lines)-botCommandOutputTailLineLimit:]
-		lineTruncated = true
+	excerpt := botCommandOutputExcerpt{
+		totalLines: len(lines),
+	}
+	if lineLimit > 0 && len(lines) > lineLimit {
+		lines = lines[len(lines)-lineLimit:]
+		excerpt.lineTruncated = true
 	}
 
 	text := strings.Join(lines, "\n")
-	charTruncated := false
-	if len([]rune(text)) > botCommandOutputCharLimit {
+	if charLimit > 0 && len([]rune(text)) > charLimit {
 		runes := []rune(text)
-		text = string(runes[len(runes)-botCommandOutputCharLimit:])
-		charTruncated = true
+		text = string(runes[len(runes)-charLimit:])
+		excerpt.charTruncated = true
 	}
-
-	if !lineTruncated && !charTruncated {
-		return "Output:\n" + text
-	}
-
-	notes := make([]string, 0, 2)
-	if lineTruncated {
-		notes = append(notes, fmt.Sprintf("showing last %d of %d lines", botCommandOutputTailLineLimit, totalLines))
-	}
-	if charTruncated {
-		notes = append(notes, fmt.Sprintf("tail excerpt capped at %d chars", botCommandOutputCharLimit))
-	}
-	return "Output (" + strings.Join(notes, "; ") + "):\n...\n" + text
+	excerpt.text = text
+	return excerpt
 }
 
 func humanizeBotStatus(value string) string {

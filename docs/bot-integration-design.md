@@ -52,6 +52,7 @@ Two new persisted entities were added to the store:
 - `BotConnection`
   - workspace-scoped bot integration config
   - stores provider name, AI backend, provider settings, secret fields, status, and last error
+  - settings also carry reply-formatting preferences such as runtime mode and command output mode
 
 - `BotConversation`
   - provider conversation to internal thread mapping
@@ -104,6 +105,14 @@ Provider-specific Telegram settings now include:
 - `webhook_url`
   - resolved callback URL used only in webhook mode
 
+Connection-level reply formatting settings now include:
+
+- `command_output_mode`
+  - controls how command execution output is exposed inside bot replies
+  - supported values are `single_line`, `brief`, `detailed`, and `full`
+  - default is `brief`
+  - currently used by text transcript rendering for Telegram and WeChat bot replies
+
 ### Why Polling Does Not Need A Public URL
 
 The difference is transport direction:
@@ -126,6 +135,9 @@ Workspace-scoped management routes:
 - `GET /api/workspaces/{workspaceId}/bot-connections`
 - `POST /api/workspaces/{workspaceId}/bot-connections`
 - `GET /api/workspaces/{workspaceId}/bot-connections/{connectionId}`
+- `POST /api/workspaces/{workspaceId}/bot-connections/{connectionId}/runtime-mode`
+- `POST /api/workspaces/{workspaceId}/bot-connections/{connectionId}/command-output-mode`
+- `POST /api/workspaces/{workspaceId}/bot-connections/{connectionId}/wechat-channel-timing`
 - `POST /api/workspaces/{workspaceId}/bot-connections/{connectionId}/pause`
 - `POST /api/workspaces/{workspaceId}/bot-connections/{connectionId}/resume`
 - `DELETE /api/workspaces/{workspaceId}/bot-connections/{connectionId}`
@@ -179,6 +191,7 @@ Flow:
 Important boundaries:
 
 - the current bot-visible set includes assistant replies, plan text, command output, file changes, tool-call summaries, and server-request summaries
+- command output inside bot-visible transcript summaries is filtered by `command_output_mode`; the default `brief` mode targets compact 3-5 line summaries, while `full` emits the complete aggregated command output
 - server-request events are mirrored into Telegram as concise status lines rather than interactive approval controls
 - the final completed turn remains the source of truth for persisted bot reply state
 - if either the provider or AI backend does not support streaming, the service falls back to the existing final-only reply flow
@@ -216,7 +229,8 @@ To add direct AI API execution later:
 
 - no multi-part rich content normalization yet; current flow is text-first
 - polling offset is advanced after each accepted update, so unsupported Telegram updates are skipped intentionally instead of blocking the stream
-- there is still no in-place mode switch API for an existing connection; changing delivery mode is expected to happen by creating a new connection or updating provider settings before resume
+- delivery-mode switching is still not exposed as an in-place API for an existing connection; changing webhook vs polling is still expected to happen by creating a new connection or updating provider settings before resume
+- runtime mode, WeChat channel timing, and command output mode do support in-place updates through workspace-scoped management routes
 - real-time reply streaming currently only covers `workspace_thread -> telegram`
 - Telegram currently mirrors bot-visible items as plain-text transcript summaries; it does not provide interactive approval controls inside Telegram
 - if the streaming preview exceeds Telegram's single-message edit window, only the leading chunk is edited in place until the final reply is sent

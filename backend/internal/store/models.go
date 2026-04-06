@@ -91,19 +91,21 @@ type AutomationRun struct {
 }
 
 type Notification struct {
-	ID              string     `json:"id"`
-	WorkspaceID     string     `json:"workspaceId"`
-	WorkspaceName   string     `json:"workspaceName"`
-	AutomationID    string     `json:"automationId,omitempty"`
-	AutomationTitle string     `json:"automationTitle,omitempty"`
-	RunID           string     `json:"runId,omitempty"`
-	Kind            string     `json:"kind"`
-	Title           string     `json:"title"`
-	Message         string     `json:"message"`
-	Level           string     `json:"level"`
-	Read            bool       `json:"read"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	ReadAt          *time.Time `json:"readAt,omitempty"`
+	ID                string     `json:"id"`
+	WorkspaceID       string     `json:"workspaceId"`
+	WorkspaceName     string     `json:"workspaceName"`
+	AutomationID      string     `json:"automationId,omitempty"`
+	AutomationTitle   string     `json:"automationTitle,omitempty"`
+	RunID             string     `json:"runId,omitempty"`
+	BotConnectionID   string     `json:"botConnectionId,omitempty"`
+	BotConnectionName string     `json:"botConnectionName,omitempty"`
+	Kind              string     `json:"kind"`
+	Title             string     `json:"title"`
+	Message           string     `json:"message"`
+	Level             string     `json:"level"`
+	Read              bool       `json:"read"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	ReadAt            *time.Time `json:"readAt,omitempty"`
 }
 
 type BotConnection struct {
@@ -132,6 +134,21 @@ type BotConnectionLogEntry struct {
 	Level        string    `json:"level"`
 	EventType    string    `json:"eventType,omitempty"`
 	Message      string    `json:"message"`
+}
+
+type WeChatAccount struct {
+	ID              string    `json:"id"`
+	WorkspaceID     string    `json:"workspaceId"`
+	Alias           string    `json:"alias,omitempty"`
+	Note            string    `json:"note,omitempty"`
+	BaseURL         string    `json:"baseUrl"`
+	AccountID       string    `json:"accountId"`
+	UserID          string    `json:"userId"`
+	BotToken        string    `json:"botToken,omitempty"`
+	LastLoginID     string    `json:"lastLoginId,omitempty"`
+	LastConfirmedAt time.Time `json:"lastConfirmedAt"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type BotConversation struct {

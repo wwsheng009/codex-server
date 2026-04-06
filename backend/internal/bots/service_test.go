@@ -86,6 +86,207 @@ func TestServiceCreatesConnectionWithDebugRuntimeMode(t *testing.T) {
 	}
 }
 
+func TestServiceCreatesWeChatConnectionFromConfirmedLoginSession(t *testing.T) {
+	t.Parallel()
+
+	serverURL := ""
+	statusCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ilink/bot/get_bot_qrcode":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":                0,
+				"errcode":            0,
+				"errmsg":             "",
+				"qrcode":             "qr-create-session-1",
+				"qrcode_img_content": "weixin://qr/create-session-1",
+			})
+		case "/ilink/bot/get_qrcode_status":
+			statusCalls += 1
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":           0,
+				"errcode":       0,
+				"errmsg":        "",
+				"status":        wechatLoginStatusConfirmed,
+				"bot_token":     "wechat-token-from-session",
+				"ilink_bot_id":  "wechat-account-from-session",
+				"baseurl":       serverURL,
+				"ilink_user_id": "wechat-owner-from-session",
+			})
+		default:
+			t.Fatalf("unexpected wechat auth path %s", r.URL.Path)
+		}
+	}))
+	serverURL = server.URL
+	defer server.Close()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		HTTPClient: server.Client(),
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+
+	login, err := service.StartWeChatLogin(context.Background(), workspace.ID, StartWeChatLoginInput{BaseURL: server.URL})
+	if err != nil {
+		t.Fatalf("StartWeChatLogin() error = %v", err)
+	}
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting:   wechatDeliveryModePolling,
+			wechatBaseURLSetting:        "https://ignored.example.com",
+			wechatRouteTagSetting:       "route-7",
+			wechatLoginSessionIDSetting: login.LoginID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+	if statusCalls != 1 {
+		t.Fatalf("expected confirmed login session to be resolved once, got %d status calls", statusCalls)
+	}
+
+	stored, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected created connection to be persisted")
+	}
+	if got := stored.Settings[wechatBaseURLSetting]; got != server.URL {
+		t.Fatalf("expected resolved wechat base url %q, got %q", server.URL, got)
+	}
+	if got := stored.Settings[wechatAccountIDSetting]; got != "wechat-account-from-session" {
+		t.Fatalf("expected resolved wechat account id, got %#v", stored.Settings)
+	}
+	if got := stored.Settings[wechatOwnerUserIDSetting]; got != "wechat-owner-from-session" {
+		t.Fatalf("expected resolved wechat owner user id, got %#v", stored.Settings)
+	}
+	if got := stored.Settings[wechatRouteTagSetting]; got != "route-7" {
+		t.Fatalf("expected route tag to be preserved, got %#v", stored.Settings)
+	}
+	if _, exists := stored.Settings[wechatLoginSessionIDSetting]; exists {
+		t.Fatalf("expected transient login session id to be removed from stored settings, got %#v", stored.Settings)
+	}
+	if got := stored.Secrets["bot_token"]; got != "wechat-token-from-session" {
+		t.Fatalf("expected resolved wechat bot token, got %#v", stored.Secrets)
+	}
+}
+
+func TestServiceCreatesWeChatConnectionFromSavedAccount(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	account, err := dataStore.UpsertWeChatAccount(store.WeChatAccount{
+		WorkspaceID:     workspace.ID,
+		BaseURL:         "https://wechat.saved.example.com",
+		AccountID:       "wechat-account-saved-1",
+		UserID:          "wechat-owner-saved-1",
+		BotToken:        "wechat-token-saved-1",
+		LastLoginID:     "login-saved-1",
+		LastConfirmedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertWeChatAccount() error = %v", err)
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting:   wechatDeliveryModePolling,
+			wechatSavedAccountIDSetting: account.ID,
+			wechatRouteTagSetting:       "route-saved-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	stored, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected created connection to be persisted")
+	}
+	if got := stored.Settings[wechatBaseURLSetting]; got != "https://wechat.saved.example.com" {
+		t.Fatalf("expected saved account base url to be applied, got %#v", stored.Settings)
+	}
+	if got := stored.Settings[wechatAccountIDSetting]; got != "wechat-account-saved-1" {
+		t.Fatalf("expected saved account id to be applied, got %#v", stored.Settings)
+	}
+	if got := stored.Settings[wechatOwnerUserIDSetting]; got != "wechat-owner-saved-1" {
+		t.Fatalf("expected saved account owner user id to be applied, got %#v", stored.Settings)
+	}
+	if _, exists := stored.Settings[wechatSavedAccountIDSetting]; exists {
+		t.Fatalf("expected transient saved account id to be removed from connection settings, got %#v", stored.Settings)
+	}
+	if got := stored.Secrets["bot_token"]; got != "wechat-token-saved-1" {
+		t.Fatalf("expected saved account bot token to be applied, got %#v", stored.Secrets)
+	}
+}
+
+func TestServiceUpdatesWeChatAccountMetadataAndPreservesItOnReconfirm(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	account, err := dataStore.UpsertWeChatAccount(store.WeChatAccount{
+		WorkspaceID:     workspace.ID,
+		BaseURL:         "https://wechat.saved.example.com",
+		AccountID:       "wechat-account-saved-1",
+		UserID:          "wechat-owner-saved-1",
+		BotToken:        "wechat-token-saved-1",
+		LastLoginID:     "login-saved-1",
+		LastConfirmedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertWeChatAccount() error = %v", err)
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+
+	updated, err := service.UpdateWeChatAccount(workspace.ID, account.ID, UpdateWeChatAccountInput{
+		Alias: "Support Primary",
+		Note:  "Used by the support queue.",
+	})
+	if err != nil {
+		t.Fatalf("UpdateWeChatAccount() error = %v", err)
+	}
+	if updated.Alias != "Support Primary" || updated.Note != "Used by the support queue." {
+		t.Fatalf("expected updated metadata, got %#v", updated)
+	}
+
+	service.rememberConfirmedWeChatLogin(workspace.ID, WeChatLoginView{
+		LoginID:         "login-saved-2",
+		Status:          wechatLoginStatusConfirmed,
+		BaseURL:         "https://wechat.saved.example.com",
+		AccountID:       "wechat-account-saved-1",
+		UserID:          "wechat-owner-saved-1",
+		BotToken:        "wechat-token-saved-2",
+		CredentialReady: true,
+	})
+
+	preserved, ok := dataStore.GetWeChatAccount(workspace.ID, account.ID)
+	if !ok {
+		t.Fatal("expected updated wechat account to remain in store")
+	}
+	if preserved.Alias != "Support Primary" || preserved.Note != "Used by the support queue." {
+		t.Fatalf("expected alias and note to survive reconfirm, got %#v", preserved)
+	}
+	if preserved.BotToken != "wechat-token-saved-2" {
+		t.Fatalf("expected reconfirm to refresh bot token, got %#v", preserved)
+	}
+}
+
 func TestHandleWebhookCreatesConversationAndSendsReply(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +471,395 @@ func TestHandleWebhookWeChatAddsAIAttachmentHintAndNormalizesReplyMedia(t *testi
 	t.Fatalf("expected last outbound text to summarize normalized media, got %q", conversations[0].LastOutboundText)
 }
 
+func TestHandleWebhookWeChatEchoCommandBypassesAIAndReturnsTiming(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	backend := &countingAIBackend{}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "counting_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-echo-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	createdAtMS := time.Now().Add(-1500 * time.Millisecond).UnixMilli()
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+		"conversationId":"chat-wechat-echo-1",
+		"messageId":"msg-wechat-echo-1",
+		"userId":"wechat-user-echo-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"/echo ping from wechat",
+		"providerData":{"wechat_created_at_ms":"%d"}
+	}`, createdAtMS)))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 2 {
+			t.Fatalf("expected /echo to send two outbound messages, got %#v", sent.Messages)
+		}
+		if got := sent.Messages[0].Text; got != "ping from wechat" {
+			t.Fatalf("expected first /echo message to mirror the payload, got %#v", sent.Messages[0])
+		}
+		if got := sent.Messages[1].Text; !strings.Contains(got, "Channel timing") ||
+			!strings.Contains(got, "Platform->backend:") ||
+			!strings.Contains(got, "Backend processing:") {
+			t.Fatalf("expected second /echo message to include timing summary, got %#v", sent.Messages[1])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat /echo response")
+	}
+
+	if got := backend.callCount(); got != 0 {
+		t.Fatalf("expected /echo to bypass AI execution, got %d backend calls", got)
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	if got := conversations[0].LastOutboundText; !strings.Contains(got, "ping from wechat") || !strings.Contains(got, "Channel timing") {
+		t.Fatalf("expected /echo result to be recorded on the conversation, got %q", got)
+	}
+}
+
+func TestHandleWebhookWeChatToggleDebugCommandUpdatesRuntimeMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	backend := &countingAIBackend{}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "counting_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-debug-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendToggle := func(messageID string) {
+		t.Helper()
+
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+			"conversationId":"chat-wechat-debug-1",
+			"messageId":"%s",
+			"userId":"wechat-user-debug-1",
+			"username":"alice",
+			"title":"Alice",
+			"text":"/toggle-debug"
+		}`, messageID)))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	sendToggle("msg-wechat-debug-1")
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "WeChat debug mode enabled for this bot connection." {
+			t.Fatalf("expected enable debug response, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat /toggle-debug enable response")
+	}
+
+	stored, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected toggled connection to remain in store")
+	}
+	if got := stored.Settings[botRuntimeModeSetting]; got != botRuntimeModeDebug {
+		t.Fatalf("expected runtime mode %q after first toggle, got %q", botRuntimeModeDebug, got)
+	}
+
+	sendToggle("msg-wechat-debug-2")
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "WeChat debug mode disabled for this bot connection." {
+			t.Fatalf("expected disable debug response, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat /toggle-debug disable response")
+	}
+
+	stored, ok = dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected toggled connection to remain in store")
+	}
+	if got := stored.Settings[botRuntimeModeSetting]; got != botRuntimeModeNormal {
+		t.Fatalf("expected runtime mode %q after second toggle, got %q", botRuntimeModeNormal, got)
+	}
+	if got := backend.callCount(); got != 0 {
+		t.Fatalf("expected /toggle-debug to bypass AI execution, got %d backend calls", got)
+	}
+}
+
+func TestHandleWebhookWeChatDebugModeAppendsTimingToAIReply(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-wechat-debug-ai-1",
+			Messages: []OutboundMessage{
+				{Text: "reply: hello debug"},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "scripted_ai",
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-debug-ai-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	createdAtMS := time.Now().Add(-1800 * time.Millisecond).UnixMilli()
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+		"conversationId":"chat-wechat-debug-ai-1",
+		"messageId":"msg-wechat-debug-ai-1",
+		"userId":"wechat-user-debug-ai-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello debug timing",
+		"providerData":{"wechat_created_at_ms":"%d"}
+	}`, createdAtMS)))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected debug AI reply to stay as one outbound message, got %#v", sent.Messages)
+		}
+		if got := sent.Messages[0].Text; !strings.Contains(got, "reply: hello debug") ||
+			!strings.Contains(got, "Channel timing") ||
+			!strings.Contains(got, "Platform->backend:") ||
+			!strings.Contains(got, "Backend processing:") {
+			t.Fatalf("expected debug AI reply to include timing summary, got %#v", sent.Messages[0])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat debug AI reply")
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	if got := conversations[0].LastOutboundText; !strings.Contains(got, "reply: hello debug") || !strings.Contains(got, "Channel timing") {
+		t.Fatalf("expected debug AI reply preview to include timing summary, got %q", got)
+	}
+}
+
+func TestHandleWebhookWeChatChannelTimingSettingDisablesTimingInDebugMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-wechat-debug-disabled-1",
+			Messages: []OutboundMessage{
+				{Text: "reply: hello debug disabled"},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "scripted_ai",
+		Settings: map[string]string{
+			botRuntimeModeSetting:      botRuntimeModeDebug,
+			wechatChannelTimingSetting: wechatChannelTimingDisabled,
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-debug-disabled-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	createdAtMS := time.Now().Add(-1800 * time.Millisecond).UnixMilli()
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+		"conversationId":"chat-wechat-debug-disabled-1",
+		"messageId":"msg-wechat-debug-disabled-1",
+		"userId":"wechat-user-debug-disabled-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello debug timing disabled",
+		"providerData":{"wechat_created_at_ms":"%d"}
+	}`, createdAtMS)))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected a single outbound message, got %#v", sent.Messages)
+		}
+		if strings.Contains(sent.Messages[0].Text, "Channel timing") {
+			t.Fatalf("expected explicit disabled wechat timing to suppress Channel timing, got %#v", sent.Messages[0])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat reply with disabled timing")
+	}
+}
+
+func TestHandleWebhookWeChatChannelTimingSettingEnablesTimingWithoutDebugMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-wechat-normal-enabled-1",
+			Messages: []OutboundMessage{
+				{Text: "reply: hello timing enabled"},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "scripted_ai",
+		Settings: map[string]string{
+			botRuntimeModeSetting:      botRuntimeModeNormal,
+			wechatChannelTimingSetting: wechatChannelTimingEnabled,
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-normal-enabled-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	createdAtMS := time.Now().Add(-1800 * time.Millisecond).UnixMilli()
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+		"conversationId":"chat-wechat-normal-enabled-1",
+		"messageId":"msg-wechat-normal-enabled-1",
+		"userId":"wechat-user-normal-enabled-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello normal timing enabled",
+		"providerData":{"wechat_created_at_ms":"%d"}
+	}`, createdAtMS)))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected a single outbound message, got %#v", sent.Messages)
+		}
+		if got := sent.Messages[0].Text; !strings.Contains(got, "reply: hello timing enabled") ||
+			!strings.Contains(got, "Channel timing") ||
+			!strings.Contains(got, "Platform->backend:") ||
+			!strings.Contains(got, "Backend processing:") {
+			t.Fatalf("expected explicit enabled wechat timing to append Channel timing, got %#v", sent.Messages[0])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat reply with enabled timing")
+	}
+}
+
 func TestServiceUpdatesConnectionRuntimeMode(t *testing.T) {
 	t.Parallel()
 
@@ -303,6 +893,140 @@ func TestServiceUpdatesConnectionRuntimeMode(t *testing.T) {
 
 	if updated.Settings[botRuntimeModeSetting] != botRuntimeModeDebug {
 		t.Fatalf("expected debug runtime mode after update, got %#v", updated.Settings)
+	}
+}
+
+func TestServiceUpdatesConnectionAndPreservesExistingSecrets(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	updated, err := service.UpdateConnection(context.Background(), workspace.ID, connection.ID, UpdateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot v2",
+		AIBackend: "fake_ai",
+		AIConfig: map[string]string{
+			"model": "gpt-5.4-mini",
+		},
+		Settings: map[string]string{
+			botRuntimeModeSetting:       botRuntimeModeDebug,
+			botCommandOutputModeSetting: botCommandOutputModeFull,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateConnection() error = %v", err)
+	}
+
+	if updated.Name != "Support Bot v2" {
+		t.Fatalf("expected updated connection name, got %#v", updated)
+	}
+	if updated.Settings[botRuntimeModeSetting] != botRuntimeModeDebug {
+		t.Fatalf("expected debug runtime mode after update, got %#v", updated.Settings)
+	}
+	if updated.Settings[botCommandOutputModeSetting] != botCommandOutputModeFull {
+		t.Fatalf("expected full command output mode after update, got %#v", updated.Settings)
+	}
+	if updated.AIConfig["model"] != "gpt-5.4-mini" {
+		t.Fatalf("expected updated ai config, got %#v", updated.AIConfig)
+	}
+
+	stored, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected updated connection in store")
+	}
+	if stored.Secrets["bot_token"] != "token-123" {
+		t.Fatalf("expected existing bot_token secret to be preserved, got %#v", stored.Secrets)
+	}
+}
+
+func TestServiceUpdatesConnectionCommandOutputMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	updated, err := service.UpdateConnectionCommandOutputMode(workspace.ID, connection.ID, UpdateConnectionCommandOutputModeInput{
+		CommandOutputMode: botCommandOutputModeFull,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConnectionCommandOutputMode() error = %v", err)
+	}
+
+	if updated.Settings[botCommandOutputModeSetting] != botCommandOutputModeFull {
+		t.Fatalf("expected full command output mode after update, got %#v", updated.Settings)
+	}
+}
+
+func TestServiceUpdatesWeChatChannelTimingSetting(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeWeChatProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		Name:      "WeChat Support",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	updated, err := service.UpdateWeChatChannelTiming(workspace.ID, connection.ID, UpdateWeChatChannelTimingInput{
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateWeChatChannelTiming() error = %v", err)
+	}
+
+	if updated.Settings[wechatChannelTimingSetting] != wechatChannelTimingEnabled {
+		t.Fatalf("expected enabled wechat channel timing after update, got %#v", updated.Settings)
 	}
 }
 
@@ -1819,7 +2543,104 @@ func TestServiceStreamsReplyWhenProviderAndBackendSupportStreaming(t *testing.T)
 	}
 }
 
-func TestServiceRetriesStoredStreamingReplyWithoutRerunningAI(t *testing.T) {
+func TestServiceAppendsTimingToWeChatStreamingReplyInDebugMode(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatStreamingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeStreamingAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "stream_ai",
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-stream-debug-token-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	createdAtMS := time.Now().Add(-2 * time.Second).UnixMilli()
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+		"conversationId":"chat-wechat-stream-debug-1",
+		"messageId":"msg-wechat-stream-debug-1",
+		"userId":"wechat-user-stream-debug-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello streaming debug",
+		"providerData":{"wechat_created_at_ms":"%d"}
+	}`, createdAtMS)))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.completedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat streaming completion")
+	}
+
+	provider.mu.Lock()
+	updates := append([][]OutboundMessage(nil), provider.updates...)
+	completedMessages := append([]OutboundMessage(nil), provider.completedMessages...)
+	sendMessagesCalls := provider.sendMessagesCalls
+	provider.mu.Unlock()
+
+	if sendMessagesCalls != 0 {
+		t.Fatalf("expected WeChat streaming reply to avoid SendMessages fallback, got %d calls", sendMessagesCalls)
+	}
+	if len(updates) != 3 {
+		t.Fatalf("expected 3 streaming updates including pending state, got %#v", updates)
+	}
+	if len(updates[2]) != 1 ||
+		!strings.Contains(updates[2][0].Text, "reply: hello streaming debug") ||
+		strings.Contains(updates[2][0].Text, "Channel timing") {
+		t.Fatalf("expected incremental updates to stay unchanged, got %#v", updates)
+	}
+	if len(completedMessages) != 1 {
+		t.Fatalf("expected a single completed WeChat streaming message, got %#v", completedMessages)
+	}
+	if got := completedMessages[0].Text; !strings.Contains(got, "final: hello streaming debug") ||
+		!strings.Contains(got, "Channel timing") ||
+		!strings.Contains(got, "Platform->backend:") ||
+		!strings.Contains(got, "Backend processing:") {
+		t.Fatalf("expected completed WeChat streaming reply to include timing summary, got %#v", completedMessages[0])
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == "thr_chat-wechat-stream-debug-1" &&
+			strings.Contains(conversations[0].LastOutboundText, "final: hello streaming debug") &&
+			strings.Contains(conversations[0].LastOutboundText, "Channel timing") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected WeChat streaming debug conversation state to settle, got %#v", conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestServiceDoesNotRetryStoredStreamingReplyWhenWebhookRedeliversSameMessage(t *testing.T) {
 	t.Parallel()
 
 	dataStore := store.NewMemoryStore()
@@ -1897,21 +2718,49 @@ func TestServiceRetriesStoredStreamingReplyWithoutRerunningAI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleWebhook(second) error = %v", err)
 	}
-	if result.Accepted != 1 {
-		t.Fatalf("expected second webhook to re-accept the failed delivery, got %d", result.Accepted)
+	if result.Accepted != 0 {
+		t.Fatalf("expected duplicate failed delivery with saved reply to be ignored, got %d accepted", result.Accepted)
 	}
 
 	select {
 	case sent := <-provider.sentCh:
-		if len(sent.Messages) != 1 || sent.Messages[0].Text != "final: hello streaming retry" {
-			t.Fatalf("expected stored final reply to be redelivered, got %#v", sent.Messages)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for stored streaming reply redelivery")
+		t.Fatalf("expected stored streaming reply not to be redelivered, got %#v", sent.Messages)
+	case <-time.After(300 * time.Millisecond):
 	}
 
 	if backend.callCount() != 1 {
 		t.Fatalf("expected ai backend to run once, got %d calls", backend.callCount())
+	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"duplicate_delivery_suppressed",
+		[]string{"msg-stream-retry-1", "saved reply snapshot"},
+	)
+
+	assertNotificationContains(
+		t,
+		dataStore.ListNotifications(),
+		"bot_duplicate_delivery_suppressed",
+		connection.ID,
+		[]string{"msg-stream-retry-1", "saved reply snapshot"},
+	)
+
+	thirdRequest := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(requestBody))
+	thirdRequest.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err = service.HandleWebhook(thirdRequest, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook(third) error = %v", err)
+	}
+	if result.Accepted != 0 {
+		t.Fatalf("expected repeated duplicate delivery to stay ignored, got %d accepted", result.Accepted)
+	}
+	if count := countNotificationsByKindAndConnection(dataStore.ListNotifications(), "bot_duplicate_delivery_suppressed", connection.ID); count != 1 {
+		t.Fatalf("expected duplicate suppression notifications to be deduplicated, got %d", count)
 	}
 }
 
@@ -2195,7 +3044,7 @@ func TestServiceSendsFailureReplyWhenAIBackendFails(t *testing.T) {
 	t.Fatalf("expected last error to mention runtime configuration, got %q", storedConnection.LastError)
 }
 
-func TestServiceRetriesFailedInboundMessageWhenWebhookRedeliversSameMessage(t *testing.T) {
+func TestServiceDoesNotRetryStoredReplyWhenWebhookRedeliversSameMessage(t *testing.T) {
 	t.Parallel()
 
 	dataStore := store.NewMemoryStore()
@@ -2257,17 +3106,14 @@ func TestServiceRetriesFailedInboundMessageWhenWebhookRedeliversSameMessage(t *t
 	if err != nil {
 		t.Fatalf("HandleWebhook(second) error = %v", err)
 	}
-	if result.Accepted != 1 {
-		t.Fatalf("expected second webhook to re-accept the failed message, got %d", result.Accepted)
+	if result.Accepted != 0 {
+		t.Fatalf("expected duplicate failed message with saved reply to be ignored, got %d accepted", result.Accepted)
 	}
 
 	select {
 	case sent := <-provider.sentCh:
-		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello" {
-			t.Fatalf("expected retried ai reply to be forwarded, got %#v", sent.Messages)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for provider SendMessages call after retry")
+		t.Fatalf("expected stored reply not to be retried on duplicate delivery, got %#v", sent.Messages)
+	case <-time.After(300 * time.Millisecond):
 	}
 
 	conversations := service.ListConversations(workspace.ID, connection.ID)
@@ -2277,6 +3123,23 @@ func TestServiceRetriesFailedInboundMessageWhenWebhookRedeliversSameMessage(t *t
 	if conversations[0].LastInboundMessageID != "msg-retry-1" {
 		t.Fatalf("expected last inbound message id to be persisted after successful retry, got %q", conversations[0].LastInboundMessageID)
 	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"duplicate_delivery_suppressed",
+		[]string{"msg-retry-1", "saved reply snapshot"},
+	)
+
+	assertNotificationContains(
+		t,
+		dataStore.ListNotifications(),
+		"bot_duplicate_delivery_suppressed",
+		connection.ID,
+		[]string{"msg-retry-1", "saved reply snapshot"},
+	)
 }
 
 func TestServiceRecoversPendingInboundDeliveriesOnStart(t *testing.T) {
@@ -2348,7 +3211,7 @@ func TestServiceRecoversPendingInboundDeliveriesOnStart(t *testing.T) {
 	}
 }
 
-func TestServiceRecoversStoredReplyDeliveryOnStartWithoutRerunningAI(t *testing.T) {
+func TestServiceDoesNotReplayStoredReplyDeliveryOnStart(t *testing.T) {
 	t.Parallel()
 
 	dataStore := store.NewMemoryStore()
@@ -2412,19 +3275,44 @@ func TestServiceRecoversStoredReplyDeliveryOnStartWithoutRerunningAI(t *testing.
 
 	select {
 	case sent := <-recoveryProvider.sentCh:
-		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello after delivery failure" {
-			t.Fatalf("expected stored reply to be resent on start, got %#v", sent.Messages)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for stored reply recovery on start")
+		t.Fatalf("expected failed stored reply not to be replayed on start, got %#v", sent.Messages)
+	case <-time.After(300 * time.Millisecond):
 	}
 
 	if backend.callCount() != 1 {
-		t.Fatalf("expected ai backend to run once across restart recovery, got %d calls", backend.callCount())
+		t.Fatalf("expected ai backend not to rerun across restart, got %d calls", backend.callCount())
+	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		recoveryService,
+		workspace.ID,
+		connection.ID,
+		"recovery_replay_suppressed",
+		[]string{"msg-recover-reply-1", "saved reply snapshot"},
+	)
+
+	assertNotificationContains(
+		t,
+		dataStore.ListNotifications(),
+		"bot_recovery_replay_suppressed",
+		connection.ID,
+		[]string{"msg-recover-reply-1"},
+	)
+
+	secondRecoveryService := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{backend},
+	})
+	secondRecoveryService.Start(context.Background())
+
+	if count := countNotificationsByKindAndConnection(dataStore.ListNotifications(), "bot_recovery_replay_suppressed", connection.ID); count != 1 {
+		t.Fatalf("expected recovery suppression notifications to be deduplicated, got %d", count)
 	}
 }
 
-func TestServiceRecoversStoredWeChatReplyMediaWithoutRerunningAI(t *testing.T) {
+func TestServiceDoesNotReplayStoredWeChatReplyMediaOnStart(t *testing.T) {
 	t.Parallel()
 
 	dataStore := store.NewMemoryStore()
@@ -2497,25 +3385,30 @@ func TestServiceRecoversStoredWeChatReplyMediaWithoutRerunningAI(t *testing.T) {
 
 	select {
 	case sent := <-recoveryProvider.sentCh:
-		if len(sent.Messages) != 1 {
-			t.Fatalf("expected 1 recovered outbound message, got %#v", sent.Messages)
-		}
-		if got := sent.Messages[0].Text; got != "这里是文件" {
-			t.Fatalf("expected recovered visible text to exclude MEDIA directive, got %#v", sent.Messages[0])
-		}
-		if len(sent.Messages[0].Media) != 1 {
-			t.Fatalf("expected recovered message to include 1 media item, got %#v", sent.Messages[0])
-		}
-		if got := sent.Messages[0].Media[0]; got.Kind != botMediaKindFile || got.Path != `E:\tmp\handoff.pdf` || got.FileName != "handoff.pdf" {
-			t.Fatalf("expected recovered media item to preserve parsed file attachment, got %#v", got)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for stored WeChat reply recovery on start")
+		t.Fatalf("expected failed stored WeChat reply not to be replayed on start, got %#v", sent.Messages)
+	case <-time.After(300 * time.Millisecond):
 	}
 
 	if backend.callCount() != 1 {
-		t.Fatalf("expected ai backend to run once across WeChat reply recovery, got %d calls", backend.callCount())
+		t.Fatalf("expected ai backend not to rerun across restart, got %d calls", backend.callCount())
 	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		recoveryService,
+		workspace.ID,
+		connection.ID,
+		"recovery_replay_suppressed",
+		[]string{"msg-wechat-recover-1", "saved reply snapshot"},
+	)
+
+	assertNotificationContains(
+		t,
+		dataStore.ListNotifications(),
+		"bot_recovery_replay_suppressed",
+		connection.ID,
+		[]string{"msg-wechat-recover-1"},
+	)
 }
 
 func TestExecuteAIReplyStartsWeChatTypingForNonStreamingReplies(t *testing.T) {
@@ -4211,6 +5104,7 @@ func (p *fakeScriptedPollingProvider) RunPolling(
 }
 
 type fakeStreamingProvider struct {
+	providerName      string
 	mu                sync.Mutex
 	updates           [][]OutboundMessage
 	completedMessages []OutboundMessage
@@ -4222,14 +5116,26 @@ type fakeStreamingProvider struct {
 }
 
 func newFakeStreamingProvider() *fakeStreamingProvider {
+	return newNamedFakeStreamingProvider("streamchat")
+}
+
+func newFakeWeChatStreamingProvider() *fakeStreamingProvider {
+	return newNamedFakeStreamingProvider(wechatProviderName)
+}
+
+func newNamedFakeStreamingProvider(providerName string) *fakeStreamingProvider {
 	return &fakeStreamingProvider{
-		sentCh:      make(chan fakeSentPayload, 8),
-		completedCh: make(chan struct{}, 1),
+		providerName: providerName,
+		sentCh:       make(chan fakeSentPayload, 8),
+		completedCh:  make(chan struct{}, 1),
 	}
 }
 
 func (p *fakeStreamingProvider) Name() string {
-	return "streamchat"
+	if strings.TrimSpace(p.providerName) == "" {
+		return "streamchat"
+	}
+	return p.providerName
 }
 
 func (p *fakeStreamingProvider) Activate(_ context.Context, connection store.BotConnection, publicBaseURL string) (ActivationResult, error) {
@@ -4449,4 +5355,91 @@ func (fakeStreamingAIBackend) ProcessMessageStream(
 			{Text: "final: " + inbound.Text},
 		},
 	}, nil
+}
+
+func assertConnectionLogContainsEvent(
+	t *testing.T,
+	service *Service,
+	workspaceID string,
+	connectionID string,
+	eventType string,
+	messageParts []string,
+) {
+	t.Helper()
+
+	logs, err := service.ListConnectionLogs(workspaceID, connectionID)
+	if err != nil {
+		t.Fatalf("ListConnectionLogs() error = %v", err)
+	}
+
+	for _, entry := range logs {
+		if entry.EventType != eventType {
+			continue
+		}
+
+		matched := true
+		for _, part := range messageParts {
+			if !strings.Contains(entry.Message, part) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return
+		}
+	}
+
+	t.Fatalf("expected bot connection logs to contain event %q with message parts %#v, got %#v", eventType, messageParts, logs)
+}
+
+func assertNotificationContains(
+	t *testing.T,
+	notifications []store.Notification,
+	kind string,
+	connectionID string,
+	messageParts []string,
+) {
+	t.Helper()
+
+	for _, notification := range notifications {
+		if notification.Kind != kind {
+			continue
+		}
+		if notification.BotConnectionID != connectionID {
+			continue
+		}
+
+		matched := true
+		for _, part := range messageParts {
+			if !strings.Contains(notification.Message, part) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return
+		}
+	}
+
+	t.Fatalf(
+		"expected notifications to contain kind %q for connection %q with message parts %#v, got %#v",
+		kind,
+		connectionID,
+		messageParts,
+		notifications,
+	)
+}
+
+func countNotificationsByKindAndConnection(
+	notifications []store.Notification,
+	kind string,
+	connectionID string,
+) int {
+	count := 0
+	for _, notification := range notifications {
+		if notification.Kind == kind && notification.BotConnectionID == connectionID {
+			count += 1
+		}
+	}
+	return count
 }

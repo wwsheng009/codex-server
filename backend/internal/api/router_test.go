@@ -687,6 +687,39 @@ func TestBotConnectionRoutesAndWebhook(t *testing.T) {
 		t.Fatalf("expected 200 from list bot connections, got %d", listResponse.Code)
 	}
 
+	updateConnectionResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-connections/"+created.Data.ID,
+		`{"provider":"fakechat","name":"Support Bot v2","aiBackend":"fake_ai","aiConfig":{"model":"gpt-5.4-mini"},"settings":{"runtime_mode":"debug","command_output_mode":"full"}}`,
+	)
+	if updateConnectionResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from bot connection update, got %d", updateConnectionResponse.Code)
+	}
+
+	var updatedConnection struct {
+		Data struct {
+			Name       string            `json:"name"`
+			AIConfig   map[string]string `json:"aiConfig"`
+			Settings   map[string]string `json:"settings"`
+			SecretKeys []string          `json:"secretKeys"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, updateConnectionResponse, &updatedConnection)
+	if updatedConnection.Data.Name != "Support Bot v2" {
+		t.Fatalf("expected updated connection name, got %#v", updatedConnection.Data)
+	}
+	if updatedConnection.Data.AIConfig["model"] != "gpt-5.4-mini" {
+		t.Fatalf("expected updated ai config, got %#v", updatedConnection.Data.AIConfig)
+	}
+	if updatedConnection.Data.Settings["runtime_mode"] != "debug" || updatedConnection.Data.Settings["command_output_mode"] != "full" {
+		t.Fatalf("expected updated connection settings, got %#v", updatedConnection.Data.Settings)
+	}
+	if len(updatedConnection.Data.SecretKeys) == 0 {
+		t.Fatalf("expected secret keys to be preserved after update, got %#v", updatedConnection.Data.SecretKeys)
+	}
+
 	updateRuntimeModeResponse := performJSONRequest(
 		t,
 		router,
@@ -696,6 +729,17 @@ func TestBotConnectionRoutesAndWebhook(t *testing.T) {
 	)
 	if updateRuntimeModeResponse.Code != http.StatusAccepted {
 		t.Fatalf("expected 202 from runtime mode update, got %d", updateRuntimeModeResponse.Code)
+	}
+
+	updateCommandOutputModeResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-connections/"+created.Data.ID+"/command-output-mode",
+		`{"commandOutputMode":"single_line"}`,
+	)
+	if updateCommandOutputModeResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from command output mode update, got %d", updateCommandOutputModeResponse.Code)
 	}
 
 	webhookRequest := httptest.NewRequest(
@@ -847,6 +891,73 @@ func TestWeChatLoginRoutesStartPollAndDelete(t *testing.T) {
 		t.Fatalf("expected confirmed credential details, got %#v", status.Data)
 	}
 
+	accountsResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/bot-providers/wechat/accounts",
+		"",
+	)
+	if accountsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list wechat accounts, got %d", accountsResponse.Code)
+	}
+
+	var accounts struct {
+		Data []bots.WeChatAccountView `json:"data"`
+	}
+	decodeResponseBody(t, accountsResponse, &accounts)
+	if len(accounts.Data) != 1 {
+		t.Fatalf("expected one saved wechat account after confirmed login, got %#v", accounts.Data)
+	}
+	if accounts.Data[0].AccountID != "route-account-id" || accounts.Data[0].UserID != "route-owner-id" || accounts.Data[0].BaseURL != wechatServer.URL {
+		t.Fatalf("expected saved wechat account details, got %#v", accounts.Data[0])
+	}
+
+	updateSavedAccountResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPatch,
+		"/api/workspaces/"+workspace.ID+"/bot-providers/wechat/accounts/"+accounts.Data[0].ID,
+		`{"alias":"Support Queue","note":"Primary handoff account."}`,
+	)
+	if updateSavedAccountResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from update wechat account, got %d", updateSavedAccountResponse.Code)
+	}
+
+	var updatedAccount struct {
+		Data bots.WeChatAccountView `json:"data"`
+	}
+	decodeResponseBody(t, updateSavedAccountResponse, &updatedAccount)
+	if updatedAccount.Data.Alias != "Support Queue" || updatedAccount.Data.Note != "Primary handoff account." {
+		t.Fatalf("expected saved wechat account metadata to update, got %#v", updatedAccount.Data)
+	}
+
+	deleteSavedAccountResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodDelete,
+		"/api/workspaces/"+workspace.ID+"/bot-providers/wechat/accounts/"+accounts.Data[0].ID,
+		"",
+	)
+	if deleteSavedAccountResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from delete wechat account, got %d", deleteSavedAccountResponse.Code)
+	}
+
+	accountsResponse = performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/bot-providers/wechat/accounts",
+		"",
+	)
+	if accountsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list wechat accounts after delete, got %d", accountsResponse.Code)
+	}
+	decodeResponseBody(t, accountsResponse, &accounts)
+	if len(accounts.Data) != 0 {
+		t.Fatalf("expected saved wechat account list to be empty after delete, got %#v", accounts.Data)
+	}
+
 	deleteResponse := performJSONRequest(
 		t,
 		router,
@@ -856,6 +967,172 @@ func TestWeChatLoginRoutesStartPollAndDelete(t *testing.T) {
 	)
 	if deleteResponse.Code != http.StatusAccepted {
 		t.Fatalf("expected 202 from delete wechat login, got %d", deleteResponse.Code)
+	}
+}
+
+func TestBotConnectionRouteUpdatesWeChatChannelTiming(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
+	botProvider := newRouterTestNamedBotProvider("wechat")
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+		Providers:  []bots.Provider{botProvider},
+		AIBackends: []bots.AIBackend{routerTestAIBackend{}},
+	})
+	botService.Start(context.Background())
+
+	router := NewRouter(Dependencies{
+		FrontendOrigin: "http://localhost:15173",
+		Auth:           auth.NewService(dataStore, runtimeManager),
+		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Bots:           botService,
+		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
+		Notifications:  notifications.NewService(dataStore),
+		Threads:        threadService,
+		Turns:          turnService,
+		Approvals:      approvals.NewService(runtimeManager),
+		Catalog:        catalog.NewService(runtimeManager),
+		ConfigFS:       configfs.NewService(runtimeManager),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub, dataStore),
+		Feedback:       feedback.NewService(runtimeManager),
+		Events:         eventHub,
+	})
+
+	workspaceRecord := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspaceRecord.ID+"/bot-connections",
+		`{"provider":"wechat","name":"WeChat Support","aiBackend":"fake_ai","settings":{"wechat_base_url":"https://wechat.example.com","wechat_account_id":"account-1","wechat_owner_user_id":"owner-1"},"secrets":{"bot_token":"token-1"}}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create wechat bot connection, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+	if created.Data.ID == "" {
+		t.Fatal("expected wechat bot connection id")
+	}
+
+	updateResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspaceRecord.ID+"/bot-connections/"+created.Data.ID+"/wechat-channel-timing",
+		`{"enabled":true}`,
+	)
+	if updateResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from wechat channel timing update, got %d", updateResponse.Code)
+	}
+
+	var updated struct {
+		Data struct {
+			Settings map[string]string `json:"settings"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, updateResponse, &updated)
+	if updated.Data.Settings["wechat_channel_timing"] != "enabled" {
+		t.Fatalf("expected enabled wechat channel timing setting in route response, got %#v", updated.Data.Settings)
+	}
+}
+
+func TestBotConnectionRouteUpdatesCommandOutputMode(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
+	botProvider := newRouterTestNamedBotProvider("telegram")
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+		Providers:  []bots.Provider{botProvider},
+		AIBackends: []bots.AIBackend{routerTestAIBackend{}},
+	})
+	botService.Start(context.Background())
+
+	router := NewRouter(Dependencies{
+		FrontendOrigin: "http://localhost:15173",
+		Auth:           auth.NewService(dataStore, runtimeManager),
+		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Bots:           botService,
+		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
+		Notifications:  notifications.NewService(dataStore),
+		Threads:        threadService,
+		Turns:          turnService,
+		Approvals:      approvals.NewService(runtimeManager),
+		Catalog:        catalog.NewService(runtimeManager),
+		ConfigFS:       configfs.NewService(runtimeManager),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub, dataStore),
+		Feedback:       feedback.NewService(runtimeManager),
+		Events:         eventHub,
+	})
+
+	workspaceRecord := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspaceRecord.ID+"/bot-connections",
+		`{"provider":"telegram","name":"Telegram Support","aiBackend":"fake_ai","secrets":{"bot_token":"token-1"}}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create telegram bot connection, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+	if created.Data.ID == "" {
+		t.Fatal("expected telegram bot connection id")
+	}
+
+	updateResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspaceRecord.ID+"/bot-connections/"+created.Data.ID+"/command-output-mode",
+		`{"commandOutputMode":"full"}`,
+	)
+	if updateResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from command output mode update, got %d", updateResponse.Code)
+	}
+
+	var updated struct {
+		Data struct {
+			Settings map[string]string `json:"settings"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, updateResponse, &updated)
+	if updated.Data.Settings["command_output_mode"] != "full" {
+		t.Fatalf("expected full command output mode in route response, got %#v", updated.Data.Settings)
 	}
 }
 
@@ -1372,6 +1649,7 @@ func decodeResponseBody(t *testing.T, recorder *httptest.ResponseRecorder, targe
 }
 
 type routerTestBotProvider struct {
+	name   string
 	sentCh chan routerTestBotSentPayload
 }
 
@@ -1381,12 +1659,20 @@ type routerTestBotSentPayload struct {
 
 func newRouterTestBotProvider() *routerTestBotProvider {
 	return &routerTestBotProvider{
+		name:   "fakechat",
+		sentCh: make(chan routerTestBotSentPayload, 8),
+	}
+}
+
+func newRouterTestNamedBotProvider(name string) *routerTestBotProvider {
+	return &routerTestBotProvider{
+		name:   name,
 		sentCh: make(chan routerTestBotSentPayload, 8),
 	}
 }
 
 func (p *routerTestBotProvider) Name() string {
-	return "fakechat"
+	return p.name
 }
 
 func (p *routerTestBotProvider) Activate(_ context.Context, connection store.BotConnection, publicBaseURL string) (bots.ActivationResult, error) {

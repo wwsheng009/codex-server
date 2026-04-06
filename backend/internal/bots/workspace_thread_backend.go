@@ -92,6 +92,8 @@ func (b *workspaceThreadAIBackend) processMessage(
 	inbound InboundMessage,
 	handle StreamingUpdateHandler,
 ) (AIResult, error) {
+	renderConfig := botTranscriptRenderConfigFromConnection(connection)
+
 	threadID, err := b.ensureThread(ctx, connection, conversation, inbound)
 	if err != nil {
 		return AIResult{}, err
@@ -130,7 +132,7 @@ func (b *workspaceThreadAIBackend) processMessage(
 
 	var turn store.ThreadTurn
 	if handle != nil && eventCh != nil {
-		turn, err = b.waitForTurnStream(turnCtx, connection, threadID, result.TurnID, eventCh, handle)
+		turn, err = b.waitForTurnStream(turnCtx, connection, threadID, result.TurnID, eventCh, handle, renderConfig)
 	} else {
 		turn, err = b.waitForTurn(turnCtx, connection, threadID, result.TurnID, eventCh)
 	}
@@ -154,7 +156,7 @@ func (b *workspaceThreadAIBackend) processMessage(
 		}
 	}
 
-	messages := collectBotVisibleMessages(turn)
+	messages := collectBotVisibleMessagesWithConfig(turn, renderConfig)
 	if len(messages) == 0 {
 		return AIResult{}, &botVisibleReplyMissingError{
 			Backend:  b.Name(),
@@ -292,6 +294,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 	turnID string,
 	eventCh <-chan store.EventEnvelope,
 	handle StreamingUpdateHandler,
+	renderConfig botTranscriptRenderConfig,
 ) (store.ThreadTurn, error) {
 	streamTicker := time.NewTicker(b.streamFlushInterval)
 	defer streamTicker.Stop()
@@ -299,7 +302,7 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 	pollTicker := time.NewTicker(b.pollInterval)
 	defer pollTicker.Stop()
 
-	stream := botVisibleItemStream{}
+	stream := botVisibleItemStream{renderConfig: renderConfig}
 	var settleTimer *time.Timer
 	var settleCh <-chan time.Time
 	stability := terminalTurnStability{}
@@ -609,12 +612,16 @@ func findThreadTurn(detail store.ThreadDetail, turnID string) (store.ThreadTurn,
 }
 
 func collectBotVisibleMessages(turn store.ThreadTurn) []OutboundMessage {
+	return collectBotVisibleMessagesWithConfig(turn, botTranscriptRenderConfig{})
+}
+
+func collectBotVisibleMessagesWithConfig(turn store.ThreadTurn, renderConfig botTranscriptRenderConfig) []OutboundMessage {
 	items := make([]OutboundMessage, 0)
 	for _, item := range turn.Items {
 		if !isBotVisibleItemType(strings.TrimSpace(stringValue(item["type"]))) {
 			continue
 		}
-		text := renderBotVisibleItem(item)
+		text := renderBotVisibleItemWithConfig(item, renderConfig)
 		if strings.TrimSpace(text) == "" {
 			continue
 		}
@@ -732,10 +739,11 @@ func nestedObjectID(value any) string {
 }
 
 type botVisibleItemStream struct {
-	order       []string
-	items       map[string]*botVisibleItemState
-	lastEmitted []OutboundMessage
-	dirty       bool
+	order        []string
+	items        map[string]*botVisibleItemState
+	lastEmitted  []OutboundMessage
+	dirty        bool
+	renderConfig botTranscriptRenderConfig
 }
 
 type botVisibleItemState struct {
@@ -797,7 +805,7 @@ func (s *botVisibleItemStream) MergeItem(item map[string]any) {
 	}
 
 	target := s.ensureItem(itemID, itemType)
-	previousRendered := strings.TrimSpace(renderBotVisibleItemState(target))
+	previousRendered := strings.TrimSpace(s.renderItemState(target))
 	target.Raw = mergeBotItemMap(target.Raw, item)
 	switch itemType {
 	case "agentMessage", "plan":
@@ -829,7 +837,7 @@ func (s *botVisibleItemStream) MergeItem(item map[string]any) {
 			s.dirty = true
 		}
 	}
-	if strings.TrimSpace(renderBotVisibleItemState(target)) != previousRendered {
+	if strings.TrimSpace(s.renderItemState(target)) != previousRendered {
 		s.dirty = true
 	}
 }
@@ -913,7 +921,7 @@ func (s *botVisibleItemStream) messages() []OutboundMessage {
 		if item == nil || !isBotVisibleItemType(strings.TrimSpace(item.ItemType)) {
 			continue
 		}
-		text := strings.TrimSpace(renderBotVisibleItemState(item))
+		text := strings.TrimSpace(s.renderItemState(item))
 		if text == "" {
 			continue
 		}
@@ -1013,12 +1021,20 @@ func (s *botVisibleItemStream) ensureItem(itemID string, itemType string) *botVi
 }
 
 func renderBotVisibleItemState(item *botVisibleItemState) string {
+	return renderBotVisibleItemStateWithConfig(item, botTranscriptRenderConfig{})
+}
+
+func renderBotVisibleItemStateWithConfig(item *botVisibleItemState, renderConfig botTranscriptRenderConfig) string {
 	if item == nil {
 		return ""
 	}
 
 	renderItem := materializeBotVisibleItemState(item)
-	return renderBotVisibleItem(renderItem)
+	return renderBotVisibleItemWithConfig(renderItem, renderConfig)
+}
+
+func (s *botVisibleItemStream) renderItemState(item *botVisibleItemState) string {
+	return renderBotVisibleItemStateWithConfig(item, s.renderConfig)
 }
 
 func (s *botVisibleItemStream) materializedItems() []map[string]any {
@@ -1060,6 +1076,12 @@ func materializeBotVisibleItemState(item *botVisibleItemState) map[string]any {
 		renderItem["aggregatedOutput"] = item.AggregatedOutput
 	}
 	return renderItem
+}
+
+func botTranscriptRenderConfigFromConnection(connection store.BotConnection) botTranscriptRenderConfig {
+	return botTranscriptRenderConfig{
+		CommandOutputMode: connectionCommandOutputMode(connection),
+	}
 }
 
 func isBotVisibleItemType(itemType string) bool {

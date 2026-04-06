@@ -179,14 +179,20 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/", server.handleListBotConnections)
 				r.Post("/", server.handleCreateBotConnection)
 				r.Get("/{connectionId}", server.handleGetBotConnection)
+				r.Post("/{connectionId}", server.handleUpdateBotConnection)
 				r.Get("/{connectionId}/logs", server.handleListBotConnectionLogs)
 				r.Post("/{connectionId}/runtime-mode", server.handleUpdateBotConnectionRuntimeMode)
+				r.Post("/{connectionId}/command-output-mode", server.handleUpdateBotConnectionCommandOutputMode)
+				r.Post("/{connectionId}/wechat-channel-timing", server.handleUpdateBotConnectionWeChatChannelTiming)
 				r.Post("/{connectionId}/pause", server.handlePauseBotConnection)
 				r.Post("/{connectionId}/resume", server.handleResumeBotConnection)
 				r.Delete("/{connectionId}", server.handleDeleteBotConnection)
 				r.Get("/{connectionId}/conversations", server.handleListBotConnectionConversations)
 			})
 			r.Get("/{workspaceId}/bot-conversations", server.handleListBotConversations)
+			r.Get("/{workspaceId}/bot-providers/wechat/accounts", server.handleListWeChatAccounts)
+			r.Patch("/{workspaceId}/bot-providers/wechat/accounts/{accountId}", server.handleUpdateWeChatAccount)
+			r.Delete("/{workspaceId}/bot-providers/wechat/accounts/{accountId}", server.handleDeleteWeChatAccount)
 			r.Post("/{workspaceId}/bot-providers/wechat/login/start", server.handleStartWeChatLogin)
 			r.Get("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleGetWeChatLogin)
 			r.Delete("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleDeleteWeChatLogin)
@@ -659,6 +665,27 @@ func (s *Server) handleGetBotConnection(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, connection)
 }
 
+func (s *Server) handleUpdateBotConnection(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpdateConnectionInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	connection, err := s.bots.UpdateConnection(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, connection)
+}
+
 func (s *Server) handleListBotConnectionLogs(w http.ResponseWriter, r *http.Request) {
 	logs, err := s.bots.ListConnectionLogs(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId"))
 	if err != nil {
@@ -677,6 +704,46 @@ func (s *Server) handleUpdateBotConnectionRuntimeMode(w http.ResponseWriter, r *
 	}
 
 	connection, err := s.bots.UpdateConnectionRuntimeMode(
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, connection)
+}
+
+func (s *Server) handleUpdateBotConnectionCommandOutputMode(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpdateConnectionCommandOutputModeInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	connection, err := s.bots.UpdateConnectionCommandOutputMode(
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, connection)
+}
+
+func (s *Server) handleUpdateBotConnectionWeChatChannelTiming(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpdateWeChatChannelTimingInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	connection, err := s.bots.UpdateWeChatChannelTiming(
 		chi.URLParam(r, "workspaceId"),
 		chi.URLParam(r, "connectionId"),
 		request,
@@ -755,6 +822,45 @@ func (s *Server) handleStartWeChatLogin(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) handleListWeChatAccounts(w http.ResponseWriter, r *http.Request) {
+	result, err := s.bots.ListWeChatAccounts(chi.URLParam(r, "workspaceId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleUpdateWeChatAccount(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpdateWeChatAccountInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.bots.UpdateWeChatAccount(
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "accountId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleDeleteWeChatAccount(w http.ResponseWriter, r *http.Request) {
+	if err := s.bots.DeleteWeChatAccount(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "accountId")); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (s *Server) handleGetWeChatLogin(w http.ResponseWriter, r *http.Request) {
@@ -2168,6 +2274,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
 	case errors.Is(err, store.ErrBotConnectionNotFound):
 		writeError(w, http.StatusNotFound, "bot_connection_not_found", err.Error())
+	case errors.Is(err, store.ErrWeChatAccountNotFound):
+		writeError(w, http.StatusNotFound, "wechat_account_not_found", err.Error())
 	case errors.Is(err, store.ErrBotConversationNotFound):
 		writeError(w, http.StatusNotFound, "bot_conversation_not_found", err.Error())
 	case errors.Is(err, bots.ErrWeChatLoginNotFound):

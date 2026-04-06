@@ -138,7 +138,7 @@ func TestCollectBotVisibleMessagesIncludesNonAgentOutputs(t *testing.T) {
 	if messages[0].Text != "Plan:\n1. Inspect logs\n2. Fix delivery path" {
 		t.Fatalf("unexpected plan message %#v", messages[0])
 	}
-	if messages[1].Text != "Command: go test ./...\nOutput:\nok  codex-server/backend/internal/bots" {
+	if messages[1].Text != "Command: go test ./...\nOutput: ok  codex-server/backend/internal/bots" {
 		t.Fatalf("unexpected commandExecution message %#v", messages[1])
 	}
 	if messages[2].Text != "Files (2):\n- backend/internal/bots/service.go (Update)\n- backend/internal/bots/telegram.go (Update)" {
@@ -178,6 +178,33 @@ func TestCollectBotVisibleMessagesIncludesUnknownTextItems(t *testing.T) {
 	}
 }
 
+func TestCollectBotVisibleMessagesRespectsCommandOutputMode(t *testing.T) {
+	t.Parallel()
+
+	messages := collectBotVisibleMessagesWithConfig(store.ThreadTurn{
+		ID:     "turn-command-mode-1",
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":               "command-1",
+				"type":             "commandExecution",
+				"command":          "go test ./...",
+				"status":           "completed",
+				"aggregatedOutput": "line-1\nline-2\nline-3\nline-4",
+			},
+		},
+	}, botTranscriptRenderConfig{
+		CommandOutputMode: botCommandOutputModeSingleLine,
+	})
+
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 bot-visible message, got %#v", messages)
+	}
+	if messages[0].Text != "Command: go test ./... [Completed] · 4 output lines" {
+		t.Fatalf("unexpected command summary %#v", messages[0])
+	}
+}
+
 func TestBotVisibleItemStreamBuildsSnapshotFromMixedOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -205,11 +232,43 @@ func TestBotVisibleItemStreamBuildsSnapshotFromMixedOutputs(t *testing.T) {
 	}
 	expected := []OutboundMessage{
 		{Text: "Plan:\n1. Inspect logs"},
-		{Text: "Command: go test ./...\nOutput:\npartial output"},
+		{Text: "Command: go test ./...\nOutput: partial output"},
 		{Text: "Reply sent."},
 	}
 	if !equalOutboundMessages(updates[0], expected) {
 		t.Fatalf("unexpected mixed snapshot %#v", updates[0])
+	}
+}
+
+func TestBotVisibleItemStreamUsesConfiguredCommandOutputMode(t *testing.T) {
+	t.Parallel()
+
+	stream := botVisibleItemStream{
+		renderConfig: botTranscriptRenderConfig{
+			CommandOutputMode: botCommandOutputModeSingleLine,
+		},
+	}
+	stream.AddOutputDelta("command-1", "line-1\nline-2")
+	stream.MergeItem(map[string]any{
+		"id":      "command-1",
+		"type":    "commandExecution",
+		"command": "go test ./...",
+		"status":  "completed",
+	})
+
+	updates := make([][]OutboundMessage, 0, 1)
+	if err := stream.Flush(context.Background(), func(_ context.Context, update StreamingUpdate) error {
+		updates = append(updates, cloneOutboundMessages(update.Messages))
+		return nil
+	}); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+
+	expected := []OutboundMessage{
+		{Text: "Command: go test ./... [Completed] · 2 output lines"},
+	}
+	if len(updates) != 1 || !equalOutboundMessages(updates[0], expected) {
+		t.Fatalf("unexpected single-line stream snapshot %#v", updates)
 	}
 }
 
@@ -493,7 +552,7 @@ func TestWorkspaceThreadAIBackendPreservesCommandOrderAfterTurnCompletion(t *tes
 	if len(result.Messages) != 2 {
 		t.Fatalf("expected 2 final messages, got %#v", result.Messages)
 	}
-	if result.Messages[0].Text != "Command: go test ./... [Completed]\nOutput:\nok" {
+	if result.Messages[0].Text != "Command: go test ./... [Completed]\nOutput: ok" {
 		t.Fatalf("expected command output to stay first, got %#v", result.Messages)
 	}
 	if result.Messages[1].Text != "done" {
@@ -505,7 +564,7 @@ func TestWorkspaceThreadAIBackendPreservesCommandOrderAfterTurnCompletion(t *tes
 		if len(snapshot) < 2 {
 			continue
 		}
-		if snapshot[0].Text == "Command: go test ./...\nOutput:\nok" && snapshot[1].Text == "done" {
+		if snapshot[0].Text == "Command: go test ./... [Completed]\nOutput: ok" && snapshot[1].Text == "done" {
 			foundOrderedSnapshot = true
 			break
 		}

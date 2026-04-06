@@ -54,6 +54,7 @@ func (p *wechatProvider) sendMediaMessage(
 	baseURL string,
 	cdnBaseURL string,
 	token string,
+	routeTag string,
 	toUserID string,
 	contextToken string,
 	caption string,
@@ -67,31 +68,32 @@ func (p *wechatProvider) sendMediaMessage(
 		defer cleanup()
 	}
 
-	uploaded, err := p.uploadWeChatMedia(ctx, baseURL, cdnBaseURL, token, toUserID, filePath, fileName, contentType, media.Kind)
+	uploaded, err := p.uploadWeChatMedia(ctx, baseURL, cdnBaseURL, token, routeTag, toUserID, filePath, fileName, contentType, media.Kind)
 	if err != nil {
 		return err
 	}
 
 	if caption = strings.TrimSpace(caption); caption != "" {
-		if err := p.sendTextMessage(ctx, baseURL, token, toUserID, contextToken, caption); err != nil {
+		if err := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, caption); err != nil {
 			return err
 		}
 	}
 
 	item := buildWeChatOutboundMediaItem(uploaded)
-	return p.sendMessageItem(ctx, baseURL, token, toUserID, contextToken, item)
+	return p.sendMessageItem(ctx, baseURL, token, routeTag, toUserID, contextToken, item)
 }
 
 func (p *wechatProvider) sendMessageItem(
 	ctx context.Context,
 	baseURL string,
 	token string,
+	routeTag string,
 	toUserID string,
 	contextToken string,
 	item wechatMessageItem,
 ) error {
 	var response wechatAPIResponse
-	return p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
+	return p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
 		Msg: wechatOutboundMessage{
 			FromUserID:   "",
 			ToUserID:     strings.TrimSpace(toUserID),
@@ -158,6 +160,7 @@ func (p *wechatProvider) uploadWeChatMedia(
 	baseURL string,
 	cdnBaseURL string,
 	token string,
+	routeTag string,
 	toUserID string,
 	filePath string,
 	fileName string,
@@ -186,7 +189,7 @@ func (p *wechatProvider) uploadWeChatMedia(
 	checksum := md5.Sum(data)
 
 	var uploadResponse wechatGetUploadURLResponse
-	if err := p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/getuploadurl", map[string]any{
+	if err := p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/getuploadurl", map[string]any{
 		"filekey":       fileKey,
 		"media_type":    uploadMediaType,
 		"to_user_id":    strings.TrimSpace(toUserID),
@@ -411,16 +414,7 @@ func (p *wechatProvider) extractInboundMedia(ctx context.Context, cdnBaseURL str
 
 	media := make([]store.BotMessageMedia, 0)
 	for _, item := range items {
-		switch item.Type {
-		case wechatItemTypeImage:
-			media = append(media, p.extractInboundImage(ctx, cdnBaseURL, item.ImageItem))
-		case wechatItemTypeVoice:
-			media = append(media, p.extractInboundVoice(ctx, cdnBaseURL, item.VoiceItem))
-		case wechatItemTypeFile:
-			media = append(media, p.extractInboundFile(ctx, cdnBaseURL, item.FileItem))
-		case wechatItemTypeVideo:
-			media = append(media, p.extractInboundVideo(ctx, cdnBaseURL, item.VideoItem))
-		}
+		media = append(media, p.extractInboundMediaItem(ctx, cdnBaseURL, item))
 	}
 
 	filtered := make([]store.BotMessageMedia, 0, len(media))
@@ -430,7 +424,79 @@ func (p *wechatProvider) extractInboundMedia(ctx context.Context, cdnBaseURL str
 		}
 		filtered = append(filtered, item)
 	}
+	if len(filtered) > 0 {
+		return filtered
+	}
+
+	if referenced, ok := findReferencedInboundWeChatMediaItem(items); ok {
+		fallback := p.extractInboundMediaItem(ctx, cdnBaseURL, referenced)
+		if fallback != (store.BotMessageMedia{}) {
+			return []store.BotMessageMedia{fallback}
+		}
+	}
 	return filtered
+}
+
+func (p *wechatProvider) extractInboundMediaItem(ctx context.Context, cdnBaseURL string, item wechatMessageItem) store.BotMessageMedia {
+	switch item.Type {
+	case wechatItemTypeImage:
+		if item.ImageItem == nil {
+			return store.BotMessageMedia{}
+		}
+		return p.extractInboundImage(ctx, cdnBaseURL, item.ImageItem)
+	case wechatItemTypeVoice:
+		if item.VoiceItem == nil {
+			return store.BotMessageMedia{}
+		}
+		return p.extractInboundVoice(ctx, cdnBaseURL, item.VoiceItem)
+	case wechatItemTypeFile:
+		if item.FileItem == nil {
+			return store.BotMessageMedia{}
+		}
+		return p.extractInboundFile(ctx, cdnBaseURL, item.FileItem)
+	case wechatItemTypeVideo:
+		if item.VideoItem == nil {
+			return store.BotMessageMedia{}
+		}
+		return p.extractInboundVideo(ctx, cdnBaseURL, item.VideoItem)
+	default:
+		return store.BotMessageMedia{}
+	}
+}
+
+func findReferencedInboundWeChatMediaItem(items []wechatMessageItem) (wechatMessageItem, bool) {
+	if len(items) == 0 {
+		return wechatMessageItem{}, false
+	}
+
+	for _, itemType := range []int{wechatItemTypeImage, wechatItemTypeVideo, wechatItemTypeFile, wechatItemTypeVoice} {
+		for _, item := range items {
+			if referenced, ok := referencedInboundWeChatMediaItem(item); ok && referenced.Type == itemType {
+				return referenced, true
+			}
+		}
+	}
+	return wechatMessageItem{}, false
+}
+
+func referencedInboundWeChatMediaItem(item wechatMessageItem) (wechatMessageItem, bool) {
+	candidates := []*wechatReferenceMessage{
+		item.RefMsg,
+	}
+	if item.TextItem != nil {
+		candidates = append(candidates, item.TextItem.RefMsg)
+	}
+
+	for _, reference := range candidates {
+		if reference == nil || reference.MessageItem == nil {
+			continue
+		}
+		switch reference.MessageItem.Type {
+		case wechatItemTypeImage, wechatItemTypeVideo, wechatItemTypeFile, wechatItemTypeVoice:
+			return *reference.MessageItem, true
+		}
+	}
+	return wechatMessageItem{}, false
 }
 
 func (p *wechatProvider) extractInboundImage(ctx context.Context, cdnBaseURL string, item *wechatImageItem) store.BotMessageMedia {
@@ -469,19 +535,39 @@ func (p *wechatProvider) extractInboundVoice(ctx context.Context, cdnBaseURL str
 		if filePath, _, err := persistWeChatTempMedia(data, media.ContentType, "voice.silk", "inbound"); err == nil {
 			media.Path = filePath
 			media.FileName = filepath.Base(filePath)
+			if wavPath, err := p.tryTranscodeInboundWeChatVoice(ctx, filePath); err == nil {
+				_ = os.Remove(filePath)
+				media.ContentType = "audio/wav"
+				media.Path = wavPath
+				media.FileName = filepath.Base(wavPath)
+			}
 		}
 	}
 	return media
 }
 
+func (p *wechatProvider) tryTranscodeInboundWeChatVoice(ctx context.Context, silkPath string) (string, error) {
+	transcodeCtx := ctx
+	cancel := func() {}
+	if transcodeCtx == nil {
+		transcodeCtx = context.Background()
+	}
+	if _, hasDeadline := transcodeCtx.Deadline(); !hasDeadline {
+		transcodeCtx, cancel = context.WithTimeout(transcodeCtx, wechatVoiceTranscodeTimeout)
+	}
+	defer cancel()
+
+	return transcodeWeChatVoiceToWAV(transcodeCtx, silkPath)
+}
+
 func (p *wechatProvider) extractInboundFile(ctx context.Context, cdnBaseURL string, item *wechatFileItem) store.BotMessageMedia {
 	media := store.BotMessageMedia{
-		Kind:     botMediaKindFile,
-		FileName: strings.TrimSpace(item.FileName),
+		Kind: botMediaKindFile,
 	}
 	if item == nil {
 		return media
 	}
+	media.FileName = strings.TrimSpace(item.FileName)
 	key, _ := parseInboundWeChatAESKey("", item.Media)
 	if data, contentType, err := p.downloadInboundWeChatMedia(ctx, cdnBaseURL, item.Media, key); err == nil {
 		media.ContentType = contentType

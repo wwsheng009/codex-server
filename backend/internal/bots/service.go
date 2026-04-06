@@ -20,13 +20,14 @@ import (
 )
 
 const (
-	defaultWorkerQueueSize       = 32
-	defaultWorkerIdleTimeout     = 2 * time.Minute
-	defaultStreamingPendingText  = "Working..."
-	defaultStreamingFailureText  = "The bot could not process your message right now.\nTechnical details: no additional error details were available from the bot backend."
-	botFailureDetailCharLimit    = 1200
-	botConversationContextKey    = "_bot_context_version"
-	botConversationThreadListKey = "_bot_known_thread_ids"
+	defaultWorkerQueueSize             = 32
+	defaultWorkerIdleTimeout           = 2 * time.Minute
+	defaultStreamingPendingText        = "Working..."
+	defaultStreamingFailureText        = "The bot could not process your message right now.\nTechnical details: no additional error details were available from the bot backend."
+	botFailureDetailCharLimit          = 1200
+	botConversationContextKey          = "_bot_context_version"
+	botConversationThreadListKey       = "_bot_known_thread_ids"
+	botSuppressionNotificationCooldown = 15 * time.Minute
 )
 
 type Service struct {
@@ -246,7 +247,12 @@ func (s *Service) GetWeChatLogin(ctx context.Context, workspaceID string, loginI
 	if s.wechatAuth == nil {
 		return WeChatLoginView{}, fmt.Errorf("%w: wechat auth service is unavailable", ErrInvalidInput)
 	}
-	return s.wechatAuth.GetLoginStatus(ctx, resolvedWorkspaceID, loginID)
+	view, err := s.wechatAuth.GetLoginStatus(ctx, resolvedWorkspaceID, loginID)
+	if err != nil {
+		return WeChatLoginView{}, err
+	}
+	s.rememberConfirmedWeChatLogin(resolvedWorkspaceID, view)
+	return view, nil
 }
 
 func (s *Service) DeleteWeChatLogin(workspaceID string, loginID string) error {
@@ -258,6 +264,64 @@ func (s *Service) DeleteWeChatLogin(workspaceID string, loginID string) error {
 		return fmt.Errorf("%w: wechat auth service is unavailable", ErrInvalidInput)
 	}
 	return s.wechatAuth.DeleteLogin(resolvedWorkspaceID, loginID)
+}
+
+func (s *Service) ListWeChatAccounts(workspaceID string) ([]WeChatAccountView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := s.store.ListWeChatAccounts(resolvedWorkspaceID)
+	views := make([]WeChatAccountView, 0, len(items))
+	for _, item := range items {
+		views = append(views, wechatAccountViewFromStore(item))
+	}
+	return views, nil
+}
+
+func (s *Service) DeleteWeChatAccount(workspaceID string, accountID string) error {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return err
+	}
+	return s.store.DeleteWeChatAccount(resolvedWorkspaceID, strings.TrimSpace(accountID))
+}
+
+func (s *Service) UpdateWeChatAccount(
+	workspaceID string,
+	accountID string,
+	input UpdateWeChatAccountInput,
+) (WeChatAccountView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return WeChatAccountView{}, err
+	}
+
+	alias := strings.TrimSpace(input.Alias)
+	note := strings.TrimSpace(input.Note)
+	if len([]rune(alias)) > 80 {
+		return WeChatAccountView{}, fmt.Errorf("%w: wechat account alias must be 80 characters or fewer", ErrInvalidInput)
+	}
+	if len([]rune(note)) > 2000 {
+		return WeChatAccountView{}, fmt.Errorf("%w: wechat account note must be 2000 characters or fewer", ErrInvalidInput)
+	}
+
+	updated, err := s.store.UpdateWeChatAccount(resolvedWorkspaceID, strings.TrimSpace(accountID), func(current store.WeChatAccount) store.WeChatAccount {
+		current.Alias = alias
+		current.Note = note
+		return current
+	})
+	if err != nil {
+		return WeChatAccountView{}, err
+	}
+
+	s.publish(updated.WorkspaceID, "", "bot/wechat_account/updated", map[string]any{
+		"accountId": updated.ID,
+		"alias":     updated.Alias,
+	})
+
+	return wechatAccountViewFromStore(updated), nil
 }
 
 func (s *Service) CreateConnection(
@@ -280,6 +344,16 @@ func (s *Service) CreateConnection(
 	if err != nil {
 		return ConnectionView{}, err
 	}
+	resolvedSettings, resolvedSecrets, err := s.resolveProviderCreateInput(
+		ctx,
+		workspaceID,
+		providerName,
+		normalizedSettings,
+		input.Secrets,
+	)
+	if err != nil {
+		return ConnectionView{}, err
+	}
 
 	connection := store.BotConnection{
 		ID:          store.NewID("bot"),
@@ -289,8 +363,8 @@ func (s *Service) CreateConnection(
 		Status:      "active",
 		AIBackend:   aiBackendName,
 		AIConfig:    cloneStringMapLocal(input.AIConfig),
-		Settings:    normalizedSettings,
-		Secrets:     cloneStringMapLocal(input.Secrets),
+		Settings:    resolvedSettings,
+		Secrets:     resolvedSecrets,
 	}
 
 	if err := s.validatePollingConnectionOwnership(connection); err != nil {
@@ -325,6 +399,269 @@ func (s *Service) CreateConnection(
 	)
 
 	return connectionViewFromStore(created), nil
+}
+
+func (s *Service) UpdateConnection(
+	ctx context.Context,
+	workspaceID string,
+	connectionID string,
+	input UpdateConnectionInput,
+) (ConnectionView, error) {
+	current, ok := s.store.GetBotConnection(workspaceID, connectionID)
+	if !ok {
+		return ConnectionView{}, store.ErrBotConnectionNotFound
+	}
+
+	currentProviderName := normalizeProviderName(current.Provider)
+	requestedProviderName := normalizeProviderName(input.Provider)
+	if requestedProviderName != "" && requestedProviderName != currentProviderName {
+		return ConnectionView{}, fmt.Errorf("%w: bot provider cannot be changed after creation", ErrInvalidInput)
+	}
+
+	provider, ok := s.providers[currentProviderName]
+	if !ok {
+		return ConnectionView{}, ErrProviderNotSupported
+	}
+
+	aiBackendName := normalizeAIBackendName(input.AIBackend)
+	if aiBackendName == "" {
+		aiBackendName = normalizeAIBackendName(current.AIBackend)
+	}
+	if _, ok := s.aiBackends[aiBackendName]; !ok {
+		return ConnectionView{}, ErrAIBackendUnsupported
+	}
+
+	normalizedSettings, err := normalizeBotConnectionSettings(input.Settings)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	nextSecrets := overlayBotConnectionSecrets(current.Secrets, input.Secrets)
+	if aiBackendName != openAIResponsesBackendName {
+		nextSecrets = removeBotConnectionSecrets(nextSecrets, "openai_api_key")
+	}
+	if currentProviderName == telegramProviderName {
+		if strings.TrimSpace(nextSecrets["bot_token"]) != strings.TrimSpace(current.Secrets["bot_token"]) {
+			nextSecrets = removeBotConnectionSecrets(nextSecrets, "webhook_secret")
+		}
+	}
+
+	resolvedSettings, resolvedSecrets, err := s.resolveProviderCreateInput(
+		ctx,
+		workspaceID,
+		currentProviderName,
+		normalizedSettings,
+		nextSecrets,
+	)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	updatedConnection := current
+	updatedConnection.Provider = currentProviderName
+	updatedConnection.Name = firstNonEmpty(strings.TrimSpace(input.Name), defaultConnectionName(currentProviderName))
+	updatedConnection.AIBackend = aiBackendName
+	updatedConnection.AIConfig = cloneStringMapLocal(input.AIConfig)
+	updatedConnection.Settings = cloneStringMapLocal(resolvedSettings)
+	updatedConnection.Secrets = cloneStringMapLocal(resolvedSecrets)
+	updatedConnection.LastError = ""
+
+	if s.isActivePollingConnection(updatedConnection) {
+		if err := s.validatePollingConnectionOwnership(updatedConnection); err != nil {
+			return ConnectionView{}, err
+		}
+	}
+
+	if strings.EqualFold(strings.TrimSpace(current.Status), "active") {
+		activation, err := provider.Activate(ctx, updatedConnection, s.resolvePublicBaseURL(input.PublicBaseURL))
+		if err != nil {
+			return ConnectionView{}, err
+		}
+		updatedConnection.Settings = mergeStringMaps(updatedConnection.Settings, activation.Settings)
+		updatedConnection.Secrets = mergeStringMaps(updatedConnection.Secrets, activation.Secrets)
+	}
+
+	updated, err := s.store.UpdateBotConnection(workspaceID, connectionID, func(store.BotConnection) store.BotConnection {
+		return updatedConnection
+	})
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	if strings.EqualFold(strings.TrimSpace(current.Status), "active") &&
+		strings.TrimSpace(current.Secrets["bot_token"]) != "" &&
+		strings.TrimSpace(current.Secrets["bot_token"]) != strings.TrimSpace(updated.Secrets["bot_token"]) {
+		if cleanupErr := provider.Deactivate(ctx, current); cleanupErr != nil {
+			s.appendConnectionLog(updated.WorkspaceID, updated.ID, "warning", "provider_cleanup_failed", cleanupErr.Error())
+		}
+	}
+
+	s.syncPollingConnections()
+	if strings.EqualFold(strings.TrimSpace(updated.Status), "active") {
+		s.recoverPendingInboundDeliveries(workspaceID, updated.ID)
+	}
+
+	s.publish(updated.WorkspaceID, "", "bot/connection/updated", map[string]any{
+		"connectionId": updated.ID,
+		"name":         updated.Name,
+		"aiBackend":    updated.AIBackend,
+		"status":       updated.Status,
+	})
+	logBotDebug(ctx, updated, "connection updated",
+		slog.String("aiBackend", updated.AIBackend),
+		slog.String("deliveryMode", debugConnectionDeliveryMode(updated)),
+	)
+
+	return connectionViewFromStore(updated), nil
+}
+
+func (s *Service) resolveProviderCreateInput(
+	ctx context.Context,
+	workspaceID string,
+	providerName string,
+	settings map[string]string,
+	secrets map[string]string,
+) (map[string]string, map[string]string, error) {
+	switch providerName {
+	case wechatProviderName:
+		return s.resolveWeChatCreateInput(ctx, workspaceID, settings, secrets)
+	default:
+		return cloneStringMapLocal(settings), cloneStringMapLocal(secrets), nil
+	}
+}
+
+func (s *Service) resolveWeChatCreateInput(
+	ctx context.Context,
+	workspaceID string,
+	settings map[string]string,
+	secrets map[string]string,
+) (map[string]string, map[string]string, error) {
+	loginID := strings.TrimSpace(settings[wechatLoginSessionIDSetting])
+	if loginID != "" {
+		if s.wechatAuth == nil {
+			return nil, nil, fmt.Errorf("%w: wechat auth service is unavailable", ErrInvalidInput)
+		}
+
+		login, err := s.wechatAuth.ResolveConfirmedLogin(ctx, workspaceID, loginID)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.rememberConfirmedWeChatLogin(workspaceID, login)
+		nextSettings, nextSecrets := mergeResolvedWeChatCreateInput(
+			settings,
+			secrets,
+			login.BaseURL,
+			login.AccountID,
+			login.UserID,
+			login.BotToken,
+			wechatLoginSessionIDSetting,
+		)
+		return nextSettings, nextSecrets, nil
+	}
+
+	savedAccountID := strings.TrimSpace(settings[wechatSavedAccountIDSetting])
+	if savedAccountID == "" {
+		return cloneStringMapLocal(settings), cloneStringMapLocal(secrets), nil
+	}
+	account, ok := s.store.GetWeChatAccount(workspaceID, savedAccountID)
+	if !ok {
+		return nil, nil, store.ErrWeChatAccountNotFound
+	}
+	nextSettings, nextSecrets := mergeResolvedWeChatCreateInput(
+		settings,
+		secrets,
+		account.BaseURL,
+		account.AccountID,
+		account.UserID,
+		account.BotToken,
+		wechatSavedAccountIDSetting,
+	)
+	return nextSettings, nextSecrets, nil
+}
+
+func mergeResolvedWeChatCreateInput(
+	settings map[string]string,
+	secrets map[string]string,
+	baseURL string,
+	accountID string,
+	userID string,
+	botToken string,
+	transientKey string,
+) (map[string]string, map[string]string) {
+	nextSettings := cloneStringMapLocal(settings)
+	if nextSettings == nil {
+		nextSettings = make(map[string]string)
+	}
+	delete(nextSettings, transientKey)
+	if baseURL = strings.TrimSpace(baseURL); baseURL != "" {
+		nextSettings[wechatBaseURLSetting] = baseURL
+	}
+	if accountID = strings.TrimSpace(accountID); accountID != "" {
+		nextSettings[wechatAccountIDSetting] = accountID
+	}
+	if userID = strings.TrimSpace(userID); userID != "" {
+		nextSettings[wechatOwnerUserIDSetting] = userID
+	}
+
+	nextSecrets := cloneStringMapLocal(secrets)
+	if nextSecrets == nil {
+		nextSecrets = make(map[string]string)
+	}
+	if botToken = strings.TrimSpace(botToken); botToken != "" {
+		nextSecrets["bot_token"] = botToken
+	}
+	return nextSettings, nextSecrets
+}
+
+func overlayBotConnectionSecrets(base map[string]string, overlay map[string]string) map[string]string {
+	next := cloneStringMapLocal(base)
+	for key, value := range overlay {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue == "" {
+			continue
+		}
+		if next == nil {
+			next = make(map[string]string)
+		}
+		next[trimmedKey] = trimmedValue
+	}
+	return next
+}
+
+func removeBotConnectionSecrets(values map[string]string, keys ...string) map[string]string {
+	if len(values) == 0 || len(keys) == 0 {
+		return cloneStringMapLocal(values)
+	}
+
+	next := cloneStringMapLocal(values)
+	for _, key := range keys {
+		delete(next, strings.TrimSpace(key))
+	}
+	if len(next) == 0 {
+		return nil
+	}
+	return next
+}
+
+func (s *Service) rememberConfirmedWeChatLogin(workspaceID string, login WeChatLoginView) {
+	if normalizeWeChatLoginStatus(login.Status) != wechatLoginStatusConfirmed || !login.CredentialReady {
+		return
+	}
+	if _, err := s.store.UpsertWeChatAccount(store.WeChatAccount{
+		WorkspaceID:     strings.TrimSpace(workspaceID),
+		BaseURL:         strings.TrimSpace(login.BaseURL),
+		AccountID:       strings.TrimSpace(login.AccountID),
+		UserID:          strings.TrimSpace(login.UserID),
+		BotToken:        strings.TrimSpace(login.BotToken),
+		LastLoginID:     strings.TrimSpace(login.LoginID),
+		LastConfirmedAt: time.Now().UTC(),
+	}); err != nil {
+		return
+	}
 }
 
 func (s *Service) PauseConnection(ctx context.Context, workspaceID string, connectionID string) (ConnectionView, error) {
@@ -431,6 +768,74 @@ func (s *Service) UpdateConnectionRuntimeMode(
 		"runtimeMode":  runtimeMode,
 	})
 	logBotDebug(nil, updated, "runtime mode updated", slog.String("newMode", runtimeMode))
+
+	return connectionViewFromStore(updated), nil
+}
+
+func (s *Service) UpdateConnectionCommandOutputMode(
+	workspaceID string,
+	connectionID string,
+	input UpdateConnectionCommandOutputModeInput,
+) (ConnectionView, error) {
+	commandOutputMode, err := normalizeBotCommandOutputMode(input.CommandOutputMode)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	updated, err := s.store.UpdateBotConnection(workspaceID, connectionID, func(current store.BotConnection) store.BotConnection {
+		if current.Settings == nil {
+			current.Settings = map[string]string{}
+		}
+		current.Settings[botCommandOutputModeSetting] = commandOutputMode
+		return current
+	})
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	s.publish(updated.WorkspaceID, "", "bot/connection/command_output_mode_updated", map[string]any{
+		"connectionId":      updated.ID,
+		"commandOutputMode": commandOutputMode,
+	})
+	logBotDebug(nil, updated, "command output mode updated", slog.String("newMode", commandOutputMode))
+
+	return connectionViewFromStore(updated), nil
+}
+
+func (s *Service) UpdateWeChatChannelTiming(
+	workspaceID string,
+	connectionID string,
+	input UpdateWeChatChannelTimingInput,
+) (ConnectionView, error) {
+	connection, ok := s.store.GetBotConnection(workspaceID, connectionID)
+	if !ok {
+		return ConnectionView{}, store.ErrBotConnectionNotFound
+	}
+	if normalizeProviderName(connection.Provider) != wechatProviderName {
+		return ConnectionView{}, fmt.Errorf("%w: wechat channel timing is only supported for wechat bot connections", ErrInvalidInput)
+	}
+
+	channelTimingSetting := wechatChannelTimingDisabled
+	if input.Enabled {
+		channelTimingSetting = wechatChannelTimingEnabled
+	}
+
+	updated, err := s.store.UpdateBotConnection(workspaceID, connectionID, func(current store.BotConnection) store.BotConnection {
+		if current.Settings == nil {
+			current.Settings = map[string]string{}
+		}
+		current.Settings[wechatChannelTimingSetting] = channelTimingSetting
+		return current
+	})
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
+	s.publish(updated.WorkspaceID, "", "bot/connection/wechat_channel_timing_updated", map[string]any{
+		"connectionId": updated.ID,
+		"enabled":      input.Enabled,
+	})
+	logBotDebug(nil, updated, "wechat channel timing updated", slog.Bool("enabled", input.Enabled))
 
 	return connectionViewFromStore(updated), nil
 }
@@ -631,6 +1036,25 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		slog.String("externalConversationId", strings.TrimSpace(conversation.ExternalConversationID)),
 	)
 
+	if handled, controlText, controlErr := s.handleProviderCommand(ctx, provider, connection, conversation, message); handled {
+		logBotDebug(ctx, connection, "processing provider command",
+			slog.String("conversationStoreId", conversation.ID),
+			slog.String("textPreview", debugTextPreview(message.Text)),
+		)
+		if controlErr != nil {
+			_, _ = s.store.FailBotInboundDelivery(connection.WorkspaceID, delivery.ID, controlErr.Error())
+			return controlErr
+		}
+		updatedConversation := s.recordConversationOutcome(connection, conversation, AIResult{}, message, controlText)
+		_, _ = s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID)
+		s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/processed", map[string]any{
+			"connectionId":   connection.ID,
+			"conversationId": updatedConversation.ID,
+			"threadId":       updatedConversation.ThreadID,
+		})
+		return nil
+	}
+
 	if handled, updatedConversation, controlText, controlErr := s.handleConversationCommand(ctx, provider, connection, conversation, message); handled {
 		logBotDebug(ctx, connection, "processing conversation control command",
 			slog.String("conversationStoreId", conversation.ID),
@@ -779,6 +1203,7 @@ func (s *Service) executeAIReply(
 	conversation store.BotConversation,
 	inbound InboundMessage,
 ) (AIResult, bool, string, error) {
+	startedAt := time.Now().UTC()
 	typingSession := s.startProviderTyping(ctx, provider, aiBackend, connection, conversation)
 	defer s.stopProviderTyping(ctx, connection, typingSession)
 
@@ -791,7 +1216,7 @@ func (s *Service) executeAIReply(
 			slog.Bool("streamingProvider", providerSupportsStreaming),
 			slog.Bool("streamingBackend", backendSupportsStreaming),
 		)
-		reply, err := s.executeFinalAIReply(ctx, provider, aiBackend, connection, conversation, preparedInbound)
+		reply, err := s.executeFinalAIReply(ctx, provider, aiBackend, connection, conversation, preparedInbound, inbound, startedAt)
 		return reply, false, "", err
 	}
 	logBotDebug(ctx, connection, "starting streaming ai reply",
@@ -837,7 +1262,7 @@ func (s *Service) executeAIReply(
 		return AIResult{}, true, failureText, processErr
 	}
 
-	reply = normalizeProviderAIResult(connection, reply)
+	reply = finalizeProviderAIResult(connection, inbound, startedAt, reply)
 	if err := session.Complete(ctx, reply.Messages); err != nil {
 		return AIResult{}, false, "", &replyDeliveryError{
 			reply:        reply,
@@ -908,12 +1333,14 @@ func (s *Service) executeFinalAIReply(
 	connection store.BotConnection,
 	conversation store.BotConversation,
 	inbound InboundMessage,
+	originalInbound InboundMessage,
+	startedAt time.Time,
 ) (AIResult, error) {
 	reply, err := aiBackend.ProcessMessage(ctx, connection, conversation, inbound)
 	if err != nil {
 		return AIResult{}, wrapAIBackendError(aiBackend.Name(), err)
 	}
-	reply = normalizeProviderAIResult(connection, reply)
+	reply = finalizeProviderAIResult(connection, originalInbound, startedAt, reply)
 	logBotDebug(ctx, connection, "final ai reply produced",
 		slog.String("conversationStoreId", conversation.ID),
 		slog.String("replyThreadId", strings.TrimSpace(reply.ThreadID)),
@@ -930,6 +1357,17 @@ func (s *Service) executeFinalAIReply(
 	}
 
 	return reply, nil
+}
+
+func finalizeProviderAIResult(
+	connection store.BotConnection,
+	inbound InboundMessage,
+	startedAt time.Time,
+	result AIResult,
+) AIResult {
+	next := normalizeProviderAIResult(connection, result)
+	next.Messages = appendWeChatTimingMessage(connection, inbound, startedAt, time.Now().UTC(), next.Messages)
+	return next
 }
 
 func (s *Service) completeInboundDeliveryWithReply(
@@ -1476,6 +1914,9 @@ func resetWorkerTimer(timer *time.Timer, delay time.Duration) {
 }
 
 func isBotControlCommand(text string) bool {
+	if _, ok, _ := parseWeChatSlashCommand(text); ok {
+		return true
+	}
 	if _, ok, _ := parseBotConversationCommand(text); ok {
 		return true
 	}
@@ -3215,6 +3656,16 @@ func (s *Service) acceptInboundMessage(connection store.BotConnection, message I
 		return false, err
 	}
 	if !shouldEnqueue {
+		if deliveryHasSavedReplySnapshot(delivery) && strings.EqualFold(strings.TrimSpace(delivery.Status), "failed") {
+			s.appendConnectionLog(
+				connection.WorkspaceID,
+				connection.ID,
+				"warning",
+				"duplicate_delivery_suppressed",
+				duplicateSavedReplySuppressionMessage(delivery),
+			)
+			s.notifyDuplicateDeliverySuppressed(connection, delivery)
+		}
 		return false, nil
 	}
 
@@ -3228,7 +3679,23 @@ func (s *Service) acceptInboundMessage(connection store.BotConnection, message I
 }
 
 func (s *Service) recoverPendingInboundDeliveries(workspaceID string, connectionID string) {
-	for _, delivery := range s.store.PrepareBotInboundDeliveriesForRecovery(workspaceID, connectionID) {
+	deliveries, suppressed := s.store.PrepareBotInboundDeliveriesForRecovery(workspaceID, connectionID)
+	for _, delivery := range suppressed {
+		connection, ok := s.store.FindBotConnection(delivery.ConnectionID)
+		if !ok {
+			continue
+		}
+		s.appendConnectionLog(
+			connection.WorkspaceID,
+			connection.ID,
+			"warning",
+			"recovery_replay_suppressed",
+			recoverySavedReplySuppressionMessage(delivery),
+		)
+		s.notifyRecoveryReplaySuppressed(connection, delivery)
+	}
+
+	for _, delivery := range deliveries {
 		connection, ok := s.store.FindBotConnection(delivery.ConnectionID)
 		if !ok || !strings.EqualFold(strings.TrimSpace(connection.Status), "active") {
 			continue
@@ -3239,6 +3706,136 @@ func (s *Service) recoverPendingInboundDeliveries(workspaceID string, connection
 			message:      inboundMessageFromDelivery(delivery),
 		})
 	}
+}
+
+func deliveryHasSavedReplySnapshot(delivery store.BotInboundDelivery) bool {
+	_, ok := aiResultFromDelivery(delivery)
+	return ok
+}
+
+func savedReplySnapshotMessageCount(delivery store.BotInboundDelivery) int {
+	reply, ok := aiResultFromDelivery(delivery)
+	if !ok {
+		return 0
+	}
+	return len(reply.Messages)
+}
+
+func duplicateSavedReplySuppressionMessage(delivery store.BotInboundDelivery) string {
+	messageID := firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown")
+	conversationID := firstNonEmpty(
+		strings.TrimSpace(delivery.ExternalConversationID),
+		strings.TrimSpace(delivery.ExternalChatID),
+		"unknown",
+	)
+	replyCount := savedReplySnapshotMessageCount(delivery)
+	return fmt.Sprintf(
+		"Ignored duplicate inbound message %s for conversation %s because failed delivery %s already has a saved reply snapshot with %d outbound %s. Replaying it could duplicate previously sent content.",
+		messageID,
+		conversationID,
+		delivery.ID,
+		replyCount,
+		pluralizeLabel(replyCount, "message", "messages"),
+	)
+}
+
+func recoverySavedReplySuppressionMessage(delivery store.BotInboundDelivery) string {
+	messageID := firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown")
+	replyCount := savedReplySnapshotMessageCount(delivery)
+	return fmt.Sprintf(
+		"Skipped automatic recovery for failed delivery %s (message %s) because a saved reply snapshot with %d outbound %s already exists. Replaying it after restart could duplicate previously sent content.",
+		delivery.ID,
+		messageID,
+		replyCount,
+		pluralizeLabel(replyCount, "message", "messages"),
+	)
+}
+
+func pluralizeLabel(count int, singular string, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
+}
+
+func (s *Service) notifyDuplicateDeliverySuppressed(connection store.BotConnection, delivery store.BotInboundDelivery) {
+	s.createBotSuppressionNotification(
+		connection,
+		"bot_duplicate_delivery_suppressed",
+		"Duplicate bot replay suppressed",
+		fmt.Sprintf(
+			"%s ignored a duplicate inbound delivery for message %s because a failed delivery already had a saved reply snapshot. Open bot logs for details.",
+			firstNonEmpty(strings.TrimSpace(connection.Name), connection.ID),
+			firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown"),
+		),
+	)
+}
+
+func (s *Service) notifyRecoveryReplaySuppressed(connection store.BotConnection, delivery store.BotInboundDelivery) {
+	s.createBotSuppressionNotification(
+		connection,
+		"bot_recovery_replay_suppressed",
+		"Restart bot replay suppressed",
+		fmt.Sprintf(
+			"%s skipped replaying failed delivery %s for message %s during startup recovery because a saved reply snapshot already existed. Open bot logs for details.",
+			firstNonEmpty(strings.TrimSpace(connection.Name), connection.ID),
+			delivery.ID,
+			firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown"),
+		),
+	)
+}
+
+func (s *Service) createBotSuppressionNotification(
+	connection store.BotConnection,
+	kind string,
+	title string,
+	message string,
+) {
+	workspace, ok := s.store.GetWorkspace(connection.WorkspaceID)
+	if !ok {
+		return
+	}
+
+	now := time.Now().UTC()
+	for _, notification := range s.store.ListNotifications() {
+		if notification.WorkspaceID != connection.WorkspaceID {
+			continue
+		}
+		if strings.TrimSpace(notification.BotConnectionID) != connection.ID {
+			continue
+		}
+		if strings.TrimSpace(notification.Kind) != strings.TrimSpace(kind) {
+			continue
+		}
+		if now.Sub(notification.CreatedAt) < botSuppressionNotificationCooldown {
+			return
+		}
+	}
+
+	notification, err := s.store.CreateNotification(store.Notification{
+		WorkspaceID:       connection.WorkspaceID,
+		WorkspaceName:     workspace.Name,
+		BotConnectionID:   connection.ID,
+		BotConnectionName: connection.Name,
+		Kind:              strings.TrimSpace(kind),
+		Title:             strings.TrimSpace(title),
+		Message:           strings.TrimSpace(message),
+		Level:             "warning",
+	})
+	if err != nil {
+		return
+	}
+
+	s.publish(connection.WorkspaceID, "", "notification/created", map[string]any{
+		"notificationId":    notification.ID,
+		"kind":              notification.Kind,
+		"title":             notification.Title,
+		"message":           notification.Message,
+		"level":             notification.Level,
+		"read":              notification.Read,
+		"botConnectionId":   notification.BotConnectionID,
+		"botConnectionName": notification.BotConnectionName,
+	})
 }
 
 func (s *Service) recordConversationOutcome(
@@ -3396,6 +3993,22 @@ func connectionViewFromStore(connection store.BotConnection) ConnectionView {
 		LastPollMessage: connection.LastPollMessage,
 		CreatedAt:       connection.CreatedAt,
 		UpdatedAt:       connection.UpdatedAt,
+	}
+}
+
+func wechatAccountViewFromStore(account store.WeChatAccount) WeChatAccountView {
+	return WeChatAccountView{
+		ID:              strings.TrimSpace(account.ID),
+		WorkspaceID:     strings.TrimSpace(account.WorkspaceID),
+		Alias:           strings.TrimSpace(account.Alias),
+		Note:            strings.TrimSpace(account.Note),
+		BaseURL:         strings.TrimSpace(account.BaseURL),
+		AccountID:       strings.TrimSpace(account.AccountID),
+		UserID:          strings.TrimSpace(account.UserID),
+		LastLoginID:     strings.TrimSpace(account.LastLoginID),
+		LastConfirmedAt: account.LastConfirmedAt,
+		CreatedAt:       account.CreatedAt,
+		UpdatedAt:       account.UpdatedAt,
 	}
 }
 
