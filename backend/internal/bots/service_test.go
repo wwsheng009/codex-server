@@ -173,6 +173,103 @@ func TestHandleWebhookCreatesConversationAndSendsReply(t *testing.T) {
 	}
 }
 
+func TestHandleWebhookWeChatAddsAIAttachmentHintAndNormalizesReplyMedia(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-wechat-1",
+			Messages: []OutboundMessage{
+				{
+					Text: "已收到。\n\n```wechat-attachments\nimage E:\\tmp\\wechat-photo.png\nfile https://example.com/report.pdf\n```",
+				},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "scripted_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-wechat-1",
+		"messageId":"msg-wechat-1",
+		"userId":"wechat-user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"请把图发我"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected 1 normalized outbound message, got %#v", sent.Messages)
+		}
+		if got := sent.Messages[0].Text; got != "已收到。" {
+			t.Fatalf("expected visible text to exclude attachment protocol, got %#v", sent.Messages[0])
+		}
+		if len(sent.Messages[0].Media) != 2 {
+			t.Fatalf("expected 2 parsed media items, got %#v", sent.Messages[0].Media)
+		}
+		if got := sent.Messages[0].Media[0]; got.Kind != botMediaKindImage || got.Path != `E:\tmp\wechat-photo.png` || got.FileName != "wechat-photo.png" {
+			t.Fatalf("expected first media item to be parsed image attachment, got %#v", got)
+		}
+		if got := sent.Messages[0].Media[1]; got.Kind != botMediaKindFile || got.URL != "https://example.com/report.pdf" {
+			t.Fatalf("expected second media item to be parsed file url, got %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat provider SendMessages call")
+	}
+
+	inbound := backend.lastInboundMessage()
+	if !strings.Contains(inbound.Text, "请把图发我") {
+		t.Fatalf("expected ai inbound text to preserve original user text, got %q", inbound.Text)
+	}
+	if strings.Count(inbound.Text, wechatAIOutboundMediaNote) != 1 {
+		t.Fatalf("expected ai inbound text to include WeChat media note exactly once, got %q", inbound.Text)
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 && strings.Contains(conversations[0].LastOutboundText, "[WeChat image attachment]") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	t.Fatalf("expected last outbound text to summarize normalized media, got %q", conversations[0].LastOutboundText)
+}
+
 func TestServiceUpdatesConnectionRuntimeMode(t *testing.T) {
 	t.Parallel()
 
@@ -206,6 +303,76 @@ func TestServiceUpdatesConnectionRuntimeMode(t *testing.T) {
 
 	if updated.Settings[botRuntimeModeSetting] != botRuntimeModeDebug {
 		t.Fatalf("expected debug runtime mode after update, got %#v", updated.Settings)
+	}
+}
+
+func TestHandleWebhookPersistsConversationProviderState(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-provider-1",
+		"messageId":"msg-provider-1",
+		"userId":"user-provider-1",
+		"title":"Provider Chat",
+		"text":"hello provider state",
+		"providerData":{
+			"wechat_context_token":"ctx-123",
+			"wechat_session_id":"session-456"
+		}
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if got := sent.Conversation.ProviderState["wechat_context_token"]; got != "ctx-123" {
+			t.Fatalf("expected provider state context token ctx-123 during send, got %#v", sent.Conversation.ProviderState)
+		}
+		if got := sent.Conversation.ProviderState["wechat_session_id"]; got != "session-456" {
+			t.Fatalf("expected provider state session id session-456 during send, got %#v", sent.Conversation.ProviderState)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for provider SendMessages call")
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %#v", conversations)
+	}
+	if got := conversations[0].ProviderState["wechat_context_token"]; got != "ctx-123" {
+		t.Fatalf("expected persisted provider state context token ctx-123, got %#v", conversations[0].ProviderState)
+	}
+	if got := conversations[0].ProviderState["wechat_session_id"]; got != "session-456" {
+		t.Fatalf("expected persisted provider state session id session-456, got %#v", conversations[0].ProviderState)
 	}
 }
 
@@ -911,17 +1078,17 @@ func TestRenderKnownConversationThreadsPrioritizesCurrentAndRecentApprovals(t *t
 	threadsExec.setCompletedTurn(thread1, store.ThreadTurn{
 		ID:     "turn-1",
 		Status: "completed",
-		Items: []map[string]any{{"id": "assistant-1", "type": "agentMessage", "text": "reply one"}},
+		Items:  []map[string]any{{"id": "assistant-1", "type": "agentMessage", "text": "reply one"}},
 	})
 	threadsExec.setCompletedTurn(thread2, store.ThreadTurn{
 		ID:     "turn-2",
 		Status: "completed",
-		Items: []map[string]any{{"id": "assistant-2", "type": "agentMessage", "text": "reply two"}},
+		Items:  []map[string]any{{"id": "assistant-2", "type": "agentMessage", "text": "reply two"}},
 	})
 	threadsExec.setCompletedTurn(thread3, store.ThreadTurn{
 		ID:     "turn-3",
 		Status: "completed",
-		Items: []map[string]any{{"id": "assistant-3", "type": "agentMessage", "text": "reply three"}},
+		Items:  []map[string]any{{"id": "assistant-3", "type": "agentMessage", "text": "reply three"}},
 	})
 
 	connection := store.BotConnection{WorkspaceID: workspace.ID}
@@ -1122,6 +1289,146 @@ func TestServiceStartsOnlyOneTelegramPollerPerToken(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsDuplicateWeChatPollingConnectionByAccountID(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	provider := newFakeWeChatPollingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+
+	first, err := service.CreateConnection(context.Background(), workspaceA.ID, CreateConnectionInput{
+		Provider:  "wechat",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      "https://wechat.example.com",
+			wechatAccountIDSetting:    "wechat-account-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection(first) error = %v", err)
+	}
+
+	_, err = service.CreateConnection(context.Background(), workspaceB.ID, CreateConnectionInput{
+		Provider:  "wechat",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      "https://wechat.example.com",
+			wechatAccountIDSetting:    "wechat-account-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-2",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-2",
+		},
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for duplicate wechat polling ownership, got %v", err)
+	}
+	if !strings.Contains(err.Error(), first.ID) {
+		t.Fatalf("expected conflict error to mention first connection %q, got %v", first.ID, err)
+	}
+}
+
+func TestServiceStartsOnlyOneWeChatPollerPerAccountID(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	provider := newFakeWeChatPollingProvider()
+
+	olderCreatedAt := time.Now().Add(-2 * time.Hour).UTC()
+	newerCreatedAt := olderCreatedAt.Add(10 * time.Minute)
+	older := store.BotConnection{
+		ID:          "bot-wechat-owner",
+		WorkspaceID: workspaceA.ID,
+		Provider:    "wechat",
+		Name:        "Owner",
+		Status:      "active",
+		AIBackend:   "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      "https://wechat.example.com",
+			wechatAccountIDSetting:    "wechat-account-owner",
+			wechatOwnerUserIDSetting:  "wechat-owner-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-owner",
+		},
+		CreatedAt: olderCreatedAt,
+		UpdatedAt: olderCreatedAt,
+	}
+	newer := store.BotConnection{
+		ID:          "bot-wechat-duplicate",
+		WorkspaceID: workspaceB.ID,
+		Provider:    "wechat",
+		Name:        "Duplicate",
+		Status:      "active",
+		AIBackend:   "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      "https://wechat.example.com",
+			wechatAccountIDSetting:    "wechat-account-owner",
+			wechatOwnerUserIDSetting:  "wechat-owner-2",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-duplicate",
+		},
+		CreatedAt: newerCreatedAt,
+		UpdatedAt: newerCreatedAt,
+	}
+	if _, err := dataStore.CreateBotConnection(older); err != nil {
+		t.Fatalf("CreateBotConnection(older) error = %v", err)
+	}
+	if _, err := dataStore.CreateBotConnection(newer); err != nil {
+		t.Fatalf("CreateBotConnection(newer) error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(ctx)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if provider.startedCount() == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if provider.startedCount() != 1 {
+		t.Fatalf("expected exactly one wechat poller to start, got %d", provider.startedCount())
+	}
+
+	startedIDs := provider.startedConnectionIDs()
+	if len(startedIDs) != 1 || startedIDs[0] != older.ID {
+		t.Fatalf("expected older connection %q to own wechat polling account, got %#v", older.ID, startedIDs)
+	}
+
+	conflicted, ok := dataStore.GetBotConnection(workspaceB.ID, newer.ID)
+	if !ok {
+		t.Fatal("expected duplicate wechat connection to remain persisted")
+	}
+	if !strings.Contains(conflicted.LastError, older.ID) {
+		t.Fatalf("expected duplicate connection last error to mention owner %q, got %q", older.ID, conflicted.LastError)
+	}
+}
+
 func TestHandleWebhookSeparatesTelegramTopicsIntoDistinctConversations(t *testing.T) {
 	t.Parallel()
 
@@ -1261,6 +1568,22 @@ func TestServiceRunsPollingProvidersWithoutPublicBaseURL(t *testing.T) {
 	if storedConnection.Settings["poll_cursor"] != "1" {
 		t.Fatalf("expected poll cursor to be persisted, got %#v", storedConnection.Settings)
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		storedConnection, ok = dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if !ok {
+			t.Fatal("expected polling connection to remain persisted")
+		}
+		if storedConnection.LastPollAt != nil &&
+			storedConnection.LastPollStatus == "success" &&
+			strings.Contains(storedConnection.LastPollMessage, "Received 1 message") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected polling runtime state to be recorded, got %#v", storedConnection)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	conversations := service.ListConversations(workspace.ID, connection.ID)
 	if len(conversations) != 1 {
@@ -1268,6 +1591,24 @@ func TestServiceRunsPollingProvidersWithoutPublicBaseURL(t *testing.T) {
 	}
 	if conversations[0].LastOutboundText != "reply: hello from polling" {
 		t.Fatalf("expected polling reply to be persisted, got %q", conversations[0].LastOutboundText)
+	}
+
+	logs, err := service.ListConnectionLogs(workspace.ID, connection.ID)
+	if err != nil {
+		t.Fatalf("ListConnectionLogs() error = %v", err)
+	}
+	foundStarted := false
+	foundSuccess := false
+	for _, entry := range logs {
+		switch {
+		case entry.EventType == "poller_started" && strings.Contains(entry.Message, "polling worker started"):
+			foundStarted = true
+		case entry.EventType == "poll_success" && strings.Contains(entry.Message, "Received 1 message"):
+			foundSuccess = true
+		}
+	}
+	if !foundStarted || !foundSuccess {
+		t.Fatalf("expected polling logs to include start and success entries, got %#v", logs)
 	}
 }
 
@@ -2083,6 +2424,187 @@ func TestServiceRecoversStoredReplyDeliveryOnStartWithoutRerunningAI(t *testing.
 	}
 }
 
+func TestServiceRecoversStoredWeChatReplyMediaWithoutRerunningAI(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	initialProvider := newFakeWeChatProvider()
+	initialProvider.pushSendError(errors.New("transient delivery outage"))
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-wechat-recover-1",
+			Messages: []OutboundMessage{
+				{
+					Text: "这里是文件\nMEDIA: E:\\tmp\\handoff.pdf",
+				},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{initialProvider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "scripted_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-wechat-recover-1",
+		"messageId":"msg-wechat-recover-1",
+		"userId":"wechat-user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"把文件发回来"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if ok && strings.Contains(storedConnection.LastError, "transient delivery outage") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	recoveryProvider := newFakeWeChatProvider()
+	recoveryService := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{recoveryProvider},
+		AIBackends:    []AIBackend{backend},
+	})
+	recoveryService.Start(context.Background())
+
+	select {
+	case sent := <-recoveryProvider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected 1 recovered outbound message, got %#v", sent.Messages)
+		}
+		if got := sent.Messages[0].Text; got != "这里是文件" {
+			t.Fatalf("expected recovered visible text to exclude MEDIA directive, got %#v", sent.Messages[0])
+		}
+		if len(sent.Messages[0].Media) != 1 {
+			t.Fatalf("expected recovered message to include 1 media item, got %#v", sent.Messages[0])
+		}
+		if got := sent.Messages[0].Media[0]; got.Kind != botMediaKindFile || got.Path != `E:\tmp\handoff.pdf` || got.FileName != "handoff.pdf" {
+			t.Fatalf("expected recovered media item to preserve parsed file attachment, got %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for stored WeChat reply recovery on start")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected ai backend to run once across WeChat reply recovery, got %d calls", backend.callCount())
+	}
+}
+
+func TestExecuteAIReplyStartsWeChatTypingForNonStreamingReplies(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{}
+	provider := newFakeWeChatProvider()
+	backend := newBlockingAIBackend()
+	connection := store.BotConnection{
+		ID:       "bot-wechat-typing-1",
+		Provider: wechatProviderName,
+	}
+	conversation := store.BotConversation{
+		ID:             "conv-wechat-typing-1",
+		ExternalChatID: "wechat-user-typing-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-typing-1",
+		},
+	}
+	inbound := InboundMessage{
+		ConversationID: "chat-wechat-typing-1",
+		Text:           "hello typing",
+	}
+
+	type result struct {
+		reply AIResult
+		err   error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		reply, _, _, err := service.executeAIReply(context.Background(), provider, backend, connection, conversation, inbound)
+		resultCh <- result{reply: reply, err: err}
+	}()
+
+	select {
+	case <-provider.typingStartedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for wechat typing to start")
+	}
+
+	select {
+	case <-backend.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for blocking ai backend to start")
+	}
+
+	provider.mu.Lock()
+	if provider.typingStarts != 1 {
+		provider.mu.Unlock()
+		t.Fatalf("expected one typing start before backend release, got %d", provider.typingStarts)
+	}
+	provider.mu.Unlock()
+
+	close(backend.release)
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || !strings.HasPrefix(sent.Messages[0].Text, "reply: hello typing") {
+			t.Fatalf("expected final WeChat reply to be sent after typing, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for final WeChat reply send")
+	}
+
+	select {
+	case <-provider.typingStoppedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for wechat typing to stop")
+	}
+
+	select {
+	case got := <-resultCh:
+		if got.err != nil {
+			t.Fatalf("executeAIReply() error = %v", got.err)
+		}
+		if got.reply.ThreadID != "thr_chat-wechat-typing-1" {
+			t.Fatalf("expected reply thread thr_chat-wechat-typing-1, got %#v", got.reply)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for executeAIReply completion")
+	}
+
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if provider.typingStops != 1 {
+		t.Fatalf("expected one typing stop, got %d", provider.typingStops)
+	}
+}
+
 func TestServiceReclaimsIdleConversationWorkers(t *testing.T) {
 	t.Parallel()
 
@@ -2252,7 +2774,109 @@ func TestHandleWebhookApprovalCommandsBypassBlockedConversationWorker(t *testing
 
 	select {
 	case sent := <-provider.sentCh:
-		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello" {
+		if len(sent.Messages) != 1 || !strings.Contains(sent.Messages[0].Text, "reply: hello") {
+			t.Fatalf("expected blocked ai reply after release, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for released ai reply")
+	}
+}
+
+func TestQuotedWeChatApprovalCommandsBypassBlockedConversationWorker(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	approvalService := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_quoted_wechat_1",
+			WorkspaceID: workspace.ID,
+			ThreadID:    "thr_chat-quoted-wechat",
+			Kind:        "item/commandExecution/requestApproval",
+			Summary:     "go test ./...",
+			Status:      "pending",
+			Actions:     []string{"accept", "decline", "cancel"},
+			RequestedAt: time.Now().UTC(),
+		},
+	})
+	blockingBackend := newBlockingAIBackend()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Approvals:     approvalService,
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{blockingBackend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "blocking_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendWebhook := func(text string, messageID string) {
+		t.Helper()
+
+		payload, err := json.Marshal(map[string]string{
+			"conversationId": "chat-quoted-wechat",
+			"messageId":      messageID,
+			"userId":         "wechat-user-1",
+			"username":       "alice",
+			"title":          "Alice",
+			"text":           text,
+		})
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(string(payload)))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	sendWebhook("hello", "msg-quoted-wechat-1")
+
+	select {
+	case <-blockingBackend.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for blocking ai backend to start")
+	}
+
+	sendWebhook("Quoted: previous message\n/approvals", "msg-quoted-wechat-2")
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected one quoted WeChat approval response, got %#v", sent.Messages)
+		}
+		if !strings.Contains(sent.Messages[0].Text, "Pending approvals:") ||
+			!strings.Contains(sent.Messages[0].Text, "req_quoted_wechat_1") ||
+			!strings.Contains(sent.Messages[0].Text, "/approve req_quoted_wechat_1") {
+			t.Fatalf("expected quoted WeChat approval response, got %#v", sent.Messages[0])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for quoted WeChat approval command response")
+	}
+
+	close(blockingBackend.release)
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || !strings.Contains(sent.Messages[0].Text, "reply: hello") {
 			t.Fatalf("expected blocked ai reply after release, got %#v", sent.Messages)
 		}
 	case <-time.After(2 * time.Second):
@@ -2678,6 +3302,7 @@ type fakeProvider struct {
 
 type fakeSentPayload struct {
 	ConnectionID string
+	Conversation store.BotConversation
 	Messages     []OutboundMessage
 }
 
@@ -2721,7 +3346,7 @@ func (p *fakeProvider) ParseWebhook(r *http.Request, _ store.BotConnection) ([]I
 	return []InboundMessage{payload}, nil
 }
 
-func (p *fakeProvider) SendMessages(_ context.Context, connection store.BotConnection, _ store.BotConversation, messages []OutboundMessage) error {
+func (p *fakeProvider) SendMessages(_ context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error {
 	p.mu.Lock()
 	if len(p.errors) > 0 {
 		err := p.errors[0]
@@ -2733,6 +3358,7 @@ func (p *fakeProvider) SendMessages(_ context.Context, connection store.BotConne
 
 	p.sentCh <- fakeSentPayload{
 		ConnectionID: connection.ID,
+		Conversation: conversation,
 		Messages:     append([]OutboundMessage(nil), messages...),
 	}
 	return nil
@@ -2742,6 +3368,121 @@ func (p *fakeProvider) pushSendError(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.errors = append(p.errors, err)
+}
+
+type fakeWeChatProvider struct {
+	mu              sync.Mutex
+	sentCh          chan fakeSentPayload
+	errors          []error
+	typingStarts    int
+	typingStops     int
+	typingStartedCh chan struct{}
+	typingStoppedCh chan struct{}
+}
+
+func newFakeWeChatProvider() *fakeWeChatProvider {
+	return &fakeWeChatProvider{
+		sentCh:          make(chan fakeSentPayload, 8),
+		typingStartedCh: make(chan struct{}, 2),
+		typingStoppedCh: make(chan struct{}, 2),
+	}
+}
+
+func (p *fakeWeChatProvider) Name() string {
+	return wechatProviderName
+}
+
+func (p *fakeWeChatProvider) Activate(_ context.Context, connection store.BotConnection, publicBaseURL string) (ActivationResult, error) {
+	return ActivationResult{
+		Settings: map[string]string{
+			"webhook_url": strings.TrimRight(publicBaseURL, "/") + "/hooks/bots/" + connection.ID,
+		},
+		Secrets: map[string]string{
+			"webhook_secret": "fake-secret",
+		},
+	}, nil
+}
+
+func (p *fakeWeChatProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *fakeWeChatProvider) ParseWebhook(r *http.Request, _ store.BotConnection) ([]InboundMessage, error) {
+	if strings.TrimSpace(r.Header.Get("X-Test-Secret")) != "fake-secret" {
+		return nil, ErrWebhookUnauthorized
+	}
+
+	defer r.Body.Close()
+
+	var payload InboundMessage
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	return []InboundMessage{payload}, nil
+}
+
+func (p *fakeWeChatProvider) SendMessages(_ context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error {
+	p.mu.Lock()
+	if len(p.errors) > 0 {
+		err := p.errors[0]
+		p.errors = append([]error(nil), p.errors[1:]...)
+		p.mu.Unlock()
+		return err
+	}
+	p.mu.Unlock()
+
+	p.sentCh <- fakeSentPayload{
+		ConnectionID: connection.ID,
+		Conversation: conversation,
+		Messages:     append([]OutboundMessage(nil), messages...),
+	}
+	return nil
+}
+
+func (p *fakeWeChatProvider) StartTyping(
+	_ context.Context,
+	_ store.BotConnection,
+	_ store.BotConversation,
+) (TypingSession, error) {
+	p.mu.Lock()
+	p.typingStarts += 1
+	p.mu.Unlock()
+
+	select {
+	case p.typingStartedCh <- struct{}{}:
+	default:
+	}
+
+	return &fakeWeChatTypingSession{provider: p}, nil
+}
+
+func (p *fakeWeChatProvider) pushSendError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.errors = append(p.errors, err)
+}
+
+type fakeWeChatTypingSession struct {
+	provider *fakeWeChatProvider
+	once     sync.Once
+}
+
+func (s *fakeWeChatTypingSession) Stop(context.Context) error {
+	if s == nil || s.provider == nil {
+		return nil
+	}
+
+	s.once.Do(func() {
+		s.provider.mu.Lock()
+		s.provider.typingStops += 1
+		s.provider.mu.Unlock()
+		select {
+		case s.provider.typingStoppedCh <- struct{}{}:
+		default:
+		}
+	})
+	return nil
 }
 
 func waitForWorkerCount(service *Service, expected int, timeout time.Duration) error {
@@ -2798,11 +3539,27 @@ func (p *fakeTelegramPollingProvider) SupportsPolling(connection store.BotConnec
 	return telegramDeliveryMode(connection) == telegramDeliveryModePolling
 }
 
+func (p *fakeTelegramPollingProvider) PollingOwnerKey(connection store.BotConnection) string {
+	if telegramDeliveryMode(connection) != telegramDeliveryModePolling {
+		return ""
+	}
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return ""
+	}
+	return telegramProviderName + ":" + token
+}
+
+func (p *fakeTelegramPollingProvider) PollingConflictError(ownerConnectionID string) error {
+	return telegramPollingConflictError(ownerConnectionID)
+}
+
 func (p *fakeTelegramPollingProvider) RunPolling(
 	ctx context.Context,
 	connection store.BotConnection,
 	_ PollingMessageHandler,
 	_ PollingSettingsHandler,
+	_ PollingEventHandler,
 ) error {
 	p.mu.Lock()
 	p.startedIDs = append(p.startedIDs, connection.ID)
@@ -2819,6 +3576,92 @@ func (p *fakeTelegramPollingProvider) startedCount() int {
 }
 
 func (p *fakeTelegramPollingProvider) startedConnectionIDs() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.startedIDs...)
+}
+
+type fakeWeChatPollingProvider struct {
+	mu         sync.Mutex
+	startedIDs []string
+}
+
+func newFakeWeChatPollingProvider() *fakeWeChatPollingProvider {
+	return &fakeWeChatPollingProvider{}
+}
+
+func (p *fakeWeChatPollingProvider) Name() string {
+	return wechatProviderName
+}
+
+func (p *fakeWeChatPollingProvider) Activate(_ context.Context, connection store.BotConnection, _ string) (ActivationResult, error) {
+	settings := cloneStringMapLocal(connection.Settings)
+	if settings == nil {
+		settings = make(map[string]string)
+	}
+	settings[wechatDeliveryModeSetting] = wechatDeliveryModePolling
+	return ActivationResult{Settings: settings}, nil
+}
+
+func (p *fakeWeChatPollingProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *fakeWeChatPollingProvider) ParseWebhook(*http.Request, store.BotConnection) ([]InboundMessage, error) {
+	return nil, ErrWebhookIgnored
+}
+
+func (p *fakeWeChatPollingProvider) SendMessages(context.Context, store.BotConnection, store.BotConversation, []OutboundMessage) error {
+	return nil
+}
+
+func (p *fakeWeChatPollingProvider) SupportsPolling(connection store.BotConnection) bool {
+	mode, err := parseWeChatDeliveryMode(connection.Settings[wechatDeliveryModeSetting])
+	return err == nil && mode == wechatDeliveryModePolling
+}
+
+func (p *fakeWeChatPollingProvider) PollingOwnerKey(connection store.BotConnection) string {
+	mode, err := parseWeChatDeliveryMode(connection.Settings[wechatDeliveryModeSetting])
+	if err != nil || mode != wechatDeliveryModePolling {
+		return ""
+	}
+	accountID := strings.TrimSpace(connection.Settings[wechatAccountIDSetting])
+	if accountID != "" {
+		return wechatProviderName + ":" + accountID
+	}
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return ""
+	}
+	return wechatProviderName + ":" + token
+}
+
+func (p *fakeWeChatPollingProvider) PollingConflictError(ownerConnectionID string) error {
+	return (&wechatProvider{}).PollingConflictError(ownerConnectionID)
+}
+
+func (p *fakeWeChatPollingProvider) RunPolling(
+	ctx context.Context,
+	connection store.BotConnection,
+	_ PollingMessageHandler,
+	_ PollingSettingsHandler,
+	_ PollingEventHandler,
+) error {
+	p.mu.Lock()
+	p.startedIDs = append(p.startedIDs, connection.ID)
+	p.mu.Unlock()
+
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (p *fakeWeChatPollingProvider) startedCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.startedIDs)
+}
+
+func (p *fakeWeChatPollingProvider) startedConnectionIDs() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]string(nil), p.startedIDs...)
@@ -3035,6 +3878,56 @@ func (b *countingAIBackend) callCount() int {
 	return b.calls
 }
 
+type scriptedAIBackend struct {
+	mu          sync.Mutex
+	calls       int
+	lastInbound InboundMessage
+	result      AIResult
+	err         error
+}
+
+func (*scriptedAIBackend) Name() string {
+	return "scripted_ai"
+}
+
+func (b *scriptedAIBackend) ProcessMessage(_ context.Context, _ store.BotConnection, _ store.BotConversation, inbound InboundMessage) (AIResult, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.calls += 1
+	b.lastInbound = cloneInboundMessageForTest(inbound)
+	if b.err != nil {
+		return AIResult{}, b.err
+	}
+	return cloneAIResultForTest(b.result), nil
+}
+
+func (b *scriptedAIBackend) callCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.calls
+}
+
+func (b *scriptedAIBackend) lastInboundMessage() InboundMessage {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return cloneInboundMessageForTest(b.lastInbound)
+}
+
+func cloneInboundMessageForTest(message InboundMessage) InboundMessage {
+	next := message
+	next.Media = cloneBotMessageMediaList(message.Media)
+	next.ProviderData = cloneStringMapLocal(message.ProviderData)
+	return next
+}
+
+func cloneAIResultForTest(result AIResult) AIResult {
+	next := result
+	next.Messages = cloneOutboundMessages(result.Messages)
+	next.BackendState = cloneStringMapLocal(result.BackendState)
+	return next
+}
+
 type failingAIBackend struct{}
 
 func (failingAIBackend) Name() string {
@@ -3170,9 +4063,10 @@ func (p *fakePollingProvider) ParseWebhook(*http.Request, store.BotConnection) (
 	return nil, ErrWebhookIgnored
 }
 
-func (p *fakePollingProvider) SendMessages(_ context.Context, connection store.BotConnection, _ store.BotConversation, messages []OutboundMessage) error {
+func (p *fakePollingProvider) SendMessages(_ context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error {
 	p.sentCh <- fakeSentPayload{
 		ConnectionID: connection.ID,
+		Conversation: conversation,
 		Messages:     append([]OutboundMessage(nil), messages...),
 	}
 	return nil
@@ -3187,6 +4081,7 @@ func (p *fakePollingProvider) RunPolling(
 	connection store.BotConnection,
 	handleMessage PollingMessageHandler,
 	updateSettings PollingSettingsHandler,
+	reportEvent PollingEventHandler,
 ) error {
 	p.mu.Lock()
 	delivered := p.delivered[connection.ID]
@@ -3207,6 +4102,14 @@ func (p *fakePollingProvider) RunPolling(
 			return err
 		}
 		if err := updateSettings(ctx, map[string]string{"poll_cursor": "1"}); err != nil {
+			return err
+		}
+		if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
+			EventType:      "poll_success",
+			Message:        "Poll completed successfully. Received 1 message and updated the cursor.",
+			ReceivedCount:  1,
+			ProcessedCount: 1,
+		}); err != nil {
 			return err
 		}
 	}
@@ -3254,9 +4157,10 @@ func (p *fakeScriptedPollingProvider) ParseWebhook(*http.Request, store.BotConne
 	return nil, ErrWebhookIgnored
 }
 
-func (p *fakeScriptedPollingProvider) SendMessages(_ context.Context, connection store.BotConnection, _ store.BotConversation, messages []OutboundMessage) error {
+func (p *fakeScriptedPollingProvider) SendMessages(_ context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error {
 	p.sentCh <- fakeSentPayload{
 		ConnectionID: connection.ID,
+		Conversation: conversation,
 		Messages:     append([]OutboundMessage(nil), messages...),
 	}
 	return nil
@@ -3271,6 +4175,7 @@ func (p *fakeScriptedPollingProvider) RunPolling(
 	connection store.BotConnection,
 	handleMessage PollingMessageHandler,
 	updateSettings PollingSettingsHandler,
+	reportEvent PollingEventHandler,
 ) error {
 	p.mu.Lock()
 	delivered := p.delivered[connection.ID]
@@ -3290,6 +4195,14 @@ func (p *fakeScriptedPollingProvider) RunPolling(
 			}); err != nil {
 				return err
 			}
+		}
+		if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
+			EventType:      "poll_success",
+			Message:        fmt.Sprintf("Poll completed successfully. Received %d scripted message(s).", len(messages)),
+			ReceivedCount:  len(messages),
+			ProcessedCount: len(messages),
+		}); err != nil {
+			return err
 		}
 	}
 
@@ -3349,12 +4262,13 @@ func (p *fakeStreamingProvider) ParseWebhook(r *http.Request, _ store.BotConnect
 	return []InboundMessage{payload}, nil
 }
 
-func (p *fakeStreamingProvider) SendMessages(_ context.Context, connection store.BotConnection, _ store.BotConversation, messages []OutboundMessage) error {
+func (p *fakeStreamingProvider) SendMessages(_ context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error {
 	p.mu.Lock()
 	p.sendMessagesCalls += 1
 	p.mu.Unlock()
 	p.sentCh <- fakeSentPayload{
 		ConnectionID: connection.ID,
+		Conversation: conversation,
 		Messages:     append([]OutboundMessage(nil), messages...),
 	}
 	return nil

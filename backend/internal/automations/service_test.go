@@ -202,6 +202,87 @@ func TestTriggerCompletesRunAndCreatesNotification(t *testing.T) {
 	}
 }
 
+func TestTryFinalizeRunFailsTerminalTurnWithCapturedError(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	threadService := &fakeThreadService{
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thr_automation",
+				WorkspaceID: workspace.ID,
+				Name:        "Automation Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{
+				{
+					ID:     "turn_automation",
+					Status: "failed",
+					Error: map[string]any{
+						"message": "sandbox denied write access",
+					},
+					Items: []map[string]any{
+						{
+							"id":               "cmd_1",
+							"type":             "commandExecution",
+							"aggregatedOutput": "partial output",
+						},
+					},
+				},
+			},
+		},
+	}
+	turnService := &fakeTurnService{
+		result: turns.Result{
+			TurnID: "turn_automation",
+			Status: "running",
+		},
+	}
+
+	service := NewService(dataStore, threadService, turnService, nil)
+	now := time.Date(2026, 3, 21, 6, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	automation, err := service.Create(CreateInput{
+		Title:       "Daily Sync",
+		Description: "Summary",
+		Prompt:      "Summarize changes",
+		WorkspaceID: workspace.ID,
+		Schedule:    "hourly",
+		Model:       "gpt-5.4",
+		Reasoning:   "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	run, err := service.Trigger(context.Background(), automation.ID)
+	if err != nil {
+		t.Fatalf("Trigger() error = %v", err)
+	}
+
+	finalized, err := service.tryFinalizeRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("tryFinalizeRun() error = %v", err)
+	}
+	if !finalized {
+		t.Fatal("expected terminal failed snapshot to finalize the run")
+	}
+
+	storedRun, err := service.GetRun(run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if storedRun.Status != "failed" {
+		t.Fatalf("expected failed run, got %q", storedRun.Status)
+	}
+	if storedRun.Error != "sandbox denied write access" {
+		t.Fatalf("expected captured error, got %q", storedRun.Error)
+	}
+}
+
 func TestTemplateLifecycleAndBuiltInImmutability(t *testing.T) {
 	t.Parallel()
 

@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode"
 
+	"codex-server/backend/internal/appserver"
 	"codex-server/backend/internal/bridge"
 	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/diagnostics"
@@ -230,20 +231,18 @@ func (s *Service) buildStoredThreadListPage(
 func (s *Service) Create(ctx context.Context, workspaceID string, input CreateInput) (store.Thread, error) {
 	trimmedName := strings.TrimSpace(input.Name)
 
-	var response struct {
-		Thread map[string]any `json:"thread"`
-	}
+	var response appserver.ThreadStartResponse
 
 	defaults, err := s.runtimeDefaults()
 	if err != nil {
 		return store.Thread{}, err
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/start", buildThreadStartPayload(s.runtimes.RootPath(workspaceID), input, defaults), &response); err != nil {
+	if err := s.runtimes.Call(ctx, workspaceID, "thread/start", buildThreadStartRequest(s.runtimes.RootPath(workspaceID), input, defaults), &response); err != nil {
 		return store.Thread{}, err
 	}
 
-	threadID := stringValue(response.Thread["id"])
+	threadID := strings.TrimSpace(response.Thread.ID)
 	if threadID == "" {
 		return store.Thread{}, errors.New("thread/start returned empty thread id")
 	}
@@ -271,35 +270,49 @@ type runtimeThreadDefaults struct {
 	HasSandboxOverride bool
 }
 
-func buildThreadStartPayload(rootPath string, input CreateInput, defaults runtimeThreadDefaults) map[string]any {
-	payload := map[string]any{
-		"cwd": rootPath,
+func buildThreadStartRequest(rootPath string, input CreateInput, defaults runtimeThreadDefaults) appserver.ThreadStartRequest {
+	request := appserver.ThreadStartRequest{
+		Cwd: rootPath,
 	}
-
 	approvalPolicy := appconfig.ApprovalPolicyJSONValue(defaults.ApprovalPolicy)
 	if approvalPolicy == "" {
 		approvalPolicy = "on-request"
 	}
-	payload["approvalPolicy"] = approvalPolicy
+	request.ApprovalPolicy = approvalPolicy
 
 	sandboxMode := strings.TrimSpace(defaults.SandboxMode)
 	switch {
 	case sandboxMode != "":
-		payload["sandbox"] = sandboxMode
+		request.Sandbox = sandboxMode
 	case !defaults.HasSandboxOverride:
-		payload["sandbox"] = "workspace-write"
+		request.Sandbox = "workspace-write"
 	}
 
 	if model := strings.TrimSpace(input.Model); model != "" {
-		payload["model"] = model
+		request.Model = model
 	}
 
 	switch normalizePermissionPreset(input.PermissionPreset) {
 	case "full-access":
-		payload["approvalPolicy"] = "never"
-		payload["sandbox"] = "danger-full-access"
+		request.ApprovalPolicy = "never"
+		request.Sandbox = "danger-full-access"
 	}
 
+	return request
+}
+
+func buildThreadStartPayload(rootPath string, input CreateInput, defaults runtimeThreadDefaults) map[string]any {
+	request := buildThreadStartRequest(rootPath, input, defaults)
+	payload := map[string]any{
+		"cwd":            request.Cwd,
+		"approvalPolicy": request.ApprovalPolicy,
+	}
+	if strings.TrimSpace(request.Sandbox) != "" {
+		payload["sandbox"] = request.Sandbox
+	}
+	if strings.TrimSpace(request.Model) != "" {
+		payload["model"] = request.Model
+	}
 	return payload
 }
 

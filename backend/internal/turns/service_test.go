@@ -5,9 +5,15 @@ import (
 	"testing"
 
 	"codex-server/backend/internal/bridge"
+	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
+	"codex-server/backend/internal/testutil/codexfake"
 )
+
+func TestCodexFakeHelperProcess(t *testing.T) {
+	codexfake.RunHelperProcessIfRequested(t)
+}
 
 func TestIsThreadResumeRequiredForNotLoaded(t *testing.T) {
 	t.Parallel()
@@ -184,5 +190,146 @@ func TestInterruptIsIdempotentWithoutActiveTurn(t *testing.T) {
 	}
 	if result.TurnID != "" {
 		t.Fatalf("expected empty turn id for idempotent interrupt, got %#v", result.TurnID)
+	}
+}
+
+func TestInterruptSendsTurnInterruptThroughRuntime(t *testing.T) {
+	session := codexfake.NewSession(t, "TestCodexFakeHelperProcess")
+	t.Setenv("CODEX_FAKE_HELPER_ENABLED", "1")
+	t.Setenv("CODEX_FAKE_HELPER_STATE_FILE", session.StateFile)
+
+	runtimeManager := runtime.NewManager(session.Command, events.NewHub())
+	workspaceRoot := t.TempDir()
+	runtimeManager.Configure("ws-1", workspaceRoot)
+	defer runtimeManager.Remove("ws-1")
+	runtimeManager.RememberActiveTurn("ws-1", "thread-1", "turn-9")
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	result, err := service.Interrupt(context.Background(), "ws-1", "thread-1")
+	if err != nil {
+		t.Fatalf("Interrupt() error = %v", err)
+	}
+	if result.Status != "interrupted" {
+		t.Fatalf("expected interrupted status, got %#v", result.Status)
+	}
+	if result.TurnID != "turn-9" {
+		t.Fatalf("expected turn-9 to be returned, got %#v", result.TurnID)
+	}
+	if activeTurnID := runtimeManager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "" {
+		t.Fatalf("expected active turn to be cleared, got %q", activeTurnID)
+	}
+
+	state := codexfake.ReadState(t, session.StateFile)
+	if len(state.Received) < 3 {
+		t.Fatalf("expected initialize, initialized, turn/interrupt to be recorded, got %#v", state.Received)
+	}
+	last := state.Received[len(state.Received)-1]
+	if last.Method != "turn/interrupt" {
+		t.Fatalf("expected last method turn/interrupt, got %q", last.Method)
+	}
+	if state.LastInterrupt["threadId"] != "thread-1" {
+		t.Fatalf("expected interrupt threadId thread-1, got %#v", state.LastInterrupt["threadId"])
+	}
+	if state.LastInterrupt["turnId"] != "turn-9" {
+		t.Fatalf("expected interrupt turnId turn-9, got %#v", state.LastInterrupt["turnId"])
+	}
+}
+
+func TestReviewStartsThroughRuntime(t *testing.T) {
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"review/start": {
+				Result: map[string]any{
+					"turn": map[string]any{
+						"id":     "review-turn-42",
+						"status": "inProgress",
+					},
+				},
+			},
+		},
+	})
+
+	runtimeManager := runtime.NewManager(session.Command, events.NewHub())
+	workspaceRoot := t.TempDir()
+	runtimeManager.Configure("ws-1", workspaceRoot)
+	defer runtimeManager.Remove("ws-1")
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	result, err := service.Review(context.Background(), "ws-1", "thread-1")
+	if err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if result.Status != "reviewing" {
+		t.Fatalf("expected reviewing status, got %#v", result.Status)
+	}
+	if result.TurnID != "review-turn-42" {
+		t.Fatalf("expected custom review turn id, got %#v", result.TurnID)
+	}
+
+	state := codexfake.ReadState(t, session.StateFile)
+	if state.LastReview["threadId"] != "thread-1" {
+		t.Fatalf("expected review threadId thread-1, got %#v", state.LastReview["threadId"])
+	}
+	if state.LastReview["delivery"] != "inline" {
+		t.Fatalf("expected inline review delivery, got %#v", state.LastReview["delivery"])
+	}
+}
+
+func TestStartReturnsRunningWhenCompletionNotificationIsMissing(t *testing.T) {
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"turn/start": {
+				Result: map[string]any{
+					"turn": map[string]any{
+						"id":     "turn-missing-complete-1",
+						"status": "inProgress",
+					},
+				},
+				Notifications: []codexfake.Notification{
+					{
+						Method: "turn/started",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turn": map[string]any{
+								"id":     "turn-missing-complete-1",
+								"status": "inProgress",
+							},
+						},
+					},
+					{
+						Method: "item/completed",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turnId":   "turn-missing-complete-1",
+							"item": map[string]any{
+								"id":   "subagent-item-1",
+								"type": "agentMessage",
+								"text": "partial result",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	runtimeManager := runtime.NewManager(session.Command, events.NewHub())
+	workspaceRoot := t.TempDir()
+	runtimeManager.Configure("ws-1", workspaceRoot)
+	defer runtimeManager.Remove("ws-1")
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	result, err := service.Start(context.Background(), "ws-1", "thread-1", "Inspect the repo", StartOptions{})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if result.Status != "running" {
+		t.Fatalf("expected running status, got %#v", result.Status)
+	}
+	if result.TurnID != "turn-missing-complete-1" {
+		t.Fatalf("expected custom turn id, got %#v", result.TurnID)
+	}
+	if activeTurnID := runtimeManager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "turn-missing-complete-1" {
+		t.Fatalf("expected active turn to be remembered, got %q", activeTurnID)
 	}
 }

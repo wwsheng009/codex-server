@@ -14,6 +14,10 @@ type httpClientSource interface {
 	Client(timeout time.Duration) *http.Client
 }
 
+type proxyAwareHTTPClientSource interface {
+	EffectiveProxyURL() string
+}
+
 type staticHTTPClientSource struct {
 	client *http.Client
 }
@@ -80,6 +84,10 @@ func (s *runtimeHTTPClientSource) effectiveProxyURL() string {
 	}
 
 	return s.defaultProxyURL
+}
+
+func (s *runtimeHTTPClientSource) EffectiveProxyURL() string {
+	return s.effectiveProxyURL()
 }
 
 func newProxyAwareTransport(proxyURL string) *http.Transport {

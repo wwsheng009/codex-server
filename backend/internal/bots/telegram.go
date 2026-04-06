@@ -115,6 +115,11 @@ type telegramRequestError struct {
 	cause       error
 }
 
+type telegramPollingTransportDiagnosticError struct {
+	cause    error
+	proxyURL string
+}
+
 func (e *telegramRequestError) Error() string {
 	if e == nil {
 		return ""
@@ -141,6 +146,27 @@ func (e *telegramRequestError) Unwrap() error {
 		return nil
 	}
 	return e.cause
+}
+
+func (e *telegramPollingTransportDiagnosticError) Error() string {
+	if e == nil || e.cause == nil {
+		return ""
+	}
+	return e.cause.Error()
+}
+
+func (e *telegramPollingTransportDiagnosticError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func (e *telegramPollingTransportDiagnosticError) PollingProxyURL() string {
+	if e == nil {
+		return ""
+	}
+	return strings.TrimSpace(e.proxyURL)
 }
 
 func newTelegramProvider(client *http.Client) Provider {
@@ -273,11 +299,27 @@ func (p *telegramProvider) SupportsPolling(connection store.BotConnection) bool 
 	return telegramDeliveryMode(connection) == telegramDeliveryModePolling
 }
 
+func (p *telegramProvider) PollingOwnerKey(connection store.BotConnection) string {
+	if telegramDeliveryMode(connection) != telegramDeliveryModePolling {
+		return ""
+	}
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return ""
+	}
+	return telegramProviderName + ":" + token
+}
+
+func (p *telegramProvider) PollingConflictError(ownerConnectionID string) error {
+	return telegramPollingConflictError(ownerConnectionID)
+}
+
 func (p *telegramProvider) RunPolling(
 	ctx context.Context,
 	connection store.BotConnection,
 	handleMessage PollingMessageHandler,
 	updateSettings PollingSettingsHandler,
+	reportEvent PollingEventHandler,
 ) error {
 	token := strings.TrimSpace(connection.Secrets["bot_token"])
 	if token == "" {
@@ -294,9 +336,17 @@ func (p *telegramProvider) RunPolling(
 		if err != nil {
 			return err
 		}
+		processedCount := 0
+		ignoredCount := 0
 		if len(updates) == 0 {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
+				EventType: "poll_idle",
+				Message:   "Poll completed successfully. No new updates.",
+			}); err != nil {
+				return err
 			}
 			continue
 		}
@@ -306,6 +356,7 @@ func (p *telegramProvider) RunPolling(
 			message, err := inboundMessageFromTelegramUpdate(update)
 			switch {
 			case errors.Is(err, ErrWebhookIgnored):
+				ignoredCount += 1
 				if err := updateSettings(ctx, map[string]string{
 					telegramUpdateOffsetSetting: strconv.FormatInt(nextOffset, 10),
 				}); err != nil {
@@ -320,12 +371,33 @@ func (p *telegramProvider) RunPolling(
 			if err := handleMessage(ctx, message); err != nil {
 				return err
 			}
+			processedCount += 1
 			if err := updateSettings(ctx, map[string]string{
 				telegramUpdateOffsetSetting: strconv.FormatInt(nextOffset, 10),
 			}); err != nil {
 				return err
 			}
 			offset = nextOffset
+		}
+
+		message := fmt.Sprintf(
+			"Poll completed successfully. Received %d update(s), processed %d, ignored %d.",
+			len(updates),
+			processedCount,
+			ignoredCount,
+		)
+		eventType := "poll_success"
+		if processedCount == 0 {
+			eventType = "poll_idle"
+		}
+		if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
+			EventType:      eventType,
+			Message:        message,
+			ReceivedCount:  len(updates),
+			ProcessedCount: processedCount,
+			IgnoredCount:   ignoredCount,
+		}); err != nil {
+			return err
 		}
 	}
 }
@@ -415,8 +487,10 @@ func (p *telegramProvider) getUpdates(ctx context.Context, token string, offset 
 		payload["offset"] = offset
 	}
 
-	if err := p.callJSONWithClient(ctx, p.pollingClient(), token, "getUpdates", payload, &response); err != nil {
-		return nil, err
+	if err := p.withDeliveryRetry(ctx, func(ctx context.Context) error {
+		return p.callJSONWithClient(ctx, p.pollingClient(), token, "getUpdates", payload, &response)
+	}); err != nil {
+		return nil, wrapTelegramPollingTransportError(err, p.pollingProxyURL())
 	}
 
 	return response.Result, nil
@@ -533,6 +607,19 @@ func (p *telegramProvider) client(timeout time.Duration) *http.Client {
 func (p *telegramProvider) pollingClient() *http.Client {
 	minTimeout := (telegramLongPollTimeoutSecond + 10) * time.Second
 	return p.client(minTimeout)
+}
+
+func (p *telegramProvider) pollingProxyURL() string {
+	if p == nil || p.clients == nil {
+		return ""
+	}
+
+	proxyAware, ok := p.clients.(proxyAwareHTTPClientSource)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(proxyAware.EffectiveProxyURL())
 }
 
 func (p *telegramProvider) withDeliveryRetry(
@@ -729,6 +816,27 @@ func isTransientTelegramTransportError(err error) bool {
 	return false
 }
 
+func wrapTelegramPollingTransportError(err error, proxyURL string) error {
+	if err == nil {
+		return nil
+	}
+
+	trimmedProxyURL := strings.TrimSpace(proxyURL)
+	if trimmedProxyURL == "" {
+		return err
+	}
+
+	var existing interface{ PollingProxyURL() string }
+	if errors.As(err, &existing) && strings.TrimSpace(existing.PollingProxyURL()) != "" {
+		return err
+	}
+
+	return &telegramPollingTransportDiagnosticError{
+		cause:    err,
+		proxyURL: trimmedProxyURL,
+	}
+}
+
 func sleepWithContext(ctx context.Context, delay time.Duration) error {
 	if delay <= 0 {
 		return nil
@@ -792,6 +900,15 @@ func parseTelegramUpdateOffset(value string) (int64, error) {
 		return 0, fmt.Errorf("%w: telegram update offset must be a non-negative integer", ErrInvalidInput)
 	}
 	return offset, nil
+}
+
+func telegramPollingConflictError(ownerConnectionID string) error {
+	message := "telegram polling token is already claimed by another active polling connection"
+	if owner := strings.TrimSpace(ownerConnectionID); owner != "" {
+		message += " (" + owner + ")"
+	}
+	message += "; pause or delete the other polling connection, or switch one connection to webhook mode"
+	return fmt.Errorf("%w: %s", ErrInvalidInput, message)
 }
 
 func inboundMessageFromTelegramUpdate(update telegramUpdate) (InboundMessage, error) {

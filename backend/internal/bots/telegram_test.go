@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -222,6 +223,7 @@ func TestTelegramProviderActivatePollingAndRunPolling(t *testing.T) {
 			persistedSettings = settings
 			return context.Canceled
 		},
+		nil,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected polling to stop with context.Canceled, got %v", err)
@@ -724,6 +726,7 @@ func TestTelegramProviderRunPollingPreservesTopicThreadID(t *testing.T) {
 			persistedSettings = settings
 			return context.Canceled
 		},
+		nil,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected polling to stop with context.Canceled, got %v", err)
@@ -841,6 +844,7 @@ func TestTelegramProviderRunPollingSkipsIgnoredUpdatesAndAdvancesOffset(t *testi
 			}
 			return nil
 		},
+		nil,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected polling to stop with context.Canceled, got %v", err)
@@ -855,6 +859,100 @@ func TestTelegramProviderRunPollingSkipsIgnoredUpdatesAndAdvancesOffset(t *testi
 	expectedOffsets := []string{"21", "22", "23"}
 	if strings.Join(offsets, ",") != strings.Join(expectedOffsets, ",") {
 		t.Fatalf("expected offset progression %#v, got %#v", expectedOffsets, offsets)
+	}
+}
+
+func TestTelegramProviderRunPollingRetriesTransientGetUpdatesFailures(t *testing.T) {
+	t.Parallel()
+
+	getUpdatesCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:abc/getUpdates":
+			getUpdatesCalls += 1
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": []map[string]any{
+					{
+						"update_id": 31,
+						"message": map[string]any{
+							"message_id": 7,
+							"text":       "hello after transient failure",
+							"chat": map[string]any{
+								"id":    1001,
+								"title": "Alice",
+							},
+							"from": map[string]any{
+								"id":         5001,
+								"username":   "alice",
+								"first_name": "Alice",
+								"is_bot":     false,
+							},
+						},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	transport := &scriptedTelegramRoundTripper{
+		base: client.Transport,
+		errs: []error{io.ErrUnexpectedEOF, io.ErrUnexpectedEOF},
+	}
+	client.Transport = transport
+
+	provider := newTelegramProviderWithClientSource(fixedHTTPClientSource{client: client}).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	delays := make([]time.Duration, 0, 2)
+	provider.sleep = func(_ context.Context, delay time.Duration) error {
+		delays = append(delays, delay)
+		return nil
+	}
+
+	connection := store.BotConnection{
+		ID: "bot_retry_polling",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}
+
+	handled := make([]InboundMessage, 0, 1)
+	err := provider.RunPolling(
+		context.Background(),
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			handled = append(handled, message)
+			return nil
+		},
+		func(_ context.Context, settings map[string]string) error {
+			if settings[telegramUpdateOffsetSetting] == "32" {
+				return context.Canceled
+			}
+			return nil
+		},
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected polling to stop with context.Canceled, got %v", err)
+	}
+	if transport.calls != 3 {
+		t.Fatalf("expected 3 transport attempts, got %d", transport.calls)
+	}
+	if getUpdatesCalls != 1 {
+		t.Fatalf("expected 1 successful getUpdates request, got %d", getUpdatesCalls)
+	}
+	if len(handled) != 1 || handled[0].Text != "hello after transient failure" {
+		t.Fatalf("unexpected handled polling messages %#v", handled)
+	}
+	expectedDelays := []time.Duration{telegramDeliveryRetryBase, telegramDeliveryRetryBase * 2}
+	if strings.Join(formatDurations(delays), ",") != strings.Join(formatDurations(expectedDelays), ",") {
+		t.Fatalf("expected retry delays %#v, got %#v", expectedDelays, delays)
 	}
 }
 
@@ -914,6 +1012,33 @@ func TestTelegramProviderSendMessagesRetriesRateLimitedRequests(t *testing.T) {
 	if len(delays) != 1 || delays[0] != 3*time.Second {
 		t.Fatalf("expected one retry-after delay of 3s, got %#v", delays)
 	}
+}
+
+type scriptedTelegramRoundTripper struct {
+	base  http.RoundTripper
+	errs  []error
+	calls int
+}
+
+func (r *scriptedTelegramRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.calls += 1
+	if len(r.errs) > 0 {
+		err := r.errs[0]
+		r.errs = r.errs[1:]
+		return nil, err
+	}
+	if r.base == nil {
+		r.base = http.DefaultTransport
+	}
+	return r.base.RoundTrip(req)
+}
+
+func formatDurations(items []time.Duration) []string {
+	formatted := make([]string, 0, len(items))
+	for _, item := range items {
+		formatted = append(formatted, item.String())
+	}
+	return formatted
 }
 
 func TestTelegramProviderSendMessagesDoesNotRetryFatalClientErrors(t *testing.T) {

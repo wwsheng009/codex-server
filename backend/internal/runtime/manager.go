@@ -261,7 +261,7 @@ func (m *Manager) Respond(ctx context.Context, requestID string, result any) (Pe
 	delete(m.requests, requestID)
 	m.mu.Unlock()
 
-	m.events.Publish(store.EventEnvelope{
+	m.publish(store.EventEnvelope{
 		WorkspaceID:     request.WorkspaceID,
 		ThreadID:        request.ThreadID,
 		TurnID:          request.TurnID,
@@ -473,7 +473,7 @@ func (r *instance) HandleNotification(method string, params json.RawMessage) {
 		)
 	}
 
-	r.manager.events.Publish(store.EventEnvelope{
+	r.manager.publish(store.EventEnvelope{
 		WorkspaceID: r.workspaceID,
 		ThreadID:    threadID,
 		TurnID:      turnID,
@@ -515,7 +515,7 @@ func (r *instance) HandleRequest(id json.RawMessage, method string, params json.
 		)...,
 	)
 
-	r.manager.events.Publish(store.EventEnvelope{
+	r.manager.publish(store.EventEnvelope{
 		WorkspaceID:     r.workspaceID,
 		ThreadID:        threadID,
 		TurnID:          turnID,
@@ -744,7 +744,7 @@ func (r *instance) flushPendingCommandOutput() {
 	now := time.Now().UTC()
 	for _, chunk := range chunks {
 		for _, outputChunk := range splitCommandOutputDelta(chunk.delta, commandOutputMaxChunkBytes) {
-			r.manager.events.Publish(store.EventEnvelope{
+			r.manager.publish(store.EventEnvelope{
 				WorkspaceID: r.workspaceID,
 				Method:      "command/exec/outputDelta",
 				Payload:     buildCommandOutputDeltaPayload(chunk.processID, chunk.stream, outputChunk),
@@ -817,7 +817,7 @@ func (m *Manager) expireRequestsForWorkspace(workspaceID string, reason string) 
 			continue
 		}
 		requestID := request.RequestID
-		m.events.Publish(store.EventEnvelope{
+		m.publish(store.EventEnvelope{
 			WorkspaceID:     request.WorkspaceID,
 			ThreadID:        request.ThreadID,
 			TurnID:          request.TurnID,
@@ -827,4 +827,11 @@ func (m *Manager) expireRequestsForWorkspace(workspaceID string, reason string) 
 			TS:              time.Now().UTC(),
 		})
 	}
+}
+
+func (m *Manager) publish(event store.EventEnvelope) {
+	if m.events == nil {
+		return
+	}
+	m.events.Publish(event)
 }

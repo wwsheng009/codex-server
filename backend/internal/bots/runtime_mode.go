@@ -135,11 +135,25 @@ func debugOutboundMessages(messages []OutboundMessage) []map[string]any {
 
 	items := make([]map[string]any, 0, len(messages))
 	for index, message := range messages {
-		items = append(items, map[string]any{
+		entry := map[string]any{
 			"index":   index,
 			"length":  len([]rune(message.Text)),
 			"preview": debugTextPreview(message.Text),
-		})
+		}
+		if len(message.Media) > 0 {
+			media := make([]map[string]any, 0, len(message.Media))
+			for _, item := range message.Media {
+				media = append(media, map[string]any{
+					"kind":        strings.TrimSpace(item.Kind),
+					"path":        strings.TrimSpace(item.Path),
+					"url":         strings.TrimSpace(item.URL),
+					"fileName":    strings.TrimSpace(item.FileName),
+					"contentType": strings.TrimSpace(item.ContentType),
+				})
+			}
+			entry["media"] = media
+		}
+		items = append(items, entry)
 	}
 	return items
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"codex-server/backend/internal/appserver"
 )
 
 const scannerMaxTokenSize = 10 * 1024 * 1024
@@ -24,11 +26,12 @@ type Handler interface {
 }
 
 type Config struct {
-	Command         string
-	Cwd             string
-	ClientName      string
-	ClientVersion   string
-	ExperimentalAPI bool
+	Command                   string
+	Cwd                       string
+	ClientName                string
+	ClientVersion             string
+	ExperimentalAPI           bool
+	OptOutNotificationMethods []string
 }
 
 type Client struct {
@@ -128,16 +131,8 @@ func Start(ctx context.Context, cfg Config, handler Handler) (*Client, error) {
 	go client.readStderr()
 	go client.waitProcess()
 
-	var initializeResult map[string]any
-	if err := client.Call(ctx, "initialize", map[string]any{
-		"clientInfo": map[string]any{
-			"name":    cfg.ClientName,
-			"version": cfg.ClientVersion,
-		},
-		"capabilities": map[string]any{
-			"experimentalApi": cfg.ExperimentalAPI,
-		},
-	}, &initializeResult); err != nil {
+	var initializeResult appserver.InitializeResponse
+	if err := client.Call(ctx, "initialize", buildInitializeRequest(cfg), &initializeResult); err != nil {
 		client.Close()
 		return nil, err
 	}
@@ -148,6 +143,24 @@ func Start(ctx context.Context, cfg Config, handler Handler) (*Client, error) {
 	}
 
 	return client, nil
+}
+
+func buildInitializeRequest(cfg Config) appserver.InitializeRequest {
+	request := appserver.InitializeRequest{
+		ClientInfo: appserver.ClientInfo{
+			Name:    cfg.ClientName,
+			Version: cfg.ClientVersion,
+		},
+		Capabilities: appserver.InitializeCapabilities{
+			ExperimentalAPI: cfg.ExperimentalAPI,
+		},
+	}
+
+	if len(cfg.OptOutNotificationMethods) > 0 {
+		request.Capabilities.OptOutNotificationMethods = append([]string(nil), cfg.OptOutNotificationMethods...)
+	}
+
+	return request
 }
 
 func (c *Client) Call(ctx context.Context, method string, params any, result any) error {

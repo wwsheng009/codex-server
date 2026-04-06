@@ -59,9 +59,40 @@ type StreamingProvider interface {
 	) (StreamingReplySession, error)
 }
 
+type TypingSession interface {
+	Stop(ctx context.Context) error
+}
+
+type TypingProvider interface {
+	Provider
+	StartTyping(
+		ctx context.Context,
+		connection store.BotConnection,
+		conversation store.BotConversation,
+	) (TypingSession, error)
+}
+
 type PollingMessageHandler func(ctx context.Context, message InboundMessage) error
 
 type PollingSettingsHandler func(ctx context.Context, settings map[string]string) error
+
+type PollingEvent struct {
+	EventType      string
+	Message        string
+	ReceivedCount  int
+	ProcessedCount int
+	IgnoredCount   int
+}
+
+type PollingEventHandler func(ctx context.Context, event PollingEvent) error
+
+func emitPollingEvent(ctx context.Context, report PollingEventHandler, event PollingEvent) error {
+	if report == nil {
+		return nil
+	}
+
+	return report(ctx, event)
+}
 
 type PollingProvider interface {
 	Provider
@@ -71,7 +102,14 @@ type PollingProvider interface {
 		connection store.BotConnection,
 		handleMessage PollingMessageHandler,
 		updateSettings PollingSettingsHandler,
+		reportEvent PollingEventHandler,
 	) error
+}
+
+type PollingOwnershipProvider interface {
+	Provider
+	PollingOwnerKey(connection store.BotConnection) string
+	PollingConflictError(ownerConnectionID string) error
 }
 
 type AIBackend interface {
@@ -128,10 +166,13 @@ type InboundMessage struct {
 	Username         string
 	Title            string
 	Text             string
+	Media            []store.BotMessageMedia
+	ProviderData     map[string]string
 }
 
 type OutboundMessage struct {
-	Text string
+	Text  string
+	Media []store.BotMessageMedia
 }
 
 type AIResult struct {
@@ -159,18 +200,40 @@ type UpdateConnectionRuntimeModeInput struct {
 }
 
 type ConnectionView struct {
-	ID          string            `json:"id"`
-	WorkspaceID string            `json:"workspaceId"`
-	Provider    string            `json:"provider"`
-	Name        string            `json:"name"`
-	Status      string            `json:"status"`
-	AIBackend   string            `json:"aiBackend"`
-	AIConfig    map[string]string `json:"aiConfig,omitempty"`
-	Settings    map[string]string `json:"settings,omitempty"`
-	SecretKeys  []string          `json:"secretKeys,omitempty"`
-	LastError   string            `json:"lastError,omitempty"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
+	ID              string            `json:"id"`
+	WorkspaceID     string            `json:"workspaceId"`
+	Provider        string            `json:"provider"`
+	Name            string            `json:"name"`
+	Status          string            `json:"status"`
+	AIBackend       string            `json:"aiBackend"`
+	AIConfig        map[string]string `json:"aiConfig,omitempty"`
+	Settings        map[string]string `json:"settings,omitempty"`
+	SecretKeys      []string          `json:"secretKeys,omitempty"`
+	LastError       string            `json:"lastError,omitempty"`
+	LastPollAt      *time.Time        `json:"lastPollAt,omitempty"`
+	LastPollStatus  string            `json:"lastPollStatus,omitempty"`
+	LastPollMessage string            `json:"lastPollMessage,omitempty"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+}
+
+type ConversationView struct {
+	ID                     string    `json:"id"`
+	WorkspaceID            string    `json:"workspaceId"`
+	ConnectionID           string    `json:"connectionId"`
+	Provider               string    `json:"provider"`
+	ExternalConversationID string    `json:"externalConversationId,omitempty"`
+	ExternalChatID         string    `json:"externalChatId"`
+	ExternalThreadID       string    `json:"externalThreadId,omitempty"`
+	ExternalUserID         string    `json:"externalUserId,omitempty"`
+	ExternalUsername       string    `json:"externalUsername,omitempty"`
+	ExternalTitle          string    `json:"externalTitle,omitempty"`
+	ThreadID               string    `json:"threadId,omitempty"`
+	LastInboundMessageID   string    `json:"lastInboundMessageId,omitempty"`
+	LastInboundText        string    `json:"lastInboundText,omitempty"`
+	LastOutboundText       string    `json:"lastOutboundText,omitempty"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 type WebhookResult struct {

@@ -741,6 +741,124 @@ func TestBotConnectionRoutesAndWebhook(t *testing.T) {
 	}
 }
 
+func TestWeChatLoginRoutesStartPollAndDelete(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	var wechatServer *httptest.Server
+	wechatServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ilink/bot/get_bot_qrcode":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":                0,
+				"errcode":            0,
+				"errmsg":             "",
+				"qrcode":             "route-qr-1",
+				"qrcode_img_content": "weixin://qr/route-qr-1",
+			})
+		case "/ilink/bot/get_qrcode_status":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":           0,
+				"errcode":       0,
+				"errmsg":        "",
+				"status":        "confirmed",
+				"bot_token":     "route-wechat-token",
+				"ilink_bot_id":  "route-account-id",
+				"baseurl":       wechatServer.URL,
+				"ilink_user_id": "route-owner-id",
+			})
+		default:
+			t.Fatalf("unexpected wechat auth path %s", r.URL.Path)
+		}
+	}))
+	defer wechatServer.Close()
+
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+		HTTPClient: wechatServer.Client(),
+	})
+
+	router := NewRouter(Dependencies{
+		FrontendOrigin: "http://localhost:15173",
+		Auth:           auth.NewService(dataStore, runtimeManager),
+		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Bots:           botService,
+		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
+		Notifications:  notifications.NewService(dataStore),
+		Threads:        threadService,
+		Turns:          turnService,
+		Approvals:      approvals.NewService(runtimeManager),
+		Catalog:        catalog.NewService(runtimeManager),
+		ConfigFS:       configfs.NewService(runtimeManager),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub, dataStore),
+		Feedback:       feedback.NewService(runtimeManager),
+		Events:         eventHub,
+	})
+
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	startResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-providers/wechat/login/start",
+		`{"baseUrl":"`+wechatServer.URL+`"}`,
+	)
+	if startResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from start wechat login, got %d", startResponse.Code)
+	}
+
+	var started struct {
+		Data bots.WeChatLoginView `json:"data"`
+	}
+	decodeResponseBody(t, startResponse, &started)
+	if started.Data.LoginID == "" || started.Data.QRCodeContent == "" {
+		t.Fatalf("expected login id and qr code content, got %#v", started.Data)
+	}
+
+	statusResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/bot-providers/wechat/login/"+started.Data.LoginID,
+		"",
+	)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from get wechat login, got %d", statusResponse.Code)
+	}
+
+	var status struct {
+		Data bots.WeChatLoginView `json:"data"`
+	}
+	decodeResponseBody(t, statusResponse, &status)
+	if status.Data.Status != "confirmed" || !status.Data.CredentialReady {
+		t.Fatalf("expected confirmed credential bundle, got %#v", status.Data)
+	}
+	if status.Data.BotToken != "route-wechat-token" || status.Data.AccountID != "route-account-id" || status.Data.UserID != "route-owner-id" {
+		t.Fatalf("expected confirmed credential details, got %#v", status.Data)
+	}
+
+	deleteResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodDelete,
+		"/api/workspaces/"+workspace.ID+"/bot-providers/wechat/login/"+started.Data.LoginID,
+		"",
+	)
+	if deleteResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from delete wechat login, got %d", deleteResponse.Code)
+	}
+}
+
 func TestRestartWorkspaceRouteIsWired(t *testing.T) {
 	t.Parallel()
 

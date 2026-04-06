@@ -179,6 +179,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/", server.handleListBotConnections)
 				r.Post("/", server.handleCreateBotConnection)
 				r.Get("/{connectionId}", server.handleGetBotConnection)
+				r.Get("/{connectionId}/logs", server.handleListBotConnectionLogs)
 				r.Post("/{connectionId}/runtime-mode", server.handleUpdateBotConnectionRuntimeMode)
 				r.Post("/{connectionId}/pause", server.handlePauseBotConnection)
 				r.Post("/{connectionId}/resume", server.handleResumeBotConnection)
@@ -186,6 +187,9 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/{connectionId}/conversations", server.handleListBotConnectionConversations)
 			})
 			r.Get("/{workspaceId}/bot-conversations", server.handleListBotConversations)
+			r.Post("/{workspaceId}/bot-providers/wechat/login/start", server.handleStartWeChatLogin)
+			r.Get("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleGetWeChatLogin)
+			r.Delete("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleDeleteWeChatLogin)
 
 			r.Route("/{workspaceId}/threads", func(r chi.Router) {
 				r.Get("/", server.handleListThreads)
@@ -655,6 +659,16 @@ func (s *Server) handleGetBotConnection(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, connection)
 }
 
+func (s *Server) handleListBotConnectionLogs(w http.ResponseWriter, r *http.Request) {
+	logs, err := s.bots.ListConnectionLogs(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, logs)
+}
+
 func (s *Server) handleUpdateBotConnectionRuntimeMode(w http.ResponseWriter, r *http.Request) {
 	var request bots.UpdateConnectionRuntimeModeInput
 	if err := decodeJSON(r, &request); err != nil {
@@ -719,12 +733,47 @@ func (s *Server) handleListBotConversations(w http.ResponseWriter, r *http.Reque
 	writeJSON(
 		w,
 		http.StatusOK,
-		s.bots.ListConversations(chi.URLParam(r, "workspaceId"), strings.TrimSpace(r.URL.Query().Get("connectionId"))),
+		s.bots.ListConversationViews(chi.URLParam(r, "workspaceId"), strings.TrimSpace(r.URL.Query().Get("connectionId"))),
 	)
 }
 
 func (s *Server) handleListBotConnectionConversations(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.bots.ListConversations(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId")))
+	writeJSON(w, http.StatusOK, s.bots.ListConversationViews(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId")))
+}
+
+func (s *Server) handleStartWeChatLogin(w http.ResponseWriter, r *http.Request) {
+	var request bots.StartWeChatLoginInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.bots.StartWeChatLogin(r.Context(), chi.URLParam(r, "workspaceId"), request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) handleGetWeChatLogin(w http.ResponseWriter, r *http.Request) {
+	result, err := s.bots.GetWeChatLogin(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "loginId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleDeleteWeChatLogin(w http.ResponseWriter, r *http.Request) {
+	if err := s.bots.DeleteWeChatLogin(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "loginId")); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (s *Server) handleBotWebhook(w http.ResponseWriter, r *http.Request) {
@@ -2121,6 +2170,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "bot_connection_not_found", err.Error())
 	case errors.Is(err, store.ErrBotConversationNotFound):
 		writeError(w, http.StatusNotFound, "bot_conversation_not_found", err.Error())
+	case errors.Is(err, bots.ErrWeChatLoginNotFound):
+		writeError(w, http.StatusNotFound, "wechat_login_not_found", err.Error())
 	case errors.Is(err, execfs.ErrCommandSessionNotFound):
 		writeError(w, http.StatusNotFound, "command_session_not_found", err.Error())
 	case errors.Is(err, execfs.ErrCommandStartCommandRequired), errors.Is(err, execfs.ErrCommandStartModeInvalid):

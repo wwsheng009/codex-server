@@ -40,6 +40,7 @@ type Service struct {
 	approvals     ApprovalResponder
 	providers     map[string]Provider
 	aiBackends    map[string]AIBackend
+	wechatAuth    *wechatAuthService
 
 	started bool
 
@@ -137,6 +138,7 @@ func NewService(
 		approvals:         cfg.Approvals,
 		providers:         make(map[string]Provider),
 		aiBackends:        make(map[string]AIBackend),
+		wechatAuth:        newWeChatAuthService(clientSource),
 		workers:           make(map[string]*inboundWorker),
 		pollers:           make(map[string]*pollerHandle),
 		messageTimeout:    cfg.MessageTimeout,
@@ -145,6 +147,7 @@ func NewService(
 	}
 
 	service.registerProvider(newTelegramProviderWithClientSource(clientSource))
+	service.registerProvider(newWeChatProviderWithClientSource(clientSource))
 	service.registerAIBackend(newWorkspaceThreadAIBackend(threadService, turnService, eventHub, cfg.PollInterval, cfg.TurnTimeout))
 	service.registerAIBackend(newOpenAIResponsesBackendWithClientSource(clientSource))
 	for _, provider := range cfg.Providers {
@@ -188,8 +191,73 @@ func (s *Service) GetConnection(workspaceID string, connectionID string) (Connec
 	return connectionViewFromStore(connection), nil
 }
 
+func (s *Service) ListConnectionLogs(workspaceID string, connectionID string) ([]store.BotConnectionLogEntry, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := s.store.GetBotConnection(resolvedWorkspaceID, connectionID); !ok {
+		return nil, store.ErrBotConnectionNotFound
+	}
+
+	return s.store.ListBotConnectionLogs(resolvedWorkspaceID, connectionID), nil
+}
+
 func (s *Service) ListConversations(workspaceID string, connectionID string) []store.BotConversation {
 	return s.store.ListBotConversations(workspaceID, connectionID)
+}
+
+func (s *Service) ListConversationViews(workspaceID string, connectionID string) []ConversationView {
+	items := s.store.ListBotConversations(workspaceID, connectionID)
+	views := make([]ConversationView, 0, len(items))
+	for _, item := range items {
+		views = append(views, conversationViewFromStore(item))
+	}
+	return views
+}
+
+func (s *Service) requireWorkspaceID(workspaceID string) (string, error) {
+	resolvedWorkspaceID := strings.TrimSpace(workspaceID)
+	if resolvedWorkspaceID == "" {
+		return "", store.ErrWorkspaceNotFound
+	}
+	if _, ok := s.store.GetWorkspace(resolvedWorkspaceID); !ok {
+		return "", store.ErrWorkspaceNotFound
+	}
+	return resolvedWorkspaceID, nil
+}
+
+func (s *Service) StartWeChatLogin(ctx context.Context, workspaceID string, input StartWeChatLoginInput) (WeChatLoginView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return WeChatLoginView{}, err
+	}
+	if s.wechatAuth == nil {
+		return WeChatLoginView{}, fmt.Errorf("%w: wechat auth service is unavailable", ErrInvalidInput)
+	}
+	return s.wechatAuth.StartLogin(ctx, resolvedWorkspaceID, input.BaseURL)
+}
+
+func (s *Service) GetWeChatLogin(ctx context.Context, workspaceID string, loginID string) (WeChatLoginView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return WeChatLoginView{}, err
+	}
+	if s.wechatAuth == nil {
+		return WeChatLoginView{}, fmt.Errorf("%w: wechat auth service is unavailable", ErrInvalidInput)
+	}
+	return s.wechatAuth.GetLoginStatus(ctx, resolvedWorkspaceID, loginID)
+}
+
+func (s *Service) DeleteWeChatLogin(workspaceID string, loginID string) error {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return err
+	}
+	if s.wechatAuth == nil {
+		return fmt.Errorf("%w: wechat auth service is unavailable", ErrInvalidInput)
+	}
+	return s.wechatAuth.DeleteLogin(resolvedWorkspaceID, loginID)
 }
 
 func (s *Service) CreateConnection(
@@ -253,7 +321,7 @@ func (s *Service) CreateConnection(
 	})
 	logBotDebug(ctx, created, "connection created",
 		slog.String("aiBackend", created.AIBackend),
-		slog.String("deliveryMode", strings.TrimSpace(created.Settings[telegramDeliveryModeSetting])),
+		slog.String("deliveryMode", debugConnectionDeliveryMode(created)),
 	)
 
 	return connectionViewFromStore(created), nil
@@ -605,6 +673,7 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 	defer cancel()
 
 	if reply, ok := aiResultFromDelivery(delivery); ok {
+		reply = normalizeProviderAIResult(connection, reply)
 		logBotDebug(messageCtx, connection, "replaying saved reply snapshot",
 			slog.String("conversationStoreId", conversation.ID),
 			slog.String("replyThreadId", strings.TrimSpace(reply.ThreadID)),
@@ -710,6 +779,10 @@ func (s *Service) executeAIReply(
 	conversation store.BotConversation,
 	inbound InboundMessage,
 ) (AIResult, bool, string, error) {
+	typingSession := s.startProviderTyping(ctx, provider, aiBackend, connection, conversation)
+	defer s.stopProviderTyping(ctx, connection, typingSession)
+
+	preparedInbound := prepareInboundMessageForAI(connection, inbound)
 	streamingProvider, providerSupportsStreaming := provider.(StreamingProvider)
 	streamingBackend, backendSupportsStreaming := aiBackend.(StreamingAIBackend)
 	if !providerSupportsStreaming || !backendSupportsStreaming {
@@ -718,7 +791,7 @@ func (s *Service) executeAIReply(
 			slog.Bool("streamingProvider", providerSupportsStreaming),
 			slog.Bool("streamingBackend", backendSupportsStreaming),
 		)
-		reply, err := s.executeFinalAIReply(ctx, provider, aiBackend, connection, conversation, inbound)
+		reply, err := s.executeFinalAIReply(ctx, provider, aiBackend, connection, conversation, preparedInbound)
 		return reply, false, "", err
 	}
 	logBotDebug(ctx, connection, "starting streaming ai reply",
@@ -738,18 +811,18 @@ func (s *Service) executeAIReply(
 		ctx,
 		connection,
 		conversation,
-		inbound,
+		preparedInbound,
 		func(updateCtx context.Context, update StreamingUpdate) error {
-			normalized := normalizeStreamingMessages(update)
-			if len(normalized) == 0 {
+			normalizedUpdate := normalizeProviderStreamingUpdate(connection, update)
+			if len(normalizedUpdate.Messages) == 0 {
 				return nil
 			}
 			logBotDebug(updateCtx, connection, "streaming update received",
 				slog.String("conversationStoreId", conversation.ID),
-				slog.Int("messageCount", len(normalized)),
-				slog.Any("messages", debugOutboundMessages(normalized)),
+				slog.Int("messageCount", len(normalizedUpdate.Messages)),
+				slog.Any("messages", debugOutboundMessages(normalizedUpdate.Messages)),
 			)
-			return session.Update(updateCtx, update)
+			return session.Update(updateCtx, normalizedUpdate)
 		},
 	)
 	if processErr != nil {
@@ -764,6 +837,7 @@ func (s *Service) executeAIReply(
 		return AIResult{}, true, failureText, processErr
 	}
 
+	reply = normalizeProviderAIResult(connection, reply)
 	if err := session.Complete(ctx, reply.Messages); err != nil {
 		return AIResult{}, false, "", &replyDeliveryError{
 			reply:        reply,
@@ -781,6 +855,58 @@ func (s *Service) executeAIReply(
 	return reply, false, "", nil
 }
 
+func (s *Service) startProviderTyping(
+	ctx context.Context,
+	provider Provider,
+	aiBackend AIBackend,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) TypingSession {
+	if provider == nil || aiBackend == nil {
+		return nil
+	}
+
+	if _, ok := provider.(StreamingProvider); ok {
+		if _, ok := aiBackend.(StreamingAIBackend); ok {
+			return nil
+		}
+	}
+
+	typingProvider, ok := provider.(TypingProvider)
+	if !ok {
+		return nil
+	}
+
+	session, err := typingProvider.StartTyping(ctx, connection, conversation)
+	if err != nil {
+		logBotDebug(ctx, connection, "provider typing start failed",
+			slog.String("provider", provider.Name()),
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
+
+	if session != nil {
+		logBotDebug(ctx, connection, "provider typing started",
+			slog.String("provider", provider.Name()),
+		)
+	}
+	return session
+}
+
+func (s *Service) stopProviderTyping(ctx context.Context, connection store.BotConnection, session TypingSession) {
+	if session == nil {
+		return
+	}
+	if err := session.Stop(ctx); err != nil {
+		logBotDebug(ctx, connection, "provider typing stop failed",
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	logBotDebug(ctx, connection, "provider typing stopped")
+}
+
 func (s *Service) executeFinalAIReply(
 	ctx context.Context,
 	provider Provider,
@@ -793,6 +919,7 @@ func (s *Service) executeFinalAIReply(
 	if err != nil {
 		return AIResult{}, wrapAIBackendError(aiBackend.Name(), err)
 	}
+	reply = normalizeProviderAIResult(connection, reply)
 	logBotDebug(ctx, connection, "final ai reply produced",
 		slog.String("conversationStoreId", conversation.ID),
 		slog.String("replyThreadId", strings.TrimSpace(reply.ThreadID)),
@@ -851,9 +978,8 @@ func (s *Service) handleReplyDeliveryFailure(
 ) error {
 	updatedConversation := s.recordConversationOutcome(connection, conversation, reply, message, "")
 
-	replyTexts := outboundMessageTexts(reply.Messages)
 	saveErr := error(nil)
-	if _, err := s.store.SaveBotInboundDeliveryReply(connection.WorkspaceID, delivery.ID, reply.ThreadID, replyTexts); err != nil {
+	if _, err := s.store.SaveBotInboundDeliveryReply(connection.WorkspaceID, delivery.ID, reply.ThreadID, outboundReplyMessages(reply.Messages)); err != nil {
 		saveErr = err
 	}
 
@@ -897,6 +1023,7 @@ func (s *Service) resolveConversation(
 	connection store.BotConnection,
 	inbound InboundMessage,
 ) (store.BotConversation, error) {
+	lastInboundText := messageSummaryText(inbound.Text, inbound.Media)
 	if conversation, ok := s.store.FindBotConversationByExternalConversation(connection.WorkspaceID, connection.ID, inbound.ConversationID); ok {
 		updated, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
 			current.ExternalConversationID = strings.TrimSpace(inbound.ConversationID)
@@ -905,7 +1032,8 @@ func (s *Service) resolveConversation(
 			current.ExternalUserID = strings.TrimSpace(inbound.UserID)
 			current.ExternalUsername = strings.TrimSpace(inbound.Username)
 			current.ExternalTitle = strings.TrimSpace(inbound.Title)
-			current.LastInboundText = strings.TrimSpace(inbound.Text)
+			current.ProviderState = mergeProviderState(current.ProviderState, inbound.ProviderData)
+			current.LastInboundText = lastInboundText
 			return current
 		})
 		return updated, err
@@ -921,7 +1049,8 @@ func (s *Service) resolveConversation(
 		ExternalUserID:         strings.TrimSpace(inbound.UserID),
 		ExternalUsername:       strings.TrimSpace(inbound.Username),
 		ExternalTitle:          strings.TrimSpace(inbound.Title),
-		LastInboundText:        strings.TrimSpace(inbound.Text),
+		ProviderState:          mergeProviderState(nil, inbound.ProviderData),
+		LastInboundText:        lastInboundText,
 	})
 	return created, err
 }
@@ -934,17 +1063,17 @@ func (s *Service) resolvePublicBaseURL(override string) string {
 }
 
 func (s *Service) validatePollingConnectionOwnership(connection store.BotConnection) error {
-	conflict, ok := s.findConflictingTelegramPollingConnection(connection)
+	_, err, ok := s.findConflictingPollingConnection(connection)
 	if !ok {
 		return nil
 	}
-	return telegramPollingConflictError(conflict.ID)
+	return err
 }
 
-func (s *Service) findConflictingTelegramPollingConnection(connection store.BotConnection) (store.BotConnection, bool) {
-	token := telegramPollingTokenForValidation(connection)
-	if token == "" {
-		return store.BotConnection{}, false
+func (s *Service) findConflictingPollingConnection(connection store.BotConnection) (store.BotConnection, error, bool) {
+	ownershipProvider, ownerKey, ok := s.pollingOwnershipForConnection(connection)
+	if !ok {
+		return store.BotConnection{}, nil, false
 	}
 
 	var conflict store.BotConnection
@@ -954,7 +1083,10 @@ func (s *Service) findConflictingTelegramPollingConnection(connection store.BotC
 			if candidate.ID == connection.ID {
 				continue
 			}
-			if telegramPollingToken(candidate) != token {
+			if !s.isActivePollingConnection(candidate) {
+				continue
+			}
+			if s.pollingOwnerKey(candidate) != ownerKey {
 				continue
 			}
 			if !found || botConnectionSortsBefore(candidate, conflict) {
@@ -964,20 +1096,26 @@ func (s *Service) findConflictingTelegramPollingConnection(connection store.BotC
 		}
 	}
 
-	return conflict, found
+	if !found {
+		return store.BotConnection{}, nil, false
+	}
+	return conflict, ownershipProvider.PollingConflictError(conflict.ID), true
 }
 
-func (s *Service) telegramPollingOwner(connection store.BotConnection) (store.BotConnection, bool) {
-	token := telegramPollingToken(connection)
-	if token == "" {
-		return store.BotConnection{}, false
+func (s *Service) pollingOwner(connection store.BotConnection) (store.BotConnection, error, bool) {
+	ownershipProvider, ownerKey, ok := s.pollingOwnershipForConnection(connection)
+	if !ok || !s.isActivePollingConnection(connection) {
+		return store.BotConnection{}, nil, false
 	}
 
 	owner := connection
 	found := false
 	for _, workspace := range s.store.ListWorkspaces() {
 		for _, candidate := range s.store.ListBotConnections(workspace.ID) {
-			if telegramPollingToken(candidate) != token {
+			if !s.isActivePollingConnection(candidate) {
+				continue
+			}
+			if s.pollingOwnerKey(candidate) != ownerKey {
 				continue
 			}
 			if !found || botConnectionSortsBefore(candidate, owner) {
@@ -988,33 +1126,39 @@ func (s *Service) telegramPollingOwner(connection store.BotConnection) (store.Bo
 	}
 
 	if !found {
-		return store.BotConnection{}, false
+		return store.BotConnection{}, nil, false
 	}
-	return owner, true
+	if owner.ID == connection.ID {
+		return owner, nil, true
+	}
+	return owner, ownershipProvider.PollingConflictError(owner.ID), true
 }
 
-func isActiveTelegramPollingConnection(connection store.BotConnection) bool {
-	return strings.EqualFold(strings.TrimSpace(connection.Status), "active") &&
-		normalizeProviderName(connection.Provider) == telegramProviderName &&
-		telegramDeliveryMode(connection) == telegramDeliveryModePolling &&
-		strings.TrimSpace(connection.Secrets["bot_token"]) != ""
+func (s *Service) isActivePollingConnection(connection store.BotConnection) bool {
+	return strings.EqualFold(strings.TrimSpace(connection.Status), "active") && s.pollingOwnerKey(connection) != ""
 }
 
-func telegramPollingTokenForValidation(connection store.BotConnection) string {
-	if normalizeProviderName(connection.Provider) != telegramProviderName {
-		return ""
+func (s *Service) pollingOwnershipForConnection(connection store.BotConnection) (PollingOwnershipProvider, string, bool) {
+	provider, ok := s.providers[normalizeProviderName(connection.Provider)]
+	if !ok {
+		return nil, "", false
 	}
-	if telegramDeliveryMode(connection) != telegramDeliveryModePolling {
-		return ""
-	}
-	return strings.TrimSpace(connection.Secrets["bot_token"])
-}
 
-func telegramPollingToken(connection store.BotConnection) string {
-	if !isActiveTelegramPollingConnection(connection) {
-		return ""
+	pollingProvider, ok := provider.(PollingProvider)
+	if !ok || !pollingProvider.SupportsPolling(connection) {
+		return nil, "", false
 	}
-	return strings.TrimSpace(connection.Secrets["bot_token"])
+
+	ownershipProvider, ok := provider.(PollingOwnershipProvider)
+	if !ok {
+		return nil, "", false
+	}
+
+	ownerKey := strings.TrimSpace(ownershipProvider.PollingOwnerKey(connection))
+	if ownerKey == "" {
+		return nil, "", false
+	}
+	return ownershipProvider, ownerKey, true
 }
 
 func botConnectionSortsBefore(left store.BotConnection, right store.BotConnection) bool {
@@ -1033,20 +1177,64 @@ func botConnectionSortsBefore(left store.BotConnection, right store.BotConnectio
 	return left.ID < right.ID
 }
 
-func telegramPollingConflictError(ownerConnectionID string) error {
-	message := "telegram polling token is already claimed by another active polling connection"
-	if owner := strings.TrimSpace(ownerConnectionID); owner != "" {
-		message += " (" + owner + ")"
+func (s *Service) pollingOwnerKey(connection store.BotConnection) string {
+	ownershipProvider, ownerKey, ok := s.pollingOwnershipForConnection(connection)
+	if !ok || ownershipProvider == nil {
+		return ""
 	}
-	message += "; pause or delete the other polling connection, or switch one connection to webhook mode"
-	return fmt.Errorf("%w: %s", ErrInvalidInput, message)
+	return ownerKey
 }
 
 func (s *Service) setConnectionLastError(workspaceID string, connectionID string, lastError string) {
-	_, _ = s.store.UpdateBotConnection(workspaceID, connectionID, func(current store.BotConnection) store.BotConnection {
+	_, _ = s.store.UpdateBotConnectionRuntimeState(workspaceID, connectionID, func(current store.BotConnection) store.BotConnection {
 		current.LastError = strings.TrimSpace(lastError)
 		return current
 	})
+}
+
+func (s *Service) updateConnectionPollState(
+	workspaceID string,
+	connectionID string,
+	status string,
+	message string,
+	lastError string,
+) {
+	now := time.Now().UTC()
+	_, _ = s.store.UpdateBotConnectionRuntimeState(workspaceID, connectionID, func(current store.BotConnection) store.BotConnection {
+		current.LastPollAt = &now
+		current.LastPollStatus = strings.TrimSpace(status)
+		current.LastPollMessage = strings.TrimSpace(message)
+		current.LastError = strings.TrimSpace(lastError)
+		return current
+	})
+}
+
+func (s *Service) appendConnectionLog(workspaceID string, connectionID string, level string, eventType string, message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+
+	_, _ = s.store.AppendBotConnectionLog(workspaceID, connectionID, store.BotConnectionLogEntry{
+		Level:     strings.TrimSpace(level),
+		EventType: strings.TrimSpace(eventType),
+		Message:   message,
+	})
+}
+
+func (s *Service) recordPollingEvent(workspaceID string, connectionID string, event PollingEvent) {
+	message := strings.TrimSpace(event.Message)
+	if message == "" {
+		message = "Polling iteration completed successfully."
+	}
+
+	eventType := strings.TrimSpace(event.EventType)
+	if eventType == "" {
+		eventType = "poll_success"
+	}
+
+	s.updateConnectionPollState(workspaceID, connectionID, "success", message, "")
+	s.appendConnectionLog(workspaceID, connectionID, "success", eventType, message)
 }
 
 func (s *Service) syncPollingConnections() {
@@ -1064,9 +1252,12 @@ func (s *Service) syncPollingConnection(connection store.BotConnection) {
 		return
 	}
 
-	if owner, ok := s.telegramPollingOwner(connection); ok && owner.ID != connection.ID {
+	if owner, err, ok := s.pollingOwner(connection); ok && owner.ID != connection.ID {
 		s.stopPollingConnection(connection.ID)
-		s.setConnectionLastError(connection.WorkspaceID, connection.ID, telegramPollingConflictError(owner.ID).Error())
+		if err != nil {
+			s.setConnectionLastError(connection.WorkspaceID, connection.ID, err.Error())
+			s.appendConnectionLog(connection.WorkspaceID, connection.ID, "error", "poll_conflict", err.Error())
+		}
 		return
 	}
 	if strings.TrimSpace(connection.LastError) != "" {
@@ -1135,6 +1326,16 @@ func (s *Service) runPollingConnection(
 	defer s.finishPollingConnection(connectionID, handle)
 
 	retryDelay := time.Second
+	if connection, ok := s.store.FindBotConnection(connectionID); ok {
+		s.appendConnectionLog(
+			connection.WorkspaceID,
+			connection.ID,
+			"info",
+			"poller_started",
+			fmt.Sprintf("%s polling worker started.", providerDisplayName(connection.Provider)),
+		)
+	}
+
 	for {
 		connection, ok := s.store.FindBotConnection(connectionID)
 		if !ok {
@@ -1165,8 +1366,19 @@ func (s *Service) runPollingConnection(
 				})
 				return err
 			},
+			func(_ context.Context, event PollingEvent) error {
+				s.recordPollingEvent(connection.WorkspaceID, connection.ID, event)
+				return nil
+			},
 		)
 		if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			s.appendConnectionLog(
+				connection.WorkspaceID,
+				connection.ID,
+				"info",
+				"poller_stopped",
+				fmt.Sprintf("%s polling worker stopped.", providerDisplayName(connection.Provider)),
+			)
 			return
 		}
 
@@ -1204,10 +1416,24 @@ func (s *Service) recordPollingError(connection store.BotConnection, err error) 
 		return
 	}
 
-	_, _ = s.store.UpdateBotConnection(connection.WorkspaceID, connection.ID, func(current store.BotConnection) store.BotConnection {
-		current.LastError = err.Error()
-		return current
-	})
+	s.updateConnectionPollState(connection.WorkspaceID, connection.ID, "failed", err.Error(), err.Error())
+	s.appendConnectionLog(
+		connection.WorkspaceID,
+		connection.ID,
+		"error",
+		"poll_failed",
+		"Polling iteration failed: "+strings.TrimSpace(err.Error()),
+	)
+
+	attrs := []slog.Attr{slog.String("error", err.Error())}
+	var proxyDiagnostic interface{ PollingProxyURL() string }
+	if errors.As(err, &proxyDiagnostic) {
+		if proxyURL := strings.TrimSpace(proxyDiagnostic.PollingProxyURL()); proxyURL != "" {
+			attrs = append(attrs, slog.String("proxyUrl", proxyURL))
+		}
+	}
+
+	logBotDebug(nil, connection, "polling iteration failed", attrs...)
 }
 
 func (s *Service) workerContext() context.Context {
@@ -1222,7 +1448,11 @@ func (s *Service) workerContext() context.Context {
 }
 
 func (s *Service) workerKeyForJob(job inboundJob) string {
-	if isBotControlCommand(job.message.Text) {
+	commandText := job.message.Text
+	if connection, ok := s.store.FindBotConnection(job.connectionID); ok {
+		commandText = normalizeInboundCommandText(connection, commandText)
+	}
+	if isBotControlCommand(commandText) {
 		return job.connectionID + "\x00control"
 	}
 	return job.connectionID + "\x00" + job.message.ConversationID
@@ -1300,9 +1530,34 @@ func defaultConnectionName(provider string) string {
 	switch normalizeProviderName(provider) {
 	case telegramProviderName:
 		return "Telegram Bot"
+	case wechatProviderName:
+		return "WeChat Bot"
 	default:
 		return "Bot Connection"
 	}
+}
+
+func providerDisplayName(provider string) string {
+	switch normalizeProviderName(provider) {
+	case telegramProviderName:
+		return "Telegram"
+	case wechatProviderName:
+		return "WeChat"
+	default:
+		if strings.TrimSpace(provider) == "" {
+			return "Bot"
+		}
+		return strings.TrimSpace(provider)
+	}
+}
+
+func cloneOptionalTimeLocal(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+
+	cloned := value.UTC()
+	return &cloned
 }
 
 func mergeStringMaps(base map[string]string, overlay map[string]string) map[string]string {
@@ -1318,6 +1573,41 @@ func mergeStringMaps(base map[string]string, overlay map[string]string) map[stri
 	next := cloneStringMapLocal(base)
 	for key, value := range overlay {
 		next[key] = value
+	}
+	return next
+}
+
+func mergeProviderState(base map[string]string, overlay map[string]string) map[string]string {
+	switch {
+	case len(base) == 0 && len(overlay) == 0:
+		return nil
+	case len(base) == 0:
+		next := make(map[string]string, len(overlay))
+		for key, value := range overlay {
+			if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+				continue
+			}
+			next[key] = strings.TrimSpace(value)
+		}
+		if len(next) == 0 {
+			return nil
+		}
+		return next
+	case len(overlay) == 0:
+		return cloneStringMapLocal(base)
+	}
+
+	next := cloneStringMapLocal(base)
+	for key, value := range overlay {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		next[key] = value
+	}
+	if len(next) == 0 {
+		return nil
 	}
 	return next
 }
@@ -1442,10 +1732,10 @@ func normalizeStreamingMessages(update StreamingUpdate) []OutboundMessage {
 	if len(update.Messages) > 0 {
 		messages := make([]OutboundMessage, 0, len(update.Messages))
 		for _, message := range update.Messages {
-			if strings.TrimSpace(message.Text) == "" {
+			if !outboundMessageHasContent(message) {
 				continue
 			}
-			messages = append(messages, message)
+			messages = append(messages, cloneOutboundMessage(message))
 		}
 		return messages
 	}
@@ -1455,6 +1745,18 @@ func normalizeStreamingMessages(update StreamingUpdate) []OutboundMessage {
 	}
 
 	return []OutboundMessage{{Text: update.Text}}
+}
+
+func normalizeProviderStreamingUpdate(connection store.BotConnection, update StreamingUpdate) StreamingUpdate {
+	return StreamingUpdate{
+		Messages: normalizeProviderReplyMessages(connection, normalizeStreamingMessages(update)),
+	}
+}
+
+func normalizeProviderAIResult(connection store.BotConnection, result AIResult) AIResult {
+	next := result
+	next.Messages = normalizeProviderReplyMessages(connection, result.Messages)
+	return next
 }
 
 func (s *Service) sendFailureReply(
@@ -1584,7 +1886,7 @@ func (s *Service) handleApprovalCommand(
 	conversation store.BotConversation,
 	inbound InboundMessage,
 ) (bool, string, error) {
-	command, recognized, err := parseBotApprovalCommand(inbound.Text)
+	command, recognized, err := parseBotApprovalCommand(normalizeInboundCommandText(connection, inbound.Text))
 	if !recognized {
 		return false, "", nil
 	}
@@ -1636,7 +1938,7 @@ func (s *Service) handleConversationCommand(
 	conversation store.BotConversation,
 	inbound InboundMessage,
 ) (bool, store.BotConversation, string, error) {
-	command, recognized, err := parseBotConversationCommand(inbound.Text)
+	command, recognized, err := parseBotConversationCommand(normalizeInboundCommandText(connection, inbound.Text))
 	if !recognized {
 		return false, conversation, "", nil
 	}
@@ -1801,6 +2103,33 @@ func splitBotCommandText(text string) (string, string) {
 	}
 
 	return trimmed[:index], strings.TrimSpace(trimmed[index+1:])
+}
+
+func normalizeInboundCommandText(connection store.BotConnection, text string) string {
+	switch normalizeProviderName(connection.Provider) {
+	case wechatProviderName:
+		return trimWeChatQuotedPrefix(text)
+	default:
+		return text
+	}
+}
+
+func trimWeChatQuotedPrefix(text string) string {
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	start := 0
+	for start < len(lines) {
+		trimmed := strings.TrimSpace(lines[start])
+		switch {
+		case trimmed == "":
+			start += 1
+		case strings.HasPrefix(trimmed, "Quoted:"):
+			start += 1
+		default:
+			return strings.TrimSpace(strings.Join(lines[start:], "\n"))
+		}
+	}
+	return strings.TrimSpace(text)
 }
 
 func normalizeBotCommandName(token string) string {
@@ -2342,11 +2671,11 @@ func (s *Service) orderedConversationThreadIDsForDisplay(
 
 	currentThreadID := strings.TrimSpace(conversation.ThreadID)
 	type rankedThread struct {
-		threadID   string
-		index      int
-		isCurrent  bool
-		latestAt   time.Time
-		updatedAt  time.Time
+		threadID  string
+		index     int
+		isCurrent bool
+		latestAt  time.Time
+		updatedAt time.Time
 	}
 
 	ranked := make([]rankedThread, 0, len(threadIDs))
@@ -2712,7 +3041,7 @@ func buildBotApprovalResponseInput(command botApprovalCommand, approval store.Pe
 		input.Content = strings.TrimSpace(command.answerInput)
 		return input, nil
 	case "account/chatgptAuthTokens/refresh":
-		return approvals.ResponseInput{}, errors.New("this request cannot be completed from Telegram; use the workspace UI instead")
+		return approvals.ResponseInput{}, errors.New("this request cannot be completed from this bot provider; use the workspace UI instead")
 	default:
 		if strings.TrimSpace(command.answerInput) != "" {
 			return approvals.ResponseInput{}, errors.New("this request does not take free-form input. Use /approve " + approval.ID + " or /decline " + approval.ID)
@@ -2869,7 +3198,7 @@ func stringValueAny(value any) string {
 }
 
 func (s *Service) acceptInboundMessage(connection store.BotConnection, message InboundMessage) (bool, error) {
-	if strings.TrimSpace(message.Text) == "" || strings.TrimSpace(message.ConversationID) == "" {
+	if !inboundMessageHasContent(message) || strings.TrimSpace(message.ConversationID) == "" {
 		return false, nil
 	}
 
@@ -2885,6 +3214,8 @@ func (s *Service) acceptInboundMessage(connection store.BotConnection, message I
 		Username:               strings.TrimSpace(message.Username),
 		Title:                  strings.TrimSpace(message.Title),
 		Text:                   strings.TrimSpace(message.Text),
+		Media:                  cloneBotMessageMediaList(message.Media),
+		ProviderData:           mergeProviderState(nil, message.ProviderData),
 	})
 	if err != nil {
 		return false, err
@@ -2925,9 +3256,11 @@ func (s *Service) recordConversationOutcome(
 ) store.BotConversation {
 	lastOutboundText := strings.TrimSpace(fallbackOutboundText)
 	if len(reply.Messages) > 0 {
-		lastOutboundText = strings.TrimSpace(reply.Messages[len(reply.Messages)-1].Text)
+		lastMessage := reply.Messages[len(reply.Messages)-1]
+		lastOutboundText = messageSummaryText(lastMessage.Text, lastMessage.Media)
 	}
 	expectedContextVersion := conversationContextVersion(conversation)
+	lastInboundText := messageSummaryText(inbound.Text, inbound.Media)
 
 	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
 		currentContextVersion := conversationContextVersion(current)
@@ -2949,7 +3282,7 @@ func (s *Service) recordConversationOutcome(
 			)
 		}
 		current.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
-		current.LastInboundText = strings.TrimSpace(inbound.Text)
+		current.LastInboundText = lastInboundText
 		current.LastOutboundText = lastOutboundText
 		return current
 	})
@@ -2970,7 +3303,7 @@ func (s *Service) recordConversationOutcome(
 		}
 		if conversationContextVersion(updatedConversation) == expectedContextVersion {
 			updatedConversation.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
-			updatedConversation.LastInboundText = strings.TrimSpace(inbound.Text)
+			updatedConversation.LastInboundText = lastInboundText
 			updatedConversation.LastOutboundText = lastOutboundText
 		}
 	}
@@ -2987,14 +3320,36 @@ func inboundMessageFromDelivery(delivery store.BotInboundDelivery) InboundMessag
 		Username:         strings.TrimSpace(delivery.Username),
 		Title:            strings.TrimSpace(delivery.Title),
 		Text:             strings.TrimSpace(delivery.Text),
+		Media:            cloneBotMessageMediaList(delivery.Media),
+		ProviderData:     mergeProviderState(nil, delivery.ProviderData),
 	}
 }
 
 func aiResultFromDelivery(delivery store.BotInboundDelivery) (AIResult, bool) {
+	if len(delivery.ReplyMessages) > 0 {
+		messages := make([]OutboundMessage, 0, len(delivery.ReplyMessages))
+		for _, replyMessage := range delivery.ReplyMessages {
+			message := OutboundMessage{
+				Text:  strings.TrimSpace(replyMessage.Text),
+				Media: cloneBotMessageMediaList(replyMessage.Media),
+			}
+			if !outboundMessageHasContent(message) {
+				continue
+			}
+			messages = append(messages, message)
+		}
+		if len(messages) == 0 {
+			return AIResult{}, false
+		}
+		return AIResult{
+			ThreadID: strings.TrimSpace(delivery.ReplyThreadID),
+			Messages: messages,
+		}, true
+	}
+
 	if len(delivery.ReplyTexts) == 0 {
 		return AIResult{}, false
 	}
-
 	messages := make([]OutboundMessage, 0, len(delivery.ReplyTexts))
 	for _, text := range delivery.ReplyTexts {
 		text = strings.TrimSpace(text)
@@ -3013,20 +3368,15 @@ func aiResultFromDelivery(delivery store.BotInboundDelivery) (AIResult, bool) {
 	}, true
 }
 
-func outboundMessageTexts(messages []OutboundMessage) []string {
-	if len(messages) == 0 {
-		return nil
+func debugConnectionDeliveryMode(connection store.BotConnection) string {
+	switch normalizeProviderName(connection.Provider) {
+	case telegramProviderName:
+		return strings.TrimSpace(connection.Settings[telegramDeliveryModeSetting])
+	case wechatProviderName:
+		return strings.TrimSpace(connection.Settings[wechatDeliveryModeSetting])
+	default:
+		return ""
 	}
-
-	texts := make([]string, 0, len(messages))
-	for _, message := range messages {
-		text := strings.TrimSpace(message.Text)
-		if text == "" {
-			continue
-		}
-		texts = append(texts, text)
-	}
-	return texts
 }
 
 func connectionViewFromStore(connection store.BotConnection) ConnectionView {
@@ -3037,18 +3387,42 @@ func connectionViewFromStore(connection store.BotConnection) ConnectionView {
 	sort.Strings(secretKeys)
 
 	return ConnectionView{
-		ID:          connection.ID,
-		WorkspaceID: connection.WorkspaceID,
-		Provider:    connection.Provider,
-		Name:        connection.Name,
-		Status:      connection.Status,
-		AIBackend:   connection.AIBackend,
-		AIConfig:    cloneStringMapLocal(connection.AIConfig),
-		Settings:    cloneStringMapLocal(connection.Settings),
-		SecretKeys:  secretKeys,
-		LastError:   connection.LastError,
-		CreatedAt:   connection.CreatedAt,
-		UpdatedAt:   connection.UpdatedAt,
+		ID:              connection.ID,
+		WorkspaceID:     connection.WorkspaceID,
+		Provider:        connection.Provider,
+		Name:            connection.Name,
+		Status:          connection.Status,
+		AIBackend:       connection.AIBackend,
+		AIConfig:        cloneStringMapLocal(connection.AIConfig),
+		Settings:        cloneStringMapLocal(connection.Settings),
+		SecretKeys:      secretKeys,
+		LastError:       connection.LastError,
+		LastPollAt:      cloneOptionalTimeLocal(connection.LastPollAt),
+		LastPollStatus:  connection.LastPollStatus,
+		LastPollMessage: connection.LastPollMessage,
+		CreatedAt:       connection.CreatedAt,
+		UpdatedAt:       connection.UpdatedAt,
+	}
+}
+
+func conversationViewFromStore(conversation store.BotConversation) ConversationView {
+	return ConversationView{
+		ID:                     conversation.ID,
+		WorkspaceID:            conversation.WorkspaceID,
+		ConnectionID:           conversation.ConnectionID,
+		Provider:               conversation.Provider,
+		ExternalConversationID: strings.TrimSpace(conversation.ExternalConversationID),
+		ExternalChatID:         strings.TrimSpace(conversation.ExternalChatID),
+		ExternalThreadID:       strings.TrimSpace(conversation.ExternalThreadID),
+		ExternalUserID:         strings.TrimSpace(conversation.ExternalUserID),
+		ExternalUsername:       strings.TrimSpace(conversation.ExternalUsername),
+		ExternalTitle:          strings.TrimSpace(conversation.ExternalTitle),
+		ThreadID:               strings.TrimSpace(conversation.ThreadID),
+		LastInboundMessageID:   strings.TrimSpace(conversation.LastInboundMessageID),
+		LastInboundText:        strings.TrimSpace(conversation.LastInboundText),
+		LastOutboundText:       strings.TrimSpace(conversation.LastOutboundText),
+		CreatedAt:              conversation.CreatedAt,
+		UpdatedAt:              conversation.UpdatedAt,
 	}
 }
 

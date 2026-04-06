@@ -1136,6 +1136,9 @@ func equalOutboundMessages(left []OutboundMessage, right []OutboundMessage) bool
 		if left[index].Text != right[index].Text {
 			return false
 		}
+		if !equalBotMessageMediaList(left[index].Media, right[index].Media) {
+			return false
+		}
 	}
 	return true
 }
@@ -1146,7 +1149,9 @@ func cloneOutboundMessages(messages []OutboundMessage) []OutboundMessage {
 	}
 
 	cloned := make([]OutboundMessage, len(messages))
-	copy(cloned, messages)
+	for index, message := range messages {
+		cloned[index] = cloneOutboundMessage(message)
+	}
 	return cloned
 }
 

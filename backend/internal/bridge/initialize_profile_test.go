@@ -1,0 +1,60 @@
+package bridge
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestBuildInitializeRequestOmitsOptOutNotificationsByDefault(t *testing.T) {
+	t.Parallel()
+
+	request := buildInitializeRequest(Config{
+		ClientName:      "codex-server",
+		ClientVersion:   "0.1.0",
+		ExperimentalAPI: true,
+	})
+
+	if request.Capabilities.ExperimentalAPI != true {
+		t.Fatal("expected experimental API to stay enabled")
+	}
+	if len(request.Capabilities.OptOutNotificationMethods) != 0 {
+		t.Fatalf("expected no opt-out notifications, got %#v", request.Capabilities.OptOutNotificationMethods)
+	}
+
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if strings.Contains(string(payload), "optOutNotificationMethods") {
+		t.Fatalf("expected initialize payload to omit optOutNotificationMethods, got %s", string(payload))
+	}
+}
+
+func TestBuildInitializeRequestIncludesOptOutNotificationsWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	expected := []string{
+		"item/agentMessage/delta",
+		"item/reasoning/textDelta",
+	}
+	request := buildInitializeRequest(Config{
+		ClientName:                "codex-server",
+		ClientVersion:             "0.1.0",
+		ExperimentalAPI:           true,
+		OptOutNotificationMethods: expected,
+	})
+
+	if !reflect.DeepEqual(request.Capabilities.OptOutNotificationMethods, expected) {
+		t.Fatalf("expected opt-out notifications %#v, got %#v", expected, request.Capabilities.OptOutNotificationMethods)
+	}
+
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(payload), `"optOutNotificationMethods":["item/agentMessage/delta","item/reasoning/textDelta"]`) {
+		t.Fatalf("expected initialize payload to include optOutNotificationMethods, got %s", string(payload))
+	}
+}

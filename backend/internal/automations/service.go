@@ -14,6 +14,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
+	"codex-server/backend/internal/turncapture"
 	"codex-server/backend/internal/turns"
 )
 
@@ -561,17 +562,18 @@ func (s *Service) tryFinalizeRun(ctx context.Context, runID string) (bool, error
 	if !ok {
 		return false, nil
 	}
-	if !strings.EqualFold(strings.TrimSpace(turn.Status), "completed") {
+	captured := turncapture.FromTurn(run.ThreadID, run.TurnID, turn)
+	if !captured.Terminal {
 		return false, nil
 	}
 
 	automation, _ := s.store.GetAutomation(run.AutomationID)
-	if errMessage := formatTurnError(turn.Error); errMessage != "" {
+	if errMessage := captured.FailureMessage(); errMessage != "" {
 		s.completeRun(run.ID, s.hydrate(automation), "failed", "", errMessage)
 		return true, nil
 	}
 
-	summary := summarizeTurn(turn)
+	summary := captured.Summary
 	s.completeRun(run.ID, s.hydrate(automation), "completed", summary, "")
 	return true, nil
 }
@@ -956,7 +958,7 @@ func scheduleLabel(schedule string) string {
 	if schedule == "0 * * * *" {
 		return "Every hour"
 	}
-	
+
 	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	sched, err := p.Parse(schedule)
 	if err != nil {
@@ -1040,44 +1042,6 @@ func findTurn(detail store.ThreadDetail, turnID string) (store.ThreadTurn, bool)
 		}
 	}
 	return store.ThreadTurn{}, false
-}
-
-func formatTurnError(value any) string {
-	if value == nil {
-		return ""
-	}
-
-	switch typed := value.(type) {
-	case string:
-		return strings.TrimSpace(typed)
-	case map[string]any:
-		if message, ok := typed["message"].(string); ok {
-			return strings.TrimSpace(message)
-		}
-		if code, ok := typed["code"].(string); ok && code != "" {
-			return strings.TrimSpace(code)
-		}
-	default:
-		return fmt.Sprintf("%v", typed)
-	}
-
-	return ""
-}
-
-func summarizeTurn(turn store.ThreadTurn) string {
-	for itemIndex := len(turn.Items) - 1; itemIndex >= 0; itemIndex-- {
-		item := turn.Items[itemIndex]
-		if stringValue(item["type"]) != "agentMessage" {
-			continue
-		}
-
-		text := strings.TrimSpace(stringValue(item["text"]))
-		if text != "" {
-			return text
-		}
-	}
-
-	return ""
 }
 
 func buildRunLogEntry(event store.EventEnvelope) (store.AutomationRunLogEntry, bool) {

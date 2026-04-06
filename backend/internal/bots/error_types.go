@@ -129,6 +129,8 @@ func formatFailureLabel(value string) string {
 			words[index] = "OpenAI"
 		case "telegram":
 			words[index] = "Telegram"
+		case "wechat":
+			words[index] = "WeChat"
 		default:
 			words[index] = strings.ToLower(word)
 		}

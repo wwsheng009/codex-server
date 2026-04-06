@@ -1,14 +1,22 @@
 package runtime
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"codex-server/backend/internal/events"
+	"codex-server/backend/internal/store"
+	"codex-server/backend/internal/testutil/codexfake"
 )
+
+func TestCodexFakeHelperProcess(t *testing.T) {
+	codexfake.RunHelperProcessIfRequested(t)
+}
 
 func TestQueueCommandOutputDeltaMergesAdjacentChunks(t *testing.T) {
 	t.Parallel()
@@ -150,5 +158,298 @@ func TestSplitCommandOutputDeltaPreservesUTF8Boundaries(t *testing.T) {
 
 	if rebuilt.String() != string(input) {
 		t.Fatal("expected UTF-8 chunks to reassemble without loss")
+	}
+}
+
+func TestManagerCallStartsRuntimeAndPublishesThreadStarted(t *testing.T) {
+	hub := events.NewHub()
+	session := codexfake.NewSession(t, "TestCodexFakeHelperProcess")
+	t.Setenv("CODEX_FAKE_HELPER_ENABLED", "1")
+	t.Setenv("CODEX_FAKE_HELPER_STATE_FILE", session.StateFile)
+
+	manager := NewManager(session.Command, hub)
+	rootPath := t.TempDir()
+	manager.Configure("ws-1", rootPath)
+	t.Cleanup(func() {
+		manager.Remove("ws-1")
+	})
+	defer manager.Remove("ws-1")
+
+	eventsCh, cancel := hub.Subscribe("ws-1")
+	defer cancel()
+
+	var response struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+	}
+	if err := manager.Call(context.Background(), "ws-1", "thread/start", map[string]any{
+		"cwd": rootPath,
+	}, &response); err != nil {
+		t.Fatalf("Call() error = %v", err)
+	}
+	if response.Thread.ID != "thread-test-1" {
+		t.Fatalf("expected fake thread id, got %q", response.Thread.ID)
+	}
+
+	select {
+	case event := <-eventsCh:
+		if event.Method != "thread/started" {
+			t.Fatalf("expected thread/started event, got %q", event.Method)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected thread/started event to be published")
+	}
+
+	state := manager.State("ws-1")
+	if state.Status != "ready" {
+		t.Fatalf("expected runtime ready, got %q", state.Status)
+	}
+}
+
+func TestManagerCallPublishesTurnLifecycleEvents(t *testing.T) {
+	hub := events.NewHub()
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"turn/start": {
+				Result: map[string]any{
+					"turn": map[string]any{
+						"id":     "turn-runtime-1",
+						"status": "inProgress",
+					},
+				},
+				Notifications: []codexfake.Notification{
+					{
+						Method: "turn/started",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turn": map[string]any{
+								"id":     "turn-runtime-1",
+								"status": "inProgress",
+							},
+						},
+					},
+					{
+						Method: "item/started",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turnId":   "turn-runtime-1",
+							"item": map[string]any{
+								"id":   "item-1",
+								"type": "agentMessage",
+							},
+						},
+					},
+					{
+						Method: "item/completed",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turnId":   "turn-runtime-1",
+							"item": map[string]any{
+								"id":   "item-1",
+								"type": "agentMessage",
+								"text": "manager turn result",
+							},
+						},
+					},
+					{
+						Method: "turn/completed",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turn": map[string]any{
+								"id":     "turn-runtime-1",
+								"status": "completed",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	manager := NewManager(session.Command, hub)
+	rootPath := t.TempDir()
+	manager.Configure("ws-1", rootPath)
+	t.Cleanup(func() {
+		manager.Remove("ws-1")
+	})
+
+	eventsCh, cancel := hub.Subscribe("ws-1")
+	defer cancel()
+
+	var response struct {
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	if err := manager.Call(context.Background(), "ws-1", "turn/start", map[string]any{
+		"threadId": "thread-1",
+	}, &response); err != nil {
+		t.Fatalf("Call(turn/start) error = %v", err)
+	}
+	if response.Turn.ID != "turn-runtime-1" {
+		t.Fatalf("expected fake turn id, got %q", response.Turn.ID)
+	}
+
+	expected := []string{"turn/started", "item/started", "item/completed", "turn/completed"}
+	for _, method := range expected {
+		event := awaitRuntimeEvent(t, eventsCh)
+		if event.Method != method {
+			t.Fatalf("expected event %q, got %q", method, event.Method)
+		}
+	}
+}
+
+func TestManagerPublishesAvailableTurnEventsWhenCompletionMissing(t *testing.T) {
+	hub := events.NewHub()
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"turn/start": {
+				Result: map[string]any{
+					"turn": map[string]any{
+						"id":     "turn-no-complete-1",
+						"status": "inProgress",
+					},
+				},
+				Notifications: []codexfake.Notification{
+					{
+						Method: "turn/started",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turn": map[string]any{
+								"id":     "turn-no-complete-1",
+								"status": "inProgress",
+							},
+						},
+					},
+					{
+						Method: "item/started",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turnId":   "turn-no-complete-1",
+							"item": map[string]any{
+								"id":     "subagent-1",
+								"type":   "agentMessage",
+								"source": "subagent",
+							},
+						},
+					},
+					{
+						Method: "item/completed",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turnId":   "turn-no-complete-1",
+							"item": map[string]any{
+								"id":     "subagent-1",
+								"type":   "agentMessage",
+								"source": "subagent",
+								"text":   "subagent partial result",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	manager := NewManager(session.Command, hub)
+	rootPath := t.TempDir()
+	manager.Configure("ws-1", rootPath)
+	t.Cleanup(func() {
+		manager.Remove("ws-1")
+	})
+
+	eventsCh, cancel := hub.Subscribe("ws-1")
+	defer cancel()
+
+	var response struct {
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	if err := manager.Call(context.Background(), "ws-1", "turn/start", map[string]any{
+		"threadId": "thread-1",
+	}, &response); err != nil {
+		t.Fatalf("Call(turn/start) error = %v", err)
+	}
+	if response.Turn.ID != "turn-no-complete-1" {
+		t.Fatalf("expected fake turn id, got %q", response.Turn.ID)
+	}
+
+	expected := []string{"turn/started", "item/started", "item/completed"}
+	for _, method := range expected {
+		event := awaitRuntimeEvent(t, eventsCh)
+		if event.Method != method {
+			t.Fatalf("expected event %q, got %q", method, event.Method)
+		}
+	}
+
+	select {
+	case event := <-eventsCh:
+		t.Fatalf("expected no terminal completion event, got %q", event.Method)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestManagerTransitionsToErrorWhenRuntimeExitsUnexpectedly(t *testing.T) {
+	hub := events.NewHub()
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"thread/start": {
+				Result: map[string]any{
+					"thread": map[string]any{
+						"id": "thread-crash-1",
+					},
+				},
+				Exit: &codexfake.ExitBehavior{
+					Code:   23,
+					Stderr: "runtime exited unexpectedly",
+				},
+			},
+		},
+	})
+
+	manager := NewManager(session.Command, hub)
+	rootPath := t.TempDir()
+	manager.Configure("ws-1", rootPath)
+	t.Cleanup(func() {
+		manager.Remove("ws-1")
+	})
+
+	var response struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+	}
+	if err := manager.Call(context.Background(), "ws-1", "thread/start", map[string]any{
+		"cwd": rootPath,
+	}, &response); err != nil {
+		t.Fatalf("Call(thread/start) error = %v", err)
+	}
+	if response.Thread.ID != "thread-crash-1" {
+		t.Fatalf("expected fake thread id, got %q", response.Thread.ID)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state := manager.State("ws-1")
+		if state.Status != "ready" && strings.Contains(state.LastError, "runtime exited unexpectedly") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected runtime to close and retain stderr context, got %#v", manager.State("ws-1"))
+}
+
+func awaitRuntimeEvent(t *testing.T, eventsCh <-chan store.EventEnvelope) store.EventEnvelope {
+	t.Helper()
+
+	select {
+	case event := <-eventsCh:
+		return event
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected runtime event")
+		return store.EventEnvelope{}
 	}
 }

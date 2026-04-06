@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -205,6 +206,74 @@ func TestLogBotDebugDoesNotDuplicateDeliveryIDAttribute(t *testing.T) {
 	}
 	if count := strings.Count(line, "deliveryId="); count != 1 {
 		t.Fatalf("expected deliveryId to appear once, got count=%d line=%q", count, line)
+	}
+}
+
+func TestRecordPollingErrorEmitsDebugLogForDebugConnections(t *testing.T) {
+	connection := store.BotConnection{
+		ID:          "bot_debug_polling",
+		WorkspaceID: "ws_debug",
+		Provider:    wechatProviderName,
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+	}
+	service := NewService(store.NewMemoryStore(), nil, nil, nil, Config{})
+
+	logs := captureBotDebugLogs(t, func() {
+		service.recordPollingError(connection, errors.New("decode wechat /ilink/bot/getupdates response: sample failure"))
+	})
+
+	found := false
+	for _, entry := range logs {
+		if debugLogStringField(entry["msg"]) != "bot debug: polling iteration failed" {
+			continue
+		}
+		if !strings.Contains(debugLogStringField(entry["error"]), "decode wechat /ilink/bot/getupdates response") {
+			t.Fatalf("expected polling failure detail in debug log, got %#v", entry)
+		}
+		found = true
+	}
+
+	if !found {
+		t.Fatalf("expected polling failure debug log, got %#v", logs)
+	}
+}
+
+func TestRecordPollingErrorIncludesProxyURLWhenAvailable(t *testing.T) {
+	connection := store.BotConnection{
+		ID:          "bot_debug_polling_proxy",
+		WorkspaceID: "ws_debug",
+		Provider:    telegramProviderName,
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+	}
+	service := NewService(store.NewMemoryStore(), nil, nil, nil, Config{})
+
+	logs := captureBotDebugLogs(t, func() {
+		service.recordPollingError(
+			connection,
+			wrapTelegramPollingTransportError(
+				errors.New(`telegram getUpdates request failed: Post "https://api.telegram.org/bot123:abc/getUpdates": local error: tls: bad record MAC`),
+				"http://127.0.0.1:10810",
+			),
+		)
+	})
+
+	found := false
+	for _, entry := range logs {
+		if debugLogStringField(entry["msg"]) != "bot debug: polling iteration failed" {
+			continue
+		}
+		if debugLogStringField(entry["proxyUrl"]) != "http://127.0.0.1:10810" {
+			t.Fatalf("expected proxyUrl in polling debug log, got %#v", entry)
+		}
+		found = true
+	}
+
+	if !found {
+		t.Fatalf("expected polling failure debug log with proxy diagnostics, got %#v", logs)
 	}
 }
 

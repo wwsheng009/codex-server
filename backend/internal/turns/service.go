@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"codex-server/backend/internal/appserver"
 	"codex-server/backend/internal/bridge"
 	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/diagnostics"
@@ -32,11 +33,7 @@ type Result struct {
 
 const interruptRuntimeCallTimeout = 5 * time.Second
 
-type turnStartResponse struct {
-	Turn struct {
-		ID string `json:"id"`
-	} `json:"turn"`
-}
+type turnStartResponse = appserver.TurnStartResponse
 
 func NewService(runtimeManager *runtime.Manager, dataStore *store.MemoryStore) *Service {
 	return &Service{
@@ -92,7 +89,7 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 func (s *Service) startTurn(ctx context.Context, workspaceID string, threadID string, input string, options StartOptions) (turnStartResponse, error) {
 	var response turnStartResponse
 
-	payload, err := s.buildRuntimeTurnStartPayload(ctx, workspaceID, threadID, input, options)
+	request, payload, err := s.buildRuntimeTurnStartPayload(ctx, workspaceID, threadID, input, options)
 	if err != nil {
 		return turnStartResponse{}, err
 	}
@@ -103,7 +100,7 @@ func (s *Service) startTurn(ctx context.Context, workspaceID string, threadID st
 		diagnostics.TurnStartTraceAttrs(payload)...,
 	)
 
-	if err := s.runtimes.Call(ctx, workspaceID, "turn/start", payload, &response); err != nil {
+	if err := s.runtimes.Call(ctx, workspaceID, "turn/start", request, &response); err != nil {
 		diagnostics.LogThreadTrace(
 			workspaceID,
 			threadID,
@@ -136,18 +133,19 @@ func (s *Service) buildRuntimeTurnStartPayload(
 	threadID string,
 	input string,
 	options StartOptions,
-) (map[string]any, error) {
+) (appserver.TurnStartRequest, map[string]any, error) {
 	collaborationMode, err := s.resolveCollaborationMode(ctx, workspaceID, options)
 	if err != nil {
-		return nil, err
+		return appserver.TurnStartRequest{}, nil, err
 	}
 
 	defaults, err := s.runtimeDefaults()
 	if err != nil {
-		return nil, err
+		return appserver.TurnStartRequest{}, nil, err
 	}
 
-	return buildTurnStartPayloadWithRuntimeDefaults(threadID, input, options, collaborationMode, defaults), nil
+	request := buildTurnStartRequestWithRuntimeDefaults(threadID, input, options, collaborationMode, defaults)
+	return request, buildTurnStartPayloadWithRuntimeDefaults(threadID, input, options, collaborationMode, defaults), nil
 }
 
 func buildTurnStartPayload(
@@ -157,6 +155,15 @@ func buildTurnStartPayload(
 	collaborationMode map[string]any,
 ) map[string]any {
 	return buildTurnStartPayloadWithRuntimeDefaults(threadID, input, options, collaborationMode, runtimeDefaults{})
+}
+
+func buildTurnStartRequest(
+	threadID string,
+	input string,
+	options StartOptions,
+	collaborationMode map[string]any,
+) appserver.TurnStartRequest {
+	return buildTurnStartRequestWithRuntimeDefaults(threadID, input, options, collaborationMode, runtimeDefaults{})
 }
 
 type runtimeDefaults struct {
@@ -171,45 +178,82 @@ func buildTurnStartPayloadWithRuntimeDefaults(
 	collaborationMode map[string]any,
 	defaults runtimeDefaults,
 ) map[string]any {
+	request := buildTurnStartRequestWithRuntimeDefaults(threadID, input, options, collaborationMode, defaults)
 	payload := map[string]any{
 		"input": []map[string]any{
 			{
-				"text": input,
-				"type": "text",
+				"text": request.Input[0].Text,
+				"type": request.Input[0].Type,
 			},
 		},
-		"threadId": threadID,
+		"threadId": request.ThreadID,
+	}
+
+	if request.CollaborationMode != nil {
+		payload["collaborationMode"] = request.CollaborationMode
+	}
+	if strings.TrimSpace(request.Model) != "" {
+		payload["model"] = request.Model
+	}
+	if strings.TrimSpace(request.Effort) != "" {
+		payload["effort"] = request.Effort
+	}
+	if strings.TrimSpace(request.ApprovalPolicy) != "" {
+		payload["approvalPolicy"] = request.ApprovalPolicy
+	}
+	if len(request.SandboxPolicy) > 0 {
+		payload["sandboxPolicy"] = request.SandboxPolicy
+	}
+
+	return payload
+}
+
+func buildTurnStartRequestWithRuntimeDefaults(
+	threadID string,
+	input string,
+	options StartOptions,
+	collaborationMode map[string]any,
+	defaults runtimeDefaults,
+) appserver.TurnStartRequest {
+	request := appserver.TurnStartRequest{
+		Input: []appserver.UserInput{
+			{
+				Text: input,
+				Type: "text",
+			},
+		},
+		ThreadID: threadID,
 	}
 
 	if collaborationMode != nil {
-		payload["collaborationMode"] = collaborationMode
+		request.CollaborationMode = collaborationMode
 	} else {
 		if model := strings.TrimSpace(options.Model); model != "" {
-			payload["model"] = model
+			request.Model = model
 		}
 
 		switch normalizeReasoningEffort(options.ReasoningEffort) {
 		case "low", "medium", "high", "xhigh":
-			payload["effort"] = normalizeReasoningEffort(options.ReasoningEffort)
+			request.Effort = normalizeReasoningEffort(options.ReasoningEffort)
 		}
 	}
 
 	if approvalPolicy := appconfig.ApprovalPolicyJSONValue(defaults.ApprovalPolicy); approvalPolicy != "" {
-		payload["approvalPolicy"] = approvalPolicy
+		request.ApprovalPolicy = approvalPolicy
 	}
 	if len(defaults.SandboxPolicy) > 0 {
-		payload["sandboxPolicy"] = defaults.SandboxPolicy
+		request.SandboxPolicy = defaults.SandboxPolicy
 	}
 
 	switch normalizePermissionPreset(options.PermissionPreset) {
 	case "full-access":
-		payload["approvalPolicy"] = "never"
-		payload["sandboxPolicy"] = map[string]any{
+		request.ApprovalPolicy = "never"
+		request.SandboxPolicy = map[string]any{
 			"type": "dangerFullAccess",
 		}
 	}
 
-	return payload
+	return request
 }
 
 func (s *Service) runtimeDefaults() (runtimeDefaults, error) {
@@ -431,9 +475,9 @@ func (s *Service) Interrupt(ctx context.Context, workspaceID string, threadID st
 	callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, interruptRuntimeCallTimeout)
 	defer cancel()
 
-	if err := s.runtimes.Call(callCtx, workspaceID, "turn/interrupt", map[string]any{
-		"threadId": threadID,
-		"turnId":   turnID,
+	if err := s.runtimes.Call(callCtx, workspaceID, "turn/interrupt", appserver.TurnInterruptRequest{
+		ThreadID: threadID,
+		TurnID:   turnID,
 	}, nil); err != nil {
 		if errors.Is(err, runtime.ErrNoActiveTurn) {
 			s.runtimes.RememberActiveTurn(workspaceID, threadID, "")
@@ -510,12 +554,12 @@ func (s *Service) Review(ctx context.Context, workspaceID string, threadID strin
 func (s *Service) startReview(ctx context.Context, workspaceID string, threadID string) (turnStartResponse, error) {
 	var response turnStartResponse
 
-	if err := s.runtimes.Call(ctx, workspaceID, "review/start", map[string]any{
-		"delivery": "inline",
-		"target": map[string]any{
-			"type": "uncommittedChanges",
+	if err := s.runtimes.Call(ctx, workspaceID, "review/start", appserver.ReviewStartRequest{
+		Delivery: "inline",
+		Target: appserver.ReviewTarget{
+			Type: "uncommittedChanges",
 		},
-		"threadId": threadID,
+		ThreadID: threadID,
 	}, &response); err != nil {
 		return turnStartResponse{}, err
 	}
@@ -524,14 +568,12 @@ func (s *Service) startReview(ctx context.Context, workspaceID string, threadID 
 }
 
 func (s *Service) resumeThread(ctx context.Context, workspaceID string, threadID string) error {
-	var response struct {
-		Thread map[string]any `json:"thread"`
-	}
+	var response appserver.ThreadResumeResponse
 
 	diagnostics.LogThreadTrace(workspaceID, threadID, "thread/resume requested")
-	err := s.runtimes.Call(ctx, workspaceID, "thread/resume", map[string]any{
-		"cwd":      s.runtimes.RootPath(workspaceID),
-		"threadId": threadID,
+	err := s.runtimes.Call(ctx, workspaceID, "thread/resume", appserver.ThreadResumeRequest{
+		Cwd:      s.runtimes.RootPath(workspaceID),
+		ThreadID: threadID,
 	}, &response)
 	if err != nil {
 		return err

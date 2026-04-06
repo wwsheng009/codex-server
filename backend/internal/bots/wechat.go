@@ -1,0 +1,972 @@
+package bots
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"codex-server/backend/internal/store"
+)
+
+const (
+	wechatProviderName         = "wechat"
+	wechatDeliveryModeSetting  = "wechat_delivery_mode"
+	wechatDeliveryModePolling  = "polling"
+	wechatBaseURLSetting       = "wechat_base_url"
+	wechatCDNBaseURLSetting    = "wechat_cdn_base_url"
+	wechatAccountIDSetting     = "wechat_account_id"
+	wechatOwnerUserIDSetting   = "wechat_owner_user_id"
+	wechatSyncBufSetting       = "wechat_sync_buf"
+	wechatContextTokenKey      = "wechat_context_token"
+	wechatSessionIDKey         = "wechat_session_id"
+	wechatSenderNameKey        = "wechat_sender_name"
+	wechatCreatedAtMSKey       = "wechat_created_at_ms"
+	wechatChannelVersion       = "0.3.0"
+	wechatClientVersionHeader  = "1"
+	wechatLongPollHTTPTimeout  = 70 * time.Second
+	wechatDefaultHTTPTimeout   = 15 * time.Second
+	wechatConfigHTTPTimeout    = 10 * time.Second
+	wechatTypingKeepaliveDelay = 5 * time.Second
+	wechatTypingConfigTTL      = 24 * time.Hour
+	wechatDefaultCDNBaseURL    = "https://novac2c.cdn.weixin.qq.com/c2c"
+	wechatMessageTypeUser      = 1
+	wechatMessageTypeBot       = 2
+	wechatMessageStateComplete = 2
+	wechatTypingStatusTyping   = 1
+	wechatTypingStatusCancel   = 2
+	wechatItemTypeText         = 1
+	wechatItemTypeImage        = 2
+	wechatItemTypeVoice        = 3
+	wechatItemTypeFile         = 4
+	wechatItemTypeVideo        = 5
+	wechatUploadMediaTypeImage = 1
+	wechatUploadMediaTypeVideo = 2
+	wechatUploadMediaTypeFile  = 3
+)
+
+type wechatProvider struct {
+	clients httpClientSource
+
+	typingMu    sync.Mutex
+	typingCache map[string]wechatTypingConfigCacheEntry
+}
+
+type wechatAPIResponse struct {
+	Ret     int    `json:"ret"`
+	ErrCode int    `json:"errcode"`
+	ErrMsg  string `json:"errmsg"`
+}
+
+type wechatGetUpdatesResponse struct {
+	wechatAPIResponse
+	Msgs          []wechatMessage `json:"msgs"`
+	GetUpdatesBuf string          `json:"get_updates_buf"`
+}
+
+type wechatGetConfigResponse struct {
+	wechatAPIResponse
+	TypingTicket string `json:"typing_ticket"`
+}
+
+type wechatTypingConfigCacheEntry struct {
+	typingTicket string
+	expiresAt    time.Time
+}
+
+type wechatFlexibleString string
+
+type wechatMessage struct {
+	FromUserID   string               `json:"from_user_id"`
+	ToUserID     string               `json:"to_user_id"`
+	ClientID     string               `json:"client_id"`
+	SessionID    string               `json:"session_id"`
+	MessageType  int                  `json:"message_type"`
+	MessageState int                  `json:"message_state"`
+	ItemList     []wechatMessageItem  `json:"item_list"`
+	ContextToken string               `json:"context_token"`
+	CreateTimeMS wechatFlexibleString `json:"create_time_ms"`
+}
+
+type wechatMessageItem struct {
+	Type      int                     `json:"type"`
+	TextItem  *wechatTextItem         `json:"text_item"`
+	ImageItem *wechatImageItem        `json:"image_item"`
+	VoiceItem *wechatVoiceItem        `json:"voice_item"`
+	FileItem  *wechatFileItem         `json:"file_item"`
+	VideoItem *wechatVideoItem        `json:"video_item"`
+	RefMsg    *wechatReferenceMessage `json:"ref_msg"`
+}
+
+type wechatTextItem struct {
+	Text   string                  `json:"text"`
+	RefMsg *wechatReferenceMessage `json:"ref_msg"`
+}
+
+type wechatCDNMedia struct {
+	EncryptQueryParam string `json:"encrypt_query_param"`
+	AESKey            string `json:"aes_key"`
+	EncryptType       int    `json:"encrypt_type"`
+	FullURL           string `json:"full_url"`
+}
+
+type wechatImageItem struct {
+	Media      *wechatCDNMedia `json:"media"`
+	ThumbMedia *wechatCDNMedia `json:"thumb_media"`
+	AESKeyHex  string          `json:"aeskey"`
+	URL        string          `json:"url"`
+	MidSize    int64           `json:"mid_size"`
+}
+
+type wechatVoiceItem struct {
+	Media      *wechatCDNMedia `json:"media"`
+	Text       string          `json:"text"`
+	EncodeType int             `json:"encode_type"`
+}
+
+type wechatFileItem struct {
+	Media    *wechatCDNMedia `json:"media"`
+	FileName string          `json:"file_name"`
+	Len      string          `json:"len"`
+}
+
+type wechatVideoItem struct {
+	Media      *wechatCDNMedia `json:"media"`
+	ThumbMedia *wechatCDNMedia `json:"thumb_media"`
+	VideoSize  int64           `json:"video_size"`
+}
+
+type wechatReferenceMessage struct {
+	Text        string             `json:"text"`
+	Title       string             `json:"title"`
+	MessageItem *wechatMessageItem `json:"message_item"`
+}
+
+type wechatSendMessageRequest struct {
+	Msg      wechatOutboundMessage `json:"msg"`
+	BaseInfo wechatBaseInfo        `json:"base_info"`
+}
+
+type wechatOutboundMessage struct {
+	FromUserID   string              `json:"from_user_id"`
+	ToUserID     string              `json:"to_user_id"`
+	ClientID     string              `json:"client_id"`
+	MessageType  int                 `json:"message_type"`
+	MessageState int                 `json:"message_state"`
+	ItemList     []wechatMessageItem `json:"item_list"`
+	ContextToken string              `json:"context_token"`
+}
+
+type wechatBaseInfo struct {
+	ChannelVersion string `json:"channel_version"`
+}
+
+type wechatRequestError struct {
+	method      string
+	statusCode  int
+	status      string
+	description string
+	cause       error
+}
+
+func (e *wechatRequestError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.cause != nil {
+		return fmt.Sprintf("wechat %s request failed: %v", e.method, e.cause)
+	}
+
+	detail := strings.TrimSpace(e.description)
+	switch {
+	case e.status != "" && detail != "":
+		return fmt.Sprintf("wechat %s returned %s: %s", e.method, e.status, detail)
+	case e.status != "":
+		return fmt.Sprintf("wechat %s returned %s", e.method, e.status)
+	case detail != "":
+		return fmt.Sprintf("wechat %s api error: %s", e.method, detail)
+	default:
+		return fmt.Sprintf("wechat %s request failed", e.method)
+	}
+}
+
+func (e *wechatRequestError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func (v *wechatFlexibleString) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	switch trimmed {
+	case "", "null":
+		*v = ""
+		return nil
+	}
+
+	if strings.HasPrefix(trimmed, `"`) {
+		var value string
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		*v = wechatFlexibleString(value)
+		return nil
+	}
+
+	*v = wechatFlexibleString(trimmed)
+	return nil
+}
+
+func (v wechatFlexibleString) String() string {
+	return string(v)
+}
+
+func newWeChatProvider(client *http.Client) Provider {
+	return newWeChatProviderWithClientSource(staticHTTPClientSource{client: client})
+}
+
+func newWeChatProviderWithClientSource(clients httpClientSource) Provider {
+	if clients == nil {
+		clients = staticHTTPClientSource{}
+	}
+	return &wechatProvider{clients: clients}
+}
+
+func (p *wechatProvider) Name() string {
+	return wechatProviderName
+}
+
+func (p *wechatProvider) Activate(_ context.Context, connection store.BotConnection, _ string) (ActivationResult, error) {
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return ActivationResult{}, fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
+	}
+
+	mode, err := parseWeChatDeliveryMode(connection.Settings[wechatDeliveryModeSetting])
+	if err != nil {
+		return ActivationResult{}, err
+	}
+
+	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
+	if baseURL == "" {
+		return ActivationResult{}, fmt.Errorf("%w: wechat base url is required", ErrInvalidInput)
+	}
+	if _, err := parseWeChatBaseURL(baseURL); err != nil {
+		return ActivationResult{}, err
+	}
+
+	accountID := strings.TrimSpace(connection.Settings[wechatAccountIDSetting])
+	if accountID == "" {
+		return ActivationResult{}, fmt.Errorf("%w: wechat account id is required", ErrInvalidInput)
+	}
+
+	ownerUserID := strings.TrimSpace(connection.Settings[wechatOwnerUserIDSetting])
+	if ownerUserID == "" {
+		return ActivationResult{}, fmt.Errorf("%w: wechat owner user id is required", ErrInvalidInput)
+	}
+	cdnBaseURL := strings.TrimSpace(connection.Settings[wechatCDNBaseURLSetting])
+	if cdnBaseURL == "" {
+		cdnBaseURL = wechatDefaultCDNBaseURL
+	}
+	if _, err := parseWeChatBaseURL(cdnBaseURL); err != nil {
+		return ActivationResult{}, fmt.Errorf("%w: wechat cdn base url must be absolute", ErrInvalidInput)
+	}
+
+	settings := cloneStringMapLocal(connection.Settings)
+	if settings == nil {
+		settings = make(map[string]string)
+	}
+	settings[wechatDeliveryModeSetting] = mode
+	settings[wechatBaseURLSetting] = baseURL
+	settings[wechatCDNBaseURLSetting] = cdnBaseURL
+	settings[wechatAccountIDSetting] = accountID
+	settings[wechatOwnerUserIDSetting] = ownerUserID
+
+	return ActivationResult{
+		Settings: settings,
+		Secrets:  cloneStringMapLocal(connection.Secrets),
+	}, nil
+}
+
+func (p *wechatProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *wechatProvider) ParseWebhook(*http.Request, store.BotConnection) ([]InboundMessage, error) {
+	return nil, ErrWebhookIgnored
+}
+
+func (p *wechatProvider) SupportsPolling(connection store.BotConnection) bool {
+	mode, err := parseWeChatDeliveryMode(connection.Settings[wechatDeliveryModeSetting])
+	return err == nil && mode == wechatDeliveryModePolling
+}
+
+func (p *wechatProvider) PollingOwnerKey(connection store.BotConnection) string {
+	mode, err := parseWeChatDeliveryMode(connection.Settings[wechatDeliveryModeSetting])
+	if err != nil || mode != wechatDeliveryModePolling {
+		return ""
+	}
+
+	accountID := strings.TrimSpace(connection.Settings[wechatAccountIDSetting])
+	if accountID != "" {
+		return wechatProviderName + ":" + accountID
+	}
+
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return ""
+	}
+	return wechatProviderName + ":" + token
+}
+
+func (p *wechatProvider) PollingConflictError(ownerConnectionID string) error {
+	message := "wechat polling credentials are already claimed by another active polling connection"
+	if owner := strings.TrimSpace(ownerConnectionID); owner != "" {
+		message += " (" + owner + ")"
+	}
+	message += "; pause or delete the other polling connection before resuming this one"
+	return fmt.Errorf("%w: %s", ErrInvalidInput, message)
+}
+
+func (p *wechatProvider) RunPolling(
+	ctx context.Context,
+	connection store.BotConnection,
+	handleMessage PollingMessageHandler,
+	updateSettings PollingSettingsHandler,
+	reportEvent PollingEventHandler,
+) error {
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
+	}
+
+	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
+	if _, err := parseWeChatBaseURL(baseURL); err != nil {
+		return err
+	}
+	cdnBaseURL := normalizedWeChatCDNBaseURL(connection)
+
+	syncBuf := strings.TrimSpace(connection.Settings[wechatSyncBufSetting])
+	for {
+		response, err := p.getUpdates(ctx, baseURL, token, syncBuf)
+		if err != nil {
+			return err
+		}
+
+		if nextSyncBuf := strings.TrimSpace(response.GetUpdatesBuf); nextSyncBuf != "" && nextSyncBuf != syncBuf {
+			if err := updateSettings(ctx, map[string]string{wechatSyncBufSetting: nextSyncBuf}); err != nil {
+				return err
+			}
+			syncBuf = nextSyncBuf
+		}
+
+		if len(response.Msgs) == 0 {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
+				EventType: "poll_idle",
+				Message:   "Poll completed successfully. No new messages.",
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		processedCount := 0
+		ignoredCount := 0
+		for _, message := range response.Msgs {
+			inbound, err := p.inboundMessageFromWeChat(ctx, cdnBaseURL, message)
+			switch {
+			case errors.Is(err, ErrWebhookIgnored):
+				ignoredCount += 1
+				continue
+			case err != nil:
+				return err
+			}
+
+			if err := handleMessage(ctx, inbound); err != nil {
+				return err
+			}
+			processedCount += 1
+		}
+
+		eventType := "poll_success"
+		if processedCount == 0 {
+			eventType = "poll_idle"
+		}
+		if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
+			EventType:      eventType,
+			Message:        fmt.Sprintf("Poll completed successfully. Received %d message(s), processed %d, ignored %d.", len(response.Msgs), processedCount, ignoredCount),
+			ReceivedCount:  len(response.Msgs),
+			ProcessedCount: processedCount,
+			IgnoredCount:   ignoredCount,
+		}); err != nil {
+			return err
+		}
+	}
+}
+
+func (p *wechatProvider) SendMessages(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	messages []OutboundMessage,
+) error {
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
+	}
+
+	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
+	if _, err := parseWeChatBaseURL(baseURL); err != nil {
+		return err
+	}
+	cdnBaseURL := normalizedWeChatCDNBaseURL(connection)
+
+	toUserID := strings.TrimSpace(conversation.ExternalChatID)
+	if toUserID == "" {
+		return fmt.Errorf("%w: wechat external chat id is required", ErrInvalidInput)
+	}
+
+	contextToken := strings.TrimSpace(conversation.ProviderState[wechatContextTokenKey])
+	if contextToken == "" {
+		return fmt.Errorf("%w: wechat context token is required before sending replies", ErrInvalidInput)
+	}
+
+	for _, message := range messages {
+		text := strings.TrimSpace(message.Text)
+		if len(message.Media) == 0 {
+			if text == "" {
+				continue
+			}
+			if err := p.sendTextMessage(ctx, baseURL, token, toUserID, contextToken, text); err != nil {
+				return err
+			}
+			continue
+		}
+
+		for index, media := range message.Media {
+			caption := ""
+			if index == 0 {
+				caption = text
+			}
+			if err := p.sendMediaMessage(ctx, baseURL, cdnBaseURL, token, toUserID, contextToken, caption, media); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (p *wechatProvider) StartTyping(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (TypingSession, error) {
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return nil, fmt.Errorf("%w: wechat bot_token is required", ErrInvalidInput)
+	}
+
+	baseURL := strings.TrimSpace(connection.Settings[wechatBaseURLSetting])
+	if _, err := parseWeChatBaseURL(baseURL); err != nil {
+		return nil, err
+	}
+
+	toUserID := strings.TrimSpace(conversation.ExternalChatID)
+	if toUserID == "" {
+		return nil, fmt.Errorf("%w: wechat external chat id is required before typing", ErrInvalidInput)
+	}
+
+	contextToken := strings.TrimSpace(conversation.ProviderState[wechatContextTokenKey])
+	if contextToken == "" {
+		return nil, fmt.Errorf("%w: wechat context token is required before typing", ErrInvalidInput)
+	}
+
+	typingTicket, err := p.getTypingTicket(ctx, connection, baseURL, token, toUserID, contextToken)
+	if err != nil {
+		return nil, err
+	}
+	if typingTicket == "" {
+		return nil, nil
+	}
+
+	if err := p.sendTyping(ctx, baseURL, token, toUserID, typingTicket, wechatTypingStatusTyping); err != nil {
+		return nil, err
+	}
+
+	sessionCtx, cancel := context.WithCancel(context.Background())
+	session := &wechatTypingSession{
+		provider:     p,
+		baseURL:      baseURL,
+		token:        token,
+		toUserID:     toUserID,
+		typingTicket: typingTicket,
+		cancel:       cancel,
+		done:         make(chan struct{}),
+	}
+	go session.keepalive(sessionCtx)
+	return session, nil
+}
+
+type wechatTypingSession struct {
+	provider     *wechatProvider
+	baseURL      string
+	token        string
+	toUserID     string
+	typingTicket string
+	cancel       context.CancelFunc
+	done         chan struct{}
+	stopOnce     sync.Once
+}
+
+func (s *wechatTypingSession) Stop(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+
+	var stopErr error
+	s.stopOnce.Do(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		if s.done != nil {
+			<-s.done
+		}
+		stopErr = s.provider.sendTyping(ctx, s.baseURL, s.token, s.toUserID, s.typingTicket, wechatTypingStatusCancel)
+	})
+	return stopErr
+}
+
+func (s *wechatTypingSession) keepalive(ctx context.Context) {
+	ticker := time.NewTicker(wechatTypingKeepaliveDelay)
+	defer ticker.Stop()
+	defer close(s.done)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			requestCtx, cancel := context.WithTimeout(context.Background(), wechatConfigHTTPTimeout)
+			_ = s.provider.sendTyping(requestCtx, s.baseURL, s.token, s.toUserID, s.typingTicket, wechatTypingStatusTyping)
+			cancel()
+		}
+	}
+}
+
+func (p *wechatProvider) getTypingTicket(
+	ctx context.Context,
+	connection store.BotConnection,
+	baseURL string,
+	token string,
+	toUserID string,
+	contextToken string,
+) (string, error) {
+	cacheKey := p.typingCacheKey(connection, baseURL, toUserID)
+
+	p.typingMu.Lock()
+	if entry, ok := p.typingCache[cacheKey]; ok && strings.TrimSpace(entry.typingTicket) != "" && time.Now().Before(entry.expiresAt) {
+		p.typingMu.Unlock()
+		return entry.typingTicket, nil
+	}
+	p.typingMu.Unlock()
+
+	response, err := p.getConfig(ctx, baseURL, token, toUserID, contextToken)
+	if err != nil {
+		return "", err
+	}
+
+	typingTicket := strings.TrimSpace(response.TypingTicket)
+	if typingTicket == "" {
+		return "", nil
+	}
+
+	p.typingMu.Lock()
+	if p.typingCache == nil {
+		p.typingCache = make(map[string]wechatTypingConfigCacheEntry)
+	}
+	p.typingCache[cacheKey] = wechatTypingConfigCacheEntry{
+		typingTicket: typingTicket,
+		expiresAt:    time.Now().Add(wechatTypingConfigTTL),
+	}
+	p.typingMu.Unlock()
+
+	return typingTicket, nil
+}
+
+func (p *wechatProvider) typingCacheKey(connection store.BotConnection, baseURL string, toUserID string) string {
+	return strings.Join([]string{
+		strings.TrimSpace(baseURL),
+		strings.TrimSpace(connection.Settings[wechatAccountIDSetting]),
+		strings.TrimSpace(toUserID),
+	}, "\n")
+}
+
+func (p *wechatProvider) getUpdates(ctx context.Context, baseURL string, token string, syncBuf string) (wechatGetUpdatesResponse, error) {
+	var response wechatGetUpdatesResponse
+	err := p.callJSON(ctx, p.pollingClient(), baseURL, token, http.MethodPost, "/ilink/bot/getupdates", map[string]any{
+		"get_updates_buf": strings.TrimSpace(syncBuf),
+		"base_info": wechatBaseInfo{
+			ChannelVersion: wechatChannelVersion,
+		},
+	}, &response)
+	if err != nil {
+		return wechatGetUpdatesResponse{}, err
+	}
+	return response, nil
+}
+
+func (p *wechatProvider) getConfig(
+	ctx context.Context,
+	baseURL string,
+	token string,
+	toUserID string,
+	contextToken string,
+) (wechatGetConfigResponse, error) {
+	var response wechatGetConfigResponse
+	err := p.callJSON(ctx, p.client(wechatConfigHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/getconfig", map[string]any{
+		"ilink_user_id": strings.TrimSpace(toUserID),
+		"context_token": strings.TrimSpace(contextToken),
+		"base_info": wechatBaseInfo{
+			ChannelVersion: wechatChannelVersion,
+		},
+	}, &response)
+	if err != nil {
+		return wechatGetConfigResponse{}, err
+	}
+	return response, nil
+}
+
+func (p *wechatProvider) sendTyping(
+	ctx context.Context,
+	baseURL string,
+	token string,
+	toUserID string,
+	typingTicket string,
+	status int,
+) error {
+	var response wechatAPIResponse
+	return p.callJSON(ctx, p.client(wechatConfigHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/sendtyping", map[string]any{
+		"ilink_user_id": strings.TrimSpace(toUserID),
+		"typing_ticket": strings.TrimSpace(typingTicket),
+		"status":        status,
+		"base_info": wechatBaseInfo{
+			ChannelVersion: wechatChannelVersion,
+		},
+	}, &response)
+}
+
+func (p *wechatProvider) sendTextMessage(
+	ctx context.Context,
+	baseURL string,
+	token string,
+	toUserID string,
+	contextToken string,
+	text string,
+) error {
+	var response wechatAPIResponse
+	return p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
+		Msg: wechatOutboundMessage{
+			FromUserID:   "",
+			ToUserID:     strings.TrimSpace(toUserID),
+			ClientID:     randomWeChatClientID(),
+			MessageType:  wechatMessageTypeBot,
+			MessageState: wechatMessageStateComplete,
+			ItemList: []wechatMessageItem{
+				{
+					Type: wechatItemTypeText,
+					TextItem: &wechatTextItem{
+						Text: text,
+					},
+				},
+			},
+			ContextToken: strings.TrimSpace(contextToken),
+		},
+		BaseInfo: wechatBaseInfo{
+			ChannelVersion: wechatChannelVersion,
+		},
+	}, &response)
+}
+
+func (p *wechatProvider) inboundMessageFromWeChat(ctx context.Context, cdnBaseURL string, message wechatMessage) (InboundMessage, error) {
+	if message.MessageType != wechatMessageTypeUser {
+		return InboundMessage{}, ErrWebhookIgnored
+	}
+
+	text := extractWeChatText(message.ItemList)
+	media := p.extractInboundMedia(ctx, cdnBaseURL, message.ItemList)
+	summaryText := messageSummaryText(text, media)
+	if strings.TrimSpace(summaryText) == "" {
+		return InboundMessage{}, ErrWebhookIgnored
+	}
+
+	fromUserID := strings.TrimSpace(message.FromUserID)
+	if fromUserID == "" {
+		return InboundMessage{}, ErrWebhookIgnored
+	}
+
+	title := firstNonEmpty(strings.TrimSpace(message.SessionID), fromUserID)
+	return InboundMessage{
+		ConversationID: fromUserID,
+		ExternalChatID: fromUserID,
+		MessageID:      stableWeChatMessageID(message),
+		UserID:         fromUserID,
+		Title:          title,
+		Text:           summaryText,
+		Media:          media,
+		ProviderData: map[string]string{
+			wechatContextTokenKey: strings.TrimSpace(message.ContextToken),
+			wechatSessionIDKey:    strings.TrimSpace(message.SessionID),
+			wechatCreatedAtMSKey:  strings.TrimSpace(message.CreateTimeMS.String()),
+		},
+	}, nil
+}
+
+func extractWeChatText(items []wechatMessageItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+
+	lines := make([]string, 0, len(items)*2)
+	for _, item := range items {
+		if quote := extractWeChatQuotedText(item); quote != "" {
+			lines = append(lines, "Quoted: "+quote)
+		}
+
+		switch item.Type {
+		case wechatItemTypeText:
+			if item.TextItem != nil && strings.TrimSpace(item.TextItem.Text) != "" {
+				lines = append(lines, strings.TrimSpace(item.TextItem.Text))
+			}
+		case wechatItemTypeVoice:
+			if item.VoiceItem != nil && strings.TrimSpace(item.VoiceItem.Text) != "" {
+				lines = append(lines, strings.TrimSpace(item.VoiceItem.Text))
+			}
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func extractWeChatQuotedText(item wechatMessageItem) string {
+	if item.RefMsg != nil && strings.TrimSpace(item.RefMsg.Text) != "" {
+		return strings.TrimSpace(item.RefMsg.Text)
+	}
+	if item.RefMsg != nil && item.RefMsg.MessageItem != nil {
+		if quoted := extractWeChatText([]wechatMessageItem{*item.RefMsg.MessageItem}); quoted != "" {
+			if title := strings.TrimSpace(item.RefMsg.Title); title != "" {
+				return title + " | " + quoted
+			}
+			return quoted
+		}
+		if title := strings.TrimSpace(item.RefMsg.Title); title != "" {
+			return title
+		}
+	}
+	if item.TextItem != nil && item.TextItem.RefMsg != nil && strings.TrimSpace(item.TextItem.RefMsg.Text) != "" {
+		return strings.TrimSpace(item.TextItem.RefMsg.Text)
+	}
+	if item.TextItem != nil && item.TextItem.RefMsg != nil && item.TextItem.RefMsg.MessageItem != nil {
+		if quoted := extractWeChatText([]wechatMessageItem{*item.TextItem.RefMsg.MessageItem}); quoted != "" {
+			if title := strings.TrimSpace(item.TextItem.RefMsg.Title); title != "" {
+				return title + " | " + quoted
+			}
+			return quoted
+		}
+		if title := strings.TrimSpace(item.TextItem.RefMsg.Title); title != "" {
+			return title
+		}
+	}
+	return ""
+}
+
+func stableWeChatMessageID(message wechatMessage) string {
+	parts := []string{
+		strings.TrimSpace(message.FromUserID),
+		strings.TrimSpace(message.ClientID),
+		strings.TrimSpace(message.CreateTimeMS.String()),
+		strings.TrimSpace(message.ContextToken),
+	}
+	joined := strings.Join(parts, "\x00")
+	if strings.TrimSpace(strings.ReplaceAll(joined, "\x00", "")) == "" {
+		return ""
+	}
+
+	sum := sha1.Sum([]byte(joined))
+	return "wechat:" + hex.EncodeToString(sum[:])
+}
+
+func parseWeChatDeliveryMode(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", wechatDeliveryModePolling:
+		return wechatDeliveryModePolling, nil
+	default:
+		return "", fmt.Errorf("%w: wechat delivery mode must be polling", ErrInvalidInput)
+	}
+}
+
+func parseWeChatBaseURL(value string) (*url.URL, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, fmt.Errorf("%w: wechat base url is required", ErrInvalidInput)
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("%w: wechat base url must be absolute", ErrInvalidInput)
+	}
+	return parsed, nil
+}
+
+func randomWeChatClientID() string {
+	buffer := make([]byte, 8)
+	if _, err := rand.Read(buffer); err != nil {
+		return fmt.Sprintf("wechat:%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("wechat:%d-%s", time.Now().UnixMilli(), hex.EncodeToString(buffer))
+}
+
+func (p *wechatProvider) client(timeout time.Duration) *http.Client {
+	if p.clients == nil {
+		return staticHTTPClientSource{}.Client(timeout)
+	}
+	return p.clients.Client(timeout)
+}
+
+func (p *wechatProvider) pollingClient() *http.Client {
+	return p.client(wechatLongPollHTTPTimeout)
+}
+
+func (p *wechatProvider) callJSON(
+	ctx context.Context,
+	client *http.Client,
+	baseURL string,
+	token string,
+	method string,
+	path string,
+	payload any,
+	target any,
+) error {
+	endpoint, err := buildWeChatURL(baseURL, path)
+	if err != nil {
+		return err
+	}
+
+	var body io.Reader
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("encode wechat %s payload: %w", path, err)
+		}
+		body = bytes.NewReader(data)
+	}
+
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	if err != nil {
+		return fmt.Errorf("build wechat %s request: %w", path, err)
+	}
+	request.Header.Set("AuthorizationType", "ilink_bot_token")
+	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	request.Header.Set("iLink-App-ClientVersion", wechatClientVersionHeader)
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+
+	if client == nil {
+		client = p.client(wechatDefaultHTTPTimeout)
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		return &wechatRequestError{
+			method: path,
+			cause:  err,
+		}
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		content, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return &wechatRequestError{
+			method:      path,
+			statusCode:  response.StatusCode,
+			status:      response.Status,
+			description: strings.TrimSpace(string(content)),
+		}
+	}
+
+	if target == nil {
+		return nil
+	}
+
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+		return fmt.Errorf("decode wechat %s response: %w", path, err)
+	}
+
+	switch typed := target.(type) {
+	case *wechatAPIResponse:
+		if typed.Ret != 0 || typed.ErrCode != 0 {
+			return &wechatRequestError{
+				method:      path,
+				statusCode:  typed.ErrCode,
+				status:      "api error",
+				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
+			}
+		}
+	case *wechatGetUpdatesResponse:
+		if typed.Ret != 0 || typed.ErrCode != 0 {
+			return &wechatRequestError{
+				method:      path,
+				statusCode:  typed.ErrCode,
+				status:      "api error",
+				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
+			}
+		}
+	case *wechatGetUploadURLResponse:
+		if typed.Ret != 0 || typed.ErrCode != 0 {
+			return &wechatRequestError{
+				method:      path,
+				statusCode:  typed.ErrCode,
+				status:      "api error",
+				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
+			}
+		}
+	case *wechatGetConfigResponse:
+		if typed.Ret != 0 || typed.ErrCode != 0 {
+			return &wechatRequestError{
+				method:      path,
+				statusCode:  typed.ErrCode,
+				status:      "api error",
+				description: firstNonEmpty(strings.TrimSpace(typed.ErrMsg), "wechat api request failed"),
+			}
+		}
+	}
+
+	return nil
+}
+
+func buildWeChatURL(baseURL string, path string) (string, error) {
+	parsed, err := parseWeChatBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + path
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
+}

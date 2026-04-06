@@ -161,6 +161,75 @@ func TestPersistentStorePersistsAutomations(t *testing.T) {
 	}
 }
 
+func TestPersistentStorePersistsBotConnectionRuntimeStateAndLogs(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	connection, err := firstStore.CreateBotConnection(BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    "wechat",
+		Name:        "WeChat Poller",
+		Status:      "active",
+		AIBackend:   "workspace_thread",
+		Settings: map[string]string{
+			"wechat_delivery_mode": "polling",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	_, err = firstStore.UpdateBotConnectionRuntimeState(workspace.ID, connection.ID, func(current BotConnection) BotConnection {
+		polledAt := time.Date(2026, time.April, 6, 5, 6, 7, 0, time.UTC)
+		current.LastPollAt = &polledAt
+		current.LastPollStatus = "success"
+		current.LastPollMessage = "Poll completed successfully. No new messages."
+		return current
+	})
+	if err != nil {
+		t.Fatalf("UpdateBotConnectionRuntimeState() error = %v", err)
+	}
+
+	if _, err := firstStore.AppendBotConnectionLog(workspace.ID, connection.ID, BotConnectionLogEntry{
+		Level:     "success",
+		EventType: "poll_idle",
+		Message:   "Poll completed successfully. No new messages.",
+	}); err != nil {
+		t.Fatalf("AppendBotConnectionLog() error = %v", err)
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	storedConnection, ok := secondStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected bot connection after reload")
+	}
+	if storedConnection.LastPollAt == nil || storedConnection.LastPollStatus != "success" {
+		t.Fatalf("expected persisted polling runtime state, got %#v", storedConnection)
+	}
+	if storedConnection.LastPollMessage != "Poll completed successfully. No new messages." {
+		t.Fatalf("expected persisted polling message, got %#v", storedConnection)
+	}
+
+	logs := secondStore.ListBotConnectionLogs(workspace.ID, connection.ID)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 persisted bot log entry, got %#v", logs)
+	}
+	if logs[0].EventType != "poll_idle" || logs[0].Message != "Poll completed successfully. No new messages." {
+		t.Fatalf("expected persisted bot log entry content, got %#v", logs[0])
+	}
+}
+
 func TestPersistentStorePersistsAutomationTemplates(t *testing.T) {
 	t.Parallel()
 
