@@ -26,61 +26,65 @@ type Service struct {
 }
 
 type ReadResult struct {
-	ConfiguredModelCatalogPath              string                          `json:"configuredModelCatalogPath"`
-	ConfiguredDefaultShellType              string                          `json:"configuredDefaultShellType"`
-	ConfiguredDefaultTerminalShell          string                          `json:"configuredDefaultTerminalShell"`
-	SupportedTerminalShells                 []string                        `json:"supportedTerminalShells"`
-	ConfiguredModelShellTypeOverrides       map[string]string               `json:"configuredModelShellTypeOverrides"`
-	ConfiguredOutboundProxyURL              string                          `json:"configuredOutboundProxyUrl"`
-	ConfiguredDefaultTurnApprovalPolicy     string                          `json:"configuredDefaultTurnApprovalPolicy"`
-	ConfiguredDefaultTurnSandboxPolicy      map[string]any                  `json:"configuredDefaultTurnSandboxPolicy"`
-	ConfiguredDefaultCommandSandboxPolicy   map[string]any                  `json:"configuredDefaultCommandSandboxPolicy"`
-	ConfiguredAllowRemoteAccess             *bool                           `json:"configuredAllowRemoteAccess"`
-	ConfiguredAccessTokens                  []accesscontrol.TokenDescriptor `json:"configuredAccessTokens"`
-	ConfiguredBackendThreadTraceEnabled     *bool                           `json:"configuredBackendThreadTraceEnabled"`
-	ConfiguredBackendThreadTraceWorkspaceID string                          `json:"configuredBackendThreadTraceWorkspaceId"`
-	ConfiguredBackendThreadTraceThreadID    string                          `json:"configuredBackendThreadTraceThreadId"`
-	DefaultModelCatalogPath                 string                          `json:"defaultModelCatalogPath"`
-	DefaultDefaultShellType                 string                          `json:"defaultDefaultShellType"`
-	DefaultDefaultTerminalShell             string                          `json:"defaultDefaultTerminalShell"`
-	DefaultModelShellTypeOverrides          map[string]string               `json:"defaultModelShellTypeOverrides"`
-	DefaultOutboundProxyURL                 string                          `json:"defaultOutboundProxyUrl"`
-	DefaultDefaultTurnApprovalPolicy        string                          `json:"defaultDefaultTurnApprovalPolicy"`
-	DefaultDefaultTurnSandboxPolicy         map[string]any                  `json:"defaultDefaultTurnSandboxPolicy"`
-	DefaultDefaultCommandSandboxPolicy      map[string]any                  `json:"defaultDefaultCommandSandboxPolicy"`
-	DefaultAllowRemoteAccess                bool                            `json:"defaultAllowRemoteAccess"`
-	DefaultBackendThreadTraceEnabled        bool                            `json:"defaultBackendThreadTraceEnabled"`
-	DefaultBackendThreadTraceWorkspaceID    string                          `json:"defaultBackendThreadTraceWorkspaceId"`
-	DefaultBackendThreadTraceThreadID       string                          `json:"defaultBackendThreadTraceThreadId"`
-	EffectiveModelCatalogPath               string                          `json:"effectiveModelCatalogPath"`
-	EffectiveDefaultShellType               string                          `json:"effectiveDefaultShellType"`
-	EffectiveDefaultTerminalShell           string                          `json:"effectiveDefaultTerminalShell"`
-	EffectiveModelShellTypeOverrides        map[string]string               `json:"effectiveModelShellTypeOverrides"`
-	EffectiveOutboundProxyURL               string                          `json:"effectiveOutboundProxyUrl"`
-	EffectiveDefaultTurnApprovalPolicy      string                          `json:"effectiveDefaultTurnApprovalPolicy"`
-	EffectiveDefaultTurnSandboxPolicy       map[string]any                  `json:"effectiveDefaultTurnSandboxPolicy"`
-	EffectiveDefaultCommandSandboxPolicy    map[string]any                  `json:"effectiveDefaultCommandSandboxPolicy"`
-	EffectiveAllowRemoteAccess              bool                            `json:"effectiveAllowRemoteAccess"`
-	EffectiveBackendThreadTraceEnabled      bool                            `json:"effectiveBackendThreadTraceEnabled"`
-	EffectiveBackendThreadTraceWorkspaceID  string                          `json:"effectiveBackendThreadTraceWorkspaceId"`
-	EffectiveBackendThreadTraceThreadID     string                          `json:"effectiveBackendThreadTraceThreadId"`
-	EffectiveCommand                        string                          `json:"effectiveCommand"`
+	ConfiguredModelCatalogPath                 string                          `json:"configuredModelCatalogPath"`
+	ConfiguredDefaultShellType                 string                          `json:"configuredDefaultShellType"`
+	ConfiguredDefaultTerminalShell             string                          `json:"configuredDefaultTerminalShell"`
+	SupportedTerminalShells                    []string                        `json:"supportedTerminalShells"`
+	ConfiguredModelShellTypeOverrides          map[string]string               `json:"configuredModelShellTypeOverrides"`
+	ConfiguredOutboundProxyURL                 string                          `json:"configuredOutboundProxyUrl"`
+	ConfiguredDefaultTurnApprovalPolicy        string                          `json:"configuredDefaultTurnApprovalPolicy"`
+	ConfiguredDefaultTurnSandboxPolicy         map[string]any                  `json:"configuredDefaultTurnSandboxPolicy"`
+	ConfiguredDefaultCommandSandboxPolicy      map[string]any                  `json:"configuredDefaultCommandSandboxPolicy"`
+	ConfiguredAllowRemoteAccess                *bool                           `json:"configuredAllowRemoteAccess"`
+	ConfiguredAllowLocalhostWithoutAccessToken *bool                           `json:"configuredAllowLocalhostWithoutAccessToken"`
+	ConfiguredAccessTokens                     []accesscontrol.TokenDescriptor `json:"configuredAccessTokens"`
+	ConfiguredBackendThreadTraceEnabled        *bool                           `json:"configuredBackendThreadTraceEnabled"`
+	ConfiguredBackendThreadTraceWorkspaceID    string                          `json:"configuredBackendThreadTraceWorkspaceId"`
+	ConfiguredBackendThreadTraceThreadID       string                          `json:"configuredBackendThreadTraceThreadId"`
+	DefaultModelCatalogPath                    string                          `json:"defaultModelCatalogPath"`
+	DefaultDefaultShellType                    string                          `json:"defaultDefaultShellType"`
+	DefaultDefaultTerminalShell                string                          `json:"defaultDefaultTerminalShell"`
+	DefaultModelShellTypeOverrides             map[string]string               `json:"defaultModelShellTypeOverrides"`
+	DefaultOutboundProxyURL                    string                          `json:"defaultOutboundProxyUrl"`
+	DefaultDefaultTurnApprovalPolicy           string                          `json:"defaultDefaultTurnApprovalPolicy"`
+	DefaultDefaultTurnSandboxPolicy            map[string]any                  `json:"defaultDefaultTurnSandboxPolicy"`
+	DefaultDefaultCommandSandboxPolicy         map[string]any                  `json:"defaultDefaultCommandSandboxPolicy"`
+	DefaultAllowRemoteAccess                   bool                            `json:"defaultAllowRemoteAccess"`
+	DefaultAllowLocalhostWithoutAccessToken    bool                            `json:"defaultAllowLocalhostWithoutAccessToken"`
+	DefaultBackendThreadTraceEnabled           bool                            `json:"defaultBackendThreadTraceEnabled"`
+	DefaultBackendThreadTraceWorkspaceID       string                          `json:"defaultBackendThreadTraceWorkspaceId"`
+	DefaultBackendThreadTraceThreadID          string                          `json:"defaultBackendThreadTraceThreadId"`
+	EffectiveModelCatalogPath                  string                          `json:"effectiveModelCatalogPath"`
+	EffectiveDefaultShellType                  string                          `json:"effectiveDefaultShellType"`
+	EffectiveDefaultTerminalShell              string                          `json:"effectiveDefaultTerminalShell"`
+	EffectiveModelShellTypeOverrides           map[string]string               `json:"effectiveModelShellTypeOverrides"`
+	EffectiveOutboundProxyURL                  string                          `json:"effectiveOutboundProxyUrl"`
+	EffectiveDefaultTurnApprovalPolicy         string                          `json:"effectiveDefaultTurnApprovalPolicy"`
+	EffectiveDefaultTurnSandboxPolicy          map[string]any                  `json:"effectiveDefaultTurnSandboxPolicy"`
+	EffectiveDefaultCommandSandboxPolicy       map[string]any                  `json:"effectiveDefaultCommandSandboxPolicy"`
+	EffectiveAllowRemoteAccess                 bool                            `json:"effectiveAllowRemoteAccess"`
+	EffectiveAllowLocalhostWithoutAccessToken  bool                            `json:"effectiveAllowLocalhostWithoutAccessToken"`
+	EffectiveBackendThreadTraceEnabled         bool                            `json:"effectiveBackendThreadTraceEnabled"`
+	EffectiveBackendThreadTraceWorkspaceID     string                          `json:"effectiveBackendThreadTraceWorkspaceId"`
+	EffectiveBackendThreadTraceThreadID        string                          `json:"effectiveBackendThreadTraceThreadId"`
+	EffectiveCommand                           string                          `json:"effectiveCommand"`
 }
 
 type WriteInput struct {
-	ModelCatalogPath              string                     `json:"modelCatalogPath"`
-	DefaultShellType              string                     `json:"defaultShellType"`
-	DefaultTerminalShell          string                     `json:"defaultTerminalShell"`
-	ModelShellTypeOverrides       map[string]string          `json:"modelShellTypeOverrides"`
-	OutboundProxyURL              string                     `json:"outboundProxyUrl"`
-	DefaultTurnApprovalPolicy     string                     `json:"defaultTurnApprovalPolicy"`
-	DefaultTurnSandboxPolicy      map[string]any             `json:"defaultTurnSandboxPolicy"`
-	DefaultCommandSandboxPolicy   map[string]any             `json:"defaultCommandSandboxPolicy"`
-	AllowRemoteAccess             *bool                      `json:"allowRemoteAccess"`
-	AccessTokens                  []accesscontrol.TokenInput `json:"accessTokens"`
-	BackendThreadTraceEnabled     *bool                      `json:"backendThreadTraceEnabled"`
-	BackendThreadTraceWorkspaceID string                     `json:"backendThreadTraceWorkspaceId"`
-	BackendThreadTraceThreadID    string                     `json:"backendThreadTraceThreadId"`
+	ModelCatalogPath                 string                     `json:"modelCatalogPath"`
+	DefaultShellType                 string                     `json:"defaultShellType"`
+	DefaultTerminalShell             string                     `json:"defaultTerminalShell"`
+	ModelShellTypeOverrides          map[string]string          `json:"modelShellTypeOverrides"`
+	OutboundProxyURL                 string                     `json:"outboundProxyUrl"`
+	DefaultTurnApprovalPolicy        string                     `json:"defaultTurnApprovalPolicy"`
+	DefaultTurnSandboxPolicy         map[string]any             `json:"defaultTurnSandboxPolicy"`
+	DefaultCommandSandboxPolicy      map[string]any             `json:"defaultCommandSandboxPolicy"`
+	AllowRemoteAccess                *bool                      `json:"allowRemoteAccess"`
+	AllowLocalhostWithoutAccessToken *bool                      `json:"allowLocalhostWithoutAccessToken"`
+	AccessTokens                     []accesscontrol.TokenInput `json:"accessTokens"`
+	BackendThreadTraceEnabled        *bool                      `json:"backendThreadTraceEnabled"`
+	BackendThreadTraceWorkspaceID    string                     `json:"backendThreadTraceWorkspaceId"`
+	BackendThreadTraceThreadID       string                     `json:"backendThreadTraceThreadId"`
 }
 
 func NewService(
@@ -155,19 +159,20 @@ func (s *Service) Write(input WriteInput) (ReadResult, error) {
 	}
 
 	candidateConfigured := store.RuntimePreferences{
-		ModelCatalogPath:              strings.TrimSpace(input.ModelCatalogPath),
-		DefaultShellType:              strings.TrimSpace(input.DefaultShellType),
-		DefaultTerminalShell:          normalizeTerminalShellPreference(input.DefaultTerminalShell),
-		ModelShellTypeOverrides:       normalizeInputs(input.ModelShellTypeOverrides),
-		OutboundProxyURL:              outboundProxyURL,
-		DefaultTurnApprovalPolicy:     defaultTurnApprovalPolicy,
-		DefaultTurnSandboxPolicy:      defaultTurnSandboxPolicy,
-		DefaultCommandSandboxPolicy:   defaultCommandSandboxPolicy,
-		AllowRemoteAccess:             cloneOptionalBool(input.AllowRemoteAccess),
-		AccessTokens:                  cloneAccessTokens(accessTokens),
-		BackendThreadTraceEnabled:     cloneOptionalBool(input.BackendThreadTraceEnabled),
-		BackendThreadTraceWorkspaceID: strings.TrimSpace(input.BackendThreadTraceWorkspaceID),
-		BackendThreadTraceThreadID:    strings.TrimSpace(input.BackendThreadTraceThreadID),
+		ModelCatalogPath:                 strings.TrimSpace(input.ModelCatalogPath),
+		DefaultShellType:                 strings.TrimSpace(input.DefaultShellType),
+		DefaultTerminalShell:             normalizeTerminalShellPreference(input.DefaultTerminalShell),
+		ModelShellTypeOverrides:          normalizeInputs(input.ModelShellTypeOverrides),
+		OutboundProxyURL:                 outboundProxyURL,
+		DefaultTurnApprovalPolicy:        defaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:         defaultTurnSandboxPolicy,
+		DefaultCommandSandboxPolicy:      defaultCommandSandboxPolicy,
+		AllowRemoteAccess:                cloneOptionalBool(input.AllowRemoteAccess),
+		AllowLocalhostWithoutAccessToken: cloneOptionalBool(input.AllowLocalhostWithoutAccessToken),
+		AccessTokens:                     cloneAccessTokens(accessTokens),
+		BackendThreadTraceEnabled:        cloneOptionalBool(input.BackendThreadTraceEnabled),
+		BackendThreadTraceWorkspaceID:    strings.TrimSpace(input.BackendThreadTraceWorkspaceID),
+		BackendThreadTraceThreadID:       strings.TrimSpace(input.BackendThreadTraceThreadID),
 	}
 	effectivePrefs := s.mergeWithDefaults(candidateConfigured)
 	resolved, err := appconfig.ResolveCodexRuntime(s.baseCommand, effectivePrefs)
@@ -209,20 +214,21 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 		return ReadResult{}, err
 	}
 	candidateConfigured := store.RuntimePreferences{
-		ModelCatalogPath:              targetPath,
-		LocalShellModels:              cloneStrings(currentConfigured.LocalShellModels),
-		DefaultShellType:              currentConfigured.DefaultShellType,
-		DefaultTerminalShell:          currentConfigured.DefaultTerminalShell,
-		ModelShellTypeOverrides:       cloneStringMap(currentConfigured.ModelShellTypeOverrides),
-		OutboundProxyURL:              currentConfigured.OutboundProxyURL,
-		DefaultTurnApprovalPolicy:     currentConfigured.DefaultTurnApprovalPolicy,
-		DefaultTurnSandboxPolicy:      cloneAnyMap(currentConfigured.DefaultTurnSandboxPolicy),
-		DefaultCommandSandboxPolicy:   cloneAnyMap(currentConfigured.DefaultCommandSandboxPolicy),
-		AllowRemoteAccess:             cloneOptionalBool(currentConfigured.AllowRemoteAccess),
-		AccessTokens:                  cloneAccessTokens(currentConfigured.AccessTokens),
-		BackendThreadTraceEnabled:     cloneOptionalBool(currentConfigured.BackendThreadTraceEnabled),
-		BackendThreadTraceWorkspaceID: strings.TrimSpace(currentConfigured.BackendThreadTraceWorkspaceID),
-		BackendThreadTraceThreadID:    strings.TrimSpace(currentConfigured.BackendThreadTraceThreadID),
+		ModelCatalogPath:                 targetPath,
+		LocalShellModels:                 cloneStrings(currentConfigured.LocalShellModels),
+		DefaultShellType:                 currentConfigured.DefaultShellType,
+		DefaultTerminalShell:             currentConfigured.DefaultTerminalShell,
+		ModelShellTypeOverrides:          cloneStringMap(currentConfigured.ModelShellTypeOverrides),
+		OutboundProxyURL:                 currentConfigured.OutboundProxyURL,
+		DefaultTurnApprovalPolicy:        currentConfigured.DefaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:         cloneAnyMap(currentConfigured.DefaultTurnSandboxPolicy),
+		DefaultCommandSandboxPolicy:      cloneAnyMap(currentConfigured.DefaultCommandSandboxPolicy),
+		AllowRemoteAccess:                cloneOptionalBool(currentConfigured.AllowRemoteAccess),
+		AllowLocalhostWithoutAccessToken: cloneOptionalBool(currentConfigured.AllowLocalhostWithoutAccessToken),
+		AccessTokens:                     cloneAccessTokens(currentConfigured.AccessTokens),
+		BackendThreadTraceEnabled:        cloneOptionalBool(currentConfigured.BackendThreadTraceEnabled),
+		BackendThreadTraceWorkspaceID:    strings.TrimSpace(currentConfigured.BackendThreadTraceWorkspaceID),
+		BackendThreadTraceThreadID:       strings.TrimSpace(currentConfigured.BackendThreadTraceThreadID),
 	}
 	effectivePrefs := s.mergeWithDefaults(candidateConfigured)
 	resolved, err := appconfig.ResolveCodexRuntime(s.baseCommand, effectivePrefs)
@@ -332,6 +338,7 @@ func normalizeConfiguredPreferences(input store.RuntimePreferences) (store.Runti
 	input.DefaultTurnSandboxPolicy = defaultTurnSandboxPolicy
 	input.DefaultCommandSandboxPolicy = defaultCommandSandboxPolicy
 	input.AllowRemoteAccess = cloneOptionalBool(input.AllowRemoteAccess)
+	input.AllowLocalhostWithoutAccessToken = cloneOptionalBool(input.AllowLocalhostWithoutAccessToken)
 	normalizedTokens, err := accesscontrol.NormalizeConfiguredTokens(input.AccessTokens, time.Now().UTC())
 	if err != nil {
 		return store.RuntimePreferences{}, err
@@ -446,47 +453,54 @@ func (s *Service) buildReadResult(
 	if configuredPrefs.AllowRemoteAccess != nil {
 		effectiveAllowRemoteAccess = *configuredPrefs.AllowRemoteAccess
 	}
+	effectiveAllowLocalhostWithoutAccessToken := accesscontrol.DefaultAllowLocalhostWithoutAccessToken
+	if configuredPrefs.AllowLocalhostWithoutAccessToken != nil {
+		effectiveAllowLocalhostWithoutAccessToken = *configuredPrefs.AllowLocalhostWithoutAccessToken
+	}
 
 	return ReadResult{
-		ConfiguredModelCatalogPath:              configuredPrefs.ModelCatalogPath,
-		ConfiguredDefaultShellType:              configuredPrefs.DefaultShellType,
-		ConfiguredDefaultTerminalShell:          configuredPrefs.DefaultTerminalShell,
-		SupportedTerminalShells:                 detectSupportedTerminalShells(),
-		ConfiguredModelShellTypeOverrides:       cloneStringMap(configuredPrefs.ModelShellTypeOverrides),
-		ConfiguredOutboundProxyURL:              configuredPrefs.OutboundProxyURL,
-		ConfiguredDefaultTurnApprovalPolicy:     configuredPrefs.DefaultTurnApprovalPolicy,
-		ConfiguredDefaultTurnSandboxPolicy:      cloneAnyMap(configuredPrefs.DefaultTurnSandboxPolicy),
-		ConfiguredDefaultCommandSandboxPolicy:   cloneAnyMap(configuredPrefs.DefaultCommandSandboxPolicy),
-		ConfiguredAllowRemoteAccess:             cloneOptionalBool(configuredPrefs.AllowRemoteAccess),
-		ConfiguredAccessTokens:                  accesscontrol.DescribeTokens(configuredPrefs.AccessTokens, now),
-		ConfiguredBackendThreadTraceEnabled:     cloneOptionalBool(configuredPrefs.BackendThreadTraceEnabled),
-		ConfiguredBackendThreadTraceWorkspaceID: strings.TrimSpace(configuredPrefs.BackendThreadTraceWorkspaceID),
-		ConfiguredBackendThreadTraceThreadID:    strings.TrimSpace(configuredPrefs.BackendThreadTraceThreadID),
-		DefaultModelCatalogPath:                 s.defaultPrefs.ModelCatalogPath,
-		DefaultDefaultShellType:                 s.defaultPrefs.DefaultShellType,
-		DefaultDefaultTerminalShell:             "auto",
-		DefaultModelShellTypeOverrides:          cloneStringMap(s.defaultPrefs.ModelShellTypeOverrides),
-		DefaultOutboundProxyURL:                 s.defaultPrefs.OutboundProxyURL,
-		DefaultDefaultTurnApprovalPolicy:        s.defaultPrefs.DefaultTurnApprovalPolicy,
-		DefaultDefaultTurnSandboxPolicy:         cloneAnyMap(s.defaultPrefs.DefaultTurnSandboxPolicy),
-		DefaultDefaultCommandSandboxPolicy:      cloneAnyMap(s.defaultPrefs.DefaultCommandSandboxPolicy),
-		DefaultAllowRemoteAccess:                s.defaultAllowRemoteAccess,
-		DefaultBackendThreadTraceEnabled:        s.defaultTrace.Enabled,
-		DefaultBackendThreadTraceWorkspaceID:    s.defaultTrace.WorkspaceID,
-		DefaultBackendThreadTraceThreadID:       s.defaultTrace.ThreadID,
-		EffectiveModelCatalogPath:               resolved.EffectiveModelCatalogPath,
-		EffectiveDefaultShellType:               resolved.Preferences.DefaultShellType,
-		EffectiveDefaultTerminalShell:           effectiveTerminalShellPreference(configuredPrefs.DefaultTerminalShell),
-		EffectiveModelShellTypeOverrides:        cloneStringMap(resolved.Preferences.ModelShellTypeOverrides),
-		EffectiveOutboundProxyURL:               resolved.Preferences.OutboundProxyURL,
-		EffectiveDefaultTurnApprovalPolicy:      resolved.Preferences.DefaultTurnApprovalPolicy,
-		EffectiveDefaultTurnSandboxPolicy:       cloneAnyMap(resolved.Preferences.DefaultTurnSandboxPolicy),
-		EffectiveDefaultCommandSandboxPolicy:    cloneAnyMap(resolved.Preferences.DefaultCommandSandboxPolicy),
-		EffectiveAllowRemoteAccess:              effectiveAllowRemoteAccess,
-		EffectiveBackendThreadTraceEnabled:      effectiveTrace.Enabled,
-		EffectiveBackendThreadTraceWorkspaceID:  effectiveTrace.WorkspaceID,
-		EffectiveBackendThreadTraceThreadID:     effectiveTrace.ThreadID,
-		EffectiveCommand:                        resolved.Command,
+		ConfiguredModelCatalogPath:                 configuredPrefs.ModelCatalogPath,
+		ConfiguredDefaultShellType:                 configuredPrefs.DefaultShellType,
+		ConfiguredDefaultTerminalShell:             configuredPrefs.DefaultTerminalShell,
+		SupportedTerminalShells:                    detectSupportedTerminalShells(),
+		ConfiguredModelShellTypeOverrides:          cloneStringMap(configuredPrefs.ModelShellTypeOverrides),
+		ConfiguredOutboundProxyURL:                 configuredPrefs.OutboundProxyURL,
+		ConfiguredDefaultTurnApprovalPolicy:        configuredPrefs.DefaultTurnApprovalPolicy,
+		ConfiguredDefaultTurnSandboxPolicy:         cloneAnyMap(configuredPrefs.DefaultTurnSandboxPolicy),
+		ConfiguredDefaultCommandSandboxPolicy:      cloneAnyMap(configuredPrefs.DefaultCommandSandboxPolicy),
+		ConfiguredAllowRemoteAccess:                cloneOptionalBool(configuredPrefs.AllowRemoteAccess),
+		ConfiguredAllowLocalhostWithoutAccessToken: cloneOptionalBool(configuredPrefs.AllowLocalhostWithoutAccessToken),
+		ConfiguredAccessTokens:                     accesscontrol.DescribeTokens(configuredPrefs.AccessTokens, now),
+		ConfiguredBackendThreadTraceEnabled:        cloneOptionalBool(configuredPrefs.BackendThreadTraceEnabled),
+		ConfiguredBackendThreadTraceWorkspaceID:    strings.TrimSpace(configuredPrefs.BackendThreadTraceWorkspaceID),
+		ConfiguredBackendThreadTraceThreadID:       strings.TrimSpace(configuredPrefs.BackendThreadTraceThreadID),
+		DefaultModelCatalogPath:                    s.defaultPrefs.ModelCatalogPath,
+		DefaultDefaultShellType:                    s.defaultPrefs.DefaultShellType,
+		DefaultDefaultTerminalShell:                "auto",
+		DefaultModelShellTypeOverrides:             cloneStringMap(s.defaultPrefs.ModelShellTypeOverrides),
+		DefaultOutboundProxyURL:                    s.defaultPrefs.OutboundProxyURL,
+		DefaultDefaultTurnApprovalPolicy:           s.defaultPrefs.DefaultTurnApprovalPolicy,
+		DefaultDefaultTurnSandboxPolicy:            cloneAnyMap(s.defaultPrefs.DefaultTurnSandboxPolicy),
+		DefaultDefaultCommandSandboxPolicy:         cloneAnyMap(s.defaultPrefs.DefaultCommandSandboxPolicy),
+		DefaultAllowRemoteAccess:                   s.defaultAllowRemoteAccess,
+		DefaultAllowLocalhostWithoutAccessToken:    accesscontrol.DefaultAllowLocalhostWithoutAccessToken,
+		DefaultBackendThreadTraceEnabled:           s.defaultTrace.Enabled,
+		DefaultBackendThreadTraceWorkspaceID:       s.defaultTrace.WorkspaceID,
+		DefaultBackendThreadTraceThreadID:          s.defaultTrace.ThreadID,
+		EffectiveModelCatalogPath:                  resolved.EffectiveModelCatalogPath,
+		EffectiveDefaultShellType:                  resolved.Preferences.DefaultShellType,
+		EffectiveDefaultTerminalShell:              effectiveTerminalShellPreference(configuredPrefs.DefaultTerminalShell),
+		EffectiveModelShellTypeOverrides:           cloneStringMap(resolved.Preferences.ModelShellTypeOverrides),
+		EffectiveOutboundProxyURL:                  resolved.Preferences.OutboundProxyURL,
+		EffectiveDefaultTurnApprovalPolicy:         resolved.Preferences.DefaultTurnApprovalPolicy,
+		EffectiveDefaultTurnSandboxPolicy:          cloneAnyMap(resolved.Preferences.DefaultTurnSandboxPolicy),
+		EffectiveDefaultCommandSandboxPolicy:       cloneAnyMap(resolved.Preferences.DefaultCommandSandboxPolicy),
+		EffectiveAllowRemoteAccess:                 effectiveAllowRemoteAccess,
+		EffectiveAllowLocalhostWithoutAccessToken:  effectiveAllowLocalhostWithoutAccessToken,
+		EffectiveBackendThreadTraceEnabled:         effectiveTrace.Enabled,
+		EffectiveBackendThreadTraceWorkspaceID:     effectiveTrace.WorkspaceID,
+		EffectiveBackendThreadTraceThreadID:        effectiveTrace.ThreadID,
+		EffectiveCommand:                           resolved.Command,
 	}
 }
 

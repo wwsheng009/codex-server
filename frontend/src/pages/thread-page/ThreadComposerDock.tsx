@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 
+import { formatLocalizedStatusLabel, formatResponseToneLabel } from '../../i18n/display'
 import { formatLocaleNumber } from '../../i18n/format'
 import { i18n } from '../../i18n/runtime'
 import { InlineNotice } from '../../components/ui/InlineNotice'
@@ -327,9 +328,9 @@ export function ThreadComposerDock({
                         </div>
                         <div className="composer-assist-card__details">
                           <strong>{server.name}</strong>
-                          <span>{server.detail || server.status}</span>
+                          <span>{server.detail || formatLocalizedStatusLabel(server.status)}</span>
                         </div>
-                        <span className="meta-pill">{server.status}</span>
+                        <span className="meta-pill">{formatLocalizedStatusLabel(server.status)}</span>
                       </article>
                     ))}
                   </div>
@@ -366,7 +367,7 @@ export function ThreadComposerDock({
                   </div>
                   <div className="composer-assist-card__fact">
                     <span>{i18n._({ id: 'Runtime', message: 'Runtime' })}</span>
-                    <strong>{runtimeStatus || i18n._({ id: 'Unknown', message: 'Unknown' })}</strong>
+                    <strong>{formatLocalizedStatusLabel(runtimeStatus)}</strong>
                   </div>
                   <div className="composer-assist-card__fact">
                     <span>{i18n._({ id: 'Context', message: 'Context' })}</span>
@@ -415,7 +416,7 @@ export function ThreadComposerDock({
                 <div className="composer-assist-card__facts">
                   <div className="composer-assist-card__fact">
                     <span>{i18n._({ id: 'Response tone', message: 'Response tone' })}</span>
-                    <strong>{responseTone}</strong>
+                    <strong>{formatResponseToneLabel(responseTone)}</strong>
                   </div>
                   <div className="composer-assist-card__fact">
                     <span>{i18n._({ id: 'Custom instructions', message: 'Custom instructions' })}</span>

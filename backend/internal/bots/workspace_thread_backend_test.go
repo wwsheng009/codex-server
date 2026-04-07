@@ -76,6 +76,86 @@ func TestWorkspaceThreadAIBackendStreamsAgentMessageDeltas(t *testing.T) {
 	}
 }
 
+func TestWorkspaceThreadAIBackendPassesPermissionPresetToThreadAndTurnRequests(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-permission-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-permission-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{
+				{
+					ID:     "turn-permission-1",
+					Status: "completed",
+					Items: []map[string]any{
+						{
+							"id":   "assistant-1",
+							"type": "agentMessage",
+							"text": "done",
+						},
+					},
+				},
+			},
+		},
+	}
+	turnsExec := &fakeCapturingTurns{
+		result: turns.Result{
+			TurnID: "turn-permission-1",
+			Status: "running",
+		},
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, nil, 5*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.turnSettleDelay = time.Millisecond
+
+	result, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+		AIConfig: map[string]string{
+			"model":              "gpt-5.4",
+			"permission_preset":  "full-access",
+			"reasoning_effort":   "high",
+			"collaboration_mode": "plan",
+		},
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-1",
+		Text:           "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+
+	if result.ThreadID != "thread-permission-1" {
+		t.Fatalf("expected thread id thread-permission-1, got %q", result.ThreadID)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].Text != "done" {
+		t.Fatalf("unexpected final messages %#v", result.Messages)
+	}
+	if threadsExec.lastCreateInput.PermissionPreset != "full-access" {
+		t.Fatalf("expected thread create permission preset full-access, got %#v", threadsExec.lastCreateInput.PermissionPreset)
+	}
+	if turnsExec.lastOptions.PermissionPreset != "full-access" {
+		t.Fatalf("expected turn start permission preset full-access, got %#v", turnsExec.lastOptions.PermissionPreset)
+	}
+	if turnsExec.lastOptions.ReasoningEffort != "high" {
+		t.Fatalf("expected turn start reasoning effort high, got %#v", turnsExec.lastOptions.ReasoningEffort)
+	}
+	if turnsExec.lastOptions.CollaborationMode != "plan" {
+		t.Fatalf("expected turn start collaboration mode plan, got %#v", turnsExec.lastOptions.CollaborationMode)
+	}
+}
+
 func TestCollectBotVisibleMessagesIncludesNonAgentOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -1325,11 +1405,13 @@ type fakeWorkspaceThreads struct {
 	detail      store.ThreadDetail
 	detailCalls int
 	turnCalls   int
+	lastCreateInput threads.CreateInput
 }
 
-func (f *fakeWorkspaceThreads) Create(_ context.Context, _ string, _ threads.CreateInput) (store.Thread, error) {
+func (f *fakeWorkspaceThreads) Create(_ context.Context, _ string, input threads.CreateInput) (store.Thread, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastCreateInput = input
 	return f.thread, nil
 }
 
@@ -1494,6 +1576,22 @@ func (f *fakeStreamingTurns) Start(_ context.Context, workspaceID string, thread
 		TurnID: "turn-stream-1",
 		Status: "running",
 	}, nil
+}
+
+type fakeCapturingTurns struct {
+	result      turns.Result
+	lastOptions turns.StartOptions
+}
+
+func (f *fakeCapturingTurns) Start(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	options turns.StartOptions,
+) (turns.Result, error) {
+	f.lastOptions = options
+	return f.result, nil
 }
 
 type fakeLateServerRequestTurns struct {

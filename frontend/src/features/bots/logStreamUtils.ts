@@ -1,10 +1,12 @@
+import { humanizeDisplayValue } from '../../i18n/display'
 import { i18n } from '../../i18n/runtime'
 import type { BotConnectionLogEntry } from '../../types/api'
 
-export type BotConnectionLogFilter = 'all' | 'suppressed' | 'attention'
+export type BotConnectionLogFilter = 'all' | 'deliveries' | 'suppressed' | 'attention'
 
 export type BotConnectionLogSummary = {
   totalCount: number
+  deliveryCount: number
   suppressedCount: number
   duplicateSuppressedCount: number
   recoverySuppressedCount: number
@@ -21,13 +23,23 @@ export type BotConnectionSuppressionWindowSummary = {
 export type BotConnectionLogDescriptor = {
   eventLabel?: string
   eventTone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
-  highlightStyle: 'none' | 'suppressed'
+  highlightStyle:
+    | 'none'
+    | 'suppressed'
+    | 'delivery-sending'
+    | 'delivery-success'
+    | 'delivery-warning'
+    | 'delivery-danger'
 }
 
 const SUPPRESSED_EVENT_TYPES = new Set(['duplicate_delivery_suppressed', 'recovery_replay_suppressed'])
 
 export function normalizeBotConnectionLogEventType(eventType: string | null | undefined) {
   return eventType?.trim().toLowerCase() ?? ''
+}
+
+export function isBotConnectionLogDeliveryEvent(eventType: string | null | undefined) {
+  return normalizeBotConnectionLogEventType(eventType).startsWith('reply_delivery_')
 }
 
 export function isBotConnectionLogSuppressionEvent(eventType: string | null | undefined) {
@@ -46,6 +58,7 @@ export function isBotConnectionLogAttentionEntry(entry: Pick<BotConnectionLogEnt
 export function summarizeBotConnectionLogs(logs: BotConnectionLogEntry[]): BotConnectionLogSummary {
   const summary: BotConnectionLogSummary = {
     totalCount: logs.length,
+    deliveryCount: 0,
     suppressedCount: 0,
     duplicateSuppressedCount: 0,
     recoverySuppressedCount: 0,
@@ -54,6 +67,9 @@ export function summarizeBotConnectionLogs(logs: BotConnectionLogEntry[]): BotCo
 
   for (const entry of logs) {
     const eventType = normalizeBotConnectionLogEventType(entry.eventType)
+    if (isBotConnectionLogDeliveryEvent(eventType)) {
+      summary.deliveryCount += 1
+    }
     if (isBotConnectionLogAttentionEntry(entry)) {
       summary.attentionCount += 1
     }
@@ -113,6 +129,8 @@ export function summarizeRecentBotConnectionSuppressions(
 
 export function filterBotConnectionLogs(logs: BotConnectionLogEntry[], filter: BotConnectionLogFilter) {
   switch (filter) {
+    case 'deliveries':
+      return logs.filter((entry) => isBotConnectionLogDeliveryEvent(entry.eventType))
     case 'suppressed':
       return logs.filter((entry) => isBotConnectionLogSuppressionEvent(entry.eventType))
     case 'attention':
@@ -180,7 +198,66 @@ export function describeBotConnectionLogEntry(entry: Pick<BotConnectionLogEntry,
         eventTone: 'warning',
         highlightStyle: 'none',
       }
+    case 'reply_delivery_sending':
+      return {
+        eventLabel: i18n._({ id: 'Reply Sending', message: 'Reply Sending' }),
+        eventTone: 'accent',
+        highlightStyle: 'delivery-sending',
+      }
+    case 'reply_delivery_retry':
+      return {
+        eventLabel: i18n._({ id: 'Reply Retrying', message: 'Reply Retrying' }),
+        eventTone: 'warning',
+        highlightStyle: 'delivery-warning',
+      }
+    case 'reply_delivery_delivered':
+      return {
+        eventLabel: i18n._({ id: 'Reply Delivered', message: 'Reply Delivered' }),
+        eventTone: 'success',
+        highlightStyle: 'delivery-success',
+      }
+    case 'reply_delivery_recovered':
+      return {
+        eventLabel: i18n._({ id: 'Reply Recovered', message: 'Reply Recovered' }),
+        eventTone: 'success',
+        highlightStyle: 'delivery-success',
+      }
+    case 'reply_delivery_replayed':
+      return {
+        eventLabel: i18n._({ id: 'Reply Replayed', message: 'Reply Replayed' }),
+        eventTone: 'success',
+        highlightStyle: 'delivery-success',
+      }
+    case 'reply_delivery_failed':
+      return {
+        eventLabel: i18n._({ id: 'Reply Failed', message: 'Reply Failed' }),
+        eventTone: 'danger',
+        highlightStyle: 'delivery-danger',
+      }
+    case 'reply_delivery_replay_failed':
+      return {
+        eventLabel: i18n._({ id: 'Replay Failed', message: 'Replay Failed' }),
+        eventTone: 'danger',
+        highlightStyle: 'delivery-danger',
+      }
+    case 'reply_delivery_replay_reconcile_failed':
+      return {
+        eventLabel: i18n._({
+          id: 'Replay Reconcile Failed',
+          message: 'Replay Reconcile Failed',
+        }),
+        eventTone: 'warning',
+        highlightStyle: 'delivery-warning',
+      }
     default:
+      if (isBotConnectionLogDeliveryEvent(eventType)) {
+        const eventTone = toneFromLogLevel(entry.level)
+        return {
+          eventLabel: formatBotConnectionLogEventTypeLabel(eventType),
+          eventTone,
+          highlightStyle: deliveryHighlightStyleFromTone(eventTone),
+        }
+      }
       if (!eventType) {
         return {
           eventTone: toneFromLogLevel(entry.level),
@@ -221,11 +298,23 @@ function toneFromLogLevel(level: string | null | undefined): BotConnectionLogDes
   }
 }
 
+function deliveryHighlightStyleFromTone(
+  tone: BotConnectionLogDescriptor['eventTone'],
+): BotConnectionLogDescriptor['highlightStyle'] {
+  switch (tone) {
+    case 'success':
+      return 'delivery-success'
+    case 'warning':
+      return 'delivery-warning'
+    case 'danger':
+      return 'delivery-danger'
+    case 'accent':
+      return 'delivery-sending'
+    default:
+      return 'none'
+  }
+}
+
 function formatBotConnectionLogEventTypeLabel(eventType: string) {
-  const label = eventType
-    .split('_')
-    .filter(Boolean)
-    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
-    .join(' ')
-  return i18n._({ id: label, message: label })
+  return humanizeDisplayValue(eventType, eventType)
 }

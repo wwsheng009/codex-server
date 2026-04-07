@@ -74,7 +74,9 @@ export function WorkspaceTreeThreadRow({
               }
             />
           ) : null}
-          <span className="workspace-tree__thread-title">{thread.name}</span>
+          <span className="workspace-tree__thread-title" dir="auto">
+            {thread.name}
+          </span>
         </span>
       </button>
       <div

@@ -21,6 +21,7 @@ import { formatRelativeTimeShort } from '../../components/workspace/timeline-uti
 import { readConfig, readRuntimePreferences, writeConfigValue } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { getWorkspaceRuntimeState, restartWorkspace } from '../../features/workspaces/api'
+import { formatLocalizedStatusLabel } from '../../i18n/display'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 
@@ -276,9 +277,13 @@ export function EnvironmentSettingsPage() {
                 title={i18n._({ id: 'Workspace Runtime Scope', message: 'Workspace Runtime Scope' })}
               />
               <div className="header-actions">
-                <span className="meta-pill">
-                  {selectedWorkspace?.runtimeStatus ?? i18n._({ id: 'Unknown', message: 'Unknown' })}
-                </span>
+                {selectedWorkspace?.runtimeStatus ? (
+                  <StatusPill status={selectedWorkspace.runtimeStatus} />
+                ) : (
+                  <span className="meta-pill">
+                    {i18n._({ id: 'Unknown', message: 'Unknown' })}
+                  </span>
+                )}
                 <button
                   className="ide-button ide-button--secondary"
                   disabled={!workspaceId || restartWorkspaceMutation.isPending}
@@ -311,7 +316,13 @@ export function EnvironmentSettingsPage() {
               {workspaceRuntimeStateQuery.data ? (
                 <InlineNotice
                   noticeKey={`runtime-load-status-${workspaceId}-${workspaceRuntimeStateQuery.data.configLoadStatus}`}
-                  title={i18n._({ id: 'Config Load Status', message: 'Config Load Status' })}
+                  title={i18n._({
+                    id: 'Config Load Status: {status}',
+                    message: 'Config Load Status: {status}',
+                    values: {
+                      status: formatLocalizedStatusLabel(workspaceRuntimeStateQuery.data.configLoadStatus),
+                    },
+                  })}
                   tone={workspaceRuntimeStateQuery.data.restartRequired ? 'error' : 'info'}
                 >
                   {workspaceRuntimeStateQuery.data.restartRequired

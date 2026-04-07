@@ -117,7 +117,7 @@ func (p *wechatProvider) sendMessageItem(
 	item wechatMessageItem,
 ) error {
 	var response wechatAPIResponse
-	return p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
+	if err := p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
 		Msg: wechatOutboundMessage{
 			FromUserID:   "",
 			ToUserID:     strings.TrimSpace(toUserID),
@@ -130,7 +130,10 @@ func (p *wechatProvider) sendMessageItem(
 		BaseInfo: wechatBaseInfo{
 			ChannelVersion: wechatChannelVersion,
 		},
-	}, &response)
+	}, &response); err != nil {
+		return wrapWeChatSendMessageError("item", wechatMessageItemSendSummary(item), err)
+	}
+	return nil
 }
 
 func buildWeChatOutboundMediaItem(uploaded wechatUploadedMedia) wechatMessageItem {

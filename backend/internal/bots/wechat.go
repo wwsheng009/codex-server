@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -60,6 +62,9 @@ const (
 	wechatUploadMediaTypeVideo  = 2
 	wechatUploadMediaTypeFile   = 3
 	wechatSessionExpiredErrCode = -14
+	wechatReplyRetryAttempts    = 2
+	wechatReplyRetryBaseDelay   = 500 * time.Millisecond
+	wechatReplyRetryMaxDelay    = 3 * time.Second
 )
 
 var (
@@ -194,6 +199,7 @@ type wechatRequestError struct {
 	status      string
 	description string
 	cause       error
+	apiRet      int
 }
 
 func (e *wechatRequestError) Error() string {
@@ -205,16 +211,41 @@ func (e *wechatRequestError) Error() string {
 	}
 
 	detail := strings.TrimSpace(e.description)
+	code := e.codeLabel()
 	switch {
+	case e.status != "" && detail != "" && code != "":
+		return fmt.Sprintf("wechat %s returned %s (%s): %s", e.method, e.status, code, detail)
+	case e.status != "" && code != "":
+		return fmt.Sprintf("wechat %s returned %s (%s)", e.method, e.status, code)
 	case e.status != "" && detail != "":
 		return fmt.Sprintf("wechat %s returned %s: %s", e.method, e.status, detail)
 	case e.status != "":
 		return fmt.Sprintf("wechat %s returned %s", e.method, e.status)
+	case detail != "" && code != "":
+		return fmt.Sprintf("wechat %s api error (%s): %s", e.method, code, detail)
 	case detail != "":
 		return fmt.Sprintf("wechat %s api error: %s", e.method, detail)
+	case code != "":
+		return fmt.Sprintf("wechat %s request failed (%s)", e.method, code)
 	default:
 		return fmt.Sprintf("wechat %s request failed", e.method)
 	}
+}
+
+func (e *wechatRequestError) codeLabel() string {
+	if e == nil {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(e.status), "api error") {
+		if e.apiRet != 0 || e.statusCode != 0 {
+			return fmt.Sprintf("ret=%d errcode=%d", e.apiRet, e.statusCode)
+		}
+		return ""
+	}
+	if e.statusCode != 0 {
+		return fmt.Sprintf("code=%d", e.statusCode)
+	}
+	return ""
 }
 
 func (e *wechatRequestError) Unwrap() error {
@@ -490,6 +521,7 @@ func (p *wechatProvider) SendMessages(
 		return fmt.Errorf("%w: wechat context token is required before sending replies", ErrInvalidInput)
 	}
 
+	deliveredParts := 0
 	for _, message := range messages {
 		text := strings.TrimSpace(message.Text)
 		if len(message.Media) == 0 {
@@ -497,8 +529,12 @@ func (p *wechatProvider) SendMessages(
 				continue
 			}
 			if err := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, text); err != nil {
+				if deliveredParts == 0 {
+					return markReplyDeliveryRetryable(err)
+				}
 				return err
 			}
+			deliveredParts += 1
 			continue
 		}
 
@@ -519,19 +555,30 @@ func (p *wechatProvider) SendMessages(
 			if fallbackText == "" {
 				return prepareErr
 			}
-			logBotDebug(ctx, connection, "wechat media preparation failed; falling back to text")
+			logBotDebug(ctx, connection, "wechat media preparation failed; falling back to text",
+				slog.String("error", prepareErr.Error()),
+				slog.String("fallbackTextPreview", debugTextPreview(fallbackText)),
+				slog.Int("mediaCount", len(message.Media)),
+			)
 			if err := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, fallbackText); err != nil {
 				return errors.Join(prepareErr, err)
 			}
+			logBotDebug(ctx, connection, "wechat fallback text sent after media preparation failure",
+				slog.String("textPreview", debugTextPreview(fallbackText)),
+			)
 			continue
 		}
 
 		textSent := false
 		if text != "" {
 			if err := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, text); err != nil {
+				if deliveredParts == 0 {
+					return markReplyDeliveryRetryable(err)
+				}
 				return err
 			}
 			textSent = true
+			deliveredParts += 1
 		}
 
 		for _, item := range items {
@@ -541,26 +588,223 @@ func (p *wechatProvider) SendMessages(
 					if fallbackText == "" {
 						return err
 					}
-					logBotDebug(ctx, connection, "wechat media send failed before any text reply; falling back to text")
+					logBotDebug(ctx, connection, "wechat media send failed before any text reply; falling back to text",
+						slog.String("error", err.Error()),
+						slog.String("fallbackTextPreview", debugTextPreview(fallbackText)),
+					)
 					if fallbackErr := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, fallbackText); fallbackErr != nil {
+						if deliveredParts == 0 {
+							return markReplyDeliveryRetryable(errors.Join(err, fallbackErr))
+						}
 						return errors.Join(err, fallbackErr)
 					}
+					logBotDebug(ctx, connection, "wechat fallback text sent after media send failure",
+						slog.String("textPreview", debugTextPreview(fallbackText)),
+					)
+					deliveredParts += 1
 				} else {
-					logBotDebug(ctx, connection, "wechat media send failed after text reply; keeping text fallback")
+					logBotDebug(ctx, connection, "wechat media send failed after text reply; keeping text fallback",
+						slog.String("error", err.Error()),
+						slog.Bool("textAlreadySent", true),
+					)
 				}
 				break
 			}
+			deliveredParts += 1
 		}
 	}
 
 	return nil
 }
 
+func (p *wechatProvider) ReplyDeliveryRetryDecision(err error, attempt int) (bool, time.Duration) {
+	if attempt >= wechatReplyRetryAttempts || !isReplyDeliveryRetryable(err) {
+		return false, 0
+	}
+	if !isTransientWeChatDeliveryError(unwrapReplyDeliveryRetryable(err)) {
+		return false, 0
+	}
+	return true, wechatReplyRetryBackoff(attempt)
+}
+
+func wechatReplyRetryBackoff(attempt int) time.Duration {
+	if attempt <= 0 {
+		return wechatReplyRetryBaseDelay
+	}
+
+	delay := wechatReplyRetryBaseDelay
+	for step := 1; step < attempt; step++ {
+		if delay >= wechatReplyRetryMaxDelay {
+			return wechatReplyRetryMaxDelay
+		}
+		delay *= 2
+	}
+	if delay > wechatReplyRetryMaxDelay {
+		return wechatReplyRetryMaxDelay
+	}
+	return delay
+}
+
+func isTransientWeChatDeliveryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	var requestErr *wechatRequestError
+	if errors.As(err, &requestErr) {
+		switch {
+		case requestErr.cause != nil:
+			return isTransientWeChatDeliveryError(requestErr.cause)
+		case requestErr.statusCode == wechatSessionExpiredErrCode:
+			return false
+		case requestErr.statusCode == http.StatusRequestTimeout:
+			return true
+		case requestErr.statusCode == http.StatusTooManyRequests:
+			return true
+		case requestErr.statusCode >= 500:
+			return true
+		}
+	}
+
+	return false
+}
+
+func wrapWeChatSendMessageError(mode string, summary string, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	mode = strings.TrimSpace(mode)
+	summary = strings.TrimSpace(summary)
+	switch {
+	case mode != "" && summary != "":
+		return fmt.Errorf("wechat sendmessage %s failed (%s): %w", mode, summary, err)
+	case mode != "":
+		return fmt.Errorf("wechat sendmessage %s failed: %w", mode, err)
+	default:
+		return fmt.Errorf("wechat sendmessage failed: %w", err)
+	}
+}
+
+func wechatTextSendSummary(text string) string {
+	trimmed := strings.TrimSpace(text)
+	return fmt.Sprintf("chars=%d preview=%q", len([]rune(trimmed)), debugTextPreview(trimmed))
+}
+
+func wechatMessageItemSendSummary(item wechatMessageItem) string {
+	parts := []string{"type=" + wechatMessageItemTypeLabel(item.Type)}
+	switch item.Type {
+	case wechatItemTypeText:
+		if item.TextItem != nil {
+			parts = append(parts, wechatTextSendSummary(item.TextItem.Text))
+		}
+	case wechatItemTypeImage:
+		if item.ImageItem != nil && item.ImageItem.MidSize > 0 {
+			parts = append(parts, fmt.Sprintf("midSize=%d", item.ImageItem.MidSize))
+		}
+	case wechatItemTypeVoice:
+		if item.VoiceItem != nil {
+			if text := strings.TrimSpace(item.VoiceItem.Text); text != "" {
+				parts = append(parts, wechatTextSendSummary(text))
+			}
+			if item.VoiceItem.EncodeType != 0 {
+				parts = append(parts, fmt.Sprintf("encodeType=%d", item.VoiceItem.EncodeType))
+			}
+		}
+	case wechatItemTypeFile:
+		if item.FileItem != nil {
+			if fileName := strings.TrimSpace(item.FileItem.FileName); fileName != "" {
+				parts = append(parts, fmt.Sprintf("fileName=%q", fileName))
+			}
+			if fileLen := strings.TrimSpace(item.FileItem.Len); fileLen != "" {
+				parts = append(parts, "len="+fileLen)
+			}
+		}
+	case wechatItemTypeVideo:
+		if item.VideoItem != nil && item.VideoItem.VideoSize > 0 {
+			parts = append(parts, fmt.Sprintf("videoSize=%d", item.VideoItem.VideoSize))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func wechatMessageItemTypeLabel(itemType int) string {
+	switch itemType {
+	case wechatItemTypeText:
+		return "text"
+	case wechatItemTypeImage:
+		return "image"
+	case wechatItemTypeVoice:
+		return "voice"
+	case wechatItemTypeFile:
+		return "file"
+	case wechatItemTypeVideo:
+		return "video"
+	default:
+		return strconv.Itoa(itemType)
+	}
+}
+
 func wechatFallbackTextForMessage(message OutboundMessage) string {
-	if text := strings.TrimSpace(message.Text); text != "" {
+	text := strings.TrimSpace(message.Text)
+	if len(message.Media) == 0 {
 		return text
 	}
-	return messageSummaryText("", message.Media)
+
+	sections := make([]string, 0, 2)
+	if text != "" {
+		sections = append(sections, text)
+	}
+
+	attachmentLines := wechatFallbackAttachmentLines(message.Media)
+	if len(attachmentLines) > 0 {
+		sections = append(sections,
+			"[WeChat attachment delivery fallback]\n"+strings.Join(attachmentLines, "\n"),
+		)
+	}
+
+	if len(sections) == 0 {
+		return messageSummaryText("", message.Media)
+	}
+	return strings.TrimSpace(strings.Join(sections, "\n\n"))
+}
+
+func wechatFallbackAttachmentLines(media []store.BotMessageMedia) []string {
+	if len(media) == 0 {
+		return nil
+	}
+
+	lines := make([]string, 0, len(media))
+	for _, item := range media {
+		kind := normalizeWeChatMediaKind(item.Kind)
+		if kind == "" {
+			kind = inferWeChatMediaKindFromLocation(firstNonEmpty(strings.TrimSpace(item.URL), strings.TrimSpace(item.Path)))
+		}
+		if kind == "" {
+			kind = botMediaKindFile
+		}
+
+		location := firstNonEmpty(strings.TrimSpace(item.URL), strings.TrimSpace(item.Path))
+		if location == "" {
+			if fileName := strings.TrimSpace(item.FileName); fileName != "" {
+				lines = append(lines, kind+" "+fileName)
+			}
+			continue
+		}
+		lines = append(lines, kind+" "+location)
+	}
+	return lines
 }
 
 func (p *wechatProvider) StartStreamingReply(
@@ -941,7 +1185,7 @@ func (p *wechatProvider) sendTextMessage(
 	text string,
 ) error {
 	var response wechatAPIResponse
-	return p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
+	if err := p.callJSON(ctx, p.client(wechatDefaultHTTPTimeout), baseURL, token, routeTag, http.MethodPost, "/ilink/bot/sendmessage", wechatSendMessageRequest{
 		Msg: wechatOutboundMessage{
 			FromUserID:   "",
 			ToUserID:     strings.TrimSpace(toUserID),
@@ -961,7 +1205,10 @@ func (p *wechatProvider) sendTextMessage(
 		BaseInfo: wechatBaseInfo{
 			ChannelVersion: wechatChannelVersion,
 		},
-	}, &response)
+	}, &response); err != nil {
+		return wrapWeChatSendMessageError("text", wechatTextSendSummary(text), err)
+	}
+	return nil
 }
 
 func (p *wechatProvider) inboundMessageFromWeChat(ctx context.Context, cdnBaseURL string, message wechatMessage) (InboundMessage, error) {
@@ -1229,11 +1476,20 @@ func wechatAPIError(path string, response wechatAPIResponse) error {
 	if response.Ret == 0 && response.ErrCode == 0 {
 		return nil
 	}
+
+	description := strings.TrimSpace(response.ErrMsg)
+	if description == "" && response.ErrCode == wechatSessionExpiredErrCode {
+		description = "session expired"
+	}
+	if description == "" {
+		description = "wechat api request failed"
+	}
 	return &wechatRequestError{
 		method:      path,
+		apiRet:      response.Ret,
 		statusCode:  response.ErrCode,
 		status:      "api error",
-		description: firstNonEmpty(strings.TrimSpace(response.ErrMsg), "wechat api request failed"),
+		description: description,
 	}
 }
 

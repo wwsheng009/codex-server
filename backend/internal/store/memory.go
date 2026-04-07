@@ -22,6 +22,8 @@ var (
 	ErrAutomationTemplateNotFound = errors.New("automation template not found")
 	ErrAutomationRunNotFound      = errors.New("automation run not found")
 	ErrNotificationNotFound       = errors.New("notification not found")
+	ErrBotNotFound                = errors.New("bot not found")
+	ErrBotBindingNotFound         = errors.New("bot binding not found")
 	ErrBotConnectionNotFound      = errors.New("bot connection not found")
 	ErrWeChatAccountNotFound      = errors.New("wechat account not found")
 	ErrBotConversationNotFound    = errors.New("bot conversation not found")
@@ -45,6 +47,8 @@ type MemoryStore struct {
 	templates         map[string]AutomationTemplate
 	runs              map[string]AutomationRun
 	notifications     map[string]Notification
+	bots              map[string]Bot
+	botBindings       map[string]BotBinding
 	botConnections    map[string]BotConnection
 	botConnectionLogs map[string][]BotConnectionLogEntry
 	wechatAccounts    map[string]WeChatAccount
@@ -65,6 +69,8 @@ type storeSnapshot struct {
 	AutomationTemplates []AutomationTemplate     `json:"automationTemplates,omitempty"`
 	AutomationRuns      []AutomationRun          `json:"automationRuns,omitempty"`
 	Notifications       []Notification           `json:"notifications,omitempty"`
+	Bots                []Bot                    `json:"bots,omitempty"`
+	BotBindings         []BotBinding            `json:"botBindings,omitempty"`
 	BotConnections      []BotConnection          `json:"botConnections,omitempty"`
 	BotConnectionLogs   []BotConnectionLogEntry  `json:"botConnectionLogs,omitempty"`
 	WeChatAccounts      []WeChatAccount          `json:"wechatAccounts,omitempty"`
@@ -83,6 +89,8 @@ func NewMemoryStore() *MemoryStore {
 		templates:         make(map[string]AutomationTemplate),
 		runs:              make(map[string]AutomationRun),
 		notifications:     make(map[string]Notification),
+		bots:              make(map[string]Bot),
+		botBindings:       make(map[string]BotBinding),
 		botConnections:    make(map[string]BotConnection),
 		botConnectionLogs: make(map[string][]BotConnectionLogEntry),
 		wechatAccounts:    make(map[string]WeChatAccount),
@@ -327,6 +335,7 @@ func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
 		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 	}
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
+	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
 		prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
 	}
@@ -365,6 +374,7 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 		prefs.DefaultCommandSandboxPolicy = nil
 	}
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
+	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
 		prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
 	} else {
@@ -800,6 +810,257 @@ func (s *MemoryStore) DeleteReadNotifications() []Notification {
 	return deleted
 }
 
+func (s *MemoryStore) ListBots(workspaceID string) []Bot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]Bot, 0)
+	for _, bot := range s.bots {
+		if bot.WorkspaceID != workspaceID {
+			continue
+		}
+		items = append(items, cloneBot(bot))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBot(workspaceID string, botID string) (Bot, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	bot, ok := s.bots[botID]
+	if !ok || bot.WorkspaceID != workspaceID {
+		return Bot{}, false
+	}
+
+	return cloneBot(bot), true
+}
+
+func (s *MemoryStore) CreateBot(bot Bot) (Bot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[bot.WorkspaceID]; !ok {
+		return Bot{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(bot.ID) == "" {
+		bot.ID = NewID("botr")
+	}
+	if bot.CreatedAt.IsZero() {
+		bot.CreatedAt = now
+	}
+	if bot.UpdatedAt.IsZero() {
+		bot.UpdatedAt = now
+	}
+	bot.WorkspaceID = strings.TrimSpace(bot.WorkspaceID)
+	bot.Name = strings.TrimSpace(bot.Name)
+	bot.Description = strings.TrimSpace(bot.Description)
+	bot.Status = strings.TrimSpace(bot.Status)
+	bot.DefaultBindingID = strings.TrimSpace(bot.DefaultBindingID)
+
+	s.bots[bot.ID] = bot
+	s.persistLocked()
+
+	return cloneBot(bot), nil
+}
+
+func (s *MemoryStore) UpdateBot(workspaceID string, botID string, updater func(Bot) Bot) (Bot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	bot, ok := s.bots[botID]
+	if !ok || bot.WorkspaceID != workspaceID {
+		return Bot{}, ErrBotNotFound
+	}
+
+	next := updater(cloneBot(bot))
+	next.ID = bot.ID
+	next.WorkspaceID = bot.WorkspaceID
+	next.CreatedAt = bot.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.Name = strings.TrimSpace(next.Name)
+	next.Description = strings.TrimSpace(next.Description)
+	next.Status = strings.TrimSpace(next.Status)
+	next.DefaultBindingID = strings.TrimSpace(next.DefaultBindingID)
+
+	s.bots[botID] = next
+	s.persistLocked()
+
+	return cloneBot(next), nil
+}
+
+func (s *MemoryStore) DeleteBot(workspaceID string, botID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	bot, ok := s.bots[botID]
+	if !ok || bot.WorkspaceID != workspaceID {
+		return ErrBotNotFound
+	}
+
+	delete(s.bots, botID)
+	for bindingID, binding := range s.botBindings {
+		if binding.WorkspaceID == workspaceID && binding.BotID == botID {
+			delete(s.botBindings, bindingID)
+		}
+	}
+	for connectionID, connection := range s.botConnections {
+		if connection.WorkspaceID == workspaceID && connection.BotID == botID {
+			connection.BotID = ""
+			s.botConnections[connectionID] = cloneBotConnection(connection)
+		}
+	}
+	for conversationID, conversation := range s.botConversations {
+		if conversation.WorkspaceID == workspaceID && conversation.BotID == botID {
+			conversation.BotID = ""
+			conversation.BindingID = ""
+			s.botConversations[conversationID] = cloneBotConversation(conversation)
+		}
+	}
+
+	s.persistLocked()
+	return nil
+}
+
+func (s *MemoryStore) ListBotBindings(workspaceID string, botID string) []BotBinding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BotBinding, 0)
+	for _, binding := range s.botBindings {
+		if binding.WorkspaceID != workspaceID {
+			continue
+		}
+		if strings.TrimSpace(botID) != "" && binding.BotID != botID {
+			continue
+		}
+		items = append(items, cloneBotBinding(binding))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBotBinding(workspaceID string, bindingID string) (BotBinding, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	binding, ok := s.botBindings[bindingID]
+	if !ok || binding.WorkspaceID != workspaceID {
+		return BotBinding{}, false
+	}
+
+	return cloneBotBinding(binding), true
+}
+
+func (s *MemoryStore) CreateBotBinding(binding BotBinding) (BotBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[binding.WorkspaceID]; !ok {
+		return BotBinding{}, ErrWorkspaceNotFound
+	}
+	bot, ok := s.bots[binding.BotID]
+	if !ok || bot.WorkspaceID != binding.WorkspaceID {
+		return BotBinding{}, ErrBotNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(binding.ID) == "" {
+		binding.ID = NewID("bbd")
+	}
+	if binding.CreatedAt.IsZero() {
+		binding.CreatedAt = now
+	}
+	if binding.UpdatedAt.IsZero() {
+		binding.UpdatedAt = now
+	}
+	binding.WorkspaceID = strings.TrimSpace(binding.WorkspaceID)
+	binding.BotID = strings.TrimSpace(binding.BotID)
+	binding.Name = strings.TrimSpace(binding.Name)
+	binding.BindingMode = strings.TrimSpace(binding.BindingMode)
+	binding.TargetWorkspaceID = strings.TrimSpace(binding.TargetWorkspaceID)
+	binding.TargetThreadID = strings.TrimSpace(binding.TargetThreadID)
+	binding.AIBackend = strings.TrimSpace(binding.AIBackend)
+	binding.AIConfig = cloneStringMap(binding.AIConfig)
+
+	s.botBindings[binding.ID] = binding
+	s.persistLocked()
+
+	return cloneBotBinding(binding), nil
+}
+
+func (s *MemoryStore) UpdateBotBinding(workspaceID string, bindingID string, updater func(BotBinding) BotBinding) (BotBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	binding, ok := s.botBindings[bindingID]
+	if !ok || binding.WorkspaceID != workspaceID {
+		return BotBinding{}, ErrBotBindingNotFound
+	}
+
+	next := updater(cloneBotBinding(binding))
+	next.ID = binding.ID
+	next.WorkspaceID = binding.WorkspaceID
+	next.BotID = binding.BotID
+	next.CreatedAt = binding.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.Name = strings.TrimSpace(next.Name)
+	next.BindingMode = strings.TrimSpace(next.BindingMode)
+	next.TargetWorkspaceID = strings.TrimSpace(next.TargetWorkspaceID)
+	next.TargetThreadID = strings.TrimSpace(next.TargetThreadID)
+	next.AIBackend = strings.TrimSpace(next.AIBackend)
+	next.AIConfig = cloneStringMap(next.AIConfig)
+
+	s.botBindings[bindingID] = next
+	s.persistLocked()
+
+	return cloneBotBinding(next), nil
+}
+
+func (s *MemoryStore) DeleteBotBinding(workspaceID string, bindingID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	binding, ok := s.botBindings[bindingID]
+	if !ok || binding.WorkspaceID != workspaceID {
+		return ErrBotBindingNotFound
+	}
+
+	delete(s.botBindings, bindingID)
+	for botID, bot := range s.bots {
+		if bot.WorkspaceID == workspaceID && bot.DefaultBindingID == bindingID {
+			bot.DefaultBindingID = ""
+			s.bots[botID] = cloneBot(bot)
+		}
+	}
+	for conversationID, conversation := range s.botConversations {
+		if conversation.WorkspaceID == workspaceID && conversation.BindingID == bindingID {
+			conversation.BindingID = ""
+			s.botConversations[conversationID] = cloneBotConversation(conversation)
+		}
+	}
+
+	s.persistLocked()
+	return nil
+}
+
 func (s *MemoryStore) ListBotConnections(workspaceID string) []BotConnection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1025,6 +1286,13 @@ func (s *MemoryStore) CreateBotConnection(connection BotConnection) (BotConnecti
 	connection.AIConfig = cloneStringMap(connection.AIConfig)
 	connection.Settings = cloneStringMap(connection.Settings)
 	connection.Secrets = cloneStringMap(connection.Secrets)
+	connection.BotID = strings.TrimSpace(connection.BotID)
+	if connection.BotID != "" {
+		bot, ok := s.bots[connection.BotID]
+		if !ok || bot.WorkspaceID != connection.WorkspaceID {
+			return BotConnection{}, ErrBotNotFound
+		}
+	}
 
 	s.botConnections[connection.ID] = connection
 	s.persistLocked()
@@ -1071,12 +1339,19 @@ func (s *MemoryStore) UpdateBotConnection(
 
 	next := updater(cloneBotConnection(connection))
 	next.ID = connection.ID
+	next.BotID = firstNonEmpty(strings.TrimSpace(next.BotID), strings.TrimSpace(connection.BotID))
 	next.WorkspaceID = connection.WorkspaceID
 	next.CreatedAt = connection.CreatedAt
 	next.UpdatedAt = time.Now().UTC()
 	next.AIConfig = cloneStringMap(next.AIConfig)
 	next.Settings = cloneStringMap(next.Settings)
 	next.Secrets = cloneStringMap(next.Secrets)
+	if next.BotID != "" {
+		bot, ok := s.bots[next.BotID]
+		if !ok || bot.WorkspaceID != next.WorkspaceID {
+			return BotConnection{}, ErrBotNotFound
+		}
+	}
 
 	s.botConnections[connectionID] = next
 	s.persistLocked()
@@ -1099,12 +1374,19 @@ func (s *MemoryStore) UpdateBotConnectionRuntimeState(
 
 	next := updater(cloneBotConnection(connection))
 	next.ID = connection.ID
+	next.BotID = firstNonEmpty(strings.TrimSpace(next.BotID), strings.TrimSpace(connection.BotID))
 	next.WorkspaceID = connection.WorkspaceID
 	next.CreatedAt = connection.CreatedAt
 	next.UpdatedAt = connection.UpdatedAt
 	next.AIConfig = cloneStringMap(next.AIConfig)
 	next.Settings = cloneStringMap(next.Settings)
 	next.Secrets = cloneStringMap(next.Secrets)
+	if next.BotID != "" {
+		bot, ok := s.bots[next.BotID]
+		if !ok || bot.WorkspaceID != next.WorkspaceID {
+			return BotConnection{}, ErrBotNotFound
+		}
+	}
 
 	s.botConnections[connectionID] = next
 	s.persistLocked()
@@ -1246,6 +1528,14 @@ func (s *MemoryStore) CreateBotConversation(conversation BotConversation) (BotCo
 		conversation.UpdatedAt = now
 	}
 	conversation = normalizeBotConversationExternalRouting(conversation)
+	conversation.BotID = firstNonEmpty(strings.TrimSpace(conversation.BotID), strings.TrimSpace(connection.BotID))
+	conversation.BindingID = strings.TrimSpace(conversation.BindingID)
+	if conversation.BindingID != "" {
+		binding, ok := s.botBindings[conversation.BindingID]
+		if !ok || binding.WorkspaceID != conversation.WorkspaceID || (conversation.BotID != "" && binding.BotID != conversation.BotID) {
+			return BotConversation{}, ErrBotBindingNotFound
+		}
+	}
 	conversation.BackendState = cloneStringMap(conversation.BackendState)
 	conversation.ProviderState = cloneStringMap(conversation.ProviderState)
 
@@ -1270,6 +1560,8 @@ func (s *MemoryStore) UpdateBotConversation(
 
 	next := updater(cloneBotConversation(conversation))
 	next.ID = conversation.ID
+	next.BotID = firstNonEmpty(strings.TrimSpace(next.BotID), strings.TrimSpace(conversation.BotID))
+	next.BindingID = strings.TrimSpace(next.BindingID)
 	next.WorkspaceID = conversation.WorkspaceID
 	next.ConnectionID = conversation.ConnectionID
 	next.Provider = conversation.Provider
@@ -1280,6 +1572,12 @@ func (s *MemoryStore) UpdateBotConversation(
 	next.UpdatedAt = time.Now().UTC()
 	next.BackendState = cloneStringMap(next.BackendState)
 	next.ProviderState = cloneStringMap(next.ProviderState)
+	if next.BindingID != "" {
+		binding, ok := s.botBindings[next.BindingID]
+		if !ok || binding.WorkspaceID != next.WorkspaceID || (next.BotID != "" && binding.BotID != next.BotID) {
+			return BotConversation{}, ErrBotBindingNotFound
+		}
+	}
 
 	s.botConversations[conversationID] = next
 	s.persistLocked()
@@ -1380,6 +1678,17 @@ func (s *MemoryStore) ClaimBotInboundDelivery(workspaceID string, deliveryID str
 	return cloneBotInboundDelivery(delivery), true, nil
 }
 
+func (s *MemoryStore) GetBotInboundDelivery(workspaceID string, deliveryID string) (BotInboundDelivery, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	delivery, ok := s.botInbound[deliveryID]
+	if !ok || delivery.WorkspaceID != workspaceID {
+		return BotInboundDelivery{}, false
+	}
+	return cloneBotInboundDelivery(delivery), true
+}
+
 func (s *MemoryStore) CompleteBotInboundDelivery(workspaceID string, deliveryID string) (BotInboundDelivery, error) {
 	return s.updateBotInboundDelivery(workspaceID, deliveryID, func(current BotInboundDelivery) BotInboundDelivery {
 		current.Status = "completed"
@@ -1397,6 +1706,23 @@ func (s *MemoryStore) SaveBotInboundDeliveryReply(
 	return s.updateBotInboundDelivery(workspaceID, deliveryID, func(current BotInboundDelivery) BotInboundDelivery {
 		current.ReplyThreadID = strings.TrimSpace(threadID)
 		current.ReplyMessages = cloneBotReplyMessages(replyMessages)
+		return current
+	})
+}
+
+func (s *MemoryStore) RecordBotInboundDeliveryReplyDelivery(
+	workspaceID string,
+	deliveryID string,
+	status string,
+	attemptCount int,
+	lastError string,
+	deliveredAt *time.Time,
+) (BotInboundDelivery, error) {
+	return s.updateBotInboundDelivery(workspaceID, deliveryID, func(current BotInboundDelivery) BotInboundDelivery {
+		current.ReplyDeliveryStatus = strings.TrimSpace(status)
+		current.ReplyDeliveryAttemptCount = attemptCount
+		current.ReplyDeliveryLastError = strings.TrimSpace(lastError)
+		current.ReplyDeliveredAt = cloneOptionalTime(deliveredAt)
 		return current
 	})
 }
@@ -1470,6 +1796,42 @@ func (s *MemoryStore) PrepareBotInboundDeliveriesForRecovery(
 	})
 
 	return items, suppressed
+}
+
+func (s *MemoryStore) FindLatestFailedBotInboundDeliveryWithSavedReply(
+	workspaceID string,
+	connectionID string,
+	externalConversationID string,
+	excludeDeliveryID string,
+) (BotInboundDelivery, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	targetConversationID := strings.TrimSpace(externalConversationID)
+	excludedID := strings.TrimSpace(excludeDeliveryID)
+	var latest BotInboundDelivery
+	found := false
+
+	for _, delivery := range s.botInbound {
+		if delivery.WorkspaceID != workspaceID || delivery.ConnectionID != connectionID {
+			continue
+		}
+		if excludedID != "" && delivery.ID == excludedID {
+			continue
+		}
+		if strings.TrimSpace(delivery.Status) != "failed" || !botInboundDeliveryHasSavedReply(delivery) {
+			continue
+		}
+		if effectiveBotInboundExternalConversationID(delivery) != targetConversationID {
+			continue
+		}
+		if !found || botInboundDeliverySortsAfter(delivery, latest) {
+			latest = cloneBotInboundDelivery(delivery)
+			found = true
+		}
+	}
+
+	return latest, found
 }
 
 func (s *MemoryStore) updateBotInboundDelivery(
@@ -2043,6 +2405,7 @@ func (s *MemoryStore) load() error {
 			s.runtimePrefs.DefaultCommandSandboxPolicy = cloneAnyMap(s.runtimePrefs.DefaultCommandSandboxPolicy)
 		}
 		s.runtimePrefs.AllowRemoteAccess = cloneOptionalBool(s.runtimePrefs.AllowRemoteAccess)
+		s.runtimePrefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(s.runtimePrefs.AllowLocalhostWithoutAccessToken)
 		if len(s.runtimePrefs.AccessTokens) > 0 {
 			s.runtimePrefs.AccessTokens = cloneAccessTokens(s.runtimePrefs.AccessTokens)
 		}
@@ -2107,6 +2470,18 @@ func (s *MemoryStore) load() error {
 			maxID = value
 		}
 	}
+	for _, bot := range snapshot.Bots {
+		s.bots[bot.ID] = cloneBot(bot)
+		if value := NumericIDSuffix(bot.ID); value > maxID {
+			maxID = value
+		}
+	}
+	for _, binding := range snapshot.BotBindings {
+		s.botBindings[binding.ID] = cloneBotBinding(binding)
+		if value := NumericIDSuffix(binding.ID); value > maxID {
+			maxID = value
+		}
+	}
 	for _, connection := range snapshot.BotConnections {
 		s.botConnections[connection.ID] = cloneBotConnection(connection)
 		if value := NumericIDSuffix(connection.ID); value > maxID {
@@ -2134,6 +2509,9 @@ func (s *MemoryStore) load() error {
 		if value := NumericIDSuffix(conversation.ID); value > maxID {
 			maxID = value
 		}
+	}
+	if migrateBotTopologyLocked(s) {
+		prunedCommandSessions = true
 	}
 	for _, delivery := range snapshot.BotInbound {
 		s.botInbound[delivery.ID] = cloneBotInboundDelivery(delivery)
@@ -2181,6 +2559,8 @@ func (s *MemoryStore) persistLocked() {
 		AutomationTemplates: make([]AutomationTemplate, 0, len(s.templates)),
 		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
 		Notifications:       make([]Notification, 0, len(s.notifications)),
+		Bots:                make([]Bot, 0, len(s.bots)),
+		BotBindings:         make([]BotBinding, 0, len(s.botBindings)),
 		BotConnections:      make([]BotConnection, 0, len(s.botConnections)),
 		BotConnectionLogs:   make([]BotConnectionLogEntry, 0),
 		WeChatAccounts:      make([]WeChatAccount, 0, len(s.wechatAccounts)),
@@ -2197,6 +2577,7 @@ func (s *MemoryStore) persistLocked() {
 		s.runtimePrefs.DefaultTerminalShell != "" ||
 		len(s.runtimePrefs.ModelShellTypeOverrides) > 0 ||
 		s.runtimePrefs.AllowRemoteAccess != nil ||
+		s.runtimePrefs.AllowLocalhostWithoutAccessToken != nil ||
 		len(s.runtimePrefs.AccessTokens) > 0 ||
 		s.runtimePrefs.DefaultTurnApprovalPolicy != "" ||
 		len(s.runtimePrefs.DefaultTurnSandboxPolicy) > 0 ||
@@ -2215,6 +2596,7 @@ func (s *MemoryStore) persistLocked() {
 			prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 		}
 		prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
+		prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 		if len(prefs.AccessTokens) > 0 {
 			prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
 		}
@@ -2240,6 +2622,12 @@ func (s *MemoryStore) persistLocked() {
 	}
 	for _, notification := range s.notifications {
 		snapshot.Notifications = append(snapshot.Notifications, notification)
+	}
+	for _, bot := range s.bots {
+		snapshot.Bots = append(snapshot.Bots, cloneBot(bot))
+	}
+	for _, binding := range s.botBindings {
+		snapshot.BotBindings = append(snapshot.BotBindings, cloneBotBinding(binding))
 	}
 	for _, connection := range s.botConnections {
 		snapshot.BotConnections = append(snapshot.BotConnections, cloneBotConnection(connection))
@@ -2286,6 +2674,12 @@ func (s *MemoryStore) persistLocked() {
 	})
 	sort.Slice(snapshot.Notifications, func(i int, j int) bool {
 		return snapshot.Notifications[i].ID < snapshot.Notifications[j].ID
+	})
+	sort.Slice(snapshot.Bots, func(i int, j int) bool {
+		return snapshot.Bots[i].ID < snapshot.Bots[j].ID
+	})
+	sort.Slice(snapshot.BotBindings, func(i int, j int) bool {
+		return snapshot.BotBindings[i].ID < snapshot.BotBindings[j].ID
 	})
 	sort.Slice(snapshot.BotConnections, func(i int, j int) bool {
 		return snapshot.BotConnections[i].ID < snapshot.BotConnections[j].ID
@@ -2358,6 +2752,20 @@ func cloneAutomationRun(run AutomationRun) AutomationRun {
 	return next
 }
 
+func cloneBot(bot Bot) Bot {
+	return bot
+}
+
+func cloneBotBinding(binding BotBinding) BotBinding {
+	next := binding
+	if len(binding.AIConfig) > 0 {
+		next.AIConfig = cloneStringMap(binding.AIConfig)
+	} else {
+		next.AIConfig = nil
+	}
+	return next
+}
+
 func cloneBotConnection(connection BotConnection) BotConnection {
 	next := connection
 	if len(connection.AIConfig) > 0 {
@@ -2379,6 +2787,87 @@ func cloneBotConnection(connection BotConnection) BotConnection {
 	return next
 }
 
+func migrateBotTopologyLocked(s *MemoryStore) bool {
+	changed := false
+
+	for connectionID, connection := range s.botConnections {
+		if strings.TrimSpace(connection.BotID) == "" {
+			botID := NewID("botr")
+			defaultBindingID := NewID("bbd")
+			now := connection.CreatedAt
+			if now.IsZero() {
+				now = time.Now().UTC()
+			}
+			bot := Bot{
+				ID:               botID,
+				WorkspaceID:      connection.WorkspaceID,
+				Name:             firstNonEmpty(strings.TrimSpace(connection.Name), "Bot"),
+				Status:           firstNonEmpty(strings.TrimSpace(connection.Status), "active"),
+				DefaultBindingID: defaultBindingID,
+				CreatedAt:        now,
+				UpdatedAt:        connection.UpdatedAt,
+			}
+			if bot.UpdatedAt.IsZero() {
+				bot.UpdatedAt = now
+			}
+			binding := BotBinding{
+				ID:                defaultBindingID,
+				WorkspaceID:       connection.WorkspaceID,
+				BotID:             botID,
+				Name:              "Default Binding",
+				BindingMode:       defaultBindingModeForBackend(connection.AIBackend),
+				TargetWorkspaceID: connection.WorkspaceID,
+				AIBackend:         strings.TrimSpace(connection.AIBackend),
+				AIConfig:          cloneStringMap(connection.AIConfig),
+				CreatedAt:         now,
+				UpdatedAt:         bot.UpdatedAt,
+			}
+			s.bots[botID] = bot
+			s.botBindings[defaultBindingID] = binding
+			connection.BotID = botID
+			s.botConnections[connectionID] = cloneBotConnection(connection)
+			changed = true
+		} else if bot, ok := s.bots[connection.BotID]; ok {
+			if strings.TrimSpace(bot.DefaultBindingID) == "" {
+				defaultBindingID := NewID("bbd")
+				now := bot.CreatedAt
+				if now.IsZero() {
+					now = time.Now().UTC()
+				}
+				s.botBindings[defaultBindingID] = BotBinding{
+					ID:                defaultBindingID,
+					WorkspaceID:       bot.WorkspaceID,
+					BotID:             bot.ID,
+					Name:              "Default Binding",
+					BindingMode:       defaultBindingModeForBackend(connection.AIBackend),
+					TargetWorkspaceID: connection.WorkspaceID,
+					AIBackend:         strings.TrimSpace(connection.AIBackend),
+					AIConfig:          cloneStringMap(connection.AIConfig),
+					CreatedAt:         now,
+					UpdatedAt:         firstNonEmptyTime(bot.UpdatedAt, now),
+				}
+				bot.DefaultBindingID = defaultBindingID
+				s.bots[bot.ID] = cloneBot(bot)
+				changed = true
+			}
+		}
+	}
+
+	for conversationID, conversation := range s.botConversations {
+		connection, ok := s.botConnections[conversation.ConnectionID]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(conversation.BotID) != strings.TrimSpace(connection.BotID) {
+			conversation.BotID = strings.TrimSpace(connection.BotID)
+			s.botConversations[conversationID] = cloneBotConversation(conversation)
+			changed = true
+		}
+	}
+
+	return changed
+}
+
 func cloneWeChatAccount(account WeChatAccount) WeChatAccount {
 	return account
 }
@@ -2395,6 +2884,7 @@ func cloneBotConversation(conversation BotConversation) BotConversation {
 	} else {
 		next.ProviderState = nil
 	}
+	next.LastOutboundDeliveredAt = cloneOptionalTime(conversation.LastOutboundDeliveredAt)
 	return next
 }
 
@@ -2408,6 +2898,7 @@ func cloneBotInboundDelivery(delivery BotInboundDelivery) BotInboundDelivery {
 	}
 	next.ReplyMessages = cloneBotReplyMessages(delivery.ReplyMessages)
 	next.ReplyTexts = cloneStringSlice(delivery.ReplyTexts)
+	next.ReplyDeliveredAt = cloneOptionalTime(delivery.ReplyDeliveredAt)
 	return next
 }
 
@@ -2481,6 +2972,35 @@ func effectiveBotInboundExternalConversationID(delivery BotInboundDelivery) stri
 		strings.TrimSpace(delivery.ExternalConversationID),
 		strings.TrimSpace(delivery.ExternalChatID),
 	)
+}
+
+func defaultBindingModeForBackend(aiBackend string) string {
+	if strings.EqualFold(strings.TrimSpace(aiBackend), "openai_responses") {
+		return "stateless"
+	}
+	return "workspace_auto_thread"
+}
+
+func firstNonEmptyTime(value time.Time, fallback time.Time) time.Time {
+	if value.IsZero() {
+		return fallback
+	}
+	return value
+}
+
+func botInboundDeliverySortsAfter(left BotInboundDelivery, right BotInboundDelivery) bool {
+	switch {
+	case left.UpdatedAt.After(right.UpdatedAt):
+		return true
+	case left.UpdatedAt.Before(right.UpdatedAt):
+		return false
+	case left.CreatedAt.After(right.CreatedAt):
+		return true
+	case left.CreatedAt.Before(right.CreatedAt):
+		return false
+	default:
+		return left.ID > right.ID
+	}
 }
 
 func firstNonEmpty(values ...string) string {

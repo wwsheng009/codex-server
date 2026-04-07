@@ -10,7 +10,8 @@ import {
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { listThreads, unarchiveThread } from '../../features/threads/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
-import { getActiveLocale, i18n } from '../../i18n/runtime'
+import { formatLocalizedDateTime, formatLocalizedStatusLabel } from '../../i18n/display'
+import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import type { UnarchiveThreadMutationInput } from './archivedThreadsSettingsPageTypes'
 
@@ -141,12 +142,12 @@ export function ArchivedThreadsSettingsPage() {
                     message: '{workspace} · updated {time}',
                     values: {
                       workspace: thread.workspaceName,
-                      time: formatDateTime(thread.updatedAt),
+                      time: formatLocalizedDateTime(thread.updatedAt),
                     },
                   })}
                   key={thread.id}
                   marker="AR"
-                  meta={<span className="meta-pill">{thread.status}</span>}
+                  meta={<span className="meta-pill">{formatLocalizedStatusLabel(thread.status)}</span>}
                   title={thread.name}
                 />
               ))}
@@ -166,11 +167,4 @@ export function ArchivedThreadsSettingsPage() {
       </div>
     </section>
   )
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(getActiveLocale(), {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
 }

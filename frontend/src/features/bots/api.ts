@@ -37,6 +37,12 @@ export type UpdateWeChatChannelTimingInput = {
   enabled: boolean
 }
 
+export type UpdateBotConversationBindingInput = {
+  threadId?: string
+  createThread?: boolean
+  title?: string
+}
+
 export type UpdateWeChatAccountInput = {
   alias: string
   note: string
@@ -131,6 +137,39 @@ export function deleteBotConnection(workspaceId: string, connectionId: string) {
 export function listBotConversations(workspaceId: string, connectionId: string) {
   return apiRequest<BotConversation[]>(
     `/api/workspaces/${workspaceId}/bot-connections/${connectionId}/conversations`,
+  )
+}
+
+export function replayBotConversationFailedReply(workspaceId: string, connectionId: string, conversationId: string) {
+  return apiRequest<BotConversation>(
+    `/api/workspaces/${workspaceId}/bot-connections/${connectionId}/conversations/${conversationId}/replay-failed-reply`,
+    {
+      method: 'POST',
+    },
+  )
+}
+
+export function updateBotConversationBinding(
+  workspaceId: string,
+  connectionId: string,
+  conversationId: string,
+  input: UpdateBotConversationBindingInput,
+) {
+  return apiRequest<BotConversation>(
+    `/api/workspaces/${workspaceId}/bot-connections/${connectionId}/conversations/${conversationId}/binding`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export function clearBotConversationBinding(workspaceId: string, connectionId: string, conversationId: string) {
+  return apiRequest<BotConversation>(
+    `/api/workspaces/${workspaceId}/bot-connections/${connectionId}/conversations/${conversationId}/binding/clear`,
+    {
+      method: 'POST',
+    },
   )
 }
 

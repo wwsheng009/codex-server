@@ -1086,6 +1086,54 @@ func TestTelegramProviderSendMessagesDoesNotRetryFatalClientErrors(t *testing.T)
 	}
 }
 
+func TestTelegramProviderReplyDeliveryRetryDecisionRequiresRetryableMarker(t *testing.T) {
+	t.Parallel()
+
+	provider := newTelegramProvider(nil).(*telegramProvider)
+
+	retry, delay := provider.ReplyDeliveryRetryDecision(errors.New("plain failure"), 1)
+	if retry || delay != 0 {
+		t.Fatalf("expected plain failures not to trigger service-level retry, got retry=%v delay=%v", retry, delay)
+	}
+}
+
+func TestTelegramProviderReplyDeliveryRetryDecisionRetriesMarkedTransientFailure(t *testing.T) {
+	t.Parallel()
+
+	provider := newTelegramProvider(nil).(*telegramProvider)
+
+	retry, delay := provider.ReplyDeliveryRetryDecision(
+		markReplyDeliveryRetryable(&telegramRequestError{
+			method:      "sendMessage",
+			statusCode:  http.StatusTooManyRequests,
+			status:      "api error",
+			description: "Too Many Requests: retry after 2",
+			retryAfter:  2 * time.Second,
+		}),
+		1,
+	)
+	if !retry {
+		t.Fatal("expected marked transient telegram failure to trigger service-level retry")
+	}
+	if delay != 2*time.Second {
+		t.Fatalf("expected retry delay 2s, got %v", delay)
+	}
+
+	retry, delay = provider.ReplyDeliveryRetryDecision(
+		markReplyDeliveryRetryable(&telegramRequestError{
+			method:      "sendMessage",
+			statusCode:  http.StatusTooManyRequests,
+			status:      "api error",
+			description: "Too Many Requests: retry after 2",
+			retryAfter:  2 * time.Second,
+		}),
+		2,
+	)
+	if retry || delay != 0 {
+		t.Fatalf("expected second service-level failure to stop retrying, got retry=%v delay=%v", retry, delay)
+	}
+}
+
 func TestTelegramStreamingReplySessionRetriesTransientEditAndDeleteFailures(t *testing.T) {
 	t.Parallel()
 

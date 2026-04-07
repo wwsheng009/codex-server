@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -11,6 +11,11 @@ import {
 import { SettingsJsonDiffPreview } from '../../components/settings/SettingsJsonDiffPreview'
 import type { SettingsSummaryItem } from '../../components/settings/settingsWorkspaceScopePanelTypes'
 import { InlineNotice } from '../../components/ui/InlineNotice'
+import {
+  createBlankAccessTokenDraft,
+  createGeneratedAccessTokenDraft,
+  shouldShowFirstAccessTokenGuide,
+} from '../../features/access/tokenDrafts'
 import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import {
   type AccessTokenWriteInput,
@@ -42,6 +47,7 @@ import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { Input } from '../../components/ui/Input'
 import { Switch } from '../../components/ui/Switch'
 import { TextArea } from '../../components/ui/TextArea'
+import { formatLocalizedStatusLabel } from '../../i18n/display'
 import { i18n } from '../../i18n/runtime'
 import { formatLocaleDateTime } from '../../i18n/format'
 import { getErrorMessage } from '../../lib/error-utils'
@@ -74,6 +80,7 @@ type AccessTokenDraft = {
   tokenPreview?: string
   expiresAt: string
   permanent: boolean
+  revealToken: boolean
   status?: string
   createdAt?: string | null
   updatedAt?: string | null
@@ -89,6 +96,7 @@ type RuntimePreferencesMutationInput = {
   defaultTurnSandboxPolicy?: Record<string, unknown>
   defaultCommandSandboxPolicy?: Record<string, unknown>
   allowRemoteAccess?: boolean | null
+  allowLocalhostWithoutAccessToken?: boolean | null
   accessTokens?: AccessTokenWriteInput[]
   backendThreadTraceEnabled?: boolean | null
   backendThreadTraceWorkspaceId?: string
@@ -98,6 +106,11 @@ type RuntimePreferencesMutationInput = {
 type RuntimePreferencesMutationRequest = {
   input?: RuntimePreferencesMutationInput
   backendThreadTraceSource?: 'draft' | 'configured'
+}
+
+type ConfigDetailsSummaryProps = {
+  title: string
+  description: string
 }
 
 export function ConfigSettingsPage() {
@@ -124,7 +137,9 @@ export function ConfigSettingsPage() {
   const [defaultTurnSandboxPolicyInput, setDefaultTurnSandboxPolicyInput] = useState('')
   const [defaultCommandSandboxPolicyInput, setDefaultCommandSandboxPolicyInput] = useState('')
   const [allowRemoteAccess, setAllowRemoteAccess] = useState(true)
+  const [allowLocalhostWithoutAccessToken, setAllowLocalhostWithoutAccessToken] = useState(false)
   const [accessTokenDrafts, setAccessTokenDrafts] = useState<AccessTokenDraft[]>([])
+  const accessTokenInputRefs = useRef<Array<HTMLInputElement | null>>([])
   const [shellEnvironmentPolicyInput, setShellEnvironmentPolicyInput] = useState('')
   const [frontendRuntimeMode, setFrontendRuntimeMode] = useState(() => readFrontendRuntimeMode())
   const [backendThreadTraceEnabled, setBackendThreadTraceEnabled] = useState(false)
@@ -189,6 +204,8 @@ export function ConfigSettingsPage() {
         input?.defaultCommandSandboxPolicy ??
         parseSandboxPolicyInput(defaultCommandSandboxPolicyInput),
       allowRemoteAccess: input?.allowRemoteAccess ?? allowRemoteAccess,
+      allowLocalhostWithoutAccessToken:
+        input?.allowLocalhostWithoutAccessToken ?? allowLocalhostWithoutAccessToken,
       accessTokens: input?.accessTokens ?? buildAccessTokenPayload(accessTokenDrafts),
     }
 
@@ -231,6 +248,11 @@ export function ConfigSettingsPage() {
     )
     setAllowRemoteAccess(
       result.configuredAllowRemoteAccess ?? result.effectiveAllowRemoteAccess ?? result.defaultAllowRemoteAccess,
+    )
+    setAllowLocalhostWithoutAccessToken(
+      result.configuredAllowLocalhostWithoutAccessToken ??
+        result.effectiveAllowLocalhostWithoutAccessToken ??
+        result.defaultAllowLocalhostWithoutAccessToken,
     )
     setAccessTokenDrafts(buildAccessTokenDrafts(result))
     setBackendThreadTraceEnabled(
@@ -313,7 +335,7 @@ export function ConfigSettingsPage() {
                 matchedKey:
                   result.matchedRuntimeSensitiveKey ??
                   runtimeSensitiveItem?.keyPath ??
-                  i18n._({ id: 'unknown', message: 'unknown' }),
+                  i18n._({ id: 'Unknown', message: 'Unknown' }),
               },
             })
           : i18n._({
@@ -432,8 +454,7 @@ export function ConfigSettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
         queryClient.invalidateQueries({ queryKey: ['models'] }),
       ])
-      const shellLabel =
-        result.effectiveDefaultShellType || i18n._({ id: 'catalog default', message: 'catalog default' })
+      const shellLabel = formatShellTypeLabel(result.effectiveDefaultShellType)
       const terminalLabel = formatTerminalShellLabel(result.effectiveDefaultTerminalShell)
       pushToast({
         title: i18n._({
@@ -441,9 +462,9 @@ export function ConfigSettingsPage() {
           message: 'Runtime overrides applied',
         }),
         message: i18n._({
-          id: 'Access: {access}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
+          id: 'Access: {access}; local: {local}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
           message:
-            'Access: {access}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
+            'Access: {access}; local: {local}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
           values: {
             access:
               (result.configuredAccessTokens ?? []).filter((token) => token.status === 'active').length > 0
@@ -456,10 +477,13 @@ export function ConfigSettingsPage() {
                       ).length,
                     },
                   })
-                : i18n._({ id: 'open', message: 'open' }),
+                : i18n._({ id: 'Open', message: 'Open' }),
+            local: formatLocalAccessPolicyLabel(
+              result.effectiveAllowLocalhostWithoutAccessToken,
+            ),
             remote: result.effectiveAllowRemoteAccess
-              ? i18n._({ id: 'allowed', message: 'allowed' })
-              : i18n._({ id: 'localhost only', message: 'localhost only' }),
+              ? i18n._({ id: 'Allowed', message: 'Allowed' })
+              : i18n._({ id: 'Localhost Only', message: 'Localhost Only' }),
             shell: shellLabel,
             terminal: terminalLabel,
             turnSandbox: formatSandboxPolicyLabel(result.effectiveDefaultTurnSandboxPolicy),
@@ -501,6 +525,132 @@ export function ConfigSettingsPage() {
       })
     },
   })
+  const configuredAccessTokenCount = runtimePreferencesQuery.data?.configuredAccessTokens?.length ?? 0
+  const showFirstAccessTokenGuide =
+    runtimePreferencesQuery.isSuccess &&
+    shouldShowFirstAccessTokenGuide({
+      configuredTokenCount: configuredAccessTokenCount,
+      draftCount: accessTokenDrafts.length,
+    })
+  const hasAccessTokenProtectionDraft = buildAccessTokenPayload(accessTokenDrafts).length > 0
+  const accessPolicyPreview = {
+    local: formatLocalAccessPreviewLabel(
+      allowLocalhostWithoutAccessToken,
+      hasAccessTokenProtectionDraft,
+    ),
+    remote: formatRemoteAccessPreviewLabel(allowRemoteAccess, hasAccessTokenProtectionDraft),
+  }
+
+  function addAccessTokenDraft() {
+    setAccessTokenDrafts((current) => [...current, { ...createBlankAccessTokenDraft() }])
+  }
+
+  function generateAccessTokenDraft(index?: number) {
+    try {
+      const generatedDraft = createGeneratedAccessTokenDraft()
+      setAccessTokenDrafts((current) => {
+        if (typeof index !== 'number') {
+          return [...current, { ...generatedDraft }]
+        }
+
+        return current.map((entry, tokenIndex) =>
+          tokenIndex === index
+            ? {
+                ...entry,
+                token: generatedDraft.token,
+                revealToken: true,
+              }
+            : entry,
+        )
+      })
+      void notifyGeneratedAccessToken(generatedDraft.token)
+    } catch (error) {
+      pushToast({
+        title: i18n._({
+          id: 'Token generation failed',
+          message: 'Token generation failed',
+        }),
+        message: getErrorMessage(error),
+        tone: 'error',
+      })
+    }
+  }
+
+  async function notifyGeneratedAccessToken(token: string) {
+    const copied = await copyTextToClipboard(token)
+    pushToast({
+      title: i18n._({
+        id: 'Access token generated',
+        message: 'Access token generated',
+      }),
+      message: copied
+        ? i18n._({
+            id: 'A new access token draft was generated and copied to your clipboard. Store it before you save because only a masked preview remains afterwards.',
+            message:
+              'A new access token draft was generated and copied to your clipboard. Store it before you save because only a masked preview remains afterwards.',
+          })
+        : i18n._({
+            id: 'A new access token draft was generated. Copy it from the form before you save because only a masked preview remains afterwards.',
+            message:
+              'A new access token draft was generated. Copy it from the form before you save because only a masked preview remains afterwards.',
+          }),
+      tone: copied ? 'success' : 'warning',
+    })
+  }
+
+  function revealAndSelectAccessToken(index: number) {
+    setAccessTokenDrafts((current) =>
+      current.map((entry, tokenIndex) =>
+        tokenIndex === index
+          ? {
+              ...entry,
+              revealToken: true,
+            }
+          : entry,
+      ),
+    )
+
+    queueMicrotask(() => {
+      requestAnimationFrame(() => {
+        const input = accessTokenInputRefs.current[index]
+        input?.focus()
+        input?.select()
+      })
+    })
+  }
+
+  async function handleCopyAccessToken(token: string, index: number) {
+    const copied = await copyTextToClipboard(token)
+    if (copied) {
+      pushToast({
+        title: i18n._({
+          id: 'Access token copied',
+          message: 'Access token copied',
+        }),
+        message: i18n._({
+          id: 'Store the raw token now. After you save, this page keeps only a masked preview.',
+          message:
+            'Store the raw token now. After you save, this page keeps only a masked preview.',
+        }),
+        tone: 'success',
+      })
+      return
+    }
+
+    revealAndSelectAccessToken(index)
+    pushToast({
+      title: i18n._({
+        id: 'Clipboard copy unavailable',
+        message: 'Clipboard copy unavailable',
+      }),
+      message: i18n._({
+        id: 'The token was revealed and selected in the form. Press Ctrl+C or Command+C to copy it before saving.',
+        message:
+          'The token was revealed and selected in the form. Press Ctrl+C or Command+C to copy it before saving.',
+      }),
+      tone: 'warning',
+    })
+  }
 
   function submitRuntimePreferences(
     input?: RuntimePreferencesMutationInput,
@@ -558,8 +708,7 @@ export function ConfigSettingsPage() {
             status:
               result.status ??
               i18n._({
-                id: 'accepted',
-                message: 'accepted',
+                id: 'Accepted', message: 'Accepted',
               }),
           },
         }),
@@ -646,23 +795,22 @@ export function ConfigSettingsPage() {
             },
           })
         : i18n._({ id: 'Open', message: 'Open' }),
+    localAccess: formatLocalAccessPolicyLabel(
+      runtimePreferencesQuery.data?.effectiveAllowLocalhostWithoutAccessToken ?? false,
+    ),
     remoteAccess: runtimePreferencesQuery.data?.effectiveAllowRemoteAccess
       ? i18n._({ id: 'Allowed', message: 'Allowed' })
-      : i18n._({ id: 'localhost only', message: 'localhost only' }),
-    defaultShellType:
-      runtimePreferencesQuery.data?.effectiveDefaultShellType ||
-      i18n._({
-        id: 'runtime default',
-        message: 'runtime default',
-      }),
+      : i18n._({ id: 'Localhost Only', message: 'Localhost Only' }),
+    defaultShellType: formatShellTypeLabel(
+      runtimePreferencesQuery.data?.effectiveDefaultShellType,
+    ),
     defaultTerminalShell: formatTerminalShellLabel(
       runtimePreferencesQuery.data?.effectiveDefaultTerminalShell,
     ),
     outboundProxy:
       runtimePreferencesQuery.data?.effectiveOutboundProxyUrl ||
       i18n._({
-        id: 'system env fallback',
-        message: 'system env fallback',
+        id: 'System env fallback', message: 'System env fallback',
       }),
     turnApprovalPolicy: formatApprovalPolicyLabel(
       runtimePreferencesQuery.data?.effectiveDefaultTurnApprovalPolicy,
@@ -678,9 +826,9 @@ export function ConfigSettingsPage() {
       runtimePreferencesQuery.data?.effectiveBackendThreadTraceWorkspaceId,
       runtimePreferencesQuery.data?.effectiveBackendThreadTraceThreadId,
     ),
-    configLoadStatus:
-      workspaceRuntimeStateQuery.data?.configLoadStatus ??
-      i18n._({ id: 'initial', message: 'initial' }),
+    configLoadStatus: formatLocalizedStatusLabel(
+      workspaceRuntimeStateQuery.data?.configLoadStatus,
+    ),
     restartRequired: workspaceRuntimeStateQuery.data?.restartRequired ?? false,
   }
 
@@ -690,6 +838,14 @@ export function ConfigSettingsPage() {
       value: runtimeSummary.accessControl,
       tone:
         (runtimePreferencesQuery.data?.configuredAccessTokens ?? []).filter((token) => token.status === 'active').length > 0
+          ? 'active'
+          : 'paused',
+    },
+    {
+      label: i18n._({ id: 'Local', message: 'Local' }),
+      value: runtimeSummary.localAccess,
+      tone:
+        runtimePreferencesQuery.data?.effectiveAllowLocalhostWithoutAccessToken
           ? 'active'
           : 'paused',
     },
@@ -739,7 +895,7 @@ export function ConfigSettingsPage() {
     },
     {
       label: i18n._({ id: 'Config', message: 'Config' }),
-      value: runtimeSummary.configLoadStatus,
+      value: formatLocalizedStatusLabel(runtimeSummary.configLoadStatus),
       tone: runtimeSummary.restartRequired ? 'paused' : 'active',
     },
   ]
@@ -954,7 +1110,13 @@ export function ConfigSettingsPage() {
                   {workspaceRuntimeStateQuery.data ? (
                     <InlineNotice
                       noticeKey={`config-runtime-load-status-${workspaceId}-${workspaceRuntimeStateQuery.data.configLoadStatus}`}
-                      title={i18n._({ id: 'Config Load Status', message: 'Config Load Status' })}
+                      title={i18n._({
+                        id: 'Config Load Status: {status}',
+                        message: 'Config Load Status: {status}',
+                        values: {
+                          status: formatLocalizedStatusLabel(workspaceRuntimeStateQuery.data.configLoadStatus),
+                        },
+                      })}
                       tone={workspaceRuntimeStateQuery.data.restartRequired ? 'error' : 'info'}
                     >
                       {workspaceRuntimeStateQuery.data.restartRequired
@@ -1302,7 +1464,7 @@ export function ConfigSettingsPage() {
                       onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         setBackendThreadTraceWorkspaceId(event.target.value)
                       }
-                      placeholder={workspaceId ?? i18n._({ id: 'all workspaces', message: 'all workspaces' })}
+                      placeholder={workspaceId ?? i18n._({ id: 'All Workspaces', message: 'All Workspaces' })}
                       value={backendThreadTraceWorkspaceId}
                     />
 
@@ -1390,17 +1552,7 @@ export function ConfigSettingsPage() {
                   <div className="setting-row__actions">
                     <button
                       className="ide-button ide-button--secondary ide-button--sm"
-                      onClick={() =>
-                        setAccessTokenDrafts((current) => [
-                          ...current,
-                          {
-                            label: '',
-                            token: '',
-                            expiresAt: '',
-                            permanent: true,
-                          },
-                        ])
-                      }
+                      onClick={addAccessTokenDraft}
                       type="button"
                     >
                       {i18n._({ id: 'Add Token', message: 'Add Token' })}
@@ -1430,13 +1582,40 @@ export function ConfigSettingsPage() {
                 </div>
 
                 <div className="form-stack">
+                  <div className="runtime-inline-meta runtime-inline-meta--dense">
+                    <div className="runtime-inline-meta__entry">
+                      <span>{i18n._({ id: 'Local', message: 'Local' })}</span>
+                      <strong>{accessPolicyPreview.local}</strong>
+                    </div>
+                    <div className="runtime-inline-meta__entry">
+                      <span>{i18n._({ id: 'Remote', message: 'Remote' })}</span>
+                      <strong>{accessPolicyPreview.remote}</strong>
+                    </div>
+                  </div>
+
                   <p className="config-inline-note">
                     {i18n._({
-                      id: 'When at least one active access token exists, the frontend switches to a login screen and the backend requires a validated browser session before serving protected API routes.',
+                      id: 'When at least one active access token exists, non-loopback clients must complete token login before protected API routes are served. Local loopback requests can optionally bypass that requirement with the switch below.',
                       message:
-                        'When at least one active access token exists, the frontend switches to a login screen and the backend requires a validated browser session before serving protected API routes.',
+                        'When at least one active access token exists, non-loopback clients must complete token login before protected API routes are served. Local loopback requests can optionally bypass that requirement with the switch below.',
                     })}
                   </p>
+
+                  <Switch
+                    checked={allowLocalhostWithoutAccessToken}
+                    hint={i18n._({
+                      id: 'When enabled, browsers and tools on this machine using localhost, 127.0.0.1, or ::1 skip the token login screen. Non-loopback clients still follow the remote access setting and active-token checks.',
+                      message:
+                        'When enabled, browsers and tools on this machine using localhost, 127.0.0.1, or ::1 skip the token login screen. Non-loopback clients still follow the remote access setting and active-token checks.',
+                    })}
+                    label={i18n._({
+                      id: 'Allow Localhost Without Token',
+                      message: 'Allow Localhost Without Token',
+                    })}
+                    onChange={(event) =>
+                      setAllowLocalhostWithoutAccessToken(event.target.checked)
+                    }
+                  />
 
                   <Switch
                     checked={allowRemoteAccess}
@@ -1454,13 +1633,55 @@ export function ConfigSettingsPage() {
 
                   {accessTokenDrafts.length === 0 ? (
                     <div className="config-card config-card--muted">
-                      <p className="config-inline-note">
-                        {i18n._({
-                          id: 'No access tokens are configured. In this state the UI remains open until you save at least one active token.',
-                          message:
-                            'No access tokens are configured. In this state the UI remains open until you save at least one active token.',
-                        })}
-                      </p>
+                      <div className="form-stack">
+                        <p className="config-inline-note">
+                          {showFirstAccessTokenGuide
+                            ? i18n._({
+                                id: 'No access tokens are configured yet. Generate a starter token to turn on the login gate without manually inventing a secret first.',
+                                message:
+                                  'No access tokens are configured yet. Generate a starter token to turn on the login gate without manually inventing a secret first.',
+                              })
+                            : i18n._({
+                                id: 'No access tokens are configured. In this state the UI remains open on localhost, but non-loopback clients stay blocked until you save at least one active token.',
+                                message:
+                                  'No access tokens are configured. In this state the UI remains open on localhost, but non-loopback clients stay blocked until you save at least one active token.',
+                              })}
+                        </p>
+
+                        {showFirstAccessTokenGuide ? (
+                          <>
+                            <p className="config-inline-note">
+                              {i18n._({
+                                id: 'Generated token values are only shown while you edit them. Copy the raw value into a password manager before you save because the settings page only keeps a masked preview afterwards.',
+                                message:
+                                  'Generated token values are only shown while you edit them. Copy the raw value into a password manager before you save because the settings page only keeps a masked preview afterwards.',
+                              })}
+                            </p>
+                            <div className="setting-row__actions">
+                              <button
+                                className="ide-button ide-button--primary ide-button--sm"
+                                onClick={() => generateAccessTokenDraft()}
+                                type="button"
+                              >
+                                {i18n._({
+                                  id: 'Generate Starter Token',
+                                  message: 'Generate Starter Token',
+                                })}
+                              </button>
+                              <button
+                                className="ide-button ide-button--secondary ide-button--sm"
+                                onClick={addAccessTokenDraft}
+                                type="button"
+                              >
+                                {i18n._({
+                                  id: 'Add Manually Instead',
+                                  message: 'Add Manually Instead',
+                                })}
+                              </button>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
 
@@ -1486,7 +1707,7 @@ export function ConfigSettingsPage() {
                                   : 'runtime-chip runtime-chip--warn'
                               }
                             >
-                              {draft.status}
+                              {formatLocalizedStatusLabel(draft.status)}
                             </span>
                           ) : null}
                           <button
@@ -1517,6 +1738,21 @@ export function ConfigSettingsPage() {
                               </div>
                             ) : null}
                           </div>
+                        ) : null}
+
+                        {draft.id && draft.tokenPreview && !draft.token.trim() ? (
+                          <InlineNotice
+                            title={i18n._({
+                              id: 'Saved tokens cannot be copied again',
+                              message: 'Saved tokens cannot be copied again',
+                            })}
+                          >
+                            {i18n._({
+                              id: 'After you save, this page keeps only a masked preview and the backend stores only the token hash. To issue it again, generate a replacement token and copy it before saving.',
+                              message:
+                                'After you save, this page keeps only a masked preview and the backend stores only the token hash. To issue it again, generate a replacement token and copy it before saving.',
+                            })}
+                          </InlineNotice>
                         ) : null}
 
                         <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -1565,10 +1801,91 @@ export function ConfigSettingsPage() {
                               id: 'Paste new token',
                               message: 'Paste new token',
                             })}
-                            type="password"
+                            ref={(node) => {
+                              accessTokenInputRefs.current[index] = node
+                            }}
+                            type={draft.revealToken ? 'text' : 'password'}
                             value={draft.token}
                           />
                         </div>
+
+                        <div className="setting-row__actions">
+                          <button
+                            className="ide-button ide-button--secondary ide-button--sm"
+                            onClick={() => generateAccessTokenDraft(index)}
+                            type="button"
+                          >
+                            {draft.token.trim()
+                              ? i18n._({
+                                  id: 'Regenerate Token',
+                                  message: 'Regenerate Token',
+                                })
+                              : draft.id
+                                ? i18n._({
+                                    id: 'Generate Replacement',
+                                    message: 'Generate Replacement',
+                                  })
+                                : i18n._({
+                                    id: 'Generate Secure Token',
+                                    message: 'Generate Secure Token',
+                                  })}
+                          </button>
+                          {draft.token.trim() ? (
+                            <button
+                              className="ide-button ide-button--secondary ide-button--sm"
+                              onClick={() =>
+                                setAccessTokenDrafts((current) =>
+                                  current.map((entry, tokenIndex) =>
+                                    tokenIndex === index
+                                      ? {
+                                          ...entry,
+                                          revealToken: !entry.revealToken,
+                                        }
+                                      : entry,
+                                  ),
+                                )
+                              }
+                              type="button"
+                            >
+                              {draft.revealToken
+                                ? i18n._({
+                                    id: 'Hide Token',
+                                    message: 'Hide Token',
+                                  })
+                                : i18n._({
+                                    id: 'Show Token',
+                                    message: 'Show Token',
+                                  })}
+                            </button>
+                          ) : null}
+                        </div>
+
+                        {draft.token.trim() ? (
+                          <InlineNotice
+                            action={
+                              <button
+                                className="ide-button ide-button--secondary ide-button--sm"
+                                onClick={() => void handleCopyAccessToken(draft.token, index)}
+                                type="button"
+                              >
+                                {i18n._({
+                                  id: 'Copy Token',
+                                  message: 'Copy Token',
+                                })}
+                              </button>
+                            }
+                            title={i18n._({
+                              id: 'Store this token now',
+                              message: 'Store this token now',
+                            })}
+                          >
+                            {i18n._({
+                              id: 'Access token values are only shown while you are editing them. After you save, this page keeps only a masked preview, so copy the raw value before saving.',
+                              message:
+                                'Access token values are only shown while you are editing them. After you save, this page keeps only a masked preview, so copy the raw value before saving.',
+                            })}
+                          </InlineNotice>
+                        ) : null}
 
                         <Switch
                           checked={draft.permanent}
@@ -1914,6 +2231,8 @@ export function ConfigSettingsPage() {
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnSandboxPolicy,
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultCommandSandboxPolicy,
                               allowRemoteAccess: runtimePreferencesQuery.data.effectiveAllowRemoteAccess,
+                              allowLocalhostWithoutAccessToken:
+                                runtimePreferencesQuery.data.effectiveAllowLocalhostWithoutAccessToken,
                               accessTokens: runtimePreferencesQuery.data.configuredAccessTokens,
                               backendThreadTrace: {
                                 enabled: runtimePreferencesQuery.data.effectiveBackendThreadTraceEnabled,
@@ -1949,6 +2268,8 @@ export function ConfigSettingsPage() {
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultCommandSandboxPolicy,
                               allowRemoteAccess:
                                 runtimePreferencesQuery.data.configuredAllowRemoteAccess,
+                              allowLocalhostWithoutAccessToken:
+                                runtimePreferencesQuery.data.configuredAllowLocalhostWithoutAccessToken,
                               accessTokens: runtimePreferencesQuery.data.configuredAccessTokens,
                               backendThreadTrace: {
                                 enabled: runtimePreferencesQuery.data.configuredBackendThreadTraceEnabled,
@@ -1977,11 +2298,11 @@ export function ConfigSettingsPage() {
                             <div className="mode-metrics">
                               <div className="mode-metric">
                                 <span>{i18n._({ id: 'Status', message: 'Status' })}</span>
-                                <strong>{workspaceRuntimeStateQuery.data.status}</strong>
+                                <strong>{formatLocalizedStatusLabel(workspaceRuntimeStateQuery.data.status)}</strong>
                               </div>
                               <div className="mode-metric">
                                 <span>{i18n._({ id: 'Config Load', message: 'Config Load' })}</span>
-                                <strong>{workspaceRuntimeStateQuery.data.configLoadStatus}</strong>
+                                <strong>{formatLocalizedStatusLabel(workspaceRuntimeStateQuery.data.configLoadStatus)}</strong>
                               </div>
                               <div className="mode-metric">
                                 <span>{i18n._({ id: 'Restart Required', message: 'Restart Required' })}</span>
@@ -2045,110 +2366,110 @@ export function ConfigSettingsPage() {
               </div>
 
               <details className="config-details-box">
-                <summary className="config-details-box__summary">
-                  <span>{i18n._({ id: 'Strategy Guide', message: 'Strategy Guide' })}</span>
-                  <small>
-                    {i18n._({
-                      id: 'Which shell type should you choose?',
-                      message: 'Which shell type should you choose?',
-                    })}
-                  </small>
-                </summary>
-                <div className="config-helper-grid config-helper-grid--compact">
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Standard local execution.',
-                      message: 'Standard local execution.',
-                    })}
-                    title="local"
-                  />
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Streaming output + stdin.',
-                      message: 'Streaming output + stdin.',
-                    })}
-                    title="unified_exec"
-                  />
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Script string wrapper.',
-                      message: 'Script string wrapper.',
-                    })}
-                    title="shell_command"
-                  />
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Upstream catalog values.',
-                      message: 'Upstream catalog values.',
-                    })}
-                    title="default"
-                  />
+                <ConfigDetailsSummary
+                  description={i18n._({
+                    id: 'Which shell type should you choose?',
+                    message: 'Which shell type should you choose?',
+                  })}
+                  title={i18n._({ id: 'Strategy Guide', message: 'Strategy Guide' })}
+                />
+                <div className="config-details-box__content">
+                  <div className="config-helper-grid config-helper-grid--compact">
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Standard local execution.',
+                        message: 'Standard local execution.',
+                      })}
+                      title={formatShellTypeLabel('local')}
+                    />
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Streaming output + stdin.',
+                        message: 'Streaming output + stdin.',
+                      })}
+                      title={formatShellTypeLabel('unified_exec')}
+                    />
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Script string wrapper.',
+                        message: 'Script string wrapper.',
+                      })}
+                      title={formatShellTypeLabel('shell_command')}
+                    />
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Upstream catalog values.',
+                        message: 'Upstream catalog values.',
+                      })}
+                      title={formatShellTypeLabel('default')}
+                    />
+                  </div>
                 </div>
               </details>
 
               <details className="config-details-box">
-                <summary className="config-details-box__summary">
-                  <span>{i18n._({ id: 'Execution Guide', message: 'Execution Guide' })}</span>
-                  <small>
-                    {i18n._({
-                      id: '`sandboxPolicy` controls sandboxing, not `shell_type`',
-                      message: '`sandboxPolicy` controls sandboxing, not `shell_type`',
-                    })}
-                  </small>
-                </summary>
-                <div className="config-helper-grid config-helper-grid--compact">
-                  <ConfigHelperCard
-                    description='{"type":"dangerFullAccess"}'
-                    title="dangerFullAccess"
-                  />
-                  <ConfigHelperCard
-                    description='{"type":"externalSandbox","networkAccess":"enabled"}'
-                    title="externalSandbox"
-                  />
-                  <ConfigHelperCard
-                    description='{"type":"workspaceWrite","networkAccess":true}'
-                    title="workspaceWrite"
-                  />
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
-                      message:
-                        'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
-                    })}
-                    title={i18n._({ id: 'Approval', message: 'Approval' })}
-                  />
-                </div>
-                <div className="setting-row__actions" style={{ marginTop: 12 }}>
-                  <button
-                    className="ide-button ide-button--secondary ide-button--sm"
-                    onClick={() => applyExecutionPreset('danger-full-access')}
-                    type="button"
-                  >
-                    {i18n._({
-                      id: 'Load DangerFullAccess',
-                      message: 'Load DangerFullAccess',
-                    })}
-                  </button>
-                  <button
-                    className="ide-button ide-button--secondary ide-button--sm"
-                    onClick={() => applyExecutionPreset('external-sandbox')}
-                    type="button"
-                  >
-                    {i18n._({
-                      id: 'Load ExternalSandbox',
-                      message: 'Load ExternalSandbox',
-                    })}
-                  </button>
-                  <button
-                    className="ide-button ide-button--secondary ide-button--sm"
-                    onClick={() => applyExecutionPreset('inherit')}
-                    type="button"
-                  >
-                    {i18n._({
-                      id: 'Clear Execution Preset',
-                      message: 'Clear Execution Preset',
-                    })}
-                  </button>
+                <ConfigDetailsSummary
+                  description={i18n._({
+                    id: '`sandboxPolicy` controls sandboxing, not `shell_type`',
+                    message: '`sandboxPolicy` controls sandboxing, not `shell_type`',
+                  })}
+                  title={i18n._({ id: 'Execution Guide', message: 'Execution Guide' })}
+                />
+                <div className="config-details-box__content">
+                  <div className="config-helper-grid config-helper-grid--compact">
+                    <ConfigHelperCard
+                      description='{"type":"dangerFullAccess"}'
+                      title={formatSandboxPolicyLabel({ type: 'dangerFullAccess' })}
+                    />
+                    <ConfigHelperCard
+                      description='{"type":"externalSandbox","networkAccess":"enabled"}'
+                      title={formatSandboxPolicyLabel({ type: 'externalSandbox' })}
+                    />
+                    <ConfigHelperCard
+                      description='{"type":"workspaceWrite","networkAccess":true}'
+                      title={formatSandboxPolicyLabel({ type: 'workspaceWrite' })}
+                    />
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
+                        message:
+                          'Use `never` together with `dangerFullAccess` when you want a fully unsandboxed, no-approval turn.',
+                      })}
+                      title={i18n._({ id: 'Approval', message: 'Approval' })}
+                    />
+                  </div>
+                  <div className="setting-row__actions" style={{ marginTop: 12 }}>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      onClick={() => applyExecutionPreset('danger-full-access')}
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Load DangerFullAccess',
+                        message: 'Load DangerFullAccess',
+                      })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      onClick={() => applyExecutionPreset('external-sandbox')}
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Load ExternalSandbox',
+                        message: 'Load ExternalSandbox',
+                      })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      onClick={() => applyExecutionPreset('inherit')}
+                      type="button"
+                    >
+                      {i18n._({
+                        id: 'Clear Execution Preset',
+                        message: 'Clear Execution Preset',
+                      })}
+                    </button>
+                  </div>
                 </div>
               </details>
 
@@ -2636,37 +2957,37 @@ export function ConfigSettingsPage() {
               </div>
 
               <details className="config-details-box">
-                <summary className="config-details-box__summary">
-                  <span>{i18n._({ id: 'Migration Workflow', message: 'Migration Workflow' })}</span>
-                  <small>
-                    {i18n._({
-                      id: 'How to safely migrate your state',
-                      message: 'How to safely migrate your state',
-                    })}
-                  </small>
-                </summary>
-                <div className="config-helper-grid config-helper-grid--compact">
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Detect artifacts in home & local scopes.',
-                      message: 'Detect artifacts in home & local scopes.',
-                    })}
-                    title={i18n._({ id: '1. Scan', message: '1. Scan' })}
-                  />
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Verify detected items in the side panel.',
-                      message: 'Verify detected items in the side panel.',
-                    })}
-                    title={i18n._({ id: '2. Review', message: '2. Review' })}
-                  />
-                  <ConfigHelperCard
-                    description={i18n._({
-                      id: 'Merge items into active workspace.',
-                      message: 'Merge items into active workspace.',
-                    })}
-                    title={i18n._({ id: '3. Import', message: '3. Import' })}
-                  />
+                <ConfigDetailsSummary
+                  description={i18n._({
+                    id: 'How to safely migrate your state',
+                    message: 'How to safely migrate your state',
+                  })}
+                  title={i18n._({ id: 'Migration Workflow', message: 'Migration Workflow' })}
+                />
+                <div className="config-details-box__content">
+                  <div className="config-helper-grid config-helper-grid--compact">
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Detect artifacts in home & local scopes.',
+                        message: 'Detect artifacts in home & local scopes.',
+                      })}
+                      title={i18n._({ id: '1. Scan', message: '1. Scan' })}
+                    />
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Verify detected items in the side panel.',
+                        message: 'Verify detected items in the side panel.',
+                      })}
+                      title={i18n._({ id: '2. Review', message: '2. Review' })}
+                    />
+                    <ConfigHelperCard
+                      description={i18n._({
+                        id: 'Merge items into active workspace.',
+                        message: 'Merge items into active workspace.',
+                      })}
+                      title={i18n._({ id: '3. Import', message: '3. Import' })}
+                    />
+                  </div>
                 </div>
               </details>
 
@@ -2756,6 +3077,38 @@ function getScenarioMatchStatusLabel(match: ConfigScenarioMatch) {
   return i18n._({ id: 'No match', message: 'No match' })
 }
 
+function ConfigDetailsSummary({ title, description }: ConfigDetailsSummaryProps) {
+  return (
+    <summary className="config-details-box__summary">
+      <span className="config-details-box__summary-copy">
+        <span className="config-details-box__summary-title">{title}</span>
+        <small className="config-details-box__summary-description">{description}</small>
+      </span>
+      <span aria-hidden="true" className="config-details-box__summary-action">
+        <span className="config-details-box__summary-state config-details-box__summary-state--collapsed">
+          {i18n._({ id: 'Expand', message: 'Expand' })}
+        </span>
+        <span className="config-details-box__summary-state config-details-box__summary-state--expanded">
+          {i18n._({ id: 'Collapse', message: 'Collapse' })}
+        </span>
+        <svg
+          className="config-details-box__summary-chevron"
+          fill="none"
+          height="14"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+          viewBox="0 0 24 24"
+          width="14"
+        >
+          <path d="m7 10 5 5 5-5" />
+        </svg>
+      </span>
+    </summary>
+  )
+}
+
 function buildAccessTokenDrafts(result: RuntimePreferencesResult): AccessTokenDraft[] {
   return (result.configuredAccessTokens ?? []).map((token) => ({
     id: token.id,
@@ -2764,6 +3117,7 @@ function buildAccessTokenDrafts(result: RuntimePreferencesResult): AccessTokenDr
     tokenPreview: token.tokenPreview,
     expiresAt: token.permanent ? '' : toDateTimeLocalValue(token.expiresAt),
     permanent: token.permanent,
+    revealToken: false,
     status: token.status,
     createdAt: token.createdAt ?? null,
     updatedAt: token.updatedAt ?? null,
@@ -2830,6 +3184,46 @@ function toISOStringFromLocalDateTime(value: string) {
   return parsed.toISOString()
 }
 
+async function copyTextToClipboard(value: string) {
+  if (!value.trim()) {
+    return false
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value)
+      return true
+    } catch {
+      // Fall through to the legacy copy path below.
+    }
+  }
+
+  if (typeof document === 'undefined') {
+    return false
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.top = '0'
+  textarea.style.left = '0'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  textarea.setSelectionRange(0, textarea.value.length)
+
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    document.body.removeChild(textarea)
+  }
+}
+
 function parseJsonInput(value: string) {
   try {
     return JSON.parse(value)
@@ -2855,17 +3249,17 @@ function getShellTypeOptions() {
     },
     {
       value: 'local',
-      label: i18n._({ id: 'LocalShell', message: 'LocalShell' }),
+      label: i18n._({ id: 'Local Shell', message: 'Local Shell' }),
       triggerLabel: i18n._({ id: 'Local', message: 'Local' }),
     },
     {
       value: 'shell_command',
-      label: i18n._({ id: 'ShellCommand', message: 'ShellCommand' }),
-      triggerLabel: i18n._({ id: 'ShellCmd', message: 'ShellCmd' }),
+      label: i18n._({ id: 'Shell Command', message: 'Shell Command' }),
+      triggerLabel: i18n._({ id: 'Shell Cmd', message: 'Shell Cmd' }),
     },
     {
       value: 'unified_exec',
-      label: i18n._({ id: 'UnifiedExec', message: 'UnifiedExec' }),
+      label: i18n._({ id: 'Unified Execution', message: 'Unified Execution' }),
       triggerLabel: i18n._({ id: 'Unified', message: 'Unified' }),
     },
     {
@@ -2945,8 +3339,8 @@ function createTerminalShellOption(value: string) {
     case 'wsl':
       return {
         value,
-        label: 'WSL',
-        triggerLabel: 'WSL',
+        label: i18n._({ id: 'WSL', message: 'WSL' }),
+        triggerLabel: i18n._({ id: 'WSL', message: 'WSL' }),
       }
     case 'git-bash':
       return {
@@ -2961,11 +3355,23 @@ function createTerminalShellOption(value: string) {
         }),
       }
     case 'bash':
-      return { value, label: 'bash', triggerLabel: 'bash' }
+      return {
+        value,
+        label: i18n._({ id: 'bash', message: 'bash' }),
+        triggerLabel: i18n._({ id: 'bash', message: 'bash' }),
+      }
     case 'zsh':
-      return { value, label: 'zsh', triggerLabel: 'zsh' }
+      return {
+        value,
+        label: i18n._({ id: 'zsh', message: 'zsh' }),
+        triggerLabel: i18n._({ id: 'zsh', message: 'zsh' }),
+      }
     case 'sh':
-      return { value, label: 'sh', triggerLabel: 'sh' }
+      return {
+        value,
+        label: i18n._({ id: 'sh', message: 'sh' }),
+        triggerLabel: i18n._({ id: 'sh', message: 'sh' }),
+      }
     default:
       return {
         value,
@@ -3087,36 +3493,120 @@ function stringifyJsonInput(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+function formatShellTypeLabel(value?: string | null) {
+  const normalized = (value ?? '').trim()
+  switch (normalized) {
+    case 'local':
+      return i18n._({ id: 'Local Shell', message: 'Local Shell' })
+    case 'unified_exec':
+      return i18n._({ id: 'Unified Execution', message: 'Unified Execution' })
+    case 'shell_command':
+      return i18n._({ id: 'Shell Command', message: 'Shell Command' })
+    case 'disabled':
+      return i18n._({ id: 'Disabled', message: 'Disabled' })
+    case 'default':
+      return i18n._({ id: 'Default', message: 'Default' })
+    case '':
+      return i18n._({ id: 'catalog default', message: 'catalog default' })
+    default:
+      return normalized
+  }
+}
+
 function formatApprovalPolicyLabel(value?: string | null) {
   switch ((value ?? '').trim()) {
     case 'untrusted':
-      return i18n._({ id: 'untrusted', message: 'untrusted' })
+      return i18n._({ id: 'Untrusted', message: 'Untrusted' })
     case 'on-failure':
-      return i18n._({ id: 'on-failure', message: 'on-failure' })
+      return i18n._({ id: 'On Failure', message: 'On Failure' })
     case 'on-request':
-      return i18n._({ id: 'on-request', message: 'on-request' })
+      return i18n._({ id: 'On Request', message: 'On Request' })
     case 'never':
-      return i18n._({ id: 'never', message: 'never' })
+      return i18n._({ id: 'Never', message: 'Never' })
     default:
-      return i18n._({ id: 'inherit', message: 'inherit' })
+      return i18n._({ id: 'Inherit', message: 'Inherit' })
   }
+}
+
+function formatLocalAccessPreviewLabel(
+  allowLocalhostWithoutAccessToken?: boolean | null,
+  hasAccessTokenProtection?: boolean,
+) {
+  if (!hasAccessTokenProtection) {
+    return i18n._({
+      id: 'open access',
+      message: 'open access',
+    })
+  }
+
+  return allowLocalhostWithoutAccessToken
+    ? i18n._({
+        id: 'no login',
+        message: 'no login',
+      })
+    : i18n._({
+        id: 'needs token',
+        message: 'needs token',
+      })
+}
+
+function formatRemoteAccessPreviewLabel(
+  allowRemoteAccess?: boolean | null,
+  hasAccessTokenProtection?: boolean,
+) {
+  if (!allowRemoteAccess) {
+    return i18n._({ id: 'Localhost Only', message: 'Localhost Only' })
+  }
+
+  if (!hasAccessTokenProtection) {
+    return i18n._({
+      id: 'Token setup needed', message: 'Token setup needed',
+    })
+  }
+
+  return i18n._({ id: 'Allowed', message: 'Allowed' })
+}
+
+function formatLocalAccessPolicyLabel(value?: boolean | null) {
+  return value
+    ? i18n._({
+        id: 'Bypass token login',
+        message: 'Bypass token login',
+      })
+    : i18n._({
+        id: 'Token login required',
+        message: 'Token login required',
+      })
 }
 
 function formatSandboxPolicyLabel(value?: Record<string, unknown> | null) {
   if (!value || typeof value !== 'object') {
-    return i18n._({ id: 'inherit', message: 'inherit' })
+    return i18n._({ id: 'Inherit', message: 'Inherit' })
   }
 
   const rawType = typeof value.type === 'string' ? value.type : ''
   if (!rawType) {
-    return i18n._({ id: 'inherit', message: 'inherit' })
+    return i18n._({ id: 'Inherit', message: 'Inherit' })
   }
 
+  const typeLabels: Record<string, string> = {
+    dangerFullAccess: i18n._({ id: 'Danger Full Access', message: 'Danger Full Access' }),
+    externalSandbox: i18n._({ id: 'External Sandbox', message: 'External Sandbox' }),
+    workspaceWrite: i18n._({ id: 'Workspace Write', message: 'Workspace Write' }),
+    readOnly: i18n._({ id: 'Read Only', message: 'Read Only' }),
+  }
+
+  const typeLabel = typeLabels[rawType] || rawType
+
   if (rawType === 'externalSandbox' && typeof value.networkAccess === 'string') {
+    const networkLabel =
+      value.networkAccess === 'enabled'
+        ? i18n._({ id: 'Enabled', message: 'Enabled' })
+        : i18n._({ id: 'Disabled', message: 'Disabled' })
     return i18n._({
-      id: 'externalSandbox:{networkAccess}',
-      message: 'externalSandbox:{networkAccess}',
-      values: { networkAccess: value.networkAccess },
+      id: '{type}:{networkAccess}',
+      message: '{type}:{networkAccess}',
+      values: { type: typeLabel, networkAccess: networkLabel },
     })
   }
 
@@ -3128,15 +3618,15 @@ function formatSandboxPolicyLabel(value?: Record<string, unknown> | null) {
       id: '{type}:{mode}',
       message: '{type}:{mode}',
       values: {
-        type: rawType,
+        type: typeLabel,
         mode: value.networkAccess
-          ? i18n._({ id: 'network', message: 'network' })
-          : i18n._({ id: 'offline', message: 'offline' }),
+          ? i18n._({ id: 'Network', message: 'Network' })
+          : i18n._({ id: 'Offline', message: 'Offline' }),
       },
     })
   }
 
-  return rawType
+  return typeLabel
 }
 
 function formatBackendThreadTraceSummary(
@@ -3145,7 +3635,7 @@ function formatBackendThreadTraceSummary(
   threadId?: string | null,
 ) {
   if (!enabled) {
-    return i18n._({ id: 'off', message: 'off' })
+    return i18n._({ id: 'Off', message: 'Off' })
   }
 
   const trimmedWorkspaceId = (workspaceId ?? '').trim()
@@ -3178,7 +3668,7 @@ function formatBackendThreadTraceSummary(
     })
   }
 
-  return i18n._({ id: 'all workspaces', message: 'all workspaces' })
+  return i18n._({ id: 'All Workspaces', message: 'All Workspaces' })
 }
 
 function formatTerminalShellLabel(value?: string | null) {

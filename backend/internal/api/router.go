@@ -203,7 +203,12 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Post("/{connectionId}/pause", server.handlePauseBotConnection)
 					r.Post("/{connectionId}/resume", server.handleResumeBotConnection)
 					r.Delete("/{connectionId}", server.handleDeleteBotConnection)
-					r.Get("/{connectionId}/conversations", server.handleListBotConnectionConversations)
+					r.Route("/{connectionId}/conversations", func(r chi.Router) {
+						r.Get("/", server.handleListBotConnectionConversations)
+						r.Post("/{conversationId}/binding", server.handleUpdateBotConversationBinding)
+						r.Post("/{conversationId}/binding/clear", server.handleClearBotConversationBinding)
+						r.Post("/{conversationId}/replay-failed-reply", server.handleReplayBotConversationFailedReply)
+					})
 				})
 				r.Get("/{workspaceId}/bot-conversations", server.handleListBotConversations)
 				r.Get("/{workspaceId}/bot-providers/wechat/accounts", server.handleListWeChatAccounts)
@@ -317,19 +322,20 @@ func (s *Server) handleReadRuntimePreferences(w http.ResponseWriter, _ *http.Req
 
 func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		ModelCatalogPath              string                     `json:"modelCatalogPath"`
-		DefaultShellType              string                     `json:"defaultShellType"`
-		DefaultTerminalShell          string                     `json:"defaultTerminalShell"`
-		ModelShellTypeOverrides       map[string]string          `json:"modelShellTypeOverrides"`
-		OutboundProxyURL              string                     `json:"outboundProxyUrl"`
-		DefaultTurnApprovalPolicy     string                     `json:"defaultTurnApprovalPolicy"`
-		DefaultTurnSandboxPolicy      map[string]any             `json:"defaultTurnSandboxPolicy"`
-		DefaultCommandSandboxPolicy   map[string]any             `json:"defaultCommandSandboxPolicy"`
-		AllowRemoteAccess             *bool                      `json:"allowRemoteAccess"`
-		AccessTokens                  []accesscontrol.TokenInput `json:"accessTokens"`
-		BackendThreadTraceEnabled     *bool                      `json:"backendThreadTraceEnabled"`
-		BackendThreadTraceWorkspaceID string                     `json:"backendThreadTraceWorkspaceId"`
-		BackendThreadTraceThreadID    string                     `json:"backendThreadTraceThreadId"`
+		ModelCatalogPath                 string                     `json:"modelCatalogPath"`
+		DefaultShellType                 string                     `json:"defaultShellType"`
+		DefaultTerminalShell             string                     `json:"defaultTerminalShell"`
+		ModelShellTypeOverrides          map[string]string          `json:"modelShellTypeOverrides"`
+		OutboundProxyURL                 string                     `json:"outboundProxyUrl"`
+		DefaultTurnApprovalPolicy        string                     `json:"defaultTurnApprovalPolicy"`
+		DefaultTurnSandboxPolicy         map[string]any             `json:"defaultTurnSandboxPolicy"`
+		DefaultCommandSandboxPolicy      map[string]any             `json:"defaultCommandSandboxPolicy"`
+		AllowRemoteAccess                *bool                      `json:"allowRemoteAccess"`
+		AllowLocalhostWithoutAccessToken *bool                      `json:"allowLocalhostWithoutAccessToken"`
+		AccessTokens                     []accesscontrol.TokenInput `json:"accessTokens"`
+		BackendThreadTraceEnabled        *bool                      `json:"backendThreadTraceEnabled"`
+		BackendThreadTraceWorkspaceID    string                     `json:"backendThreadTraceWorkspaceId"`
+		BackendThreadTraceThreadID       string                     `json:"backendThreadTraceThreadId"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -338,19 +344,20 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 	}
 
 	result, err := s.runtimePrefs.Write(runtimeprefs.WriteInput{
-		ModelCatalogPath:              request.ModelCatalogPath,
-		DefaultShellType:              request.DefaultShellType,
-		DefaultTerminalShell:          request.DefaultTerminalShell,
-		ModelShellTypeOverrides:       request.ModelShellTypeOverrides,
-		OutboundProxyURL:              request.OutboundProxyURL,
-		DefaultTurnApprovalPolicy:     request.DefaultTurnApprovalPolicy,
-		DefaultTurnSandboxPolicy:      request.DefaultTurnSandboxPolicy,
-		DefaultCommandSandboxPolicy:   request.DefaultCommandSandboxPolicy,
-		AllowRemoteAccess:             request.AllowRemoteAccess,
-		AccessTokens:                  request.AccessTokens,
-		BackendThreadTraceEnabled:     request.BackendThreadTraceEnabled,
-		BackendThreadTraceWorkspaceID: request.BackendThreadTraceWorkspaceID,
-		BackendThreadTraceThreadID:    request.BackendThreadTraceThreadID,
+		ModelCatalogPath:                 request.ModelCatalogPath,
+		DefaultShellType:                 request.DefaultShellType,
+		DefaultTerminalShell:             request.DefaultTerminalShell,
+		ModelShellTypeOverrides:          request.ModelShellTypeOverrides,
+		OutboundProxyURL:                 request.OutboundProxyURL,
+		DefaultTurnApprovalPolicy:        request.DefaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:         request.DefaultTurnSandboxPolicy,
+		DefaultCommandSandboxPolicy:      request.DefaultCommandSandboxPolicy,
+		AllowRemoteAccess:                request.AllowRemoteAccess,
+		AllowLocalhostWithoutAccessToken: request.AllowLocalhostWithoutAccessToken,
+		AccessTokens:                     request.AccessTokens,
+		BackendThreadTraceEnabled:        request.BackendThreadTraceEnabled,
+		BackendThreadTraceWorkspaceID:    request.BackendThreadTraceWorkspaceID,
+		BackendThreadTraceThreadID:       request.BackendThreadTraceThreadID,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "runtime_preferences_invalid", err.Error())
@@ -851,6 +858,58 @@ func (s *Server) handleListBotConversations(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleListBotConnectionConversations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.bots.ListConversationViews(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId")))
+}
+
+func (s *Server) handleUpdateBotConversationBinding(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpdateConversationBindingInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	conversation, err := s.bots.UpdateConversationBinding(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		chi.URLParam(r, "conversationId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, conversation)
+}
+
+func (s *Server) handleClearBotConversationBinding(w http.ResponseWriter, r *http.Request) {
+	conversation, err := s.bots.ClearConversationBinding(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		chi.URLParam(r, "conversationId"),
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, conversation)
+}
+
+func (s *Server) handleReplayBotConversationFailedReply(w http.ResponseWriter, r *http.Request) {
+	conversation, err := s.bots.ReplayLatestFailedReply(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "connectionId"),
+		chi.URLParam(r, "conversationId"),
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, conversation)
 }
 
 func (s *Server) handleStartWeChatLogin(w http.ResponseWriter, r *http.Request) {
@@ -2323,6 +2382,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "wechat_account_not_found", err.Error())
 	case errors.Is(err, store.ErrBotConversationNotFound):
 		writeError(w, http.StatusNotFound, "bot_conversation_not_found", err.Error())
+	case errors.Is(err, store.ErrBotInboundDeliveryNotFound):
+		writeError(w, http.StatusNotFound, "bot_inbound_delivery_not_found", err.Error())
 	case errors.Is(err, bots.ErrWeChatLoginNotFound):
 		writeError(w, http.StatusNotFound, "wechat_login_not_found", err.Error())
 	case errors.Is(err, execfs.ErrCommandSessionNotFound):

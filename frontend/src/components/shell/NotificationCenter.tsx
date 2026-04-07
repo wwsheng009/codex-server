@@ -20,6 +20,7 @@ import {
   useWorkspaceEventSubscription,
   useWorkspaceStreams,
 } from '../../hooks/useWorkspaceStream'
+import { formatLocalizedStatusLabel } from '../../i18n/display'
 import { formatLocaleDateTime, formatLocaleNumber } from '../../i18n/format'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
@@ -630,18 +631,7 @@ function formatTimestamp(value: string) {
 }
 
 function formatNotificationLevel(level: string) {
-  switch (level) {
-    case 'success':
-      return i18n._({ id: 'Success', message: 'Success' })
-    case 'warning':
-      return i18n._({ id: 'Warning', message: 'Warning' })
-    case 'error':
-      return i18n._({ id: 'Error', message: 'Error' })
-    case 'info':
-      return i18n._({ id: 'Info', message: 'Info' })
-    default:
-      return level
-  }
+  return formatLocalizedStatusLabel(level)
 }
 
 function notificationTone(level: string) {

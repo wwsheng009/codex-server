@@ -19,13 +19,13 @@ const (
 )
 
 var (
-	wechatHTMLTagPattern          = regexp.MustCompile(`(?is)<(meta|source|video|a)\b[^>]*>`)
+	wechatHTMLTagPattern          = regexp.MustCompile(`(?is)<(meta|source|video|a|iframe)\b[^>]*>`)
 	wechatHTMLAttributePattern    = regexp.MustCompile("(?is)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+))")
-	wechatStructuredURLPattern    = regexp.MustCompile(`(?is)"(contentUrl|embedUrl|videoUrl|video_url|streamUrl|stream_url|playbackUrl|playback_url|url|src)"\s*:\s*"((?:\\.|[^"])*)"`)
+	wechatStructuredURLPattern    = regexp.MustCompile(`(?is)"(contentUrl|embedUrl|videoUrl|video_url|streamUrl|stream_url|streamHlsUrl|stream_hls_url|playbackUrl|playback_url|playerUrl|player_url|iframeUrl|iframe_url|manifestUrl|manifest_url|url|src)"\s*:\s*"((?:\\.|[^"])*)"`)
 	wechatDirectMediaURLPattern   = regexp.MustCompile(`(?i)https?:\/\/[^"'<>\\s]+?\.(?:mp4|mov|m4v|webm|avi|mkv|jpg|jpeg|png|gif|webp|bmp|pdf)(?:\?[^"'<>\\s]*)?`)
 	wechatHTMLDocTypePattern      = regexp.MustCompile(`(?is)<!doctype\s+html`)
-	wechatHTMLBodyMarkerPattern   = regexp.MustCompile(`(?is)<(?:html|head|body|meta|title|script|video|source)\b`)
-	wechatStructuredJSONURLMarker = regexp.MustCompile(`(?is)"(?:contentUrl|embedUrl|videoUrl|video_url|streamUrl|stream_url|playbackUrl|playback_url|url|src)"\s*:`)
+	wechatHTMLBodyMarkerPattern   = regexp.MustCompile(`(?is)<(?:html|head|body|meta|title|script|video|source|iframe)\b`)
+	wechatStructuredJSONURLMarker = regexp.MustCompile(`(?is)"(?:contentUrl|embedUrl|videoUrl|video_url|streamUrl|stream_url|streamHlsUrl|stream_hls_url|playbackUrl|playback_url|playerUrl|player_url|iframeUrl|iframe_url|manifestUrl|manifest_url|url|src)"\s*:`)
 )
 
 type wechatFetchedRemoteResource struct {
@@ -84,6 +84,27 @@ func (p *wechatProvider) resolveRemoteOutboundMediaFileRecursive(
 	}
 
 	if !isWeChatStructuredDocument(resource.contentType, resource.data) {
+		if shouldAttemptWeChatRemoteVideoTranscode(resource.finalURL, resource.contentType, declaredKind) {
+			resolvedFileNameHint := firstNonEmpty(
+				strings.TrimSpace(fileNameHint),
+				fileNameFromURL(resource.finalURL),
+				fileNameFromURL(normalizedURL),
+				"video.mp4",
+			)
+			filePath, contentType, cleanup, err := transcodeWeChatRemoteVideoToMP4(ctx, resource.finalURL, resolvedFileNameHint)
+			if err != nil {
+				return "", "", nil, fmt.Errorf(
+					"%w: wechat resolved remote video %q requires transcoding before upload, but transcoding failed: %v",
+					ErrInvalidInput,
+					resource.finalURL,
+					err,
+				)
+			}
+			return filePath, contentType, cleanup, nil
+		}
+		if err := validateResolvedWeChatRemoteMedia(resource.finalURL, resource.contentType, declaredKind); err != nil {
+			return "", "", nil, err
+		}
 		resolvedFileNameHint := firstNonEmpty(
 			strings.TrimSpace(fileNameHint),
 			fileNameFromURL(resource.finalURL),
@@ -210,26 +231,25 @@ func extractWeChatRemoteMediaCandidates(body []byte, pageURL string, declaredKin
 	seen := make(map[string]struct{})
 
 	appendCandidate := func(rawURL string, candidateKind string, structured bool) {
-		resolvedURL := resolveWeChatRemoteMediaURL(pageURL, rawURL)
-		if resolvedURL == "" {
-			return
+		normalizedCandidateKind := normalizeWeChatMediaKind(candidateKind)
+		for _, resolvedURL := range expandWeChatRemoteMediaCandidateURLs(pageURL, rawURL) {
+			resolvedKind := normalizedCandidateKind
+			if resolvedKind == "" {
+				resolvedKind = inferWeChatMediaKindFromLocation(resolvedURL)
+			}
+			if !shouldUseWeChatMediaCandidate(normalizedDeclaredKind, resolvedKind, resolvedURL, structured) {
+				continue
+			}
+			if _, ok := seen[resolvedURL]; ok {
+				continue
+			}
+			seen[resolvedURL] = struct{}{}
+			candidates = append(candidates, wechatRemoteMediaCandidate{
+				url:          resolvedURL,
+				kind:         resolvedKind,
+				fileNameHint: fileNameFromURL(resolvedURL),
+			})
 		}
-		candidateKind = normalizeWeChatMediaKind(candidateKind)
-		if candidateKind == "" {
-			candidateKind = inferWeChatMediaKindFromLocation(resolvedURL)
-		}
-		if !shouldUseWeChatMediaCandidate(normalizedDeclaredKind, candidateKind, resolvedURL, structured) {
-			return
-		}
-		if _, ok := seen[resolvedURL]; ok {
-			return
-		}
-		seen[resolvedURL] = struct{}{}
-		candidates = append(candidates, wechatRemoteMediaCandidate{
-			url:          resolvedURL,
-			kind:         candidateKind,
-			fileNameHint: fileNameFromURL(resolvedURL),
-		})
 	}
 
 	for _, match := range wechatHTMLTagPattern.FindAllStringSubmatch(htmlText, -1) {
@@ -266,6 +286,12 @@ func extractWeChatRemoteMediaCandidates(body []byte, pageURL string, declaredKin
 			if looksLikeWeChatDirectMediaURL(href) {
 				appendCandidate(href, inferWeChatMediaKindFromLocation(href), false)
 			}
+		case "iframe":
+			appendCandidate(
+				firstNonEmpty(attributes["src"], attributes["data-src"], attributes["data-href"]),
+				normalizedDeclaredKind,
+				true,
+			)
 		}
 	}
 
@@ -278,9 +304,12 @@ func extractWeChatRemoteMediaCandidates(body []byte, pageURL string, declaredKin
 		switch {
 		case strings.Contains(key, "video"),
 			strings.Contains(key, "stream"),
-			strings.Contains(key, "playback"):
+			strings.Contains(key, "playback"),
+			strings.Contains(key, "manifest"):
 			appendCandidate(value, botMediaKindVideo, true)
 		case strings.Contains(key, "contenturl"),
+			strings.Contains(key, "player"),
+			strings.Contains(key, "iframe"),
 			strings.Contains(key, "embedurl"):
 			appendCandidate(value, normalizedDeclaredKind, true)
 		default:
@@ -353,6 +382,94 @@ func resolveWeChatRemoteMediaURL(baseURL string, rawURL string) string {
 		return ""
 	}
 	return base.ResolveReference(ref).String()
+}
+
+func expandWeChatRemoteMediaCandidateURLs(baseURL string, rawURL string) []string {
+	resolvedURL := resolveWeChatRemoteMediaURL(baseURL, rawURL)
+	if resolvedURL == "" {
+		return nil
+	}
+
+	candidates := []string{resolvedURL}
+	seen := map[string]struct{}{
+		resolvedURL: {},
+	}
+	for _, rewritten := range rewriteKnownWeChatMediaCandidateURLs(resolvedURL) {
+		if rewritten == "" {
+			continue
+		}
+		if _, ok := seen[rewritten]; ok {
+			continue
+		}
+		seen[rewritten] = struct{}{}
+		candidates = append(candidates, rewritten)
+	}
+	return candidates
+}
+
+func rewriteKnownWeChatMediaCandidateURLs(rawURL string) []string {
+	videoID := extractWeChatDailymotionVideoID(rawURL)
+	if videoID == "" {
+		return nil
+	}
+	return []string{"https://www.dailymotion.com/video/" + videoID}
+}
+
+func extractWeChatDailymotionVideoID(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed == nil {
+		return ""
+	}
+
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if !looksLikeWeChatDailymotionHost(host) {
+		return ""
+	}
+
+	if value := normalizeWeChatRemoteVideoID(parsed.Query().Get("video")); value != "" {
+		return value
+	}
+
+	segments := strings.Split(strings.Trim(strings.TrimSpace(parsed.Path), "/"), "/")
+	for index := 0; index < len(segments); index++ {
+		if segments[index] != "video" {
+			continue
+		}
+		if index+1 < len(segments) {
+			if value := normalizeWeChatRemoteVideoID(segments[index+1]); value != "" {
+				return value
+			}
+		}
+	}
+
+	if len(segments) > 0 && strings.EqualFold(host, "dai.ly") {
+		return normalizeWeChatRemoteVideoID(segments[len(segments)-1])
+	}
+
+	return ""
+}
+
+func looksLikeWeChatDailymotionHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "dai.ly" || strings.HasSuffix(host, ".dailymotion.com") || host == "dailymotion.com"
+}
+
+func normalizeWeChatRemoteVideoID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9':
+			continue
+		default:
+			return ""
+		}
+	}
+	return value
 }
 
 func shouldUseWeChatMediaCandidate(declaredKind string, candidateKind string, resolvedURL string, structured bool) bool {
@@ -432,4 +549,108 @@ func fileNameFromURL(rawURL string) string {
 	default:
 		return base
 	}
+}
+
+func validateResolvedWeChatRemoteMedia(rawURL string, contentType string, declaredKind string) error {
+	declaredKind = normalizeWeChatMediaKind(declaredKind)
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+
+	switch declaredKind {
+	case botMediaKindVideo:
+		if shouldAttemptWeChatRemoteVideoTranscode(rawURL, contentType, declaredKind) {
+			return fmt.Errorf(
+				"%w: wechat resolved remote video %q is a streaming playlist (%s), not a directly uploadable video file",
+				ErrInvalidInput,
+				rawURL,
+				firstNonEmpty(contentType, "unknown content type"),
+			)
+		}
+		if strings.HasPrefix(contentType, "video/") || looksLikeDirectVideoFileURL(rawURL) {
+			return nil
+		}
+		return fmt.Errorf(
+			"%w: wechat resolved remote video %q is not a directly uploadable video file (content-type %q)",
+			ErrInvalidInput,
+			rawURL,
+			firstNonEmpty(contentType, "unknown"),
+		)
+	case botMediaKindImage:
+		if strings.HasPrefix(contentType, "image/") || looksLikeDirectImageFileURL(rawURL) {
+			return nil
+		}
+		return fmt.Errorf(
+			"%w: wechat resolved remote image %q is not a directly uploadable image file (content-type %q)",
+			ErrInvalidInput,
+			rawURL,
+			firstNonEmpty(contentType, "unknown"),
+		)
+	default:
+		return nil
+	}
+}
+
+func shouldAttemptWeChatRemoteVideoTranscode(rawURL string, contentType string, declaredKind string) bool {
+	if normalizeWeChatMediaKind(declaredKind) != botMediaKindVideo {
+		return false
+	}
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	switch {
+	case strings.Contains(contentType, "mpegurl"),
+		strings.Contains(contentType, "dash+xml"),
+		looksLikeStreamingPlaylistURL(rawURL):
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeDirectVideoFileURL(value string) bool {
+	switch {
+	case wechatURLPathHasExtension(value, ".mp4"),
+		wechatURLPathHasExtension(value, ".mov"),
+		wechatURLPathHasExtension(value, ".m4v"),
+		wechatURLPathHasExtension(value, ".webm"),
+		wechatURLPathHasExtension(value, ".mkv"),
+		wechatURLPathHasExtension(value, ".avi"):
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeDirectImageFileURL(value string) bool {
+	switch {
+	case wechatURLPathHasExtension(value, ".png"),
+		wechatURLPathHasExtension(value, ".jpg"),
+		wechatURLPathHasExtension(value, ".jpeg"),
+		wechatURLPathHasExtension(value, ".gif"),
+		wechatURLPathHasExtension(value, ".webp"),
+		wechatURLPathHasExtension(value, ".bmp"):
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeStreamingPlaylistURL(value string) bool {
+	switch {
+	case wechatURLPathHasExtension(value, ".m3u8"),
+		wechatURLPathHasExtension(value, ".mpd"):
+		return true
+	default:
+		return false
+	}
+}
+
+func wechatURLPathHasExtension(rawURL string, extension string) bool {
+	extension = strings.ToLower(strings.TrimSpace(extension))
+	if extension == "" {
+		return false
+	}
+
+	pathValue := strings.ToLower(strings.TrimSpace(rawURL))
+	if parsed, err := url.Parse(strings.TrimSpace(rawURL)); err == nil && parsed != nil {
+		pathValue = strings.ToLower(strings.TrimSpace(parsed.Path))
+	}
+	return strings.HasSuffix(pathValue, extension)
 }

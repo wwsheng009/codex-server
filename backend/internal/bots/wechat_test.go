@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -362,6 +363,163 @@ func TestWeChatProviderRunPollingPausesExpiredSessionAndRecovers(t *testing.T) {
 	}
 	if len(received) != 1 || received[0].Text != "session recovered" {
 		t.Fatalf("expected recovered message after pause, got %#v", received)
+	}
+}
+
+func TestWeChatRequestErrorIncludesErrcodeInErrorText(t *testing.T) {
+	t.Parallel()
+
+	err := &wechatRequestError{
+		method:      "/ilink/bot/sendmessage",
+		statusCode:  wechatSessionExpiredErrCode,
+		status:      "api error",
+		description: "session expired",
+	}
+
+	if !strings.Contains(err.Error(), "code=-14") {
+		t.Fatalf("expected wechat request error to include errcode, got %q", err.Error())
+	}
+}
+
+func TestWeChatAPIErrorIncludesRetAndSessionExpiredFallbackWhenErrmsgMissing(t *testing.T) {
+	t.Parallel()
+
+	err := wechatAPIError("/ilink/bot/sendmessage", wechatAPIResponse{
+		Ret:     wechatSessionExpiredErrCode,
+		ErrCode: wechatSessionExpiredErrCode,
+	})
+	if err == nil {
+		t.Fatal("expected wechatAPIError() to return an error")
+	}
+	if !strings.Contains(err.Error(), "ret=-14 errcode=-14") {
+		t.Fatalf("expected wechat api error to include ret and errcode, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "session expired") {
+		t.Fatalf("expected wechat api error to include session expired fallback, got %q", err.Error())
+	}
+}
+
+func TestWeChatSendTextMessageWrapsAPIErrorWithTextSummary(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ilink/bot/sendmessage" {
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret":     1,
+			"errcode": 0,
+			"errmsg":  "",
+		})
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	err := provider.sendTextMessage(
+		context.Background(),
+		server.URL,
+		"wechat-token",
+		"",
+		"wechat-user-send-1",
+		"ctx-send-1",
+		"hello send failure",
+	)
+	if err == nil {
+		t.Fatal("expected sendTextMessage() to fail")
+	}
+	if !strings.Contains(err.Error(), "wechat sendmessage text failed") {
+		t.Fatalf("expected wrapped text send failure, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "chars=18") {
+		t.Fatalf("expected wrapped text send failure to include char count, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), `preview="hello send failure"`) {
+		t.Fatalf("expected wrapped text send failure to include preview, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "ret=1 errcode=0") {
+		t.Fatalf("expected wrapped text send failure to include ret and errcode, got %q", err.Error())
+	}
+}
+
+func TestWeChatSendMessageItemWrapsAPIErrorWithItemSummary(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ilink/bot/sendmessage" {
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret":     1,
+			"errcode": 0,
+			"errmsg":  "",
+		})
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	err := provider.sendMessageItem(
+		context.Background(),
+		server.URL,
+		"wechat-token",
+		"",
+		"wechat-user-send-2",
+		"ctx-send-2",
+		wechatMessageItem{
+			Type: wechatItemTypeVideo,
+			VideoItem: &wechatVideoItem{
+				VideoSize: 2048,
+			},
+		},
+	)
+	if err == nil {
+		t.Fatal("expected sendMessageItem() to fail")
+	}
+	if !strings.Contains(err.Error(), "wechat sendmessage item failed") {
+		t.Fatalf("expected wrapped item send failure, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "type=video") {
+		t.Fatalf("expected wrapped item send failure to include item type, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "videoSize=2048") {
+		t.Fatalf("expected wrapped item send failure to include item summary, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "ret=1 errcode=0") {
+		t.Fatalf("expected wrapped item send failure to include ret and errcode, got %q", err.Error())
+	}
+}
+
+func TestWeChatProviderReplyDeliveryRetryDecisionRetriesMarkedTransientFailure(t *testing.T) {
+	t.Parallel()
+
+	provider := newWeChatProvider(nil).(*wechatProvider)
+
+	retry, delay := provider.ReplyDeliveryRetryDecision(markReplyDeliveryRetryable(&wechatRequestError{
+		method:      "/ilink/bot/sendmessage",
+		statusCode:  http.StatusBadGateway,
+		status:      "502 Bad Gateway",
+		description: "upstream busy",
+	}), 1)
+	if !retry {
+		t.Fatal("expected marked transient wechat failure to trigger service-level retry")
+	}
+	if delay != wechatReplyRetryBaseDelay {
+		t.Fatalf("expected first retry delay %v, got %v", wechatReplyRetryBaseDelay, delay)
+	}
+}
+
+func TestWeChatProviderReplyDeliveryRetryDecisionDoesNotRetryExpiredSession(t *testing.T) {
+	t.Parallel()
+
+	provider := newWeChatProvider(nil).(*wechatProvider)
+
+	retry, delay := provider.ReplyDeliveryRetryDecision(markReplyDeliveryRetryable(&wechatRequestError{
+		method:      "/ilink/bot/sendmessage",
+		statusCode:  wechatSessionExpiredErrCode,
+		status:      "api error",
+		description: "session expired",
+	}), 1)
+	if retry || delay != 0 {
+		t.Fatalf("expected expired session failures not to retry automatically, got retry=%v delay=%v", retry, delay)
 	}
 }
 
@@ -785,6 +943,153 @@ func TestWeChatProviderSendMessagesExtractsRemoteVideoFromHTMLPageAndSendsVideoI
 	}
 }
 
+func TestWeChatProviderSendMessagesExtractsRemoteVideoThroughIframeEmbedAndSendsVideoItem(t *testing.T) {
+	t.Parallel()
+
+	const (
+		uploadParam   = "upload-param-remote-video-iframe-1"
+		downloadParam = "download-param-remote-video-iframe-1"
+	)
+
+	remoteVideoBody := []byte("fake iframe-derived mp4 bytes for remote wechat upload")
+	sendPayloads := make([]map[string]any, 0, 2)
+	pageFetches := 0
+	embedFetches := 0
+	videoFetches := 0
+	getUploadCalls := 0
+	serverURL := ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/story":
+			pageFetches += 1
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><body><iframe src="/embed/video-player"></iframe></body></html>`))
+		case "/embed/video-player":
+			embedFetches += 1
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><meta property="og:video" content="` + serverURL + `/media/hormuz.mp4?download=1"></head></html>`))
+		case "/media/hormuz.mp4":
+			videoFetches += 1
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write(remoteVideoBody)
+		case "/ilink/bot/getuploadurl":
+			getUploadCalls += 1
+
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode getuploadurl payload: %v", err)
+			}
+			if got := payload["to_user_id"]; got != "wechat-user-remote-video-iframe-1" {
+				t.Fatalf("expected getuploadurl to_user_id wechat-user-remote-video-iframe-1, got %#v", payload)
+			}
+			if got := int(payload["media_type"].(float64)); got != wechatUploadMediaTypeVideo {
+				t.Fatalf("expected getuploadurl media_type video, got %#v", payload)
+			}
+			if got := int(payload["rawsize"].(float64)); got != len(remoteVideoBody) {
+				t.Fatalf("expected getuploadurl rawsize %d, got %#v", len(remoteVideoBody), payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":          0,
+				"errcode":      0,
+				"errmsg":       "",
+				"upload_param": uploadParam,
+			})
+		case "/c2c/upload":
+			if got := r.URL.Query().Get("encrypted_query_param"); got != uploadParam {
+				t.Fatalf("expected upload encrypted_query_param %q, got %q", uploadParam, got)
+			}
+			w.Header().Set("x-encrypted-param", downloadParam)
+			w.WriteHeader(http.StatusOK)
+		case "/ilink/bot/sendmessage":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode sendmessage payload: %v", err)
+			}
+			sendPayloads = append(sendPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":     0,
+				"errcode": 0,
+				"errmsg":  "",
+			})
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	serverURL = server.URL
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_remote_video_iframe_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-remote-video-iframe-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-remote-video-iframe-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+	conversation := store.BotConversation{
+		ExternalChatID: "wechat-user-remote-video-iframe-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-remote-video-iframe-1",
+		},
+	}
+
+	if err := provider.SendMessages(context.Background(), connection, conversation, []OutboundMessage{
+		{
+			Text: "发你一个通过播放器嵌入的视频。",
+			Media: []store.BotMessageMedia{
+				{
+					Kind: botMediaKindVideo,
+					URL:  server.URL + "/story",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if pageFetches != 1 {
+		t.Fatalf("expected one story page fetch, got %d", pageFetches)
+	}
+	if embedFetches != 1 {
+		t.Fatalf("expected one embed page fetch, got %d", embedFetches)
+	}
+	if videoFetches != 1 {
+		t.Fatalf("expected one extracted video fetch, got %d", videoFetches)
+	}
+	if getUploadCalls != 1 {
+		t.Fatalf("expected one getuploadurl call, got %d", getUploadCalls)
+	}
+	if len(sendPayloads) != 2 {
+		t.Fatalf("expected text caption plus one video payload, got %#v", sendPayloads)
+	}
+	if got := wechatTextFromSendPayload(sendPayloads[0]); got != "发你一个通过播放器嵌入的视频。" {
+		t.Fatalf("expected first payload to contain the caption text, got %#v", sendPayloads[0])
+	}
+
+	msg, _ := sendPayloads[1]["msg"].(map[string]any)
+	itemList, _ := msg["item_list"].([]any)
+	if len(itemList) != 1 {
+		t.Fatalf("expected video payload to have exactly one item, got %#v", msg)
+	}
+	item, _ := itemList[0].(map[string]any)
+	if got := int(item["type"].(float64)); got != wechatItemTypeVideo {
+		t.Fatalf("expected second payload item type video, got %#v", item)
+	}
+	videoItem, _ := item["video_item"].(map[string]any)
+	media, _ := videoItem["media"].(map[string]any)
+	if got := media["encrypt_query_param"]; got != downloadParam {
+		t.Fatalf("expected video payload encrypt_query_param %q, got %#v", downloadParam, media)
+	}
+}
+
 func TestWeChatProviderSendMessagesFallsBackToTextWhenRemoteVideoPageCannotResolveMedia(t *testing.T) {
 	t.Parallel()
 
@@ -858,7 +1163,280 @@ func TestWeChatProviderSendMessagesFallsBackToTextWhenRemoteVideoPageCannotResol
 	if len(sendPayloads) != 1 {
 		t.Fatalf("expected one fallback text payload, got %#v", sendPayloads)
 	}
-	if got := wechatTextFromSendPayload(sendPayloads[0]); got != "发你一个和霍尔木兹海峡相关的视频链接。" {
+	expectedFallback := "发你一个和霍尔木兹海峡相关的视频链接。\n\n[WeChat attachment delivery fallback]\nvideo " + server.URL + "/story"
+	if got := wechatTextFromSendPayload(sendPayloads[0]); got != expectedFallback {
+		t.Fatalf("expected fallback text payload, got %#v", sendPayloads[0])
+	}
+}
+
+func TestWeChatProviderSendMessagesTranscodesStreamingPlaylistToVideoItemWhenTranscoderAvailable(t *testing.T) {
+	transcodedVideo := []byte("fake transcoded mp4 payload")
+
+	originalLookPath := lookPathWeChatVideoCommand
+	originalExec := execWeChatVideoCommand
+	lookPathWeChatVideoCommand = func(file string) (string, error) {
+		return file, nil
+	}
+	execWeChatVideoCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		commandArgs := append([]string{"-test.run=TestHelperProcessWeChatRemoteVideoTranscoder", "--"}, args...)
+		command := exec.CommandContext(ctx, os.Args[0], commandArgs...)
+		command.Env = append(os.Environ(),
+			"GO_WANT_HELPER_PROCESS_WECHAT_VIDEO_TRANSCODER=1",
+			"GO_HELPER_WECHAT_VIDEO_TRANSCODER_BYTES="+string(transcodedVideo),
+		)
+		return command
+	}
+	t.Cleanup(func() {
+		lookPathWeChatVideoCommand = originalLookPath
+		execWeChatVideoCommand = originalExec
+	})
+
+	const (
+		uploadParam   = "upload-param-remote-video-playlist-transcoded-1"
+		downloadParam = "download-param-remote-video-playlist-transcoded-1"
+	)
+
+	sendPayloads := make([]map[string]any, 0, 2)
+	pageFetches := 0
+	playlistFetches := 0
+	getUploadCalls := 0
+	serverURL := ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/story":
+			pageFetches += 1
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><meta property="og:video" content="` + serverURL + `/media/stream.m3u8?token=abc123"></head><body>story page</body></html>`))
+		case "/media/stream.m3u8":
+			playlistFetches += 1
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n"))
+		case "/ilink/bot/getuploadurl":
+			getUploadCalls += 1
+
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode getuploadurl payload: %v", err)
+			}
+			if got := payload["to_user_id"]; got != "wechat-user-remote-video-playlist-transcoded-1" {
+				t.Fatalf("expected getuploadurl to_user_id wechat-user-remote-video-playlist-transcoded-1, got %#v", payload)
+			}
+			if got := int(payload["media_type"].(float64)); got != wechatUploadMediaTypeVideo {
+				t.Fatalf("expected getuploadurl media_type video, got %#v", payload)
+			}
+			if got := int(payload["rawsize"].(float64)); got != len(transcodedVideo) {
+				t.Fatalf("expected getuploadurl rawsize %d, got %#v", len(transcodedVideo), payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":          0,
+				"errcode":      0,
+				"errmsg":       "",
+				"upload_param": uploadParam,
+			})
+		case "/c2c/upload":
+			if got := r.URL.Query().Get("encrypted_query_param"); got != uploadParam {
+				t.Fatalf("expected upload encrypted_query_param %q, got %q", uploadParam, got)
+			}
+			w.Header().Set("x-encrypted-param", downloadParam)
+			w.WriteHeader(http.StatusOK)
+		case "/ilink/bot/sendmessage":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode sendmessage payload: %v", err)
+			}
+			sendPayloads = append(sendPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":     0,
+				"errcode": 0,
+				"errmsg":  "",
+			})
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	serverURL = server.URL
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_remote_video_playlist_transcoded_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-remote-video-playlist-transcoded-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-remote-video-playlist-transcoded-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+	conversation := store.BotConversation{
+		ExternalChatID: "wechat-user-remote-video-playlist-transcoded-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-remote-video-playlist-transcoded-1",
+		},
+	}
+
+	if err := provider.SendMessages(context.Background(), connection, conversation, []OutboundMessage{
+		{
+			Text: "发你一个已转码的视频。",
+			Media: []store.BotMessageMedia{
+				{
+					Kind: botMediaKindVideo,
+					URL:  server.URL + "/story",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if pageFetches != 1 {
+		t.Fatalf("expected one story page fetch, got %d", pageFetches)
+	}
+	if playlistFetches != 1 {
+		t.Fatalf("expected one extracted playlist fetch, got %d", playlistFetches)
+	}
+	if getUploadCalls != 1 {
+		t.Fatalf("expected one getuploadurl call, got %d", getUploadCalls)
+	}
+	if len(sendPayloads) != 2 {
+		t.Fatalf("expected text caption plus one video payload, got %#v", sendPayloads)
+	}
+	if got := wechatTextFromSendPayload(sendPayloads[0]); got != "发你一个已转码的视频。" {
+		t.Fatalf("expected first payload to contain the caption text, got %#v", sendPayloads[0])
+	}
+
+	msg, _ := sendPayloads[1]["msg"].(map[string]any)
+	itemList, _ := msg["item_list"].([]any)
+	if len(itemList) != 1 {
+		t.Fatalf("expected video payload to have exactly one item, got %#v", msg)
+	}
+	item, _ := itemList[0].(map[string]any)
+	if got := int(item["type"].(float64)); got != wechatItemTypeVideo {
+		t.Fatalf("expected second payload item type video, got %#v", item)
+	}
+	videoItem, _ := item["video_item"].(map[string]any)
+	media, _ := videoItem["media"].(map[string]any)
+	if got := media["encrypt_query_param"]; got != downloadParam {
+		t.Fatalf("expected video payload encrypt_query_param %q, got %#v", downloadParam, media)
+	}
+}
+
+func TestHelperProcessWeChatRemoteVideoTranscoder(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS_WECHAT_VIDEO_TRANSCODER") != "1" {
+		return
+	}
+
+	args := os.Args
+	separator := -1
+	for index, arg := range args {
+		if arg == "--" {
+			separator = index
+			break
+		}
+	}
+	if separator < 0 || len(args) < separator+3 {
+		_, _ = os.Stderr.WriteString("missing helper process output path")
+		os.Exit(2)
+	}
+
+	outputPath := args[len(args)-1]
+	if err := os.WriteFile(outputPath, []byte(os.Getenv("GO_HELPER_WECHAT_VIDEO_TRANSCODER_BYTES")), 0o600); err != nil {
+		_, _ = os.Stderr.WriteString(err.Error())
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func TestWeChatProviderSendMessagesFallsBackToTextWhenRemoteVideoResolvesToStreamingPlaylist(t *testing.T) {
+	t.Parallel()
+
+	sendPayloads := make([]map[string]any, 0, 1)
+	pageFetches := 0
+	playlistFetches := 0
+	serverURL := ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/story":
+			pageFetches += 1
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><meta property="og:video" content="` + serverURL + `/media/stream.m3u8?token=abc123"></head><body>story page</body></html>`))
+		case "/media/stream.m3u8":
+			playlistFetches += 1
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n"))
+		case "/ilink/bot/getuploadurl":
+			t.Fatal("did not expect getuploadurl to be called when remote media resolves to a playlist")
+		case "/ilink/bot/sendmessage":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode sendmessage payload: %v", err)
+			}
+			sendPayloads = append(sendPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":     0,
+				"errcode": 0,
+				"errmsg":  "",
+			})
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	serverURL = server.URL
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_remote_video_playlist_fallback_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-remote-video-playlist-fallback-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-remote-video-playlist-fallback-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+	conversation := store.BotConversation{
+		ExternalChatID: "wechat-user-remote-video-playlist-fallback-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-remote-video-playlist-fallback-1",
+		},
+	}
+
+	if err := provider.SendMessages(context.Background(), connection, conversation, []OutboundMessage{
+		{
+			Text: "发你一个播放器流链接。",
+			Media: []store.BotMessageMedia{
+				{
+					Kind: botMediaKindVideo,
+					URL:  server.URL + "/story",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if pageFetches != 1 {
+		t.Fatalf("expected one story page fetch, got %d", pageFetches)
+	}
+	if playlistFetches != 1 {
+		t.Fatalf("expected one extracted playlist fetch, got %d", playlistFetches)
+	}
+	if len(sendPayloads) != 1 {
+		t.Fatalf("expected one fallback text payload, got %#v", sendPayloads)
+	}
+	expectedFallback := "发你一个播放器流链接。\n\n[WeChat attachment delivery fallback]\nvideo " + server.URL + "/story"
+	if got := wechatTextFromSendPayload(sendPayloads[0]); got != expectedFallback {
 		t.Fatalf("expected fallback text payload, got %#v", sendPayloads[0])
 	}
 }

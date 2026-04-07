@@ -25,17 +25,28 @@ func (s *Server) requireRemoteAccess(next http.Handler) http.Handler {
 			return
 		}
 
-		if s.accessControl.RemoteAccessAllowed(originalRemoteAddrFromRequest(r)) {
+		decision := s.accessControl.EvaluateRemoteAccess(originalRemoteAddrFromRequest(r))
+		if decision.Allowed {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		writeError(
-			w,
-			http.StatusForbidden,
-			"remote_access_disabled",
-			"remote access is disabled; only localhost may access this server",
-		)
+		switch decision.Reason {
+		case accesscontrol.RemoteAccessReasonRequiresActiveToken:
+			writeError(
+				w,
+				http.StatusForbidden,
+				"remote_access_requires_active_token",
+				"remote access is blocked until an active access token is configured; use localhost to create one first",
+			)
+		default:
+			writeError(
+				w,
+				http.StatusForbidden,
+				"remote_access_disabled",
+				"remote access is disabled; only localhost may access this server",
+			)
+		}
 	})
 }
 
@@ -46,7 +57,7 @@ func (s *Server) requireProtectedAccess(next http.Handler) http.Handler {
 			return
 		}
 
-		err := s.accessControl.RequireAccess(r)
+		err := s.accessControl.RequireAccess(r, originalRemoteAddrFromRequest(r))
 		switch {
 		case err == nil:
 			next.ServeHTTP(w, r)
@@ -63,16 +74,17 @@ func (s *Server) requireProtectedAccess(next http.Handler) http.Handler {
 func (s *Server) handleAccessBootstrap(w http.ResponseWriter, r *http.Request) {
 	if s.accessControl == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"authenticated":        true,
-			"loginRequired":        false,
-			"allowRemoteAccess":    true,
-			"configuredTokenCount": 0,
-			"activeTokenCount":     0,
+			"authenticated":                    true,
+			"loginRequired":                    false,
+			"allowRemoteAccess":                true,
+			"allowLocalhostWithoutAccessToken": false,
+			"configuredTokenCount":             0,
+			"activeTokenCount":                 0,
 		})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.accessControl.Bootstrap(r))
+	writeJSON(w, http.StatusOK, s.accessControl.Bootstrap(r, originalRemoteAddrFromRequest(r)))
 }
 
 func (s *Server) handleAccessLogin(w http.ResponseWriter, r *http.Request) {
@@ -87,16 +99,17 @@ func (s *Server) handleAccessLogin(w http.ResponseWriter, r *http.Request) {
 
 	if s.accessControl == nil {
 		writeJSON(w, http.StatusAccepted, map[string]any{
-			"authenticated":        true,
-			"loginRequired":        false,
-			"allowRemoteAccess":    true,
-			"configuredTokenCount": 0,
-			"activeTokenCount":     0,
+			"authenticated":                    true,
+			"loginRequired":                    false,
+			"allowRemoteAccess":                true,
+			"allowLocalhostWithoutAccessToken": false,
+			"configuredTokenCount":             0,
+			"activeTokenCount":                 0,
 		})
 		return
 	}
 
-	result, err := s.accessControl.Login(w, r, request.Token)
+	result, err := s.accessControl.Login(w, r, originalRemoteAddrFromRequest(r), request.Token)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusAccepted, result)

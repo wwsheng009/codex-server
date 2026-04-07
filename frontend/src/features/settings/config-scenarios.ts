@@ -1,3 +1,5 @@
+import { i18n } from '../../i18n/runtime'
+
 export type ConfigScenario = {
   id: string
   title: string
@@ -22,9 +24,12 @@ export function getAdvancedConfigScenarios(): ConfigScenario[] {
   return [
     {
       id: 'windows-safe-core-env',
-      title: 'Windows Safe Core Env',
-      description:
-        'Minimize inherited environment with inherit=core while restoring Windows command-resolution variables required by cmd/node/npm style invocations.',
+      title: i18n._({ id: 'Windows Safe Core Env', message: 'Windows Safe Core Env' }),
+      description: i18n._({
+        id: 'Minimize inherited environment with inherit=core while restoring Windows command-resolution variables required by cmd/node/npm style invocations.',
+        message:
+          'Minimize inherited environment with inherit=core while restoring Windows command-resolution variables required by cmd/node/npm style invocations.',
+      }),
       edits: [
         {
           keyPath: 'shell_environment_policy',
@@ -41,9 +46,12 @@ export function getAdvancedConfigScenarios(): ConfigScenario[] {
     },
     {
       id: 'guarded-workspace-write',
-      title: 'Guarded Workspace Write',
-      description:
-        'Use on-request approvals with workspace-write sandbox as a conservative runtime default.',
+      title: i18n._({ id: 'Guarded Workspace Write', message: 'Guarded Workspace Write' }),
+      description: i18n._({
+        id: 'Use on-request approvals with workspace-write sandbox as a conservative runtime default.',
+        message:
+          'Use on-request approvals with workspace-write sandbox as a conservative runtime default.',
+      }),
       edits: [
         {
           keyPath: 'approval_policy',
@@ -57,9 +65,12 @@ export function getAdvancedConfigScenarios(): ConfigScenario[] {
     },
     {
       id: 'local-full-access',
-      title: 'Local Full Access',
-      description:
-        'Use never approval policy with danger-full-access as the default runtime mode for trusted local environments.',
+      title: i18n._({ id: 'Local Full Access', message: 'Local Full Access' }),
+      description: i18n._({
+        id: 'Use never approval policy with danger-full-access as the default runtime mode for trusted local environments.',
+        message:
+          'Use never approval policy with danger-full-access as the default runtime mode for trusted local environments.',
+      }),
       edits: [
         {
           keyPath: 'approval_policy',

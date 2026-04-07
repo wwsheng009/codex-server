@@ -6,6 +6,7 @@ import {
   describeBotConnectionLogEntry,
   filterBotConnectionLogs,
   isBotConnectionLogAttentionEntry,
+  isBotConnectionLogDeliveryEvent,
   isBotConnectionLogSuppressionEvent,
   summarizeRecentBotConnectionSuppressions,
   summarizeBotConnectionLogs,
@@ -34,18 +35,28 @@ describe('logStreamUtils', () => {
       eventType: 'duplicate_delivery_suppressed',
       level: 'warning',
     })
+    const deliverySending = buildLogEntry({
+      eventType: 'reply_delivery_sending',
+      level: 'info',
+    })
     const regularSuccess = buildLogEntry({
       eventType: 'poll_success',
       level: 'success',
     })
 
     expect(isBotConnectionLogSuppressionEvent(duplicateSuppressed.eventType)).toBe(true)
+    expect(isBotConnectionLogDeliveryEvent(deliverySending.eventType)).toBe(true)
     expect(isBotConnectionLogAttentionEntry(duplicateSuppressed)).toBe(true)
     expect(isBotConnectionLogAttentionEntry(regularSuccess)).toBe(false)
   })
 
   it('summarizes suppression and attention counts', () => {
     const logs = [
+      buildLogEntry({
+        id: 'log-delivery',
+        eventType: 'reply_delivery_sending',
+        level: 'info',
+      }),
       buildLogEntry({
         id: 'log-duplicate',
         eventType: 'duplicate_delivery_suppressed',
@@ -69,7 +80,8 @@ describe('logStreamUtils', () => {
     ]
 
     expect(summarizeBotConnectionLogs(logs)).toEqual({
-      totalCount: 4,
+      totalCount: 5,
+      deliveryCount: 1,
       suppressedCount: 2,
       duplicateSuppressedCount: 1,
       recoverySuppressedCount: 1,
@@ -79,6 +91,11 @@ describe('logStreamUtils', () => {
 
   it('filters suppressed and attention entries separately', () => {
     const logs = [
+      buildLogEntry({
+        id: 'log-delivery',
+        eventType: 'reply_delivery_delivered',
+        level: 'success',
+      }),
       buildLogEntry({
         id: 'log-duplicate',
         eventType: 'duplicate_delivery_suppressed',
@@ -97,11 +114,13 @@ describe('logStreamUtils', () => {
     ]
 
     expect(filterBotConnectionLogs(logs, 'suppressed').map((entry) => entry.id)).toEqual(['log-duplicate'])
+    expect(filterBotConnectionLogs(logs, 'deliveries').map((entry) => entry.id)).toEqual(['log-delivery'])
     expect(filterBotConnectionLogs(logs, 'attention').map((entry) => entry.id)).toEqual([
       'log-duplicate',
       'log-warning',
     ])
     expect(filterBotConnectionLogs(logs, 'all').map((entry) => entry.id)).toEqual([
+      'log-delivery',
       'log-duplicate',
       'log-warning',
       'log-success',
@@ -167,6 +186,21 @@ describe('logStreamUtils', () => {
       eventLabel: 'Poll Success',
       eventTone: 'success',
       highlightStyle: 'none',
+    })
+  })
+
+  it('highlights reply delivery events with delivery-specific styles', () => {
+    expect(
+      describeBotConnectionLogEntry(
+        buildLogEntry({
+          eventType: 'reply_delivery_failed',
+          level: 'error',
+        }),
+      ),
+    ).toEqual({
+      eventLabel: 'Reply Failed',
+      eventTone: 'danger',
+      highlightStyle: 'delivery-danger',
     })
   })
 })

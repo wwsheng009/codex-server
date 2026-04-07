@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 
+import { formatLocalizedStatusLabel, formatStreamStateLabel } from '../../i18n/display'
 import { formatLocaleNumber, formatLocaleTime } from '../../i18n/format'
 import { i18n } from '../../i18n/runtime'
 import {
@@ -457,7 +458,10 @@ export function normalizeMcpServerState(entry: Record<string, unknown>): Normali
     stringRecordField(entry.name) ||
     stringRecordField(entry.serverName) ||
     stringRecordField(entry.id) ||
-    'Unnamed server'
+    i18n._({
+      id: 'Unnamed server',
+      message: 'Unnamed server',
+    })
   const status =
     stringRecordField(entry.status) ||
     stringRecordField(entry.authStatus) ||
@@ -580,69 +584,14 @@ function normalizeStatusValue(value?: string) {
 function formatStatusValueLabel(value?: string) {
   const normalized = normalizeStatusValue(value)
 
-  switch (normalized) {
-    case 'running':
-    case 'processing':
-    case 'sending':
-    case 'waiting':
-    case 'inprogress':
-    case 'started':
-      return i18n._({
-        id: 'Processing',
-        message: 'Processing',
-      })
-    case 'archived':
-      return i18n._({
-        id: 'Archived complete',
-        message: 'Archived',
-      })
-    case 'failed':
-    case 'error':
-    case 'systemerror':
-      return i18n._({
-        id: 'Error',
-        message: 'Error',
-      })
-    case 'reviewing':
-      return i18n._({
-        id: 'Awaiting approval',
-        message: 'Awaiting approval',
-      })
-    case 'interrupted':
-      return i18n._({
-        id: 'Stopped',
-        message: 'Stopped',
-      })
-    case 'completed':
-      return i18n._({
-        id: 'Completed',
-        message: 'Completed',
-      })
-    case 'idle':
-    case 'connected':
-    case 'ready':
-    case 'open':
-    case 'active':
-      return i18n._({
-        id: 'Idle',
-        message: 'Idle',
-      })
-    case 'notloaded':
-      return i18n._({
-        id: 'Not loaded',
-        message: 'Not loaded',
-      })
-    case '':
-      return i18n._({
-        id: 'Unknown',
-        message: 'Unknown',
-      })
-    default:
-      return value ?? i18n._({
-        id: 'Unknown',
-        message: 'Unknown',
-      })
+  if (normalized === 'reviewing') {
+    return i18n._({
+      id: 'Awaiting approval',
+      message: 'Awaiting approval',
+    })
   }
+
+  return formatLocalizedStatusLabel(value)
 }
 
 function readStatusReason(value: unknown): string {
@@ -683,30 +632,7 @@ function readStatusReason(value: unknown): string {
 }
 
 function describeStreamState(value: string) {
-  switch (value) {
-    case 'open':
-      return 'Live'
-    case 'connecting':
-      return i18n._({
-        id: 'Connecting',
-        message: 'Connecting',
-      })
-    case 'closed':
-      return i18n._({
-        id: 'Disconnected',
-        message: 'Disconnected',
-      })
-    case 'error':
-      return i18n._({
-        id: 'Connection error',
-        message: 'Connection error',
-      })
-    default:
-      return i18n._({
-        id: 'Not connected',
-        message: 'Not connected',
-      })
-  }
+  return formatStreamStateLabel(value)
 }
 
 export function buildComposerStatusInfo(input: BuildComposerStatusInfoInput) {

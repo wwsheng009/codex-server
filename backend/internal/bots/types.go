@@ -44,6 +44,10 @@ type Provider interface {
 	SendMessages(ctx context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error
 }
 
+type ReplyDeliveryRetryDecider interface {
+	ReplyDeliveryRetryDecision(err error, attempt int) (bool, time.Duration)
+}
+
 type StreamingReplySession interface {
 	Update(ctx context.Context, update StreamingUpdate) error
 	Complete(ctx context.Context, messages []OutboundMessage) error
@@ -217,6 +221,12 @@ type UpdateWeChatChannelTimingInput struct {
 	Enabled bool `json:"enabled"`
 }
 
+type UpdateConversationBindingInput struct {
+	ThreadID     string `json:"threadId"`
+	CreateThread bool   `json:"createThread"`
+	Title        string `json:"title"`
+}
+
 type UpdateWeChatAccountInput struct {
 	Alias string `json:"alias"`
 	Note  string `json:"note"`
@@ -255,22 +265,26 @@ type ConnectionView struct {
 }
 
 type ConversationView struct {
-	ID                     string    `json:"id"`
-	WorkspaceID            string    `json:"workspaceId"`
-	ConnectionID           string    `json:"connectionId"`
-	Provider               string    `json:"provider"`
-	ExternalConversationID string    `json:"externalConversationId,omitempty"`
-	ExternalChatID         string    `json:"externalChatId"`
-	ExternalThreadID       string    `json:"externalThreadId,omitempty"`
-	ExternalUserID         string    `json:"externalUserId,omitempty"`
-	ExternalUsername       string    `json:"externalUsername,omitempty"`
-	ExternalTitle          string    `json:"externalTitle,omitempty"`
-	ThreadID               string    `json:"threadId,omitempty"`
-	LastInboundMessageID   string    `json:"lastInboundMessageId,omitempty"`
-	LastInboundText        string    `json:"lastInboundText,omitempty"`
-	LastOutboundText       string    `json:"lastOutboundText,omitempty"`
-	CreatedAt              time.Time `json:"createdAt"`
-	UpdatedAt              time.Time `json:"updatedAt"`
+	ID                               string     `json:"id"`
+	WorkspaceID                      string     `json:"workspaceId"`
+	ConnectionID                     string     `json:"connectionId"`
+	Provider                         string     `json:"provider"`
+	ExternalConversationID           string     `json:"externalConversationId,omitempty"`
+	ExternalChatID                   string     `json:"externalChatId"`
+	ExternalThreadID                 string     `json:"externalThreadId,omitempty"`
+	ExternalUserID                   string     `json:"externalUserId,omitempty"`
+	ExternalUsername                 string     `json:"externalUsername,omitempty"`
+	ExternalTitle                    string     `json:"externalTitle,omitempty"`
+	ThreadID                         string     `json:"threadId,omitempty"`
+	LastInboundMessageID             string     `json:"lastInboundMessageId,omitempty"`
+	LastInboundText                  string     `json:"lastInboundText,omitempty"`
+	LastOutboundText                 string     `json:"lastOutboundText,omitempty"`
+	LastOutboundDeliveryStatus       string     `json:"lastOutboundDeliveryStatus,omitempty"`
+	LastOutboundDeliveryError        string     `json:"lastOutboundDeliveryError,omitempty"`
+	LastOutboundDeliveryAttemptCount int        `json:"lastOutboundDeliveryAttemptCount,omitempty"`
+	LastOutboundDeliveredAt          *time.Time `json:"lastOutboundDeliveredAt,omitempty"`
+	CreatedAt                        time.Time  `json:"createdAt"`
+	UpdatedAt                        time.Time  `json:"updatedAt"`
 }
 
 type WebhookResult struct {

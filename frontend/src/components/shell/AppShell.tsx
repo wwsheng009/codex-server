@@ -52,6 +52,7 @@ import type {
   ThreadListPage,
   Workspace,
 } from '../../types/api'
+import { formatLocalizedStatusLabel } from '../../i18n/display'
 import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { AppMenuBar } from './AppMenuBar'
 import type {
@@ -121,25 +122,6 @@ function updateWorkspaceInList(current: Workspace[] | undefined, workspace: Work
   }
 
   return current.map((item) => (item.id === workspace.id ? workspace : item))
-}
-
-function formatWorkspaceRuntimeStatus(status: string) {
-  const normalized = status.trim().toLowerCase().replace(/[\s_-]+/g, '')
-
-  switch (normalized) {
-    case 'ready':
-      return i18n._({ id: 'Ready', message: 'Ready' })
-    case 'active':
-      return i18n._({ id: 'Active', message: 'Active' })
-    case 'connected':
-      return i18n._({ id: 'Connected', message: 'Connected' })
-    case 'unknown':
-      return i18n._({ id: 'Unknown', message: 'Unknown' })
-    case 'restarting':
-      return i18n._({ id: 'Restarting', message: 'Restarting' })
-    default:
-      return status
-  }
 }
 
 function getWorkspaceRuntimeTone(status: string) {
@@ -1223,7 +1205,7 @@ export function AppShell() {
                   const restartPhase = workspaceRestartStateById[workspace.id]
                   const visualRuntimeStatus =
                     restartPhase === 'restarting' ? 'restarting' : workspace.runtimeStatus
-                  const workspaceStatusLabel = formatWorkspaceRuntimeStatus(visualRuntimeStatus)
+                  const workspaceStatusLabel = formatLocalizedStatusLabel(visualRuntimeStatus)
                   const workspaceStatusTone = getWorkspaceRuntimeTone(visualRuntimeStatus)
                   const isWorkspaceGroupOpen = isWorkspaceGroupExpanded(workspace.id)
                   const visibleThreadCount =
@@ -1335,7 +1317,9 @@ export function AppShell() {
                             ) : null}
                           </span>
                           <span className="workspace-tree__workspace-copy">
-                            <span className="workspace-tree__workspace-name">{workspace.name}</span>
+                            <span className="workspace-tree__workspace-name" dir="auto">
+                              {workspace.name}
+                            </span>
                             {restartPhase || refreshingWorkspaceIds.has(workspace.id) ? (
                               <span
                                 className={[

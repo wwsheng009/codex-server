@@ -3,6 +3,8 @@ import type {
   TerminalStressComparisonMetric,
   TerminalStressComparisonMetricKey,
 } from './threadTerminalStressDomain'
+import { formatLocalizedNumber, formatLocalizedTime } from '../../i18n/display'
+import { i18n } from '../../i18n/runtime'
 import { isWindowsWorkspace } from './threadTerminalShellUtils'
 
 export const terminalStressTestDurationMs = 10_000
@@ -19,12 +21,12 @@ PY`
 }
 
 export function formatStressMetric(value: number) {
-  return Math.round(value).toLocaleString()
+  return formatLocalizedNumber(Math.round(value), '0')
 }
 
 export function formatStressDuration(durationMs?: number) {
   if (typeof durationMs !== 'number') {
-    return 'n/a'
+    return i18n._({ id: 'n/a', message: 'n/a' })
   }
 
   return `${(durationMs / 1000).toFixed(1)}s`
@@ -101,9 +103,5 @@ export function downloadJsonFile(filename: string, value: unknown) {
 }
 
 export function formatStressRunLabel(run: CompletedTerminalStressRun) {
-  return `${new Date(run.startedAt).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })} · ${run.config.renderer} · ${run.config.terminalSize}`
+  return `${formatLocalizedTime(run.startedAt)} · ${run.config.renderer} · ${run.config.terminalSize}`
 }

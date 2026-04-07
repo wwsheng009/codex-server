@@ -319,7 +319,7 @@ func TestProtectedRoutesRequireAccessLoginWhenTokensConfigured(t *testing.T) {
 	router := newTestRouter(dataStore)
 
 	protectedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
-	protectedRequest.RemoteAddr = "127.0.0.1:41000"
+	protectedRequest.RemoteAddr = "192.168.1.20:41000"
 	protectedRecorder := httptest.NewRecorder()
 	router.ServeHTTP(protectedRecorder, protectedRequest)
 
@@ -342,7 +342,7 @@ func TestProtectedRoutesRequireAccessLoginWhenTokensConfigured(t *testing.T) {
 		"/api/access/login",
 		strings.NewReader(`{"token":"super-secret-token"}`),
 	)
-	loginRequest.RemoteAddr = "127.0.0.1:41000"
+	loginRequest.RemoteAddr = "192.168.1.20:41000"
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRecorder := httptest.NewRecorder()
 	router.ServeHTTP(loginRecorder, loginRequest)
@@ -357,13 +357,148 @@ func TestProtectedRoutesRequireAccessLoginWhenTokensConfigured(t *testing.T) {
 	}
 
 	authorizedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
-	authorizedRequest.RemoteAddr = "127.0.0.1:41000"
+	authorizedRequest.RemoteAddr = "192.168.1.20:41000"
 	authorizedRequest.AddCookie(cookies[0])
 	authorizedRecorder := httptest.NewRecorder()
 	router.ServeHTTP(authorizedRecorder, authorizedRequest)
 
 	if authorizedRecorder.Code != http.StatusOK {
 		t.Fatalf("expected 200 from protected route with session, got %d", authorizedRecorder.Code)
+	}
+}
+
+func TestLoopbackRequestsCanBypassAccessLoginWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	tokens, err := accesscontrol.ApplyTokenInputs(nil, []accesscontrol.TokenInput{
+		{
+			Label:     "Primary",
+			Token:     "super-secret-token",
+			Permanent: true,
+		},
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("ApplyTokenInputs() error = %v", err)
+	}
+	enabled := true
+	dataStore.SetRuntimePreferences(store.RuntimePreferences{
+		AllowLocalhostWithoutAccessToken: &enabled,
+		AccessTokens:                     tokens,
+	})
+
+	router := newTestRouter(dataStore)
+
+	loopbackBootstrapRequest := httptest.NewRequest(http.MethodGet, "/api/access/bootstrap", nil)
+	loopbackBootstrapRequest.RemoteAddr = "127.0.0.1:41000"
+	loopbackBootstrapRecorder := httptest.NewRecorder()
+	router.ServeHTTP(loopbackBootstrapRecorder, loopbackBootstrapRequest)
+
+	if loopbackBootstrapRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 from loopback bootstrap with localhost bypass enabled, got %d", loopbackBootstrapRecorder.Code)
+	}
+
+	var loopbackBootstrapPayload struct {
+		Data struct {
+			Authenticated                    bool `json:"authenticated"`
+			LoginRequired                    bool `json:"loginRequired"`
+			AllowLocalhostWithoutAccessToken bool `json:"allowLocalhostWithoutAccessToken"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, loopbackBootstrapRecorder, &loopbackBootstrapPayload)
+	if !loopbackBootstrapPayload.Data.Authenticated || loopbackBootstrapPayload.Data.LoginRequired {
+		t.Fatalf("expected loopback bootstrap to bypass login, got %#v", loopbackBootstrapPayload.Data)
+	}
+	if !loopbackBootstrapPayload.Data.AllowLocalhostWithoutAccessToken {
+		t.Fatalf("expected loopback bootstrap to expose localhost bypass state, got %#v", loopbackBootstrapPayload.Data)
+	}
+
+	loopbackProtectedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	loopbackProtectedRequest.RemoteAddr = "127.0.0.1:41000"
+	loopbackProtectedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(loopbackProtectedRecorder, loopbackProtectedRequest)
+
+	if loopbackProtectedRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 from loopback protected route without session, got %d", loopbackProtectedRecorder.Code)
+	}
+
+	remoteProtectedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	remoteProtectedRequest.RemoteAddr = "192.168.1.20:41000"
+	remoteProtectedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(remoteProtectedRecorder, remoteProtectedRequest)
+
+	if remoteProtectedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 from remote protected route without session, got %d", remoteProtectedRecorder.Code)
+	}
+
+	var remoteUnauthorizedPayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, remoteProtectedRecorder, &remoteUnauthorizedPayload)
+	if remoteUnauthorizedPayload.Error.Code != "access_login_required" {
+		t.Fatalf("expected access_login_required for remote request, got %q", remoteUnauthorizedPayload.Error.Code)
+	}
+}
+
+func TestRemoteRequestsRequireLocalBootstrapWhenNoActiveTokensExist(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+
+	loopbackRequest := httptest.NewRequest(http.MethodGet, "/api/access/bootstrap", nil)
+	loopbackRequest.RemoteAddr = "127.0.0.1:41000"
+	loopbackRecorder := httptest.NewRecorder()
+	router.ServeHTTP(loopbackRecorder, loopbackRequest)
+
+	if loopbackRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 from loopback bootstrap without tokens, got %d", loopbackRecorder.Code)
+	}
+
+	var loopbackPayload struct {
+		Data struct {
+			LoginRequired        bool `json:"loginRequired"`
+			ConfiguredTokenCount int  `json:"configuredTokenCount"`
+			ActiveTokenCount     int  `json:"activeTokenCount"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, loopbackRecorder, &loopbackPayload)
+	if loopbackPayload.Data.LoginRequired {
+		t.Fatal("expected loopback bootstrap to remain unlocked without tokens")
+	}
+	if loopbackPayload.Data.ConfiguredTokenCount != 0 || loopbackPayload.Data.ActiveTokenCount != 0 {
+		t.Fatalf("expected zero configured/active tokens, got %#v", loopbackPayload.Data)
+	}
+
+	remoteRequest := httptest.NewRequest(http.MethodGet, "/api/access/bootstrap", nil)
+	remoteRequest.RemoteAddr = "192.168.1.20:48000"
+	remoteRecorder := httptest.NewRecorder()
+	router.ServeHTTP(remoteRecorder, remoteRequest)
+
+	if remoteRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when remote bootstrap has no active tokens available, got %d", remoteRecorder.Code)
+	}
+
+	var remotePayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, remoteRecorder, &remotePayload)
+	if remotePayload.Error.Code != "remote_access_requires_active_token" {
+		t.Fatalf("expected remote_access_requires_active_token, got %q", remotePayload.Error.Code)
 	}
 }
 
@@ -920,6 +1055,7 @@ func TestBotConnectionRoutesAndWebhook(t *testing.T) {
 		"/hooks/bots/"+created.Data.ID,
 		strings.NewReader(`{"conversationId":"chat-1","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello"}`),
 	)
+	webhookRequest.RemoteAddr = "127.0.0.1:41000"
 	webhookRequest.Header.Set("X-Test-Secret", "fake-secret")
 	webhookRecorder := httptest.NewRecorder()
 	router.ServeHTTP(webhookRecorder, webhookRequest)
@@ -955,6 +1091,161 @@ func TestBotConnectionRoutesAndWebhook(t *testing.T) {
 	decodeResponseBody(t, conversationsResponse, &conversations)
 	if len(conversations.Data) != 1 || conversations.Data[0].ThreadID != "thr_route_chat-1" {
 		t.Fatalf("expected persisted bot conversation thread mapping, got %#v", conversations.Data)
+	}
+}
+
+func TestBotConversationReplayFailedReplyRoute(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
+	botProvider := newRouterTestBotProvider()
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []bots.Provider{botProvider},
+		AIBackends:    []bots.AIBackend{routerTestAIBackend{}},
+	})
+	botService.Start(context.Background())
+
+	router := NewRouter(Dependencies{
+		FrontendOrigin: "http://localhost:15173",
+		Auth:           auth.NewService(dataStore, runtimeManager),
+		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Bots:           botService,
+		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
+		Notifications:  notifications.NewService(dataStore),
+		Threads:        threadService,
+		Turns:          turnService,
+		Approvals:      approvals.NewService(runtimeManager),
+		Catalog:        catalog.NewService(runtimeManager),
+		ConfigFS:       configfs.NewService(runtimeManager),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub, dataStore),
+		Feedback:       feedback.NewService(runtimeManager),
+		Events:         eventHub,
+	})
+
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-connections",
+		`{"provider":"fakechat","name":"Support Bot","aiBackend":"fake_ai","secrets":{"bot_token":"token-1"}}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create bot connection, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:                      workspace.ID,
+		ConnectionID:                     created.Data.ID,
+		Provider:                         "fakechat",
+		ExternalConversationID:           "chat-replay-route-1",
+		ExternalChatID:                   "chat-replay-route-1",
+		ExternalUserID:                   "user-1",
+		ExternalUsername:                 "alice",
+		ExternalTitle:                    "Alice",
+		ThreadID:                         "thr_route_chat-replay-route-1",
+		LastInboundMessageID:             "msg-replay-route-1",
+		LastInboundText:                  "hello route replay",
+		LastOutboundText:                 "route reply: hello route replay",
+		LastOutboundDeliveryStatus:       "failed",
+		LastOutboundDeliveryError:        "upstream timeout",
+		LastOutboundDeliveryAttemptCount: 2,
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	delivery, accepted, err := dataStore.UpsertBotInboundDelivery(store.BotInboundDelivery{
+		WorkspaceID:            workspace.ID,
+		ConnectionID:           created.Data.ID,
+		Provider:               "fakechat",
+		ExternalConversationID: "chat-replay-route-1",
+		ExternalChatID:         "chat-replay-route-1",
+		MessageID:              "msg-replay-route-1",
+		UserID:                 "user-1",
+		Username:               "alice",
+		Title:                  "Alice",
+		Text:                   "hello route replay",
+	})
+	if err != nil {
+		t.Fatalf("UpsertBotInboundDelivery() error = %v", err)
+	}
+	if !accepted {
+		t.Fatal("expected failed replay fixture delivery to be accepted")
+	}
+	if _, err := dataStore.SaveBotInboundDeliveryReply(
+		workspace.ID,
+		delivery.ID,
+		"thr_route_chat-replay-route-1",
+		[]store.BotReplyMessage{{Text: "route reply: hello route replay"}},
+	); err != nil {
+		t.Fatalf("SaveBotInboundDeliveryReply() error = %v", err)
+	}
+	if _, err := dataStore.RecordBotInboundDeliveryReplyDelivery(
+		workspace.ID,
+		delivery.ID,
+		"failed",
+		2,
+		"upstream timeout",
+		nil,
+	); err != nil {
+		t.Fatalf("RecordBotInboundDeliveryReplyDelivery() error = %v", err)
+	}
+	if _, err := dataStore.FailBotInboundDelivery(workspace.ID, delivery.ID, "upstream timeout"); err != nil {
+		t.Fatalf("FailBotInboundDelivery() error = %v", err)
+	}
+
+	replayResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-connections/"+created.Data.ID+"/conversations/"+conversation.ID+"/replay-failed-reply",
+		"",
+	)
+	if replayResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from replay failed reply route, got %d", replayResponse.Code)
+	}
+
+	select {
+	case payload := <-botProvider.sentCh:
+		if len(payload.Messages) != 1 || payload.Messages[0].Text != "route reply: hello route replay" {
+			t.Fatalf("expected replay route to send saved reply, got %#v", payload.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for replayed route bot reply")
+	}
+
+	var replayedConversation struct {
+		Data struct {
+			LastOutboundDeliveryStatus       string `json:"lastOutboundDeliveryStatus"`
+			LastOutboundDeliveryAttemptCount int    `json:"lastOutboundDeliveryAttemptCount"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, replayResponse, &replayedConversation)
+	if replayedConversation.Data.LastOutboundDeliveryStatus != "delivered" {
+		t.Fatalf("expected delivered conversation from replay route, got %#v", replayedConversation.Data)
+	}
+	if replayedConversation.Data.LastOutboundDeliveryAttemptCount != 3 {
+		t.Fatalf("expected cumulative attempt count 3 from replay route, got %#v", replayedConversation.Data)
 	}
 }
 
@@ -1418,6 +1709,59 @@ func TestRuntimePreferencesRoutePersistsBackendThreadTrace(t *testing.T) {
 	}
 }
 
+func TestRuntimePreferencesRoutePersistsLocalhostBypassSetting(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+
+	writeResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/runtime/preferences",
+		`{"allowLocalhostWithoutAccessToken":true}`,
+	)
+	if writeResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from runtime preferences write, got %d", writeResponse.Code)
+	}
+
+	var written struct {
+		Data struct {
+			ConfiguredAllowLocalhostWithoutAccessToken *bool `json:"configuredAllowLocalhostWithoutAccessToken"`
+			EffectiveAllowLocalhostWithoutAccessToken  bool  `json:"effectiveAllowLocalhostWithoutAccessToken"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, writeResponse, &written)
+
+	if written.Data.ConfiguredAllowLocalhostWithoutAccessToken == nil || !*written.Data.ConfiguredAllowLocalhostWithoutAccessToken {
+		t.Fatalf("expected explicit localhost bypass enable flag, got %#v", written.Data.ConfiguredAllowLocalhostWithoutAccessToken)
+	}
+	if !written.Data.EffectiveAllowLocalhostWithoutAccessToken {
+		t.Fatal("expected effective localhost bypass to be enabled")
+	}
+
+	readResponse := performJSONRequest(t, router, http.MethodGet, "/api/runtime/preferences", "")
+	if readResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from runtime preferences read, got %d", readResponse.Code)
+	}
+
+	var readBack struct {
+		Data struct {
+			ConfiguredAllowLocalhostWithoutAccessToken *bool `json:"configuredAllowLocalhostWithoutAccessToken"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, readResponse, &readBack)
+	if readBack.Data.ConfiguredAllowLocalhostWithoutAccessToken == nil || !*readBack.Data.ConfiguredAllowLocalhostWithoutAccessToken {
+		t.Fatalf("expected persisted localhost bypass enable flag, got %#v", readBack.Data.ConfiguredAllowLocalhostWithoutAccessToken)
+	}
+}
+
 func TestInterruptTurnRouteIsIdempotentWithoutActiveTurn(t *testing.T) {
 	t.Parallel()
 
@@ -1664,6 +2008,7 @@ func TestCORSAllowsLoopbackFrontendPortFallback(t *testing.T) {
 
 	router := newTestRouter(dataStore)
 	request := httptest.NewRequest(http.MethodOptions, "/api/workspaces", nil)
+	request.RemoteAddr = "127.0.0.1:41000"
 	request.Header.Set("Origin", "http://localhost:15174")
 	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
 	request.Header.Set("Access-Control-Request-Headers", "Content-Type")
@@ -1812,6 +2157,7 @@ func performJSONRequest(t *testing.T, handler http.Handler, method string, path 
 	t.Helper()
 
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.RemoteAddr = "127.0.0.1:41000"
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
 	}

@@ -15,6 +15,7 @@ import {
   summarizeBotConnectionLogs,
   type BotConnectionLogFilter,
 } from '../features/bots/logStreamUtils'
+import { formatLocalizedStatusLabel } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import {
@@ -22,6 +23,8 @@ import {
   formatBotCommandOutputModeLabel,
   formatBotProviderLabel,
   formatBotTimestamp,
+  formatBotWorkspacePermissionPresetLabel,
+  isBotWorkspacePermissionPresetFullAccess,
   resolveBotCommandOutputMode,
 } from './botsPageUtils'
 
@@ -86,6 +89,14 @@ export function BotConnectionLogsPage() {
         }),
       },
       {
+        value: 'deliveries',
+        label: i18n._({
+          id: 'Reply Deliveries ({count})',
+          message: 'Reply Deliveries ({count})',
+          values: { count: logSummary.deliveryCount },
+        }),
+      },
+      {
         value: 'suppressed',
         label: i18n._({
           id: 'Suppressed Replays ({count})',
@@ -102,7 +113,7 @@ export function BotConnectionLogsPage() {
         }),
       },
     ],
-    [logSummary.attentionCount, logSummary.suppressedCount, logSummary.totalCount],
+    [logSummary.attentionCount, logSummary.deliveryCount, logSummary.suppressedCount, logSummary.totalCount],
   )
 
   if (!workspaceId || !connectionId) {
@@ -144,6 +155,9 @@ export function BotConnectionLogsPage() {
   }
 
   const connection = connectionQuery.data
+  const connectionUsesFullAccess =
+    connection.aiBackend === 'workspace_thread' &&
+    isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
 
   return (
     <section className="screen">
@@ -156,9 +170,9 @@ export function BotConnectionLogsPage() {
           </div>
         }
         description={i18n._({
-          id: 'Runtime history for this bot connection, including polling activity, provider failures, and suppressed replay attempts.',
+          id: 'Runtime history for this bot connection, including polling activity, reply delivery transitions, provider failures, and suppressed replay attempts.',
           message:
-            'Runtime history for this bot connection, including polling activity, provider failures, and suppressed replay attempts.',
+            'Runtime history for this bot connection, including polling activity, reply delivery transitions, provider failures, and suppressed replay attempts.',
         })}
         eyebrow={i18n._({ id: 'Bot Logs', message: 'Bot Logs' })}
         meta={
@@ -166,6 +180,11 @@ export function BotConnectionLogsPage() {
             <StatusPill status={connection.status} />
             <span className="meta-pill">{formatBotProviderLabel(connection.provider)}</span>
             <span className="meta-pill">{formatBotBackendLabel(connection.aiBackend)}</span>
+            {connectionUsesFullAccess ? (
+              <span className="meta-pill meta-pill--danger">
+                {formatBotWorkspacePermissionPresetLabel(connection.aiConfig?.permission_preset)}
+              </span>
+            ) : null}
             <span className="meta-pill">
               {i18n._({
                 id: 'Workspace: {workspaceId}',
@@ -213,7 +232,7 @@ export function BotConnectionLogsPage() {
           </div>
           <div className="detail-row">
             <span>{i18n._({ id: 'Connection Status', message: 'Connection Status' })}</span>
-            <strong>{connection.status}</strong>
+            <strong>{formatLocalizedStatusLabel(connection.status)}</strong>
           </div>
           <div className="detail-row">
             <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
@@ -221,6 +240,12 @@ export function BotConnectionLogsPage() {
               {formatBotCommandOutputModeLabel(resolveBotCommandOutputMode(connection.settings?.command_output_mode))}
             </strong>
           </div>
+          {connection.aiBackend === 'workspace_thread' ? (
+            <div className="detail-row">
+              <span>{i18n._({ id: 'Permission Preset', message: 'Permission Preset' })}</span>
+              <strong>{formatBotWorkspacePermissionPresetLabel(connection.aiConfig?.permission_preset)}</strong>
+            </div>
+          ) : null}
           <div className="detail-row">
             <span>{i18n._({ id: 'Last Poll Status', message: 'Last Poll Status' })}</span>
             <strong>{connection.lastPollStatus ? <StatusPill status={connection.lastPollStatus} /> : '-'}</strong>
@@ -242,9 +267,9 @@ export function BotConnectionLogsPage() {
             <h2>{i18n._({ id: 'Runtime Log Stream', message: 'Runtime Log Stream' })}</h2>
             <HelpTooltip
               content={i18n._({
-                id: 'Newest entries first. Filter to isolate suppressed duplicate deliveries, restart replays, and other warning paths.',
+                id: 'Newest entries first. Filter to isolate reply delivery state changes, suppressed duplicate deliveries, restart replays, and other warning paths.',
                 message:
-                  'Newest entries first. Filter to isolate suppressed duplicate deliveries, restart replays, and other warning paths.',
+                  'Newest entries first. Filter to isolate reply delivery state changes, suppressed duplicate deliveries, restart replays, and other warning paths.',
               })}
             />
           </div>
@@ -263,15 +288,26 @@ export function BotConnectionLogsPage() {
             />
           </label>
 
-          {logSummary.suppressedCount > 0 ? (
+          {logSummary.deliveryCount > 0 || logSummary.suppressedCount > 0 ? (
             <div className="bot-connection-log-toolbar__summary">
-              <span className="meta-pill meta-pill--warning">
-                {i18n._({
-                  id: 'Suppressed replays: {count}',
-                  message: 'Suppressed replays: {count}',
-                  values: { count: logSummary.suppressedCount },
-                })}
-              </span>
+              {logSummary.deliveryCount > 0 ? (
+                <span className="meta-pill">
+                  {i18n._({
+                    id: 'Reply deliveries: {count}',
+                    message: 'Reply deliveries: {count}',
+                    values: { count: logSummary.deliveryCount },
+                  })}
+                </span>
+              ) : null}
+              {logSummary.suppressedCount > 0 ? (
+                <span className="meta-pill meta-pill--warning">
+                  {i18n._({
+                    id: 'Suppressed replays: {count}',
+                    message: 'Suppressed replays: {count}',
+                    values: { count: logSummary.suppressedCount },
+                  })}
+                </span>
+              ) : null}
               {logSummary.duplicateSuppressedCount > 0 ? (
                 <span className="meta-pill meta-pill--warning">
                   {i18n._({

@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	sessionCookieName     = "codex_server_access"
-	sessionMaxAge         = 30 * 24 * time.Hour
-	tokenHashPrefixLength = 4
-	tokenHashSuffixLength = 4
-	tokenPreviewFallback  = "****"
+	sessionCookieName                       = "codex_server_access"
+	sessionMaxAge                           = 30 * 24 * time.Hour
+	tokenHashPrefixLength                   = 4
+	tokenHashSuffixLength                   = 4
+	tokenPreviewFallback                    = "****"
+	DefaultAllowLocalhostWithoutAccessToken = false
 )
 
 var (
@@ -38,12 +39,18 @@ type Service struct {
 	now                func() time.Time
 }
 
+type RemoteAccessDecision struct {
+	Allowed bool
+	Reason  string
+}
+
 type BootstrapResult struct {
-	Authenticated        bool `json:"authenticated"`
-	LoginRequired        bool `json:"loginRequired"`
-	AllowRemoteAccess    bool `json:"allowRemoteAccess"`
-	ConfiguredTokenCount int  `json:"configuredTokenCount"`
-	ActiveTokenCount     int  `json:"activeTokenCount"`
+	Authenticated                    bool `json:"authenticated"`
+	LoginRequired                    bool `json:"loginRequired"`
+	AllowRemoteAccess                bool `json:"allowRemoteAccess"`
+	AllowLocalhostWithoutAccessToken bool `json:"allowLocalhostWithoutAccessToken"`
+	ConfiguredTokenCount             int  `json:"configuredTokenCount"`
+	ActiveTokenCount                 int  `json:"activeTokenCount"`
 }
 
 type TokenInput struct {
@@ -65,6 +72,11 @@ type TokenDescriptor struct {
 	UpdatedAt    time.Time  `json:"updatedAt,omitempty"`
 }
 
+const (
+	RemoteAccessReasonDisabled            = "remote_access_disabled"
+	RemoteAccessReasonRequiresActiveToken = "remote_access_requires_active_token"
+)
+
 func NewService(dataStore *store.MemoryStore, defaultAllowRemoteAccess bool) *Service {
 	return &Service{
 		store:              dataStore,
@@ -83,30 +95,59 @@ func (s *Service) EffectiveAllowRemoteAccess() bool {
 	return s.defaultAllowRemote
 }
 
-func (s *Service) RemoteAccessAllowed(remoteAddr string) bool {
-	if s.EffectiveAllowRemoteAccess() {
-		return true
+func (s *Service) EffectiveAllowLocalhostWithoutAccessToken() bool {
+	prefs := s.store.GetRuntimePreferences()
+	if prefs.AllowLocalhostWithoutAccessToken != nil {
+		return *prefs.AllowLocalhostWithoutAccessToken
 	}
-
-	return IsLoopbackRemoteAddr(remoteAddr)
+	return DefaultAllowLocalhostWithoutAccessToken
 }
 
-func (s *Service) Bootstrap(r *http.Request) BootstrapResult {
+func (s *Service) EvaluateRemoteAccess(remoteAddr string) RemoteAccessDecision {
+	if IsLoopbackRemoteAddr(remoteAddr) {
+		return RemoteAccessDecision{Allowed: true}
+	}
+
+	if !s.EffectiveAllowRemoteAccess() {
+		return RemoteAccessDecision{
+			Allowed: false,
+			Reason:  RemoteAccessReasonDisabled,
+		}
+	}
+
+	now := s.now()
+	tokens, err := NormalizeConfiguredTokens(s.store.GetRuntimePreferences().AccessTokens, now)
+	if err != nil || !HasActiveTokens(tokens, now) {
+		return RemoteAccessDecision{
+			Allowed: false,
+			Reason:  RemoteAccessReasonRequiresActiveToken,
+		}
+	}
+
+	return RemoteAccessDecision{Allowed: true}
+}
+
+func (s *Service) Bootstrap(r *http.Request, remoteAddr string) BootstrapResult {
 	now := s.now()
 	prefs := s.store.GetRuntimePreferences()
 	tokens, _ := NormalizeConfiguredTokens(prefs.AccessTokens, now)
-	loginRequired := HasActiveTokens(tokens, now)
+	loginRequired := s.loginRequired(remoteAddr, tokens, now)
 
 	return BootstrapResult{
-		Authenticated:        !loginRequired || s.authenticateRequest(r, tokens, now),
-		LoginRequired:        loginRequired,
-		AllowRemoteAccess:    s.resolveAllowRemoteAccess(prefs.AllowRemoteAccess),
-		ConfiguredTokenCount: len(tokens),
-		ActiveTokenCount:     CountActiveTokens(tokens, now),
+		Authenticated:                    !loginRequired || s.authenticateRequest(r, tokens, now),
+		LoginRequired:                    loginRequired,
+		AllowRemoteAccess:                s.resolveAllowRemoteAccess(prefs.AllowRemoteAccess),
+		AllowLocalhostWithoutAccessToken: s.EffectiveAllowLocalhostWithoutAccessToken(),
+		ConfiguredTokenCount:             len(tokens),
+		ActiveTokenCount:                 CountActiveTokens(tokens, now),
 	}
 }
 
-func (s *Service) RequireAccess(r *http.Request) error {
+func (s *Service) RequireAccess(r *http.Request, remoteAddr string) error {
+	if s.shouldBypassAccessTokenForLocalhost(remoteAddr) {
+		return nil
+	}
+
 	now := s.now()
 	prefs := s.store.GetRuntimePreferences()
 	tokens, err := NormalizeConfiguredTokens(prefs.AccessTokens, now)
@@ -130,7 +171,12 @@ func (s *Service) RequireAccess(r *http.Request) error {
 	return ErrSessionInvalid
 }
 
-func (s *Service) Login(w http.ResponseWriter, r *http.Request, rawToken string) (BootstrapResult, error) {
+func (s *Service) Login(
+	w http.ResponseWriter,
+	r *http.Request,
+	remoteAddr string,
+	rawToken string,
+) (BootstrapResult, error) {
 	now := s.now()
 	trimmedToken := strings.TrimSpace(rawToken)
 	if trimmedToken == "" {
@@ -150,11 +196,12 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request, rawToken string)
 
 	setSessionCookie(w, r, token, tokens, now)
 	return BootstrapResult{
-		Authenticated:        true,
-		LoginRequired:        HasActiveTokens(tokens, now),
-		AllowRemoteAccess:    s.resolveAllowRemoteAccess(prefs.AllowRemoteAccess),
-		ConfiguredTokenCount: len(tokens),
-		ActiveTokenCount:     CountActiveTokens(tokens, now),
+		Authenticated:                    true,
+		LoginRequired:                    s.loginRequired(remoteAddr, tokens, now),
+		AllowRemoteAccess:                s.resolveAllowRemoteAccess(prefs.AllowRemoteAccess),
+		AllowLocalhostWithoutAccessToken: s.EffectiveAllowLocalhostWithoutAccessToken(),
+		ConfiguredTokenCount:             len(tokens),
+		ActiveTokenCount:                 CountActiveTokens(tokens, now),
 	}, nil
 }
 
@@ -177,6 +224,18 @@ func (s *Service) authenticateRequest(r *http.Request, tokens []store.AccessToke
 
 	_, ok := validateSessionCookie(cookie.Value, tokens, now)
 	return ok
+}
+
+func (s *Service) shouldBypassAccessTokenForLocalhost(remoteAddr string) bool {
+	return s.EffectiveAllowLocalhostWithoutAccessToken() && IsLoopbackRemoteAddr(remoteAddr)
+}
+
+func (s *Service) loginRequired(remoteAddr string, tokens []store.AccessToken, now time.Time) bool {
+	if !HasActiveTokens(tokens, now) {
+		return false
+	}
+
+	return !s.shouldBypassAccessTokenForLocalhost(remoteAddr)
 }
 
 func NormalizeConfiguredTokens(tokens []store.AccessToken, now time.Time) ([]store.AccessToken, error) {

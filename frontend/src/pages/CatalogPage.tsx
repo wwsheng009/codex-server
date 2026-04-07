@@ -719,11 +719,11 @@ export function CatalogPage() {
 function formatShellTypeLabel(value: string) {
   switch (value) {
     case 'local':
-      return 'LocalShell'
+      return i18n._({ id: 'Local Shell', message: 'Local Shell' })
     case 'shell_command':
-      return 'ShellCommand'
+      return i18n._({ id: 'Shell Command', message: 'Shell Command' })
     case 'unified_exec':
-      return 'UnifiedExec'
+      return i18n._({ id: 'Unified Execution', message: 'Unified Execution' })
     case 'default':
       return i18n._({ id: 'Default', message: 'Default' })
     case 'disabled':
@@ -731,6 +731,53 @@ function formatShellTypeLabel(value: string) {
     default:
       return value
   }
+}
+
+function normalizeCatalogToken(value?: string | null) {
+  return (value ?? '')
+    .trim()
+    .replace(/[-\s]+/g, '_')
+    .toUpperCase()
+}
+
+function formatCatalogFallbackLabel(value?: string | null) {
+  const trimmed = (value ?? '').trim()
+  if (!trimmed) {
+    return i18n._({ id: 'Unknown', message: 'Unknown' })
+  }
+
+  return trimmed
+    .split(/[_-\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function formatPluginSourceType(value?: string | null) {
+  switch (normalizeCatalogToken(value)) {
+    case 'LOCAL':
+      return i18n._({ id: 'Local', message: 'Local' })
+    case 'MARKETPLACE':
+      return i18n._({ id: 'Marketplace', message: 'Marketplace' })
+    case 'WORKSPACE':
+      return i18n._({ id: 'Workspace', message: 'Workspace' })
+    case 'BUILT_IN':
+    case 'BUILTIN':
+      return i18n._({ id: 'Built-in', message: 'Built-in' })
+    case '':
+      return i18n._({ id: 'Unknown', message: 'Unknown' })
+    default:
+      return formatCatalogFallbackLabel(value)
+  }
+}
+
+function formatPluginSourceText(sourceType?: string | null, sourcePath?: string | null) {
+  const trimmedPath = (sourcePath ?? '').trim()
+  if (!trimmedPath) {
+    return null
+  }
+
+  return `${formatPluginSourceType(sourceType)} ${trimmedPath}`
 }
 
 function sumCatalogSectionItems(...sections: Array<RuntimeSectionData | undefined>) {
@@ -748,13 +795,19 @@ function filterCatalogItems(items: CatalogSectionItem[], query: string) {
       item.description,
       item.value,
       item.shellType,
+      item.shellType ? formatShellTypeLabel(item.shellType) : null,
       item.marketplaceName,
       item.sourceType,
+      item.sourceType ? formatPluginSourceType(item.sourceType) : null,
       item.sourcePath,
       item.category,
+      item.category ? formatCatalogFallbackLabel(item.category) : null,
       item.authPolicy,
+      item.authPolicy ? formatPluginPolicy(item.authPolicy) : null,
       item.installPolicy,
+      item.installPolicy ? formatPluginPolicy(item.installPolicy) : null,
       item.capabilities?.join(' '),
+      item.capabilities?.map((capability) => formatCatalogFallbackLabel(capability)).join(' '),
     ]
       .filter(Boolean)
       .join(' ')
@@ -1294,7 +1347,7 @@ function RuntimePluginItem({
   pluginUninstallPendingId?: string | null
 }) {
   const metaChips = buildRuntimeMetaChips(item)
-  const sourceText = item.sourcePath ? `${item.sourceType || 'unknown'} ${item.sourcePath}` : null
+  const sourceText = formatPluginSourceText(item.sourceType, item.sourcePath)
 
   return (
     <article className="runtime-item runtime-item--plugin">
@@ -1344,7 +1397,7 @@ function RuntimePluginItem({
           ) : null}
           {item.capabilities?.map((capability) => (
             <span className="runtime-chip runtime-chip--compact" key={`${item.id}-cap-${capability}`}>
-              {capability}
+              {formatCatalogFallbackLabel(capability)}
             </span>
           ))}
           {sourceText ? (
@@ -1412,7 +1465,7 @@ function buildRuntimeMetaChips(item: CatalogSectionItem) {
     })
   }
   if (item.category) {
-    chips.push({ label: item.category })
+    chips.push({ label: formatCatalogFallbackLabel(item.category) })
   } else if (item.shellType) {
     chips.push({ label: formatShellTypeLabel(item.shellType) })
   }
@@ -1457,13 +1510,14 @@ function buildRuntimeFacts(item: CatalogSectionItem) {
   if (item.capabilities?.length) {
     facts.push({
       label: i18n._({ id: 'Capabilities', message: 'Capabilities' }),
-      value: item.capabilities.join(', '),
+      value: item.capabilities.map((capability) => formatCatalogFallbackLabel(capability)).join(', '),
     })
   }
-  if (item.sourcePath) {
+  const sourceText = formatPluginSourceText(item.sourceType, item.sourcePath)
+  if (sourceText) {
     facts.push({
       label: i18n._({ id: 'Source', message: 'Source' }),
-      value: `${item.sourceType || 'unknown'} ${item.sourcePath}`,
+      value: sourceText,
       code: true,
     })
   }
@@ -1472,8 +1526,24 @@ function buildRuntimeFacts(item: CatalogSectionItem) {
 }
 
 function formatPluginPolicy(value: string) {
-  return value
-    .split('_')
-    .map((segment) => segment.charAt(0) + segment.slice(1).toLowerCase())
-    .join(' ')
+  switch (normalizeCatalogToken(value)) {
+    case 'AVAILABLE':
+      return i18n._({ id: 'Available', message: 'Available' })
+    case 'ALLOWED':
+      return i18n._({ id: 'Allowed', message: 'Allowed' })
+    case 'ENABLED':
+      return i18n._({ id: 'Enabled', message: 'Enabled' })
+    case 'DISABLED':
+      return i18n._({ id: 'Disabled', message: 'Disabled' })
+    case 'INSTALLED':
+      return i18n._({ id: 'Installed', message: 'Installed' })
+    case 'ON_REQUEST':
+      return i18n._({ id: 'On Request', message: 'On Request' })
+    case 'ON_INSTALL':
+      return i18n._({ id: 'On Install', message: 'On Install' })
+    case 'REQUIRED':
+      return i18n._({ id: 'Required', message: 'Required' })
+    default:
+      return formatCatalogFallbackLabel(value)
+  }
 }

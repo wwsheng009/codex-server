@@ -19,7 +19,11 @@ export function AccessGate({ children }: ProvidersProps) {
     queryKey: ['access-bootstrap'],
     queryFn: readAccessBootstrap,
     retry: (failureCount, error) => {
-      if (error instanceof ApiClientError && error.code === 'remote_access_disabled') {
+      if (
+        error instanceof ApiClientError &&
+        (error.code === 'remote_access_disabled' ||
+          error.code === 'remote_access_requires_active_token')
+      ) {
         return false
       }
       return failureCount < 1
@@ -75,6 +79,9 @@ export function AccessGate({ children }: ProvidersProps) {
     const isRemoteDisabled =
       bootstrapQuery.error instanceof ApiClientError &&
       bootstrapQuery.error.code === 'remote_access_disabled'
+    const requiresLocalTokenSetup =
+      bootstrapQuery.error instanceof ApiClientError &&
+      bootstrapQuery.error.code === 'remote_access_requires_active_token'
 
     return (
       <section className="screen screen--centered access-shell">
@@ -88,6 +95,11 @@ export function AccessGate({ children }: ProvidersProps) {
                   id: 'Remote access is blocked',
                   message: 'Remote access is blocked',
                 })
+              : requiresLocalTokenSetup
+                ? i18n._({
+                    id: 'Remote access needs local token setup',
+                    message: 'Remote access needs local token setup',
+                  })
               : i18n._({
                   id: 'Backend access check failed',
                   message: 'Backend access check failed',
@@ -100,9 +112,15 @@ export function AccessGate({ children }: ProvidersProps) {
                   message:
                     'This backend currently only accepts localhost requests. If you need LAN access, enable remote access in the backend access settings on the local machine first.',
                 })
+              : requiresLocalTokenSetup
+                ? i18n._({
+                    id: 'This backend only allows remote clients after a local administrator creates at least one active access token from localhost, 127.0.0.1, or ::1.',
+                    message:
+                      'This backend only allows remote clients after a local administrator creates at least one active access token from localhost, 127.0.0.1, or ::1.',
+                  })
               : getErrorMessage(bootstrapQuery.error)}
           </p>
-          {!isRemoteDisabled ? (
+          {!isRemoteDisabled && !requiresLocalTokenSetup ? (
             <div className="access-card__actions">
               <Button
                 intent="secondary"
@@ -152,6 +170,22 @@ export function AccessGate({ children }: ProvidersProps) {
               'This codex-server backend is protected. Enter a valid access token before opening the workspace UI.',
           })}
         </p>
+
+        {bootstrap.allowLocalhostWithoutAccessToken ? (
+          <InlineNotice
+            title={i18n._({
+              id: 'Localhost can open directly',
+              message: 'Localhost can open directly',
+            })}
+            tone="info"
+          >
+            {i18n._({
+              id: 'This server currently lets localhost, 127.0.0.1, and ::1 open the UI without token login. This remote client still needs a valid access token.',
+              message:
+                'This server currently lets localhost, 127.0.0.1, and ::1 open the UI without token login. This remote client still needs a valid access token.',
+            })}
+          </InlineNotice>
+        ) : null}
 
         <div className="access-card__meta">
           <span className="meta-pill">

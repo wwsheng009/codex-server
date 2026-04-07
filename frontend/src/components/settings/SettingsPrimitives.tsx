@@ -130,8 +130,8 @@ export function SettingsRecord({
     <article className="settings-record">
       <div className="settings-record__icon">{marker}</div>
       <div className="settings-record__main">
-        <strong>{title}</strong>
-        <p>{description}</p>
+        <strong dir="auto">{title}</strong>
+        <p dir="auto">{description}</p>
         {meta ? <div className="settings-record__meta">{meta}</div> : null}
       </div>
       {action ? <div className="settings-record__action">{action}</div> : null}

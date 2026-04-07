@@ -14,6 +14,7 @@ import { Switch } from '../components/ui/Switch'
 import { TextArea } from '../components/ui/TextArea'
 import { Tooltip } from '../components/ui/Tooltip'
 import {
+  clearBotConversationBinding,
   createBotConnection,
   deleteWeChatAccount,
   deleteWeChatLogin,
@@ -24,18 +25,23 @@ import {
   listBotConnections,
   listBotConversations,
   pauseBotConnection,
+  replayBotConversationFailedReply,
   resumeBotConnection,
   startWeChatLogin,
   updateBotConnection,
   updateBotConnectionCommandOutputMode,
+  updateBotConversationBinding,
   updateBotConnectionRuntimeMode,
   updateWeChatAccount,
   updateWeChatChannelTiming,
   type CreateBotConnectionInput,
+  type UpdateBotConversationBindingInput,
   type UpdateBotConnectionInput,
 } from '../features/bots/api'
+import { listThreads } from '../features/threads/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { summarizeRecentBotConnectionSuppressions } from '../features/bots/logStreamUtils'
+import { formatLocalizedStatusLabel } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { buildWorkspaceThreadRoute } from '../lib/thread-routes'
@@ -53,10 +59,12 @@ import {
   formatBotBackendLabel,
   formatBotCommandOutputModeLabel,
   formatBotConversationTitle,
+  formatBotWorkspacePermissionPresetLabel,
   formatBotProviderLabel,
   formatBotTimestamp,
   findWeChatAccountForConnection,
   formatWeChatAccountLabel,
+  isBotWorkspacePermissionPresetFullAccess,
   listWeChatConnectionsForAccount,
   matchesBotConnectionSearch,
   matchesWeChatAccountSearch,
@@ -65,7 +73,8 @@ import {
   summarizeBotMap,
   type BotsPageDraft,
 } from './botsPageUtils'
-import type { BotConnection, WeChatAccount, WeChatLogin } from '../types/api'
+import type { BotConnection, BotConversation, Thread, WeChatAccount, WeChatLogin } from '../types/api'
+import { useWorkspaceEventSubscription } from '../hooks/useWorkspaceStream'
 
 function HelpTooltip({ content }: { content: React.ReactNode }) {
   return (
@@ -73,6 +82,33 @@ function HelpTooltip({ content }: { content: React.ReactNode }) {
       <span className="info-label__help">?</span>
     </Tooltip>
   )
+}
+
+function normalizeBotConversationDeliveryStatus(status?: string) {
+  return status?.trim().toLowerCase() ?? ''
+}
+
+function botConversationDeliveryPillStatus(status?: string) {
+  switch (normalizeBotConversationDeliveryStatus(status)) {
+    case 'delivered':
+      return 'delivered'
+    case 'sending':
+      return 'sending'
+    case 'retrying':
+      return 'retrying'
+    case 'failed':
+      return 'failed'
+    default:
+      return ''
+  }
+}
+
+function summarizeBotConversationDeliveryError(error?: string) {
+  const trimmed = error?.trim() ?? ''
+  if (!trimmed) {
+    return ''
+  }
+  return trimmed.length > 180 ? `${trimmed.slice(0, 177).trimEnd()}...` : trimmed
 }
 
 export function BotsPage() {
@@ -90,6 +126,7 @@ export function BotsPage() {
   const [wechatAccountAliasDraft, setWeChatAccountAliasDraft] = useState('')
   const [wechatAccountNoteDraft, setWeChatAccountNoteDraft] = useState('')
   const [connectionSearch, setConnectionSearch] = useState('')
+  const [showFullAccessConnectionsOnly, setShowFullAccessConnectionsOnly] = useState(false)
   const [wechatAccountSearch, setWeChatAccountSearch] = useState('')
   const [showUnusedWeChatAccountsOnly, setShowUnusedWeChatAccountsOnly] = useState(false)
   const [draft, setDraft] = useState<BotsPageDraft>(EMPTY_BOTS_PAGE_DRAFT)
@@ -98,6 +135,10 @@ export function BotsPage() {
   const [wechatLoginId, setWechatLoginId] = useState('')
   const [wechatLoginQRCodeUrl, setWechatLoginQRCodeUrl] = useState('')
   const [wechatLoginCopyState, setWechatLoginCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [bindingTarget, setBindingTarget] = useState<BotConversation | null>(null)
+  const [bindingMode, setBindingMode] = useState<'existing' | 'new'>('existing')
+  const [bindingThreadId, setBindingThreadId] = useState('')
+  const [bindingTitle, setBindingTitle] = useState('')
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
@@ -128,6 +169,19 @@ export function BotsPage() {
     }
   }, [connectionsQuery.data, selectedConnectionId])
 
+  const connections = connectionsQuery.data ?? []
+  const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) ?? null
+
+  const activeThreadsQuery = useQuery({
+    queryKey: ['bot-binding-threads', selectedWorkspaceId],
+    queryFn: () => listThreads(selectedWorkspaceId),
+    enabled:
+      selectedWorkspaceId.length > 0 &&
+      selectedConnection?.aiBackend === 'workspace_thread',
+    refetchInterval: 15000,
+    staleTime: 5000,
+  })
+
   const conversationsQuery = useQuery({
     queryKey: ['bot-conversations', selectedWorkspaceId, selectedConnectionId],
     queryFn: () => listBotConversations(selectedWorkspaceId, selectedConnectionId),
@@ -154,6 +208,17 @@ export function BotsPage() {
     queryFn: () => listWeChatAccounts(wechatAccountsWorkspaceId),
     enabled: wechatAccountsWorkspaceId.length > 0,
     refetchInterval: 10000,
+  })
+
+  useWorkspaceEventSubscription(selectedWorkspaceId ? [selectedWorkspaceId] : undefined, (event) => {
+    const method = event.method.trim().toLowerCase()
+    if (!method.startsWith('bot/message/') && !method.startsWith('bot/conversation/')) {
+      return
+    }
+
+    void queryClient.invalidateQueries({ queryKey: ['bot-connections', selectedWorkspaceId] })
+    void queryClient.invalidateQueries({ queryKey: ['bot-conversations', selectedWorkspaceId] })
+    void queryClient.invalidateQueries({ queryKey: ['bot-binding-threads', selectedWorkspaceId] })
   })
 
   const createMutation = useMutation({
@@ -231,6 +296,63 @@ export function BotsPage() {
     },
     onSuccess: async (connection) => {
       await queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] })
+    },
+  })
+
+  const replayFailedReplyMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      connectionId,
+      conversationId,
+    }: {
+      workspaceId: string
+      connectionId: string
+      conversationId: string
+    }) => replayBotConversationFailedReply(workspaceId, connectionId, conversationId),
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bot-connections', variables.workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId, variables.connectionId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-connection-logs', variables.workspaceId, variables.connectionId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-connection-logs-summary', variables.workspaceId, variables.connectionId] }),
+      ])
+    },
+  })
+
+  const updateConversationBindingMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      connectionId,
+      conversationId,
+      input,
+    }: {
+      workspaceId: string
+      connectionId: string
+      conversationId: string
+      input: UpdateBotConversationBindingInput
+    }) => updateBotConversationBinding(workspaceId, connectionId, conversationId, input),
+    onSuccess: async (_, variables) => {
+      resetBindingModalState()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId, variables.connectionId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-binding-threads', variables.workspaceId] }),
+      ])
+    },
+  })
+
+  const clearConversationBindingMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      connectionId,
+      conversationId,
+    }: {
+      workspaceId: string
+      connectionId: string
+      conversationId: string
+    }) => clearBotConversationBinding(workspaceId, connectionId, conversationId),
+    onSuccess: async (_, variables) => {
+      resetBindingModalState()
+      await queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId, variables.connectionId] })
     },
   })
 
@@ -321,7 +443,6 @@ export function BotsPage() {
   })
 
   const workspaces = workspacesQuery.data ?? []
-  const connections = connectionsQuery.data ?? []
   const connectionLogQueries = useQueries({
     queries: connections.map((connection) => ({
       queryKey: ['bot-connection-logs-summary', selectedWorkspaceId, connection.id],
@@ -332,8 +453,8 @@ export function BotsPage() {
     })),
   })
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null
-  const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) ?? null
   const conversations = conversationsQuery.data ?? []
+  const activeThreads: Thread[] = (activeThreadsQuery.data ?? []).filter((thread) => !thread.archived)
 
   const providerOptions = useMemo(
     () => [
@@ -436,6 +557,20 @@ export function BotsPage() {
     [],
   )
 
+  const permissionPresetOptions = useMemo(
+    () => [
+      {
+        value: 'default',
+        label: i18n._({ id: 'Default permission', message: 'Default permission' }),
+      },
+      {
+        value: 'full-access',
+        label: i18n._({ id: 'Full access', message: 'Full access' }),
+      },
+    ],
+    [],
+  )
+
   const collaborationOptions = useMemo(
     () => [
       { value: 'default', label: i18n._({ id: 'Default', message: 'Default' }) },
@@ -443,6 +578,59 @@ export function BotsPage() {
     ],
     [],
   )
+
+  const bindingModeOptions = useMemo(
+    () => [
+      { value: 'existing', label: i18n._({ id: 'Use Existing Thread', message: 'Use Existing Thread' }) },
+      { value: 'new', label: i18n._({ id: 'Create New Thread', message: 'Create New Thread' }) },
+    ],
+    [],
+  )
+
+  const bindingThreadOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string; disabled?: boolean }> = [
+      {
+        value: '',
+        label: i18n._({ id: 'Select a thread', message: 'Select a thread' }),
+        disabled: true,
+      },
+    ]
+
+    const currentThreadId = bindingTarget?.threadId?.trim() ?? ''
+    const hasCurrentThreadOption =
+      currentThreadId !== '' && activeThreads.some((thread) => thread.id === currentThreadId)
+
+    if (currentThreadId && !hasCurrentThreadOption) {
+      options.push({
+        value: currentThreadId,
+        label: i18n._({
+          id: '{threadId} (Current binding unavailable)',
+          message: '{threadId} (Current binding unavailable)',
+          values: { threadId: currentThreadId },
+        }),
+      })
+    }
+
+    for (const thread of activeThreads) {
+      const metadata: string[] = []
+      if (thread.turnCount) {
+        metadata.push(
+          i18n._({
+            id: '{count} turns',
+            message: '{count} turns',
+            values: { count: thread.turnCount },
+          }),
+        )
+      }
+      metadata.push(formatBotTimestamp(thread.updatedAt))
+      options.push({
+        value: thread.id,
+        label: [thread.name, thread.id, metadata.filter(Boolean).join(' | ')].filter(Boolean).join(' | '),
+      })
+    }
+
+    return options
+  }, [activeThreads, bindingTarget?.threadId])
 
   const activeConnectionsCount = connections.filter((connection) => connection.status === 'active').length
   const isEditingConnection = editTarget !== null
@@ -453,6 +641,16 @@ export function BotsPage() {
   const formErrorMessage =
     formError || (isEditingConnection ? getErrorMessage(updateMutation.error) : getErrorMessage(createMutation.error))
   const actionErrorMessage = actionMutation.error ? getErrorMessage(actionMutation.error) : ''
+  const replayFailedReplyErrorMessage = replayFailedReplyMutation.error
+    ? getErrorMessage(replayFailedReplyMutation.error)
+    : ''
+  const bindingErrorMessage = updateConversationBindingMutation.error
+    ? getErrorMessage(updateConversationBindingMutation.error)
+    : clearConversationBindingMutation.error
+      ? getErrorMessage(clearConversationBindingMutation.error)
+      : ''
+  const isBindingMutationPending =
+    updateConversationBindingMutation.isPending || clearConversationBindingMutation.isPending
   const deleteErrorMessage = deleteMutation.error ? getErrorMessage(deleteMutation.error) : ''
   const deleteWeChatAccountErrorMessage = deleteWeChatAccountMutation.error
     ? getErrorMessage(deleteWeChatAccountMutation.error)
@@ -537,10 +735,25 @@ export function BotsPage() {
   )
   const filteredConnections = useMemo(
     () =>
-      connections.filter((connection) =>
-        matchesBotConnectionSearch(connection, connectionSearch, linkedWeChatAccountByConnectionID.get(connection.id) ?? null),
-      ),
-    [connectionSearch, connections, linkedWeChatAccountByConnectionID],
+      connections.filter((connection) => {
+        if (
+          !matchesBotConnectionSearch(
+            connection,
+            connectionSearch,
+            linkedWeChatAccountByConnectionID.get(connection.id) ?? null,
+          )
+        ) {
+          return false
+        }
+        if (!showFullAccessConnectionsOnly) {
+          return true
+        }
+        return (
+          connection.aiBackend === 'workspace_thread' &&
+          isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
+        )
+      }),
+    [connectionSearch, connections, linkedWeChatAccountByConnectionID, showFullAccessConnectionsOnly],
   )
   const selectedSavedWeChatAccount =
     savedWeChatAccounts.find((account) => account.id === draft.wechatSavedAccountId.trim()) ?? null
@@ -646,7 +859,7 @@ export function BotsPage() {
         : i18n._({ id: 'Start QR Login', message: 'Start QR Login' })
   const wechatDraftSessionIdLabel = draft.wechatLoginSessionId || i18n._({ id: 'Not started', message: 'Not started' })
   const wechatDraftSessionStatusLabel = draft.wechatLoginStatus
-    ? formatWeChatLoginStatus(draft.wechatLoginStatus)
+    ? formatLocalizedStatusLabel(draft.wechatLoginStatus)
     : i18n._({ id: 'Not started', message: 'Not started' })
   const wechatDraftPayloadLabel = draft.wechatQrCodeContent.trim()
     ? i18n._({ id: 'Ready', message: 'Ready' })
@@ -763,6 +976,10 @@ export function BotsPage() {
     setWeChatAccountNoteDraft('')
     updateWeChatAccountMutation.reset()
   }, [selectedWorkspaceId])
+
+  useEffect(() => {
+    resetBindingModalState()
+  }, [selectedWorkspaceId, selectedConnectionId])
 
   useEffect(() => {
     if (!connections.length) {
@@ -1219,6 +1436,73 @@ export function BotsPage() {
     })
   }
 
+  function resetBindingModalState() {
+    setBindingTarget(null)
+    setBindingMode('existing')
+    setBindingThreadId('')
+    setBindingTitle('')
+    updateConversationBindingMutation.reset()
+    clearConversationBindingMutation.reset()
+  }
+
+  function openBindingModal(conversation: BotConversation) {
+    updateConversationBindingMutation.reset()
+    clearConversationBindingMutation.reset()
+    const currentThreadId = conversation.threadId?.trim() ?? ''
+    setBindingTarget(conversation)
+    setBindingMode(currentThreadId || activeThreads.length > 0 ? 'existing' : 'new')
+    setBindingThreadId(currentThreadId)
+    setBindingTitle('')
+  }
+
+  function closeBindingModal() {
+    if (isBindingMutationPending) {
+      return
+    }
+    resetBindingModalState()
+  }
+
+  function handleSubmitBinding() {
+    if (!bindingTarget || !selectedConnection || isBindingMutationPending) {
+      return
+    }
+
+    if (bindingMode === 'existing') {
+      if (!bindingThreadId.trim()) {
+        return
+      }
+      updateConversationBindingMutation.mutate({
+        workspaceId: bindingTarget.workspaceId,
+        connectionId: bindingTarget.connectionId,
+        conversationId: bindingTarget.id,
+        input: { threadId: bindingThreadId.trim() },
+      })
+      return
+    }
+
+    updateConversationBindingMutation.mutate({
+      workspaceId: bindingTarget.workspaceId,
+      connectionId: bindingTarget.connectionId,
+      conversationId: bindingTarget.id,
+      input: {
+        createThread: true,
+        title: bindingTitle.trim() || undefined,
+      },
+    })
+  }
+
+  function handleClearBinding() {
+    if (!bindingTarget || !bindingTarget.threadId || isBindingMutationPending) {
+      return
+    }
+
+    clearConversationBindingMutation.mutate({
+      workspaceId: bindingTarget.workspaceId,
+      connectionId: bindingTarget.connectionId,
+      conversationId: bindingTarget.id,
+    })
+  }
+
   const createModalFooter = (
     <>
       <Button intent="secondary" onClick={closeCreateModal}>
@@ -1232,6 +1516,35 @@ export function BotsPage() {
         {isEditingConnection
           ? i18n._({ id: 'Save Changes', message: 'Save Changes' })
           : i18n._({ id: 'Create Connection', message: 'Create Connection' })}
+      </Button>
+    </>
+  )
+
+  const bindingModalFooter = (
+    <>
+      <Button disabled={isBindingMutationPending} intent="secondary" onClick={closeBindingModal} type="button">
+        {i18n._({ id: 'Cancel', message: 'Cancel' })}
+      </Button>
+      {bindingTarget?.threadId ? (
+        <Button
+          disabled={isBindingMutationPending}
+          intent="secondary"
+          isLoading={clearConversationBindingMutation.isPending}
+          onClick={handleClearBinding}
+          type="button"
+        >
+          {i18n._({ id: 'Clear Binding', message: 'Clear Binding' })}
+        </Button>
+      ) : null}
+      <Button
+        disabled={isBindingMutationPending || (bindingMode === 'existing' && !bindingThreadId.trim())}
+        isLoading={updateConversationBindingMutation.isPending}
+        onClick={handleSubmitBinding}
+        type="button"
+      >
+        {bindingMode === 'new'
+          ? i18n._({ id: 'Create And Bind', message: 'Create And Bind' })
+          : i18n._({ id: 'Update Binding', message: 'Update Binding' })}
       </Button>
     </>
   )
@@ -1436,6 +1749,17 @@ export function BotsPage() {
                 </InlineNotice>
               ) : null}
 
+              {replayFailedReplyErrorMessage ? (
+                <InlineNotice
+                  dismissible
+                  noticeKey={`bot-replay-failed-reply-${replayFailedReplyErrorMessage}`}
+                  title={i18n._({ id: 'Reply Redelivery Failed', message: 'Reply Redelivery Failed' })}
+                  tone="error"
+                >
+                  {replayFailedReplyErrorMessage}
+                </InlineNotice>
+              ) : null}
+
               {runtimeModeErrorMessage ? (
                 <InlineNotice
                   dismissible
@@ -1497,6 +1821,23 @@ export function BotsPage() {
                   value={connectionSearch}
                 />
 
+                <Switch
+                  checked={showFullAccessConnectionsOnly}
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'Only Show Full Access', message: 'Only Show Full Access' })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server.',
+                          message:
+                            'Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server.',
+                        })}
+                      />
+                    </div>
+                  }
+                  onChange={(event) => setShowFullAccessConnectionsOnly(event.target.checked)}
+                />
+
                 {connectionsQuery.isLoading ? (
                   <div className="notice">
                     {i18n._({ id: 'Loading bot connections...', message: 'Loading bot connections...' })}
@@ -1515,16 +1856,24 @@ export function BotsPage() {
 
                 {!connectionsQuery.isLoading && connections.length > 0 && !filteredConnections.length ? (
                   <div className="empty-state">
-                    {i18n._({
-                      id: 'No bot connections match the current search.',
-                      message: 'No bot connections match the current search.',
-                    })}
+                    {showFullAccessConnectionsOnly
+                      ? i18n._({
+                          id: 'No full-access bot connections match the current search and filters.',
+                          message: 'No full-access bot connections match the current search and filters.',
+                        })
+                      : i18n._({
+                          id: 'No bot connections match the current search.',
+                          message: 'No bot connections match the current search.',
+                        })}
                   </div>
                 ) : null}
 
                 <div className="automation-compact-list">
                   {filteredConnections.map((connection) => {
                     const linkedWeChatAccount = linkedWeChatAccountByConnectionID.get(connection.id) ?? null
+                    const connectionUsesFullAccess =
+                      connection.aiBackend === 'workspace_thread' &&
+                      isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
                     const recentSuppressionSummary = recentSuppressionSummaryByConnectionID.get(connection.id) ?? {
                       suppressedCount: 0,
                       duplicateSuppressedCount: 0,
@@ -1556,7 +1905,7 @@ export function BotsPage() {
                           }}
                           type="button"
                         >
-                          <strong>{connection.name}</strong>
+                          <strong dir="auto">{connection.name}</strong>
                           <span>
                             {formatBotProviderLabel(connection.provider)} | {formatBotBackendLabel(connection.aiBackend)} |{' '}
                             {formatBotTimestamp(connection.updatedAt)}
@@ -1568,15 +1917,22 @@ export function BotsPage() {
                               {linkedWeChatAccount.note?.trim() ? ` | ${linkedWeChatAccount.note.trim()}` : ''}
                             </span>
                           ) : null}
-                          {recentSuppressionSummary.suppressedCount > 0 ? (
+                          {connectionUsesFullAccess || recentSuppressionSummary.suppressedCount > 0 ? (
                             <div className="automation-compact-row__meta">
-                              <span className="meta-pill meta-pill--warning">
-                                {i18n._({
-                                  id: 'Suppressed 24h: {count}',
-                                  message: 'Suppressed 24h: {count}',
-                                  values: { count: recentSuppressionSummary.suppressedCount },
-                                })}
-                              </span>
+                              {connectionUsesFullAccess ? (
+                                <span className="meta-pill meta-pill--danger">
+                                  {formatBotWorkspacePermissionPresetLabel(connection.aiConfig?.permission_preset)}
+                                </span>
+                              ) : null}
+                              {recentSuppressionSummary.suppressedCount > 0 ? (
+                                <span className="meta-pill meta-pill--warning">
+                                  {i18n._({
+                                    id: 'Suppressed 24h: {count}',
+                                    message: 'Suppressed 24h: {count}',
+                                    values: { count: recentSuppressionSummary.suppressedCount },
+                                  })}
+                                </span>
+                              ) : null}
                               {recentSuppressionSummary.duplicateSuppressedCount > 0 ? (
                                 <span className="meta-pill meta-pill--warning">
                                   {i18n._({
@@ -1725,7 +2081,7 @@ export function BotsPage() {
                                     }}
                                   >
                                     <div style={{ display: 'grid', gap: '4px' }}>
-                                      <strong>{connection.name}</strong>
+                                      <strong dir="auto">{connection.name}</strong>
                                       <span>
                                         {formatBotBackendLabel(connection.aiBackend)} | {formatBotTimestamp(connection.updatedAt)}
                                       </span>
@@ -1821,7 +2177,7 @@ export function BotsPage() {
                         }}
                       >
                         <div style={{ display: 'grid', gap: '6px' }}>
-                          <strong>{selectedConnection.name}</strong>
+                          <strong dir="auto">{selectedConnection.name}</strong>
                           <span>
                             {selectedWorkspace?.name ?? selectedConnection.workspaceId} |{' '}
                             {formatBotProviderLabel(selectedConnection.provider)} |{' '}
@@ -1830,6 +2186,14 @@ export function BotsPage() {
                         </div>
                         <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                           <StatusPill status={selectedConnection.status} />
+                          {selectedConnection.aiBackend === 'workspace_thread' &&
+                          isBotWorkspacePermissionPresetFullAccess(selectedConnection.aiConfig?.permission_preset) ? (
+                            <span className="meta-pill meta-pill--danger">
+                              {formatBotWorkspacePermissionPresetLabel(
+                                selectedConnection.aiConfig?.permission_preset,
+                              )}
+                            </span>
+                          ) : null}
                           <Button intent="secondary" onClick={() => openEditModal(selectedConnection)}>
                             {i18n._({ id: 'Edit', message: 'Edit' })}
                           </Button>
@@ -1908,12 +2272,22 @@ export function BotsPage() {
                         </div>
                         <div className="detail-row">
                           <span>{i18n._({ id: 'Status', message: 'Status' })}</span>
-                          <strong>{selectedConnection.status}</strong>
+                          <strong>{formatLocalizedStatusLabel(selectedConnection.status)}</strong>
                         </div>
                         <div className="detail-row">
                           <span>{i18n._({ id: 'AI Backend', message: 'AI Backend' })}</span>
                           <strong>{formatBotBackendLabel(selectedConnection.aiBackend)}</strong>
                         </div>
+                        {selectedConnection.aiBackend === 'workspace_thread' ? (
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Permission Preset', message: 'Permission Preset' })}</span>
+                            <strong>
+                              {formatBotWorkspacePermissionPresetLabel(
+                                selectedConnection.aiConfig?.permission_preset,
+                              )}
+                            </strong>
+                          </div>
+                        ) : null}
                         <div className="detail-row">
                           <span>{i18n._({ id: 'Runtime Mode', message: 'Runtime Mode' })}</span>
                           <strong>
@@ -2190,12 +2564,93 @@ export function BotsPage() {
                                   {conversation.lastOutboundText}
                                 </p>
                               ) : null}
+                              {botConversationDeliveryPillStatus(conversation.lastOutboundDeliveryStatus) ? (
+                                <div
+                                  style={{
+                                    alignItems: 'center',
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: '8px',
+                                  }}
+                                >
+                                  <span>{i18n._({ id: 'Reply delivery', message: 'Reply delivery' })}:</span>
+                                  <StatusPill
+                                    status={botConversationDeliveryPillStatus(
+                                      conversation.lastOutboundDeliveryStatus,
+                                    )}
+                                  />
+                                  {conversation.lastOutboundDeliveryAttemptCount &&
+                                  conversation.lastOutboundDeliveryAttemptCount > 1 ? (
+                                    <span>
+                                      {i18n._({
+                                        id: 'Attempts: {count}',
+                                        message: 'Attempts: {count}',
+                                        values: { count: conversation.lastOutboundDeliveryAttemptCount },
+                                      })}
+                                    </span>
+                                  ) : null}
+                                  {conversation.lastOutboundDeliveredAt ? (
+                                    <span>{formatBotTimestamp(conversation.lastOutboundDeliveredAt)}</span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              {['retrying', 'failed'].includes(
+                                normalizeBotConversationDeliveryStatus(
+                                  conversation.lastOutboundDeliveryStatus,
+                                ),
+                              ) && conversation.lastOutboundDeliveryError ? (
+                                <p>
+                                  {normalizeBotConversationDeliveryStatus(
+                                    conversation.lastOutboundDeliveryStatus,
+                                  ) === 'retrying'
+                                    ? i18n._({
+                                        id: 'Latest delivery error',
+                                        message: 'Latest delivery error',
+                                      })
+                                    : i18n._({ id: 'Delivery error', message: 'Delivery error' })}
+                                  :{' '}
+                                  {summarizeBotConversationDeliveryError(
+                                    conversation.lastOutboundDeliveryError,
+                                  )}
+                                </p>
+                              ) : null}
                             </div>
                             <div
                               className="directory-item__meta"
                               style={{ alignItems: 'end', display: 'grid', gap: '8px' }}
                             >
                               <span className="meta-pill">{formatBotTimestamp(conversation.updatedAt)}</span>
+                              {selectedConnection?.aiBackend === 'workspace_thread' ? (
+                                <Button
+                                  intent="secondary"
+                                  onClick={() => openBindingModal(conversation)}
+                                  size="sm"
+                                  type="button"
+                                >
+                                  {i18n._({ id: 'Manage Binding', message: 'Manage Binding' })}
+                                </Button>
+                              ) : null}
+                              {normalizeBotConversationDeliveryStatus(conversation.lastOutboundDeliveryStatus) ===
+                              'failed' ? (
+                                <Button
+                                  intent="secondary"
+                                  isLoading={
+                                    replayFailedReplyMutation.isPending &&
+                                    replayFailedReplyMutation.variables?.conversationId === conversation.id
+                                  }
+                                  onClick={() =>
+                                    replayFailedReplyMutation.mutate({
+                                      workspaceId: conversation.workspaceId,
+                                      connectionId: conversation.connectionId,
+                                      conversationId: conversation.id,
+                                    })
+                                  }
+                                  size="sm"
+                                  disabled={selectedConnection?.status !== 'active'}
+                                >
+                                  {i18n._({ id: 'Redeliver Reply', message: 'Redeliver Reply' })}
+                                </Button>
+                              ) : null}
                               {conversation.threadId ? (
                                 <Link to={buildWorkspaceThreadRoute(conversation.workspaceId, conversation.threadId)}>
                                   {i18n._({ id: 'Open Thread', message: 'Open Thread' })}
@@ -2804,6 +3259,42 @@ export function BotsPage() {
                 </div>
 
                 <label className="field">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {i18n._({ id: 'Permission Preset', message: 'Permission Preset' })}
+                    <HelpTooltip
+                      content={i18n._({
+                        id: 'Matches the workspace composer permission preset. Full access sends approvalPolicy=never and a danger-full-access sandbox to app-server so bot turns can avoid interactive approval prompts.',
+                        message:
+                          'Matches the workspace composer permission preset. Full access sends approvalPolicy=never and a danger-full-access sandbox to app-server so bot turns can avoid interactive approval prompts.',
+                      })}
+                    />
+                  </span>
+                  <SelectControl
+                    ariaLabel={i18n._({ id: 'Permission Preset', message: 'Permission Preset' })}
+                    fullWidth
+                    onChange={(nextValue) =>
+                      setDraft((current) => ({ ...current, workspacePermissionPreset: nextValue }))
+                    }
+                    options={permissionPresetOptions}
+                    value={draft.workspacePermissionPreset}
+                  />
+                </label>
+
+                {draft.workspacePermissionPreset === 'full-access' ? (
+                  <InlineNotice
+                    dismissible={false}
+                    noticeKey="bot-workspace-thread-full-access"
+                    title={i18n._({ id: 'Full Access Enabled', message: 'Full Access Enabled' })}
+                  >
+                    {i18n._({
+                      id: 'New bot threads and turns will request full access from app-server with approval prompts disabled. Use this only for trusted bot workflows.',
+                      message:
+                        'New bot threads and turns will request full access from app-server with approval prompts disabled. Use this only for trusted bot workflows.',
+                    })}
+                  </InlineNotice>
+                ) : null}
+
+                <label className="field">
                   <span>{i18n._({ id: 'Collaboration Mode', message: 'Collaboration Mode' })}</span>
                   <SelectControl
                     ariaLabel={i18n._({ id: 'Collaboration Mode', message: 'Collaboration Mode' })}
@@ -2914,6 +3405,133 @@ export function BotsPage() {
         </Modal>
       ) : null}
 
+      {bindingTarget ? (
+        <Modal
+          description={i18n._({
+            id: 'Rebind this bot conversation to another workspace thread in the current workspace, or clear the existing binding so the next inbound message starts fresh.',
+            message:
+              'Rebind this bot conversation to another workspace thread in the current workspace, or clear the existing binding so the next inbound message starts fresh.',
+          })}
+          footer={bindingModalFooter}
+          onClose={closeBindingModal}
+          title={i18n._({ id: 'Manage Conversation Binding', message: 'Manage Conversation Binding' })}
+        >
+          <div className="form-stack">
+            <div className="detail-list">
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Conversation', message: 'Conversation' })}</span>
+                <strong dir="auto">{formatBotConversationTitle(bindingTarget)}</strong>
+              </div>
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Bot Connection', message: 'Bot Connection' })}</span>
+                <strong dir="auto">{selectedConnection?.name ?? bindingTarget.connectionId}</strong>
+              </div>
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Current Binding', message: 'Current Binding' })}</span>
+                <strong>
+                  {bindingTarget.threadId ? (
+                    <Link to={buildWorkspaceThreadRoute(bindingTarget.workspaceId, bindingTarget.threadId)}>
+                      {bindingTarget.threadId}
+                    </Link>
+                  ) : (
+                    i18n._({ id: 'Not bound', message: 'Not bound' })
+                  )}
+                </strong>
+              </div>
+            </div>
+
+            {bindingErrorMessage ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`bot-binding-${bindingErrorMessage}`}
+                title={i18n._({ id: 'Binding Update Failed', message: 'Binding Update Failed' })}
+                tone="error"
+              >
+                {bindingErrorMessage}
+              </InlineNotice>
+            ) : null}
+
+            <label className="field">
+              <span>{i18n._({ id: 'Binding Mode', message: 'Binding Mode' })}</span>
+              <SelectControl
+                ariaLabel={i18n._({ id: 'Binding Mode', message: 'Binding Mode' })}
+                fullWidth
+                onChange={(nextValue) => {
+                  updateConversationBindingMutation.reset()
+                  clearConversationBindingMutation.reset()
+                  setBindingMode(nextValue === 'new' ? 'new' : 'existing')
+                }}
+                options={bindingModeOptions}
+                value={bindingMode}
+              />
+            </label>
+
+            {bindingMode === 'existing' ? (
+              <>
+                {activeThreadsQuery.isLoading ? (
+                  <div className="notice">
+                    {i18n._({ id: 'Loading workspace threads...', message: 'Loading workspace threads...' })}
+                  </div>
+                ) : null}
+
+                {activeThreadsQuery.error ? (
+                  <InlineNotice
+                    dismissible={false}
+                    noticeKey="bot-binding-threads-load-failed"
+                    title={i18n._({ id: 'Thread List Unavailable', message: 'Thread List Unavailable' })}
+                    tone="error"
+                  >
+                    {getErrorMessage(activeThreadsQuery.error)}
+                  </InlineNotice>
+                ) : null}
+
+                <label className="field">
+                  <span>{i18n._({ id: 'Workspace Thread', message: 'Workspace Thread' })}</span>
+                  <SelectControl
+                    ariaLabel={i18n._({ id: 'Workspace Thread', message: 'Workspace Thread' })}
+                    disabled={activeThreadsQuery.isLoading || bindingThreadOptions.length <= 1}
+                    fullWidth
+                    onChange={(nextValue) => {
+                      updateConversationBindingMutation.reset()
+                      clearConversationBindingMutation.reset()
+                      setBindingThreadId(nextValue)
+                    }}
+                    options={bindingThreadOptions}
+                    value={bindingThreadId}
+                  />
+                </label>
+
+                {!activeThreadsQuery.isLoading && !activeThreadsQuery.error && activeThreads.length === 0 && !bindingTarget.threadId ? (
+                  <div className="notice">
+                    {i18n._({
+                      id: 'No active workspace threads are available yet. Switch to Create New Thread to create one and bind this conversation immediately.',
+                      message:
+                        'No active workspace threads are available yet. Switch to Create New Thread to create one and bind this conversation immediately.',
+                    })}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <Input
+                hint={i18n._({
+                  id: 'Optional. Leave this blank to let the server build a default thread title from the bot and conversation metadata.',
+                  message:
+                    'Optional. Leave this blank to let the server build a default thread title from the bot and conversation metadata.',
+                })}
+                label={i18n._({ id: 'New Thread Title', message: 'New Thread Title' })}
+                onChange={(event) => {
+                  updateConversationBindingMutation.reset()
+                  clearConversationBindingMutation.reset()
+                  setBindingTitle(event.target.value)
+                }}
+                placeholder={i18n._({ id: 'VIP Queue', message: 'VIP Queue' })}
+                value={bindingTitle}
+              />
+            )}
+          </div>
+        </Modal>
+      ) : null}
+
       {wechatLoginModalOpen ? (
         <Modal
           description={i18n._({
@@ -2954,7 +3572,7 @@ export function BotsPage() {
                 <div className="detail-list">
                   <div className="detail-row">
                     <span>{i18n._({ id: 'Session Status', message: 'Session Status' })}</span>
-                    <strong>{formatWeChatLoginStatus(activeWeChatLogin.status)}</strong>
+                    <strong>{formatLocalizedStatusLabel(activeWeChatLogin.status)}</strong>
                   </div>
                   <div className="detail-row">
                     <span>{i18n._({ id: 'Login ID', message: 'Login ID' })}</span>
@@ -3198,21 +3816,6 @@ export function BotsPage() {
   )
 }
 
-function formatWeChatLoginStatus(status: string) {
-  switch (status.trim().toLowerCase()) {
-    case 'wait':
-      return i18n._({ id: 'Waiting for scan', message: 'Waiting for scan' })
-    case 'scaned':
-      return i18n._({ id: 'Scanned', message: 'Scanned' })
-    case 'confirmed':
-      return i18n._({ id: 'Confirmed', message: 'Confirmed' })
-    case 'expired':
-      return i18n._({ id: 'Expired', message: 'Expired' })
-    default:
-      return status || i18n._({ id: 'Unknown', message: 'Unknown' })
-  }
-}
-
 function serializeBotsPageDraft(draft: BotsPageDraft) {
   return JSON.stringify([
     draft.workspaceId,
@@ -3236,6 +3839,7 @@ function serializeBotsPageDraft(draft: BotsPageDraft) {
     draft.wechatAccountId,
     draft.wechatUserId,
     draft.workspaceModel,
+    draft.workspacePermissionPreset,
     draft.workspaceReasoning,
     draft.workspaceCollaborationMode,
     draft.openAIApiKey,

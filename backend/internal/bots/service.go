@@ -28,6 +28,10 @@ const (
 	botConversationContextKey          = "_bot_context_version"
 	botConversationThreadListKey       = "_bot_known_thread_ids"
 	botSuppressionNotificationCooldown = 15 * time.Minute
+	botReplyDeliveryStatusSending      = "sending"
+	botReplyDeliveryStatusRetrying     = "retrying"
+	botReplyDeliveryStatusDelivered    = "delivered"
+	botReplyDeliveryStatusFailed       = "failed"
 )
 
 type Service struct {
@@ -88,7 +92,19 @@ type replyDeliveryError struct {
 	reply        AIResult
 	providerName string
 	phase        string
+	attemptCount int
 	cause        error
+}
+
+type replyDeliveryRetryableError struct {
+	cause error
+}
+
+type conversationReplyDeliveryState struct {
+	status       string
+	attemptCount int
+	lastError    string
+	deliveredAt  *time.Time
 }
 
 func (e *replyDeliveryError) Error() string {
@@ -103,6 +119,9 @@ func (e *replyDeliveryError) Error() string {
 	if phase := strings.TrimSpace(e.phase); phase != "" {
 		label += " during " + phase
 	}
+	if e.attemptCount > 1 {
+		label += fmt.Sprintf(" after %d attempts", e.attemptCount)
+	}
 	if e.cause == nil {
 		return label
 	}
@@ -114,6 +133,44 @@ func (e *replyDeliveryError) Unwrap() error {
 		return nil
 	}
 	return e.cause
+}
+
+func (e *replyDeliveryRetryableError) Error() string {
+	if e == nil || e.cause == nil {
+		return "bot reply delivery retryable failure"
+	}
+	return e.cause.Error()
+}
+
+func (e *replyDeliveryRetryableError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func markReplyDeliveryRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	var retryable *replyDeliveryRetryableError
+	if errors.As(err, &retryable) {
+		return err
+	}
+	return &replyDeliveryRetryableError{cause: err}
+}
+
+func isReplyDeliveryRetryable(err error) bool {
+	var retryable *replyDeliveryRetryableError
+	return errors.As(err, &retryable)
+}
+
+func unwrapReplyDeliveryRetryable(err error) error {
+	var retryable *replyDeliveryRetryableError
+	if errors.As(err, &retryable) && retryable.cause != nil {
+		return retryable.cause
+	}
+	return err
 }
 
 func NewService(
@@ -215,6 +272,174 @@ func (s *Service) ListConversationViews(workspaceID string, connectionID string)
 		views = append(views, conversationViewFromStore(item))
 	}
 	return views
+}
+
+func (s *Service) ReplayLatestFailedReply(
+	ctx context.Context,
+	workspaceID string,
+	connectionID string,
+	conversationID string,
+) (ConversationView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return ConversationView{}, err
+	}
+
+	connection, ok := s.store.GetBotConnection(resolvedWorkspaceID, connectionID)
+	if !ok {
+		return ConversationView{}, store.ErrBotConnectionNotFound
+	}
+	if !strings.EqualFold(strings.TrimSpace(connection.Status), "active") {
+		return ConversationView{}, fmt.Errorf("%w: bot connection must be active before replaying a failed reply", ErrInvalidInput)
+	}
+
+	conversation, ok := s.store.GetBotConversation(resolvedWorkspaceID, conversationID)
+	if !ok || conversation.ConnectionID != connection.ID {
+		return ConversationView{}, store.ErrBotConversationNotFound
+	}
+
+	failedDelivery, ok := s.store.FindLatestFailedBotInboundDeliveryWithSavedReply(
+		resolvedWorkspaceID,
+		connection.ID,
+		firstNonEmpty(strings.TrimSpace(conversation.ExternalConversationID), strings.TrimSpace(conversation.ExternalChatID)),
+		"",
+	)
+	if !ok {
+		return ConversationView{}, store.ErrBotInboundDeliveryNotFound
+	}
+
+	logBotDebug(ctx, connection, "manually replaying failed reply",
+		slog.String("conversationStoreId", conversation.ID),
+		slog.String("failedDeliveryId", failedDelivery.ID),
+		slog.String("failedMessageId", strings.TrimSpace(failedDelivery.MessageID)),
+	)
+	if err := s.processInboundMessage(ctx, connection.ID, failedDelivery.ID); err != nil {
+		s.appendConnectionLog(
+			connection.WorkspaceID,
+			connection.ID,
+			"error",
+			"reply_delivery_replay_failed",
+			fmt.Sprintf(
+				"Manual replay could not redeliver failed delivery %s for original message %s: %s",
+				failedDelivery.ID,
+				firstNonEmpty(strings.TrimSpace(failedDelivery.MessageID), "unknown"),
+				failureReplyDetail(err),
+			),
+		)
+		return ConversationView{}, err
+	}
+
+	updatedConversation, ok := s.store.GetBotConversation(resolvedWorkspaceID, conversation.ID)
+	if !ok {
+		updatedConversation = conversation
+	}
+
+	s.appendConnectionLog(
+		connection.WorkspaceID,
+		connection.ID,
+		"success",
+		"reply_delivery_replayed",
+		fmt.Sprintf(
+			"Manually replayed failed delivery %s for original message %s.",
+			failedDelivery.ID,
+			firstNonEmpty(strings.TrimSpace(failedDelivery.MessageID), "unknown"),
+		),
+	)
+	s.setConnectionLastError(connection.WorkspaceID, connection.ID, "")
+
+	return conversationViewFromStore(updatedConversation), nil
+}
+
+func (s *Service) UpdateConversationBinding(
+	ctx context.Context,
+	workspaceID string,
+	connectionID string,
+	conversationID string,
+	input UpdateConversationBindingInput,
+) (ConversationView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return ConversationView{}, err
+	}
+
+	connection, ok := s.store.GetBotConnection(resolvedWorkspaceID, connectionID)
+	if !ok {
+		return ConversationView{}, store.ErrBotConnectionNotFound
+	}
+	if normalizeAIBackendName(connection.AIBackend) != defaultAIBackend {
+		return ConversationView{}, fmt.Errorf("%w: conversation thread binding management is only available for workspace_thread bot connections", ErrInvalidInput)
+	}
+
+	conversation, ok := s.store.GetBotConversation(resolvedWorkspaceID, conversationID)
+	if !ok || conversation.ConnectionID != connection.ID {
+		return ConversationView{}, store.ErrBotConversationNotFound
+	}
+
+	switch {
+	case input.CreateThread && strings.TrimSpace(input.ThreadID) != "":
+		return ConversationView{}, fmt.Errorf("%w: provide either threadId or createThread, not both", ErrInvalidInput)
+	case !input.CreateThread && strings.TrimSpace(input.ThreadID) == "":
+		return ConversationView{}, fmt.Errorf("%w: threadId is required when createThread is false", ErrInvalidInput)
+	}
+
+	var updatedConversation store.BotConversation
+	switch {
+	case input.CreateThread:
+		updatedConversation, _, err = s.startNewConversationThread(ctx, connection, conversation, inboundMessageFromConversation(conversation), input.Title)
+	default:
+		updatedConversation, _, err = s.switchConversationThread(ctx, connection, conversation, input.ThreadID)
+	}
+	if err != nil {
+		return ConversationView{}, err
+	}
+
+	s.publish(updatedConversation.WorkspaceID, "", "bot/conversation/binding_updated", map[string]any{
+		"connectionId":   updatedConversation.ConnectionID,
+		"conversationId": updatedConversation.ID,
+		"threadId":       strings.TrimSpace(updatedConversation.ThreadID),
+	})
+
+	return conversationViewFromStore(updatedConversation), nil
+}
+
+func (s *Service) ClearConversationBinding(
+	ctx context.Context,
+	workspaceID string,
+	connectionID string,
+	conversationID string,
+) (ConversationView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return ConversationView{}, err
+	}
+
+	connection, ok := s.store.GetBotConnection(resolvedWorkspaceID, connectionID)
+	if !ok {
+		return ConversationView{}, store.ErrBotConnectionNotFound
+	}
+	if normalizeAIBackendName(connection.AIBackend) != defaultAIBackend {
+		return ConversationView{}, fmt.Errorf("%w: conversation thread binding management is only available for workspace_thread bot connections", ErrInvalidInput)
+	}
+
+	conversation, ok := s.store.GetBotConversation(resolvedWorkspaceID, conversationID)
+	if !ok || conversation.ConnectionID != connection.ID {
+		return ConversationView{}, store.ErrBotConversationNotFound
+	}
+	if strings.TrimSpace(conversation.ThreadID) == "" {
+		return conversationViewFromStore(conversation), nil
+	}
+
+	updatedConversation, _, err := s.clearConversationThreadBinding(ctx, connection, conversation)
+	if err != nil {
+		return ConversationView{}, err
+	}
+
+	s.publish(updatedConversation.WorkspaceID, "", "bot/conversation/binding_cleared", map[string]any{
+		"connectionId":   updatedConversation.ConnectionID,
+		"conversationId": updatedConversation.ID,
+	})
+
+	return conversationViewFromStore(updatedConversation), nil
 }
 
 func (s *Service) requireWorkspaceID(workspaceID string) (string, error) {
@@ -1106,10 +1331,15 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 			slog.String("replyThreadId", strings.TrimSpace(reply.ThreadID)),
 			slog.Any("messages", debugOutboundMessages(reply.Messages)),
 		)
-		if err := provider.SendMessages(messageCtx, connection, conversation, reply.Messages); err != nil {
+		attemptCount, err := s.sendReplyWithRetry(messageCtx, provider, connection, conversation, &delivery, &message, reply, "saved reply replay")
+		if err != nil {
 			return s.handleReplyDeliveryFailure(messageCtx, connection, conversation, delivery, message, reply, err)
 		}
-		return s.completeInboundDeliveryWithReply(messageCtx, connection, conversation, delivery, message, reply)
+		return s.completeInboundDeliveryWithReply(messageCtx, connection, conversation, delivery, message, reply, attemptCount)
+	}
+
+	if handled, err := s.handleWeChatFailedReplyReplayIntent(messageCtx, provider, connection, conversation, delivery, message); handled {
+		return err
 	}
 
 	aiBackend, ok := s.aiBackends[normalizeAIBackendName(connection.AIBackend)]
@@ -1146,7 +1376,7 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		return nil
 	}
 
-	reply, failureDelivered, failureText, err := s.executeAIReply(messageCtx, provider, aiBackend, connection, conversation, message)
+	reply, replyAttemptCount, failureDelivered, failureText, err := s.executeAIReply(messageCtx, provider, aiBackend, connection, conversation, message, &delivery)
 	if err != nil {
 		logBotDebug(messageCtx, connection, "ai reply execution failed",
 			slog.String("conversationStoreId", conversation.ID),
@@ -1195,7 +1425,7 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		return nil
 	}
 
-	return s.completeInboundDeliveryWithReply(messageCtx, connection, conversation, delivery, message, reply)
+	return s.completeInboundDeliveryWithReply(messageCtx, connection, conversation, delivery, message, reply, replyAttemptCount)
 }
 
 func (s *Service) executeAIReply(
@@ -1205,7 +1435,8 @@ func (s *Service) executeAIReply(
 	connection store.BotConnection,
 	conversation store.BotConversation,
 	inbound InboundMessage,
-) (AIResult, bool, string, error) {
+	delivery *store.BotInboundDelivery,
+) (AIResult, int, bool, string, error) {
 	startedAt := time.Now().UTC()
 	typingSession := s.startProviderTyping(ctx, provider, aiBackend, connection, conversation)
 	defer s.stopProviderTyping(ctx, connection, typingSession)
@@ -1219,8 +1450,8 @@ func (s *Service) executeAIReply(
 			slog.Bool("streamingProvider", providerSupportsStreaming),
 			slog.Bool("streamingBackend", backendSupportsStreaming),
 		)
-		reply, err := s.executeFinalAIReply(ctx, provider, aiBackend, connection, conversation, preparedInbound, inbound, startedAt)
-		return reply, false, "", err
+		reply, attemptCount, err := s.executeFinalAIReply(ctx, provider, aiBackend, connection, conversation, preparedInbound, inbound, startedAt, delivery)
+		return reply, attemptCount, false, "", err
 	}
 	logBotDebug(ctx, connection, "starting streaming ai reply",
 		slog.String("backend", aiBackend.Name()),
@@ -1229,7 +1460,7 @@ func (s *Service) executeAIReply(
 
 	session, err := streamingProvider.StartStreamingReply(ctx, connection, conversation)
 	if err != nil {
-		return AIResult{}, false, "", err
+		return AIResult{}, 0, false, "", err
 	}
 
 	if err := session.Update(ctx, StreamingUpdate{Messages: []OutboundMessage{{Text: defaultStreamingPendingText}}}); err == nil {
@@ -1260,17 +1491,18 @@ func (s *Service) executeAIReply(
 			failureText = defaultStreamingFailureText
 		}
 		if failErr := session.Fail(ctx, failureText); failErr != nil {
-			return AIResult{}, false, "", errors.Join(processErr, failErr)
+			return AIResult{}, 1, false, "", errors.Join(processErr, failErr)
 		}
-		return AIResult{}, true, failureText, processErr
+		return AIResult{}, 1, true, failureText, processErr
 	}
 
 	reply = finalizeProviderAIResult(connection, inbound, startedAt, reply)
 	if err := session.Complete(ctx, reply.Messages); err != nil {
-		return AIResult{}, false, "", &replyDeliveryError{
+		return AIResult{}, 1, false, "", &replyDeliveryError{
 			reply:        reply,
 			providerName: provider.Name(),
 			phase:        "stream completion",
+			attemptCount: 1,
 			cause:        err,
 		}
 	}
@@ -1280,7 +1512,7 @@ func (s *Service) executeAIReply(
 		slog.Any("messages", debugOutboundMessages(reply.Messages)),
 	)
 
-	return reply, false, "", nil
+	return reply, 1, false, "", nil
 }
 
 func (s *Service) startProviderTyping(
@@ -1338,10 +1570,11 @@ func (s *Service) executeFinalAIReply(
 	inbound InboundMessage,
 	originalInbound InboundMessage,
 	startedAt time.Time,
-) (AIResult, error) {
+	delivery *store.BotInboundDelivery,
+) (AIResult, int, error) {
 	reply, err := aiBackend.ProcessMessage(ctx, connection, conversation, inbound)
 	if err != nil {
-		return AIResult{}, wrapAIBackendError(aiBackend.Name(), err)
+		return AIResult{}, 0, wrapAIBackendError(aiBackend.Name(), err)
 	}
 	reply = finalizeProviderAIResult(connection, originalInbound, startedAt, reply)
 	logBotDebug(ctx, connection, "final ai reply produced",
@@ -1350,16 +1583,202 @@ func (s *Service) executeFinalAIReply(
 		slog.Any("messages", debugOutboundMessages(reply.Messages)),
 	)
 
-	if err := provider.SendMessages(ctx, connection, conversation, reply.Messages); err != nil {
-		return AIResult{}, &replyDeliveryError{
+	attemptCount, err := s.sendReplyWithRetry(ctx, provider, connection, conversation, delivery, &originalInbound, reply, "final message send")
+	if err != nil {
+		return AIResult{}, attemptCount, err
+	}
+
+	return reply, attemptCount, nil
+}
+
+func (s *Service) sendReplyWithRetry(
+	ctx context.Context,
+	provider Provider,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	delivery *store.BotInboundDelivery,
+	inbound *InboundMessage,
+	reply AIResult,
+	phase string,
+) (int, error) {
+	if provider == nil {
+		return 0, &replyDeliveryError{
 			reply:        reply,
-			providerName: provider.Name(),
-			phase:        "final message send",
-			cause:        err,
+			phase:        phase,
+			attemptCount: 1,
+			cause:        ErrProviderNotSupported,
 		}
 	}
 
-	return reply, nil
+	attemptOffset := 0
+	if delivery != nil {
+		attemptOffset = maxInt(delivery.ReplyDeliveryAttemptCount, 0)
+	}
+	attemptCount := 0
+	for {
+		attemptCount += 1
+		effectiveAttemptCount := attemptOffset + attemptCount
+		s.recordReplyDeliveryProgress(
+			connection,
+			conversation,
+			delivery,
+			inbound,
+			reply,
+			botReplyDeliveryStatusSending,
+			effectiveAttemptCount,
+			"",
+		)
+		if err := provider.SendMessages(ctx, connection, conversation, reply.Messages); err != nil {
+			retry, delay := replyDeliveryRetryDecision(provider, err, attemptCount)
+			if !retry {
+				return attemptCount, &replyDeliveryError{
+					reply:        reply,
+					providerName: provider.Name(),
+					phase:        phase,
+					attemptCount: effectiveAttemptCount,
+					cause:        unwrapReplyDeliveryRetryable(err),
+				}
+			}
+
+			trimmedError := strings.TrimSpace(unwrapReplyDeliveryRetryable(err).Error())
+			if trimmedError == "" {
+				trimmedError = "reply delivery failed with an empty error message"
+			}
+			delayLabel := delay.Round(time.Millisecond).String()
+			if delay <= 0 {
+				delayLabel = "immediately"
+			}
+			s.recordReplyDeliveryProgress(
+				connection,
+				conversation,
+				delivery,
+				inbound,
+				reply,
+				botReplyDeliveryStatusRetrying,
+				effectiveAttemptCount+1,
+				trimmedError,
+			)
+
+			logBotDebug(ctx, connection, "reply delivery retry scheduled",
+				slog.String("conversationStoreId", conversation.ID),
+				slog.String("provider", provider.Name()),
+				slog.String("phase", strings.TrimSpace(phase)),
+				slog.Int("attempt", effectiveAttemptCount),
+				slog.String("retryAfter", delayLabel),
+				slog.String("error", trimmedError),
+			)
+			s.appendConnectionLog(
+				connection.WorkspaceID,
+				connection.ID,
+				"warning",
+				"reply_delivery_retry",
+				fmt.Sprintf(
+					"Reply delivery attempt %d failed during %s and will retry %s: %s",
+					effectiveAttemptCount,
+					firstNonEmpty(strings.TrimSpace(phase), "provider send"),
+					delayLabel,
+					trimmedError,
+				),
+			)
+
+			if delay > 0 {
+				if sleepErr := sleepWithContext(ctx, delay); sleepErr != nil {
+					return attemptCount, &replyDeliveryError{
+						reply:        reply,
+						providerName: provider.Name(),
+						phase:        phase,
+						attemptCount: effectiveAttemptCount,
+						cause:        errors.Join(unwrapReplyDeliveryRetryable(err), sleepErr),
+					}
+				}
+			}
+			continue
+		}
+
+		return effectiveAttemptCount, nil
+	}
+}
+
+func replyDeliveryRetryDecision(provider Provider, err error, attempt int) (bool, time.Duration) {
+	if provider == nil || err == nil {
+		return false, 0
+	}
+
+	decider, ok := provider.(ReplyDeliveryRetryDecider)
+	if !ok {
+		return false, 0
+	}
+	return decider.ReplyDeliveryRetryDecision(err, attempt)
+}
+
+func (s *Service) recordReplyDeliveryProgress(
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	delivery *store.BotInboundDelivery,
+	inbound *InboundMessage,
+	reply AIResult,
+	status string,
+	attemptCount int,
+	lastError string,
+) {
+	if s == nil || s.store == nil || delivery == nil || inbound == nil {
+		return
+	}
+	if strings.TrimSpace(delivery.ID) == "" || strings.TrimSpace(conversation.ID) == "" {
+		return
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return
+	}
+
+	updatedConversation := s.recordConversationReplyOutcome(
+		connection,
+		conversation,
+		reply,
+		*inbound,
+		"",
+		conversationReplyDeliveryState{
+			status:       status,
+			attemptCount: attemptCount,
+			lastError:    strings.TrimSpace(lastError),
+		},
+	)
+	_, _ = s.store.RecordBotInboundDeliveryReplyDelivery(
+		connection.WorkspaceID,
+		delivery.ID,
+		status,
+		attemptCount,
+		lastError,
+		nil,
+	)
+
+	payload := map[string]any{
+		"connectionId":   connection.ID,
+		"conversationId": updatedConversation.ID,
+		"threadId":       updatedConversation.ThreadID,
+		"messageCount":   len(reply.Messages),
+		"deliveryStatus": status,
+		"attemptCount":   attemptCount,
+	}
+	if trimmedError := strings.TrimSpace(lastError); trimmedError != "" {
+		payload["error"] = trimmedError
+	}
+	s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/delivery_status", payload)
+
+	if status == botReplyDeliveryStatusSending {
+		s.appendConnectionLog(
+			connection.WorkspaceID,
+			connection.ID,
+			"info",
+			"reply_delivery_sending",
+			fmt.Sprintf(
+				"Reply delivery attempt %d started for message %s.",
+				attemptCount,
+				firstNonEmpty(strings.TrimSpace(inbound.MessageID), "unknown"),
+			),
+		)
+	}
 }
 
 func finalizeProviderAIResult(
@@ -1380,15 +1799,66 @@ func (s *Service) completeInboundDeliveryWithReply(
 	delivery store.BotInboundDelivery,
 	message InboundMessage,
 	reply AIResult,
+	attemptCount int,
 ) error {
-	updatedConversation := s.recordConversationOutcome(connection, conversation, reply, message, "")
+	if attemptCount <= 0 {
+		attemptCount = 1
+	}
+	deliveredAt := time.Now().UTC()
+	updatedConversation := s.recordConversationReplyOutcome(
+		connection,
+		conversation,
+		reply,
+		message,
+		"",
+		conversationReplyDeliveryState{
+			status:       botReplyDeliveryStatusDelivered,
+			attemptCount: attemptCount,
+			deliveredAt:  &deliveredAt,
+		},
+	)
+	if _, err := s.store.RecordBotInboundDeliveryReplyDelivery(
+		connection.WorkspaceID,
+		delivery.ID,
+		botReplyDeliveryStatusDelivered,
+		attemptCount,
+		"",
+		&deliveredAt,
+	); err != nil {
+		return err
+	}
 	if _, err := s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID); err != nil {
 		return err
+	}
+	s.appendConnectionLog(
+		connection.WorkspaceID,
+		connection.ID,
+		"success",
+		"reply_delivery_delivered",
+		fmt.Sprintf(
+			"Reply delivery succeeded after %d attempt(s) for message %s.",
+			attemptCount,
+			firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown"),
+		),
+	)
+	if attemptCount > 1 {
+		s.appendConnectionLog(
+			connection.WorkspaceID,
+			connection.ID,
+			"success",
+			"reply_delivery_recovered",
+			fmt.Sprintf(
+				"Reply delivery recovered after %d attempts for conversation %s.",
+				attemptCount,
+				firstNonEmpty(strings.TrimSpace(updatedConversation.ID), strings.TrimSpace(conversation.ID)),
+			),
+		)
 	}
 	logBotDebug(ctx, connection, "completed inbound delivery",
 		slog.String("conversationStoreId", updatedConversation.ID),
 		slog.String("threadId", strings.TrimSpace(updatedConversation.ThreadID)),
 		slog.Int("messageCount", len(reply.Messages)),
+		slog.Int("attemptCount", attemptCount),
 		slog.Any("messages", debugOutboundMessages(reply.Messages)),
 	)
 
@@ -1397,6 +1867,9 @@ func (s *Service) completeInboundDeliveryWithReply(
 		"conversationId": updatedConversation.ID,
 		"threadId":       updatedConversation.ThreadID,
 		"messageCount":   len(reply.Messages),
+		"deliveryStatus": botReplyDeliveryStatusDelivered,
+		"attemptCount":   attemptCount,
+		"deliveredAt":    deliveredAt,
 	})
 
 	return nil
@@ -1411,16 +1884,47 @@ func (s *Service) handleReplyDeliveryFailure(
 	reply AIResult,
 	deliveryErr error,
 ) error {
-	updatedConversation := s.recordConversationOutcome(connection, conversation, reply, message, "")
+	attemptCount := replyDeliveryAttemptCount(deliveryErr)
+	if attemptCount <= 0 {
+		attemptCount = 1
+	}
+	deliveryMessage := strings.TrimSpace(deliveryErr.Error())
+	updatedConversation := s.recordConversationReplyOutcome(
+		connection,
+		conversation,
+		reply,
+		message,
+		"",
+		conversationReplyDeliveryState{
+			status:       botReplyDeliveryStatusFailed,
+			attemptCount: attemptCount,
+			lastError:    deliveryMessage,
+		},
+	)
 
 	saveErr := error(nil)
 	if _, err := s.store.SaveBotInboundDeliveryReply(connection.WorkspaceID, delivery.ID, reply.ThreadID, outboundReplyMessages(reply.Messages)); err != nil {
 		saveErr = err
 	}
 
+	recordErr := error(nil)
+	if _, err := s.store.RecordBotInboundDeliveryReplyDelivery(
+		connection.WorkspaceID,
+		delivery.ID,
+		botReplyDeliveryStatusFailed,
+		attemptCount,
+		deliveryMessage,
+		nil,
+	); err != nil {
+		recordErr = err
+	}
+
 	lastError := deliveryErr
 	if saveErr != nil {
 		lastError = errors.Join(lastError, saveErr)
+	}
+	if recordErr != nil {
+		lastError = errors.Join(lastError, recordErr)
 	}
 
 	failErr := error(nil)
@@ -1429,11 +1933,27 @@ func (s *Service) handleReplyDeliveryFailure(
 		lastError = errors.Join(lastError, failErr)
 	}
 
+	s.appendConnectionLog(
+		connection.WorkspaceID,
+		connection.ID,
+		"error",
+		"reply_delivery_failed",
+		fmt.Sprintf(
+			"Reply delivery failed after %d attempt(s) for message %s: %s",
+			attemptCount,
+			firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown"),
+			failureReplyDetail(lastError),
+		),
+	)
+	s.notifyReplyDeliveryFailed(connection, delivery, lastError, attemptCount)
+
 	s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/delivery_failed", map[string]any{
 		"connectionId":   connection.ID,
 		"conversationId": updatedConversation.ID,
 		"threadId":       updatedConversation.ThreadID,
 		"messageCount":   len(reply.Messages),
+		"deliveryStatus": botReplyDeliveryStatusFailed,
+		"attemptCount":   attemptCount,
 		"error":          lastError.Error(),
 	})
 	_, _ = s.store.UpdateBotConnection(connection.WorkspaceID, connection.ID, func(current store.BotConnection) store.BotConnection {
@@ -1444,11 +1964,12 @@ func (s *Service) handleReplyDeliveryFailure(
 		slog.String("conversationStoreId", updatedConversation.ID),
 		slog.String("threadId", strings.TrimSpace(updatedConversation.ThreadID)),
 		slog.Int("messageCount", len(reply.Messages)),
+		slog.Int("attemptCount", attemptCount),
 		slog.Any("messages", debugOutboundMessages(reply.Messages)),
 		slog.String("error", lastError.Error()),
 	)
 
-	if saveErr != nil || failErr != nil {
+	if saveErr != nil || recordErr != nil || failErr != nil {
 		return lastError
 	}
 	return nil
@@ -2846,6 +3367,39 @@ func (s *Service) unarchiveConversationThread(
 	return updatedConversation, "Unarchived thread: " + threadID + "\nUse /thread use " + threadID + " to switch this conversation back.", nil
 }
 
+func (s *Service) clearConversationThreadBinding(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (store.BotConversation, string, error) {
+	currentThreadID := strings.TrimSpace(conversation.ThreadID)
+	if currentThreadID == "" {
+		return conversation, "This conversation is not currently bound to a workspace thread.", nil
+	}
+
+	nextContextVersion := conversationContextVersion(conversation) + 1
+	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		knownThreadIDs := appendKnownConversationThreadID(current.BackendState, current.ThreadID)
+		current.ThreadID = ""
+		current.BackendState = conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, knownThreadIDs),
+			nextContextVersion,
+		)
+		return current
+	})
+	if err != nil {
+		return store.BotConversation{}, "", err
+	}
+
+	logBotDebug(ctx, connection, "cleared conversation thread binding",
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", currentThreadID),
+		slog.Int("contextVersion", conversationContextVersion(updatedConversation)),
+	)
+
+	return updatedConversation, "Cleared the current conversation thread binding.\nThe next message will create a fresh workspace thread.", nil
+}
+
 type botThreadSummary struct {
 	ID        string
 	Name      string
@@ -3788,6 +4342,49 @@ func (s *Service) notifyRecoveryReplaySuppressed(connection store.BotConnection,
 	)
 }
 
+func (s *Service) notifyReplyDeliveryFailed(
+	connection store.BotConnection,
+	delivery store.BotInboundDelivery,
+	cause error,
+	attemptCount int,
+) {
+	workspace, ok := s.store.GetWorkspace(connection.WorkspaceID)
+	if !ok {
+		return
+	}
+
+	notification, err := s.store.CreateNotification(store.Notification{
+		WorkspaceID:       connection.WorkspaceID,
+		WorkspaceName:     workspace.Name,
+		BotConnectionID:   connection.ID,
+		BotConnectionName: connection.Name,
+		Kind:              "bot_reply_delivery_failed",
+		Title:             "Bot reply delivery failed",
+		Message: fmt.Sprintf(
+			"%s failed to deliver a bot reply for message %s after %d attempt(s). %s",
+			firstNonEmpty(strings.TrimSpace(connection.Name), connection.ID),
+			firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown"),
+			maxInt(attemptCount, 1),
+			failureReplyDetail(cause),
+		),
+		Level: "warning",
+	})
+	if err != nil {
+		return
+	}
+
+	s.publish(connection.WorkspaceID, "", "notification/created", map[string]any{
+		"notificationId":    notification.ID,
+		"kind":              notification.Kind,
+		"title":             notification.Title,
+		"message":           notification.Message,
+		"level":             notification.Level,
+		"read":              notification.Read,
+		"botConnectionId":   notification.BotConnectionID,
+		"botConnectionName": notification.BotConnectionName,
+	})
+}
+
 func (s *Service) createBotSuppressionNotification(
 	connection store.BotConnection,
 	kind string,
@@ -3841,12 +4438,45 @@ func (s *Service) createBotSuppressionNotification(
 	})
 }
 
+func replyDeliveryAttemptCount(err error) int {
+	var deliveryErr *replyDeliveryError
+	if errors.As(err, &deliveryErr) && deliveryErr.attemptCount > 0 {
+		return deliveryErr.attemptCount
+	}
+	return 0
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
 func (s *Service) recordConversationOutcome(
 	connection store.BotConnection,
 	conversation store.BotConversation,
 	reply AIResult,
 	inbound InboundMessage,
 	fallbackOutboundText string,
+) store.BotConversation {
+	return s.recordConversationReplyOutcome(
+		connection,
+		conversation,
+		reply,
+		inbound,
+		fallbackOutboundText,
+		conversationReplyDeliveryState{},
+	)
+}
+
+func (s *Service) recordConversationReplyOutcome(
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	reply AIResult,
+	inbound InboundMessage,
+	fallbackOutboundText string,
+	deliveryState conversationReplyDeliveryState,
 ) store.BotConversation {
 	lastOutboundText := strings.TrimSpace(fallbackOutboundText)
 	if len(reply.Messages) > 0 {
@@ -3878,6 +4508,10 @@ func (s *Service) recordConversationOutcome(
 		current.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
 		current.LastInboundText = lastInboundText
 		current.LastOutboundText = lastOutboundText
+		current.LastOutboundDeliveryStatus = strings.TrimSpace(deliveryState.status)
+		current.LastOutboundDeliveryError = strings.TrimSpace(deliveryState.lastError)
+		current.LastOutboundDeliveryAttemptCount = deliveryState.attemptCount
+		current.LastOutboundDeliveredAt = cloneOptionalTimeLocal(deliveryState.deliveredAt)
 		return current
 	})
 	if err != nil {
@@ -3899,6 +4533,10 @@ func (s *Service) recordConversationOutcome(
 			updatedConversation.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
 			updatedConversation.LastInboundText = lastInboundText
 			updatedConversation.LastOutboundText = lastOutboundText
+			updatedConversation.LastOutboundDeliveryStatus = strings.TrimSpace(deliveryState.status)
+			updatedConversation.LastOutboundDeliveryError = strings.TrimSpace(deliveryState.lastError)
+			updatedConversation.LastOutboundDeliveryAttemptCount = deliveryState.attemptCount
+			updatedConversation.LastOutboundDeliveredAt = cloneOptionalTimeLocal(deliveryState.deliveredAt)
 		}
 	}
 	return updatedConversation
@@ -3916,6 +4554,18 @@ func inboundMessageFromDelivery(delivery store.BotInboundDelivery) InboundMessag
 		Text:             strings.TrimSpace(delivery.Text),
 		Media:            cloneBotMessageMediaList(delivery.Media),
 		ProviderData:     mergeProviderState(nil, delivery.ProviderData),
+	}
+}
+
+func inboundMessageFromConversation(conversation store.BotConversation) InboundMessage {
+	return InboundMessage{
+		ConversationID:   firstNonEmpty(strings.TrimSpace(conversation.ExternalConversationID), strings.TrimSpace(conversation.ExternalChatID)),
+		ExternalChatID:   strings.TrimSpace(conversation.ExternalChatID),
+		ExternalThreadID: strings.TrimSpace(conversation.ExternalThreadID),
+		UserID:           strings.TrimSpace(conversation.ExternalUserID),
+		Username:         strings.TrimSpace(conversation.ExternalUsername),
+		Title:            strings.TrimSpace(conversation.ExternalTitle),
+		ProviderData:     mergeProviderState(nil, conversation.ProviderState),
 	}
 }
 
@@ -4017,22 +4667,26 @@ func wechatAccountViewFromStore(account store.WeChatAccount) WeChatAccountView {
 
 func conversationViewFromStore(conversation store.BotConversation) ConversationView {
 	return ConversationView{
-		ID:                     conversation.ID,
-		WorkspaceID:            conversation.WorkspaceID,
-		ConnectionID:           conversation.ConnectionID,
-		Provider:               conversation.Provider,
-		ExternalConversationID: strings.TrimSpace(conversation.ExternalConversationID),
-		ExternalChatID:         strings.TrimSpace(conversation.ExternalChatID),
-		ExternalThreadID:       strings.TrimSpace(conversation.ExternalThreadID),
-		ExternalUserID:         strings.TrimSpace(conversation.ExternalUserID),
-		ExternalUsername:       strings.TrimSpace(conversation.ExternalUsername),
-		ExternalTitle:          strings.TrimSpace(conversation.ExternalTitle),
-		ThreadID:               strings.TrimSpace(conversation.ThreadID),
-		LastInboundMessageID:   strings.TrimSpace(conversation.LastInboundMessageID),
-		LastInboundText:        strings.TrimSpace(conversation.LastInboundText),
-		LastOutboundText:       strings.TrimSpace(conversation.LastOutboundText),
-		CreatedAt:              conversation.CreatedAt,
-		UpdatedAt:              conversation.UpdatedAt,
+		ID:                               conversation.ID,
+		WorkspaceID:                      conversation.WorkspaceID,
+		ConnectionID:                     conversation.ConnectionID,
+		Provider:                         conversation.Provider,
+		ExternalConversationID:           strings.TrimSpace(conversation.ExternalConversationID),
+		ExternalChatID:                   strings.TrimSpace(conversation.ExternalChatID),
+		ExternalThreadID:                 strings.TrimSpace(conversation.ExternalThreadID),
+		ExternalUserID:                   strings.TrimSpace(conversation.ExternalUserID),
+		ExternalUsername:                 strings.TrimSpace(conversation.ExternalUsername),
+		ExternalTitle:                    strings.TrimSpace(conversation.ExternalTitle),
+		ThreadID:                         strings.TrimSpace(conversation.ThreadID),
+		LastInboundMessageID:             strings.TrimSpace(conversation.LastInboundMessageID),
+		LastInboundText:                  strings.TrimSpace(conversation.LastInboundText),
+		LastOutboundText:                 strings.TrimSpace(conversation.LastOutboundText),
+		LastOutboundDeliveryStatus:       strings.TrimSpace(conversation.LastOutboundDeliveryStatus),
+		LastOutboundDeliveryError:        strings.TrimSpace(conversation.LastOutboundDeliveryError),
+		LastOutboundDeliveryAttemptCount: conversation.LastOutboundDeliveryAttemptCount,
+		LastOutboundDeliveredAt:          cloneOptionalTimeLocal(conversation.LastOutboundDeliveredAt),
+		CreatedAt:                        conversation.CreatedAt,
+		UpdatedAt:                        conversation.UpdatedAt,
 	}
 }
 

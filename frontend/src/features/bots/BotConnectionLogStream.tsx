@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { AnsiUp } from 'ansi_up'
 
+import { formatLocalizedDateTime, formatLocalizedStatusLabel } from '../../i18n/display'
 import { i18n } from '../../i18n/runtime'
 import type { BotConnectionLogEntry } from '../../types/api'
 import {
@@ -31,6 +32,10 @@ export function BotConnectionLogStream({ logs }: BotConnectionLogStreamProps) {
         const entryClasses = [
           'automation-run-log__entry',
           descriptor.highlightStyle === 'suppressed' ? 'automation-run-log__entry--suppressed' : '',
+          descriptor.highlightStyle === 'delivery-sending' ? 'automation-run-log__entry--delivery-sending' : '',
+          descriptor.highlightStyle === 'delivery-success' ? 'automation-run-log__entry--delivery-success' : '',
+          descriptor.highlightStyle === 'delivery-warning' ? 'automation-run-log__entry--delivery-warning' : '',
+          descriptor.highlightStyle === 'delivery-danger' ? 'automation-run-log__entry--delivery-danger' : '',
         ]
           .filter(Boolean)
           .join(' ')
@@ -45,7 +50,7 @@ export function BotConnectionLogStream({ logs }: BotConnectionLogStreamProps) {
                 </span>
               ) : null}
               <span className={`automation-run-log__level automation-run-log__level--${normalizedLevel}`}>
-                {entry.level}
+                {formatLocalizedStatusLabel(entry.level)}
               </span>
             </div>
             <span
@@ -60,10 +65,5 @@ export function BotConnectionLogStream({ logs }: BotConnectionLogStreamProps) {
 }
 
 function formatTimestamp(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return date.toLocaleString()
+  return formatLocalizedDateTime(value)
 }

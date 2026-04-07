@@ -14,8 +14,10 @@ import {
   EMPTY_BOTS_PAGE_DRAFT,
   formatBotCommandOutputModeLabel,
   formatBotConversationTitle,
+  formatBotWorkspacePermissionPresetLabel,
   formatWeChatAccountLabel,
   findWeChatAccountForConnection,
+  isBotWorkspacePermissionPresetFullAccess,
   isWeChatConnectionForAccount,
   listWeChatConnectionsForAccount,
   matchesBotConnectionSearch,
@@ -38,6 +40,7 @@ describe('botsPageUtils', () => {
       publicBaseUrl: ' https://bots.example.com ',
       telegramBotToken: ' token-1 ',
       workspaceModel: ' gpt-5.4 ',
+      workspacePermissionPreset: ' full-access ',
       workspaceReasoning: ' high ',
       workspaceCollaborationMode: ' plan ',
     })
@@ -49,6 +52,7 @@ describe('botsPageUtils', () => {
       aiBackend: 'workspace_thread',
       aiConfig: {
         model: 'gpt-5.4',
+        permission_preset: 'full-access',
         reasoning_effort: 'high',
         collaboration_mode: 'plan',
       },
@@ -116,6 +120,7 @@ describe('botsPageUtils', () => {
       aiBackend: 'workspace_thread',
       aiConfig: {
         model: 'gpt-5.4',
+        permission_preset: 'default',
         reasoning_effort: 'medium',
         collaboration_mode: 'default',
       },
@@ -154,6 +159,7 @@ describe('botsPageUtils', () => {
       aiBackend: 'workspace_thread',
       aiConfig: {
         model: 'gpt-5.4',
+        permission_preset: 'default',
         reasoning_effort: 'medium',
         collaboration_mode: 'default',
       },
@@ -186,6 +192,7 @@ describe('botsPageUtils', () => {
       aiBackend: 'workspace_thread',
       aiConfig: {
         model: 'gpt-5.4',
+        permission_preset: 'default',
         reasoning_effort: 'medium',
         collaboration_mode: 'default',
       },
@@ -218,6 +225,7 @@ describe('botsPageUtils', () => {
       aiBackend: 'workspace_thread',
       aiConfig: {
         model: 'gpt-5.4',
+        permission_preset: 'default',
         reasoning_effort: 'medium',
         collaboration_mode: 'default',
       },
@@ -249,6 +257,7 @@ describe('botsPageUtils', () => {
       aiBackend: 'workspace_thread',
       aiConfig: {
         model: 'gpt-5.4-mini',
+        permission_preset: 'default',
         reasoning_effort: 'medium',
         collaboration_mode: 'default',
       },
@@ -297,6 +306,15 @@ describe('botsPageUtils', () => {
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE)).toBe('Single Line')
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_BRIEF)).toBe('Brief (3-5 lines)')
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_FULL)).toBe('Full Output')
+  })
+
+  it('formats workspace thread permission presets with a safe default', () => {
+    expect(isBotWorkspacePermissionPresetFullAccess(undefined)).toBe(false)
+    expect(isBotWorkspacePermissionPresetFullAccess('default')).toBe(false)
+    expect(isBotWorkspacePermissionPresetFullAccess(' full-access ')).toBe(true)
+    expect(formatBotWorkspacePermissionPresetLabel(undefined)).toBe('Default permission')
+    expect(formatBotWorkspacePermissionPresetLabel('default')).toBe('Default permission')
+    expect(formatBotWorkspacePermissionPresetLabel(' full-access ')).toBe('Full access')
   })
 
   it('resolves wechat channel timing from explicit settings before runtime mode fallback', () => {
@@ -592,6 +610,7 @@ describe('botsPageUtils', () => {
         aiBackend: 'workspace_thread',
         aiConfig: {
           model: 'gpt-5.4',
+          permission_preset: 'full-access',
           reasoning_effort: 'medium',
           collaboration_mode: 'plan',
         },
@@ -618,6 +637,7 @@ describe('botsPageUtils', () => {
       wechatBaseUrl: 'https://wechat.example.com',
       wechatRouteTag: 'route-1',
       wechatChannelTimingEnabled: true,
+      workspacePermissionPreset: 'full-access',
       workspaceCollaborationMode: 'plan',
       wechatBotToken: '',
     })

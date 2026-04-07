@@ -29,21 +29,22 @@ type AccessToken struct {
 }
 
 type RuntimePreferences struct {
-	ModelCatalogPath              string            `json:"modelCatalogPath"`
-	LocalShellModels              []string          `json:"localShellModels,omitempty"`
-	DefaultShellType              string            `json:"defaultShellType,omitempty"`
-	DefaultTerminalShell          string            `json:"defaultTerminalShell,omitempty"`
-	ModelShellTypeOverrides       map[string]string `json:"modelShellTypeOverrides,omitempty"`
-	OutboundProxyURL              string            `json:"outboundProxyUrl,omitempty"`
-	DefaultTurnApprovalPolicy     string            `json:"defaultTurnApprovalPolicy,omitempty"`
-	DefaultTurnSandboxPolicy      map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
-	DefaultCommandSandboxPolicy   map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
-	AllowRemoteAccess             *bool             `json:"allowRemoteAccess"`
-	AccessTokens                  []AccessToken     `json:"accessTokens,omitempty"`
-	BackendThreadTraceEnabled     *bool             `json:"backendThreadTraceEnabled"`
-	BackendThreadTraceWorkspaceID string            `json:"backendThreadTraceWorkspaceId,omitempty"`
-	BackendThreadTraceThreadID    string            `json:"backendThreadTraceThreadId,omitempty"`
-	UpdatedAt                     time.Time         `json:"updatedAt,omitempty"`
+	ModelCatalogPath                 string            `json:"modelCatalogPath"`
+	LocalShellModels                 []string          `json:"localShellModels,omitempty"`
+	DefaultShellType                 string            `json:"defaultShellType,omitempty"`
+	DefaultTerminalShell             string            `json:"defaultTerminalShell,omitempty"`
+	ModelShellTypeOverrides          map[string]string `json:"modelShellTypeOverrides,omitempty"`
+	OutboundProxyURL                 string            `json:"outboundProxyUrl,omitempty"`
+	DefaultTurnApprovalPolicy        string            `json:"defaultTurnApprovalPolicy,omitempty"`
+	DefaultTurnSandboxPolicy         map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
+	DefaultCommandSandboxPolicy      map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
+	AllowRemoteAccess                *bool             `json:"allowRemoteAccess"`
+	AllowLocalhostWithoutAccessToken *bool             `json:"allowLocalhostWithoutAccessToken"`
+	AccessTokens                     []AccessToken     `json:"accessTokens,omitempty"`
+	BackendThreadTraceEnabled        *bool             `json:"backendThreadTraceEnabled"`
+	BackendThreadTraceWorkspaceID    string            `json:"backendThreadTraceWorkspaceId,omitempty"`
+	BackendThreadTraceThreadID       string            `json:"backendThreadTraceThreadId,omitempty"`
+	UpdatedAt                        time.Time         `json:"updatedAt,omitempty"`
 }
 
 type Automation struct {
@@ -120,8 +121,34 @@ type Notification struct {
 	ReadAt            *time.Time `json:"readAt,omitempty"`
 }
 
+type Bot struct {
+	ID               string    `json:"id"`
+	WorkspaceID      string    `json:"workspaceId"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description,omitempty"`
+	Status           string    `json:"status"`
+	DefaultBindingID string    `json:"defaultBindingId,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+type BotBinding struct {
+	ID                string            `json:"id"`
+	WorkspaceID       string            `json:"workspaceId"`
+	BotID             string            `json:"botId"`
+	Name              string            `json:"name"`
+	BindingMode       string            `json:"bindingMode"`
+	TargetWorkspaceID string            `json:"targetWorkspaceId,omitempty"`
+	TargetThreadID    string            `json:"targetThreadId,omitempty"`
+	AIBackend         string            `json:"aiBackend"`
+	AIConfig          map[string]string `json:"aiConfig,omitempty"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	UpdatedAt         time.Time         `json:"updatedAt"`
+}
+
 type BotConnection struct {
 	ID              string            `json:"id"`
+	BotID           string            `json:"botId,omitempty"`
 	WorkspaceID     string            `json:"workspaceId"`
 	Provider        string            `json:"provider"`
 	Name            string            `json:"name"`
@@ -164,24 +191,30 @@ type WeChatAccount struct {
 }
 
 type BotConversation struct {
-	ID                     string            `json:"id"`
-	WorkspaceID            string            `json:"workspaceId"`
-	ConnectionID           string            `json:"connectionId"`
-	Provider               string            `json:"provider"`
-	ExternalConversationID string            `json:"externalConversationId,omitempty"`
-	ExternalChatID         string            `json:"externalChatId"`
-	ExternalThreadID       string            `json:"externalThreadId,omitempty"`
-	ExternalUserID         string            `json:"externalUserId,omitempty"`
-	ExternalUsername       string            `json:"externalUsername,omitempty"`
-	ExternalTitle          string            `json:"externalTitle,omitempty"`
-	ThreadID               string            `json:"threadId,omitempty"`
-	BackendState           map[string]string `json:"backendState,omitempty"`
-	ProviderState          map[string]string `json:"providerState,omitempty"`
-	LastInboundMessageID   string            `json:"lastInboundMessageId,omitempty"`
-	LastInboundText        string            `json:"lastInboundText,omitempty"`
-	LastOutboundText       string            `json:"lastOutboundText,omitempty"`
-	CreatedAt              time.Time         `json:"createdAt"`
-	UpdatedAt              time.Time         `json:"updatedAt"`
+	ID                               string            `json:"id"`
+	BotID                            string            `json:"botId,omitempty"`
+	BindingID                        string            `json:"bindingId,omitempty"`
+	WorkspaceID                      string            `json:"workspaceId"`
+	ConnectionID                     string            `json:"connectionId"`
+	Provider                         string            `json:"provider"`
+	ExternalConversationID           string            `json:"externalConversationId,omitempty"`
+	ExternalChatID                   string            `json:"externalChatId"`
+	ExternalThreadID                 string            `json:"externalThreadId,omitempty"`
+	ExternalUserID                   string            `json:"externalUserId,omitempty"`
+	ExternalUsername                 string            `json:"externalUsername,omitempty"`
+	ExternalTitle                    string            `json:"externalTitle,omitempty"`
+	ThreadID                         string            `json:"threadId,omitempty"`
+	BackendState                     map[string]string `json:"backendState,omitempty"`
+	ProviderState                    map[string]string `json:"providerState,omitempty"`
+	LastInboundMessageID             string            `json:"lastInboundMessageId,omitempty"`
+	LastInboundText                  string            `json:"lastInboundText,omitempty"`
+	LastOutboundText                 string            `json:"lastOutboundText,omitempty"`
+	LastOutboundDeliveryStatus       string            `json:"lastOutboundDeliveryStatus,omitempty"`
+	LastOutboundDeliveryError        string            `json:"lastOutboundDeliveryError,omitempty"`
+	LastOutboundDeliveryAttemptCount int               `json:"lastOutboundDeliveryAttemptCount,omitempty"`
+	LastOutboundDeliveredAt          *time.Time        `json:"lastOutboundDeliveredAt,omitempty"`
+	CreatedAt                        time.Time         `json:"createdAt"`
+	UpdatedAt                        time.Time         `json:"updatedAt"`
 }
 
 type BotMessageMedia struct {
@@ -198,28 +231,32 @@ type BotReplyMessage struct {
 }
 
 type BotInboundDelivery struct {
-	ID                     string            `json:"id"`
-	WorkspaceID            string            `json:"workspaceId"`
-	ConnectionID           string            `json:"connectionId"`
-	Provider               string            `json:"provider"`
-	ExternalConversationID string            `json:"externalConversationId,omitempty"`
-	ExternalChatID         string            `json:"externalChatId"`
-	ExternalThreadID       string            `json:"externalThreadId,omitempty"`
-	MessageID              string            `json:"messageId,omitempty"`
-	UserID                 string            `json:"userId,omitempty"`
-	Username               string            `json:"username,omitempty"`
-	Title                  string            `json:"title,omitempty"`
-	Text                   string            `json:"text"`
-	Media                  []BotMessageMedia `json:"media,omitempty"`
-	ProviderData           map[string]string `json:"providerData,omitempty"`
-	ReplyThreadID          string            `json:"replyThreadId,omitempty"`
-	ReplyMessages          []BotReplyMessage `json:"replyMessages,omitempty"`
-	ReplyTexts             []string          `json:"replyTexts,omitempty"`
-	Status                 string            `json:"status"`
-	AttemptCount           int               `json:"attemptCount,omitempty"`
-	LastError              string            `json:"lastError,omitempty"`
-	CreatedAt              time.Time         `json:"createdAt"`
-	UpdatedAt              time.Time         `json:"updatedAt"`
+	ID                        string            `json:"id"`
+	WorkspaceID               string            `json:"workspaceId"`
+	ConnectionID              string            `json:"connectionId"`
+	Provider                  string            `json:"provider"`
+	ExternalConversationID    string            `json:"externalConversationId,omitempty"`
+	ExternalChatID            string            `json:"externalChatId"`
+	ExternalThreadID          string            `json:"externalThreadId,omitempty"`
+	MessageID                 string            `json:"messageId,omitempty"`
+	UserID                    string            `json:"userId,omitempty"`
+	Username                  string            `json:"username,omitempty"`
+	Title                     string            `json:"title,omitempty"`
+	Text                      string            `json:"text"`
+	Media                     []BotMessageMedia `json:"media,omitempty"`
+	ProviderData              map[string]string `json:"providerData,omitempty"`
+	ReplyThreadID             string            `json:"replyThreadId,omitempty"`
+	ReplyMessages             []BotReplyMessage `json:"replyMessages,omitempty"`
+	ReplyTexts                []string          `json:"replyTexts,omitempty"`
+	ReplyDeliveryStatus       string            `json:"replyDeliveryStatus,omitempty"`
+	ReplyDeliveryAttemptCount int               `json:"replyDeliveryAttemptCount,omitempty"`
+	ReplyDeliveryLastError    string            `json:"replyDeliveryLastError,omitempty"`
+	ReplyDeliveredAt          *time.Time        `json:"replyDeliveredAt,omitempty"`
+	Status                    string            `json:"status"`
+	AttemptCount              int               `json:"attemptCount,omitempty"`
+	LastError                 string            `json:"lastError,omitempty"`
+	CreatedAt                 time.Time         `json:"createdAt"`
+	UpdatedAt                 time.Time         `json:"updatedAt"`
 }
 
 type Thread struct {

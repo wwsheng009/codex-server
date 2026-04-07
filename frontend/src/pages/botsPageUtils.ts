@@ -1,4 +1,5 @@
 import type { CreateBotConnectionInput, UpdateBotConnectionInput } from '../features/bots/api'
+import { formatLocalizedDateTime } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import type { BotConnection, BotConversation, WeChatAccount } from '../types/api'
 
@@ -34,6 +35,7 @@ export type BotsPageDraft = {
   wechatAccountId: string
   wechatUserId: string
   workspaceModel: string
+  workspacePermissionPreset: string
   workspaceReasoning: string
   workspaceCollaborationMode: string
   openAIApiKey: string
@@ -66,6 +68,7 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   wechatAccountId: '',
   wechatUserId: '',
   workspaceModel: 'gpt-5.4',
+  workspacePermissionPreset: 'default',
   workspaceReasoning: 'medium',
   workspaceCollaborationMode: 'default',
   openAIApiKey: '',
@@ -125,6 +128,9 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   if (draft.aiBackend === 'workspace_thread') {
     if (draft.workspaceModel.trim()) {
       aiConfig.model = draft.workspaceModel.trim()
+    }
+    if (draft.workspacePermissionPreset.trim()) {
+      aiConfig.permission_preset = resolveBotWorkspacePermissionPreset(draft.workspacePermissionPreset)
     }
     if (draft.workspaceReasoning.trim()) {
       aiConfig.reasoning_effort = draft.workspaceReasoning.trim()
@@ -216,6 +222,10 @@ export function buildBotsPageDraftFromConnection(
       aiBackend === 'workspace_thread'
         ? connection.aiConfig?.model?.trim() || EMPTY_BOTS_PAGE_DRAFT.workspaceModel
         : EMPTY_BOTS_PAGE_DRAFT.workspaceModel,
+    workspacePermissionPreset:
+      aiBackend === 'workspace_thread'
+        ? resolveBotWorkspacePermissionPreset(connection.aiConfig?.permission_preset)
+        : EMPTY_BOTS_PAGE_DRAFT.workspacePermissionPreset,
     workspaceReasoning:
       aiBackend === 'workspace_thread'
         ? connection.aiConfig?.reasoning_effort?.trim() || EMPTY_BOTS_PAGE_DRAFT.workspaceReasoning
@@ -256,6 +266,14 @@ function resolveBotConnectionOpenAIStore(value: string | null | undefined) {
   return value?.trim().toLowerCase() !== 'false'
 }
 
+function resolveBotWorkspacePermissionPreset(value: string | null | undefined) {
+  return value?.trim().toLowerCase() === 'full-access' ? 'full-access' : 'default'
+}
+
+export function isBotWorkspacePermissionPresetFullAccess(value: string | null | undefined) {
+  return resolveBotWorkspacePermissionPreset(value) === 'full-access'
+}
+
 export function formatBotProviderLabel(provider: string) {
   switch (provider.trim().toLowerCase()) {
     case 'telegram':
@@ -278,6 +296,12 @@ export function formatBotBackendLabel(backend: string) {
     default:
       return backend
   }
+}
+
+export function formatBotWorkspacePermissionPresetLabel(value: string | null | undefined) {
+  return isBotWorkspacePermissionPresetFullAccess(value)
+    ? i18n._({ id: 'Full access', message: 'Full access' })
+    : i18n._({ id: 'Default permission', message: 'Default permission' })
 }
 
 export function resolveBotCommandOutputMode(value: string | null | undefined) {
@@ -316,12 +340,7 @@ export function formatBotTimestamp(value: string | undefined) {
     return '-'
   }
 
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return date.toLocaleString()
+  return formatLocalizedDateTime(value)
 }
 
 export function summarizeBotMap(value: Record<string, string> | null | undefined) {

@@ -4,6 +4,11 @@ import { DetailGroup } from '../../components/ui/DetailGroup'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { Tooltip } from '../../components/ui/Tooltip'
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
+import {
+  formatLocalizedStatusLabel,
+  formatShellEnvironmentInheritLabel,
+  formatWindowsCommandResolutionLabel,
+} from '../../i18n/display'
 import { ConversationRenderProfilerRailToggle } from '../../components/workspace/threadConversationProfiler'
 import { i18n } from '../../i18n/runtime'
 import type { ThreadWorkbenchRailWorkspaceContextSectionProps } from './threadWorkbenchRailTypes'
@@ -201,82 +206,7 @@ function InfoLabel({
 }
 
 function formatStatusLabel(value?: string | null) {
-  const normalized = String(value ?? '').trim()
-  if (!normalized) {
-    return '—'
-  }
-
-  const compact = normalized.toLowerCase().replace(/[\s_-]+/g, '')
-  const localized = localizedStatusLabel(compact)
-  if (localized) {
-    return localized
-  }
-
-  return normalized
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (character) => character.toUpperCase())
-}
-
-function localizedStatusLabel(value: string) {
-  switch (value) {
-    case 'ready':
-      return i18n._({ id: 'Ready', message: 'Ready' })
-    case 'active':
-      return i18n._({ id: 'Active', message: 'Active' })
-    case 'connected':
-      return i18n._({ id: 'Connected', message: 'Connected' })
-    case 'completed':
-      return i18n._({ id: 'Completed', message: 'Completed' })
-    case 'success':
-      return i18n._({ id: 'Success', message: 'Success' })
-    case 'resolved':
-      return i18n._({ id: 'Resolved', message: 'Resolved' })
-    case 'open':
-      return i18n._({ id: 'Open', message: 'Open' })
-    case 'running':
-      return i18n._({ id: 'Running', message: 'Running' })
-    case 'inprogress':
-      return i18n._({ id: 'In progress', message: 'In progress' })
-    case 'processing':
-      return i18n._({ id: 'Processing', message: 'Processing' })
-    case 'sending':
-      return i18n._({ id: 'Sending', message: 'Sending' })
-    case 'waiting':
-      return i18n._({ id: 'Waiting', message: 'Waiting' })
-    case 'starting':
-      return i18n._({ id: 'Starting', message: 'Starting' })
-    case 'streaming':
-      return i18n._({ id: 'Streaming', message: 'Streaming' })
-    case 'paused':
-      return i18n._({ id: 'Paused', message: 'Paused' })
-    case 'idle':
-      return i18n._({ id: 'Idle', message: 'Idle' })
-    case 'closed':
-      return i18n._({ id: 'Closed', message: 'Closed' })
-    case 'archived':
-      return i18n._({ id: 'Archived', message: 'Archived' })
-    case 'notloaded':
-      return i18n._({ id: 'Not loaded', message: 'Not loaded' })
-    case 'unknown':
-      return i18n._({ id: 'Unknown', message: 'Unknown' })
-    case 'nottracked':
-      return i18n._({ id: 'Not tracked', message: 'Not tracked' })
-    case 'error':
-      return i18n._({ id: 'Error', message: 'Error' })
-    case 'failed':
-      return i18n._({ id: 'Failed', message: 'Failed' })
-    case 'expired':
-      return i18n._({ id: 'Expired', message: 'Expired' })
-    case 'rejected':
-      return i18n._({ id: 'Rejected', message: 'Rejected' })
-    case 'denied':
-      return i18n._({ id: 'Denied', message: 'Denied' })
-    default:
-      return null
-  }
+  return formatLocalizedStatusLabel(value, '—')
 }
 
 function statusTone(value?: string | null) {
@@ -318,38 +248,6 @@ function contextUsageTone(percent: number | null): ProgressTone {
   }
 
   return 'accent'
-}
-
-function formatShellEnvironmentInherit(value?: string | null) {
-  switch (String(value ?? '').trim().toLowerCase()) {
-    case 'all':
-      return i18n._({ id: 'All', message: 'All' })
-    case 'core':
-      return i18n._({ id: 'Core', message: 'Core' })
-    case 'none':
-      return i18n._({ id: 'None', message: 'None' })
-    case 'not-explicit':
-      return i18n._({ id: 'Not explicit', message: 'Not explicit' })
-    case 'inherit':
-      return i18n._({ id: 'Inherit', message: 'Inherit' })
-    default:
-      return value && value.trim() ? value : '—'
-  }
-}
-
-function formatWindowsCommandResolution(value?: string | null) {
-  switch (String(value ?? '').trim().toLowerCase()) {
-    case 'at-risk':
-      return i18n._({ id: 'At risk', message: 'At risk' })
-    case 'patched':
-      return i18n._({ id: 'Patched', message: 'Patched' })
-    case 'normal':
-      return i18n._({ id: 'Normal', message: 'Normal' })
-    case 'unknown':
-      return i18n._({ id: 'Unknown', message: 'Unknown' })
-    default:
-      return value && value.trim() ? value : '—'
-  }
 }
 
 export function ThreadWorkbenchRailWorkspaceContextSection({
@@ -581,7 +479,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
       <div className="detail-stat-grid">
         <SummaryStat
           label={<InfoLabel label={i18n._({ id: 'Stream', message: 'Stream' })} />}
-          meta={workspaceName ?? undefined}
+          meta={workspaceName ? <span dir="auto">{workspaceName}</span> : undefined}
           value={<StatusBadge value={streamState} />}
         />
         <SummaryStat
@@ -675,7 +573,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
       >
         <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Workspace', message: 'Workspace' })} />}
-          value={workspaceName ?? '—'}
+          value={workspaceName ? <span dir="auto">{workspaceName}</span> : '—'}
         />
         <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Stream', message: 'Stream' })} />}
@@ -714,7 +612,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         <DetailRow
           emphasis
           label={<InfoLabel label={i18n._({ id: 'Thread', message: 'Thread' })} />}
-          value={selectedThread?.name ?? '—'}
+          value={selectedThread?.name ? <span dir="auto">{selectedThread.name}</span> : '—'}
         />
         <DetailRow
           emphasis
@@ -872,11 +770,17 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
       >
         <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Env inherit', message: 'Env inherit' })} />}
-          value={formatShellEnvironmentInherit(effectiveShellEnvironmentSummary.inherit)}
+          value={formatShellEnvironmentInheritLabel(
+            effectiveShellEnvironmentSummary.inherit,
+            '—',
+          )}
         />
         <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Cmd resolution', message: 'Cmd resolution' })} />}
-          value={formatWindowsCommandResolution(effectiveShellEnvironmentSummary.windowsCommandResolution)}
+          value={formatWindowsCommandResolutionLabel(
+            effectiveShellEnvironmentSummary.windowsCommandResolution,
+            '—',
+          )}
         />
         <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Missing vars', message: 'Missing vars' })} />}

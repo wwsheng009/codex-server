@@ -24,6 +24,7 @@ export type WriteRuntimePreferencesInput = {
   defaultTurnSandboxPolicy?: Record<string, unknown>
   defaultCommandSandboxPolicy?: Record<string, unknown>
   allowRemoteAccess?: boolean | null
+  allowLocalhostWithoutAccessToken?: boolean | null
   accessTokens?: AccessTokenWriteInput[]
   backendThreadTraceEnabled?: boolean | null
   backendThreadTraceWorkspaceId?: string

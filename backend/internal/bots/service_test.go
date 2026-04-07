@@ -539,12 +539,20 @@ func TestHandleWebhookWeChatEchoCommandBypassesAIAndReturnsTiming(t *testing.T) 
 	}
 
 	conversations := service.ListConversations(workspace.ID, connection.ID)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			strings.Contains(conversations[0].LastOutboundText, "ping from wechat") &&
+			strings.Contains(conversations[0].LastOutboundText, "Channel timing") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if len(conversations) != 1 {
 		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
 	}
-	if got := conversations[0].LastOutboundText; !strings.Contains(got, "ping from wechat") || !strings.Contains(got, "Channel timing") {
-		t.Fatalf("expected /echo result to be recorded on the conversation, got %q", got)
-	}
+	t.Fatalf("expected /echo result to be recorded on the conversation, got %q", conversations[0].LastOutboundText)
 }
 
 func TestHandleWebhookWeChatToggleDebugCommandUpdatesRuntimeMode(t *testing.T) {
@@ -709,12 +717,20 @@ func TestHandleWebhookWeChatDebugModeAppendsTimingToAIReply(t *testing.T) {
 	}
 
 	conversations := service.ListConversations(workspace.ID, connection.ID)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			strings.Contains(conversations[0].LastOutboundText, "reply: hello debug") &&
+			strings.Contains(conversations[0].LastOutboundText, "Channel timing") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if len(conversations) != 1 {
 		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
 	}
-	if got := conversations[0].LastOutboundText; !strings.Contains(got, "reply: hello debug") || !strings.Contains(got, "Channel timing") {
-		t.Fatalf("expected debug AI reply preview to include timing summary, got %q", got)
-	}
+	t.Fatalf("expected debug AI reply preview to include timing summary, got %q", conversations[0].LastOutboundText)
 }
 
 func TestHandleWebhookWeChatChannelTimingSettingDisablesTimingInDebugMode(t *testing.T) {
@@ -1829,6 +1845,207 @@ func TestRenderKnownConversationThreadsPrioritizesCurrentAndRecentApprovals(t *t
 	expected := "Known workspace threads (current first, then recent approvals/activity):\n1. thread-bot-3 (current) | Thread Three | reply three | updated 2026-03-28 12:03:30 UTC\n2. thread-bot-2 | Thread Two | reply two | 1 pending approval: Tool Response Request x1; latest: Newest approval; requested 2026-03-28 12:02:50 UTC | updated 2026-03-28 12:02:30 UTC\n3. thread-bot-1 | Thread One | reply one | 1 pending approval: Permissions Request x1; latest: Older approval; requested 2026-03-28 12:01:10 UTC | updated 2026-03-28 12:01:30 UTC"
 	if text != expected {
 		t.Fatalf("expected ordered thread list %q, got %q", expected, text)
+	}
+}
+
+func TestUpdateConversationBindingSwitchesExistingThread(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+		AIConfig: map[string]string{
+			"model": "gpt-5.4",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	firstThread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Thread One"})
+	if err != nil {
+		t.Fatalf("Create(firstThread) error = %v", err)
+	}
+	secondThread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Thread Two"})
+	if err != nil {
+		t.Fatalf("Create(secondThread) error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:  workspace.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		ThreadID:     firstThread.ID,
+		BackendState: conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, []string{firstThread.ID}),
+			0,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	updated, err := service.UpdateConversationBinding(context.Background(), workspace.ID, connection.ID, conversation.ID, UpdateConversationBindingInput{
+		ThreadID: secondThread.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationBinding() error = %v", err)
+	}
+	if updated.ThreadID != secondThread.ID {
+		t.Fatalf("expected updated thread id %q, got %#v", secondThread.ID, updated)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation to be persisted")
+	}
+	if storedConversation.ThreadID != secondThread.ID {
+		t.Fatalf("expected stored thread id %q, got %#v", secondThread.ID, storedConversation)
+	}
+	if conversationContextVersion(storedConversation) != 1 {
+		t.Fatalf("expected context version 1 after thread switch, got %#v", storedConversation.BackendState)
+	}
+
+	knownThreadIDs := knownConversationThreadIDs(storedConversation)
+	if len(knownThreadIDs) != 2 || knownThreadIDs[0] != firstThread.ID || knownThreadIDs[1] != secondThread.ID {
+		t.Fatalf("expected known thread list to preserve both bindings, got %#v", knownThreadIDs)
+	}
+}
+
+func TestUpdateConversationBindingCreatesAndBindsNewThread(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+		AIConfig: map[string]string{
+			"model": "gpt-5.4",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspace.ID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-1",
+		ExternalChatID:         "chat-1",
+		ExternalUsername:       "alice",
+		ExternalTitle:          "Alice",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	updated, err := service.UpdateConversationBinding(context.Background(), workspace.ID, connection.ID, conversation.ID, UpdateConversationBindingInput{
+		CreateThread: true,
+		Title:        "VIP Queue",
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationBinding(createThread) error = %v", err)
+	}
+	if updated.ThreadID == "" {
+		t.Fatalf("expected new thread id to be returned, got %#v", updated)
+	}
+
+	detail, err := threadsExec.GetDetail(context.Background(), workspace.ID, updated.ThreadID)
+	if err != nil {
+		t.Fatalf("GetDetail(newThread) error = %v", err)
+	}
+	if detail.Name != "Support Bot · VIP Queue" {
+		t.Fatalf("expected created thread name to use requested title, got %#v", detail)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation to be persisted")
+	}
+	if storedConversation.ThreadID != updated.ThreadID {
+		t.Fatalf("expected stored thread id %q, got %#v", updated.ThreadID, storedConversation)
+	}
+	if conversationContextVersion(storedConversation) != 1 {
+		t.Fatalf("expected context version 1 after new thread binding, got %#v", storedConversation.BackendState)
+	}
+}
+
+func TestClearConversationBindingRemovesCurrentThread(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	thread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Thread One"})
+	if err != nil {
+		t.Fatalf("Create(thread) error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:  workspace.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		ThreadID:     thread.ID,
+		BackendState: conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, []string{thread.ID}),
+			0,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	updated, err := service.ClearConversationBinding(context.Background(), workspace.ID, connection.ID, conversation.ID)
+	if err != nil {
+		t.Fatalf("ClearConversationBinding() error = %v", err)
+	}
+	if updated.ThreadID != "" {
+		t.Fatalf("expected thread binding to be cleared, got %#v", updated)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation to be persisted")
+	}
+	if storedConversation.ThreadID != "" {
+		t.Fatalf("expected stored thread binding to be cleared, got %#v", storedConversation)
+	}
+	if conversationContextVersion(storedConversation) != 1 {
+		t.Fatalf("expected context version 1 after clearing binding, got %#v", storedConversation.BackendState)
+	}
+
+	knownThreadIDs := knownConversationThreadIDs(storedConversation)
+	if len(knownThreadIDs) != 1 || knownThreadIDs[0] != thread.ID {
+		t.Fatalf("expected cleared binding to keep thread in history, got %#v", knownThreadIDs)
 	}
 }
 
@@ -3122,6 +3339,267 @@ func TestServiceSendsFailureReplyWhenAIBackendFails(t *testing.T) {
 	t.Fatalf("expected last error to mention runtime configuration, got %q", storedConnection.LastError)
 }
 
+func TestServiceRetriesReplyDeliveryAndMarksConversationDelivered(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	provider.setReplyDeliveryMaxAttempts(2)
+	provider.pushSendError(markReplyDeliveryRetryable(errors.New("transient send outage")))
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-delivery-retry-1",
+		"messageId":"msg-delivery-retry-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello retry"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello retry" {
+			t.Fatalf("expected retried reply to be delivered, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for retried provider send")
+	}
+
+	conversations := service.ListConversationViews(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	if conversations[0].LastOutboundDeliveryStatus != botReplyDeliveryStatusDelivered {
+		t.Fatalf("expected delivered conversation status, got %#v", conversations[0])
+	}
+	if conversations[0].LastOutboundDeliveryAttemptCount != 2 {
+		t.Fatalf("expected attempt count 2, got %#v", conversations[0])
+	}
+	if conversations[0].LastOutboundDeliveryError != "" {
+		t.Fatalf("expected empty delivery error after recovery, got %#v", conversations[0])
+	}
+	if conversations[0].LastOutboundDeliveredAt == nil {
+		t.Fatalf("expected delivered timestamp to be set, got %#v", conversations[0])
+	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"reply_delivery_retry",
+		[]string{"attempt 1", "transient send outage"},
+	)
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"reply_delivery_recovered",
+		[]string{"after 2 attempts"},
+	)
+
+	if count := countNotificationsByKindAndConnection(dataStore.ListNotifications(), "bot_reply_delivery_failed", connection.ID); count != 0 {
+		t.Fatalf("expected no reply delivery failure notification after successful retry, got %d", count)
+	}
+}
+
+func TestServiceExposesRetryingReplyDeliveryStateWhileWaitingForRetry(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	provider.setReplyDeliveryMaxAttempts(2)
+	provider.setReplyDeliveryRetryDelay(150 * time.Millisecond)
+	provider.pushSendError(markReplyDeliveryRetryable(errors.New("transient send outage")))
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-delivery-retrying-1",
+		"messageId":"msg-delivery-retrying-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello retrying"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations := service.ListConversationViews(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].LastOutboundDeliveryStatus == botReplyDeliveryStatusRetrying {
+			if conversations[0].LastOutboundDeliveryAttemptCount != 2 {
+				t.Fatalf("expected retrying state to show next attempt 2, got %#v", conversations[0])
+			}
+			if !strings.Contains(conversations[0].LastOutboundDeliveryError, "transient send outage") {
+				t.Fatalf("expected retrying state to preserve latest error, got %#v", conversations[0])
+			}
+			goto waitDelivered
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for retrying reply delivery state")
+
+waitDelivered:
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello retrying" {
+			t.Fatalf("expected retried message after retrying state, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for final retried provider send")
+	}
+}
+
+func TestServicePublishesReplyDeliveryFailureToClientStateAndLogs(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	provider.setReplyDeliveryMaxAttempts(2)
+	provider.pushSendError(markReplyDeliveryRetryable(errors.New("transient send outage")))
+	provider.pushSendError(markReplyDeliveryRetryable(errors.New("context expired on retry")))
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-delivery-fail-1",
+		"messageId":"msg-delivery-fail-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello fail"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if ok && strings.Contains(storedConnection.LastError, "context expired on retry") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	conversations := service.ListConversationViews(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	if conversations[0].LastOutboundDeliveryStatus != botReplyDeliveryStatusFailed {
+		t.Fatalf("expected failed conversation delivery status, got %#v", conversations[0])
+	}
+	if conversations[0].LastOutboundDeliveryAttemptCount != 2 {
+		t.Fatalf("expected failed attempt count 2, got %#v", conversations[0])
+	}
+	if !strings.Contains(conversations[0].LastOutboundDeliveryError, "context expired on retry") {
+		t.Fatalf("expected failed delivery error to be persisted, got %#v", conversations[0])
+	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"reply_delivery_retry",
+		[]string{"attempt 1", "transient send outage"},
+	)
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"reply_delivery_failed",
+		[]string{"msg-delivery-fail-1", "context expired on retry"},
+	)
+	assertNotificationContains(
+		t,
+		dataStore.ListNotifications(),
+		"bot_reply_delivery_failed",
+		connection.ID,
+		[]string{"msg-delivery-fail-1", "context expired on retry"},
+	)
+}
+
 func TestServiceDoesNotRetryStoredReplyWhenWebhookRedeliversSameMessage(t *testing.T) {
 	t.Parallel()
 
@@ -3489,6 +3967,294 @@ func TestServiceDoesNotReplayStoredWeChatReplyMediaOnStart(t *testing.T) {
 	)
 }
 
+func TestServiceReplaysFailedWeChatReplyAfterRetryIntentWithoutRerunningAI(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	provider.pushSendError(errors.New("wechat sendmessage text failed: session expired"))
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-wechat-retry-1",
+			Messages: []OutboundMessage{
+				{Text: "这是上一次已经生成好的回复"},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "scripted_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	firstRequest := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-wechat-retry-1",
+		"externalChatId":"chat-wechat-retry-1",
+		"messageId":"msg-wechat-retry-1",
+		"userId":"wechat-user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"把上一个结果发给我",
+		"providerData":{"wechat_context_token":"ctx-old"}
+	}`))
+	firstRequest.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(firstRequest, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook(first) error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected first webhook to accept 1 message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var failedDelivery store.BotInboundDelivery
+	for time.Now().Before(deadline) {
+		candidate, ok := dataStore.FindLatestFailedBotInboundDeliveryWithSavedReply(
+			workspace.ID,
+			connection.ID,
+			"chat-wechat-retry-1",
+			"",
+		)
+		if ok {
+			failedDelivery = candidate
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if failedDelivery.ID == "" {
+		t.Fatal("expected original failed wechat delivery with saved reply to be persisted")
+	}
+
+	secondRequest := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-wechat-retry-1",
+		"externalChatId":"chat-wechat-retry-1",
+		"messageId":"msg-wechat-retry-2",
+		"userId":"wechat-user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"再发一次",
+		"providerData":{"wechat_context_token":"ctx-new"}
+	}`))
+	secondRequest.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err = service.HandleWebhook(secondRequest, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook(second) error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected retry webhook to accept 1 message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "这是上一次已经生成好的回复" {
+			t.Fatalf("expected retry intent to replay saved reply, got %#v", sent.Messages)
+		}
+		if got := sent.Conversation.ProviderState[wechatContextTokenKey]; got != "ctx-new" {
+			t.Fatalf("expected replay to use refreshed wechat context token, got %#v", sent.Conversation.ProviderState)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for replayed wechat reply")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected ai backend not to rerun on wechat retry intent, got %d calls", backend.callCount())
+	}
+	if got := backend.lastInboundMessage().MessageID; got != "msg-wechat-retry-1" {
+		t.Fatalf("expected ai backend to keep the original inbound message, got %#v", backend.lastInboundMessage())
+	}
+
+	conversations := service.ListConversationViews(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	if conversations[0].LastInboundMessageID != "msg-wechat-retry-2" {
+		t.Fatalf("expected retry intent message id to become latest inbound, got %#v", conversations[0])
+	}
+	if conversations[0].LastOutboundDeliveryStatus != botReplyDeliveryStatusDelivered {
+		t.Fatalf("expected delivered conversation status after replay, got %#v", conversations[0])
+	}
+	if conversations[0].LastOutboundText != "这是上一次已经生成好的回复" {
+		t.Fatalf("expected replayed reply to become last outbound text, got %#v", conversations[0])
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedFailedDelivery, ok := dataStore.GetBotInboundDelivery(workspace.ID, failedDelivery.ID)
+		if ok &&
+			storedFailedDelivery.Status == "completed" &&
+			storedFailedDelivery.ReplyDeliveryStatus == botReplyDeliveryStatusDelivered {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	storedFailedDelivery, ok := dataStore.GetBotInboundDelivery(workspace.ID, failedDelivery.ID)
+	if !ok {
+		t.Fatalf("expected to reload original failed delivery %s", failedDelivery.ID)
+	}
+	if storedFailedDelivery.Status != "completed" {
+		t.Fatalf("expected original failed delivery to be marked completed after replay, got %#v", storedFailedDelivery)
+	}
+	if storedFailedDelivery.ReplyDeliveryStatus != botReplyDeliveryStatusDelivered {
+		t.Fatalf("expected original failed delivery reply status delivered after replay, got %#v", storedFailedDelivery)
+	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"reply_delivery_replayed",
+		[]string{"msg-wechat-retry-1", "msg-wechat-retry-2"},
+	)
+}
+
+func TestReplayLatestFailedReplyReplaysSavedDeliveryAndAccumulatesAttempts(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	provider.setReplyDeliveryMaxAttempts(2)
+	provider.pushSendError(markReplyDeliveryRetryable(errors.New("transient send outage")))
+	provider.pushSendError(markReplyDeliveryRetryable(errors.New("context expired on retry")))
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-manual-replay-1",
+		"messageId":"msg-manual-replay-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello manual replay"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var failedDelivery store.BotInboundDelivery
+	for time.Now().Before(deadline) {
+		candidate, ok := dataStore.FindLatestFailedBotInboundDeliveryWithSavedReply(
+			workspace.ID,
+			connection.ID,
+			"chat-manual-replay-1",
+			"",
+		)
+		if ok && candidate.ReplyDeliveryAttemptCount == 2 {
+			failedDelivery = candidate
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if failedDelivery.ID == "" {
+		t.Fatal("expected failed delivery with saved reply before manual replay")
+	}
+
+	conversations := service.ListConversationViews(workspace.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	if conversations[0].LastOutboundDeliveryStatus != botReplyDeliveryStatusFailed {
+		t.Fatalf("expected failed conversation before manual replay, got %#v", conversations[0])
+	}
+
+	replayedConversation, err := service.ReplayLatestFailedReply(
+		context.Background(),
+		workspace.ID,
+		connection.ID,
+		conversations[0].ID,
+	)
+	if err != nil {
+		t.Fatalf("ReplayLatestFailedReply() error = %v", err)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello manual replay" {
+			t.Fatalf("expected manual replay to send saved reply, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for manual replay send")
+	}
+
+	if replayedConversation.LastOutboundDeliveryStatus != botReplyDeliveryStatusDelivered {
+		t.Fatalf("expected delivered conversation after manual replay, got %#v", replayedConversation)
+	}
+	if replayedConversation.LastOutboundDeliveryAttemptCount != 3 {
+		t.Fatalf("expected cumulative attempt count 3 after manual replay, got %#v", replayedConversation)
+	}
+
+	storedFailedDelivery, ok := dataStore.GetBotInboundDelivery(workspace.ID, failedDelivery.ID)
+	if !ok {
+		t.Fatalf("expected to reload failed delivery %s", failedDelivery.ID)
+	}
+	if storedFailedDelivery.Status != "completed" {
+		t.Fatalf("expected manual replay to complete failed delivery, got %#v", storedFailedDelivery)
+	}
+	if storedFailedDelivery.ReplyDeliveryStatus != botReplyDeliveryStatusDelivered {
+		t.Fatalf("expected manual replay to mark failed delivery delivered, got %#v", storedFailedDelivery)
+	}
+	if storedFailedDelivery.ReplyDeliveryAttemptCount != 3 {
+		t.Fatalf("expected failed delivery attempt count to accumulate to 3, got %#v", storedFailedDelivery)
+	}
+
+	storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatalf("expected to reload connection %s", connection.ID)
+	}
+	if strings.TrimSpace(storedConnection.LastError) != "" {
+		t.Fatalf("expected manual replay success to clear connection last error, got %#v", storedConnection)
+	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"reply_delivery_replayed",
+		[]string{"msg-manual-replay-1"},
+	)
+}
+
 func TestExecuteAIReplyStartsWeChatTypingForNonStreamingReplies(t *testing.T) {
 	t.Parallel()
 
@@ -3517,7 +4283,7 @@ func TestExecuteAIReplyStartsWeChatTypingForNonStreamingReplies(t *testing.T) {
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		reply, _, _, err := service.executeAIReply(context.Background(), provider, backend, connection, conversation, inbound)
+		reply, _, _, _, err := service.executeAIReply(context.Background(), provider, backend, connection, conversation, inbound, nil)
 		resultCh <- result{reply: reply, err: err}
 	}()
 
@@ -4266,9 +5032,11 @@ func TestRenderPendingApprovalsForBotAuthRefreshUsesWorkspaceOnlyHint(t *testing
 }
 
 type fakeProvider struct {
-	mu     sync.Mutex
-	sentCh chan fakeSentPayload
-	errors []error
+	mu                       sync.Mutex
+	sentCh                   chan fakeSentPayload
+	errors                   []error
+	replyDeliveryMaxAttempts int
+	replyDeliveryRetryDelay  time.Duration
 }
 
 type fakeSentPayload struct {
@@ -4279,7 +5047,8 @@ type fakeSentPayload struct {
 
 func newFakeProvider() *fakeProvider {
 	return &fakeProvider{
-		sentCh: make(chan fakeSentPayload, 8),
+		sentCh:                   make(chan fakeSentPayload, 8),
+		replyDeliveryMaxAttempts: 1,
 	}
 }
 
@@ -4341,21 +5110,46 @@ func (p *fakeProvider) pushSendError(err error) {
 	p.errors = append(p.errors, err)
 }
 
+func (p *fakeProvider) ReplyDeliveryRetryDecision(err error, attempt int) (bool, time.Duration) {
+	p.mu.Lock()
+	maxAttempts := p.replyDeliveryMaxAttempts
+	delay := p.replyDeliveryRetryDelay
+	p.mu.Unlock()
+	if maxAttempts <= 1 || attempt >= maxAttempts || !isReplyDeliveryRetryable(err) {
+		return false, 0
+	}
+	return true, delay
+}
+
+func (p *fakeProvider) setReplyDeliveryMaxAttempts(maxAttempts int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.replyDeliveryMaxAttempts = maxAttempts
+}
+
+func (p *fakeProvider) setReplyDeliveryRetryDelay(delay time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.replyDeliveryRetryDelay = delay
+}
+
 type fakeWeChatProvider struct {
-	mu              sync.Mutex
-	sentCh          chan fakeSentPayload
-	errors          []error
-	typingStarts    int
-	typingStops     int
-	typingStartedCh chan struct{}
-	typingStoppedCh chan struct{}
+	mu                       sync.Mutex
+	sentCh                   chan fakeSentPayload
+	errors                   []error
+	replyDeliveryMaxAttempts int
+	typingStarts             int
+	typingStops              int
+	typingStartedCh          chan struct{}
+	typingStoppedCh          chan struct{}
 }
 
 func newFakeWeChatProvider() *fakeWeChatProvider {
 	return &fakeWeChatProvider{
-		sentCh:          make(chan fakeSentPayload, 8),
-		typingStartedCh: make(chan struct{}, 2),
-		typingStoppedCh: make(chan struct{}, 2),
+		sentCh:                   make(chan fakeSentPayload, 8),
+		replyDeliveryMaxAttempts: 1,
+		typingStartedCh:          make(chan struct{}, 2),
+		typingStoppedCh:          make(chan struct{}, 2),
 	}
 }
 
@@ -4432,6 +5226,22 @@ func (p *fakeWeChatProvider) pushSendError(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.errors = append(p.errors, err)
+}
+
+func (p *fakeWeChatProvider) ReplyDeliveryRetryDecision(err error, attempt int) (bool, time.Duration) {
+	p.mu.Lock()
+	maxAttempts := p.replyDeliveryMaxAttempts
+	p.mu.Unlock()
+	if maxAttempts <= 1 || attempt >= maxAttempts || !isReplyDeliveryRetryable(err) {
+		return false, 0
+	}
+	return true, 0
+}
+
+func (p *fakeWeChatProvider) setReplyDeliveryMaxAttempts(maxAttempts int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.replyDeliveryMaxAttempts = maxAttempts
 }
 
 type fakeWeChatTypingSession struct {

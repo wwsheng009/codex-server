@@ -33,6 +33,7 @@ const (
 	telegramDeliveryRetryAttempts = 4
 	telegramDeliveryRetryBase     = 300 * time.Millisecond
 	telegramDeliveryRetryMax      = 3 * time.Second
+	telegramReplyRetryAttempts    = 2
 )
 
 type telegramProvider struct {
@@ -427,6 +428,7 @@ func (p *telegramProvider) SendMessages(
 		slog.Any("messages", debugOutboundMessages(messages)),
 	)
 
+	sentChunks := 0
 	for index, chunk := range chunks {
 		logBotDebug(ctx, connection, "telegram sending chunk",
 			slog.String("externalChatId", chatID),
@@ -436,11 +438,22 @@ func (p *telegramProvider) SendMessages(
 			slog.String("chunkPreview", debugTextPreview(chunk)),
 		)
 		if _, err := p.sendTextMessage(ctx, token, chatID, threadID, chunk); err != nil {
+			if sentChunks == 0 {
+				return markReplyDeliveryRetryable(err)
+			}
 			return err
 		}
+		sentChunks += 1
 	}
 
 	return nil
+}
+
+func (p *telegramProvider) ReplyDeliveryRetryDecision(err error, attempt int) (bool, time.Duration) {
+	if attempt >= telegramReplyRetryAttempts || !isReplyDeliveryRetryable(err) {
+		return false, 0
+	}
+	return p.deliveryRetryDecision(unwrapReplyDeliveryRetryable(err), attempt)
 }
 
 func (p *telegramProvider) StartStreamingReply(

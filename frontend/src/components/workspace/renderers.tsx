@@ -15,6 +15,8 @@ import {
   ThreadPlainText,
   ThreadTerminalBlock,
 } from '../thread/ThreadContent'
+import { formatLocalizedStatusLabel, formatLocalizedTime } from '../../i18n/display'
+import { i18n } from '../../i18n/runtime'
 import { containsAnsiEscapeCode, safeJson } from '../thread/threadRender'
 import { InlineNotice } from '../ui/InlineNotice'
 import { Input } from '../ui/Input'
@@ -285,7 +287,7 @@ export const LiveFeed = memo(function LiveFeed({ entries }: LiveFeedProps) {
           <article className="live-feed__card" key={entry.key}>
             <div className="live-feed__header">
               <strong>{entry.event.method}</strong>
-              <span>{new Date(entry.event.ts).toLocaleTimeString()}</span>
+              <span>{formatLocalizedTime(entry.event.ts)}</span>
             </div>
             <ThreadCodeBlock className="live-feed__output" content={safeJson(entry.event.payload)} />
           </article>
@@ -1453,14 +1455,14 @@ function TimelineItem({
       return (
         <SystemTimelineCard
           className="conversation-card--file"
-          meta={`${changes.length} file${changes.length === 1 ? '' : 's'}`}
+          meta={fileCountLabel(changes.length)}
           summary={fileChangeCardSummary(changes)}
-          title="Files"
+          title={i18n._({ id: 'Files', message: 'Files' })}
         >
           <ul className="conversation-file-list">
             {changes.map((change, index) => (
               <li className="conversation-file-list__item" key={`${change.path || 'file'}-${index}`}>
-                <strong>{change.path || 'Unknown file'}</strong>
+                <strong dir="auto">{change.path || i18n._({ id: 'Unknown file', message: 'Unknown file' })}</strong>
                 {change.kind ? <span>{change.kind}</span> : null}
               </li>
             ))}
@@ -1506,12 +1508,12 @@ function TimelineItem({
         <SystemTimelineCard
           className="conversation-card--reasoning"
           summary={reasoningCardSummary(item)}
-          title="Reasoning"
+          title={i18n._({ id: 'Reasoning', message: 'Reasoning' })}
         >
           {summaryText ? (
             <div className="conversation-tool-call__section">
               <div className="conversation-tool-call__section-header">
-                <strong>Summary</strong>
+                <strong>{i18n._({ id: 'Summary', message: 'Summary' })}</strong>
               </div>
               <ThreadPlainText
                 className="conversation-tool-call__text"
@@ -1522,7 +1524,7 @@ function TimelineItem({
           {contentText ? (
             <div className="conversation-tool-call__section">
               <div className="conversation-tool-call__section-header">
-                <strong>Content</strong>
+                <strong>{i18n._({ id: 'Content', message: 'Content' })}</strong>
               </div>
               <ThreadPlainText
                 className="conversation-tool-call__text"
@@ -1678,7 +1680,9 @@ function WebSearchTimelineCard({
   const queries = webSearchQueries(item)
   const url = webSearchURL(item)
   const pattern = webSearchPattern(item)
-  const summary = webSearchCardSummary(item) || 'Web search activity'
+  const summary =
+    webSearchCardSummary(item) ||
+    i18n._({ id: 'Web search activity', message: 'Web search activity' })
   const meta = actionLabel || undefined
 
   return (
@@ -1686,28 +1690,28 @@ function WebSearchTimelineCard({
       className="conversation-card--tool"
       meta={meta}
       summary={summary}
-      title="Web Search"
+      title={i18n._({ id: 'Web Search', message: 'Web Search' })}
     >
       <div className="conversation-tool-call__meta-grid">
         <div className="conversation-tool-call__meta-row">
-          <span>Action</span>
-          <strong>{actionLabel || 'Web Search'}</strong>
+          <span>{i18n._({ id: 'Action', message: 'Action' })}</span>
+          <strong>{actionLabel || i18n._({ id: 'Web Search', message: 'Web Search' })}</strong>
         </div>
         {queries.length ? (
           <div className="conversation-tool-call__meta-row">
-            <span>{queries.length === 1 ? 'Query' : 'Queries'}</span>
-            <strong>{queries.length === 1 ? queries[0] : `${queries.length} queries`}</strong>
+            <span>{queries.length === 1 ? i18n._({ id: 'Query', message: 'Query' }) : i18n._({ id: 'Queries', message: 'Queries' })}</span>
+            <strong>{queries.length === 1 ? queries[0] : queryCountLabel(queries.length)}</strong>
           </div>
         ) : null}
         {url ? (
           <div className="conversation-tool-call__meta-row">
-            <span>Target</span>
+            <span>{i18n._({ id: 'Target', message: 'Target' })}</span>
             <strong>{url}</strong>
           </div>
         ) : null}
         {pattern ? (
           <div className="conversation-tool-call__meta-row">
-            <span>Pattern</span>
+            <span>{i18n._({ id: 'Pattern', message: 'Pattern' })}</span>
             <strong>{pattern}</strong>
           </div>
         ) : null}
@@ -1715,14 +1719,22 @@ function WebSearchTimelineCard({
       {queries.length ? (
         <div className="conversation-tool-call__section">
           <div className="conversation-tool-call__section-header">
-            <strong>{queries.length === 1 ? 'Query' : 'Queries'}</strong>
+            <strong>
+              {queries.length === 1
+                ? i18n._({ id: 'Query', message: 'Query' })
+                : i18n._({ id: 'Queries', message: 'Queries' })}
+            </strong>
           </div>
           <div className="conversation-tool-call__structured">
             {queries.map((query, index) => (
               <div className="conversation-tool-call__subsection" key={`${query}-${index}`}>
                 {queries.length > 1 ? (
                   <span className="conversation-tool-call__subsection-label">
-                    Query {index + 1}
+                    {i18n._({
+                      id: 'Query {index}',
+                      message: 'Query {index}',
+                      values: { index: index + 1 },
+                    })}
                   </span>
                 ) : null}
                 <ThreadPlainText
@@ -1737,7 +1749,7 @@ function WebSearchTimelineCard({
       {pattern ? (
         <div className="conversation-tool-call__section">
           <div className="conversation-tool-call__section-header">
-            <strong>Pattern</strong>
+            <strong>{i18n._({ id: 'Pattern', message: 'Pattern' })}</strong>
           </div>
           <ThreadPlainText
             className="conversation-tool-call__text"
@@ -1748,7 +1760,7 @@ function WebSearchTimelineCard({
       {url ? (
         <div className="conversation-tool-call__section">
           <div className="conversation-tool-call__section-header">
-            <strong>Page</strong>
+            <strong>{i18n._({ id: 'Page', message: 'Page' })}</strong>
           </div>
           <a
             className="conversation-tool-call__link"
@@ -2393,33 +2405,36 @@ function humanizeItemType(type: string) {
 }
 
 function humanizeToolStatus(value: string) {
-  return value
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[-_]/g, ' ')
-    .replace(/\binprogress\b/gi, 'in progress')
-    .replace(/\b\w/g, (character) => character.toUpperCase())
+  return formatLocalizedStatusLabel(
+    value,
+    value
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[-_]/g, ' ')
+      .replace(/\binprogress\b/gi, 'in progress')
+      .replace(/\b\w/g, (character) => character.toUpperCase()),
+  )
 }
 
 function serverRequestTitle(kind: string) {
   switch (kind) {
     case 'item/commandExecution/requestApproval':
     case 'execCommandApproval':
-      return 'Command Approval'
+      return i18n._({ id: 'Command Approval', message: 'Command Approval' })
     case 'item/fileChange/requestApproval':
     case 'applyPatchApproval':
-      return 'File Change Approval'
+      return i18n._({ id: 'File Change Approval', message: 'File Change Approval' })
     case 'item/tool/requestUserInput':
-      return 'User Input Request'
+      return i18n._({ id: 'User Input Request', message: 'User Input Request' })
     case 'item/permissions/requestApproval':
-      return 'Permissions Request'
+      return i18n._({ id: 'Permissions Request', message: 'Permissions Request' })
     case 'mcpServer/elicitation/request':
-      return 'MCP Input Request'
+      return i18n._({ id: 'MCP Input Request', message: 'MCP Input Request' })
     case 'item/tool/call':
-      return 'Tool Response Request'
+      return i18n._({ id: 'Tool Response Request', message: 'Tool Response Request' })
     case 'account/chatgptAuthTokens/refresh':
-      return 'Auth Refresh Request'
+      return i18n._({ id: 'Auth Refresh Request', message: 'Auth Refresh Request' })
     default:
-      return 'Server Request'
+      return i18n._({ id: 'Server Request', message: 'Server Request' })
   }
 }
 
@@ -2427,37 +2442,87 @@ function summarizeServerRequest(kind: string, details: Record<string, unknown>) 
   switch (kind) {
     case 'item/commandExecution/requestApproval':
     case 'execCommandApproval':
-      return stringField(details.command) || 'Review the command request'
+      return (
+        stringField(details.command) ||
+        i18n._({ id: 'Review the command request', message: 'Review the command request' })
+      )
     case 'item/fileChange/requestApproval':
     case 'applyPatchApproval':
       return stringField(details.path) || summarizeChangeCount(details)
     case 'item/tool/requestUserInput': {
       const questionCount = Array.isArray(details.questions) ? details.questions.length : 0
-      return questionCount ? `${questionCount} question${questionCount === 1 ? '' : 's'} waiting for an answer` : 'Provide input to continue'
+      return questionCount
+        ? i18n._({
+            id: '{count} questions waiting for an answer',
+            message: '{count} questions waiting for an answer',
+            values: { count: questionCount },
+          })
+        : i18n._({ id: 'Provide input to continue', message: 'Provide input to continue' })
     }
     case 'item/permissions/requestApproval':
-      return stringField(details.reason) || 'Additional permissions were requested'
+      return (
+        stringField(details.reason) ||
+        i18n._({
+          id: 'Additional permissions were requested',
+          message: 'Additional permissions were requested',
+        })
+      )
     case 'mcpServer/elicitation/request':
-      return stringField(details.message) || stringField(details.serverName) || 'The MCP server is waiting for input'
+      return (
+        stringField(details.message) ||
+        stringField(details.serverName) ||
+        i18n._({
+          id: 'The MCP server is waiting for input',
+          message: 'The MCP server is waiting for input',
+        })
+      )
     case 'item/tool/call':
-      return stringField(details.tool) || 'Provide output for the requested tool call'
+      return (
+        stringField(details.tool) ||
+        i18n._({
+          id: 'Provide output for the requested tool call',
+          message: 'Provide output for the requested tool call',
+        })
+      )
     case 'account/chatgptAuthTokens/refresh':
-      return stringField(details.reason) || 'Refresh the account authentication tokens'
+      return (
+        stringField(details.reason) ||
+        i18n._({
+          id: 'Refresh the account authentication tokens',
+          message: 'Refresh the account authentication tokens',
+        })
+      )
     default:
-      return stringField(details.message) || stringField(details.reason) || 'Expand for request details'
+      return (
+        stringField(details.message) ||
+        stringField(details.reason) ||
+        i18n._({ id: 'Expand for request details', message: 'Expand for request details' })
+      )
   }
 }
 
 function serverRequestExpiredMessage(reason: string) {
   switch (reason) {
     case 'runtime_closed':
-      return 'This request expired because the runtime connection was closed.'
+      return i18n._({
+        id: 'This request expired because the runtime connection was closed.',
+        message: 'This request expired because the runtime connection was closed.',
+      })
     case 'runtime_removed':
-      return 'This request expired because the workspace runtime was removed.'
+      return i18n._({
+        id: 'This request expired because the workspace runtime was removed.',
+        message: 'This request expired because the workspace runtime was removed.',
+      })
     case 'request_unavailable':
-      return 'This request is no longer available. Re-run the action if it is still needed.'
+      return i18n._({
+        id: 'This request is no longer available. Re-run the action if it is still needed.',
+        message: 'This request is no longer available. Re-run the action if it is still needed.',
+      })
     default:
-      return 'This request is no longer available. Re-run the action if it is still needed.'
+      return i18n._({
+        id: 'This request is no longer available. Re-run the action if it is still needed.',
+        message: 'This request is no longer available. Re-run the action if it is still needed.',
+      })
   }
 }
 
@@ -2465,16 +2530,28 @@ function serverRequestMetaPills(kind: string, details: Record<string, unknown>) 
   const pills: string[] = []
 
   if (kind === 'item/tool/call' && stringField(details.tool)) {
-    pills.push(`Tool ${stringField(details.tool)}`)
+    pills.push(
+      i18n._({
+        id: 'Tool {tool}',
+        message: 'Tool {tool}',
+        values: { tool: stringField(details.tool) },
+      }),
+    )
   }
   if (kind === 'mcpServer/elicitation/request' && stringField(details.serverName)) {
-    pills.push(`Server ${stringField(details.serverName)}`)
+    pills.push(
+      i18n._({
+        id: 'Server {server}',
+        message: 'Server {server}',
+        values: { server: stringField(details.serverName) },
+      }),
+    )
   }
   if (Array.isArray(details.questions) && details.questions.length > 0) {
-    pills.push(`${details.questions.length} question${details.questions.length === 1 ? '' : 's'}`)
+    pills.push(questionCountLabel(details.questions.length))
   }
   if (Array.isArray(details.changes) && details.changes.length > 0) {
-    pills.push(`${details.changes.length} file${details.changes.length === 1 ? '' : 's'}`)
+    pills.push(fileCountLabel(details.changes.length))
   }
 
   return pills
@@ -2482,7 +2559,16 @@ function serverRequestMetaPills(kind: string, details: Record<string, unknown>) 
 
 function summarizeChangeCount(details: Record<string, unknown>) {
   const changeCount = Array.isArray(details.changes) ? details.changes.length : 0
-  return changeCount ? `${changeCount} file change${changeCount === 1 ? '' : 's'}` : 'Review the requested file changes'
+  return changeCount
+    ? i18n._({
+        id: '{count} file changes',
+        message: '{count} file changes',
+        values: { count: changeCount },
+      })
+    : i18n._({
+        id: 'Review the requested file changes',
+        message: 'Review the requested file changes',
+      })
 }
 
 function compactMetaLabel(values: string[], limit = 2) {
@@ -2491,6 +2577,44 @@ function compactMetaLabel(values: string[], limit = 2) {
     .filter(Boolean)
     .slice(0, limit)
     .join(' · ')
+}
+
+function fileCountLabel(count: number) {
+  return count === 1
+    ? i18n._({ id: '{count} file', message: '{count} file', values: { count } })
+    : i18n._({ id: '{count} files', message: '{count} files', values: { count } })
+}
+
+function lineCountLabel(count: number) {
+  return count === 1
+    ? i18n._({ id: '{count} line', message: '{count} line', values: { count } })
+    : i18n._({ id: '{count} lines', message: '{count} lines', values: { count } })
+}
+
+function questionCountLabel(count: number) {
+  return count === 1
+    ? i18n._({ id: '{count} question', message: '{count} question', values: { count } })
+    : i18n._({ id: '{count} questions', message: '{count} questions', values: { count } })
+}
+
+function queryCountLabel(count: number) {
+  return count === 1
+    ? i18n._({ id: '{count} query', message: '{count} query', values: { count } })
+    : i18n._({ id: '{count} queries', message: '{count} queries', values: { count } })
+}
+
+function targetThreadCountLabel(count: number) {
+  return count === 1
+    ? i18n._({
+        id: '{count} target thread',
+        message: '{count} target thread',
+        values: { count },
+      })
+    : i18n._({
+        id: '{count} target threads',
+        message: '{count} target threads',
+        values: { count },
+      })
 }
 
 function outputLineLabel(output: string, lineCountOverride?: number | null) {
@@ -2502,12 +2626,12 @@ function outputLineLabel(output: string, lineCountOverride?: number | null) {
     return null
   }
 
-  return `${lineCount} line${lineCount === 1 ? '' : 's'}`
+  return lineCountLabel(lineCount)
 }
 
 function planCardSummary(steps: string[]) {
   if (!steps.length) {
-    return 'No steps'
+    return i18n._({ id: 'No steps', message: 'No steps' })
   }
 
   return steps.length === 1
@@ -2517,17 +2641,17 @@ function planCardSummary(steps: string[]) {
 
 function fileChangeCardSummary(changes: Array<{ kind: string; path: string }>) {
   if (!changes.length) {
-    return 'No files'
+    return i18n._({ id: 'No files', message: 'No files' })
   }
 
   return changes.length === 1
-    ? truncateMiddle(changes[0].path || 'Unknown file', 96)
-    : `${truncateMiddle(changes[0].path || 'Unknown file', 80)} +${changes.length - 1}`
+    ? truncateMiddle(changes[0].path || i18n._({ id: 'Unknown file', message: 'Unknown file' }), 96)
+    : `${truncateMiddle(changes[0].path || i18n._({ id: 'Unknown file', message: 'Unknown file' }), 80)} +${changes.length - 1}`
 }
 
 function summarizeCompactError(error: unknown) {
   const value = typeof error === 'string' ? error : safeJson(error)
-  return truncateSingleLine(value, 112) || 'Runtime error'
+  return truncateSingleLine(value, 112) || i18n._({ id: 'Runtime error', message: 'Runtime error' })
 }
 
 function truncateSingleLine(value: string, maxLength: number) {
@@ -2623,19 +2747,26 @@ function toolCallSummary(item: Record<string, unknown>) {
 
   if (type === 'mcpToolCall') {
     if (server) {
-      return `Server ${server}${status ? ` · ${humanizeToolStatus(status)}` : ''}`
+      return i18n._({
+        id: 'Server {server}{statusSuffix}',
+        message: 'Server {server}{statusSuffix}',
+        values: {
+          server,
+          statusSuffix: status ? ` · ${humanizeToolStatus(status)}` : '',
+        },
+      })
     }
 
-    return humanizeToolStatus(status) || 'Expand for details'
+    return humanizeToolStatus(status) || i18n._({ id: 'Expand for details', message: 'Expand for details' })
   }
 
   if (type === 'collabAgentToolCall') {
     return receiverThreadIds.length
-      ? `${receiverThreadIds.length} target thread${receiverThreadIds.length === 1 ? '' : 's'}`
-      : humanizeToolStatus(status) || 'Expand for details'
+      ? targetThreadCountLabel(receiverThreadIds.length)
+      : humanizeToolStatus(status) || i18n._({ id: 'Expand for details', message: 'Expand for details' })
   }
 
-  return humanizeToolStatus(status) || 'Expand for details'
+  return humanizeToolStatus(status) || i18n._({ id: 'Expand for details', message: 'Expand for details' })
 }
 
 function webSearchAction(item: Record<string, unknown>) {
@@ -2674,7 +2805,7 @@ function reasoningCardSummary(item: Record<string, unknown>) {
 
   const contentLines = reasoningContentLines(item)
   if (!contentLines.length) {
-    return 'Reasoning'
+    return i18n._({ id: 'Reasoning', message: 'Reasoning' })
   }
 
   return contentLines.length === 1
@@ -2694,13 +2825,13 @@ function webSearchActionType(item: Record<string, unknown>) {
 function webSearchActionLabel(value: string) {
   switch (value) {
     case 'search':
-      return 'Search'
+      return i18n._({ id: 'Search', message: 'Search' })
     case 'openPage':
-      return 'Open Page'
+      return i18n._({ id: 'Open Page', message: 'Open Page' })
     case 'findInPage':
-      return 'Find In Page'
+      return i18n._({ id: 'Find In Page', message: 'Find In Page' })
     default:
-      return value ? humanizeItemType(value) : 'Web Search'
+      return value ? humanizeItemType(value) : i18n._({ id: 'Web Search', message: 'Web Search' })
   }
 }
 
@@ -2743,15 +2874,28 @@ function webSearchCardSummary(item: Record<string, unknown>) {
         ? truncateSingleLine(queries[0], 104)
         : `${truncateSingleLine(queries[0], 84)} +${queries.length - 1}`
     case 'openPage':
-      return truncateMiddle(url || queries[0] || 'Open page', 104)
+      return truncateMiddle(
+        url || queries[0] || i18n._({ id: 'Open page', message: 'Open page' }),
+        104,
+      )
     case 'findInPage':
       if (pattern && url) {
-        return `${truncateSingleLine(pattern, 42)} in ${truncateMiddle(url, 52)}`
+        return i18n._({
+          id: '{pattern} in {url}',
+          message: '{pattern} in {url}',
+          values: {
+            pattern: truncateSingleLine(pattern, 42),
+            url: truncateMiddle(url, 52),
+          },
+        })
       }
       if (pattern) {
         return truncateSingleLine(pattern, 104)
       }
-      return truncateMiddle(url || queries[0] || 'Find in page', 104)
+      return truncateMiddle(
+        url || queries[0] || i18n._({ id: 'Find in page', message: 'Find in page' }),
+        104,
+      )
     default: {
       const fallback = queries[0] || url || pattern
       return fallback ? truncateSingleLine(fallback, 104) : ''

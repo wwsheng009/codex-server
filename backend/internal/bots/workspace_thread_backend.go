@@ -123,6 +123,7 @@ func (b *workspaceThreadAIBackend) processMessage(
 		slog.String("threadId", threadID),
 		slog.String("turnId", result.TurnID),
 		slog.String("model", strings.TrimSpace(connection.AIConfig["model"])),
+		slog.String("permissionPreset", strings.TrimSpace(connection.AIConfig["permission_preset"])),
 		slog.String("reasoningEffort", strings.TrimSpace(connection.AIConfig["reasoning_effort"])),
 		slog.String("collaborationMode", strings.TrimSpace(connection.AIConfig["collaboration_mode"])),
 	)
@@ -190,8 +191,9 @@ func (b *workspaceThreadAIBackend) ensureThread(
 	}
 
 	thread, err := b.threads.Create(ctx, connection.WorkspaceID, threads.CreateInput{
-		Name:  buildThreadName(connection, inbound),
-		Model: strings.TrimSpace(connection.AIConfig["model"]),
+		Name:             buildThreadName(connection, inbound),
+		Model:            strings.TrimSpace(connection.AIConfig["model"]),
+		PermissionPreset: strings.TrimSpace(connection.AIConfig["permission_preset"]),
 	})
 	if err != nil {
 		return "", err

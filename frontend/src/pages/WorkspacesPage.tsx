@@ -254,7 +254,7 @@ export function WorkspacesPage() {
                   <div className="workspace-compact-row" key={workspace.id}>
                     <Link className="workspace-compact-row__main" to={`/workspaces/${workspace.id}`}>
                       <div className="workspace-compact-row__title">
-                        <strong>{workspace.name}</strong>
+                        <strong dir="auto">{workspace.name}</strong>
                         <span className="meta-label">
                           {i18n._({
                             id: 'ID: {id}',

@@ -147,6 +147,10 @@ export type BotConversation = {
   lastInboundMessageId?: string
   lastInboundText?: string
   lastOutboundText?: string
+  lastOutboundDeliveryStatus?: string
+  lastOutboundDeliveryError?: string
+  lastOutboundDeliveryAttemptCount?: number
+  lastOutboundDeliveredAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -372,6 +376,7 @@ export type RuntimePreferencesResult = {
   configuredDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   configuredDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   configuredAllowRemoteAccess?: boolean | null
+  configuredAllowLocalhostWithoutAccessToken?: boolean | null
   configuredAccessTokens: AccessTokenDescriptor[]
   configuredBackendThreadTraceEnabled?: boolean | null
   configuredBackendThreadTraceWorkspaceId: string
@@ -385,6 +390,7 @@ export type RuntimePreferencesResult = {
   defaultDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   defaultDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   defaultAllowRemoteAccess: boolean
+  defaultAllowLocalhostWithoutAccessToken: boolean
   defaultBackendThreadTraceEnabled: boolean
   defaultBackendThreadTraceWorkspaceId: string
   defaultBackendThreadTraceThreadId: string
@@ -397,6 +403,7 @@ export type RuntimePreferencesResult = {
   effectiveDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   effectiveDefaultCommandSandboxPolicy?: Record<string, unknown> | null
   effectiveAllowRemoteAccess: boolean
+  effectiveAllowLocalhostWithoutAccessToken: boolean
   effectiveBackendThreadTraceEnabled: boolean
   effectiveBackendThreadTraceWorkspaceId: string
   effectiveBackendThreadTraceThreadId: string
@@ -418,6 +425,7 @@ export type AccessBootstrapResult = {
   authenticated: boolean
   loginRequired: boolean
   allowRemoteAccess: boolean
+  allowLocalhostWithoutAccessToken: boolean
   configuredTokenCount: number
   activeTokenCount: number
 }
