@@ -138,6 +138,136 @@ msgstr ""
 #~ msgstr "untrusted"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1866
+#~ msgid "Active Connections"
+#~ msgstr "Active Connections"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2358
+#~ msgid "Connection Detail"
+#~ msgstr "Connection Detail"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1836
+#~ msgid "Connections are stored per workspace and each external chat can be bound to one internal thread."
+#~ msgstr "Connections are stored per workspace and each external chat can be bound to one internal thread."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2051
+#~ msgid "Loading bot connections..."
+#~ msgstr "Loading bot connections..."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2072
+#~ msgid "No bot connections match the current search."
+#~ msgstr "No bot connections match the current search."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2057
+#~ msgid "No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment."
+#~ msgstr "No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2371
+#~ msgid "No connection selected."
+#~ msgstr "No connection selected."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2068
+#~ msgid "No full-access bot connections match the current search and filters."
+#~ msgstr "No full-access bot connections match the current search and filters."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:960
+#~ msgid "not required in polling mode"
+#~ msgstr "not required in polling mode"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1879
+#~ msgid "Provider Posture"
+#~ msgstr "Provider Posture"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1903
+#~ msgid "Public URL"
+#~ msgstr "Public URL"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:958
+#~ msgid "resolved at activation"
+#~ msgstr "resolved at activation"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2038
+#~ msgid "Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server."
+#~ msgstr "Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2015
+#~ msgid "Search by connection name, provider, backend, status, or linked WeChat account alias and note."
+#~ msgstr "Search by connection name, provider, backend, status, or linked WeChat account alias and note."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2026
+#~ msgid "Search Connections"
+#~ msgstr "Search Connections"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2360
+#~ msgid "Select a connection to inspect provider status, AI backend settings, and conversation bindings."
+#~ msgstr "Select a connection to inspect provider status, AI backend settings, and conversation bindings."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1870
+#~ msgid "Selected Connection"
+#~ msgstr "Selected Connection"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2028
+#~ msgid "Support, paused, openai, support queue"
+#~ msgstr "Support, paused, openai, support queue"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:952
+#~ msgid "Telegram getUpdates long polling"
+#~ msgstr "Telegram getUpdates long polling"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:933
+#~ msgid "Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only."
+#~ msgstr "Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:938
+#~ msgid "Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context."
+#~ msgstr "Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2461
+#~ msgid "The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content."
+#~ msgstr "The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:946
+#~ msgid "Update Intake"
+#~ msgstr "Update Intake"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:945
+#~ msgid "Webhook Route"
+#~ msgstr "Webhook Route"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:927
+#~ msgid "WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation."
+#~ msgstr "WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:949
+#~ msgid "WeChat iLink long polling"
+#~ msgstr "WeChat iLink long polling"
+
+#. js-lingui-explicit-id
 #: src/components/settings/SettingsJsonDiffPreview.tsx:24
 msgid "(missing)"
 msgstr "(missing)"
@@ -173,6 +303,11 @@ msgstr "{count} archived"
 #: src/pages/settings/ConfigSettingsPage.tsx:3032
 msgid "{count} config layers"
 msgstr "{count} config layers"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2214
+msgid "{count} endpoint(s) | {conversationCount} conversation(s) | {bindingLabel}"
+msgstr "{count} endpoint(s) | {conversationCount} conversation(s) | {bindingLabel}"
 
 #. js-lingui-explicit-id
 #: src/components/workspace/renderers.tsx:2584
@@ -215,7 +350,7 @@ msgid "{count} max"
 msgstr "{count} max"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:460
+#: src/pages/CatalogPage.tsx:461
 msgid "{count} models"
 msgstr "{count} models"
 
@@ -225,7 +360,7 @@ msgid "{count} pending"
 msgstr "{count} pending"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:467
+#: src/pages/CatalogPage.tsx:468
 msgid "{count} plugins"
 msgstr "{count} plugins"
 
@@ -290,12 +425,12 @@ msgid "{count} total"
 msgstr "{count} total"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:474
+#: src/pages/CatalogPage.tsx:475
 msgid "{count} total entries"
 msgstr "{count} total entries"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:618
+#: src/pages/BotsPage.tsx:692
 msgid "{count} turns"
 msgstr "{count} turns"
 
@@ -399,9 +534,14 @@ msgid "{shell} (saved, unavailable)"
 msgstr "{shell} (saved, unavailable)"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:606
+#: src/pages/BotsPage.tsx:680
 msgid "{threadId} (Current binding unavailable)"
 msgstr "{threadId} (Current binding unavailable)"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:735
+msgid "{threadId} (Current default thread unavailable)"
+msgstr "{threadId} (Current default thread unavailable)"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:3617
@@ -440,12 +580,12 @@ msgid "1. Scan"
 msgstr "1. Scan"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2905
+#: src/pages/BotsPage.tsx:3393
 msgid "123456:ABCDEF..."
 msgstr "123456:ABCDEF..."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:856
+#: src/pages/CatalogPage.tsx:937
 msgid "2 lanes"
 msgstr "2 lanes"
 
@@ -472,7 +612,7 @@ msgid "A new access token draft was generated. Copy it from the form before you 
 msgstr "A new access token draft was generated. Copy it from the form before you save because only a masked preview remains afterwards."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:883
+#: src/pages/BotsPage.tsx:997
 msgid "A QR login session is already in progress. Reopen the dialog to continue polling until the credential bundle is confirmed."
 msgstr "A QR login session is already in progress. Reopen the dialog to continue polling until the credential bundle is confirmed."
 
@@ -550,14 +690,14 @@ msgid "Access: {access}; local: {local}; remote: {remote}; shell: {shell}; termi
 msgstr "Access: {access}; local: {local}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3715
+#: src/pages/BotsPage.tsx:4294
 #: src/pages/settings/GeneralSettingsPage.tsx:216
 msgid "Account"
 msgstr "Account"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3059
-#: src/pages/BotsPage.tsx:3668
+#: src/pages/BotsPage.tsx:3547
+#: src/pages/BotsPage.tsx:4247
 msgid "Account ID"
 msgstr "Account ID"
 
@@ -573,7 +713,7 @@ msgid "Action"
 msgstr "Action"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:847
+#: src/pages/CatalogPage.tsx:928
 msgid "Action console"
 msgstr "Action console"
 
@@ -581,7 +721,8 @@ msgstr "Action console"
 #: src/components/settings/SettingsWorkspaceScopePanel.tsx:69
 #: src/i18n/display.ts:45
 #: src/pages/AutomationsPage.tsx:457
-#: src/pages/BotsPage.tsx:1603
+#: src/pages/BotsPage.tsx:1917
+#: src/pages/BotsPage.tsx:2833
 msgid "Active"
 msgstr "Active"
 
@@ -591,9 +732,14 @@ msgid "Active Automations"
 msgstr "Active Automations"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1658
-msgid "Active Connections"
-msgstr "Active Connections"
+#: src/pages/BotsPage.tsx:1865
+msgid "Active Bots"
+msgstr "Active Bots"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2238
+msgid "Active Endpoints: {count}"
+msgstr "Active Endpoints: {count}"
 
 #. js-lingui-explicit-id
 #: src/features/notifications/notificationStreamUtils.ts:202
@@ -673,6 +819,11 @@ msgid "Advanced Scheduling"
 msgstr "Advanced Scheduling"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2261
+msgid "After selecting a bot, keep using endpoints as the execution units for provider delivery, runtime settings, logs, and conversations."
+msgstr "After selecting a bot, keep using endpoints as the execution units for provider delivery, runtime settings, logs, and conversations."
+
+#. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1750
 msgid "After you save, this page keeps only a masked preview and the backend stores only the token hash. To issue it again, generate a replacement token and copy it before saving."
 msgstr "After you save, this page keeps only a masked preview and the backend stores only the token hash. To issue it again, generate a replacement token and copy it before saving."
@@ -683,14 +834,14 @@ msgid "Against"
 msgstr "Against"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2278
-#: src/pages/BotsPage.tsx:2791
-#: src/pages/BotsPage.tsx:2793
+#: src/pages/BotsPage.tsx:2707
+#: src/pages/BotsPage.tsx:3279
+#: src/pages/BotsPage.tsx:3281
 msgid "AI Backend"
 msgstr "AI Backend"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2380
+#: src/pages/BotsPage.tsx:2809
 msgid "AI Config"
 msgstr "AI Config"
 
@@ -700,16 +851,16 @@ msgid "AI-generated summary of the execution outcome."
 msgstr "AI-generated summary of the execution outcome."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2057
-#: src/pages/BotsPage.tsx:3055
-#: src/pages/BotsPage.tsx:3729
+#: src/pages/BotsPage.tsx:2486
+#: src/pages/BotsPage.tsx:3543
+#: src/pages/BotsPage.tsx:4308
 msgid "Alias"
 msgstr "Alias"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:182
-#: src/pages/CatalogPage.tsx:239
-#: src/pages/CatalogPage.tsx:550
+#: src/pages/CatalogPage.tsx:240
+#: src/pages/CatalogPage.tsx:551
 msgid "All"
 msgstr "All"
 
@@ -724,7 +875,7 @@ msgid "All Entries ({count})"
 msgstr "All Entries ({count})"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:238
+#: src/pages/CatalogPage.tsx:239
 msgid "All models"
 msgstr "All models"
 
@@ -750,7 +901,7 @@ msgid "Allow Remote Access"
 msgstr "Allow Remote Access"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1533
+#: src/pages/CatalogPage.tsx:1692
 #: src/pages/settings/ConfigSettingsPage.tsx:485
 #: src/pages/settings/ConfigSettingsPage.tsx:802
 #: src/pages/settings/ConfigSettingsPage.tsx:3567
@@ -816,28 +967,28 @@ msgid "Appearance menu. {colorTheme}. {mode}."
 msgstr "Appearance menu. {colorTheme}. {mode}."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2482
+#: src/pages/BotsPage.tsx:2970
 msgid "Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch."
 msgstr "Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2968
+#: src/pages/BotsPage.tsx:3456
 msgid "Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections."
 msgstr "Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2477
-#: src/pages/BotsPage.tsx:2963
+#: src/pages/BotsPage.tsx:2965
+#: src/pages/BotsPage.tsx:3451
 msgid "Append WeChat Channel Timing"
 msgstr "Append WeChat Channel Timing"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3202
+#: src/pages/BotsPage.tsx:3690
 msgid "Applied from the confirmed QR login session. Switch back to Manual Entry if you need to override it manually."
 msgstr "Applied from the confirmed QR login session. Switch back to Manual Entry if you need to override it manually."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:868
+#: src/pages/BotsPage.tsx:982
 msgid "Applied to form"
 msgstr "Applied to form"
 
@@ -932,8 +1083,8 @@ msgid "Approvals"
 msgstr "Approvals"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:270
-#: src/pages/CatalogPage.tsx:590
+#: src/pages/CatalogPage.tsx:271
+#: src/pages/CatalogPage.tsx:591
 msgid "Apps"
 msgstr "Apps"
 
@@ -1011,7 +1162,7 @@ msgid "Attached"
 msgstr "Attached"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2585
+#: src/pages/BotsPage.tsx:3073
 msgid "Attempts: {count}"
 msgstr "Attempts: {count}"
 
@@ -1026,8 +1177,8 @@ msgid "August"
 msgstr "August"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1394
-#: src/pages/CatalogPage.tsx:1506
+#: src/pages/CatalogPage.tsx:1488
+#: src/pages/CatalogPage.tsx:1613
 msgid "Auth policy"
 msgstr "Auth policy"
 
@@ -1151,13 +1302,13 @@ msgid "Automations"
 msgstr "Automations"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1455
-#: src/pages/CatalogPage.tsx:1531
+#: src/pages/CatalogPage.tsx:1549
+#: src/pages/CatalogPage.tsx:1690
 msgid "Available"
 msgstr "Available"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:289
+#: src/pages/CatalogPage.tsx:290
 msgid "Available collaboration modes that shape the agent interaction model."
 msgstr "Available collaboration modes that shape the agent interaction model."
 
@@ -1216,7 +1367,8 @@ msgid "Back to Workspaces"
 msgstr "Back to Workspaces"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1681
+#: src/pages/BotsPage.tsx:2837
+#: src/pages/BotsPage.tsx:4041
 msgid "Backend"
 msgstr "Backend"
 
@@ -1265,8 +1417,8 @@ msgid "Base surface color for the main workbench."
 msgstr "Base surface color for the main workbench."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2061
-#: src/pages/BotsPage.tsx:3664
+#: src/pages/BotsPage.tsx:2490
+#: src/pages/BotsPage.tsx:4243
 msgid "Base URL"
 msgstr "Base URL"
 
@@ -1277,18 +1429,27 @@ msgid "bash"
 msgstr "bash"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3455
-#: src/pages/BotsPage.tsx:3457
+#: src/pages/BotsPage.tsx:2845
+#: src/pages/BotsPage.tsx:3943
+#: src/pages/BotsPage.tsx:3945
+#: src/pages/BotsPage.tsx:4062
+#: src/pages/BotsPage.tsx:4064
 msgid "Binding Mode"
 msgstr "Binding Mode"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3447
+#: src/pages/BotsPage.tsx:1931
+msgid "Binding Target"
+msgstr "Binding Target"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:3935
+#: src/pages/BotsPage.tsx:4054
 msgid "Binding Update Failed"
 msgstr "Binding Update Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3426
+#: src/pages/BotsPage.tsx:3914
 msgid "Bot Connection"
 msgstr "Bot Connection"
 
@@ -1298,7 +1459,7 @@ msgid "Bot connection log target is missing."
 msgstr "Bot connection log target is missing."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1590
+#: src/pages/BotsPage.tsx:1796
 msgid "Bot Integrations"
 msgstr "Bot Integrations"
 
@@ -1318,15 +1479,27 @@ msgid "Bot Logs Loading Failed"
 msgstr "Bot Logs Loading Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3676
+#: src/pages/BotsPage.tsx:4255
 msgid "Bot Token"
 msgstr "Bot Token"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:83
-#: src/pages/BotsPage.tsx:1588
+#: src/pages/BotsPage.tsx:1794
+#: src/pages/BotsPage.tsx:1809
+#: src/pages/BotsPage.tsx:2100
 msgid "Bots"
 msgstr "Bots"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1880
+msgid "Bots are the first routing layer. Each bot can own one or more endpoints and a default binding that decides how new conversations resolve internally."
+msgstr "Bots are the first routing layer. Each bot can own one or more endpoints and a default binding that decides how new conversations resolve internally."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1834
+msgid "Bots, endpoints, and their default bindings are stored per workspace. Select the workspace first, then choose which bot you want to operate."
+msgstr "Bots, endpoints, and their default bindings are stored per workspace. Select the workspace first, then choose which bot you want to operate."
 
 #. js-lingui-explicit-id
 #: src/features/thread-terminal/ThreadTerminalDockBar.tsx:123
@@ -1339,13 +1512,13 @@ msgid "Bound runtime catalog to {path}."
 msgstr "Bound runtime catalog to {path}."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:518
+#: src/pages/BotsPage.tsx:592
 #: src/pages/botsPageUtils.ts:334
 msgid "Brief (3-5 lines)"
 msgstr "Brief (3-5 lines)"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2447
+#: src/pages/BotsPage.tsx:2935
 msgid "Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript."
 msgstr "Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript."
 
@@ -1380,13 +1553,18 @@ msgid "Browser session cleared"
 msgstr "Browser session cleared"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2551
+#: src/pages/BotsPage.tsx:3039
 msgid "BT"
 msgstr "BT"
 
 #. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:793
+msgid "Bug"
+msgstr "Bug"
+
+#. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:609
-#: src/pages/CatalogPage.tsx:766
+#: src/pages/CatalogPage.tsx:838
 msgid "Built-in"
 msgstr "Built-in"
 
@@ -1399,15 +1577,16 @@ msgstr "Bypass token login"
 #: src/components/workspace/CreateWorkspaceDialog.tsx:35
 #: src/pages/AutomationsPage.tsx:402
 #: src/pages/AutomationsPage.tsx:423
-#: src/pages/BotsPage.tsx:1509
-#: src/pages/BotsPage.tsx:1526
-#: src/pages/BotsPage.tsx:3691
+#: src/pages/BotsPage.tsx:1699
+#: src/pages/BotsPage.tsx:1716
+#: src/pages/BotsPage.tsx:1745
+#: src/pages/BotsPage.tsx:4270
 #: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:140
 msgid "Cancel"
 msgstr "Cancel"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1563
+#: src/pages/BotsPage.tsx:1769
 msgid "Cancel Login"
 msgstr "Cancel Login"
 
@@ -1437,9 +1616,14 @@ msgid "Candidate artifacts ready for migration."
 msgstr "Candidate artifacts ready for migration."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1512
+#: src/pages/CatalogPage.tsx:1619
 msgid "Capabilities"
 msgstr "Capabilities"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:1652
+msgid "Capabilities: {capabilities}"
+msgstr "Capabilities: {capabilities}"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:635
@@ -1470,6 +1654,11 @@ msgstr "Catalog Path"
 #: src/pages/AutomationsPage.tsx:905
 msgid "Category"
 msgstr "Category"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:1640
+msgid "Category: {category}"
+msgstr "Category: {category}"
 
 #. js-lingui-explicit-id
 #: src/lib/route-error.ts:292
@@ -1532,6 +1721,11 @@ msgid "Changing shell_environment_policy affects new child processes. Restart th
 msgstr "Changing shell_environment_policy affects new child processes. Restart the workspace runtime to force app-server to reload Codex config."
 
 #. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:818
+msgid "Chat"
+msgstr "Chat"
+
+#. js-lingui-explicit-id
 #: src/features/access/AccessGate.tsx:64
 msgid "Checking backend access…"
 msgstr "Checking backend access…"
@@ -1540,6 +1734,11 @@ msgstr "Checking backend access…"
 #: src/pages/settings/GeneralSettingsPage.tsx:273
 msgid "Choose a sign-in method that matches how this client should authenticate."
 msgstr "Choose a sign-in method that matches how this client should authenticate."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:4025
+msgid "Choose how new conversations for this bot should bind to workspace threads before any per-conversation override is applied."
+msgstr "Choose how new conversations for this bot should bind to workspace threads before any per-conversation override is applied."
 
 #. js-lingui-explicit-id
 #: src/pages/settings/PersonalizationSettingsPage.tsx:40
@@ -1584,7 +1783,7 @@ msgid "Clear"
 msgstr "Clear"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1536
+#: src/pages/BotsPage.tsx:1726
 msgid "Clear Binding"
 msgstr "Clear Binding"
 
@@ -1641,7 +1840,7 @@ msgstr "Clipboard copy unavailable"
 #. js-lingui-explicit-id
 #: src/components/shell/CommandPalette.tsx:235
 #: src/pages/AutomationDetailPage.tsx:347
-#: src/pages/BotsPage.tsx:1567
+#: src/pages/BotsPage.tsx:1773
 #: src/pages/thread-page/ThreadWorkbenchRail.tsx:133
 #: src/pages/thread-page/ThreadWorkbenchSurface.tsx:509
 msgid "Close"
@@ -1677,12 +1876,12 @@ msgid "Close terminal search"
 msgstr "Close terminal search"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3796
+#: src/pages/BotsPage.tsx:4375
 msgid "Close the editor and discard the unsaved bot connection changes."
 msgstr "Close the editor and discard the unsaved bot connection changes."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3800
+#: src/pages/BotsPage.tsx:4379
 msgid "Close the new bot connection form and discard the unsaved draft."
 msgstr "Close the new bot connection form and discard the unsaved draft."
 
@@ -1745,8 +1944,8 @@ msgid "Collaboration mode"
 msgstr "Collaboration mode"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3298
-#: src/pages/BotsPage.tsx:3300
+#: src/pages/BotsPage.tsx:3786
+#: src/pages/BotsPage.tsx:3788
 msgid "Collaboration Mode"
 msgstr "Collaboration Mode"
 
@@ -1804,16 +2003,16 @@ msgstr "Command execution mode"
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:238
-#: src/pages/BotsPage.tsx:2304
-#: src/pages/BotsPage.tsx:2439
-#: src/pages/BotsPage.tsx:2457
-#: src/pages/BotsPage.tsx:2842
-#: src/pages/BotsPage.tsx:2860
+#: src/pages/BotsPage.tsx:2733
+#: src/pages/BotsPage.tsx:2927
+#: src/pages/BotsPage.tsx:2945
+#: src/pages/BotsPage.tsx:3330
+#: src/pages/BotsPage.tsx:3348
 msgid "Command Output In Replies"
 msgstr "Command Output In Replies"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1778
+#: src/pages/BotsPage.tsx:2073
 msgid "Command Output Mode Update Failed"
 msgstr "Command Output Mode Update Failed"
 
@@ -1883,12 +2082,12 @@ msgid "Compare run"
 msgstr "Compare run"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3017
+#: src/pages/BotsPage.tsx:3505
 msgid "Complete one WeChat QR login first. Confirmed accounts are saved automatically."
 msgstr "Complete one WeChat QR login first. Confirmed accounts are saved automatically."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1313
+#: src/pages/BotsPage.tsx:1465
 msgid "Complete WeChat QR login until the session is confirmed before creating the connection."
 msgstr "Complete WeChat QR login until the session is confirmed before creating the connection."
 
@@ -1952,7 +2151,7 @@ msgid "Configuration data is unavailable."
 msgstr "Configuration data is unavailable."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2265
+#: src/pages/BotsPage.tsx:2694
 msgid "Configuration Summary"
 msgstr "Configuration Summary"
 
@@ -1992,17 +2191,17 @@ msgid "Confirmed"
 msgstr "Confirmed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3652
+#: src/pages/BotsPage.tsx:4231
 msgid "Confirmed Credentials"
 msgstr "Confirmed Credentials"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1974
+#: src/pages/BotsPage.tsx:2403
 msgid "Confirmed WeChat QR logins are stored per workspace so you can create new connections without rescanning the same account."
 msgstr "Confirmed WeChat QR logins are stored per workspace so you can create new connections without rescanning the same account."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1593
+#: src/pages/BotsPage.tsx:1799
 msgid "Connect Telegram or WeChat bots, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses."
 msgstr "Connect Telegram or WeChat bots, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses."
 
@@ -2017,7 +2216,7 @@ msgid "Connected Account"
 msgstr "Connected Account"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:271
+#: src/pages/CatalogPage.tsx:272
 msgid "Connected app surfaces and app-aware runtime capabilities."
 msgstr "Connected app surfaces and app-aware runtime capabilities."
 
@@ -2028,14 +2227,9 @@ msgid "Connecting"
 msgstr "Connecting"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1745
+#: src/pages/BotsPage.tsx:2040
 msgid "Connection Action Failed"
 msgstr "Connection Action Failed"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2150
-msgid "Connection Detail"
-msgstr "Connection Detail"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:157
@@ -2044,12 +2238,11 @@ msgstr "Connection error"
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:230
-#: src/pages/BotsPage.tsx:2270
 msgid "Connection ID"
 msgstr "Connection ID"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2806
+#: src/pages/BotsPage.tsx:3294
 msgid "Connection Name"
 msgstr "Connection Name"
 
@@ -2059,16 +2252,11 @@ msgid "Connection Status"
 msgstr "Connection Status"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1607
-#: src/pages/BotsPage.tsx:1805
-#: src/pages/BotsPage.tsx:2120
+#: src/pages/BotsPage.tsx:2549
+#: src/pages/BotsPage.tsx:2829
+#: src/pages/BotsPage.tsx:4037
 msgid "Connections"
 msgstr "Connections"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1628
-msgid "Connections are stored per workspace and each external chat can be bound to one internal thread."
-msgstr "Connections are stored per workspace and each external chat can be bound to one internal thread."
 
 #. js-lingui-explicit-id
 #: src/components/workspace/renderers.tsx:1527
@@ -2100,7 +2288,7 @@ msgid "Context usage is not available until the runtime reports token usage."
 msgstr "Context usage is not available until the runtime reports token usage."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:858
+#: src/pages/BotsPage.tsx:972
 msgid "Continue QR Login"
 msgstr "Continue QR Login"
 
@@ -2120,7 +2308,7 @@ msgid "Contrast adjustment"
 msgstr "Contrast adjustment"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2429
+#: src/pages/BotsPage.tsx:2917
 msgid "Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat."
 msgstr "Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat."
 
@@ -2140,7 +2328,7 @@ msgid "Controls browser-side diagnostics only. Debug mode prints workspace strea
 msgstr "Controls browser-side diagnostics only. Debug mode prints workspace stream events and live thread output composition details into the developer console."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2850
+#: src/pages/BotsPage.tsx:3338
 msgid "Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default."
 msgstr "Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default."
 
@@ -2150,17 +2338,18 @@ msgid "Controls inherited environment variables for shell, command/exec, unified
 msgstr "Controls inherited environment variables for shell, command/exec, unified_exec, and thread/shellCommand child processes."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3422
+#: src/pages/BotsPage.tsx:3910
 msgid "Conversation"
 msgstr "Conversation"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2505
+#: src/pages/BotsPage.tsx:2993
 msgid "Conversation Bindings"
 msgstr "Conversation Bindings"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1611
+#: src/pages/BotsPage.tsx:1817
+#: src/pages/BotsPage.tsx:1921
 msgid "Conversations"
 msgstr "Conversations"
 
@@ -2170,7 +2359,7 @@ msgid "Cool gray surfaces."
 msgstr "Cool gray surfaces."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:849
+#: src/pages/BotsPage.tsx:963
 #: src/pages/RouteErrorPage.tsx:82
 msgid "Copied"
 msgstr "Copied"
@@ -2182,12 +2371,12 @@ msgid "Copy"
 msgstr "Copy"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:851
+#: src/pages/BotsPage.tsx:965
 msgid "Copy failed"
 msgstr "Copy failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:852
+#: src/pages/BotsPage.tsx:966
 msgid "Copy payload"
 msgstr "Copy payload"
 
@@ -2203,17 +2392,17 @@ msgstr "Copy Token"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:184
-#: src/pages/CatalogPage.tsx:572
+#: src/pages/CatalogPage.tsx:573
 msgid "Core"
 msgstr "Core"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:324
+#: src/pages/CatalogPage.tsx:325
 msgid "Core runtime"
 msgstr "Core runtime"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2685
+#: src/pages/BotsPage.tsx:3173
 msgid "Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend."
 msgstr "Create a provider connection, configure the provider-specific delivery settings, and bind it to an AI execution backend."
 
@@ -2223,7 +2412,7 @@ msgid "Create a reusable automation pattern that can be used across different wo
 msgstr "Create a reusable automation pattern that can be used across different workspaces."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1717
+#: src/pages/BotsPage.tsx:2000
 msgid "Create a workspace first before configuring a bot connection."
 msgstr "Create a workspace first before configuring a bot connection."
 
@@ -2233,12 +2422,12 @@ msgid "Create a workspace first to browse installed skills."
 msgstr "Create a workspace first to browse installed skills."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:490
+#: src/pages/CatalogPage.tsx:491
 msgid "Create a workspace first to inspect runtime data."
 msgstr "Create a workspace first to inspect runtime data."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1546
+#: src/pages/BotsPage.tsx:1736
 msgid "Create And Bind"
 msgstr "Create And Bind"
 
@@ -2248,12 +2437,12 @@ msgid "Create Automation"
 msgstr "Create Automation"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2713
+#: src/pages/BotsPage.tsx:3201
 msgid "Create Bot Connection Failed"
 msgstr "Create Bot Connection Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1518
+#: src/pages/BotsPage.tsx:1708
 msgid "Create Connection"
 msgstr "Create Connection"
 
@@ -2263,7 +2452,7 @@ msgid "Create First Thread"
 msgstr "Create First Thread"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:585
+#: src/pages/BotsPage.tsx:659
 msgid "Create New Thread"
 msgstr "Create New Thread"
 
@@ -2309,13 +2498,13 @@ msgid "Creating…"
 msgstr "Creating…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3180
+#: src/pages/BotsPage.tsx:3668
 msgid "Credential Bundle"
 msgstr "Credential Bundle"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2930
-#: src/pages/BotsPage.tsx:2932
+#: src/pages/BotsPage.tsx:3418
+#: src/pages/BotsPage.tsx:3420
 msgid "Credential Source"
 msgstr "Credential Source"
 
@@ -2341,7 +2530,7 @@ msgid "Current account posture and session state."
 msgstr "Current account posture and session state."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3430
+#: src/pages/BotsPage.tsx:3918
 msgid "Current Binding"
 msgstr "Current Binding"
 
@@ -2381,12 +2570,12 @@ msgid "Current resolved runtime state."
 msgstr "Current resolved runtime state."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:535
+#: src/pages/CatalogPage.tsx:536
 msgid "Current scope"
 msgstr "Current scope"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1654
+#: src/pages/BotsPage.tsx:1861
 #: src/pages/SkillsPage.tsx:122
 msgid "Current Scope"
 msgstr "Current Scope"
@@ -2494,17 +2683,17 @@ msgstr "Day of Week"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:132
-#: src/pages/BotsPage.tsx:2295
+#: src/pages/BotsPage.tsx:2724
 msgid "Debug"
 msgstr "Debug"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2391
+#: src/pages/BotsPage.tsx:2879
 msgid "Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations."
 msgstr "Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2827
+#: src/pages/BotsPage.tsx:3315
 msgid "Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps."
 msgstr "Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps."
 
@@ -2519,8 +2708,8 @@ msgid "December"
 msgstr "December"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:576
-#: src/pages/CatalogPage.tsx:728
+#: src/pages/BotsPage.tsx:650
+#: src/pages/CatalogPage.tsx:729
 #: src/pages/settings/ConfigSettingsPage.tsx:3243
 #: src/pages/settings/ConfigSettingsPage.tsx:3247
 #: src/pages/settings/ConfigSettingsPage.tsx:3248
@@ -2533,6 +2722,18 @@ msgid "Default"
 msgstr "Default"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1927
+msgid "Default Binding"
+msgstr "Default Binding"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2818
+#: src/pages/BotsPage.tsx:4032
+msgid "Default Bot Binding"
+msgstr "Default Bot Binding"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:760
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:24
 #: src/pages/thread-page/ThreadComposerDock.tsx:796
 msgid "Default mode"
@@ -2549,7 +2750,7 @@ msgid "Default model example"
 msgstr "Default model example"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:564
+#: src/pages/BotsPage.tsx:638
 #: src/pages/botsPageUtils.ts:304
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:49
 #: src/pages/thread-page/ThreadComposerDock.tsx:843
@@ -2601,8 +2802,8 @@ msgstr "Define the logic/instructions for this template..."
 #: src/pages/AutomationDetailPage.tsx:182
 #: src/pages/AutomationsPage.tsx:551
 #: src/pages/AutomationsPage.tsx:604
-#: src/pages/BotsPage.tsx:2137
-#: src/pages/BotsPage.tsx:2227
+#: src/pages/BotsPage.tsx:2566
+#: src/pages/BotsPage.tsx:2656
 #: src/pages/thread-page/ThreadWorkbenchRailThreadToolsSection.tsx:103
 msgid "Delete"
 msgstr "Delete"
@@ -2620,23 +2821,23 @@ msgid "Delete Automation?"
 msgstr "Delete Automation?"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3765
+#: src/pages/BotsPage.tsx:4344
 msgid "Delete Bot Connection"
 msgstr "Delete Bot Connection"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3751
+#: src/pages/BotsPage.tsx:4330
 msgid "Delete Connection"
 msgstr "Delete Connection"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3045
-#: src/pages/BotsPage.tsx:3771
+#: src/pages/BotsPage.tsx:3533
+#: src/pages/BotsPage.tsx:4350
 msgid "Delete Saved Account"
 msgstr "Delete Saved Account"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3786
+#: src/pages/BotsPage.tsx:4365
 msgid "Delete Saved WeChat Account"
 msgstr "Delete Saved WeChat Account"
 
@@ -2664,13 +2865,12 @@ msgid "Deleting…"
 msgstr "Deleting…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2610
+#: src/pages/BotsPage.tsx:3098
 msgid "Delivery error"
 msgstr "Delivery error"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1687
-#: src/pages/BotsPage.tsx:2300
+#: src/pages/BotsPage.tsx:2729
 msgid "Delivery Mode"
 msgstr "Delivery Mode"
 
@@ -2687,7 +2887,7 @@ msgstr "Description"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:173
-#: src/pages/BotsPage.tsx:522
+#: src/pages/BotsPage.tsx:596
 #: src/pages/botsPageUtils.ts:330
 #: src/pages/settings/PersonalizationSettingsPage.tsx:16
 #: src/pages/settings/PersonalizationSettingsPage.tsx:57
@@ -2763,9 +2963,9 @@ msgid "Disable this to enforce an expiry time. Once expired, the token no longer
 msgstr "Disable this to enforce an expiry time. Once expired, the token no longer grants frontend access."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:730
-#: src/pages/CatalogPage.tsx:1463
-#: src/pages/CatalogPage.tsx:1537
+#: src/pages/CatalogPage.tsx:731
+#: src/pages/CatalogPage.tsx:1557
+#: src/pages/CatalogPage.tsx:1696
 #: src/pages/settings/ConfigSettingsPage.tsx:3267
 #: src/pages/settings/ConfigSettingsPage.tsx:3506
 #: src/pages/settings/ConfigSettingsPage.tsx:3605
@@ -2774,22 +2974,22 @@ msgid "Disabled"
 msgstr "Disabled"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3810
+#: src/pages/BotsPage.tsx:4389
 msgid "Discard Bot Connection Changes"
 msgstr "Discard Bot Connection Changes"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3793
+#: src/pages/BotsPage.tsx:4372
 msgid "Discard Changes"
 msgstr "Discard Changes"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3811
+#: src/pages/BotsPage.tsx:4390
 msgid "Discard New Connection Draft"
 msgstr "Discard New Connection Draft"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1562
+#: src/pages/BotsPage.tsx:1768
 msgid "Discard Session"
 msgstr "Discard Session"
 
@@ -2804,7 +3004,7 @@ msgid "Discord"
 msgstr "Discord"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:471
+#: src/pages/BotsPage.tsx:545
 msgid "Discord (Next)"
 msgstr "Discord (Next)"
 
@@ -2844,7 +3044,7 @@ msgid "DOM"
 msgstr "DOM"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2338
+#: src/pages/BotsPage.tsx:2767
 msgid "Duplicate Deliveries Suppressed (24h)"
 msgstr "Duplicate Deliveries Suppressed (24h)"
 
@@ -2864,7 +3064,7 @@ msgid "Duplicate Theme"
 msgstr "Duplicate Theme"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1938
+#: src/pages/BotsPage.tsx:2366
 msgid "Duplicate: {count}"
 msgstr "Duplicate: {count}"
 
@@ -2879,7 +3079,7 @@ msgid "e.g. Security Audit"
 msgstr "e.g. Security Audit"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2507
+#: src/pages/BotsPage.tsx:2995
 msgid "Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding."
 msgstr "Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding."
 
@@ -2892,14 +3092,15 @@ msgstr "Each registered workspace acts as an environment root for threads, runti
 #: src/components/shell/AppMenuBar.tsx:205
 #: src/pages/AutomationsPage.tsx:596
 #: src/pages/AutomationsPage.tsx:792
-#: src/pages/BotsPage.tsx:1960
-#: src/pages/BotsPage.tsx:2092
-#: src/pages/BotsPage.tsx:2198
+#: src/pages/BotsPage.tsx:2388
+#: src/pages/BotsPage.tsx:2521
+#: src/pages/BotsPage.tsx:2627
+#: src/pages/BotsPage.tsx:2823
 msgid "Edit"
 msgstr "Edit"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2695
+#: src/pages/BotsPage.tsx:3183
 msgid "Edit Bot Connection"
 msgstr "Edit Bot Connection"
 
@@ -2909,13 +3110,13 @@ msgid "Edit Capability Template"
 msgstr "Edit Capability Template"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2129
-#: src/pages/BotsPage.tsx:3037
+#: src/pages/BotsPage.tsx:2558
+#: src/pages/BotsPage.tsx:3525
 msgid "Edit Details"
 msgstr "Edit Details"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3699
+#: src/pages/BotsPage.tsx:4278
 msgid "Edit Saved WeChat Account"
 msgstr "Edit Saved WeChat Account"
 
@@ -2955,12 +3156,12 @@ msgid "Effective: {mode}"
 msgstr "Effective: {mode}"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2404
+#: src/pages/BotsPage.tsx:2892
 msgid "Enable Backend Debug Logging"
 msgstr "Enable Backend Debug Logging"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2825
+#: src/pages/BotsPage.tsx:3313
 msgid "Enable Backend Debug Mode"
 msgstr "Enable Backend Debug Mode"
 
@@ -2985,12 +3186,29 @@ msgid "Enable translucent sidebar"
 msgstr "Enable translucent sidebar"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1462
-#: src/pages/CatalogPage.tsx:1535
+#: src/pages/CatalogPage.tsx:1556
+#: src/pages/CatalogPage.tsx:1694
 #: src/pages/settings/ConfigSettingsPage.tsx:3604
 #: src/pages/thread-page/ThreadComposerDock.tsx:461
 msgid "Enabled"
 msgstr "Enabled"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2579
+msgid "Endpoint Detail"
+msgstr "Endpoint Detail"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2699
+msgid "Endpoint ID"
+msgstr "Endpoint ID"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1813
+#: src/pages/BotsPage.tsx:1913
+#: src/pages/BotsPage.tsx:2259
+msgid "Endpoints"
+msgstr "Endpoints"
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:1651
@@ -3003,7 +3221,7 @@ msgid "Enter a new name for this workspace folder."
 msgstr "Enter a new name for this workspace folder."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3121
+#: src/pages/BotsPage.tsx:3609
 msgid "Enter the bot token issued by the WeChat iLink backend for this account."
 msgstr "Enter the bot token issued by the WeChat iLink backend for this account."
 
@@ -3114,12 +3332,12 @@ msgid "Execution mode"
 msgstr "Execution mode"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:253
+#: src/pages/CatalogPage.tsx:254
 msgid "Execution models currently discoverable in the active runtime."
 msgstr "Execution models currently discoverable in the active runtime."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:325
+#: src/pages/CatalogPage.tsx:326
 msgid "Execution posture, shell behavior, and collaboration defaults."
 msgstr "Execution posture, shell behavior, and collaboration defaults."
 
@@ -3169,7 +3387,7 @@ msgid "Expired"
 msgstr "Expired"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3582
+#: src/pages/BotsPage.tsx:4161
 msgid "Expires"
 msgstr "Expires"
 
@@ -3184,7 +3402,7 @@ msgid "Export latest JSON"
 msgstr "Export latest JSON"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:580
+#: src/pages/CatalogPage.tsx:581
 msgid "Extensions"
 msgstr "Extensions"
 
@@ -3205,7 +3423,7 @@ msgstr "External Sandbox"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:91
-#: src/pages/BotsPage.tsx:555
+#: src/pages/BotsPage.tsx:629
 msgid "Extra High"
 msgstr "Extra High"
 
@@ -3227,14 +3445,24 @@ msgid "Failed To Load Archived Threads"
 msgstr "Failed To Load Archived Threads"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1731
+#: src/pages/BotsPage.tsx:1957
+msgid "Failed To Load Bot Bindings"
+msgstr "Failed To Load Bot Bindings"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2014
 msgid "Failed To Load Bot Connections"
 msgstr "Failed To Load Bot Connections"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2523
+#: src/pages/BotsPage.tsx:3011
 msgid "Failed To Load Bot Conversations"
 msgstr "Failed To Load Bot Conversations"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2029
+msgid "Failed To Load Bots"
+msgstr "Failed To Load Bots"
 
 #. js-lingui-explicit-id
 #: src/pages/SkillsPage.tsx:201
@@ -3252,12 +3480,12 @@ msgid "Failed To Load Runtime Config"
 msgstr "Failed To Load Runtime Config"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:621
+#: src/pages/CatalogPage.tsx:622
 msgid "Failed to load runtime inventory"
 msgstr "Failed to load runtime inventory"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2013
+#: src/pages/BotsPage.tsx:2442
 msgid "Failed To Load Saved WeChat Accounts"
 msgstr "Failed To Load Saved WeChat Accounts"
 
@@ -3277,7 +3505,7 @@ msgid "Failed To Load Workspace Registry"
 msgstr "Failed To Load Workspace Registry"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1708
+#: src/pages/BotsPage.tsx:1991
 #: src/pages/settings/EnvironmentSettingsPage.tsx:209
 #: src/pages/SkillsPage.tsx:169
 msgid "Failed To Load Workspaces"
@@ -3304,7 +3532,7 @@ msgid "Failure"
 msgstr "Failure"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3620
+#: src/pages/BotsPage.tsx:4199
 msgid "Fallback payload for copy or external inspection. The QR image above is rendered locally from this exact value."
 msgstr "Fallback payload for copy or external inspection. The QR image above is rendered locally from this exact value."
 
@@ -3326,22 +3554,24 @@ msgid "Feedback"
 msgstr "Feedback"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1062
+#: src/pages/CatalogPage.tsx:1144
+#: src/pages/CatalogPage.tsx:1150
+#: src/pages/CatalogPage.tsx:1155
 msgid "Feedback classification"
 msgstr "Feedback classification"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1096
+#: src/pages/CatalogPage.tsx:1191
 msgid "Feedback upload failed"
 msgstr "Feedback upload failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1578
+#: src/pages/BotsPage.tsx:1784
 msgid "Fetch QR Code"
 msgstr "Fetch QR Code"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3151
+#: src/pages/BotsPage.tsx:3639
 msgid "Fetch the WeChat credential bundle from the remote iLink service, then apply it back into this form without manual secret entry."
 msgstr "Fetch the WeChat credential bundle from the remote iLink service, then apply it back into this form without manual secret entry."
 
@@ -3368,7 +3598,7 @@ msgid "Files"
 msgstr "Files"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:527
+#: src/pages/CatalogPage.tsx:528
 msgid "Filter models, skills, apps, plugins…"
 msgstr "Filter models, skills, apps, plugins…"
 
@@ -3378,7 +3608,7 @@ msgid "Filter runtime logs"
 msgstr "Filter runtime logs"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1143
+#: src/pages/CatalogPage.tsx:1238
 msgid "Filter: {query}"
 msgstr "Filter: {query}"
 
@@ -3416,6 +3646,13 @@ msgstr "Fit terminal"
 #: src/pages/AutomationsPage.tsx:527
 msgid "Fix"
 msgstr "Fix"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:717
+#: src/pages/BotsPage.tsx:944
+#: src/pages/BotsPage.tsx:2183
+msgid "Fixed Thread"
+msgstr "Fixed Thread"
 
 #. js-lingui-explicit-id
 #: src/features/thread-terminal/ThreadTerminalDockBar.tsx:125
@@ -3507,14 +3744,14 @@ msgid "Full"
 msgstr "Full"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:568
+#: src/pages/BotsPage.tsx:642
 #: src/pages/botsPageUtils.ts:303
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:54
 msgid "Full access"
 msgstr "Full access"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3287
+#: src/pages/BotsPage.tsx:3775
 msgid "Full Access Enabled"
 msgstr "Full Access Enabled"
 
@@ -3524,13 +3761,13 @@ msgid "Full access permission"
 msgstr "Full access permission"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:526
+#: src/pages/BotsPage.tsx:600
 #: src/pages/botsPageUtils.ts:332
 msgid "Full Output"
 msgstr "Full Output"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1021
+#: src/pages/CatalogPage.tsx:1102
 msgid "Fuzzy search query"
 msgstr "Fuzzy search query"
 
@@ -3606,6 +3843,11 @@ msgid "Guardrails"
 msgstr "Guardrails"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2235
+msgid "Has Full Access Endpoint"
+msgstr "Has Full Access Endpoint"
+
+#. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:184
 #: src/pages/WorkspacesPage.tsx:187
 msgid "Healthy"
@@ -3644,7 +3886,7 @@ msgstr "Hide Token"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:90
-#: src/pages/BotsPage.tsx:554
+#: src/pages/BotsPage.tsx:628
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:61
 #: src/pages/thread-page/ThreadComposerDock.tsx:894
 msgid "High"
@@ -3675,6 +3917,11 @@ msgstr "ID"
 #: src/pages/WorkspacesPage.tsx:259
 msgid "ID: {id}"
 msgstr "ID: {id}"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:797
+msgid "Idea"
+msgstr "Idea"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/GeneralSettingsPage.tsx:227
@@ -3712,7 +3959,7 @@ msgid "In progress"
 msgstr "In progress"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1076
+#: src/pages/CatalogPage.tsx:1171
 msgid "Include logs"
 msgstr "Include logs"
 
@@ -3795,7 +4042,7 @@ msgid "Inspect runtime inventory and actions"
 msgstr "Inspect runtime inventory and actions"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:451
+#: src/pages/CatalogPage.tsx:452
 msgid "Inspect runtime inventory and run plugin and workspace actions from a tighter control-surface layout."
 msgstr "Inspect runtime inventory and run plugin and workspace actions from a tighter control-surface layout."
 
@@ -3825,20 +4072,20 @@ msgid "Inspect thread, context usage, and account quota status."
 msgstr "Inspect thread, context usage, and account quota status."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:934
-#: src/pages/CatalogPage.tsx:1431
+#: src/pages/CatalogPage.tsx:1015
+#: src/pages/CatalogPage.tsx:1525
 msgid "Install"
 msgstr "Install"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1388
-#: src/pages/CatalogPage.tsx:1500
+#: src/pages/CatalogPage.tsx:1482
+#: src/pages/CatalogPage.tsx:1607
 msgid "Install policy"
 msgstr "Install policy"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1454
-#: src/pages/CatalogPage.tsx:1539
+#: src/pages/CatalogPage.tsx:1548
+#: src/pages/CatalogPage.tsx:1698
 #: src/pages/SkillsPage.tsx:152
 #: src/pages/SkillsPage.tsx:200
 msgid "Installed"
@@ -3850,17 +4097,17 @@ msgid "Installed entries stay anchored to the active runtime root."
 msgstr "Installed entries stay anchored to the active runtime root."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:353
+#: src/pages/CatalogPage.tsx:354
 msgid "Installed or discoverable extension points for the active workspace."
 msgstr "Installed or discoverable extension points for the active workspace."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:280
+#: src/pages/CatalogPage.tsx:281
 msgid "Installed or discoverable plugins for this workspace runtime."
 msgstr "Installed or discoverable plugins for this workspace runtime."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:261
+#: src/pages/CatalogPage.tsx:262
 msgid "Installed skills"
 msgstr "Installed skills"
 
@@ -3875,12 +4122,12 @@ msgid "Installed skills already available in the selected workspace runtime."
 msgstr "Installed skills already available in the selected workspace runtime."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:930
+#: src/pages/CatalogPage.tsx:1011
 msgid "Installing…"
 msgstr "Installing…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3373
+#: src/pages/BotsPage.tsx:3861
 #: src/pages/settings/PersonalizationSettingsPage.tsx:72
 msgid "Instructions"
 msgstr "Instructions"
@@ -3911,12 +4158,12 @@ msgid "Interval"
 msgstr "Interval"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:652
+#: src/pages/CatalogPage.tsx:653
 msgid "Inventory board"
 msgstr "Inventory board"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:525
+#: src/pages/CatalogPage.tsx:526
 msgid "Inventory search"
 msgstr "Inventory search"
 
@@ -3956,7 +4203,7 @@ msgid "Keep a little more breathing room between turns."
 msgstr "Keep a little more breathing room between turns."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3792
+#: src/pages/BotsPage.tsx:4371
 msgid "Keep Editing"
 msgstr "Keep Editing"
 
@@ -3996,7 +4243,7 @@ msgid "Keyboard input is attached to the active terminal session. Use Ctrl/Cmd+F
 msgstr "Keyboard input is attached to the active terminal session. Use Ctrl/Cmd+F to search. Shell integration status is tracked live."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3051
+#: src/pages/BotsPage.tsx:3539
 #: src/pages/settings/ConfigSettingsPage.tsx:1760
 msgid "Label"
 msgstr "Label"
@@ -4010,7 +4257,7 @@ msgstr "Language"
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:208
-#: src/pages/BotsPage.tsx:2237
+#: src/pages/BotsPage.tsx:2666
 msgid "Last Bot Error"
 msgstr "Last Bot Error"
 
@@ -4020,8 +4267,8 @@ msgid "Last changed: {timestamp}"
 msgstr "Last changed: {timestamp}"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2064
-#: src/pages/BotsPage.tsx:3071
+#: src/pages/BotsPage.tsx:2493
+#: src/pages/BotsPage.tsx:3559
 msgid "Last Confirmed"
 msgstr "Last Confirmed"
 
@@ -4037,24 +4284,24 @@ msgstr "last exit {exitCode}"
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:258
-#: src/pages/BotsPage.tsx:2324
+#: src/pages/BotsPage.tsx:2753
 msgid "Last Poll Message"
 msgstr "Last Poll Message"
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:250
-#: src/pages/BotsPage.tsx:2310
+#: src/pages/BotsPage.tsx:2739
 msgid "Last Poll Status"
 msgstr "Last Poll Status"
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:254
-#: src/pages/BotsPage.tsx:2320
+#: src/pages/BotsPage.tsx:2749
 msgid "Last Poll Time"
 msgstr "Last Poll Time"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2563
+#: src/pages/BotsPage.tsx:3051
 msgid "Last reply"
 msgstr "Last reply"
 
@@ -4064,7 +4311,7 @@ msgid "Last Run: {time}"
 msgstr "Last Run: {time}"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2352
+#: src/pages/BotsPage.tsx:2781
 msgid "Last Suppressed Replay"
 msgstr "Last Suppressed Replay"
 
@@ -4079,7 +4326,7 @@ msgid "Last Turn"
 msgstr "Last Turn"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2606
+#: src/pages/BotsPage.tsx:3094
 msgid "Latest delivery error"
 msgstr "Latest delivery error"
 
@@ -4114,12 +4361,12 @@ msgid "Layers"
 msgstr "Layers"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3319
+#: src/pages/BotsPage.tsx:3807
 msgid "Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials."
 msgstr "Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2895
+#: src/pages/BotsPage.tsx:3383
 msgid "Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials."
 msgstr "Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials."
 
@@ -4129,7 +4376,7 @@ msgid "Leave blank to keep the current token value. Enter a new value to rotate 
 msgstr "Leave blank to keep the current token value. Enter a new value to rotate it."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3116
+#: src/pages/BotsPage.tsx:3604
 msgid "Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials."
 msgstr "Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials."
 
@@ -4161,7 +4408,7 @@ msgid "Limit how many worktrees this client should keep visible before pruning g
 msgstr "Limit how many worktrees this client should keep visible before pruning guidance appears."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2070
+#: src/pages/BotsPage.tsx:2499
 msgid "Linked Connections"
 msgstr "Linked Connections"
 
@@ -4280,9 +4527,9 @@ msgid "Loading automations…"
 msgstr "Loading automations…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1843
-msgid "Loading bot connections..."
-msgstr "Loading bot connections..."
+#: src/pages/BotsPage.tsx:1974
+msgid "Loading bot bindings..."
+msgstr "Loading bot bindings..."
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:132
@@ -4290,12 +4537,17 @@ msgid "Loading bot logs…"
 msgstr "Loading bot logs…"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2141
+msgid "Loading bots..."
+msgstr "Loading bots..."
+
+#. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:2691
 msgid "Loading configuration…"
 msgstr "Loading configuration…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2535
+#: src/pages/BotsPage.tsx:3023
 msgid "Loading conversations..."
 msgstr "Loading conversations..."
 
@@ -4351,7 +4603,7 @@ msgid "Loading runtime state…"
 msgstr "Loading runtime state…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2025
+#: src/pages/BotsPage.tsx:2454
 msgid "Loading saved WeChat accounts..."
 msgstr "Loading saved WeChat accounts..."
 
@@ -4381,7 +4633,8 @@ msgid "Loading workspace config…"
 msgstr "Loading workspace config…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3473
+#: src/pages/BotsPage.tsx:3961
+#: src/pages/BotsPage.tsx:4079
 msgid "Loading workspace threads..."
 msgstr "Loading workspace threads..."
 
@@ -4399,15 +4652,15 @@ msgstr "Loading workspaces…"
 #. js-lingui-explicit-id
 #: src/components/ui/LoadingState.tsx:6
 #: src/pages/AutomationDetailPage.tsx:365
-#: src/pages/CatalogPage.tsx:1151
-#: src/pages/CatalogPage.tsx:1213
+#: src/pages/CatalogPage.tsx:1246
+#: src/pages/CatalogPage.tsx:1308
 #: src/pages/SkillsPage.tsx:236
 #: src/pages/thread-page/ThreadComposerDock.tsx:384
 msgid "Loading…"
 msgstr "Loading…"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:759
+#: src/pages/CatalogPage.tsx:831
 #: src/pages/settings/ConfigSettingsPage.tsx:845
 #: src/pages/settings/ConfigSettingsPage.tsx:1587
 #: src/pages/settings/ConfigSettingsPage.tsx:3253
@@ -4430,7 +4683,7 @@ msgid "Local policy controls for future worktree-aware flows."
 msgstr "Local policy controls for future worktree-aware flows."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:722
+#: src/pages/CatalogPage.tsx:723
 #: src/pages/settings/ConfigSettingsPage.tsx:3252
 #: src/pages/settings/ConfigSettingsPage.tsx:3500
 msgid "Local Shell"
@@ -4480,12 +4733,12 @@ msgid "Login Flow"
 msgstr "Login Flow"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3578
+#: src/pages/BotsPage.tsx:4157
 msgid "Login ID"
 msgstr "Login ID"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3168
+#: src/pages/BotsPage.tsx:3656
 msgid "Login Session"
 msgstr "Login Session"
 
@@ -4505,19 +4758,19 @@ msgid "Logs"
 msgstr "Logs"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:500
-#: src/pages/BotsPage.tsx:794
+#: src/pages/BotsPage.tsx:574
+#: src/pages/BotsPage.tsx:937
 msgid "Long Polling"
 msgstr "Long Polling"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2787
+#: src/pages/BotsPage.tsx:3275
 msgid "Long Polling only"
 msgstr "Long Polling only"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:88
-#: src/pages/BotsPage.tsx:552
+#: src/pages/BotsPage.tsx:626
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:59
 #: src/pages/thread-page/ThreadComposerDock.tsx:892
 msgid "Low"
@@ -4529,7 +4782,7 @@ msgid "Manage account identity, sign-in methods, and current usage limits from o
 msgstr "Manage account identity, sign-in methods, and current usage limits from one stable general settings page."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2630
+#: src/pages/BotsPage.tsx:3118
 msgid "Manage Binding"
 msgstr "Manage Binding"
 
@@ -4539,9 +4792,14 @@ msgid "Manage bot integrations and chat bindings"
 msgstr "Manage bot integrations and chat bindings"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3417
+#: src/pages/BotsPage.tsx:3905
 msgid "Manage Conversation Binding"
 msgstr "Manage Conversation Binding"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1978
+msgid "Manage Default Binding"
+msgstr "Manage Default Binding"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:3023
@@ -4555,7 +4813,7 @@ msgid "Manual"
 msgstr "Manual"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:540
+#: src/pages/BotsPage.tsx:614
 msgid "Manual Entry"
 msgstr "Manual Entry"
 
@@ -4575,19 +4833,19 @@ msgid "Mark all read"
 msgstr "Mark all read"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:761
-#: src/pages/CatalogPage.tsx:1382
-#: src/pages/CatalogPage.tsx:1494
+#: src/pages/CatalogPage.tsx:833
+#: src/pages/CatalogPage.tsx:1476
+#: src/pages/CatalogPage.tsx:1601
 msgid "Marketplace"
 msgstr "Marketplace"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:897
+#: src/pages/CatalogPage.tsx:978
 msgid "Marketplace path"
 msgstr "Marketplace path"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:357
+#: src/pages/CatalogPage.tsx:358
 msgid "Marketplace-driven inventory deserves a dedicated extension board."
 msgstr "Marketplace-driven inventory deserves a dedicated extension board."
 
@@ -4597,7 +4855,7 @@ msgid "Match the operating system motion preference."
 msgstr "Match the operating system motion preference."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3265
+#: src/pages/BotsPage.tsx:3753
 msgid "Matches the workspace composer permission preset. Full access sends approvalPolicy=never and a danger-full-access sandbox to app-server so bot turns can avoid interactive approval prompts."
 msgstr "Matches the workspace composer permission preset. Full access sends approvalPolicy=never and a danger-full-access sandbox to app-server so bot turns can avoid interactive approval prompts."
 
@@ -4650,7 +4908,7 @@ msgstr "MCP Servers"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:89
-#: src/pages/BotsPage.tsx:553
+#: src/pages/BotsPage.tsx:627
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:60
 #: src/pages/thread-page/ThreadComposerDock.tsx:893
 msgid "Medium"
@@ -4768,6 +5026,7 @@ msgstr "Mode"
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:813
 #: src/pages/AutomationsPage.tsx:815
+#: src/pages/CatalogPage.tsx:1588
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:38
 #: src/pages/thread-page/ThreadComposerDock.tsx:148
 msgid "Model"
@@ -4779,7 +5038,7 @@ msgid "Model catalog imported"
 msgstr "Model catalog imported"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:547
+#: src/pages/CatalogPage.tsx:548
 msgid "Model filter"
 msgstr "Model filter"
 
@@ -4794,12 +5053,12 @@ msgid "Model shell override for \"{key}\" must be a string"
 msgstr "Model shell override for \"{key}\" must be a string"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:599
+#: src/pages/CatalogPage.tsx:600
 msgid "Model shell type"
 msgstr "Model shell type"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:601
+#: src/pages/CatalogPage.tsx:602
 msgid "Model shell type filter"
 msgstr "Model shell type filter"
 
@@ -4824,18 +5083,18 @@ msgid "Model: {model}"
 msgstr "Model: {model}"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:252
-#: src/pages/CatalogPage.tsx:586
+#: src/pages/CatalogPage.tsx:253
+#: src/pages/CatalogPage.tsx:587
 msgid "Models"
 msgstr "Models"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:329
+#: src/pages/CatalogPage.tsx:330
 msgid "Models and modes define how the runtime executes work."
 msgstr "Models and modes define how the runtime executes work."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:288
+#: src/pages/CatalogPage.tsx:289
 msgid "Modes"
 msgstr "Modes"
 
@@ -4893,7 +5152,7 @@ msgid "Motion preference"
 msgstr "Motion preference"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:339
+#: src/pages/CatalogPage.tsx:340
 msgid "Mounted skills and connected app surfaces."
 msgstr "Mounted skills and connected app surfaces."
 
@@ -4984,12 +5243,12 @@ msgid "New Automation"
 msgstr "New Automation"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2696
+#: src/pages/BotsPage.tsx:3184
 msgid "New Bot Connection"
 msgstr "New Bot Connection"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3289
+#: src/pages/BotsPage.tsx:3777
 msgid "New bot threads and turns will request full access from app-server with approval prompts disabled. Use this only for trusted bot workflows."
 msgstr "New bot threads and turns will request full access from app-server with approval prompts disabled. Use this only for trusted bot workflows."
 
@@ -4999,7 +5258,7 @@ msgid "New Capability Template"
 msgstr "New Capability Template"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1616
+#: src/pages/BotsPage.tsx:1822
 msgid "New Connection"
 msgstr "New Connection"
 
@@ -5034,7 +5293,7 @@ msgid "New Thread in {workspace}"
 msgstr "New Thread in {workspace}"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3521
+#: src/pages/BotsPage.tsx:4009
 msgid "New Thread Title"
 msgstr "New Thread Title"
 
@@ -5098,7 +5357,7 @@ msgid "No active workspace candidate is currently selected from the main app rou
 msgstr "No active workspace candidate is currently selected from the main app route context."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3506
+#: src/pages/BotsPage.tsx:3994
 msgid "No active workspace threads are available yet. Switch to Create New Thread to create one and bind this conversation immediately."
 msgstr "No active workspace threads are available yet. Switch to Create New Thread to create one and bind this conversation immediately."
 
@@ -5108,14 +5367,19 @@ msgid "No archived threads found."
 msgstr "No archived threads found."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1864
-msgid "No bot connections match the current search."
-msgstr "No bot connections match the current search."
+#: src/pages/BotsPage.tsx:2162
+msgid "No bots match the current search."
+msgstr "No bots match the current search."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1849
-msgid "No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment."
-msgstr "No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment."
+#: src/pages/BotsPage.tsx:2158
+msgid "No bots with full-access endpoints match the current search and filters."
+msgstr "No bots with full-access endpoints match the current search and filters."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2147
+msgid "No bots yet. Start with a Telegram or WeChat endpoint, and the system will provision the bot layer automatically."
+msgstr "No bots yet. Start with a Telegram or WeChat endpoint, and the system will provision the bot layer automatically."
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1104
@@ -5128,38 +5392,44 @@ msgid "No changes. This scenario already matches the current config for the trac
 msgstr "No changes. This scenario already matches the current config for the tracked keys."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:510
+#: src/pages/BotsPage.tsx:584
 #: src/pages/botsPageUtils.ts:326
 msgid "No Command Output"
 msgstr "No Command Output"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2443
-#: src/pages/BotsPage.tsx:2846
+#: src/pages/BotsPage.tsx:2931
+#: src/pages/BotsPage.tsx:3334
 msgid "No Command Output omits command items entirely."
 msgstr "No Command Output omits command items entirely."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2163
-msgid "No connection selected."
-msgstr "No connection selected."
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2541
+#: src/pages/BotsPage.tsx:3029
 msgid "No conversations have been mapped yet. The first inbound bot message will create one."
 msgstr "No conversations have been mapped yet. The first inbound bot message will create one."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1269
-#: src/pages/CatalogPage.tsx:1312
-#: src/pages/CatalogPage.tsx:1373
+#: src/pages/CatalogPage.tsx:781
+#: src/pages/CatalogPage.tsx:1344
+#: src/pages/CatalogPage.tsx:1410
+#: src/pages/CatalogPage.tsx:1680
 #: src/pages/SkillsPage.tsx:257
 msgid "No description provided."
 msgstr "No description provided."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1159
-#: src/pages/CatalogPage.tsx:1216
+#: src/pages/BotsPage.tsx:2592
+msgid "No endpoint selected."
+msgstr "No endpoint selected."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2291
+msgid "No endpoints match the current filters for this bot."
+msgstr "No endpoints match the current filters for this bot."
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:1254
+#: src/pages/CatalogPage.tsx:1311
 msgid "No entries available."
 msgstr "No entries available."
 
@@ -5174,12 +5444,7 @@ msgid "No files"
 msgstr "No files"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1860
-msgid "No full-access bot connections match the current search and filters."
-msgstr "No full-access bot connections match the current search and filters."
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2556
+#: src/pages/BotsPage.tsx:3044
 msgid "No inbound message recorded yet."
 msgstr "No inbound message recorded yet."
 
@@ -5237,7 +5502,7 @@ msgid "No matching commands found."
 msgstr "No matching commands found."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1155
+#: src/pages/CatalogPage.tsx:1250
 msgid "No matching entries in this lane."
 msgstr "No matching entries in this lane."
 
@@ -5310,7 +5575,7 @@ msgid "No runtime logs matched the current filter."
 msgstr "No runtime logs matched the current filter."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3015
+#: src/pages/BotsPage.tsx:3503
 msgid "No Saved Accounts Yet"
 msgstr "No Saved Accounts Yet"
 
@@ -5320,12 +5585,12 @@ msgid "No saved trace override is active. Effective values currently follow back
 msgstr "No saved trace override is active. Effective values currently follow backend environment defaults."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2041
+#: src/pages/BotsPage.tsx:2470
 msgid "No saved WeChat accounts match the current filters."
 msgstr "No saved WeChat accounts match the current filters."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2031
+#: src/pages/BotsPage.tsx:2460
 msgid "No saved WeChat accounts yet. Complete one confirmed QR login to save an account for reuse in this workspace."
 msgstr "No saved WeChat accounts yet. Complete one confirmed QR login to save an account for reuse in this workspace."
 
@@ -5345,6 +5610,7 @@ msgid "No summary available for this run."
 msgstr "No summary available for this run."
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2861
 #: src/pages/thread-page/ThreadComposerDock.tsx:362
 msgid "No thread selected"
 msgstr "No thread selected"
@@ -5356,11 +5622,16 @@ msgstr "No usage data"
 
 #. js-lingui-explicit-id
 #: src/components/shell/SettingsShell.tsx:43
-#: src/pages/BotsPage.tsx:1655
-#: src/pages/CatalogPage.tsx:217
+#: src/pages/BotsPage.tsx:1862
+#: src/pages/CatalogPage.tsx:218
 #: src/pages/SkillsPage.tsx:45
 msgid "No workspace"
 msgstr "No workspace"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1938
+msgid "No workspace thread target"
+msgstr "No workspace thread target"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:217
@@ -5369,28 +5640,29 @@ msgid "No workspaces registered yet."
 msgstr "No workspaces registered yet."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2315
-#: src/pages/BotsPage.tsx:2325
-#: src/pages/BotsPage.tsx:2335
-#: src/pages/BotsPage.tsx:2341
-#: src/pages/BotsPage.tsx:2348
-#: src/pages/BotsPage.tsx:2356
-#: src/pages/BotsPage.tsx:2362
-#: src/pages/BotsPage.tsx:2375
-#: src/pages/BotsPage.tsx:3056
-#: src/pages/BotsPage.tsx:3076
+#: src/pages/BotsPage.tsx:2744
+#: src/pages/BotsPage.tsx:2754
+#: src/pages/BotsPage.tsx:2764
+#: src/pages/BotsPage.tsx:2770
+#: src/pages/BotsPage.tsx:2777
+#: src/pages/BotsPage.tsx:2785
+#: src/pages/BotsPage.tsx:2791
+#: src/pages/BotsPage.tsx:2804
+#: src/pages/BotsPage.tsx:3544
+#: src/pages/BotsPage.tsx:3564
 #: src/pages/botsPageUtils.ts:348
 msgid "none"
 msgstr "none"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:186
-#: src/pages/BotsPage.tsx:788
-#: src/pages/BotsPage.tsx:791
-#: src/pages/BotsPage.tsx:797
-#: src/pages/BotsPage.tsx:828
-#: src/pages/BotsPage.tsx:835
-#: src/pages/BotsPage.tsx:1663
+#: src/pages/BotsPage.tsx:940
+#: src/pages/BotsPage.tsx:949
+#: src/pages/BotsPage.tsx:1870
+#: src/pages/BotsPage.tsx:2819
+#: src/pages/BotsPage.tsx:2841
+#: src/pages/BotsPage.tsx:2867
+#: src/pages/BotsPage.tsx:4045
 msgid "None"
 msgstr "None"
 
@@ -5402,7 +5674,7 @@ msgstr "None (Start from scratch)"
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:134
 #: src/i18n/display.ts:203
-#: src/pages/BotsPage.tsx:2296
+#: src/pages/BotsPage.tsx:2725
 msgid "Normal"
 msgstr "Normal"
 
@@ -5412,7 +5684,7 @@ msgid "Normal motion"
 msgstr "Normal motion"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3437
+#: src/pages/BotsPage.tsx:3925
 msgid "Not bound"
 msgstr "Not bound"
 
@@ -5427,21 +5699,16 @@ msgid "Not explicit"
 msgstr "Not explicit"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:866
+#: src/pages/BotsPage.tsx:980
 msgid "Not fetched"
 msgstr "Not fetched"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:118
-#: src/pages/BotsPage.tsx:873
+#: src/pages/BotsPage.tsx:987
 #: src/pages/thread-page/threadPageComposerShared.tsx:662
 msgid "Not loaded"
 msgstr "Not loaded"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:834
-msgid "not required in polling mode"
-msgstr "not required in polling mode"
 
 #. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:426
@@ -5449,8 +5716,8 @@ msgid "Not set"
 msgstr "Not set"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:860
-#: src/pages/BotsPage.tsx:863
+#: src/pages/BotsPage.tsx:974
+#: src/pages/BotsPage.tsx:977
 #: src/pages/settings/ConfigSettingsPage.tsx:2321
 #: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:741
 msgid "Not started"
@@ -5468,13 +5735,13 @@ msgid "Not tracked"
 msgstr "Not tracked"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2108
+#: src/pages/BotsPage.tsx:2537
 msgid "Not used by any bot connection yet."
 msgstr "Not used by any bot connection yet."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3075
-#: src/pages/BotsPage.tsx:3740
+#: src/pages/BotsPage.tsx:3563
+#: src/pages/BotsPage.tsx:4319
 msgid "Notes"
 msgstr "Notes"
 
@@ -5555,12 +5822,12 @@ msgid "On Failure"
 msgstr "On Failure"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1543
+#: src/pages/CatalogPage.tsx:1702
 msgid "On Install"
 msgstr "On Install"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1541
+#: src/pages/CatalogPage.tsx:1700
 #: src/pages/settings/ConfigSettingsPage.tsx:3406
 #: src/pages/settings/ConfigSettingsPage.tsx:3523
 msgid "On Request"
@@ -5592,12 +5859,12 @@ msgid "Only open side panels when you need them."
 msgstr "Only open side panels when you need them."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1828
+#: src/pages/BotsPage.tsx:2126
 msgid "Only Show Full Access"
 msgstr "Only Show Full Access"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1995
+#: src/pages/BotsPage.tsx:2424
 msgid "Only Show Unbound Accounts"
 msgstr "Only Show Unbound Accounts"
 
@@ -5650,7 +5917,7 @@ msgid "Open Configured"
 msgstr "Open Configured"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2099
+#: src/pages/BotsPage.tsx:2528
 msgid "Open Connection"
 msgstr "Open Connection"
 
@@ -5716,7 +5983,7 @@ msgid "Open Runtime Inspection"
 msgstr "Open Runtime Inspection"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2729
+#: src/pages/BotsPage.tsx:3217
 msgid "Open Settings"
 msgstr "Open Settings"
 
@@ -5752,7 +6019,7 @@ msgid "Open the rhythm up when you want a calmer reading pace."
 msgstr "Open the rhythm up when you want a calmer reading pace."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2656
+#: src/pages/BotsPage.tsx:3144
 msgid "Open Thread"
 msgstr "Open Thread"
 
@@ -5787,12 +6054,12 @@ msgid "Open worktree settings"
 msgstr "Open worktree settings"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3316
+#: src/pages/BotsPage.tsx:3804
 msgid "OpenAI API Key"
 msgstr "OpenAI API Key"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1369
+#: src/pages/BotsPage.tsx:1521
 msgid "OpenAI API key is required for the OpenAI Responses backend. Leave it blank only when editing a connection that already stores one."
 msgstr "OpenAI API key is required for the OpenAI Responses backend. Leave it blank only when editing a connection that already stores one."
 
@@ -5803,28 +6070,28 @@ msgid "OpenAI authentication expired. This thread cannot continue until access i
 msgstr "OpenAI authentication expired. This thread cannot continue until access is restored."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3336
+#: src/pages/BotsPage.tsx:3824
 msgid "OpenAI Base URL"
 msgstr "OpenAI Base URL"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3353
+#: src/pages/BotsPage.tsx:3841
 msgid "OpenAI Model"
 msgstr "OpenAI Model"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1380
+#: src/pages/BotsPage.tsx:1532
 msgid "OpenAI model is required for the OpenAI Responses backend."
 msgstr "OpenAI model is required for the OpenAI Responses backend."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:486
+#: src/pages/BotsPage.tsx:560
 #: src/pages/botsPageUtils.ts:295
 msgid "OpenAI Responses"
 msgstr "OpenAI Responses"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:849
+#: src/pages/CatalogPage.tsx:930
 msgid "Operational actions now live in their own tabbed console instead of competing with inventory cards for attention."
 msgstr "Operational actions now live in their own tabbed console instead of competing with inventory cards for attention."
 
@@ -5834,7 +6101,7 @@ msgid "Optional global outbound proxy for Telegram and OpenAI requests. Supports
 msgstr "Optional global outbound proxy for Telegram and OpenAI requests. Supports http://127.0.0.1:7890 and socks5://127.0.0.1:1080. Leave blank to fall back to CODEX_SERVER_OUTBOUND_PROXY and then standard HTTP_PROXY/HTTPS_PROXY/ALL_PROXY handling. Proxy credentials embedded in the URL are stored in local codex-server metadata."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3375
+#: src/pages/BotsPage.tsx:3863
 msgid "Optional system instructions for the Responses backend."
 msgstr "Optional system instructions for the Responses backend."
 
@@ -5844,32 +6111,32 @@ msgid "Optional thread id filter. Leave blank to trace every thread inside the s
 msgstr "Optional thread id filter. Leave blank to trace every thread inside the selected workspace scope."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3736
+#: src/pages/BotsPage.tsx:4315
 msgid "Optional. Add operational notes such as owner, queue purpose, or handoff details."
 msgstr "Optional. Add operational notes such as owner, queue purpose, or handoff details."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2946
+#: src/pages/BotsPage.tsx:3434
 msgid "Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning."
 msgstr "Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2808
+#: src/pages/BotsPage.tsx:3296
 msgid "Optional. Defaults to a provider-specific connection name."
 msgstr "Optional. Defaults to a provider-specific connection name."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3338
+#: src/pages/BotsPage.tsx:3826
 msgid "Optional. Defaults to the standard Responses API endpoint."
 msgstr "Optional. Defaults to the standard Responses API endpoint."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3516
+#: src/pages/BotsPage.tsx:4004
 msgid "Optional. Leave this blank to let the server build a default thread title from the bot and conversation metadata."
 msgstr "Optional. Leave this blank to let the server build a default thread title from the bot and conversation metadata."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3725
+#: src/pages/BotsPage.tsx:4304
 msgid "Optional. Use a short label that makes this WeChat account easier to find later."
 msgstr "Optional. Use a short label that makes this WeChat account easier to find later."
 
@@ -5884,7 +6151,12 @@ msgid "Origins"
 msgstr "Origins"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2723
+#: src/pages/CatalogPage.tsx:805
+msgid "Other"
+msgstr "Other"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:3211
 msgid "Outbound proxy is configured globally in Settings > Config > Runtime."
 msgstr "Outbound proxy is configured globally in Settings > Config > Runtime."
 
@@ -5899,8 +6171,8 @@ msgid "Output"
 msgstr "Output"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3063
-#: src/pages/BotsPage.tsx:3672
+#: src/pages/BotsPage.tsx:3551
+#: src/pages/BotsPage.tsx:4251
 msgid "Owner User ID"
 msgstr "Owner User ID"
 
@@ -5953,7 +6225,7 @@ msgstr "Pattern"
 #. js-lingui-explicit-id
 #: src/pages/AutomationDetailPage.tsx:171
 #: src/pages/AutomationsPage.tsx:535
-#: src/pages/BotsPage.tsx:2219
+#: src/pages/BotsPage.tsx:2648
 msgid "Pause"
 msgstr "Pause"
 
@@ -5978,7 +6250,7 @@ msgid "Pending approvals"
 msgstr "Pending approvals"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:872
+#: src/pages/BotsPage.tsx:986
 msgid "Pending confirmation"
 msgstr "Pending confirmation"
 
@@ -6001,9 +6273,9 @@ msgstr "Permission preset"
 
 #. js-lingui-explicit-id
 #: src/pages/BotConnectionLogsPage.tsx:245
-#: src/pages/BotsPage.tsx:2283
-#: src/pages/BotsPage.tsx:3263
-#: src/pages/BotsPage.tsx:3273
+#: src/pages/BotsPage.tsx:2712
+#: src/pages/BotsPage.tsx:3751
+#: src/pages/BotsPage.tsx:3761
 msgid "Permission Preset"
 msgstr "Permission Preset"
 
@@ -6018,7 +6290,7 @@ msgid "Permissions Request"
 msgstr "Permissions Request"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3393
+#: src/pages/BotsPage.tsx:3881
 msgid "Persist conversation state in the OpenAI Responses API when supported."
 msgstr "Persist conversation state in the OpenAI Responses API when supported."
 
@@ -6051,13 +6323,14 @@ msgid "Pin session"
 msgstr "Pin session"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:577
+#: src/pages/BotsPage.tsx:651
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:30
 #: src/pages/thread-page/ThreadComposerDock.tsx:819
 msgid "Plan"
 msgstr "Plan"
 
 #. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:758
 #: src/pages/thread-page/buildComposerPreferenceOptions.ts:29
 #: src/pages/thread-page/ThreadComposerDock.tsx:816
 msgid "Plan mode"
@@ -6084,34 +6357,39 @@ msgid "Please review the current uncommitted local changes, prioritizing bugs, r
 msgstr "Please review the current uncommitted local changes, prioritizing bugs, regressions, risks, and missing tests."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:874
+#: src/pages/CatalogPage.tsx:955
 msgid "Plugin actions"
 msgstr "Plugin actions"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:965
+#: src/pages/CatalogPage.tsx:1669
+msgid "Plugin from {marketplaceName}"
+msgstr "Plugin from {marketplaceName}"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:1046
 msgid "Plugin ID"
 msgstr "Plugin ID"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:902
+#: src/pages/CatalogPage.tsx:983
 msgid "Plugin name"
 msgstr "Plugin name"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:635
+#: src/pages/CatalogPage.tsx:636
 msgid "Plugin sync warning"
 msgstr "Plugin sync warning"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:279
-#: src/pages/CatalogPage.tsx:594
-#: src/pages/CatalogPage.tsx:868
+#: src/pages/CatalogPage.tsx:280
+#: src/pages/CatalogPage.tsx:595
+#: src/pages/CatalogPage.tsx:949
 msgid "Plugins"
 msgstr "Plugins"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:352
+#: src/pages/CatalogPage.tsx:353
 msgid "Plugins and extensions"
 msgstr "Plugins and extensions"
 
@@ -6219,6 +6497,11 @@ msgid "Processing"
 msgstr "Processing"
 
 #. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:822
+msgid "Productivity"
+msgstr "Productivity"
+
+#. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:689
 msgid "Prompt"
 msgstr "Prompt"
@@ -6249,19 +6532,13 @@ msgid "Provide the server name, requested scopes, and timeout window for the OAu
 msgstr "Provide the server name, requested scopes, and timeout window for the OAuth handshake."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1677
-#: src/pages/BotsPage.tsx:2749
-#: src/pages/BotsPage.tsx:2751
+#: src/pages/BotsPage.tsx:3237
+#: src/pages/BotsPage.tsx:3239
 msgid "Provider"
 msgstr "Provider"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1671
-msgid "Provider Posture"
-msgstr "Provider Posture"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2366
+#: src/pages/BotsPage.tsx:2795
 msgid "Provider Settings"
 msgstr "Provider Settings"
 
@@ -6271,14 +6548,9 @@ msgid "Proxy"
 msgstr "Proxy"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2874
+#: src/pages/BotsPage.tsx:3362
 msgid "Public Base URL"
 msgstr "Public Base URL"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1695
-msgid "Public URL"
-msgstr "Public URL"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/GitSettingsPage.tsx:60
@@ -6286,28 +6558,28 @@ msgid "Pull Request Template"
 msgstr "Pull Request Template"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3637
+#: src/pages/BotsPage.tsx:4216
 msgid "QR Code Scanned"
 msgstr "QR Code Scanned"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3193
+#: src/pages/BotsPage.tsx:3681
 msgid "QR Credentials Required"
 msgstr "QR Credentials Required"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:544
+#: src/pages/BotsPage.tsx:618
 msgid "QR Login"
 msgstr "QR Login"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3176
-#: src/pages/BotsPage.tsx:3625
+#: src/pages/BotsPage.tsx:3664
+#: src/pages/BotsPage.tsx:4204
 msgid "QR Payload"
 msgstr "QR Payload"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3192
+#: src/pages/BotsPage.tsx:3680
 msgid "QR Session Ready"
 msgstr "QR Session Ready"
 
@@ -6328,6 +6600,11 @@ msgstr "Query"
 #: src/components/workspace/renderers.tsx:1733
 msgid "Query {index}"
 msgstr "Query {index}"
+
+#. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:801
+msgid "Question"
+msgstr "Question"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:59
@@ -6367,7 +6644,7 @@ msgid "Re-authenticate if needed, then retry the route or move to a screen your 
 msgstr "Re-authenticate if needed, then retry the route or move to a screen your session can access."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1421
+#: src/pages/CatalogPage.tsx:1515
 msgid "Read"
 msgstr "Read"
 
@@ -6377,33 +6654,33 @@ msgid "Read Only"
 msgstr "Read Only"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:913
+#: src/pages/CatalogPage.tsx:994
 msgid "Read plugin"
 msgstr "Read plugin"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3212
+#: src/pages/BotsPage.tsx:3700
 msgid "Read-only while QR Login is selected."
 msgstr "Read-only while QR Login is selected."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:876
+#: src/pages/CatalogPage.tsx:957
 msgid "Read, install, and remove plugins without leaving the runtime surface."
 msgstr "Read, install, and remove plugins without leaving the runtime surface."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:909
+#: src/pages/CatalogPage.tsx:990
 msgid "Reading…"
 msgstr "Reading…"
 
 #. js-lingui-explicit-id
 #: src/i18n/display.ts:43
-#: src/pages/BotsPage.tsx:865
+#: src/pages/BotsPage.tsx:979
 msgid "Ready"
 msgstr "Ready"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:870
+#: src/pages/BotsPage.tsx:984
 msgid "Ready to create"
 msgstr "Ready to create"
 
@@ -6418,7 +6695,7 @@ msgid "Realtime Subscription Diagnostics"
 msgstr "Realtime Subscription Diagnostics"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1070
+#: src/pages/CatalogPage.tsx:1165
 msgid "Reason"
 msgstr "Reason"
 
@@ -6433,6 +6710,7 @@ msgid "Reasoning"
 msgstr "Reasoning"
 
 #. js-lingui-explicit-id
+#: src/pages/CatalogPage.tsx:1595
 #: src/pages/thread-page/ThreadComposerDock.tsx:713
 #: src/pages/thread-page/ThreadComposerDock.tsx:717
 #: src/pages/thread-page/ThreadComposerDock.tsx:885
@@ -6440,10 +6718,10 @@ msgid "Reasoning effort"
 msgstr "Reasoning effort"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3250
-#: src/pages/BotsPage.tsx:3252
-#: src/pages/BotsPage.tsx:3359
-#: src/pages/BotsPage.tsx:3361
+#: src/pages/BotsPage.tsx:3738
+#: src/pages/BotsPage.tsx:3740
+#: src/pages/BotsPage.tsx:3847
+#: src/pages/BotsPage.tsx:3849
 msgid "Reasoning Effort"
 msgstr "Reasoning Effort"
 
@@ -6458,12 +6736,12 @@ msgid "Reasoning summary example"
 msgstr "Reasoning summary example"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3410
+#: src/pages/BotsPage.tsx:3898
 msgid "Rebind this bot conversation to another workspace thread in the current workspace, or clear the existing binding so the next inbound message starts fresh."
 msgstr "Rebind this bot conversation to another workspace thread in the current workspace, or clear the existing binding so the next inbound message starts fresh."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3677
+#: src/pages/BotsPage.tsx:4256
 msgid "received"
 msgstr "received"
 
@@ -6493,7 +6771,7 @@ msgid "Recent suppression"
 msgstr "Recent suppression"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2651
+#: src/pages/BotsPage.tsx:3139
 msgid "Redeliver Reply"
 msgstr "Redeliver Reply"
 
@@ -6642,12 +6920,12 @@ msgid "Rename Workspace"
 msgstr "Rename Workspace"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3613
+#: src/pages/BotsPage.tsx:4192
 msgid "Rendering QR code..."
 msgstr "Rendering QR code..."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:854
+#: src/pages/BotsPage.tsx:968
 msgid "Replace Credentials"
 msgstr "Replace Credentials"
 
@@ -6662,7 +6940,7 @@ msgid "Replay Reconcile Failed"
 msgstr "Replay Reconcile Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2248
+#: src/pages/BotsPage.tsx:2677
 msgid "Replay Suppressions Recorded"
 msgstr "Replay Suppressions Recorded"
 
@@ -6682,7 +6960,7 @@ msgid "Reply deliveries: {count}"
 msgstr "Reply deliveries: {count}"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2576
+#: src/pages/BotsPage.tsx:3064
 msgid "Reply delivery"
 msgstr "Reply delivery"
 
@@ -6692,7 +6970,7 @@ msgid "Reply Failed"
 msgstr "Reply Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2427
+#: src/pages/BotsPage.tsx:2915
 msgid "Reply Formatting"
 msgstr "Reply Formatting"
 
@@ -6702,7 +6980,7 @@ msgid "Reply Recovered"
 msgstr "Reply Recovered"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1756
+#: src/pages/BotsPage.tsx:2051
 msgid "Reply Redelivery Failed"
 msgstr "Reply Redelivery Failed"
 
@@ -6733,12 +7011,12 @@ msgstr "Require an explicit confirmation step before applying git-affecting acti
 
 #. js-lingui-explicit-id
 #: src/components/settings/SettingsWorkspaceScopePanel.tsx:81
-#: src/pages/CatalogPage.tsx:1545
+#: src/pages/CatalogPage.tsx:1704
 msgid "Required"
 msgstr "Required"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2876
+#: src/pages/BotsPage.tsx:3364
 msgid "Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL."
 msgstr "Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL."
 
@@ -6748,12 +7026,12 @@ msgid "Required when creating a new token."
 msgstr "Required when creating a new token."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3096
+#: src/pages/BotsPage.tsx:3584
 msgid "Required. This maps to wechat_owner_user_id on the backend."
 msgstr "Required. This maps to wechat_owner_user_id on the backend."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2918
+#: src/pages/BotsPage.tsx:3406
 msgid "Required. Use the iLink channel base URL for this WeChat account."
 msgstr "Required. Use the iLink channel base URL for this WeChat account."
 
@@ -6825,6 +7103,11 @@ msgid "Resize terminal window"
 msgstr "Resize terminal window"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1940
+msgid "Resolve a workspace thread from conversation context"
+msgstr "Resolve a workspace thread from conversation context"
+
+#. js-lingui-explicit-id
 #: src/pages/thread-page/ThreadComposerDock.tsx:609
 msgid "Resolve the approval request above to continue this thread."
 msgstr "Resolve the approval request above to continue this thread."
@@ -6835,13 +7118,8 @@ msgid "Resolved"
 msgstr "Resolved"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:832
-msgid "resolved at activation"
-msgstr "resolved at activation"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3067
-#: src/pages/BotsPage.tsx:3719
+#: src/pages/BotsPage.tsx:3555
+#: src/pages/BotsPage.tsx:4298
 msgid "Resolved Base URL"
 msgstr "Resolved Base URL"
 
@@ -6878,7 +7156,7 @@ msgid "Restart"
 msgstr "Restart"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1577
+#: src/pages/BotsPage.tsx:1783
 msgid "Restart Login"
 msgstr "Restart Login"
 
@@ -6893,7 +7171,7 @@ msgid "Restart Replay Suppressed"
 msgstr "Restart Replay Suppressed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2345
+#: src/pages/BotsPage.tsx:2774
 msgid "Restart Replays Suppressed (24h)"
 msgstr "Restart Replays Suppressed (24h)"
 
@@ -6923,7 +7201,7 @@ msgid "Restart Runtime"
 msgstr "Restart Runtime"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1947
+#: src/pages/BotsPage.tsx:2375
 msgid "Restart: {count}"
 msgstr "Restart: {count}"
 
@@ -6966,14 +7244,14 @@ msgid "Restoring…"
 msgstr "Restoring…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1830
-msgid "Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server."
-msgstr "Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server."
+#: src/pages/BotsPage.tsx:2128
+msgid "Restrict the bot list to entries that include at least one workspace-thread endpoint with full-access execution."
+msgstr "Restrict the bot list to entries that include at least one workspace-thread endpoint with full-access execution."
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationDetailPage.tsx:172
 #: src/pages/AutomationsPage.tsx:543
-#: src/pages/BotsPage.tsx:2220
+#: src/pages/BotsPage.tsx:2649
 msgid "Resume"
 msgstr "Resume"
 
@@ -7026,7 +7304,7 @@ msgid "Review archived threads across all workspaces and restore them without le
 msgstr "Review archived threads across all workspaces and restore them without leaving the settings center."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:856
+#: src/pages/BotsPage.tsx:970
 msgid "Review Credentials"
 msgstr "Review Credentials"
 
@@ -7046,7 +7324,7 @@ msgid "Review the command request"
 msgstr "Review the command request"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3654
+#: src/pages/BotsPage.tsx:4233
 msgid "Review the confirmed credential bundle before applying it back into the connection form."
 msgstr "Review the confirmed credential bundle before applying it back into the connection form."
 
@@ -7118,7 +7396,7 @@ msgid "Route Not Found"
 msgstr "Route Not Found"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2955
+#: src/pages/BotsPage.tsx:3443
 msgid "route-tag-1"
 msgstr "route-tag-1"
 
@@ -7164,7 +7442,7 @@ msgid "Run in thread"
 msgstr "Run in thread"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1002
+#: src/pages/CatalogPage.tsx:1083
 msgid "Run lightweight operational actions from runtime instead of burying them inside settings."
 msgstr "Run lightweight operational actions from runtime instead of burying them inside settings."
 
@@ -7226,7 +7504,7 @@ msgstr "Runs once per hour, on the hour."
 
 #. js-lingui-explicit-id
 #: src/components/shell/AppShell.tsx:93
-#: src/pages/CatalogPage.tsx:445
+#: src/pages/CatalogPage.tsx:446
 #: src/pages/settings/ConfigSettingsPage.tsx:1033
 #: src/pages/thread-page/ThreadComposerDock.tsx:369
 #: src/pages/thread-page/ThreadWorkbenchRailWorkbenchToolsSection.tsx:76
@@ -7234,7 +7512,7 @@ msgid "Runtime"
 msgstr "Runtime"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:861
+#: src/pages/CatalogPage.tsx:942
 msgid "Runtime action groups"
 msgstr "Runtime action groups"
 
@@ -7250,7 +7528,7 @@ msgid "Runtime Config Status"
 msgstr "Runtime Config Status"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2389
+#: src/pages/BotsPage.tsx:2877
 msgid "Runtime Diagnostics"
 msgstr "Runtime Diagnostics"
 
@@ -7280,7 +7558,7 @@ msgid "Runtime inspection tabs"
 msgstr "Runtime inspection tabs"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:680
+#: src/pages/CatalogPage.tsx:681
 msgid "Runtime inventory groups"
 msgstr "Runtime inventory groups"
 
@@ -7296,12 +7574,12 @@ msgid "Runtime Log Stream"
 msgstr "Runtime Log Stream"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2292
+#: src/pages/BotsPage.tsx:2721
 msgid "Runtime Mode"
 msgstr "Runtime Mode"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1767
+#: src/pages/BotsPage.tsx:2062
 msgid "Runtime Mode Update Failed"
 msgstr "Runtime Mode Update Failed"
 
@@ -7316,7 +7594,7 @@ msgid "Runtime Process State"
 msgstr "Runtime Process State"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:504
+#: src/pages/CatalogPage.tsx:505
 msgid "Runtime queries and write actions are scoped to the selected workspace."
 msgstr "Runtime queries and write actions are scoped to the selected workspace."
 
@@ -7341,7 +7619,7 @@ msgid "Runtime restarted"
 msgstr "Runtime restarted"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:560
+#: src/pages/CatalogPage.tsx:561
 msgid "Runtime snapshot"
 msgstr "Runtime snapshot"
 
@@ -7367,7 +7645,7 @@ msgid "Runtime Stats"
 msgstr "Runtime Stats"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:448
+#: src/pages/CatalogPage.tsx:449
 msgid "Runtime tools"
 msgstr "Runtime tools"
 
@@ -7414,14 +7692,19 @@ msgid "Save Access Controls"
 msgstr "Save Access Controls"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3694
+#: src/pages/BotsPage.tsx:4273
 msgid "Save Account Details"
 msgstr "Save Account Details"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1517
+#: src/pages/BotsPage.tsx:1707
 msgid "Save Changes"
 msgstr "Save Changes"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1753
+msgid "Save Default Binding"
+msgstr "Save Default Binding"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:2521
@@ -7444,18 +7727,18 @@ msgid "Save Workspace"
 msgstr "Save Workspace"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:536
-#: src/pages/BotsPage.tsx:1915
+#: src/pages/BotsPage.tsx:610
+#: src/pages/BotsPage.tsx:2343
 msgid "Saved Account"
 msgstr "Saved Account"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3034
+#: src/pages/BotsPage.tsx:3522
 msgid "Saved Account Detail"
 msgstr "Saved Account Detail"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3005
+#: src/pages/BotsPage.tsx:3493
 msgid "Saved Account Lookup Failed"
 msgstr "Saved Account Lookup Failed"
 
@@ -7480,14 +7763,14 @@ msgid "Saved Values"
 msgstr "Saved Values"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2371
-#: src/pages/BotsPage.tsx:2984
-#: src/pages/BotsPage.tsx:2986
+#: src/pages/BotsPage.tsx:2800
+#: src/pages/BotsPage.tsx:3472
+#: src/pages/BotsPage.tsx:3474
 msgid "Saved WeChat Account"
 msgstr "Saved WeChat Account"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1972
+#: src/pages/BotsPage.tsx:2401
 msgid "Saved WeChat Accounts"
 msgstr "Saved WeChat Accounts"
 
@@ -7581,6 +7864,7 @@ msgstr "Scroll back to the latest message to resume auto-follow."
 #. js-lingui-explicit-id
 #: src/components/shell/AppMenuBar.tsx:712
 #: src/components/workspace/renderers.tsx:2828
+#: src/pages/CatalogPage.tsx:820
 #: src/pages/SkillsPage.tsx:115
 #: src/pages/thread-page/threadPageComposerShared.tsx:304
 #: src/pages/thread-page/threadPageComposerShared.tsx:410
@@ -7588,22 +7872,22 @@ msgid "Search"
 msgstr "Search"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1807
-msgid "Search by connection name, provider, backend, status, or linked WeChat account alias and note."
-msgstr "Search by connection name, provider, backend, status, or linked WeChat account alias and note."
+#: src/pages/BotsPage.tsx:2113
+msgid "Search Bots"
+msgstr "Search Bots"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1818
-msgid "Search Connections"
-msgstr "Search Connections"
+#: src/pages/BotsPage.tsx:2102
+msgid "Search by bot name, endpoint name, provider, backend, status, or linked WeChat account metadata."
+msgstr "Search by bot name, endpoint name, provider, backend, status, or linked WeChat account metadata."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1041
+#: src/pages/CatalogPage.tsx:1122
 msgid "Search failed"
 msgstr "Search failed"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1027
+#: src/pages/CatalogPage.tsx:1108
 msgid "Search files"
 msgstr "Search files"
 
@@ -7618,7 +7902,7 @@ msgid "Search navigation, actions, and recent context."
 msgstr "Search navigation, actions, and recent context."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1985
+#: src/pages/BotsPage.tsx:2414
 msgid "Search Saved Accounts"
 msgstr "Search Saved Accounts"
 
@@ -7648,17 +7932,22 @@ msgid "Searching files…"
 msgstr "Searching files…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2360
+#: src/pages/BotsPage.tsx:2789
 msgid "Secret Keys"
 msgstr "Secret Keys"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2152
-msgid "Select a connection to inspect provider status, AI backend settings, and conversation bindings."
-msgstr "Select a connection to inspect provider status, AI backend settings, and conversation bindings."
+#: src/pages/BotsPage.tsx:2273
+msgid "Select a bot first, then choose which endpoint you want to inspect."
+msgstr "Select a bot first, then choose which endpoint you want to inspect."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1323
+#: src/pages/BotsPage.tsx:1890
+msgid "Select a bot to inspect its default routing and endpoint coverage."
+msgstr "Select a bot to inspect its default routing and endpoint coverage."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1475
 msgid "Select a saved WeChat account before creating the connection."
 msgstr "Select a saved WeChat account before creating the connection."
 
@@ -7668,7 +7957,8 @@ msgid "Select a template"
 msgstr "Select a template"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:594
+#: src/pages/BotsPage.tsx:668
+#: src/pages/BotsPage.tsx:727
 msgid "Select a thread"
 msgstr "Select a thread"
 
@@ -7688,7 +7978,7 @@ msgid "Select a thread to compact its context."
 msgstr "Select a thread to compact its context."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1278
+#: src/pages/BotsPage.tsx:1430
 msgid "Select a workspace before creating a bot connection."
 msgstr "Select a workspace before creating a bot connection."
 
@@ -7698,9 +7988,14 @@ msgid "Select a workspace before creating an automation."
 msgstr "Select a workspace before creating an automation."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1088
+#: src/pages/BotsPage.tsx:1241
 msgid "Select a workspace before starting WeChat login."
 msgstr "Select a workspace before starting WeChat login."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2581
+msgid "Select an endpoint to inspect provider status, delivery posture, AI backend settings, logs, and conversation bindings."
+msgstr "Select an endpoint to inspect provider status, delivery posture, AI backend settings, logs, and conversation bindings."
 
 #. js-lingui-explicit-id
 #: src/pages/settings/AppearanceSettingsPage.tsx:189
@@ -7714,9 +8009,10 @@ msgid "Select model"
 msgstr "Select model"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1662
-msgid "Selected Connection"
-msgstr "Selected Connection"
+#: src/pages/BotsPage.tsx:1869
+#: src/pages/BotsPage.tsx:1878
+msgid "Selected Bot"
+msgstr "Selected Bot"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:268
@@ -7799,8 +8095,8 @@ msgid "Session start"
 msgstr "Session start"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3172
-#: src/pages/BotsPage.tsx:3574
+#: src/pages/BotsPage.tsx:3660
+#: src/pages/BotsPage.tsx:4153
 msgid "Session Status"
 msgstr "Session Status"
 
@@ -7904,7 +8200,7 @@ msgid "Shell Cmd"
 msgstr "Shell Cmd"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:724
+#: src/pages/CatalogPage.tsx:725
 #: src/pages/settings/ConfigSettingsPage.tsx:3257
 #: src/pages/settings/ConfigSettingsPage.tsx:3504
 msgid "Shell Command"
@@ -7954,7 +8250,7 @@ msgid "Shell Stats"
 msgstr "Shell Stats"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1488
+#: src/pages/CatalogPage.tsx:1582
 msgid "Shell type"
 msgstr "Shell type"
 
@@ -8004,7 +8300,7 @@ msgid "Show MCP server status"
 msgstr "Show MCP server status"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1997
+#: src/pages/BotsPage.tsx:2426
 msgid "Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace."
 msgstr "Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace."
 
@@ -8054,13 +8350,18 @@ msgid "Signing out…"
 msgstr "Signing out…"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:514
+#: src/pages/BotsPage.tsx:588
 #: src/pages/botsPageUtils.ts:328
 msgid "Single Line"
 msgstr "Single Line"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3329
+#: src/pages/CatalogPage.tsx:774
+msgid "Single-agent execution with proactive progress updates."
+msgstr "Single-agent execution with proactive progress updates."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:3817
 msgid "sk-..."
 msgstr "sk-..."
 
@@ -8084,8 +8385,8 @@ msgid "Skills"
 msgstr "Skills"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:338
-#: src/pages/CatalogPage.tsx:576
+#: src/pages/CatalogPage.tsx:339
+#: src/pages/CatalogPage.tsx:577
 msgid "Skills and apps"
 msgstr "Skills and apps"
 
@@ -8117,7 +8418,7 @@ msgid "soon"
 msgstr "soon"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1519
+#: src/pages/CatalogPage.tsx:1626
 msgid "Source"
 msgstr "Source"
 
@@ -8141,17 +8442,17 @@ msgid "Standard local execution."
 msgstr "Standard local execution."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:888
+#: src/pages/BotsPage.tsx:1002
 msgid "Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service."
 msgstr "Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3537
+#: src/pages/BotsPage.tsx:4116
 msgid "Start a short-lived WeChat login session, display the provider-issued QR code, then pull the confirmed credential bundle back into the connection form."
 msgstr "Start a short-lived WeChat login session, display the provider-issued QR code, then pull the confirmed credential bundle back into the connection form."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:654
+#: src/pages/CatalogPage.tsx:655
 msgid "Start from grouped summaries, then drill into the active lane instead of scanning every inventory panel at once."
 msgstr "Start from grouped summaries, then drill into the active lane instead of scanning every inventory panel at once."
 
@@ -8166,7 +8467,7 @@ msgid "Start OAuth Login"
 msgstr "Start OAuth Login"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:859
+#: src/pages/BotsPage.tsx:973
 msgid "Start QR Login"
 msgstr "Start QR Login"
 
@@ -8214,8 +8515,15 @@ msgid "Starting…"
 msgstr "Starting…"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:946
+#: src/pages/BotsPage.tsx:2185
+#: src/pages/BotsPage.tsx:2863
+msgid "Stateless"
+msgstr "Stateless"
+
+#. js-lingui-explicit-id
 #: src/pages/AutomationDetailPage.tsx:414
-#: src/pages/BotsPage.tsx:2274
+#: src/pages/BotsPage.tsx:2703
 #: src/pages/settings/ConfigSettingsPage.tsx:2300
 #: src/pages/thread-page/ThreadComposerDock.tsx:273
 #: src/pages/thread-page/threadPageComposerShared.tsx:199
@@ -8274,7 +8582,7 @@ msgid "Store local response preferences and instruction text that shape how the 
 msgstr "Store local response preferences and instruction text that shape how the client should feel when you start new work."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3391
+#: src/pages/BotsPage.tsx:3879
 msgid "Store OpenAI Response State"
 msgstr "Store OpenAI Response State"
 
@@ -8289,7 +8597,7 @@ msgid "Store this token now"
 msgstr "Store this token now"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3223
+#: src/pages/BotsPage.tsx:3711
 msgid "Stored in the form and submitted on create. Start a new QR login if you need to rotate it."
 msgstr "Stored in the form and submitted on create. Start a new QR login if you need to rotate it."
 
@@ -8394,27 +8702,27 @@ msgid "Sunday"
 msgstr "Sunday"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2816
+#: src/pages/BotsPage.tsx:3304
 msgid "Support Bot"
 msgstr "Support Bot"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3731
+#: src/pages/BotsPage.tsx:2115
+msgid "Support bot, telegram, openai, support queue"
+msgstr "Support bot, telegram, openai, support queue"
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:4310
 msgid "Support Queue"
 msgstr "Support Queue"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1987
+#: src/pages/BotsPage.tsx:2416
 msgid "Support, acct_123, wechat.example.com"
 msgstr "Support, acct_123, wechat.example.com"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1820
-msgid "Support, paused, openai, support queue"
-msgstr "Support, paused, openai, support queue"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1929
+#: src/pages/BotsPage.tsx:2357
 msgid "Suppressed 24h: {count}"
 msgstr "Suppressed 24h: {count}"
 
@@ -8424,7 +8732,7 @@ msgid "Suppressed Replays ({count})"
 msgstr "Suppressed Replays ({count})"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2334
+#: src/pages/BotsPage.tsx:2763
 msgid "Suppressed Replays (24h)"
 msgstr "Suppressed Replays (24h)"
 
@@ -8496,47 +8804,37 @@ msgstr "Target"
 
 #. js-lingui-explicit-id
 #: src/pages/AutomationsPage.tsx:654
-#: src/pages/BotsPage.tsx:2735
-#: src/pages/BotsPage.tsx:2737
+#: src/pages/BotsPage.tsx:3223
+#: src/pages/BotsPage.tsx:3225
 msgid "Target Workspace"
 msgstr "Target Workspace"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:463
+#: src/pages/CatalogPage.tsx:769
+msgid "Task planning mode with explicit user checkpoints."
+msgstr "Task planning mode with explicit user checkpoints."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:537
 #: src/pages/botsPageUtils.ts:280
 msgid "Telegram"
 msgstr "Telegram"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2892
+#: src/pages/BotsPage.tsx:3380
 msgid "Telegram Bot Token"
 msgstr "Telegram Bot Token"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1288
+#: src/pages/BotsPage.tsx:1440
 msgid "Telegram bot token is required. Leave it blank only when editing a connection that already stores one."
 msgstr "Telegram bot token is required. Leave it blank only when editing a connection that already stores one."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2764
-#: src/pages/BotsPage.tsx:2766
+#: src/pages/BotsPage.tsx:3252
+#: src/pages/BotsPage.tsx:3254
 msgid "Telegram Delivery Mode"
 msgstr "Telegram Delivery Mode"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:826
-msgid "Telegram getUpdates long polling"
-msgstr "Telegram getUpdates long polling"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:807
-msgid "Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only."
-msgstr "Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only."
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:812
-msgid "Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context."
-msgstr "Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context."
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:2064
@@ -8639,9 +8937,9 @@ msgid "The app hit an internal route error"
 msgstr "The app hit an internal route error"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2253
-msgid "The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content."
-msgstr "The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content."
+#: src/pages/BotsPage.tsx:2682
+msgid "The backend suppressed {count} replay attempt(s) for this endpoint in the last 24 hours to avoid duplicating previously sent content."
+msgstr "The backend suppressed {count} replay attempt(s) for this endpoint in the last 24 hours to avoid duplicating previously sent content."
 
 #. js-lingui-explicit-id
 #: src/features/thread-terminal/useThreadTerminalStressHistoryState.ts:93
@@ -8694,12 +8992,12 @@ msgid "The message was submitted and the runtime is creating a turn."
 msgstr "The message was submitted and the runtime is creating a turn."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3640
+#: src/pages/BotsPage.tsx:4219
 msgid "The QR code has been scanned. Keep this dialog open until the remote service confirms the login and returns the final credential bundle."
 msgstr "The QR code has been scanned. Keep this dialog open until the remote service confirms the login and returns the final credential bundle."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:877
+#: src/pages/BotsPage.tsx:991
 msgid "The remote service has already confirmed this login. You can create the connection directly now, or reopen the QR dialog and click Use Credentials to copy the bundle into the form."
 msgstr "The remote service has already confirmed this login. You can create the connection directly now, or reopen the QR dialog and click Use Credentials to copy the bundle into the form."
 
@@ -8724,7 +9022,7 @@ msgid "The runtime is stopping the active turn. The thread will settle in place 
 msgstr "The runtime is stopping the active turn. The thread will settle in place when it completes."
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:640
+#: src/pages/CatalogPage.tsx:641
 msgid "The runtime loaded plugin inventory, but remote curated sync reported an error. Local plugin data is still available below."
 msgstr "The runtime loaded plugin inventory, but remote curated sync reported an error. Local plugin data is still available below."
 
@@ -8817,9 +9115,19 @@ msgid "This backend only allows remote clients after a local administrator creat
 msgstr "This backend only allows remote clients after a local administrator creates at least one active access token from localhost, 127.0.0.1, or ::1."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3559
+#: src/pages/BotsPage.tsx:4138
 msgid "This base URL is used both for fetching the QR code and for the final confirmed credential bundle."
 msgstr "This base URL is used both for fetching the QR code and for the final confirmed credential bundle."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:1965
+msgid "This bot currently resolves through OpenAI Responses endpoints, so its default binding stays stateless and does not target a workspace thread."
+msgstr "This bot currently resolves through OpenAI Responses endpoints, so its default binding stays stateless and does not target a workspace thread."
+
+#. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:2282
+msgid "This bot does not have any endpoints yet."
+msgstr "This bot does not have any endpoints yet."
 
 #. js-lingui-explicit-id
 #: src/features/access/AccessGate.tsx:167
@@ -8847,7 +9155,7 @@ msgid "This is the command codex-server will use when it starts or restarts a wo
 msgstr "This is the command codex-server will use when it starts or restarts a workspace runtime."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3772
+#: src/pages/BotsPage.tsx:4351
 msgid "This only removes the saved WeChat account record for future reuse. Existing bot connections keep their own copied credentials."
 msgstr "This only removes the saved WeChat account record for future reuse. Existing bot connections keep their own copied credentials."
 
@@ -8857,7 +9165,7 @@ msgid "This permanently removes the automation and its recorded runs. You will b
 msgstr "This permanently removes the automation and its recorded runs. You will be returned to the automation registry."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3752
+#: src/pages/BotsPage.tsx:4331
 msgid "This removes the provider connection and all persisted conversation bindings for it."
 msgstr "This removes the provider connection and all persisted conversation bindings for it."
 
@@ -8999,7 +9307,8 @@ msgid "Thread idle"
 msgstr "Thread idle"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3481
+#: src/pages/BotsPage.tsx:3969
+#: src/pages/BotsPage.tsx:4087
 msgid "Thread List Unavailable"
 msgstr "Thread List Unavailable"
 
@@ -9014,7 +9323,7 @@ msgid "Thread Name"
 msgstr "Thread Name"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2660
+#: src/pages/BotsPage.tsx:3148
 msgid "Thread pending"
 msgstr "Thread pending"
 
@@ -9319,20 +9628,20 @@ msgid "Unified"
 msgstr "Unified"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:726
+#: src/pages/CatalogPage.tsx:727
 #: src/pages/settings/ConfigSettingsPage.tsx:3262
 #: src/pages/settings/ConfigSettingsPage.tsx:3502
 msgid "Unified Execution"
 msgstr "Unified Execution"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:976
-#: src/pages/CatalogPage.tsx:1440
+#: src/pages/CatalogPage.tsx:1057
+#: src/pages/CatalogPage.tsx:1534
 msgid "Uninstall"
 msgstr "Uninstall"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:972
+#: src/pages/CatalogPage.tsx:1053
 msgid "Uninstalling…"
 msgstr "Uninstalling…"
 
@@ -9341,8 +9650,9 @@ msgstr "Uninstalling…"
 #: src/i18n/display.ts:33
 #: src/i18n/display.ts:122
 #: src/i18n/display.ts:205
-#: src/pages/CatalogPage.tsx:746
-#: src/pages/CatalogPage.tsx:768
+#: src/pages/CatalogPage.tsx:813
+#: src/pages/CatalogPage.tsx:824
+#: src/pages/CatalogPage.tsx:840
 #: src/pages/settings/ConfigSettingsPage.tsx:338
 #: src/pages/settings/EnvironmentSettingsPage.tsx:284
 #: src/pages/thread-page/threadPageComposerShared.tsx:424
@@ -9405,7 +9715,7 @@ msgid "Unread notifications"
 msgstr "Unread notifications"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3807
+#: src/pages/BotsPage.tsx:4386
 msgid "Untitled Connection"
 msgstr "Untitled Connection"
 
@@ -9417,12 +9727,12 @@ msgid "Untrusted"
 msgstr "Untrusted"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1547
+#: src/pages/BotsPage.tsx:1737
 msgid "Update Binding"
 msgstr "Update Binding"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2712
+#: src/pages/BotsPage.tsx:3200
 msgid "Update Bot Connection Failed"
 msgstr "Update Bot Connection Failed"
 
@@ -9432,12 +9742,7 @@ msgid "Update Failed"
 msgstr "Update Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:820
-msgid "Update Intake"
-msgstr "Update Intake"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3706
+#: src/pages/BotsPage.tsx:4285
 msgid "Update Saved Account Failed"
 msgstr "Update Saved Account Failed"
 
@@ -9447,7 +9752,7 @@ msgid "Update Template"
 msgstr "Update Template"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2680
+#: src/pages/BotsPage.tsx:3168
 msgid "Update the provider delivery settings, credentials, and AI backend binding for this existing bot connection."
 msgstr "Update the provider delivery settings, credentials, and AI backend binding for this existing bot connection."
 
@@ -9457,14 +9762,15 @@ msgid "Update this reusable automation pattern."
 msgstr "Update this reusable automation pattern."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2330
+#: src/pages/BotsPage.tsx:1948
+#: src/pages/BotsPage.tsx:2759
 #: src/pages/settings/ConfigSettingsPage.tsx:1736
 #: src/pages/settings/ConfigSettingsPage.tsx:2327
 msgid "Updated"
 msgstr "Updated"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:1082
+#: src/pages/CatalogPage.tsx:1177
 msgid "Upload feedback"
 msgstr "Upload feedback"
 
@@ -9489,7 +9795,7 @@ msgid "Use a clearer tint when you want to find your own prompts quickly."
 msgstr "Use a clearer tint when you want to find your own prompts quickly."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1572
+#: src/pages/BotsPage.tsx:1778
 msgid "Use Credentials"
 msgstr "Use Credentials"
 
@@ -9499,12 +9805,12 @@ msgid "Use Current Workspace"
 msgstr "Use Current Workspace"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:584
+#: src/pages/BotsPage.tsx:658
 msgid "Use Existing Thread"
 msgstr "Use Existing Thread"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2126
+#: src/pages/BotsPage.tsx:2555
 msgid "Use For New Connection"
 msgstr "Use For New Connection"
 
@@ -9514,7 +9820,7 @@ msgid "Use never approval policy with danger-full-access as the default runtime 
 msgstr "Use never approval policy with danger-full-access as the default runtime mode for trusted local environments."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2406
+#: src/pages/BotsPage.tsx:2894
 msgid "Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures."
 msgstr "Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures."
 
@@ -9544,7 +9850,7 @@ msgid "Use Template"
 msgstr "Use Template"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:562
+#: src/pages/CatalogPage.tsx:563
 msgid "Use the side rail to read the overall runtime shape before drilling into the inventory board."
 msgstr "Use the side rail to read the overall runtime shape before drilling into the inventory board."
 
@@ -9596,7 +9902,7 @@ msgstr "Validation status and requirements."
 #. js-lingui-explicit-id
 #: src/lib/route-error.ts:182
 #: src/lib/route-error.ts:200
-#: src/pages/CatalogPage.tsx:1481
+#: src/pages/CatalogPage.tsx:1575
 msgid "Value"
 msgstr "Value"
 
@@ -9626,12 +9932,12 @@ msgid "View"
 msgstr "View"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2204
+#: src/pages/BotsPage.tsx:2633
 msgid "View Logs"
 msgstr "View Logs"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3527
+#: src/pages/BotsPage.tsx:4015
 msgid "VIP Queue"
 msgstr "VIP Queue"
 
@@ -9641,7 +9947,7 @@ msgid "Visible"
 msgstr "Visible"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:539
+#: src/pages/CatalogPage.tsx:540
 msgid "Visible entries"
 msgstr "Visible entries"
 
@@ -9693,129 +9999,114 @@ msgid "WebGL"
 msgstr "WebGL"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:496
-#: src/pages/BotsPage.tsx:796
+#: src/pages/BotsPage.tsx:570
+#: src/pages/BotsPage.tsx:939
 msgid "Webhook"
 msgstr "Webhook"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:819
-msgid "Webhook Route"
-msgstr "Webhook Route"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:467
+#: src/pages/BotsPage.tsx:541
 #: src/pages/botsPageUtils.ts:282
 msgid "WeChat"
 msgstr "WeChat"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3086
-#: src/pages/BotsPage.tsx:3207
+#: src/pages/BotsPage.tsx:3574
+#: src/pages/BotsPage.tsx:3695
 msgid "WeChat Account ID"
 msgstr "WeChat Account ID"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1333
+#: src/pages/BotsPage.tsx:1485
 msgid "WeChat account ID is required."
 msgstr "WeChat account ID is required."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2916
-#: src/pages/BotsPage.tsx:3564
+#: src/pages/BotsPage.tsx:3404
+#: src/pages/BotsPage.tsx:4143
 msgid "WeChat Base URL"
 msgstr "WeChat Base URL"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1097
+#: src/pages/BotsPage.tsx:1250
 msgid "WeChat base URL is required before starting QR login."
 msgstr "WeChat base URL is required before starting QR login."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1298
+#: src/pages/BotsPage.tsx:1450
 msgid "WeChat base URL is required."
 msgstr "WeChat base URL is required."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3112
-#: src/pages/BotsPage.tsx:3228
+#: src/pages/BotsPage.tsx:3600
+#: src/pages/BotsPage.tsx:3716
 msgid "WeChat Bot Token"
 msgstr "WeChat Bot Token"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1354
+#: src/pages/BotsPage.tsx:1506
 msgid "WeChat bot token is required. Leave it blank only when editing a connection that already stores one."
 msgstr "WeChat bot token is required. Leave it blank only when editing a connection that already stores one."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1792
+#: src/pages/BotsPage.tsx:2087
 msgid "WeChat Channel Timing Update Failed"
 msgstr "WeChat Channel Timing Update Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2780
+#: src/pages/BotsPage.tsx:3268
 msgid "WeChat currently uses polling-only intake in this phase."
 msgstr "WeChat currently uses polling-only intake in this phase."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:801
-msgid "WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation."
-msgstr "WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation."
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2778
+#: src/pages/BotsPage.tsx:3266
 msgid "WeChat Delivery Mode"
 msgstr "WeChat Delivery Mode"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:823
-msgid "WeChat iLink long polling"
-msgstr "WeChat iLink long polling"
-
-#. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3551
+#: src/pages/BotsPage.tsx:4130
 msgid "WeChat Login Failed"
 msgstr "WeChat Login Failed"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3600
+#: src/pages/BotsPage.tsx:4179
 msgid "WeChat login QR code"
 msgstr "WeChat login QR code"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3094
-#: src/pages/BotsPage.tsx:3216
+#: src/pages/BotsPage.tsx:3582
+#: src/pages/BotsPage.tsx:3704
 msgid "WeChat Owner User ID"
 msgstr "WeChat Owner User ID"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:1343
+#: src/pages/BotsPage.tsx:1495
 msgid "WeChat owner user ID is required."
 msgstr "WeChat owner user ID is required."
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3149
-#: src/pages/BotsPage.tsx:3544
+#: src/pages/BotsPage.tsx:3637
+#: src/pages/BotsPage.tsx:4123
 msgid "WeChat QR Login"
 msgstr "WeChat QR Login"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2944
+#: src/pages/BotsPage.tsx:3432
 msgid "WeChat Route Tag"
 msgstr "WeChat Route Tag"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3088
+#: src/pages/BotsPage.tsx:3576
 msgid "wechat-account-1"
 msgstr "wechat-account-1"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3104
+#: src/pages/BotsPage.tsx:3592
 msgid "wechat-owner-1"
 msgstr "wechat-owner-1"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3130
+#: src/pages/BotsPage.tsx:3618
 msgid "wechat-token-1"
 msgstr "wechat-token-1"
 
@@ -9935,11 +10226,11 @@ msgstr "Working ({time}{interrupt})"
 #: src/components/settings/SettingsWorkspaceScopePanel.tsx:41
 #: src/components/shell/SettingsShell.tsx:56
 #: src/pages/AutomationsPage.tsx:656
-#: src/pages/BotsPage.tsx:1637
-#: src/pages/BotsPage.tsx:1639
-#: src/pages/CatalogPage.tsx:512
-#: src/pages/CatalogPage.tsx:514
-#: src/pages/CatalogPage.tsx:763
+#: src/pages/BotsPage.tsx:1843
+#: src/pages/BotsPage.tsx:1845
+#: src/pages/CatalogPage.tsx:513
+#: src/pages/CatalogPage.tsx:515
+#: src/pages/CatalogPage.tsx:835
 #: src/pages/SkillsPage.tsx:102
 #: src/pages/SkillsPage.tsx:104
 #: src/pages/thread-page/ThreadWorkbenchRailWorkspaceContextSection.tsx:575
@@ -9968,7 +10259,7 @@ msgid "workspace {workspaceId} / thread {threadId}"
 msgstr "workspace {workspaceId} / thread {threadId}"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:343
+#: src/pages/CatalogPage.tsx:344
 msgid "Workspace abilities are easier to scan when they stay in one lane."
 msgstr "Workspace abilities are easier to scan when they stay in one lane."
 
@@ -9983,12 +10274,20 @@ msgid "Workspace area"
 msgstr "Workspace area"
 
 #. js-lingui-explicit-id
+#: src/pages/BotsPage.tsx:713
+#: src/pages/BotsPage.tsx:948
+#: src/pages/BotsPage.tsx:2186
+#: src/pages/BotsPage.tsx:2865
+msgid "Workspace Auto Thread"
+msgstr "Workspace Auto Thread"
+
+#. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:1463
 msgid "Workspace Filter"
 msgstr "Workspace Filter"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:3244
+#: src/pages/BotsPage.tsx:3732
 msgid "Workspace Model"
 msgstr "Workspace Model"
 
@@ -10019,7 +10318,7 @@ msgid "Workspace removed"
 msgstr "Workspace removed"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:485
+#: src/pages/CatalogPage.tsx:486
 msgid "Workspace required"
 msgstr "Workspace required"
 
@@ -10029,13 +10328,13 @@ msgid "Workspace Runtime Scope"
 msgstr "Workspace Runtime Scope"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:502
+#: src/pages/CatalogPage.tsx:503
 msgid "Workspace scope"
 msgstr "Workspace scope"
 
 #. js-lingui-explicit-id
 #: src/components/settings/SettingsWorkspaceScopePanel.tsx:14
-#: src/pages/BotsPage.tsx:1626
+#: src/pages/BotsPage.tsx:1832
 #: src/pages/SkillsPage.tsx:92
 msgid "Workspace Scope"
 msgstr "Workspace Scope"
@@ -10051,9 +10350,12 @@ msgid "Workspace Stats"
 msgstr "Workspace Stats"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:482
-#: src/pages/BotsPage.tsx:3489
-#: src/pages/BotsPage.tsx:3491
+#: src/pages/BotsPage.tsx:556
+#: src/pages/BotsPage.tsx:2849
+#: src/pages/BotsPage.tsx:3977
+#: src/pages/BotsPage.tsx:3979
+#: src/pages/BotsPage.tsx:4095
+#: src/pages/BotsPage.tsx:4097
 #: src/pages/botsPageUtils.ts:293
 msgid "Workspace Thread"
 msgstr "Workspace Thread"
@@ -10064,8 +10366,8 @@ msgid "Workspace total"
 msgstr "Workspace total"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:994
-#: src/pages/CatalogPage.tsx:1000
+#: src/pages/CatalogPage.tsx:1075
+#: src/pages/CatalogPage.tsx:1081
 msgid "Workspace utilities"
 msgstr "Workspace utilities"
 
@@ -10075,7 +10377,7 @@ msgid "Workspace Write"
 msgstr "Workspace Write"
 
 #. js-lingui-explicit-id
-#: src/pages/CatalogPage.tsx:262
+#: src/pages/CatalogPage.tsx:263
 msgid "Workspace-local skills already mounted into the runtime."
 msgstr "Workspace-local skills already mounted into the runtime."
 
@@ -10153,7 +10455,7 @@ msgid "WSL"
 msgstr "WSL"
 
 #. js-lingui-explicit-id
-#: src/pages/BotsPage.tsx:2052
+#: src/pages/BotsPage.tsx:2481
 msgid "WX"
 msgstr "WX"
 

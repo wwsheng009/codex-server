@@ -2270,6 +2270,16 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 			delete(s.notifications, notificationID)
 		}
 	}
+	for botID, bot := range s.bots {
+		if bot.WorkspaceID == workspaceID {
+			delete(s.bots, botID)
+		}
+	}
+	for bindingID, binding := range s.botBindings {
+		if binding.WorkspaceID == workspaceID {
+			delete(s.botBindings, bindingID)
+		}
+	}
 	for connectionID, connection := range s.botConnections {
 		if connection.WorkspaceID == workspaceID {
 			delete(s.botConnections, connectionID)
@@ -2791,65 +2801,62 @@ func migrateBotTopologyLocked(s *MemoryStore) bool {
 	changed := false
 
 	for connectionID, connection := range s.botConnections {
-		if strings.TrimSpace(connection.BotID) == "" {
-			botID := NewID("botr")
-			defaultBindingID := NewID("bbd")
+		botID := strings.TrimSpace(connection.BotID)
+		if botID == "" {
+			botID = NewID("botr")
+		}
+		bot, ok := s.bots[botID]
+		if !ok {
 			now := connection.CreatedAt
 			if now.IsZero() {
 				now = time.Now().UTC()
 			}
-			bot := Bot{
+			bot = Bot{
 				ID:               botID,
 				WorkspaceID:      connection.WorkspaceID,
 				Name:             firstNonEmpty(strings.TrimSpace(connection.Name), "Bot"),
 				Status:           firstNonEmpty(strings.TrimSpace(connection.Status), "active"),
-				DefaultBindingID: defaultBindingID,
 				CreatedAt:        now,
 				UpdatedAt:        connection.UpdatedAt,
 			}
 			if bot.UpdatedAt.IsZero() {
 				bot.UpdatedAt = now
 			}
-			binding := BotBinding{
+			s.bots[botID] = bot
+			connection.BotID = botID
+			s.botConnections[connectionID] = cloneBotConnection(connection)
+			changed = true
+		}
+
+		defaultBindingID := strings.TrimSpace(bot.DefaultBindingID)
+		if defaultBindingID == "" {
+			defaultBindingID = NewID("bbd")
+		}
+		binding, ok := s.botBindings[defaultBindingID]
+		if !ok {
+			now := bot.CreatedAt
+			if now.IsZero() {
+				now = time.Now().UTC()
+			}
+			binding = BotBinding{
 				ID:                defaultBindingID,
-				WorkspaceID:       connection.WorkspaceID,
-				BotID:             botID,
+				WorkspaceID:       bot.WorkspaceID,
+				BotID:             bot.ID,
 				Name:              "Default Binding",
 				BindingMode:       defaultBindingModeForBackend(connection.AIBackend),
 				TargetWorkspaceID: connection.WorkspaceID,
 				AIBackend:         strings.TrimSpace(connection.AIBackend),
 				AIConfig:          cloneStringMap(connection.AIConfig),
 				CreatedAt:         now,
-				UpdatedAt:         bot.UpdatedAt,
+				UpdatedAt:         firstNonEmptyTime(bot.UpdatedAt, now),
 			}
-			s.bots[botID] = bot
 			s.botBindings[defaultBindingID] = binding
-			connection.BotID = botID
-			s.botConnections[connectionID] = cloneBotConnection(connection)
 			changed = true
-		} else if bot, ok := s.bots[connection.BotID]; ok {
-			if strings.TrimSpace(bot.DefaultBindingID) == "" {
-				defaultBindingID := NewID("bbd")
-				now := bot.CreatedAt
-				if now.IsZero() {
-					now = time.Now().UTC()
-				}
-				s.botBindings[defaultBindingID] = BotBinding{
-					ID:                defaultBindingID,
-					WorkspaceID:       bot.WorkspaceID,
-					BotID:             bot.ID,
-					Name:              "Default Binding",
-					BindingMode:       defaultBindingModeForBackend(connection.AIBackend),
-					TargetWorkspaceID: connection.WorkspaceID,
-					AIBackend:         strings.TrimSpace(connection.AIBackend),
-					AIConfig:          cloneStringMap(connection.AIConfig),
-					CreatedAt:         now,
-					UpdatedAt:         firstNonEmptyTime(bot.UpdatedAt, now),
-				}
-				bot.DefaultBindingID = defaultBindingID
-				s.bots[bot.ID] = cloneBot(bot)
-				changed = true
-			}
+		}
+		if strings.TrimSpace(bot.DefaultBindingID) != defaultBindingID {
+			bot.DefaultBindingID = defaultBindingID
+			s.bots[bot.ID] = cloneBot(bot)
+			changed = true
 		}
 	}
 

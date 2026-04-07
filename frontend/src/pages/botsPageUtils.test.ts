@@ -13,6 +13,8 @@ import {
   countWeChatConnectionsForAccount,
   EMPTY_BOTS_PAGE_DRAFT,
   formatBotCommandOutputModeLabel,
+  formatBotConversationBindingModeLabel,
+  formatBotConversationBindingSourceLabel,
   formatBotConversationTitle,
   formatBotWorkspacePermissionPresetLabel,
   formatWeChatAccountLabel,
@@ -24,6 +26,8 @@ import {
   matchesWeChatAccountSearch,
   resolveBotConnectionPublicBaseUrl,
   resolveBotCommandOutputMode,
+  resolveBotConversationBindingMode,
+  resolveBotConversationThreadTarget,
   resolveWeChatChannelTimingEnabled,
   summarizeBotMap,
 } from './botsPageUtils'
@@ -372,6 +376,85 @@ describe('botsPageUtils', () => {
         updatedAt: '2026-03-25T00:00:00.000Z',
       }),
     ).toBe('Charlie')
+  })
+
+  it('resolves conversation binding metadata from explicit and fallback thread targets', () => {
+    expect(
+      resolveBotConversationBindingMode({
+        resolvedBindingMode: 'workspace_auto_thread',
+        threadId: '',
+      }),
+    ).toBe('workspace_auto_thread')
+    expect(
+      resolveBotConversationBindingMode({
+        resolvedBindingMode: '',
+        threadId: 'thread-legacy',
+      }),
+    ).toBe('fixed_thread')
+    expect(
+      formatBotConversationBindingModeLabel({
+        resolvedBindingMode: 'stateless',
+        threadId: '',
+      }),
+    ).toBe('Stateless')
+    expect(
+      formatBotConversationBindingModeLabel({
+        resolvedBindingMode: '',
+        threadId: '',
+      }),
+    ).toBe('Not bound')
+
+    expect(
+      formatBotConversationBindingSourceLabel({
+        bindingId: 'bbd_session',
+        resolvedBindingId: 'bbd_session',
+        threadId: 'thread-1',
+      }),
+    ).toBe('Conversation Override')
+    expect(
+      formatBotConversationBindingSourceLabel({
+        bindingId: '',
+        resolvedBindingId: 'bbd_default',
+        threadId: '',
+      }),
+    ).toBe('Bot Default')
+    expect(
+      formatBotConversationBindingSourceLabel({
+        bindingId: '',
+        resolvedBindingId: '',
+        threadId: 'thread-legacy',
+      }),
+    ).toBe('Legacy Binding')
+    expect(
+      formatBotConversationBindingSourceLabel({
+        bindingId: '',
+        resolvedBindingId: '',
+        threadId: '',
+      }),
+    ).toBe('Not bound')
+
+    expect(
+      resolveBotConversationThreadTarget({
+        workspaceId: 'ws_home',
+        threadId: '',
+        resolvedTargetWorkspaceId: 'ws_target',
+        resolvedTargetThreadId: 'thread-target',
+      }),
+    ).toEqual({
+      workspaceId: 'ws_target',
+      threadId: 'thread-target',
+    })
+    expect(
+      resolveBotConversationThreadTarget({
+        workspaceId: 'ws_home',
+        threadId: 'thread-legacy',
+        resolvedTargetWorkspaceId: '',
+        resolvedTargetThreadId: '',
+      }),
+    ).toEqual({
+      workspaceId: 'ws_home',
+      threadId: 'thread-legacy',
+    })
   })
 
   it('formats and filters saved wechat account labels', () => {

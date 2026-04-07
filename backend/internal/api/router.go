@@ -210,6 +210,13 @@ func NewRouter(deps Dependencies) http.Handler {
 						r.Post("/{conversationId}/replay-failed-reply", server.handleReplayBotConversationFailedReply)
 					})
 				})
+				r.Route("/{workspaceId}/bots", func(r chi.Router) {
+					r.Get("/", server.handleListBots)
+					r.Route("/{botId}", func(r chi.Router) {
+						r.Get("/bindings", server.handleListBotBindings)
+						r.Post("/default-binding", server.handleUpdateBotDefaultBinding)
+					})
+				})
 				r.Get("/{workspaceId}/bot-conversations", server.handleListBotConversations)
 				r.Get("/{workspaceId}/bot-providers/wechat/accounts", server.handleListWeChatAccounts)
 				r.Patch("/{workspaceId}/bot-providers/wechat/accounts/{accountId}", server.handleUpdateWeChatAccount)
@@ -687,6 +694,41 @@ func (s *Server) handleDeleteReadNotifications(w http.ResponseWriter, _ *http.Re
 
 func (s *Server) handleListBotConnections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.bots.ListConnections(chi.URLParam(r, "workspaceId")))
+}
+
+func (s *Server) handleListBots(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.bots.ListBots(chi.URLParam(r, "workspaceId")))
+}
+
+func (s *Server) handleListBotBindings(w http.ResponseWriter, r *http.Request) {
+	bindings, err := s.bots.ListBotBindings(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "botId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, bindings)
+}
+
+func (s *Server) handleUpdateBotDefaultBinding(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpdateBotDefaultBindingInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	binding, err := s.bots.UpdateBotDefaultBinding(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, binding)
 }
 
 func (s *Server) handleCreateBotConnection(w http.ResponseWriter, r *http.Request) {
@@ -2376,6 +2418,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "automation_run_not_found", err.Error())
 	case errors.Is(err, store.ErrNotificationNotFound):
 		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
+	case errors.Is(err, store.ErrBotNotFound):
+		writeError(w, http.StatusNotFound, "bot_not_found", err.Error())
+	case errors.Is(err, store.ErrBotBindingNotFound):
+		writeError(w, http.StatusNotFound, "bot_binding_not_found", err.Error())
 	case errors.Is(err, store.ErrBotConnectionNotFound):
 		writeError(w, http.StatusNotFound, "bot_connection_not_found", err.Error())
 	case errors.Is(err, store.ErrWeChatAccountNotFound):

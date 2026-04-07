@@ -21,6 +21,7 @@ import { Tabs, activateStoredTab } from '../components/ui/Tabs'
 import { TextArea } from '../components/ui/TextArea'
 import { Switch } from '../components/ui/Switch'
 import { formatLocaleNumber } from '../i18n/format'
+import { humanizeDisplayValue } from '../i18n/display'
 import { getActiveLocale, i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { InlineNotice } from '../components/ui/InlineNotice'
@@ -740,17 +741,88 @@ function normalizeCatalogToken(value?: string | null) {
     .toUpperCase()
 }
 
+function resolveCollaborationModeKey(item: CatalogSectionItem) {
+  switch (normalizeCatalogToken(item.mode ?? item.id ?? item.name)) {
+    case 'PLAN':
+      return 'plan'
+    case 'DEFAULT':
+      return 'default'
+    default:
+      return null
+  }
+}
+
+function formatCollaborationModeLabel(item: CatalogSectionItem) {
+  switch (resolveCollaborationModeKey(item)) {
+    case 'plan':
+      return i18n._({ id: 'Plan mode', message: 'Plan mode' })
+    case 'default':
+      return i18n._({ id: 'Default mode', message: 'Default mode' })
+    default:
+      return item.name || formatCatalogFallbackLabel(item.mode ?? item.id)
+  }
+}
+
+function formatCollaborationModeDescription(item: CatalogSectionItem) {
+  switch (resolveCollaborationModeKey(item)) {
+    case 'plan':
+      return i18n._({
+        id: 'Task planning mode with explicit user checkpoints.',
+        message: 'Task planning mode with explicit user checkpoints.',
+      })
+    case 'default':
+      return i18n._({
+        id: 'Single-agent execution with proactive progress updates.',
+        message: 'Single-agent execution with proactive progress updates.',
+      })
+    default:
+      return (
+        item.description ||
+        i18n._({
+          id: 'No description provided.',
+          message: 'No description provided.',
+        })
+      )
+  }
+}
+
+function buildFeedbackClassificationOptions() {
+  return [
+    {
+      value: 'bug',
+      label: i18n._({ id: 'Bug', message: 'Bug' }),
+    },
+    {
+      value: 'idea',
+      label: i18n._({ id: 'Idea', message: 'Idea' }),
+    },
+    {
+      value: 'question',
+      label: i18n._({ id: 'Question', message: 'Question' }),
+    },
+    {
+      value: 'other',
+      label: i18n._({ id: 'Other', message: 'Other' }),
+    },
+  ]
+}
+
 function formatCatalogFallbackLabel(value?: string | null) {
   const trimmed = (value ?? '').trim()
   if (!trimmed) {
     return i18n._({ id: 'Unknown', message: 'Unknown' })
   }
 
-  return trimmed
-    .split(/[_-\s]+/)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
-    .join(' ')
+  switch (normalizeCatalogToken(value)) {
+    case 'CHAT':
+      return i18n._({ id: 'Chat', message: 'Chat' })
+    case 'SEARCH':
+      return i18n._({ id: 'Search', message: 'Search' })
+    case 'PRODUCTIVITY':
+      return i18n._({ id: 'Productivity', message: 'Productivity' })
+    default:
+      return humanizeDisplayValue(trimmed, i18n._({ id: 'Unknown', message: 'Unknown' }))
+  }
 }
 
 function formatPluginSourceType(value?: string | null) {
@@ -777,7 +849,7 @@ function formatPluginSourceText(sourceType?: string | null, sourcePath?: string 
     return null
   }
 
-  return `${formatPluginSourceType(sourceType)} ${trimmedPath}`
+  return `${formatPluginSourceType(sourceType)}: ${trimmedPath}`
 }
 
 function sumCatalogSectionItems(...sections: Array<RuntimeSectionData | undefined>) {
@@ -793,6 +865,12 @@ function filterCatalogItems(items: CatalogSectionItem[], query: string) {
     [
       item.name,
       item.description,
+      item.mode,
+      item.mode ? formatCollaborationModeLabel(item) : null,
+      item.mode ? formatCollaborationModeDescription(item) : null,
+      item.model,
+      item.reasoningEffort,
+      item.reasoningEffort ? formatCatalogFallbackLabel(item.reasoningEffort) : null,
       item.value,
       item.shellType,
       item.shellType ? formatShellTypeLabel(item.shellType) : null,
@@ -806,6 +884,7 @@ function filterCatalogItems(items: CatalogSectionItem[], query: string) {
       item.authPolicy ? formatPluginPolicy(item.authPolicy) : null,
       item.installPolicy,
       item.installPolicy ? formatPluginPolicy(item.installPolicy) : null,
+      buildPluginSummary(item),
       item.capabilities?.join(' '),
       item.capabilities?.map((capability) => formatCatalogFallbackLabel(capability)).join(' '),
     ]
@@ -839,6 +918,8 @@ function RuntimeActionConsoleTabs({
   searchMutation,
   feedbackMutation,
 }: RuntimeActionConsoleTabsProps) {
+  const feedbackClassificationOptions = buildFeedbackClassificationOptions()
+
   return (
     <section className="mode-panel mode-panel--compact">
       <div className="mode-panel__body">
@@ -1058,14 +1139,28 @@ function RuntimeActionConsoleTabs({
                         }
                       }}
                     >
-                      <Input
-                        label={i18n._({
-                          id: 'Feedback classification',
-                          message: 'Feedback classification',
-                        })}
-                        onChange={(event) => onFeedbackClassificationChange(event.target.value)}
-                        value={feedbackClassification}
-                      />
+                      <label className="field">
+                        <span>
+                          {i18n._({
+                            id: 'Feedback classification',
+                            message: 'Feedback classification',
+                          })}
+                        </span>
+                        <SelectControl
+                          ariaLabel={i18n._({
+                            id: 'Feedback classification',
+                            message: 'Feedback classification',
+                          })}
+                          fullWidth
+                          menuLabel={i18n._({
+                            id: 'Feedback classification',
+                            message: 'Feedback classification',
+                          })}
+                          onChange={onFeedbackClassificationChange}
+                          options={feedbackClassificationOptions}
+                          value={feedbackClassification}
+                        />
+                      </label>
                       <TextArea
                         label={i18n._({ id: 'Reason', message: 'Reason' })}
                         onChange={(event) => onFeedbackReasonChange(event.target.value)}
@@ -1242,6 +1337,15 @@ function RuntimeSection({
 
           const metaChips = buildRuntimeMetaChips(item)
           const facts = buildRuntimeFacts(item)
+          const description =
+            marker === 'MD'
+              ? formatCollaborationModeDescription(item)
+              : item.description ||
+                i18n._({
+                  id: 'No description provided.',
+                  message: 'No description provided.',
+                })
+          const title = marker === 'MD' ? formatCollaborationModeLabel(item) : item.name
 
           return (
             <article className="runtime-item" key={item.id}>
@@ -1249,7 +1353,7 @@ function RuntimeSection({
               <div className="runtime-item__body">
                 <div className="runtime-item__header">
                   <div className="runtime-item__title-row">
-                    <strong>{item.name}</strong>
+                    <strong>{title}</strong>
                     {metaChips.length ? (
                       <div className="runtime-item__chips">
                         {metaChips.map((chip) => (
@@ -1264,13 +1368,7 @@ function RuntimeSection({
                     ) : null}
                   </div>
                 </div>
-                <p>
-                  {item.description ||
-                    i18n._({
-                      id: 'No description provided.',
-                      message: 'No description provided.',
-                    })}
-                </p>
+                <p>{description}</p>
                 {facts.length ? (
                   <div className="runtime-item__fact-grid">
                     {facts.map((fact) => (
@@ -1369,11 +1467,7 @@ function RuntimePluginItem({
           ) : null}
         </div>
         <p className="runtime-item__summary runtime-item__summary--clamped">
-          {item.description ||
-            i18n._({
-              id: 'No description provided.',
-              message: 'No description provided.',
-            })}
+          {buildPluginSummary(item)}
         </p>
 
         <div className="runtime-inline-meta runtime-inline-meta--dense">
@@ -1489,6 +1583,19 @@ function buildRuntimeFacts(item: CatalogSectionItem) {
       value: formatShellTypeLabel(item.shellType),
     })
   }
+  if (item.model) {
+    facts.push({
+      label: i18n._({ id: 'Model', message: 'Model' }),
+      value: item.model,
+      code: true,
+    })
+  }
+  if (item.reasoningEffort) {
+    facts.push({
+      label: i18n._({ id: 'Reasoning effort', message: 'Reasoning effort' }),
+      value: formatCatalogFallbackLabel(item.reasoningEffort),
+    })
+  }
   if (item.marketplaceName) {
     facts.push({
       label: i18n._({ id: 'Marketplace', message: 'Marketplace' }),
@@ -1523,6 +1630,58 @@ function buildRuntimeFacts(item: CatalogSectionItem) {
   }
 
   return facts
+}
+
+function buildPluginSummary(item: CatalogSectionItem) {
+  const parts = [] as string[]
+
+  if (item.category) {
+    parts.push(
+      i18n._({
+        id: 'Category: {category}',
+        message: 'Category: {category}',
+        values: {
+          category: formatCatalogFallbackLabel(item.category),
+        },
+      }),
+    )
+  }
+
+  if (item.capabilities?.length) {
+    parts.push(
+      i18n._({
+        id: 'Capabilities: {capabilities}',
+        message: 'Capabilities: {capabilities}',
+        values: {
+          capabilities: item.capabilities
+            .map((capability) => formatCatalogFallbackLabel(capability))
+            .join(', '),
+        },
+      }),
+    )
+  }
+
+  if (parts.length > 0) {
+    return parts.join(' | ')
+  }
+
+  if (item.marketplaceName) {
+    return i18n._({
+      id: 'Plugin from {marketplaceName}',
+      message: 'Plugin from {marketplaceName}',
+      values: {
+        marketplaceName: item.marketplaceName,
+      },
+    })
+  }
+
+  return (
+    item.description ||
+    i18n._({
+      id: 'No description provided.',
+      message: 'No description provided.',
+    })
+  )
 }
 
 function formatPluginPolicy(value: string) {

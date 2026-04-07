@@ -1,5 +1,13 @@
 import { apiRequest } from '../../lib/api-client'
-import type { BotConnection, BotConnectionLogEntry, BotConversation, WeChatAccount, WeChatLogin } from '../../types/api'
+import type {
+  Bot,
+  BotBinding,
+  BotConnection,
+  BotConnectionLogEntry,
+  BotConversation,
+  WeChatAccount,
+  WeChatLogin,
+} from '../../types/api'
 
 export type CreateBotConnectionInput = {
   provider: string
@@ -43,6 +51,13 @@ export type UpdateBotConversationBindingInput = {
   title?: string
 }
 
+export type UpdateBotDefaultBindingInput = {
+  bindingMode: string
+  targetWorkspaceId?: string
+  targetThreadId?: string
+  name?: string
+}
+
 export type UpdateWeChatAccountInput = {
   alias: string
   note: string
@@ -54,6 +69,21 @@ export type StartWeChatLoginInput = {
 
 export function listBotConnections(workspaceId: string) {
   return apiRequest<BotConnection[]>(`/api/workspaces/${workspaceId}/bot-connections`)
+}
+
+export function listBots(workspaceId: string) {
+  return apiRequest<Bot[]>(`/api/workspaces/${workspaceId}/bots`)
+}
+
+export function listBotBindings(workspaceId: string, botId: string) {
+  return apiRequest<BotBinding[]>(`/api/workspaces/${workspaceId}/bots/${botId}/bindings`)
+}
+
+export function updateBotDefaultBinding(workspaceId: string, botId: string, input: UpdateBotDefaultBindingInput) {
+  return apiRequest<BotBinding>(`/api/workspaces/${workspaceId}/bots/${botId}/default-binding`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 export function getBotConnection(workspaceId: string, connectionId: string) {

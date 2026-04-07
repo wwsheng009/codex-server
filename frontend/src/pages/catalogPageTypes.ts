@@ -3,6 +3,9 @@ export type CatalogSectionItem = {
   name: string
   description: string
   value?: string
+  mode?: string
+  model?: string
+  reasoningEffort?: string | null
   shellType?: string
   marketplaceName?: string
   marketplacePath?: string

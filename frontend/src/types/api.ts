@@ -105,6 +105,7 @@ export type NotificationItem = {
 
 export type BotConnection = {
   id: string
+  botId?: string
   workspaceId: string
   provider: string
   name: string
@@ -121,6 +122,37 @@ export type BotConnection = {
   updatedAt: string
 }
 
+export type Bot = {
+  id: string
+  workspaceId: string
+  name: string
+  description?: string | null
+  status: string
+  defaultBindingId?: string | null
+  defaultBindingMode?: string | null
+  defaultTargetWorkspaceId?: string | null
+  defaultTargetThreadId?: string | null
+  endpointCount: number
+  conversationCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type BotBinding = {
+  id: string
+  workspaceId: string
+  botId: string
+  name: string
+  bindingMode: string
+  targetWorkspaceId?: string | null
+  targetThreadId?: string | null
+  aiBackend: string
+  aiConfig?: Record<string, string> | null
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export type BotConnectionLogEntry = {
   id: string
   workspaceId: string
@@ -133,6 +165,12 @@ export type BotConnectionLogEntry = {
 
 export type BotConversation = {
   id: string
+  botId?: string
+  bindingId?: string
+  resolvedBindingId?: string
+  resolvedBindingMode?: string
+  resolvedTargetWorkspaceId?: string
+  resolvedTargetThreadId?: string
   workspaceId: string
   connectionId: string
   provider: string

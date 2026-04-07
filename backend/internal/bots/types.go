@@ -227,9 +227,47 @@ type UpdateConversationBindingInput struct {
 	Title        string `json:"title"`
 }
 
+type UpdateBotDefaultBindingInput struct {
+	BindingMode       string `json:"bindingMode"`
+	TargetWorkspaceID string `json:"targetWorkspaceId"`
+	TargetThreadID    string `json:"targetThreadId"`
+	Name              string `json:"name"`
+}
+
 type UpdateWeChatAccountInput struct {
 	Alias string `json:"alias"`
 	Note  string `json:"note"`
+}
+
+type BotView struct {
+	ID                     string     `json:"id"`
+	WorkspaceID            string     `json:"workspaceId"`
+	Name                   string     `json:"name"`
+	Description            string     `json:"description,omitempty"`
+	Status                 string     `json:"status"`
+	DefaultBindingID       string     `json:"defaultBindingId,omitempty"`
+	DefaultBindingMode     string     `json:"defaultBindingMode,omitempty"`
+	DefaultTargetWorkspace string     `json:"defaultTargetWorkspaceId,omitempty"`
+	DefaultTargetThreadID  string     `json:"defaultTargetThreadId,omitempty"`
+	EndpointCount          int        `json:"endpointCount"`
+	ConversationCount      int        `json:"conversationCount"`
+	CreatedAt              time.Time  `json:"createdAt"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
+}
+
+type BotBindingView struct {
+	ID                string            `json:"id"`
+	WorkspaceID       string            `json:"workspaceId"`
+	BotID             string            `json:"botId"`
+	Name              string            `json:"name"`
+	BindingMode       string            `json:"bindingMode"`
+	TargetWorkspaceID string            `json:"targetWorkspaceId,omitempty"`
+	TargetThreadID    string            `json:"targetThreadId,omitempty"`
+	AIBackend         string            `json:"aiBackend"`
+	AIConfig          map[string]string `json:"aiConfig,omitempty"`
+	IsDefault         bool              `json:"isDefault"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	UpdatedAt         time.Time         `json:"updatedAt"`
 }
 
 type WeChatAccountView struct {
@@ -248,6 +286,7 @@ type WeChatAccountView struct {
 
 type ConnectionView struct {
 	ID              string            `json:"id"`
+	BotID           string            `json:"botId,omitempty"`
 	WorkspaceID     string            `json:"workspaceId"`
 	Provider        string            `json:"provider"`
 	Name            string            `json:"name"`
@@ -266,6 +305,12 @@ type ConnectionView struct {
 
 type ConversationView struct {
 	ID                               string     `json:"id"`
+	BotID                            string     `json:"botId,omitempty"`
+	BindingID                        string     `json:"bindingId,omitempty"`
+	ResolvedBindingID                string     `json:"resolvedBindingId,omitempty"`
+	ResolvedBindingMode              string     `json:"resolvedBindingMode,omitempty"`
+	ResolvedTargetWorkspaceID        string     `json:"resolvedTargetWorkspaceId,omitempty"`
+	ResolvedTargetThreadID           string     `json:"resolvedTargetThreadId,omitempty"`
 	WorkspaceID                      string     `json:"workspaceId"`
 	ConnectionID                     string     `json:"connectionId"`
 	Provider                         string     `json:"provider"`

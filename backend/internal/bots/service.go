@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -235,7 +236,11 @@ func (s *Service) ListConnections(workspaceID string) []ConnectionView {
 	items := s.store.ListBotConnections(workspaceID)
 	views := make([]ConnectionView, 0, len(items))
 	for _, item := range items {
-		views = append(views, connectionViewFromStore(item))
+		resolvedConnection, _, _, err := s.ensureConnectionBotResources(item)
+		if err != nil {
+			resolvedConnection = item
+		}
+		views = append(views, connectionViewFromStore(resolvedConnection))
 	}
 	return views
 }
@@ -246,7 +251,144 @@ func (s *Service) GetConnection(workspaceID string, connectionID string) (Connec
 		return ConnectionView{}, store.ErrBotConnectionNotFound
 	}
 
+	connection, _, _, err := s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+
 	return connectionViewFromStore(connection), nil
+}
+
+func (s *Service) ListBots(workspaceID string) []BotView {
+	items := s.store.ListBotConnections(workspaceID)
+	for _, item := range items {
+		_, _, _, _ = s.ensureConnectionBotResources(item)
+	}
+
+	botsList := s.store.ListBots(workspaceID)
+	connections := s.store.ListBotConnections(workspaceID)
+	conversations := s.store.ListBotConversations(workspaceID, "")
+	endpointCountByBotID := make(map[string]int, len(connections))
+	conversationCountByBotID := make(map[string]int, len(conversations))
+	for _, connection := range connections {
+		if botID := strings.TrimSpace(connection.BotID); botID != "" {
+			endpointCountByBotID[botID]++
+		}
+	}
+	for _, conversation := range conversations {
+		if botID := strings.TrimSpace(conversation.BotID); botID != "" {
+			conversationCountByBotID[botID]++
+		}
+	}
+
+	views := make([]BotView, 0, len(botsList))
+	for _, bot := range botsList {
+		defaultBinding, _ := s.store.GetBotBinding(bot.WorkspaceID, bot.DefaultBindingID)
+		views = append(views, botViewFromStore(
+			bot,
+			defaultBinding,
+			endpointCountByBotID[bot.ID],
+			conversationCountByBotID[bot.ID],
+		))
+	}
+	return views
+}
+
+func (s *Service) ListBotBindings(workspaceID string, botID string) ([]BotBindingView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	bot, ok := s.store.GetBot(resolvedWorkspaceID, botID)
+	if !ok {
+		return nil, store.ErrBotNotFound
+	}
+
+	items := s.store.ListBotBindings(resolvedWorkspaceID, botID)
+	views := make([]BotBindingView, 0, len(items))
+	for _, item := range items {
+		views = append(views, botBindingViewFromStore(item, strings.TrimSpace(bot.DefaultBindingID) == strings.TrimSpace(item.ID)))
+	}
+	return views, nil
+}
+
+func (s *Service) UpdateBotDefaultBinding(
+	ctx context.Context,
+	workspaceID string,
+	botID string,
+	input UpdateBotDefaultBindingInput,
+) (BotBindingView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return BotBindingView{}, err
+	}
+	bot, ok := s.store.GetBot(resolvedWorkspaceID, botID)
+	if !ok {
+		return BotBindingView{}, store.ErrBotNotFound
+	}
+
+	connections := s.store.ListBotConnections(resolvedWorkspaceID)
+	var primaryConnection store.BotConnection
+	for _, connection := range connections {
+		if strings.TrimSpace(connection.BotID) == strings.TrimSpace(bot.ID) {
+			primaryConnection = connection
+			break
+		}
+	}
+	if strings.TrimSpace(primaryConnection.ID) == "" {
+		return BotBindingView{}, fmt.Errorf("%w: bot does not have an endpoint yet", ErrInvalidInput)
+	}
+	primaryConnection, bot, currentBinding, err := s.ensureConnectionBotResources(primaryConnection)
+	if err != nil {
+		return BotBindingView{}, err
+	}
+
+	mode := normalizeBotBindingMode(input.BindingMode, primaryConnection.AIBackend)
+	switch mode {
+	case "fixed_thread":
+		targetWorkspaceID := firstNonEmpty(strings.TrimSpace(input.TargetWorkspaceID), resolvedWorkspaceID)
+		if targetWorkspaceID != resolvedWorkspaceID {
+			return BotBindingView{}, fmt.Errorf("%w: cross-workspace default bindings require phase 3 execution support", ErrInvalidInput)
+		}
+		targetThreadID := strings.TrimSpace(input.TargetThreadID)
+		if targetThreadID == "" {
+			return BotBindingView{}, fmt.Errorf("%w: targetThreadId is required for fixed_thread bindings", ErrInvalidInput)
+		}
+		if s.threads == nil {
+			return BotBindingView{}, fmt.Errorf("%w: workspace thread service is not configured", ErrInvalidInput)
+		}
+		if _, err := s.threads.GetDetail(ctx, resolvedWorkspaceID, targetThreadID); err != nil {
+			return BotBindingView{}, err
+		}
+	case "workspace_auto_thread", "stateless":
+	default:
+		return BotBindingView{}, fmt.Errorf("%w: unsupported binding mode %q", ErrInvalidInput, input.BindingMode)
+	}
+
+	updatedBinding, err := s.store.UpdateBotBinding(resolvedWorkspaceID, currentBinding.ID, func(binding store.BotBinding) store.BotBinding {
+		binding.Name = firstNonEmpty(strings.TrimSpace(input.Name), binding.Name, "Default Binding")
+		binding.BindingMode = mode
+		binding.TargetWorkspaceID = resolvedWorkspaceID
+		if mode == "fixed_thread" {
+			binding.TargetThreadID = strings.TrimSpace(input.TargetThreadID)
+		} else {
+			binding.TargetThreadID = ""
+		}
+		binding.AIBackend = normalizeAIBackendName(primaryConnection.AIBackend)
+		binding.AIConfig = cloneStringMapLocal(primaryConnection.AIConfig)
+		return binding
+	})
+	if err != nil {
+		return BotBindingView{}, err
+	}
+
+	s.publish(resolvedWorkspaceID, "", "bot/binding/default_updated", map[string]any{
+		"botId":       bot.ID,
+		"bindingId":   updatedBinding.ID,
+		"bindingMode": updatedBinding.BindingMode,
+	})
+
+	return botBindingViewFromStore(updatedBinding, true), nil
 }
 
 func (s *Service) ListConnectionLogs(workspaceID string, connectionID string) ([]store.BotConnectionLogEntry, error) {
@@ -269,7 +411,8 @@ func (s *Service) ListConversationViews(workspaceID string, connectionID string)
 	items := s.store.ListBotConversations(workspaceID, connectionID)
 	views := make([]ConversationView, 0, len(items))
 	for _, item := range items {
-		views = append(views, conversationViewFromStore(item))
+		binding, ok := s.resolveConversationBinding(item)
+		views = append(views, conversationViewFromStore(item, binding, ok))
 	}
 	return views
 }
@@ -288,6 +431,10 @@ func (s *Service) ReplayLatestFailedReply(
 	connection, ok := s.store.GetBotConnection(resolvedWorkspaceID, connectionID)
 	if !ok {
 		return ConversationView{}, store.ErrBotConnectionNotFound
+	}
+	connection, _, _, err = s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return ConversationView{}, err
 	}
 	if !strings.EqualFold(strings.TrimSpace(connection.Status), "active") {
 		return ConversationView{}, fmt.Errorf("%w: bot connection must be active before replaying a failed reply", ErrInvalidInput)
@@ -347,7 +494,8 @@ func (s *Service) ReplayLatestFailedReply(
 	)
 	s.setConnectionLastError(connection.WorkspaceID, connection.ID, "")
 
-	return conversationViewFromStore(updatedConversation), nil
+	binding, hasBinding := s.resolveConversationBinding(updatedConversation)
+	return conversationViewFromStore(updatedConversation, binding, hasBinding), nil
 }
 
 func (s *Service) UpdateConversationBinding(
@@ -366,6 +514,10 @@ func (s *Service) UpdateConversationBinding(
 	if !ok {
 		return ConversationView{}, store.ErrBotConnectionNotFound
 	}
+	connection, bot, _, err := s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return ConversationView{}, err
+	}
 	if normalizeAIBackendName(connection.AIBackend) != defaultAIBackend {
 		return ConversationView{}, fmt.Errorf("%w: conversation thread binding management is only available for workspace_thread bot connections", ErrInvalidInput)
 	}
@@ -374,6 +526,7 @@ func (s *Service) UpdateConversationBinding(
 	if !ok || conversation.ConnectionID != connection.ID {
 		return ConversationView{}, store.ErrBotConversationNotFound
 	}
+	conversation = s.ensureConversationBotIdentity(conversation, connection)
 
 	switch {
 	case input.CreateThread && strings.TrimSpace(input.ThreadID) != "":
@@ -393,13 +546,45 @@ func (s *Service) UpdateConversationBinding(
 		return ConversationView{}, err
 	}
 
+	targetThreadID := strings.TrimSpace(updatedConversation.ThreadID)
+	bindingName := firstNonEmpty(strings.TrimSpace(input.Title), "Session Binding")
+	switch {
+	case input.CreateThread:
+		bindingName = firstNonEmpty(strings.TrimSpace(input.Title), "Session Binding")
+	default:
+		bindingName = "Session Binding"
+	}
+	sessionBinding, err := s.store.CreateBotBinding(store.BotBinding{
+		ID:                store.NewID("bbd"),
+		WorkspaceID:       resolvedWorkspaceID,
+		BotID:             bot.ID,
+		Name:              bindingName,
+		BindingMode:       "fixed_thread",
+		TargetWorkspaceID: resolvedWorkspaceID,
+		TargetThreadID:    targetThreadID,
+		AIBackend:         normalizeAIBackendName(connection.AIBackend),
+		AIConfig:          cloneStringMapLocal(connection.AIConfig),
+	})
+	if err != nil {
+		return ConversationView{}, err
+	}
+	updatedConversation, err = s.store.UpdateBotConversation(resolvedWorkspaceID, updatedConversation.ID, func(current store.BotConversation) store.BotConversation {
+		current.BotID = bot.ID
+		current.BindingID = sessionBinding.ID
+		return current
+	})
+	if err != nil {
+		return ConversationView{}, err
+	}
+
 	s.publish(updatedConversation.WorkspaceID, "", "bot/conversation/binding_updated", map[string]any{
 		"connectionId":   updatedConversation.ConnectionID,
 		"conversationId": updatedConversation.ID,
+		"bindingId":      sessionBinding.ID,
 		"threadId":       strings.TrimSpace(updatedConversation.ThreadID),
 	})
 
-	return conversationViewFromStore(updatedConversation), nil
+	return conversationViewFromStore(updatedConversation, sessionBinding, true), nil
 }
 
 func (s *Service) ClearConversationBinding(
@@ -417,6 +602,10 @@ func (s *Service) ClearConversationBinding(
 	if !ok {
 		return ConversationView{}, store.ErrBotConnectionNotFound
 	}
+	connection, _, _, err = s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return ConversationView{}, err
+	}
 	if normalizeAIBackendName(connection.AIBackend) != defaultAIBackend {
 		return ConversationView{}, fmt.Errorf("%w: conversation thread binding management is only available for workspace_thread bot connections", ErrInvalidInput)
 	}
@@ -425,11 +614,21 @@ func (s *Service) ClearConversationBinding(
 	if !ok || conversation.ConnectionID != connection.ID {
 		return ConversationView{}, store.ErrBotConversationNotFound
 	}
+	conversation = s.ensureConversationBotIdentity(conversation, connection)
 	if strings.TrimSpace(conversation.ThreadID) == "" {
-		return conversationViewFromStore(conversation), nil
+		binding, hasBinding := s.resolveConversationBinding(conversation)
+		return conversationViewFromStore(conversation, binding, hasBinding), nil
 	}
 
 	updatedConversation, _, err := s.clearConversationThreadBinding(ctx, connection, conversation)
+	if err != nil {
+		return ConversationView{}, err
+	}
+	updatedConversation, err = s.store.UpdateBotConversation(resolvedWorkspaceID, updatedConversation.ID, func(current store.BotConversation) store.BotConversation {
+		current.BotID = conversation.BotID
+		current.BindingID = ""
+		return current
+	})
 	if err != nil {
 		return ConversationView{}, err
 	}
@@ -439,7 +638,8 @@ func (s *Service) ClearConversationBinding(
 		"conversationId": updatedConversation.ID,
 	})
 
-	return conversationViewFromStore(updatedConversation), nil
+	binding, hasBinding := s.resolveConversationBinding(updatedConversation)
+	return conversationViewFromStore(updatedConversation, binding, hasBinding), nil
 }
 
 func (s *Service) requireWorkspaceID(workspaceID string) (string, error) {
@@ -451,6 +651,190 @@ func (s *Service) requireWorkspaceID(workspaceID string) (string, error) {
 		return "", store.ErrWorkspaceNotFound
 	}
 	return resolvedWorkspaceID, nil
+}
+
+func normalizeBotBindingMode(value string, aiBackend string) string {
+	switch normalizeAIBackendName(aiBackend) {
+	case openAIResponsesBackendName:
+		return "stateless"
+	default:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "fixed_thread":
+			return "fixed_thread"
+		case "workspace_auto_thread":
+			return "workspace_auto_thread"
+		default:
+			return "workspace_auto_thread"
+		}
+	}
+}
+
+func defaultBotBindingName(botName string) string {
+	return firstNonEmpty(strings.TrimSpace(botName), "Bot") + " Default Binding"
+}
+
+func (s *Service) ensureConnectionBotResources(connection store.BotConnection) (store.BotConnection, store.Bot, store.BotBinding, error) {
+	connection = cloneBotConnectionStoreValue(connection)
+	if strings.TrimSpace(connection.BotID) == "" {
+		return s.provisionBotResourcesForConnection(connection)
+	}
+
+	bot, ok := s.store.GetBot(connection.WorkspaceID, connection.BotID)
+	if !ok {
+		return s.provisionBotResourcesForConnection(connection)
+	}
+
+	defaultBinding, ok := s.store.GetBotBinding(connection.WorkspaceID, bot.DefaultBindingID)
+	if !ok {
+		defaultBinding, err := s.store.CreateBotBinding(store.BotBinding{
+			ID:                store.NewID("bbd"),
+			WorkspaceID:       connection.WorkspaceID,
+			BotID:             bot.ID,
+			Name:              defaultBotBindingName(connection.Name),
+			BindingMode:       normalizeBotBindingMode("", connection.AIBackend),
+			TargetWorkspaceID: connection.WorkspaceID,
+			AIBackend:         normalizeAIBackendName(connection.AIBackend),
+			AIConfig:          cloneStringMapLocal(connection.AIConfig),
+		})
+		if err != nil {
+			return store.BotConnection{}, store.Bot{}, store.BotBinding{}, err
+		}
+		bot, err = s.store.UpdateBot(connection.WorkspaceID, bot.ID, func(current store.Bot) store.Bot {
+			current.DefaultBindingID = defaultBinding.ID
+			current.Name = firstNonEmpty(strings.TrimSpace(current.Name), strings.TrimSpace(connection.Name))
+			current.Status = firstNonEmpty(strings.TrimSpace(connection.Status), strings.TrimSpace(current.Status))
+			return current
+		})
+		if err != nil {
+			return store.BotConnection{}, store.Bot{}, store.BotBinding{}, err
+		}
+		return connection, bot, defaultBinding, nil
+	}
+
+	botNeedsUpdate := strings.TrimSpace(bot.Name) != strings.TrimSpace(connection.Name) || strings.TrimSpace(bot.Status) != strings.TrimSpace(connection.Status)
+	if botNeedsUpdate {
+		var err error
+		bot, err = s.store.UpdateBot(connection.WorkspaceID, bot.ID, func(current store.Bot) store.Bot {
+			current.Name = firstNonEmpty(strings.TrimSpace(connection.Name), strings.TrimSpace(current.Name))
+			current.Status = firstNonEmpty(strings.TrimSpace(connection.Status), strings.TrimSpace(current.Status))
+			return current
+		})
+		if err != nil {
+			return store.BotConnection{}, store.Bot{}, store.BotBinding{}, err
+		}
+	}
+
+	expectedMode := normalizeBotBindingMode(defaultBinding.BindingMode, connection.AIBackend)
+	if strings.TrimSpace(defaultBinding.Name) != defaultBotBindingName(connection.Name) ||
+		strings.TrimSpace(defaultBinding.BindingMode) != expectedMode ||
+		strings.TrimSpace(defaultBinding.AIBackend) != normalizeAIBackendName(connection.AIBackend) ||
+		!reflect.DeepEqual(defaultBinding.AIConfig, cloneStringMapLocal(connection.AIConfig)) ||
+		strings.TrimSpace(defaultBinding.TargetWorkspaceID) != strings.TrimSpace(connection.WorkspaceID) ||
+		(expectedMode != "fixed_thread" && strings.TrimSpace(defaultBinding.TargetThreadID) != "") {
+		var err error
+		defaultBinding, err = s.store.UpdateBotBinding(connection.WorkspaceID, defaultBinding.ID, func(current store.BotBinding) store.BotBinding {
+			current.Name = defaultBotBindingName(connection.Name)
+			current.BindingMode = expectedMode
+			current.TargetWorkspaceID = connection.WorkspaceID
+			if expectedMode != "fixed_thread" {
+				current.TargetThreadID = ""
+			}
+			current.AIBackend = normalizeAIBackendName(connection.AIBackend)
+			current.AIConfig = cloneStringMapLocal(connection.AIConfig)
+			return current
+		})
+		if err != nil {
+			return store.BotConnection{}, store.Bot{}, store.BotBinding{}, err
+		}
+	}
+
+	return connection, bot, defaultBinding, nil
+}
+
+func (s *Service) provisionBotResourcesForConnection(connection store.BotConnection) (store.BotConnection, store.Bot, store.BotBinding, error) {
+	connection = cloneBotConnectionStoreValue(connection)
+	bot, err := s.store.CreateBot(store.Bot{
+		ID:          store.NewID("botr"),
+		WorkspaceID: connection.WorkspaceID,
+		Name:        firstNonEmpty(strings.TrimSpace(connection.Name), defaultConnectionName(connection.Provider)),
+		Status:      firstNonEmpty(strings.TrimSpace(connection.Status), "active"),
+	})
+	if err != nil {
+		return store.BotConnection{}, store.Bot{}, store.BotBinding{}, err
+	}
+
+	defaultBinding, err := s.store.CreateBotBinding(store.BotBinding{
+		ID:                store.NewID("bbd"),
+		WorkspaceID:       connection.WorkspaceID,
+		BotID:             bot.ID,
+		Name:              defaultBotBindingName(connection.Name),
+		BindingMode:       normalizeBotBindingMode("", connection.AIBackend),
+		TargetWorkspaceID: connection.WorkspaceID,
+		AIBackend:         normalizeAIBackendName(connection.AIBackend),
+		AIConfig:          cloneStringMapLocal(connection.AIConfig),
+	})
+	if err != nil {
+		_ = s.store.DeleteBot(connection.WorkspaceID, bot.ID)
+		return store.BotConnection{}, store.Bot{}, store.BotBinding{}, err
+	}
+
+	bot, err = s.store.UpdateBot(connection.WorkspaceID, bot.ID, func(current store.Bot) store.Bot {
+		current.DefaultBindingID = defaultBinding.ID
+		return current
+	})
+	if err != nil {
+		_ = s.store.DeleteBotBinding(connection.WorkspaceID, defaultBinding.ID)
+		_ = s.store.DeleteBot(connection.WorkspaceID, bot.ID)
+		return store.BotConnection{}, store.Bot{}, store.BotBinding{}, err
+	}
+
+	if strings.TrimSpace(connection.ID) != "" {
+		updatedConnection, updateErr := s.store.UpdateBotConnectionRuntimeState(connection.WorkspaceID, connection.ID, func(current store.BotConnection) store.BotConnection {
+			current.BotID = bot.ID
+			return current
+		})
+		if updateErr != nil {
+			return store.BotConnection{}, store.Bot{}, store.BotBinding{}, updateErr
+		}
+		connection = updatedConnection
+	} else {
+		connection.BotID = bot.ID
+	}
+
+	return connection, bot, defaultBinding, nil
+}
+
+func (s *Service) ensureConversationBotIdentity(conversation store.BotConversation, connection store.BotConnection) store.BotConversation {
+	next := conversation
+	next.BotID = firstNonEmpty(strings.TrimSpace(next.BotID), strings.TrimSpace(connection.BotID))
+	return next
+}
+
+func (s *Service) resolveConversationBinding(conversation store.BotConversation) (store.BotBinding, bool) {
+	if bindingID := strings.TrimSpace(conversation.BindingID); bindingID != "" {
+		if binding, ok := s.store.GetBotBinding(conversation.WorkspaceID, bindingID); ok {
+			return binding, true
+		}
+	}
+	if botID := strings.TrimSpace(conversation.BotID); botID != "" {
+		bot, ok := s.store.GetBot(conversation.WorkspaceID, botID)
+		if !ok {
+			return store.BotBinding{}, false
+		}
+		if binding, ok := s.store.GetBotBinding(conversation.WorkspaceID, bot.DefaultBindingID); ok {
+			return binding, true
+		}
+	}
+	return store.BotBinding{}, false
+}
+
+func cloneBotConnectionStoreValue(connection store.BotConnection) store.BotConnection {
+	next := connection
+	next.AIConfig = cloneStringMapLocal(connection.AIConfig)
+	next.Settings = cloneStringMapLocal(connection.Settings)
+	next.Secrets = cloneStringMapLocal(connection.Secrets)
+	next.LastPollAt = cloneOptionalTimeLocal(connection.LastPollAt)
+	return next
 }
 
 func (s *Service) StartWeChatLogin(ctx context.Context, workspaceID string, input StartWeChatLoginInput) (WeChatLoginView, error) {
@@ -609,6 +993,10 @@ func (s *Service) CreateConnection(
 	if err != nil {
 		return ConnectionView{}, err
 	}
+	created, _, _, err = s.ensureConnectionBotResources(created)
+	if err != nil {
+		return ConnectionView{}, err
+	}
 
 	s.syncPollingConnection(created)
 
@@ -709,6 +1097,10 @@ func (s *Service) UpdateConnection(
 	updated, err := s.store.UpdateBotConnection(workspaceID, connectionID, func(store.BotConnection) store.BotConnection {
 		return updatedConnection
 	})
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	updated, _, _, err = s.ensureConnectionBotResources(updated)
 	if err != nil {
 		return ConnectionView{}, err
 	}
@@ -1085,6 +1477,18 @@ func (s *Service) DeleteConnection(ctx context.Context, workspaceID string, conn
 	if err := s.store.DeleteBotConnection(workspaceID, connectionID); err != nil {
 		return err
 	}
+	if strings.TrimSpace(connection.BotID) != "" {
+		hasRemainingEndpoint := false
+		for _, candidate := range s.store.ListBotConnections(workspaceID) {
+			if strings.TrimSpace(candidate.BotID) == strings.TrimSpace(connection.BotID) {
+				hasRemainingEndpoint = true
+				break
+			}
+		}
+		if !hasRemainingEndpoint {
+			_ = s.store.DeleteBot(workspaceID, connection.BotID)
+		}
+	}
 
 	s.publish(workspaceID, "", "bot/connection/deleted", map[string]any{
 		"connectionId": connectionID,
@@ -1097,6 +1501,10 @@ func (s *Service) HandleWebhook(r *http.Request, connectionID string) (WebhookRe
 	connection, ok := s.store.FindBotConnection(connectionID)
 	if !ok {
 		return WebhookResult{}, store.ErrBotConnectionNotFound
+	}
+	connection, _, _, err := s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return WebhookResult{}, err
 	}
 
 	provider, ok := s.providers[normalizeProviderName(connection.Provider)]
@@ -1219,6 +1627,10 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 	connection, ok := s.store.FindBotConnection(connectionID)
 	if !ok {
 		return store.ErrBotConnectionNotFound
+	}
+	connection, _, _, err := s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return err
 	}
 	if !strings.EqualFold(strings.TrimSpace(connection.Status), "active") {
 		return nil
@@ -1979,9 +2391,14 @@ func (s *Service) resolveConversation(
 	connection store.BotConnection,
 	inbound InboundMessage,
 ) (store.BotConversation, error) {
+	connection, _, _, err := s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return store.BotConversation{}, err
+	}
 	lastInboundText := messageSummaryText(inbound.Text, inbound.Media)
 	if conversation, ok := s.store.FindBotConversationByExternalConversation(connection.WorkspaceID, connection.ID, inbound.ConversationID); ok {
 		updated, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+			current.BotID = firstNonEmpty(strings.TrimSpace(current.BotID), strings.TrimSpace(connection.BotID))
 			current.ExternalConversationID = strings.TrimSpace(inbound.ConversationID)
 			current.ExternalChatID = firstNonEmpty(strings.TrimSpace(inbound.ExternalChatID), strings.TrimSpace(inbound.ConversationID))
 			current.ExternalThreadID = strings.TrimSpace(inbound.ExternalThreadID)
@@ -1996,6 +2413,7 @@ func (s *Service) resolveConversation(
 	}
 
 	created, err := s.store.CreateBotConversation(store.BotConversation{
+		BotID:                  strings.TrimSpace(connection.BotID),
 		WorkspaceID:            connection.WorkspaceID,
 		ConnectionID:           connection.ID,
 		Provider:               connection.Provider,
@@ -4632,6 +5050,7 @@ func connectionViewFromStore(connection store.BotConnection) ConnectionView {
 
 	return ConnectionView{
 		ID:              connection.ID,
+		BotID:           strings.TrimSpace(connection.BotID),
 		WorkspaceID:     connection.WorkspaceID,
 		Provider:        connection.Provider,
 		Name:            connection.Name,
@@ -4646,6 +5065,41 @@ func connectionViewFromStore(connection store.BotConnection) ConnectionView {
 		LastPollMessage: connection.LastPollMessage,
 		CreatedAt:       connection.CreatedAt,
 		UpdatedAt:       connection.UpdatedAt,
+	}
+}
+
+func botViewFromStore(bot store.Bot, defaultBinding store.BotBinding, endpointCount int, conversationCount int) BotView {
+	return BotView{
+		ID:                     strings.TrimSpace(bot.ID),
+		WorkspaceID:            strings.TrimSpace(bot.WorkspaceID),
+		Name:                   strings.TrimSpace(bot.Name),
+		Description:            strings.TrimSpace(bot.Description),
+		Status:                 strings.TrimSpace(bot.Status),
+		DefaultBindingID:       strings.TrimSpace(bot.DefaultBindingID),
+		DefaultBindingMode:     strings.TrimSpace(defaultBinding.BindingMode),
+		DefaultTargetWorkspace: strings.TrimSpace(defaultBinding.TargetWorkspaceID),
+		DefaultTargetThreadID:  strings.TrimSpace(defaultBinding.TargetThreadID),
+		EndpointCount:          endpointCount,
+		ConversationCount:      conversationCount,
+		CreatedAt:              bot.CreatedAt,
+		UpdatedAt:              bot.UpdatedAt,
+	}
+}
+
+func botBindingViewFromStore(binding store.BotBinding, isDefault bool) BotBindingView {
+	return BotBindingView{
+		ID:                strings.TrimSpace(binding.ID),
+		WorkspaceID:       strings.TrimSpace(binding.WorkspaceID),
+		BotID:             strings.TrimSpace(binding.BotID),
+		Name:              strings.TrimSpace(binding.Name),
+		BindingMode:       strings.TrimSpace(binding.BindingMode),
+		TargetWorkspaceID: strings.TrimSpace(binding.TargetWorkspaceID),
+		TargetThreadID:    strings.TrimSpace(binding.TargetThreadID),
+		AIBackend:         strings.TrimSpace(binding.AIBackend),
+		AIConfig:          cloneStringMapLocal(binding.AIConfig),
+		IsDefault:         isDefault,
+		CreatedAt:         binding.CreatedAt,
+		UpdatedAt:         binding.UpdatedAt,
 	}
 }
 
@@ -4665,9 +5119,31 @@ func wechatAccountViewFromStore(account store.WeChatAccount) WeChatAccountView {
 	}
 }
 
-func conversationViewFromStore(conversation store.BotConversation) ConversationView {
+func conversationViewFromStore(conversation store.BotConversation, binding store.BotBinding, hasBinding bool) ConversationView {
+	resolvedBindingID := ""
+	resolvedBindingMode := ""
+	resolvedTargetWorkspaceID := ""
+	resolvedTargetThreadID := ""
+	if hasBinding {
+		resolvedBindingID = strings.TrimSpace(binding.ID)
+		resolvedBindingMode = strings.TrimSpace(binding.BindingMode)
+		resolvedTargetWorkspaceID = strings.TrimSpace(binding.TargetWorkspaceID)
+		resolvedTargetThreadID = strings.TrimSpace(binding.TargetThreadID)
+		if resolvedTargetWorkspaceID == "" {
+			resolvedTargetWorkspaceID = strings.TrimSpace(conversation.WorkspaceID)
+		}
+		if resolvedBindingMode == "workspace_auto_thread" && strings.TrimSpace(conversation.ThreadID) != "" {
+			resolvedTargetThreadID = strings.TrimSpace(conversation.ThreadID)
+		}
+	}
 	return ConversationView{
 		ID:                               conversation.ID,
+		BotID:                            strings.TrimSpace(conversation.BotID),
+		BindingID:                        strings.TrimSpace(conversation.BindingID),
+		ResolvedBindingID:                resolvedBindingID,
+		ResolvedBindingMode:              resolvedBindingMode,
+		ResolvedTargetWorkspaceID:        resolvedTargetWorkspaceID,
+		ResolvedTargetThreadID:           resolvedTargetThreadID,
 		WorkspaceID:                      conversation.WorkspaceID,
 		ConnectionID:                     conversation.ConnectionID,
 		Provider:                         conversation.Provider,

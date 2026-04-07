@@ -372,6 +372,66 @@ export function formatBotConversationTitle(conversation: BotConversation) {
   return baseTitle
 }
 
+export function resolveBotConversationBindingMode(
+  conversation: Pick<BotConversation, 'resolvedBindingMode' | 'threadId'>,
+) {
+  const resolvedMode = conversation.resolvedBindingMode?.trim().toLowerCase() ?? ''
+  switch (resolvedMode) {
+    case 'fixed_thread':
+      return 'fixed_thread'
+    case 'workspace_auto_thread':
+      return 'workspace_auto_thread'
+    case 'stateless':
+      return 'stateless'
+    default:
+      return conversation.threadId?.trim() ? 'fixed_thread' : ''
+  }
+}
+
+export function formatBotConversationBindingModeLabel(
+  conversation: Pick<BotConversation, 'resolvedBindingMode' | 'threadId'>,
+) {
+  switch (resolveBotConversationBindingMode(conversation)) {
+    case 'fixed_thread':
+      return i18n._({ id: 'Fixed Thread', message: 'Fixed Thread' })
+    case 'workspace_auto_thread':
+      return i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
+    case 'stateless':
+      return i18n._({ id: 'Stateless', message: 'Stateless' })
+    default:
+      return i18n._({ id: 'Not bound', message: 'Not bound' })
+  }
+}
+
+export function formatBotConversationBindingSourceLabel(
+  conversation: Pick<BotConversation, 'bindingId' | 'resolvedBindingId' | 'threadId'>,
+) {
+  if (conversation.bindingId?.trim()) {
+    return i18n._({ id: 'Conversation Override', message: 'Conversation Override' })
+  }
+  if (conversation.resolvedBindingId?.trim()) {
+    return i18n._({ id: 'Bot Default', message: 'Bot Default' })
+  }
+  if (conversation.threadId?.trim()) {
+    return i18n._({ id: 'Legacy Binding', message: 'Legacy Binding' })
+  }
+  return i18n._({ id: 'Not bound', message: 'Not bound' })
+}
+
+export function resolveBotConversationThreadTarget(
+  conversation: Pick<
+    BotConversation,
+    'workspaceId' | 'threadId' | 'resolvedTargetWorkspaceId' | 'resolvedTargetThreadId'
+  >,
+) {
+  const threadId = conversation.resolvedTargetThreadId?.trim() || conversation.threadId?.trim() || ''
+  const workspaceId = conversation.resolvedTargetWorkspaceId?.trim() || conversation.workspaceId.trim()
+  return {
+    workspaceId,
+    threadId,
+  }
+}
+
 export function formatWeChatAccountLabel(account: Pick<WeChatAccount, 'alias' | 'accountId' | 'userId'>) {
   const alias = account.alias?.trim() ?? ''
   const identity = `${account.accountId.trim()} · ${account.userId.trim()}`

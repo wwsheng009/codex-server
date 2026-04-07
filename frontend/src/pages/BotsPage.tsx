@@ -21,6 +21,8 @@ import {
   getWeChatLogin,
   deleteBotConnection,
   listBotConnectionLogs,
+  listBotBindings,
+  listBots,
   listWeChatAccounts,
   listBotConnections,
   listBotConversations,
@@ -32,8 +34,10 @@ import {
   updateBotConnectionCommandOutputMode,
   updateBotConversationBinding,
   updateBotConnectionRuntimeMode,
+  updateBotDefaultBinding,
   updateWeChatAccount,
   updateWeChatChannelTiming,
+  type UpdateBotDefaultBindingInput,
   type CreateBotConnectionInput,
   type UpdateBotConversationBindingInput,
   type UpdateBotConnectionInput,
@@ -58,6 +62,8 @@ import {
   EMPTY_BOTS_PAGE_DRAFT,
   formatBotBackendLabel,
   formatBotCommandOutputModeLabel,
+  formatBotConversationBindingModeLabel,
+  formatBotConversationBindingSourceLabel,
   formatBotConversationTitle,
   formatBotWorkspacePermissionPresetLabel,
   formatBotProviderLabel,
@@ -69,11 +75,12 @@ import {
   matchesBotConnectionSearch,
   matchesWeChatAccountSearch,
   resolveBotCommandOutputMode,
+  resolveBotConversationThreadTarget,
   resolveWeChatChannelTimingEnabled,
   summarizeBotMap,
   type BotsPageDraft,
 } from './botsPageUtils'
-import type { BotConnection, BotConversation, Thread, WeChatAccount, WeChatLogin } from '../types/api'
+import type { Bot, BotBinding, BotConnection, BotConversation, Thread, WeChatAccount, WeChatLogin } from '../types/api'
 import { useWorkspaceEventSubscription } from '../hooks/useWorkspaceStream'
 
 function HelpTooltip({ content }: { content: React.ReactNode }) {
@@ -115,6 +122,7 @@ export function BotsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const [selectedBotId, setSelectedBotId] = useState('')
   const [selectedConnectionId, setSelectedConnectionId] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<BotConnection | null>(null)
@@ -139,6 +147,11 @@ export function BotsPage() {
   const [bindingMode, setBindingMode] = useState<'existing' | 'new'>('existing')
   const [bindingThreadId, setBindingThreadId] = useState('')
   const [bindingTitle, setBindingTitle] = useState('')
+  const [defaultBindingModalOpen, setDefaultBindingModalOpen] = useState(false)
+  const [defaultBindingMode, setDefaultBindingMode] = useState<'workspace_auto_thread' | 'fixed_thread'>(
+    'workspace_auto_thread',
+  )
+  const [defaultBindingThreadId, setDefaultBindingThreadId] = useState('')
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
@@ -153,6 +166,13 @@ export function BotsPage() {
     setSelectedWorkspaceId(workspacesQuery.data[0].id)
   }, [selectedWorkspaceId, workspacesQuery.data])
 
+  const botsQuery = useQuery({
+    queryKey: ['bots', selectedWorkspaceId],
+    queryFn: () => listBots(selectedWorkspaceId),
+    enabled: selectedWorkspaceId.length > 0,
+    refetchInterval: 5000,
+  })
+
   const connectionsQuery = useQuery({
     queryKey: ['bot-connections', selectedWorkspaceId],
     queryFn: () => listBotConnections(selectedWorkspaceId),
@@ -163,21 +183,26 @@ export function BotsPage() {
   useEffect(() => {
     const connections = connectionsQuery.data ?? []
     if (!connections.length) {
+      if (selectedBotId) {
+        setSelectedBotId('')
+      }
       if (selectedConnectionId) {
         setSelectedConnectionId('')
       }
     }
-  }, [connectionsQuery.data, selectedConnectionId])
+  }, [connectionsQuery.data, selectedBotId, selectedConnectionId])
 
+  const bots = botsQuery.data ?? []
   const connections = connectionsQuery.data ?? []
-  const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) ?? null
+  const selectedBot: Bot | null = bots.find((bot) => bot.id === selectedBotId) ?? null
+  const selectedBotConnections = connections.filter((connection) => connection.botId === selectedBotId)
+  const selectedConnection =
+    selectedBotConnections.find((connection) => connection.id === selectedConnectionId) ?? selectedBotConnections[0] ?? null
 
   const activeThreadsQuery = useQuery({
     queryKey: ['bot-binding-threads', selectedWorkspaceId],
     queryFn: () => listThreads(selectedWorkspaceId),
-    enabled:
-      selectedWorkspaceId.length > 0 &&
-      selectedConnection?.aiBackend === 'workspace_thread',
+    enabled: selectedWorkspaceId.length > 0 && selectedBotId.length > 0,
     refetchInterval: 15000,
     staleTime: 5000,
   })
@@ -186,6 +211,14 @@ export function BotsPage() {
     queryKey: ['bot-conversations', selectedWorkspaceId, selectedConnectionId],
     queryFn: () => listBotConversations(selectedWorkspaceId, selectedConnectionId),
     enabled: selectedWorkspaceId.length > 0 && selectedConnectionId.length > 0,
+  })
+
+  const botBindingsQuery = useQuery({
+    queryKey: ['bot-bindings', selectedWorkspaceId, selectedBotId],
+    queryFn: () => listBotBindings(selectedWorkspaceId, selectedBotId),
+    enabled: selectedWorkspaceId.length > 0 && selectedBotId.length > 0,
+    refetchInterval: 15000,
+    staleTime: 5000,
   })
 
   const wechatLoginQuery = useQuery({
@@ -212,12 +245,14 @@ export function BotsPage() {
 
   useWorkspaceEventSubscription(selectedWorkspaceId ? [selectedWorkspaceId] : undefined, (event) => {
     const method = event.method.trim().toLowerCase()
-    if (!method.startsWith('bot/message/') && !method.startsWith('bot/conversation/')) {
+    if (!method.startsWith('bot/')) {
       return
     }
 
+    void queryClient.invalidateQueries({ queryKey: ['bots', selectedWorkspaceId] })
     void queryClient.invalidateQueries({ queryKey: ['bot-connections', selectedWorkspaceId] })
     void queryClient.invalidateQueries({ queryKey: ['bot-conversations', selectedWorkspaceId] })
+    void queryClient.invalidateQueries({ queryKey: ['bot-bindings', selectedWorkspaceId] })
     void queryClient.invalidateQueries({ queryKey: ['bot-binding-threads', selectedWorkspaceId] })
   })
 
@@ -233,8 +268,10 @@ export function BotsPage() {
       setDraft(EMPTY_BOTS_PAGE_DRAFT)
       setFormError('')
       setSelectedWorkspaceId(connection.workspaceId)
+      setSelectedBotId(connection.botId ?? '')
       setSelectedConnectionId(connection.id)
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bots', connection.workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations', connection.workspaceId] }),
       ])
@@ -253,8 +290,10 @@ export function BotsPage() {
       setDraft(EMPTY_BOTS_PAGE_DRAFT)
       setFormError('')
       setSelectedWorkspaceId(connection.workspaceId)
+      setSelectedBotId(connection.botId ?? '')
       setSelectedConnectionId(connection.id)
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bots', connection.workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connections', connection.workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations', connection.workspaceId] }),
       ])
@@ -356,6 +395,27 @@ export function BotsPage() {
     },
   })
 
+  const updateBotDefaultBindingMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      botId,
+      input,
+    }: {
+      workspaceId: string
+      botId: string
+      input: UpdateBotDefaultBindingInput
+    }) => updateBotDefaultBinding(workspaceId, botId, input),
+    onSuccess: async (_, variables) => {
+      closeDefaultBindingModal()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bots', variables.workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-bindings', variables.workspaceId, variables.botId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-connections', variables.workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId] }),
+      ])
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: ({ workspaceId, connectionId }: { workspaceId: string; connectionId: string }) =>
       deleteBotConnection(workspaceId, connectionId),
@@ -365,6 +425,7 @@ export function BotsPage() {
         setSelectedConnectionId('')
       }
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bots', variables.workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connections', variables.workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId] }),
       ])
@@ -453,7 +514,23 @@ export function BotsPage() {
     })),
   })
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null
+  const connectionsByBotId = useMemo(() => {
+    const next = new Map<string, BotConnection[]>()
+    for (const connection of connections) {
+      const botId = connection.botId?.trim()
+      if (!botId) {
+        continue
+      }
+      const bucket = next.get(botId) ?? []
+      bucket.push(connection)
+      next.set(botId, bucket)
+    }
+    return next
+  }, [connections])
   const conversations = conversationsQuery.data ?? []
+  const selectedBotBindings = botBindingsQuery.data ?? []
+  const selectedDefaultBinding: BotBinding | null =
+    selectedBotBindings.find((binding) => binding.isDefault) ?? null
   const activeThreads: Thread[] = (activeThreadsQuery.data ?? []).filter((thread) => !thread.archived)
 
   const providerOptions = useMemo(
@@ -632,7 +709,60 @@ export function BotsPage() {
     return options
   }, [activeThreads, bindingTarget?.threadId])
 
-  const activeConnectionsCount = connections.filter((connection) => connection.status === 'active').length
+  const defaultBindingModeOptions = useMemo(
+    () => [
+      {
+        value: 'workspace_auto_thread',
+        label: i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' }),
+      },
+      {
+        value: 'fixed_thread',
+        label: i18n._({ id: 'Fixed Thread', message: 'Fixed Thread' }),
+      },
+    ],
+    [],
+  )
+
+  const defaultBindingThreadOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string; disabled?: boolean }> = [
+      {
+        value: '',
+        label: i18n._({ id: 'Select a thread', message: 'Select a thread' }),
+        disabled: true,
+      },
+    ]
+    const currentThreadId = selectedDefaultBinding?.targetThreadId?.trim() ?? ''
+    if (currentThreadId && !activeThreads.some((thread) => thread.id === currentThreadId)) {
+      options.push({
+        value: currentThreadId,
+        label: i18n._({
+          id: '{threadId} (Current default thread unavailable)',
+          message: '{threadId} (Current default thread unavailable)',
+          values: { threadId: currentThreadId },
+        }),
+      })
+    }
+    for (const thread of activeThreads) {
+      options.push({
+        value: thread.id,
+        label: [thread.name, thread.id, formatBotTimestamp(thread.updatedAt)].filter(Boolean).join(' | '),
+      })
+    }
+    return options
+  }, [activeThreads, selectedDefaultBinding?.targetThreadId])
+
+  const activeBotsCount = bots.filter((bot) => bot.status === 'active').length
+  const totalBotConversationCount = bots.reduce((count, bot) => count + bot.conversationCount, 0)
+  const selectedBotActiveConnectionsCount = selectedBotConnections.filter((connection) => connection.status === 'active').length
+  const selectedBotPrimaryBackend =
+    selectedDefaultBinding?.aiBackend?.trim() || selectedBotConnections[0]?.aiBackend?.trim() || ''
+  const selectedBotDefaultBindingMode =
+    selectedDefaultBinding?.bindingMode?.trim() ||
+    (selectedBotPrimaryBackend === 'openai_responses' ? 'stateless' : selectedBot?.defaultBindingMode?.trim() ?? '')
+  const selectedBotDefaultBindingThreadId =
+    selectedDefaultBinding?.targetThreadId?.trim() || selectedBot?.defaultTargetThreadId?.trim() || ''
+  const canConfigureDefaultBinding =
+    selectedBot !== null && selectedBotConnections.length > 0 && selectedBotPrimaryBackend === 'workspace_thread'
   const isEditingConnection = editTarget !== null
   const connectionModalBaselineKey = connectionModalBaselineDraft ? serializeBotsPageDraft(connectionModalBaselineDraft) : ''
   const connectionModalDraftKey = serializeBotsPageDraft(draft)
@@ -649,8 +779,12 @@ export function BotsPage() {
     : clearConversationBindingMutation.error
       ? getErrorMessage(clearConversationBindingMutation.error)
       : ''
+  const defaultBindingErrorMessage = updateBotDefaultBindingMutation.error
+    ? getErrorMessage(updateBotDefaultBindingMutation.error)
+    : ''
   const isBindingMutationPending =
     updateConversationBindingMutation.isPending || clearConversationBindingMutation.isPending
+  const isDefaultBindingMutationPending = updateBotDefaultBindingMutation.isPending
   const deleteErrorMessage = deleteMutation.error ? getErrorMessage(deleteMutation.error) : ''
   const deleteWeChatAccountErrorMessage = deleteWeChatAccountMutation.error
     ? getErrorMessage(deleteWeChatAccountMutation.error)
@@ -733,18 +867,9 @@ export function BotsPage() {
       }),
     [savedWeChatAccountConnections, savedWeChatAccounts, showUnusedWeChatAccountsOnly, wechatAccountSearch],
   )
-  const filteredConnections = useMemo(
+  const filteredBotConnections = useMemo(
     () =>
-      connections.filter((connection) => {
-        if (
-          !matchesBotConnectionSearch(
-            connection,
-            connectionSearch,
-            linkedWeChatAccountByConnectionID.get(connection.id) ?? null,
-          )
-        ) {
-          return false
-        }
+      selectedBotConnections.filter((connection) => {
         if (!showFullAccessConnectionsOnly) {
           return true
         }
@@ -753,7 +878,34 @@ export function BotsPage() {
           isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
         )
       }),
-    [connectionSearch, connections, linkedWeChatAccountByConnectionID, showFullAccessConnectionsOnly],
+    [selectedBotConnections, showFullAccessConnectionsOnly],
+  )
+  const filteredBots = useMemo(
+    () =>
+      bots.filter((bot) => {
+        const botConnections = connectionsByBotId.get(bot.id) ?? []
+        const matchesSearch =
+          bot.name.toLowerCase().includes(connectionSearch.trim().toLowerCase()) ||
+          botConnections.some((connection) =>
+            matchesBotConnectionSearch(
+              connection,
+              connectionSearch,
+              linkedWeChatAccountByConnectionID.get(connection.id) ?? null,
+            ),
+          )
+        if (!matchesSearch) {
+          return false
+        }
+        if (!showFullAccessConnectionsOnly) {
+          return true
+        }
+        return botConnections.some(
+          (connection) =>
+            connection.aiBackend === 'workspace_thread' &&
+            isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset),
+        )
+      }),
+    [bots, connectionSearch, connectionsByBotId, linkedWeChatAccountByConnectionID, showFullAccessConnectionsOnly],
   )
   const selectedSavedWeChatAccount =
     savedWeChatAccounts.find((account) => account.id === draft.wechatSavedAccountId.trim()) ?? null
@@ -783,12 +935,6 @@ export function BotsPage() {
     selectedProvider === 'wechat'
       ? resolveWeChatChannelTimingEnabled(selectedConnection?.settings, selectedRuntimeMode)
       : false
-  const selectedProviderLabel = selectedConnection
-    ? formatBotProviderLabel(selectedConnection.provider)
-    : i18n._({ id: 'None', message: 'None' })
-  const selectedBackendLabel = selectedConnection
-    ? formatBotBackendLabel(selectedConnection.aiBackend)
-    : i18n._({ id: 'None', message: 'None' })
   const selectedDeliveryModeLabel =
     selectedDeliveryMode === 'polling'
       ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
@@ -796,43 +942,14 @@ export function BotsPage() {
         ? i18n._({ id: 'Webhook', message: 'Webhook' })
         : i18n._({ id: 'None', message: 'None' })
   const selectedCommandOutputModeLabel = formatBotCommandOutputModeLabel(selectedCommandOutputMode)
-  const selectedProviderPosture =
-    selectedProvider === 'wechat'
-      ? i18n._({
-          id: 'WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation.',
-          message:
-            'WeChat currently uses polling-only intake. No public callback URL is required, and replies depend on the latest inbound context token stored with each conversation.',
-        })
-      : selectedProvider === 'telegram'
-        ? i18n._({
-            id: 'Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only.',
-            message:
-              'Telegram supports both webhook and long-polling intake. Use webhook for public deployments or polling when inbound connectivity must remain outbound-only.',
-          })
-        : i18n._({
-            id: 'Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context.',
-            message:
-              'Telegram supports webhook or long polling, while WeChat currently uses polling only with per-conversation reply context.',
-          })
-  const selectedIntakeLabel =
-    selectedProvider === 'telegram' && selectedDeliveryMode === 'webhook'
-      ? i18n._({ id: 'Webhook Route', message: 'Webhook Route' })
-      : i18n._({ id: 'Update Intake', message: 'Update Intake' })
-  const selectedIntakeValue =
-    selectedProvider === 'wechat'
-      ? i18n._({ id: 'WeChat iLink long polling', message: 'WeChat iLink long polling' })
-      : selectedProvider === 'telegram'
-        ? selectedDeliveryMode === 'polling'
-          ? i18n._({ id: 'Telegram getUpdates long polling', message: 'Telegram getUpdates long polling' })
-          : `/hooks/bots/${selectedConnection?.id ?? '{connectionId}'}`
-        : i18n._({ id: 'None', message: 'None' })
-  const selectedPublicUrlValue =
-    selectedProvider === 'telegram' && selectedDeliveryMode === 'webhook'
-      ? selectedConnection?.settings?.webhook_url ??
-        i18n._({ id: 'resolved at activation', message: 'resolved at activation' })
-      : selectedProvider === 'telegram' || selectedProvider === 'wechat'
-        ? i18n._({ id: 'not required in polling mode', message: 'not required in polling mode' })
-        : i18n._({ id: 'None', message: 'None' })
+  const selectedBotDefaultBindingModeLabel =
+    selectedBotDefaultBindingMode === 'fixed_thread'
+      ? i18n._({ id: 'Fixed Thread', message: 'Fixed Thread' })
+      : selectedBotDefaultBindingMode === 'stateless'
+        ? i18n._({ id: 'Stateless', message: 'Stateless' })
+        : selectedBot
+          ? i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
+          : i18n._({ id: 'None', message: 'None' })
   const activeWeChatLogin: WeChatLogin | null = wechatLoginQuery.data ?? wechatLoginStartMutation.data ?? null
   const activeWeChatLoginStatus = activeWeChatLogin?.status?.trim().toLowerCase() ?? ''
   const wechatLoginWorkspaceId = draft.workspaceId.trim()
@@ -979,22 +1096,61 @@ export function BotsPage() {
 
   useEffect(() => {
     resetBindingModalState()
-  }, [selectedWorkspaceId, selectedConnectionId])
+    closeDefaultBindingModal()
+  }, [selectedWorkspaceId, selectedBotId, selectedConnectionId])
 
   useEffect(() => {
-    if (!connections.length) {
-      return
-    }
-    if (!filteredConnections.length) {
+    if (!bots.length) {
+      if (selectedBotId) {
+        setSelectedBotId('')
+      }
       if (selectedConnectionId) {
         setSelectedConnectionId('')
       }
       return
     }
-    if (!selectedConnectionId || !filteredConnections.some((connection) => connection.id === selectedConnectionId)) {
-      setSelectedConnectionId(filteredConnections[0].id)
+    if (!filteredBots.length) {
+      if (selectedBotId) {
+        setSelectedBotId('')
+      }
+      if (selectedConnectionId) {
+        setSelectedConnectionId('')
+      }
+      return
     }
-  }, [connections.length, filteredConnections, selectedConnectionId])
+    if (!selectedBotId || !filteredBots.some((bot) => bot.id === selectedBotId)) {
+      setSelectedBotId(filteredBots[0].id)
+    }
+  }, [filteredBots, bots.length, selectedBotId, selectedConnectionId])
+
+  useEffect(() => {
+    if (!selectedBotId) {
+      if (selectedConnectionId) {
+        setSelectedConnectionId('')
+      }
+      return
+    }
+    if (!selectedBotConnections.length) {
+      if (selectedConnectionId) {
+        setSelectedConnectionId('')
+      }
+      return
+    }
+    if (!selectedConnectionId || !selectedBotConnections.some((connection) => connection.id === selectedConnectionId)) {
+      setSelectedConnectionId(selectedBotConnections[0].id)
+    }
+  }, [selectedBotConnections, selectedBotId, selectedConnectionId])
+
+  function selectBot(bot: Bot) {
+    setSelectedBotId(bot.id)
+    setSelectedConnectionId('')
+  }
+
+  function selectConnection(connection: BotConnection) {
+    setSelectedWorkspaceId(connection.workspaceId)
+    setSelectedBotId(connection.botId?.trim() ?? '')
+    setSelectedConnectionId(connection.id)
+  }
 
   function resetWeChatLoginState() {
     setWechatLoginModalOpen(false)
@@ -1212,8 +1368,7 @@ export function BotsPage() {
     updateMutation.reset()
     setFormError('')
     resetWeChatLoginState()
-    setSelectedWorkspaceId(connection.workspaceId)
-    setSelectedConnectionId(connection.id)
+    selectConnection(connection)
     setEditTarget(connection)
     const nextDraft = buildBotsPageDraftFromConnection(connection, savedWeChatAccounts)
     setDraft(nextDraft)
@@ -1503,6 +1658,44 @@ export function BotsPage() {
     })
   }
 
+  function openDefaultBindingModal() {
+    if (!selectedBot || !canConfigureDefaultBinding) {
+      return
+    }
+    updateBotDefaultBindingMutation.reset()
+    setDefaultBindingMode(selectedDefaultBinding?.bindingMode === 'fixed_thread' ? 'fixed_thread' : 'workspace_auto_thread')
+    setDefaultBindingThreadId(selectedDefaultBinding?.targetThreadId?.trim() ?? '')
+    setDefaultBindingModalOpen(true)
+  }
+
+  function closeDefaultBindingModal() {
+    if (isDefaultBindingMutationPending) {
+      return
+    }
+    setDefaultBindingModalOpen(false)
+    setDefaultBindingMode('workspace_auto_thread')
+    setDefaultBindingThreadId('')
+    updateBotDefaultBindingMutation.reset()
+  }
+
+  function handleSubmitDefaultBinding() {
+    if (!selectedBot || !canConfigureDefaultBinding || isDefaultBindingMutationPending) {
+      return
+    }
+    if (defaultBindingMode === 'fixed_thread' && !defaultBindingThreadId.trim()) {
+      return
+    }
+    updateBotDefaultBindingMutation.mutate({
+      workspaceId: selectedBot.workspaceId,
+      botId: selectedBot.id,
+      input: {
+        bindingMode: defaultBindingMode,
+        targetWorkspaceId: selectedBot.workspaceId,
+        targetThreadId: defaultBindingMode === 'fixed_thread' ? defaultBindingThreadId.trim() : undefined,
+      },
+    })
+  }
+
   const createModalFooter = (
     <>
       <Button intent="secondary" onClick={closeCreateModal}>
@@ -1545,6 +1738,22 @@ export function BotsPage() {
         {bindingMode === 'new'
           ? i18n._({ id: 'Create And Bind', message: 'Create And Bind' })
           : i18n._({ id: 'Update Binding', message: 'Update Binding' })}
+      </Button>
+    </>
+  )
+
+  const defaultBindingModalFooter = (
+    <>
+      <Button disabled={isDefaultBindingMutationPending} intent="secondary" onClick={closeDefaultBindingModal} type="button">
+        {i18n._({ id: 'Cancel', message: 'Cancel' })}
+      </Button>
+      <Button
+        disabled={isDefaultBindingMutationPending || (defaultBindingMode === 'fixed_thread' && !defaultBindingThreadId.trim())}
+        isLoading={updateBotDefaultBindingMutation.isPending}
+        onClick={handleSubmitDefaultBinding}
+        type="button"
+      >
+        {i18n._({ id: 'Save Default Binding', message: 'Save Default Binding' })}
       </Button>
     </>
   )
@@ -1600,16 +1809,16 @@ export function BotsPage() {
         <div className="mode-strip__actions">
           <div className="mode-metrics">
             <div className="mode-metric">
-              <span>{i18n._({ id: 'Active', message: 'Active' })}</span>
-              <strong>{activeConnectionsCount}</strong>
+              <span>{i18n._({ id: 'Bots', message: 'Bots' })}</span>
+              <strong>{bots.length}</strong>
             </div>
             <div className="mode-metric">
-              <span>{i18n._({ id: 'Connections', message: 'Connections' })}</span>
+              <span>{i18n._({ id: 'Endpoints', message: 'Endpoints' })}</span>
               <strong>{connections.length}</strong>
             </div>
             <div className="mode-metric">
               <span>{i18n._({ id: 'Conversations', message: 'Conversations' })}</span>
-              <strong>{conversations.length}</strong>
+              <strong>{totalBotConversationCount}</strong>
             </div>
           </div>
           <Button disabled={!workspaces.length} onClick={openCreateModal}>
@@ -1626,9 +1835,9 @@ export function BotsPage() {
                 <h2>{i18n._({ id: 'Workspace Scope', message: 'Workspace Scope' })}</h2>
                 <HelpTooltip
                   content={i18n._({
-                    id: 'Connections are stored per workspace and each external chat can be bound to one internal thread.',
+                    id: 'Bots, endpoints, and their default bindings are stored per workspace. Select the workspace first, then choose which bot you want to operate.',
                     message:
-                      'Connections are stored per workspace and each external chat can be bound to one internal thread.',
+                      'Bots, endpoints, and their default bindings are stored per workspace. Select the workspace first, then choose which bot you want to operate.',
                   })}
                 />
               </div>
@@ -1640,6 +1849,7 @@ export function BotsPage() {
                 fullWidth
                 onChange={(nextValue) => {
                   setSelectedWorkspaceId(nextValue)
+                  setSelectedBotId('')
                   setSelectedConnectionId('')
                 }}
                 options={workspaces.map((workspace) => ({
@@ -1655,12 +1865,12 @@ export function BotsPage() {
                 <strong>{selectedWorkspace?.name ?? i18n._({ id: 'No workspace', message: 'No workspace' })}</strong>
               </div>
               <div className="detail-row">
-                <span>{i18n._({ id: 'Active Connections', message: 'Active Connections' })}</span>
-                <strong>{activeConnectionsCount}</strong>
+                <span>{i18n._({ id: 'Active Bots', message: 'Active Bots' })}</span>
+                <strong>{activeBotsCount}</strong>
               </div>
               <div className="detail-row">
-                <span>{i18n._({ id: 'Selected Connection', message: 'Selected Connection' })}</span>
-                <strong>{selectedConnection?.name ?? i18n._({ id: 'None', message: 'None' })}</strong>
+                <span>{i18n._({ id: 'Selected Bot', message: 'Selected Bot' })}</span>
+                <strong>{selectedBot?.name ?? i18n._({ id: 'None', message: 'None' })}</strong>
               </div>
             </div>
           </section>
@@ -1668,34 +1878,110 @@ export function BotsPage() {
           <section className="mode-panel">
             <div className="section-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h2>{i18n._({ id: 'Provider Posture', message: 'Provider Posture' })}</h2>
-                <HelpTooltip content={selectedProviderPosture} />
+                <h2>{i18n._({ id: 'Selected Bot', message: 'Selected Bot' })}</h2>
+                <HelpTooltip
+                  content={i18n._({
+                    id: 'Bots are the first routing layer. Each bot can own one or more endpoints and a default binding that decides how new conversations resolve internally.',
+                    message:
+                      'Bots are the first routing layer. Each bot can own one or more endpoints and a default binding that decides how new conversations resolve internally.',
+                  })}
+                />
               </div>
             </div>
-            <div className="mode-metrics">
-              <div className="mode-metric">
-                <span>{i18n._({ id: 'Provider', message: 'Provider' })}</span>
-                <strong>{selectedProviderLabel}</strong>
+            {!selectedBot ? (
+              <div className="empty-state">
+                {i18n._({
+                  id: 'Select a bot to inspect its default routing and endpoint coverage.',
+                  message: 'Select a bot to inspect its default routing and endpoint coverage.',
+                })}
               </div>
-              <div className="mode-metric">
-                <span>{i18n._({ id: 'Backend', message: 'Backend' })}</span>
-                <strong>{selectedBackendLabel}</strong>
-              </div>
-            </div>
-            <div className="detail-list">
-              <div className="detail-row">
-                <span>{i18n._({ id: 'Delivery Mode', message: 'Delivery Mode' })}</span>
-                <strong>{selectedDeliveryModeLabel}</strong>
-              </div>
-              <div className="detail-row">
-                <span>{selectedIntakeLabel}</span>
-                <strong>{selectedIntakeValue}</strong>
-              </div>
-              <div className="detail-row">
-                <span>{i18n._({ id: 'Public URL', message: 'Public URL' })}</span>
-                <strong>{selectedPublicUrlValue}</strong>
-              </div>
-            </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    alignItems: 'start',
+                    display: 'flex',
+                    gap: '16px',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    <strong dir="auto">{selectedBot.name}</strong>
+                    <span>{selectedWorkspace?.name ?? selectedBot.workspaceId}</span>
+                  </div>
+                  <StatusPill status={selectedBot.status} />
+                </div>
+                <div className="mode-metrics">
+                  <div className="mode-metric">
+                    <span>{i18n._({ id: 'Endpoints', message: 'Endpoints' })}</span>
+                    <strong>{selectedBotConnections.length}</strong>
+                  </div>
+                  <div className="mode-metric">
+                    <span>{i18n._({ id: 'Active', message: 'Active' })}</span>
+                    <strong>{selectedBotActiveConnectionsCount}</strong>
+                  </div>
+                  <div className="mode-metric">
+                    <span>{i18n._({ id: 'Conversations', message: 'Conversations' })}</span>
+                    <strong>{selectedBot.conversationCount}</strong>
+                  </div>
+                </div>
+                <div className="detail-list">
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Default Binding', message: 'Default Binding' })}</span>
+                    <strong>{selectedBotDefaultBindingModeLabel}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Binding Target', message: 'Binding Target' })}</span>
+                    <strong>
+                      {selectedBotDefaultBindingMode === 'fixed_thread' && selectedBotDefaultBindingThreadId ? (
+                        <Link to={buildWorkspaceThreadRoute(selectedBot.workspaceId, selectedBotDefaultBindingThreadId)}>
+                          {selectedBotDefaultBindingThreadId}
+                        </Link>
+                      ) : selectedBotDefaultBindingMode === 'stateless' ? (
+                        i18n._({ id: 'No workspace thread target', message: 'No workspace thread target' })
+                      ) : (
+                        i18n._({
+                          id: 'Resolve a workspace thread from conversation context',
+                          message: 'Resolve a workspace thread from conversation context',
+                        })
+                      )}
+                    </strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>{i18n._({ id: 'Updated', message: 'Updated' })}</span>
+                    <strong>{formatBotTimestamp(selectedBot.updatedAt)}</strong>
+                  </div>
+                </div>
+                {botBindingsQuery.error ? (
+                  <InlineNotice
+                    dismissible
+                    noticeKey={`bot-bindings-${selectedBot.id}-${getErrorMessage(botBindingsQuery.error)}`}
+                    onRetry={() => void botBindingsQuery.refetch()}
+                    title={i18n._({ id: 'Failed To Load Bot Bindings', message: 'Failed To Load Bot Bindings' })}
+                    tone="error"
+                  >
+                    {getErrorMessage(botBindingsQuery.error)}
+                  </InlineNotice>
+                ) : null}
+                {selectedBotPrimaryBackend === 'openai_responses' ? (
+                  <div className="notice">
+                    {i18n._({
+                      id: 'This bot currently resolves through OpenAI Responses endpoints, so its default binding stays stateless and does not target a workspace thread.',
+                      message:
+                        'This bot currently resolves through OpenAI Responses endpoints, so its default binding stays stateless and does not target a workspace thread.',
+                    })}
+                  </div>
+                ) : null}
+                {botBindingsQuery.isLoading ? (
+                  <div className="notice">
+                    {i18n._({ id: 'Loading bot bindings...', message: 'Loading bot bindings...' })}
+                  </div>
+                ) : null}
+                <Button disabled={!canConfigureDefaultBinding} intent="secondary" onClick={openDefaultBindingModal} type="button">
+                  {i18n._({ id: 'Manage Default Binding', message: 'Manage Default Binding' })}
+                </Button>
+              </>
+            )}
           </section>
         </aside>
 
@@ -1735,6 +2021,18 @@ export function BotsPage() {
                   tone="error"
                 >
                   {getErrorMessage(connectionsQuery.error)}
+                </InlineNotice>
+              ) : null}
+
+              {botsQuery.error ? (
+                <InlineNotice
+                  dismissible
+                  noticeKey={`bots-${getErrorMessage(botsQuery.error)}`}
+                  onRetry={() => void botsQuery.refetch()}
+                  title={i18n._({ id: 'Failed To Load Bots', message: 'Failed To Load Bots' })}
+                  tone="error"
+                >
+                  {getErrorMessage(botsQuery.error)}
                 </InlineNotice>
               ) : null}
 
@@ -1802,22 +2100,25 @@ export function BotsPage() {
               <section className="content-section">
                 <div className="section-header section-header--inline">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2>{i18n._({ id: 'Connections', message: 'Connections' })}</h2>
+                    <h2>{i18n._({ id: 'Bots', message: 'Bots' })}</h2>
                     <HelpTooltip
                       content={i18n._({
-                        id: 'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
+                        id: 'Search by bot name, endpoint name, provider, backend, status, or linked WeChat account metadata.',
                         message:
-                          'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
+                          'Search by bot name, endpoint name, provider, backend, status, or linked WeChat account metadata.',
                       })}
                     />
                   </div>
-                  <div className="section-header__meta">{filteredConnections.length}</div>
+                  <div className="section-header__meta">{filteredBots.length}</div>
                 </div>
 
                 <Input
-                  label={i18n._({ id: 'Search Connections', message: 'Search Connections' })}
+                  label={i18n._({ id: 'Search Bots', message: 'Search Bots' })}
                   onChange={(event) => setConnectionSearch(event.target.value)}
-                  placeholder={i18n._({ id: 'Support, paused, openai, support queue', message: 'Support, paused, openai, support queue' })}
+                  placeholder={i18n._({
+                    id: 'Support bot, telegram, openai, support queue',
+                    message: 'Support bot, telegram, openai, support queue',
+                  })}
                   value={connectionSearch}
                 />
 
@@ -1828,9 +2129,9 @@ export function BotsPage() {
                       {i18n._({ id: 'Only Show Full Access', message: 'Only Show Full Access' })}
                       <HelpTooltip
                         content={i18n._({
-                          id: 'Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server.',
+                          id: 'Restrict the bot list to entries that include at least one workspace-thread endpoint with full-access execution.',
                           message:
-                            'Restrict the list to workspace-thread bot connections that disable approvals and request full access from app-server.',
+                            'Restrict the bot list to entries that include at least one workspace-thread endpoint with full-access execution.',
                         })}
                       />
                     </div>
@@ -1838,62 +2139,68 @@ export function BotsPage() {
                   onChange={(event) => setShowFullAccessConnectionsOnly(event.target.checked)}
                 />
 
-                {connectionsQuery.isLoading ? (
+                {botsQuery.isLoading || connectionsQuery.isLoading ? (
                   <div className="notice">
-                    {i18n._({ id: 'Loading bot connections...', message: 'Loading bot connections...' })}
+                    {i18n._({ id: 'Loading bots...', message: 'Loading bots...' })}
                   </div>
                 ) : null}
 
-                {!connectionsQuery.isLoading && !connections.length ? (
+                {!botsQuery.isLoading && !connectionsQuery.isLoading && !bots.length ? (
                   <div className="empty-state">
                     {i18n._({
-                      id: 'No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment.',
+                      id: 'No bots yet. Start with a Telegram or WeChat endpoint, and the system will provision the bot layer automatically.',
                       message:
-                        'No bot connections yet. Start with a Telegram or WeChat credential bundle, then choose the delivery posture that matches your deployment.',
+                        'No bots yet. Start with a Telegram or WeChat endpoint, and the system will provision the bot layer automatically.',
                     })}
                   </div>
                 ) : null}
 
-                {!connectionsQuery.isLoading && connections.length > 0 && !filteredConnections.length ? (
+                {!botsQuery.isLoading && !connectionsQuery.isLoading && bots.length > 0 && !filteredBots.length ? (
                   <div className="empty-state">
                     {showFullAccessConnectionsOnly
                       ? i18n._({
-                          id: 'No full-access bot connections match the current search and filters.',
-                          message: 'No full-access bot connections match the current search and filters.',
+                          id: 'No bots with full-access endpoints match the current search and filters.',
+                          message: 'No bots with full-access endpoints match the current search and filters.',
                         })
                       : i18n._({
-                          id: 'No bot connections match the current search.',
-                          message: 'No bot connections match the current search.',
+                          id: 'No bots match the current search.',
+                          message: 'No bots match the current search.',
                         })}
                   </div>
                 ) : null}
 
                 <div className="automation-compact-list">
-                  {filteredConnections.map((connection) => {
-                    const linkedWeChatAccount = linkedWeChatAccountByConnectionID.get(connection.id) ?? null
-                    const connectionUsesFullAccess =
-                      connection.aiBackend === 'workspace_thread' &&
-                      isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
-                    const recentSuppressionSummary = recentSuppressionSummaryByConnectionID.get(connection.id) ?? {
-                      suppressedCount: 0,
-                      duplicateSuppressedCount: 0,
-                      recoverySuppressedCount: 0,
-                      latestSuppressedAt: undefined,
-                    }
+                  {filteredBots.map((bot) => {
+                    const botConnections = connectionsByBotId.get(bot.id) ?? []
+                    const activeEndpointCount = botConnections.filter((connection) => connection.status === 'active').length
+                    const botUsesFullAccess = botConnections.some(
+                      (connection) =>
+                        connection.aiBackend === 'workspace_thread' &&
+                        isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset),
+                    )
+                    const botPrimaryBackend = botConnections[0]?.aiBackend?.trim() ?? ''
+                    const botDefaultBindingMode =
+                      bot.defaultBindingMode?.trim() || (botPrimaryBackend === 'openai_responses' ? 'stateless' : 'workspace_auto_thread')
+                    const botDefaultBindingLabel =
+                      botDefaultBindingMode === 'fixed_thread'
+                        ? i18n._({ id: 'Fixed Thread', message: 'Fixed Thread' })
+                        : botDefaultBindingMode === 'stateless'
+                          ? i18n._({ id: 'Stateless', message: 'Stateless' })
+                          : i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
                     return (
                       <div
                         className={[
                           'automation-compact-row',
-                          selectedConnectionId === connection.id ? 'automation-compact-row--active' : '',
+                          selectedBotId === bot.id ? 'automation-compact-row--active' : '',
                         ]
                           .filter(Boolean)
                           .join(' ')}
-                        key={connection.id}
+                        key={bot.id}
                       >
                         <button
-                          aria-pressed={selectedConnectionId === connection.id}
+                          aria-pressed={selectedBotId === bot.id}
                           className="automation-compact-row__main"
-                          onClick={() => setSelectedConnectionId(connection.id)}
+                          onClick={() => selectBot(bot)}
                           style={{
                             background: 'transparent',
                             border: 0,
@@ -1905,65 +2212,190 @@ export function BotsPage() {
                           }}
                           type="button"
                         >
-                          <strong dir="auto">{connection.name}</strong>
+                          <strong dir="auto">{bot.name}</strong>
                           <span>
-                            {formatBotProviderLabel(connection.provider)} | {formatBotBackendLabel(connection.aiBackend)} |{' '}
-                            {formatBotTimestamp(connection.updatedAt)}
+                            {i18n._({
+                              id: '{count} endpoint(s) | {conversationCount} conversation(s) | {bindingLabel}',
+                              message: '{count} endpoint(s) | {conversationCount} conversation(s) | {bindingLabel}',
+                              values: {
+                                count: botConnections.length,
+                                conversationCount: bot.conversationCount,
+                                bindingLabel: botDefaultBindingLabel,
+                              },
+                            })}
                           </span>
-                          {linkedWeChatAccount ? (
+                          {bot.description?.trim() ? <span>{bot.description.trim()}</span> : null}
+                          {botConnections[0] ? (
                             <span>
-                              {i18n._({ id: 'Saved Account', message: 'Saved Account' })}:{' '}
-                              {formatWeChatAccountLabel(linkedWeChatAccount)}
-                              {linkedWeChatAccount.note?.trim() ? ` | ${linkedWeChatAccount.note.trim()}` : ''}
+                              {formatBotProviderLabel(botConnections[0].provider)} |{' '}
+                              {formatBotBackendLabel(botConnections[0].aiBackend)} |{' '}
+                              {formatBotTimestamp(bot.updatedAt)}
                             </span>
                           ) : null}
-                          {connectionUsesFullAccess || recentSuppressionSummary.suppressedCount > 0 ? (
+                          {botUsesFullAccess ? (
                             <div className="automation-compact-row__meta">
-                              {connectionUsesFullAccess ? (
-                                <span className="meta-pill meta-pill--danger">
-                                  {formatBotWorkspacePermissionPresetLabel(connection.aiConfig?.permission_preset)}
-                                </span>
-                              ) : null}
-                              {recentSuppressionSummary.suppressedCount > 0 ? (
-                                <span className="meta-pill meta-pill--warning">
-                                  {i18n._({
-                                    id: 'Suppressed 24h: {count}',
-                                    message: 'Suppressed 24h: {count}',
-                                    values: { count: recentSuppressionSummary.suppressedCount },
-                                  })}
-                                </span>
-                              ) : null}
-                              {recentSuppressionSummary.duplicateSuppressedCount > 0 ? (
-                                <span className="meta-pill meta-pill--warning">
-                                  {i18n._({
-                                    id: 'Duplicate: {count}',
-                                    message: 'Duplicate: {count}',
-                                    values: { count: recentSuppressionSummary.duplicateSuppressedCount },
-                                  })}
-                                </span>
-                              ) : null}
-                              {recentSuppressionSummary.recoverySuppressedCount > 0 ? (
-                                <span className="meta-pill meta-pill--warning">
-                                  {i18n._({
-                                    id: 'Restart: {count}',
-                                    message: 'Restart: {count}',
-                                    values: { count: recentSuppressionSummary.recoverySuppressedCount },
-                                  })}
-                                </span>
-                              ) : null}
+                              <span className="meta-pill meta-pill--danger">
+                                {i18n._({ id: 'Has Full Access Endpoint', message: 'Has Full Access Endpoint' })}
+                              </span>
+                              <span className="meta-pill">
+                                {i18n._({
+                                  id: 'Active Endpoints: {count}',
+                                  message: 'Active Endpoints: {count}',
+                                  values: { count: activeEndpointCount },
+                                })}
+                              </span>
                             </div>
                           ) : null}
                         </button>
                         <div className="automation-compact-row__actions">
-                          <StatusPill status={connection.status} />
-                          <Button intent="ghost" onClick={() => openEditModal(connection)} type="button">
-                            {i18n._({ id: 'Edit', message: 'Edit' })}
-                          </Button>
+                          <StatusPill status={bot.status} />
                         </div>
                       </div>
                     )
                   })}
                 </div>
+              </section>
+
+              <section className="content-section">
+                <div className="section-header section-header--inline">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h2>{i18n._({ id: 'Endpoints', message: 'Endpoints' })}</h2>
+                    <HelpTooltip
+                      content={i18n._({
+                        id: 'After selecting a bot, keep using endpoints as the execution units for provider delivery, runtime settings, logs, and conversations.',
+                        message:
+                          'After selecting a bot, keep using endpoints as the execution units for provider delivery, runtime settings, logs, and conversations.',
+                      })}
+                    />
+                  </div>
+                  <div className="section-header__meta">{filteredBotConnections.length}</div>
+                </div>
+
+                {!selectedBot ? (
+                  <div className="empty-state">
+                    {i18n._({
+                      id: 'Select a bot first, then choose which endpoint you want to inspect.',
+                      message: 'Select a bot first, then choose which endpoint you want to inspect.',
+                    })}
+                  </div>
+                ) : null}
+
+                {selectedBot && !selectedBotConnections.length ? (
+                  <div className="empty-state">
+                    {i18n._({
+                      id: 'This bot does not have any endpoints yet.',
+                      message: 'This bot does not have any endpoints yet.',
+                    })}
+                  </div>
+                ) : null}
+
+                {selectedBotConnections.length > 0 && !filteredBotConnections.length ? (
+                  <div className="empty-state">
+                    {i18n._({
+                      id: 'No endpoints match the current filters for this bot.',
+                      message: 'No endpoints match the current filters for this bot.',
+                    })}
+                  </div>
+                ) : null}
+
+                {filteredBotConnections.length ? (
+                  <div className="automation-compact-list">
+                    {filteredBotConnections.map((connection) => {
+                      const linkedWeChatAccount = linkedWeChatAccountByConnectionID.get(connection.id) ?? null
+                      const connectionUsesFullAccess =
+                        connection.aiBackend === 'workspace_thread' &&
+                        isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
+                      const recentSuppressionSummary = recentSuppressionSummaryByConnectionID.get(connection.id) ?? {
+                        suppressedCount: 0,
+                        duplicateSuppressedCount: 0,
+                        recoverySuppressedCount: 0,
+                        latestSuppressedAt: undefined,
+                      }
+                      return (
+                        <div
+                          className={[
+                            'automation-compact-row',
+                            selectedConnectionId === connection.id ? 'automation-compact-row--active' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          key={connection.id}
+                        >
+                          <button
+                            aria-pressed={selectedConnectionId === connection.id}
+                            className="automation-compact-row__main"
+                            onClick={() => selectConnection(connection)}
+                            style={{
+                              background: 'transparent',
+                              border: 0,
+                              cursor: 'pointer',
+                              flex: 1,
+                              minWidth: 0,
+                              padding: 0,
+                              textAlign: 'left',
+                            }}
+                            type="button"
+                          >
+                            <strong dir="auto">{connection.name}</strong>
+                            <span>
+                              {formatBotProviderLabel(connection.provider)} | {formatBotBackendLabel(connection.aiBackend)} |{' '}
+                              {formatBotTimestamp(connection.updatedAt)}
+                            </span>
+                            {linkedWeChatAccount ? (
+                              <span>
+                                {i18n._({ id: 'Saved Account', message: 'Saved Account' })}:{' '}
+                                {formatWeChatAccountLabel(linkedWeChatAccount)}
+                                {linkedWeChatAccount.note?.trim() ? ` | ${linkedWeChatAccount.note.trim()}` : ''}
+                              </span>
+                            ) : null}
+                            {connectionUsesFullAccess || recentSuppressionSummary.suppressedCount > 0 ? (
+                              <div className="automation-compact-row__meta">
+                                {connectionUsesFullAccess ? (
+                                  <span className="meta-pill meta-pill--danger">
+                                    {formatBotWorkspacePermissionPresetLabel(connection.aiConfig?.permission_preset)}
+                                  </span>
+                                ) : null}
+                                {recentSuppressionSummary.suppressedCount > 0 ? (
+                                  <span className="meta-pill meta-pill--warning">
+                                    {i18n._({
+                                      id: 'Suppressed 24h: {count}',
+                                      message: 'Suppressed 24h: {count}',
+                                      values: { count: recentSuppressionSummary.suppressedCount },
+                                    })}
+                                  </span>
+                                ) : null}
+                                {recentSuppressionSummary.duplicateSuppressedCount > 0 ? (
+                                  <span className="meta-pill meta-pill--warning">
+                                    {i18n._({
+                                      id: 'Duplicate: {count}',
+                                      message: 'Duplicate: {count}',
+                                      values: { count: recentSuppressionSummary.duplicateSuppressedCount },
+                                    })}
+                                  </span>
+                                ) : null}
+                                {recentSuppressionSummary.recoverySuppressedCount > 0 ? (
+                                  <span className="meta-pill meta-pill--warning">
+                                    {i18n._({
+                                      id: 'Restart: {count}',
+                                      message: 'Restart: {count}',
+                                      values: { count: recentSuppressionSummary.recoverySuppressedCount },
+                                    })}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </button>
+                          <div className="automation-compact-row__actions">
+                            <StatusPill status={connection.status} />
+                            <Button intent="ghost" onClick={() => openEditModal(connection)} type="button">
+                              {i18n._({ id: 'Edit', message: 'Edit' })}
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : null}
               </section>
 
               <section className="content-section">
@@ -2093,7 +2525,7 @@ export function BotsPage() {
                                       </Button>
                                       <Button
                                         intent="ghost"
-                                        onClick={() => setSelectedConnectionId(connection.id)}
+                                        onClick={() => selectConnection(connection)}
                                         type="button"
                                       >
                                         {i18n._({ id: 'Open Connection', message: 'Open Connection' })}
@@ -2147,12 +2579,12 @@ export function BotsPage() {
               <section className="content-section">
                 <div className="section-header section-header--inline">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2>{i18n._({ id: 'Connection Detail', message: 'Connection Detail' })}</h2>
+                    <h2>{i18n._({ id: 'Endpoint Detail', message: 'Endpoint Detail' })}</h2>
                     <HelpTooltip
                       content={i18n._({
-                        id: 'Select a connection to inspect provider status, AI backend settings, and conversation bindings.',
+                        id: 'Select an endpoint to inspect provider status, delivery posture, AI backend settings, logs, and conversation bindings.',
                         message:
-                          'Select a connection to inspect provider status, AI backend settings, and conversation bindings.',
+                          'Select an endpoint to inspect provider status, delivery posture, AI backend settings, logs, and conversation bindings.',
                       })}
                     />
                   </div>
@@ -2161,8 +2593,8 @@ export function BotsPage() {
                 {!selectedConnection ? (
                   <div className="empty-state">
                     {i18n._({
-                      id: 'No connection selected.',
-                      message: 'No connection selected.',
+                      id: 'No endpoint selected.',
+                      message: 'No endpoint selected.',
                     })}
                   </div>
                 ) : (
@@ -2242,21 +2674,21 @@ export function BotsPage() {
                     ) : null}
 
                     {selectedConnectionSuppressionSummary.suppressedCount > 0 ? (
-                      <InlineNotice
-                        dismissible
-                        noticeKey={`bot-suppression-summary-${selectedConnection.id}-${selectedConnectionSuppressionSummary.suppressedCount}-${selectedConnectionSuppressionSummary.latestSuppressedAt ?? 'none'}`}
+                        <InlineNotice
+                          dismissible
+                          noticeKey={`bot-suppression-summary-${selectedConnection.id}-${selectedConnectionSuppressionSummary.suppressedCount}-${selectedConnectionSuppressionSummary.latestSuppressedAt ?? 'none'}`}
                         title={i18n._({
                           id: 'Replay Suppressions Recorded',
                           message: 'Replay Suppressions Recorded',
                         })}
-                      >
-                        {i18n._({
-                          id: 'The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content.',
-                          message:
-                            'The backend suppressed {count} replay attempt(s) for this connection in the last 24 hours to avoid duplicating previously sent content.',
-                          values: { count: selectedConnectionSuppressionSummary.suppressedCount },
-                        })}
-                      </InlineNotice>
+                        >
+                          {i18n._({
+                            id: 'The backend suppressed {count} replay attempt(s) for this endpoint in the last 24 hours to avoid duplicating previously sent content.',
+                            message:
+                              'The backend suppressed {count} replay attempt(s) for this endpoint in the last 24 hours to avoid duplicating previously sent content.',
+                            values: { count: selectedConnectionSuppressionSummary.suppressedCount },
+                          })}
+                        </InlineNotice>
                     ) : null}
 
                     <section className="mode-panel">
@@ -2267,7 +2699,7 @@ export function BotsPage() {
                       </div>
                       <div className="detail-list">
                         <div className="detail-row">
-                          <span>{i18n._({ id: 'Connection ID', message: 'Connection ID' })}</span>
+                          <span>{i18n._({ id: 'Endpoint ID', message: 'Endpoint ID' })}</span>
                           <strong>{selectedConnection.id}</strong>
                         </div>
                         <div className="detail-row">
@@ -2379,6 +2811,65 @@ export function BotsPage() {
                         <div className="detail-row">
                           <span>{i18n._({ id: 'AI Config', message: 'AI Config' })}</span>
                           <strong>{summarizeBotMap(selectedConnection.aiConfig)}</strong>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="mode-panel">
+                      <div className="section-header section-header--inline">
+                        <div>
+                          <h2>{i18n._({ id: 'Default Bot Binding', message: 'Default Bot Binding' })}</h2>
+                          <p dir="auto">{selectedBot?.name ?? i18n._({ id: 'None', message: 'None' })}</p>
+                        </div>
+                        {canConfigureDefaultBinding ? (
+                          <Button intent="secondary" onClick={openDefaultBindingModal} type="button">
+                            {i18n._({ id: 'Edit', message: 'Edit' })}
+                          </Button>
+                        ) : null}
+                      </div>
+                      <div className="detail-list">
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Connections', message: 'Connections' })}</span>
+                          <strong>{selectedBotConnections.length}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Active', message: 'Active' })}</span>
+                          <strong>{selectedBotActiveConnectionsCount}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Backend', message: 'Backend' })}</span>
+                          <strong>
+                            {selectedBotPrimaryBackend
+                              ? formatBotBackendLabel(selectedBotPrimaryBackend)
+                              : i18n._({ id: 'None', message: 'None' })}
+                          </strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Binding Mode', message: 'Binding Mode' })}</span>
+                          <strong>{selectedBotDefaultBindingModeLabel}</strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{i18n._({ id: 'Workspace Thread', message: 'Workspace Thread' })}</span>
+                          <strong>
+                            {selectedBotDefaultBindingMode === 'fixed_thread' && selectedBotDefaultBindingThreadId ? (
+                              <Link
+                                to={buildWorkspaceThreadRoute(
+                                  selectedBot?.workspaceId ?? selectedWorkspaceId,
+                                  selectedBotDefaultBindingThreadId,
+                                )}
+                              >
+                                {selectedBotDefaultBindingThreadId}
+                              </Link>
+                            ) : selectedBotDefaultBindingMode === 'fixed_thread' ? (
+                              i18n._({ id: 'No thread selected', message: 'No thread selected' })
+                            ) : selectedBotDefaultBindingMode === 'stateless' ? (
+                              i18n._({ id: 'Stateless', message: 'Stateless' })
+                            ) : selectedBot ? (
+                              i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
+                            ) : (
+                              i18n._({ id: 'None', message: 'None' })
+                            )}
+                          </strong>
                         </div>
                       </div>
                     </section>
@@ -2546,7 +3037,18 @@ export function BotsPage() {
                       ) : null}
 
                       <div className="directory-list">
-                        {conversations.map((conversation) => (
+                        {conversations.map((conversation) => {
+                          const effectiveThreadTarget = resolveBotConversationThreadTarget(conversation)
+                          const hasEffectiveThreadTarget = effectiveThreadTarget.threadId.length > 0
+                          const bindingSourceLabel = formatBotConversationBindingSourceLabel(conversation)
+                          const bindingModeLabel = formatBotConversationBindingModeLabel(conversation)
+                          const bindingTargetLabel = hasEffectiveThreadTarget
+                            ? effectiveThreadTarget.workspaceId !== conversation.workspaceId
+                              ? `${effectiveThreadTarget.workspaceId} / ${effectiveThreadTarget.threadId}`
+                              : effectiveThreadTarget.threadId
+                            : ''
+
+                          return (
                           <article className="directory-item" key={conversation.id}>
                             <div className="directory-item__icon">{i18n._({ id: 'BT', message: 'BT' })}</div>
                             <div className="directory-item__body">
@@ -2558,6 +3060,14 @@ export function BotsPage() {
                                     message: 'No inbound message recorded yet.',
                                   })}
                               </p>
+                              <p>
+                                {i18n._({ id: 'Binding', message: 'Binding' })}: {bindingSourceLabel} | {bindingModeLabel}
+                              </p>
+                              {bindingTargetLabel ? (
+                                <p>
+                                  {i18n._({ id: 'Binding target', message: 'Binding target' })}: {bindingTargetLabel}
+                                </p>
+                              ) : null}
                               {conversation.lastOutboundText ? (
                                 <p>
                                   {i18n._({ id: 'Last reply', message: 'Last reply' })}:{' '}
@@ -2651,8 +3161,13 @@ export function BotsPage() {
                                   {i18n._({ id: 'Redeliver Reply', message: 'Redeliver Reply' })}
                                 </Button>
                               ) : null}
-                              {conversation.threadId ? (
-                                <Link to={buildWorkspaceThreadRoute(conversation.workspaceId, conversation.threadId)}>
+                              {hasEffectiveThreadTarget ? (
+                                <Link
+                                  to={buildWorkspaceThreadRoute(
+                                    effectiveThreadTarget.workspaceId,
+                                    effectiveThreadTarget.threadId,
+                                  )}
+                                >
                                   {i18n._({ id: 'Open Thread', message: 'Open Thread' })}
                                 </Link>
                               ) : (
@@ -2662,7 +3177,8 @@ export function BotsPage() {
                               )}
                             </div>
                           </article>
-                        ))}
+                          )
+                        })}
                       </div>
                     </section>
                   </div>
@@ -3527,6 +4043,114 @@ export function BotsPage() {
                 placeholder={i18n._({ id: 'VIP Queue', message: 'VIP Queue' })}
                 value={bindingTitle}
               />
+            )}
+          </div>
+        </Modal>
+      ) : null}
+
+      {defaultBindingModalOpen && selectedBot ? (
+        <Modal
+          description={i18n._({
+            id: 'Choose how new conversations for this bot should bind to workspace threads before any per-conversation override is applied.',
+            message:
+              'Choose how new conversations for this bot should bind to workspace threads before any per-conversation override is applied.',
+          })}
+          footer={defaultBindingModalFooter}
+          onClose={closeDefaultBindingModal}
+          title={i18n._({ id: 'Default Bot Binding', message: 'Default Bot Binding' })}
+        >
+          <div className="form-stack">
+            <div className="detail-list">
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Connections', message: 'Connections' })}</span>
+                <strong>{selectedBotConnections.length}</strong>
+              </div>
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Backend', message: 'Backend' })}</span>
+                <strong>
+                  {selectedBotPrimaryBackend
+                    ? formatBotBackendLabel(selectedBotPrimaryBackend)
+                    : i18n._({ id: 'None', message: 'None' })}
+                </strong>
+              </div>
+            </div>
+
+            {defaultBindingErrorMessage ? (
+              <InlineNotice
+                dismissible
+                noticeKey={`bot-default-binding-${defaultBindingErrorMessage}`}
+                title={i18n._({ id: 'Binding Update Failed', message: 'Binding Update Failed' })}
+                tone="error"
+              >
+                {defaultBindingErrorMessage}
+              </InlineNotice>
+            ) : null}
+
+            <label className="field">
+              <span>{i18n._({ id: 'Binding Mode', message: 'Binding Mode' })}</span>
+              <SelectControl
+                ariaLabel={i18n._({ id: 'Binding Mode', message: 'Binding Mode' })}
+                fullWidth
+                onChange={(nextValue) => {
+                  updateBotDefaultBindingMutation.reset()
+                  setDefaultBindingMode(nextValue === 'fixed_thread' ? 'fixed_thread' : 'workspace_auto_thread')
+                }}
+                options={defaultBindingModeOptions}
+                value={defaultBindingMode}
+              />
+            </label>
+
+            {defaultBindingMode === 'fixed_thread' ? (
+              <>
+                {activeThreadsQuery.isLoading ? (
+                  <div className="notice">
+                    {i18n._({ id: 'Loading workspace threads...', message: 'Loading workspace threads...' })}
+                  </div>
+                ) : null}
+
+                {activeThreadsQuery.error ? (
+                  <InlineNotice
+                    dismissible={false}
+                    noticeKey="bot-default-binding-threads-load-failed"
+                    title={i18n._({ id: 'Thread List Unavailable', message: 'Thread List Unavailable' })}
+                    tone="error"
+                  >
+                    {getErrorMessage(activeThreadsQuery.error)}
+                  </InlineNotice>
+                ) : null}
+
+                <label className="field">
+                  <span>{i18n._({ id: 'Workspace Thread', message: 'Workspace Thread' })}</span>
+                  <SelectControl
+                    ariaLabel={i18n._({ id: 'Workspace Thread', message: 'Workspace Thread' })}
+                    disabled={activeThreadsQuery.isLoading || defaultBindingThreadOptions.length <= 1}
+                    fullWidth
+                    onChange={(nextValue) => {
+                      updateBotDefaultBindingMutation.reset()
+                      setDefaultBindingThreadId(nextValue)
+                    }}
+                    options={defaultBindingThreadOptions}
+                    value={defaultBindingThreadId}
+                  />
+                </label>
+                {!activeThreadsQuery.isLoading && !activeThreadsQuery.error && activeThreads.length === 0 ? (
+                  <div className="notice">
+                    {i18n._({
+                      id: 'No active workspace threads are available yet. Create one first or switch back to workspace auto thread.',
+                      message:
+                        'No active workspace threads are available yet. Create one first or switch back to workspace auto thread.',
+                    })}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="notice">
+                {i18n._({
+                  id: 'New conversations will resolve to a workspace thread dynamically from bot conversation context unless a per-conversation binding overrides it.',
+                  message:
+                    'New conversations will resolve to a workspace thread dynamically from bot conversation context unless a per-conversation binding overrides it.',
+                })}
+              </div>
             )}
           </div>
         </Modal>
