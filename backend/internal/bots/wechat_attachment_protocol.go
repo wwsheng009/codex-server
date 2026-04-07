@@ -7,7 +7,12 @@ import (
 	"codex-server/backend/internal/store"
 )
 
-var wechatAttachmentBlockPattern = regexp.MustCompile("(?is)```wechat-attachments\\s*(.*?)```")
+var (
+	wechatAttachmentBlockPattern        = regexp.MustCompile("(?is)```wechat-attachments\\s*(.*?)```")
+	wechatAttachmentHeadingBlockPattern = regexp.MustCompile(
+		"(?is)(?:^|\\n)\\s*wechat-attachments\\s*:?\\s*\\n```(?:[\\w-]+)?\\s*\\n(.*?)```",
+	)
+)
 
 const wechatAIOutboundMediaNote = "[Channel note: this conversation is on WeChat. To send media back to the user, append a final `wechat-attachments` fenced block with lines like `image <absolute-path-or-https-url>`, `video <absolute-path-or-https-url>`, or `file <absolute-path-or-https-url>`. Use absolute local paths only.]"
 
@@ -71,14 +76,14 @@ func parseWeChatAttachmentProtocol(text string) (string, []store.BotMessageMedia
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	attachments := make([]store.BotMessageMedia, 0)
 
-	blockMatches := wechatAttachmentBlockPattern.FindAllStringSubmatch(text, -1)
-	for _, match := range blockMatches {
-		if len(match) < 2 {
-			continue
-		}
-		attachments = append(attachments, parseWeChatAttachmentLines(match[1])...)
-	}
-	text = wechatAttachmentBlockPattern.ReplaceAllString(text, "")
+	text, blockAttachments := extractWeChatAttachmentBlocks(text, wechatAttachmentBlockPattern)
+	attachments = append(attachments, blockAttachments...)
+
+	text, headingBlockAttachments := extractWeChatAttachmentBlocks(text, wechatAttachmentHeadingBlockPattern)
+	attachments = append(attachments, headingBlockAttachments...)
+
+	text, headingLineAttachments := extractWeChatAttachmentHeadingLines(text)
+	attachments = append(attachments, headingLineAttachments...)
 
 	lines := strings.Split(text, "\n")
 	visibleLines := make([]string, 0, len(lines))
@@ -92,6 +97,70 @@ func parseWeChatAttachmentProtocol(text string) (string, []store.BotMessageMedia
 
 	visibleText := collapseBlankLines(strings.Join(visibleLines, "\n"))
 	return visibleText, attachments
+}
+
+func extractWeChatAttachmentBlocks(text string, pattern *regexp.Regexp) (string, []store.BotMessageMedia) {
+	if pattern == nil {
+		return text, nil
+	}
+
+	matches := pattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return text, nil
+	}
+
+	attachments := make([]store.BotMessageMedia, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		attachments = append(attachments, parseWeChatAttachmentLines(match[1])...)
+	}
+	return pattern.ReplaceAllString(text, ""), attachments
+}
+
+func extractWeChatAttachmentHeadingLines(text string) (string, []store.BotMessageMedia) {
+	lines := strings.Split(text, "\n")
+	visibleLines := make([]string, 0, len(lines))
+	attachments := make([]store.BotMessageMedia, 0)
+
+	for index := 0; index < len(lines); index++ {
+		line := lines[index]
+		if !isWeChatAttachmentHeadingLine(line) {
+			visibleLines = append(visibleLines, line)
+			continue
+		}
+
+		blockLines := make([]string, 0)
+		next := index + 1
+		for ; next < len(lines); next++ {
+			trimmed := strings.TrimSpace(lines[next])
+			switch {
+			case trimmed == "":
+				if len(blockLines) > 0 {
+					next++
+				}
+				goto consumeHeadingBlock
+			case strings.HasPrefix(trimmed, "#"):
+				blockLines = append(blockLines, lines[next])
+			case isWeChatAttachmentBareSpecLine(trimmed):
+				blockLines = append(blockLines, lines[next])
+			default:
+				goto consumeHeadingBlock
+			}
+		}
+
+	consumeHeadingBlock:
+		if len(blockLines) == 0 {
+			visibleLines = append(visibleLines, line)
+			continue
+		}
+
+		attachments = append(attachments, parseWeChatAttachmentLines(strings.Join(blockLines, "\n"))...)
+		index = next - 1
+	}
+
+	return strings.Join(visibleLines, "\n"), attachments
 }
 
 func parseWeChatAttachmentLines(block string) []store.BotMessageMedia {
@@ -126,6 +195,30 @@ func parseWeChatAttachmentDirectiveLine(line string) (store.BotMessageMedia, boo
 	}
 
 	return store.BotMessageMedia{}, false
+}
+
+func isWeChatAttachmentHeadingLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	switch strings.ToLower(trimmed) {
+	case "wechat-attachments", "wechat-attachments:":
+		return true
+	default:
+		return false
+	}
+}
+
+func isWeChatAttachmentBareSpecLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+
+	parts := strings.Fields(trimmed)
+	if len(parts) == 0 {
+		return false
+	}
+
+	return isWeChatAttachmentKind(parts[0])
 }
 
 func parseWeChatAttachmentSpec(line string) (store.BotMessageMedia, bool) {

@@ -12,8 +12,12 @@ export function ThreadTerminalConsoleTitle({
       <div className="terminal-dock__console-title-row">
         <span className={`terminal-dock__status-dot terminal-dock__status-dot--${statusTone}`} />
         <strong>{title}</strong>
+        {subtitle ? (
+          <span className="terminal-dock__console-subtitle" title={subtitle}>
+            {subtitle}
+          </span>
+        ) : null}
       </div>
-      <span>{subtitle}</span>
     </div>
   )
 }

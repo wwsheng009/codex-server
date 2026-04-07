@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ResizeHandle } from '../../components/ui/RailControls'
 import { i18n } from '../../i18n/runtime'
 import { ThreadTerminalConsoleSection } from './ThreadTerminalConsoleSection'
@@ -13,6 +14,27 @@ export function ThreadTerminalDockWorkspace({
   windowResizeHandle,
   workspaceRef,
 }: ThreadTerminalWorkspaceState) {
+  const [isTabsExpanded, setIsTabsExpanded] = useState(true)
+  const visibleSessionCount = sessionTabsSection.sessions.visibleSessions.length
+  const tabsToggleLabel = isTabsExpanded
+    ? i18n._({
+        id: 'Collapse sessions list',
+        message: 'Collapse sessions list',
+      })
+    : i18n._({
+        id: 'Expand sessions list',
+        message: 'Expand sessions list',
+      })
+  const tabsToggleTitle = isTabsExpanded
+    ? i18n._({
+        id: 'Collapse sessions',
+        message: 'Collapse sessions',
+      })
+    : i18n._({
+        id: 'Expand sessions',
+        message: 'Expand sessions',
+      })
+
   return (
     <>
       {resizeHandle ? (
@@ -28,7 +50,24 @@ export function ThreadTerminalDockWorkspace({
       ) : null}
       <div className="terminal-dock__workspace" ref={workspaceRef}>
         <div className="terminal-dock__body">
-          <ThreadTerminalSessionTabsSection {...sessionTabsSection} />
+          <div className="terminal-dock__workspace-controls">
+            <button
+              aria-expanded={isTabsExpanded}
+              aria-label={`${tabsToggleLabel} (${visibleSessionCount})`}
+              className="terminal-dock__tabs-toggle"
+              onClick={() => setIsTabsExpanded(!isTabsExpanded)}
+              title={`${tabsToggleTitle} (${visibleSessionCount})`}
+              type="button"
+            >
+              <TabsToggleIcon expanded={isTabsExpanded} />
+              <span className="terminal-dock__tabs-count">
+                {visibleSessionCount}
+              </span>
+            </button>
+            {isTabsExpanded && (
+              <ThreadTerminalSessionTabsSection {...sessionTabsSection} />
+            )}
+          </div>
           <ThreadTerminalConsoleSection {...consoleSection} />
         </div>
         {windowResizeHandle ? (
@@ -50,6 +89,29 @@ export function ThreadTerminalDockWorkspace({
         ) : null}
       </div>
     </>
+  )
+}
+
+function TabsToggleIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={expanded ? 'terminal-dock__tabs-toggle-icon--expanded' : ''}
+      fill="none"
+      height="14"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+      viewBox="0 0 24 24"
+      width="14"
+    >
+      <path d="M4 6h16M4 12h16M4 18h16" />
+      {expanded ? (
+        <path d="m18 15-3-3 3-3" strokeWidth="2" />
+      ) : (
+        <path d="m6 9 3 3-3 3" strokeWidth="2" />
+      )}
+    </svg>
   )
 }
 

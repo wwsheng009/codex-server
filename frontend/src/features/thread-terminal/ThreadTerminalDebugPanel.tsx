@@ -7,6 +7,20 @@ import type {
   ThreadTerminalDebugPanelState
 } from './threadTerminalStressStateTypes'
 
+export function hasThreadTerminalDebugPanelContent({
+  debugSuggestions,
+  displayedStressRun,
+  isLauncherOpen,
+  stressRecords,
+}: Pick<
+  ThreadTerminalDebugPanelState,
+  'debugSuggestions' | 'displayedStressRun' | 'isLauncherOpen' | 'stressRecords'
+>) {
+  return Boolean(
+    debugSuggestions.length || !isLauncherOpen || displayedStressRun || stressRecords.length,
+  )
+}
+
 export function ThreadTerminalDebugPanel({
   activeDimensionsInfo,
   activePerformanceInfo,
@@ -30,12 +44,19 @@ export function ThreadTerminalDebugPanel({
   onSelectStressCompareBaseline,
   onSelectStressCompareTarget,
 }: ThreadTerminalDebugPanelState) {
-  if (!debugSuggestions.length && isLauncherOpen && !displayedStressRun && !stressRecords.length) {
+  if (
+    !hasThreadTerminalDebugPanelContent({
+      debugSuggestions,
+      displayedStressRun,
+      isLauncherOpen,
+      stressRecords,
+    })
+  ) {
     return null
   }
 
   return (
-    <div className="terminal-dock__debug-suggestions">
+    <div className="terminal-dock__debug-panel">
       <ThreadTerminalDebugChips
         activeDimensionsInfo={activeDimensionsInfo}
         activePerformanceInfo={activePerformanceInfo}
@@ -57,6 +78,7 @@ export function ThreadTerminalDebugPanel({
         startCommandPending={startCommandPending}
         stressRecords={stressRecords}
       />
+
       <ThreadTerminalDebugSuggestions debugSuggestions={debugSuggestions} />
 
       <ThreadTerminalStressSummary displayedStressRun={displayedStressRun} />

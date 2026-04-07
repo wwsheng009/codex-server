@@ -18,6 +18,16 @@ type Workspace struct {
 	UpdatedAt              time.Time  `json:"updatedAt"`
 }
 
+type AccessToken struct {
+	ID           string     `json:"id"`
+	Label        string     `json:"label,omitempty"`
+	TokenHash    string     `json:"tokenHash"`
+	TokenPreview string     `json:"tokenPreview,omitempty"`
+	ExpiresAt    *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt,omitempty"`
+	UpdatedAt    time.Time  `json:"updatedAt,omitempty"`
+}
+
 type RuntimePreferences struct {
 	ModelCatalogPath              string            `json:"modelCatalogPath"`
 	LocalShellModels              []string          `json:"localShellModels,omitempty"`
@@ -28,6 +38,8 @@ type RuntimePreferences struct {
 	DefaultTurnApprovalPolicy     string            `json:"defaultTurnApprovalPolicy,omitempty"`
 	DefaultTurnSandboxPolicy      map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
 	DefaultCommandSandboxPolicy   map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
+	AllowRemoteAccess             *bool             `json:"allowRemoteAccess"`
+	AccessTokens                  []AccessToken     `json:"accessTokens,omitempty"`
 	BackendThreadTraceEnabled     *bool             `json:"backendThreadTraceEnabled"`
 	BackendThreadTraceWorkspaceID string            `json:"backendThreadTraceWorkspaceId,omitempty"`
 	BackendThreadTraceThreadID    string            `json:"backendThreadTraceThreadId,omitempty"`

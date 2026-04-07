@@ -10,6 +10,68 @@
   justify-content: center;
 }
 
+.access-shell {
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--accent) 14%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-pane) 88%, transparent), transparent 72%);
+}
+
+.access-card {
+  width: min(100%, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 24px;
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--surface-pane-strong) 92%, transparent), var(--surface-pane)),
+    var(--surface-pane);
+  box-shadow: var(--shadow-float);
+}
+
+.access-card--loading {
+  align-items: flex-start;
+}
+
+.access-card__eyebrow {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.access-card__title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.access-card__copy {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.access-card__meta,
+.access-card__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.access-card__actions .ide-button {
+  min-width: 148px;
+}
+
 .page-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

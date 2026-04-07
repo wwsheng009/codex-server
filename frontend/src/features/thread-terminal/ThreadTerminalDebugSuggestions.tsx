@@ -9,9 +9,13 @@ export function ThreadTerminalDebugSuggestions({
     return null
   }
 
-  return debugSuggestions.map((suggestion) => (
-    <span className="terminal-dock__debug-suggestion" key={suggestion}>
-      {suggestion}
-    </span>
-  ))
+  return (
+    <div className="terminal-dock__debug-suggestions">
+      {debugSuggestions.map((suggestion) => (
+        <span className="terminal-dock__debug-suggestion" key={suggestion}>
+          {suggestion}
+        </span>
+      ))}
+    </div>
+  )
 }

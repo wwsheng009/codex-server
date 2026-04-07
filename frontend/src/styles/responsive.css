@@ -426,10 +426,28 @@
   .workbench-log__header,
   .workbench-log__panel-header,
   .terminal-dock__bar,
+  .terminal-dock__console-header,
   .modal-card__header,
   .terminal-dock__input {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .terminal-dock__panel {
+    min-width: min(280px, 100%);
+  }
+
+  .terminal-dock__panel-toggle {
+    align-items: flex-start;
+  }
+
+  .terminal-dock__panel-toggle-copy {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .terminal-dock__search-feedback {
+    margin-left: 0;
   }
 
   .terminal-dock--floating .terminal-dock__bar {

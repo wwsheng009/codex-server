@@ -326,6 +326,10 @@ func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
 	if len(prefs.DefaultCommandSandboxPolicy) > 0 {
 		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 	}
+	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
+	if len(prefs.AccessTokens) > 0 {
+		prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
+	}
 	prefs.BackendThreadTraceEnabled = cloneOptionalBool(prefs.BackendThreadTraceEnabled)
 	prefs.BackendThreadTraceWorkspaceID = strings.TrimSpace(prefs.BackendThreadTraceWorkspaceID)
 	prefs.BackendThreadTraceThreadID = strings.TrimSpace(prefs.BackendThreadTraceThreadID)
@@ -359,6 +363,12 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 	} else {
 		prefs.DefaultCommandSandboxPolicy = nil
+	}
+	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
+	if len(prefs.AccessTokens) > 0 {
+		prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
+	} else {
+		prefs.AccessTokens = nil
 	}
 	prefs.BackendThreadTraceEnabled = cloneOptionalBool(prefs.BackendThreadTraceEnabled)
 	prefs.BackendThreadTraceWorkspaceID = strings.TrimSpace(prefs.BackendThreadTraceWorkspaceID)
@@ -2032,6 +2042,10 @@ func (s *MemoryStore) load() error {
 		if len(s.runtimePrefs.DefaultCommandSandboxPolicy) > 0 {
 			s.runtimePrefs.DefaultCommandSandboxPolicy = cloneAnyMap(s.runtimePrefs.DefaultCommandSandboxPolicy)
 		}
+		s.runtimePrefs.AllowRemoteAccess = cloneOptionalBool(s.runtimePrefs.AllowRemoteAccess)
+		if len(s.runtimePrefs.AccessTokens) > 0 {
+			s.runtimePrefs.AccessTokens = cloneAccessTokens(s.runtimePrefs.AccessTokens)
+		}
 	}
 
 	s.mu.Lock()
@@ -2182,6 +2196,8 @@ func (s *MemoryStore) persistLocked() {
 		s.runtimePrefs.DefaultShellType != "" ||
 		s.runtimePrefs.DefaultTerminalShell != "" ||
 		len(s.runtimePrefs.ModelShellTypeOverrides) > 0 ||
+		s.runtimePrefs.AllowRemoteAccess != nil ||
+		len(s.runtimePrefs.AccessTokens) > 0 ||
 		s.runtimePrefs.DefaultTurnApprovalPolicy != "" ||
 		len(s.runtimePrefs.DefaultTurnSandboxPolicy) > 0 ||
 		len(s.runtimePrefs.DefaultCommandSandboxPolicy) > 0 {
@@ -2197,6 +2213,10 @@ func (s *MemoryStore) persistLocked() {
 		}
 		if len(prefs.DefaultCommandSandboxPolicy) > 0 {
 			prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
+		}
+		prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
+		if len(prefs.AccessTokens) > 0 {
+			prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
 		}
 		snapshot.RuntimePreferences = &prefs
 	}
@@ -2492,6 +2512,20 @@ func cloneOptionalTime(value *time.Time) *time.Time {
 
 	cloned := value.UTC()
 	return &cloned
+}
+
+func cloneAccessTokens(values []AccessToken) []AccessToken {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make([]AccessToken, len(values))
+	for index, token := range values {
+		next := token
+		next.ExpiresAt = cloneOptionalTime(token.ExpiresAt)
+		cloned[index] = next
+	}
+	return cloned
 }
 
 func cloneThreadTurns(turns []ThreadTurn) []ThreadTurn {

@@ -10,7 +10,7 @@ import { ThreadTerminalLauncherViewport } from './ThreadTerminalViewport'
 const testState = vi.hoisted(() => ({
   animationFrames: new Map<number, FrameRequestCallback>(),
   nextAnimationFrameId: 1,
-  terminals: [] as Array<{ writes: string[] }>,
+  terminals: [] as Array<{ options: Record<string, unknown>; writes: string[] }>,
 }))
 
 vi.mock('../settings/local-store', () => ({
@@ -91,6 +91,8 @@ vi.mock('@xterm/xterm', () => ({
 
     paste() {}
 
+    refresh() {}
+
     reset() {}
 
     write(value: string) {
@@ -138,6 +140,7 @@ describe('ThreadTerminalLauncherViewport', () => {
     testState.animationFrames.clear()
     testState.nextAnimationFrameId = 1
     testState.terminals.length = 0
+    document.documentElement.removeAttribute('style')
 
     vi.stubGlobal('ResizeObserver', ResizeObserverMock)
     vi.stubGlobal('requestAnimationFrame', queueAnimationFrame)
@@ -149,6 +152,7 @@ describe('ThreadTerminalLauncherViewport', () => {
 
   afterEach(() => {
     cleanup()
+    document.documentElement.removeAttribute('style')
     vi.unstubAllGlobals()
   })
 
@@ -175,5 +179,40 @@ describe('ThreadTerminalLauncherViewport', () => {
     expect(
       latestTerminal?.writes.filter((value) => value.includes('new PowerShell session')),
     ).toHaveLength(1)
+  })
+
+  it('reads the terminal theme colors from CSS tokens', () => {
+    document.documentElement.style.setProperty('--surface-terminal-strong', '#f8fbff')
+    document.documentElement.style.setProperty('--text-terminal-primary', '#182536')
+    document.documentElement.style.setProperty('--surface-terminal-selection', 'rgba(0, 128, 255, 0.16)')
+    document.documentElement.style.setProperty('--terminal-cursor', '#2563eb')
+    document.documentElement.style.setProperty('--terminal-cursor-accent', '#f8fbff')
+    document.documentElement.style.setProperty('--terminal-ansi-blue', '#3b82f6')
+    document.documentElement.style.setProperty('--terminal-ansi-bright-blue', '#60a5fa')
+
+    render(
+      <ThreadTerminalLauncherViewport
+        history={[]}
+        mode="shell"
+        onRunCommand={() => undefined}
+        onStartShell={() => undefined}
+        pending={false}
+        shellLabel="PowerShell"
+        visible
+      />,
+    )
+
+    const latestTerminal = testState.terminals.at(-1)
+
+    expect(latestTerminal).toBeDefined()
+    expect(latestTerminal?.options.theme).toMatchObject({
+      background: '#f8fbff',
+      blue: '#3b82f6',
+      brightBlue: '#60a5fa',
+      cursor: '#2563eb',
+      cursorAccent: '#f8fbff',
+      foreground: '#182536',
+      selectionBackground: 'rgba(0, 128, 255, 0.16)',
+    })
   })
 })

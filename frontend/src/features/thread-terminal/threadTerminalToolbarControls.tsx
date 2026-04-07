@@ -2,12 +2,17 @@ import type { ButtonHTMLAttributes } from 'react'
 
 export function TerminalToolbarActionButton({
   children,
+  className,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       {...props}
-      className="terminal-dock__toolbar-action"
+      className={
+        className
+          ? `terminal-dock__toolbar-action ${className}`
+          : 'terminal-dock__toolbar-action'
+      }
       type={props.type ?? 'button'}
     >
       {children}
@@ -21,12 +26,55 @@ export function TerminalToolbarDivider() {
 
 export function TerminalToolButton({
   children,
+  className,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button {...props} className="terminal-dock__toolbutton" type={props.type ?? 'button'}>
+    <button
+      {...props}
+      className={className ? `terminal-dock__toolbutton ${className}` : 'terminal-dock__toolbutton'}
+      type={props.type ?? 'button'}
+    >
       {children}
     </button>
+  )
+}
+
+export function ShellLaunchToolIcon() {
+  return (
+    <svg fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <path
+        d="M4.5 7.5A2.5 2.5 0 0 1 7 5h10a2.5 2.5 0 0 1 2.5 2.5v9A2.5 2.5 0 0 1 17 19H7a2.5 2.5 0 0 1-2.5-2.5v-9Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="m8.5 10 2.5 2.5L8.5 15M13.5 15H16"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+export function CommandLaunchToolIcon() {
+  return (
+    <svg fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <path
+        d="M4.5 7.5A2.5 2.5 0 0 1 7 5h10a2.5 2.5 0 0 1 2.5 2.5v9A2.5 2.5 0 0 1 17 19H7a2.5 2.5 0 0 1-2.5-2.5v-9Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="m8.5 10 3 2.5-3 2.5M13 15h2.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
   )
 }
 

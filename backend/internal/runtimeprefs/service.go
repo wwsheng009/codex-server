@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	stdruntime "runtime"
 	"strings"
+	"time"
 
+	"codex-server/backend/internal/accesscontrol"
 	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/runtime"
@@ -15,63 +17,70 @@ import (
 )
 
 type Service struct {
-	store        *store.MemoryStore
-	runtimes     *runtime.Manager
-	baseCommand  string
-	defaultPrefs appconfig.RuntimePreferences
-	defaultTrace diagnostics.ThreadTraceConfig
+	store                    *store.MemoryStore
+	runtimes                 *runtime.Manager
+	baseCommand              string
+	defaultPrefs             appconfig.RuntimePreferences
+	defaultTrace             diagnostics.ThreadTraceConfig
+	defaultAllowRemoteAccess bool
 }
 
 type ReadResult struct {
-	ConfiguredModelCatalogPath              string            `json:"configuredModelCatalogPath"`
-	ConfiguredDefaultShellType              string            `json:"configuredDefaultShellType"`
-	ConfiguredDefaultTerminalShell          string            `json:"configuredDefaultTerminalShell"`
-	SupportedTerminalShells                 []string          `json:"supportedTerminalShells"`
-	ConfiguredModelShellTypeOverrides       map[string]string `json:"configuredModelShellTypeOverrides"`
-	ConfiguredOutboundProxyURL              string            `json:"configuredOutboundProxyUrl"`
-	ConfiguredDefaultTurnApprovalPolicy     string            `json:"configuredDefaultTurnApprovalPolicy"`
-	ConfiguredDefaultTurnSandboxPolicy      map[string]any    `json:"configuredDefaultTurnSandboxPolicy"`
-	ConfiguredDefaultCommandSandboxPolicy   map[string]any    `json:"configuredDefaultCommandSandboxPolicy"`
-	ConfiguredBackendThreadTraceEnabled     *bool             `json:"configuredBackendThreadTraceEnabled"`
-	ConfiguredBackendThreadTraceWorkspaceID string            `json:"configuredBackendThreadTraceWorkspaceId"`
-	ConfiguredBackendThreadTraceThreadID    string            `json:"configuredBackendThreadTraceThreadId"`
-	DefaultModelCatalogPath                 string            `json:"defaultModelCatalogPath"`
-	DefaultDefaultShellType                 string            `json:"defaultDefaultShellType"`
-	DefaultDefaultTerminalShell             string            `json:"defaultDefaultTerminalShell"`
-	DefaultModelShellTypeOverrides          map[string]string `json:"defaultModelShellTypeOverrides"`
-	DefaultOutboundProxyURL                 string            `json:"defaultOutboundProxyUrl"`
-	DefaultDefaultTurnApprovalPolicy        string            `json:"defaultDefaultTurnApprovalPolicy"`
-	DefaultDefaultTurnSandboxPolicy         map[string]any    `json:"defaultDefaultTurnSandboxPolicy"`
-	DefaultDefaultCommandSandboxPolicy      map[string]any    `json:"defaultDefaultCommandSandboxPolicy"`
-	DefaultBackendThreadTraceEnabled        bool              `json:"defaultBackendThreadTraceEnabled"`
-	DefaultBackendThreadTraceWorkspaceID    string            `json:"defaultBackendThreadTraceWorkspaceId"`
-	DefaultBackendThreadTraceThreadID       string            `json:"defaultBackendThreadTraceThreadId"`
-	EffectiveModelCatalogPath               string            `json:"effectiveModelCatalogPath"`
-	EffectiveDefaultShellType               string            `json:"effectiveDefaultShellType"`
-	EffectiveDefaultTerminalShell           string            `json:"effectiveDefaultTerminalShell"`
-	EffectiveModelShellTypeOverrides        map[string]string `json:"effectiveModelShellTypeOverrides"`
-	EffectiveOutboundProxyURL               string            `json:"effectiveOutboundProxyUrl"`
-	EffectiveDefaultTurnApprovalPolicy      string            `json:"effectiveDefaultTurnApprovalPolicy"`
-	EffectiveDefaultTurnSandboxPolicy       map[string]any    `json:"effectiveDefaultTurnSandboxPolicy"`
-	EffectiveDefaultCommandSandboxPolicy    map[string]any    `json:"effectiveDefaultCommandSandboxPolicy"`
-	EffectiveBackendThreadTraceEnabled      bool              `json:"effectiveBackendThreadTraceEnabled"`
-	EffectiveBackendThreadTraceWorkspaceID  string            `json:"effectiveBackendThreadTraceWorkspaceId"`
-	EffectiveBackendThreadTraceThreadID     string            `json:"effectiveBackendThreadTraceThreadId"`
-	EffectiveCommand                        string            `json:"effectiveCommand"`
+	ConfiguredModelCatalogPath              string                          `json:"configuredModelCatalogPath"`
+	ConfiguredDefaultShellType              string                          `json:"configuredDefaultShellType"`
+	ConfiguredDefaultTerminalShell          string                          `json:"configuredDefaultTerminalShell"`
+	SupportedTerminalShells                 []string                        `json:"supportedTerminalShells"`
+	ConfiguredModelShellTypeOverrides       map[string]string               `json:"configuredModelShellTypeOverrides"`
+	ConfiguredOutboundProxyURL              string                          `json:"configuredOutboundProxyUrl"`
+	ConfiguredDefaultTurnApprovalPolicy     string                          `json:"configuredDefaultTurnApprovalPolicy"`
+	ConfiguredDefaultTurnSandboxPolicy      map[string]any                  `json:"configuredDefaultTurnSandboxPolicy"`
+	ConfiguredDefaultCommandSandboxPolicy   map[string]any                  `json:"configuredDefaultCommandSandboxPolicy"`
+	ConfiguredAllowRemoteAccess             *bool                           `json:"configuredAllowRemoteAccess"`
+	ConfiguredAccessTokens                  []accesscontrol.TokenDescriptor `json:"configuredAccessTokens"`
+	ConfiguredBackendThreadTraceEnabled     *bool                           `json:"configuredBackendThreadTraceEnabled"`
+	ConfiguredBackendThreadTraceWorkspaceID string                          `json:"configuredBackendThreadTraceWorkspaceId"`
+	ConfiguredBackendThreadTraceThreadID    string                          `json:"configuredBackendThreadTraceThreadId"`
+	DefaultModelCatalogPath                 string                          `json:"defaultModelCatalogPath"`
+	DefaultDefaultShellType                 string                          `json:"defaultDefaultShellType"`
+	DefaultDefaultTerminalShell             string                          `json:"defaultDefaultTerminalShell"`
+	DefaultModelShellTypeOverrides          map[string]string               `json:"defaultModelShellTypeOverrides"`
+	DefaultOutboundProxyURL                 string                          `json:"defaultOutboundProxyUrl"`
+	DefaultDefaultTurnApprovalPolicy        string                          `json:"defaultDefaultTurnApprovalPolicy"`
+	DefaultDefaultTurnSandboxPolicy         map[string]any                  `json:"defaultDefaultTurnSandboxPolicy"`
+	DefaultDefaultCommandSandboxPolicy      map[string]any                  `json:"defaultDefaultCommandSandboxPolicy"`
+	DefaultAllowRemoteAccess                bool                            `json:"defaultAllowRemoteAccess"`
+	DefaultBackendThreadTraceEnabled        bool                            `json:"defaultBackendThreadTraceEnabled"`
+	DefaultBackendThreadTraceWorkspaceID    string                          `json:"defaultBackendThreadTraceWorkspaceId"`
+	DefaultBackendThreadTraceThreadID       string                          `json:"defaultBackendThreadTraceThreadId"`
+	EffectiveModelCatalogPath               string                          `json:"effectiveModelCatalogPath"`
+	EffectiveDefaultShellType               string                          `json:"effectiveDefaultShellType"`
+	EffectiveDefaultTerminalShell           string                          `json:"effectiveDefaultTerminalShell"`
+	EffectiveModelShellTypeOverrides        map[string]string               `json:"effectiveModelShellTypeOverrides"`
+	EffectiveOutboundProxyURL               string                          `json:"effectiveOutboundProxyUrl"`
+	EffectiveDefaultTurnApprovalPolicy      string                          `json:"effectiveDefaultTurnApprovalPolicy"`
+	EffectiveDefaultTurnSandboxPolicy       map[string]any                  `json:"effectiveDefaultTurnSandboxPolicy"`
+	EffectiveDefaultCommandSandboxPolicy    map[string]any                  `json:"effectiveDefaultCommandSandboxPolicy"`
+	EffectiveAllowRemoteAccess              bool                            `json:"effectiveAllowRemoteAccess"`
+	EffectiveBackendThreadTraceEnabled      bool                            `json:"effectiveBackendThreadTraceEnabled"`
+	EffectiveBackendThreadTraceWorkspaceID  string                          `json:"effectiveBackendThreadTraceWorkspaceId"`
+	EffectiveBackendThreadTraceThreadID     string                          `json:"effectiveBackendThreadTraceThreadId"`
+	EffectiveCommand                        string                          `json:"effectiveCommand"`
 }
 
 type WriteInput struct {
-	ModelCatalogPath              string            `json:"modelCatalogPath"`
-	DefaultShellType              string            `json:"defaultShellType"`
-	DefaultTerminalShell          string            `json:"defaultTerminalShell"`
-	ModelShellTypeOverrides       map[string]string `json:"modelShellTypeOverrides"`
-	OutboundProxyURL              string            `json:"outboundProxyUrl"`
-	DefaultTurnApprovalPolicy     string            `json:"defaultTurnApprovalPolicy"`
-	DefaultTurnSandboxPolicy      map[string]any    `json:"defaultTurnSandboxPolicy"`
-	DefaultCommandSandboxPolicy   map[string]any    `json:"defaultCommandSandboxPolicy"`
-	BackendThreadTraceEnabled     *bool             `json:"backendThreadTraceEnabled"`
-	BackendThreadTraceWorkspaceID string            `json:"backendThreadTraceWorkspaceId"`
-	BackendThreadTraceThreadID    string            `json:"backendThreadTraceThreadId"`
+	ModelCatalogPath              string                     `json:"modelCatalogPath"`
+	DefaultShellType              string                     `json:"defaultShellType"`
+	DefaultTerminalShell          string                     `json:"defaultTerminalShell"`
+	ModelShellTypeOverrides       map[string]string          `json:"modelShellTypeOverrides"`
+	OutboundProxyURL              string                     `json:"outboundProxyUrl"`
+	DefaultTurnApprovalPolicy     string                     `json:"defaultTurnApprovalPolicy"`
+	DefaultTurnSandboxPolicy      map[string]any             `json:"defaultTurnSandboxPolicy"`
+	DefaultCommandSandboxPolicy   map[string]any             `json:"defaultCommandSandboxPolicy"`
+	AllowRemoteAccess             *bool                      `json:"allowRemoteAccess"`
+	AccessTokens                  []accesscontrol.TokenInput `json:"accessTokens"`
+	BackendThreadTraceEnabled     *bool                      `json:"backendThreadTraceEnabled"`
+	BackendThreadTraceWorkspaceID string                     `json:"backendThreadTraceWorkspaceId"`
+	BackendThreadTraceThreadID    string                     `json:"backendThreadTraceThreadId"`
 }
 
 func NewService(
@@ -81,6 +90,7 @@ func NewService(
 	defaultModelCatalogPath string,
 	defaultLocalShellModels []string,
 	defaultOutboundProxyURL string,
+	defaultAllowRemoteAccess bool,
 	defaultThreadTraceEnabled bool,
 	defaultThreadTraceWorkspaceID string,
 	defaultThreadTraceThreadID string,
@@ -100,6 +110,7 @@ func NewService(
 			WorkspaceID: strings.TrimSpace(defaultThreadTraceWorkspaceID),
 			ThreadID:    strings.TrimSpace(defaultThreadTraceThreadID),
 		},
+		defaultAllowRemoteAccess: defaultAllowRemoteAccess,
 	}
 }
 
@@ -134,6 +145,14 @@ func (s *Service) Write(input WriteInput) (ReadResult, error) {
 	if err != nil {
 		return ReadResult{}, err
 	}
+	accessTokens, err := accesscontrol.ApplyTokenInputs(
+		s.store.GetRuntimePreferences().AccessTokens,
+		input.AccessTokens,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return ReadResult{}, err
+	}
 
 	candidateConfigured := store.RuntimePreferences{
 		ModelCatalogPath:              strings.TrimSpace(input.ModelCatalogPath),
@@ -144,6 +163,8 @@ func (s *Service) Write(input WriteInput) (ReadResult, error) {
 		DefaultTurnApprovalPolicy:     defaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:      defaultTurnSandboxPolicy,
 		DefaultCommandSandboxPolicy:   defaultCommandSandboxPolicy,
+		AllowRemoteAccess:             cloneOptionalBool(input.AllowRemoteAccess),
+		AccessTokens:                  cloneAccessTokens(accessTokens),
 		BackendThreadTraceEnabled:     cloneOptionalBool(input.BackendThreadTraceEnabled),
 		BackendThreadTraceWorkspaceID: strings.TrimSpace(input.BackendThreadTraceWorkspaceID),
 		BackendThreadTraceThreadID:    strings.TrimSpace(input.BackendThreadTraceThreadID),
@@ -197,6 +218,8 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 		DefaultTurnApprovalPolicy:     currentConfigured.DefaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:      cloneAnyMap(currentConfigured.DefaultTurnSandboxPolicy),
 		DefaultCommandSandboxPolicy:   cloneAnyMap(currentConfigured.DefaultCommandSandboxPolicy),
+		AllowRemoteAccess:             cloneOptionalBool(currentConfigured.AllowRemoteAccess),
+		AccessTokens:                  cloneAccessTokens(currentConfigured.AccessTokens),
 		BackendThreadTraceEnabled:     cloneOptionalBool(currentConfigured.BackendThreadTraceEnabled),
 		BackendThreadTraceWorkspaceID: strings.TrimSpace(currentConfigured.BackendThreadTraceWorkspaceID),
 		BackendThreadTraceThreadID:    strings.TrimSpace(currentConfigured.BackendThreadTraceThreadID),
@@ -308,6 +331,12 @@ func normalizeConfiguredPreferences(input store.RuntimePreferences) (store.Runti
 	input.OutboundProxyURL = outboundProxyURL
 	input.DefaultTurnSandboxPolicy = defaultTurnSandboxPolicy
 	input.DefaultCommandSandboxPolicy = defaultCommandSandboxPolicy
+	input.AllowRemoteAccess = cloneOptionalBool(input.AllowRemoteAccess)
+	normalizedTokens, err := accesscontrol.NormalizeConfiguredTokens(input.AccessTokens, time.Now().UTC())
+	if err != nil {
+		return store.RuntimePreferences{}, err
+	}
+	input.AccessTokens = cloneAccessTokens(normalizedTokens)
 	input.BackendThreadTraceEnabled = cloneOptionalBool(input.BackendThreadTraceEnabled)
 	input.BackendThreadTraceWorkspaceID = strings.TrimSpace(input.BackendThreadTraceWorkspaceID)
 	input.BackendThreadTraceThreadID = strings.TrimSpace(input.BackendThreadTraceThreadID)
@@ -360,6 +389,23 @@ func cloneAnyValue(value any) any {
 	}
 }
 
+func cloneAccessTokens(values []store.AccessToken) []store.AccessToken {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make([]store.AccessToken, len(values))
+	for index, token := range values {
+		next := token
+		if token.ExpiresAt != nil {
+			expiresAt := token.ExpiresAt.UTC()
+			next.ExpiresAt = &expiresAt
+		}
+		cloned[index] = next
+	}
+	return cloned
+}
+
 func cloneOptionalBool(value *bool) *bool {
 	if value == nil {
 		return nil
@@ -394,7 +440,12 @@ func (s *Service) buildReadResult(
 	configuredPrefs store.RuntimePreferences,
 	resolved appconfig.ResolvedRuntime,
 ) ReadResult {
+	now := time.Now().UTC()
 	effectiveTrace := s.resolveThreadTraceConfig(configuredPrefs)
+	effectiveAllowRemoteAccess := s.defaultAllowRemoteAccess
+	if configuredPrefs.AllowRemoteAccess != nil {
+		effectiveAllowRemoteAccess = *configuredPrefs.AllowRemoteAccess
+	}
 
 	return ReadResult{
 		ConfiguredModelCatalogPath:              configuredPrefs.ModelCatalogPath,
@@ -406,6 +457,8 @@ func (s *Service) buildReadResult(
 		ConfiguredDefaultTurnApprovalPolicy:     configuredPrefs.DefaultTurnApprovalPolicy,
 		ConfiguredDefaultTurnSandboxPolicy:      cloneAnyMap(configuredPrefs.DefaultTurnSandboxPolicy),
 		ConfiguredDefaultCommandSandboxPolicy:   cloneAnyMap(configuredPrefs.DefaultCommandSandboxPolicy),
+		ConfiguredAllowRemoteAccess:             cloneOptionalBool(configuredPrefs.AllowRemoteAccess),
+		ConfiguredAccessTokens:                  accesscontrol.DescribeTokens(configuredPrefs.AccessTokens, now),
 		ConfiguredBackendThreadTraceEnabled:     cloneOptionalBool(configuredPrefs.BackendThreadTraceEnabled),
 		ConfiguredBackendThreadTraceWorkspaceID: strings.TrimSpace(configuredPrefs.BackendThreadTraceWorkspaceID),
 		ConfiguredBackendThreadTraceThreadID:    strings.TrimSpace(configuredPrefs.BackendThreadTraceThreadID),
@@ -417,6 +470,7 @@ func (s *Service) buildReadResult(
 		DefaultDefaultTurnApprovalPolicy:        s.defaultPrefs.DefaultTurnApprovalPolicy,
 		DefaultDefaultTurnSandboxPolicy:         cloneAnyMap(s.defaultPrefs.DefaultTurnSandboxPolicy),
 		DefaultDefaultCommandSandboxPolicy:      cloneAnyMap(s.defaultPrefs.DefaultCommandSandboxPolicy),
+		DefaultAllowRemoteAccess:                s.defaultAllowRemoteAccess,
 		DefaultBackendThreadTraceEnabled:        s.defaultTrace.Enabled,
 		DefaultBackendThreadTraceWorkspaceID:    s.defaultTrace.WorkspaceID,
 		DefaultBackendThreadTraceThreadID:       s.defaultTrace.ThreadID,
@@ -428,6 +482,7 @@ func (s *Service) buildReadResult(
 		EffectiveDefaultTurnApprovalPolicy:      resolved.Preferences.DefaultTurnApprovalPolicy,
 		EffectiveDefaultTurnSandboxPolicy:       cloneAnyMap(resolved.Preferences.DefaultTurnSandboxPolicy),
 		EffectiveDefaultCommandSandboxPolicy:    cloneAnyMap(resolved.Preferences.DefaultCommandSandboxPolicy),
+		EffectiveAllowRemoteAccess:              effectiveAllowRemoteAccess,
 		EffectiveBackendThreadTraceEnabled:      effectiveTrace.Enabled,
 		EffectiveBackendThreadTraceWorkspaceID:  effectiveTrace.WorkspaceID,
 		EffectiveBackendThreadTraceThreadID:     effectiveTrace.ThreadID,

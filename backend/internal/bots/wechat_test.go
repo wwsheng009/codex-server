@@ -501,6 +501,368 @@ func TestWeChatProviderSendMessagesRequiresContextToken(t *testing.T) {
 	}
 }
 
+func TestWeChatProviderSendMessagesDownloadsRemoteImageURLAndSendsImageItem(t *testing.T) {
+	t.Parallel()
+
+	const (
+		uploadParam   = "upload-param-remote-image-1"
+		downloadParam = "download-param-remote-image-1"
+	)
+
+	remoteImageBody := []byte("fake jpeg bytes for remote wechat upload")
+	sendPayloads := make([]map[string]any, 0, 2)
+	remoteDownloadCalls := 0
+	getUploadCalls := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/remote-hormuz-map.jpg":
+			remoteDownloadCalls += 1
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write(remoteImageBody)
+		case "/ilink/bot/getuploadurl":
+			getUploadCalls += 1
+
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode getuploadurl payload: %v", err)
+			}
+			if got := payload["to_user_id"]; got != "wechat-user-remote-image-1" {
+				t.Fatalf("expected getuploadurl to_user_id wechat-user-remote-image-1, got %#v", payload)
+			}
+			if got := int(payload["media_type"].(float64)); got != wechatUploadMediaTypeImage {
+				t.Fatalf("expected getuploadurl media_type image, got %#v", payload)
+			}
+			if got := int(payload["rawsize"].(float64)); got != len(remoteImageBody) {
+				t.Fatalf("expected getuploadurl rawsize %d, got %#v", len(remoteImageBody), payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":          0,
+				"errcode":      0,
+				"errmsg":       "",
+				"upload_param": uploadParam,
+			})
+		case "/c2c/upload":
+			if got := r.URL.Query().Get("encrypted_query_param"); got != uploadParam {
+				t.Fatalf("expected upload encrypted_query_param %q, got %q", uploadParam, got)
+			}
+			w.Header().Set("x-encrypted-param", downloadParam)
+			w.WriteHeader(http.StatusOK)
+		case "/ilink/bot/sendmessage":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode sendmessage payload: %v", err)
+			}
+			sendPayloads = append(sendPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":     0,
+				"errcode": 0,
+				"errmsg":  "",
+			})
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_remote_image_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-remote-image-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-remote-image-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+	conversation := store.BotConversation{
+		ExternalChatID: "wechat-user-remote-image-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-remote-image-1",
+		},
+	}
+	remoteURL := server.URL + "/remote-hormuz-map.jpg"
+
+	if err := provider.SendMessages(context.Background(), connection, conversation, []OutboundMessage{
+		{
+			Text: "已收到。",
+			Media: []store.BotMessageMedia{
+				{
+					Kind:     botMediaKindImage,
+					URL:      remoteURL,
+					FileName: "Strait_of_Hormuz.jpg",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if remoteDownloadCalls != 1 {
+		t.Fatalf("expected one remote image download, got %d", remoteDownloadCalls)
+	}
+	if getUploadCalls != 1 {
+		t.Fatalf("expected one getuploadurl call, got %d", getUploadCalls)
+	}
+	if len(sendPayloads) != 2 {
+		t.Fatalf("expected text caption plus one image payload, got %#v", sendPayloads)
+	}
+	if got := wechatTextFromSendPayload(sendPayloads[0]); got != "已收到。" {
+		t.Fatalf("expected first payload to contain only the caption, got %#v", sendPayloads[0])
+	}
+
+	msg, _ := sendPayloads[1]["msg"].(map[string]any)
+	if got := msg["context_token"]; got != "ctx-remote-image-1" {
+		t.Fatalf("expected image payload to preserve context_token, got %#v", msg)
+	}
+	itemList, _ := msg["item_list"].([]any)
+	if len(itemList) != 1 {
+		t.Fatalf("expected image payload to have exactly one item, got %#v", msg)
+	}
+	item, _ := itemList[0].(map[string]any)
+	if got := int(item["type"].(float64)); got != wechatItemTypeImage {
+		t.Fatalf("expected second payload item type image, got %#v", item)
+	}
+	imageItem, _ := item["image_item"].(map[string]any)
+	media, _ := imageItem["media"].(map[string]any)
+	if got := media["encrypt_query_param"]; got != downloadParam {
+		t.Fatalf("expected image payload encrypt_query_param %q, got %#v", downloadParam, item)
+	}
+	if got := item["text_item"]; got != nil {
+		t.Fatalf("expected image payload not to degrade into a text item, got %#v", item)
+	}
+
+	serialized, err := json.Marshal(sendPayloads)
+	if err != nil {
+		t.Fatalf("json.Marshal(sendPayloads) error = %v", err)
+	}
+	if strings.Contains(string(serialized), remoteURL) {
+		t.Fatalf("expected outbound payloads to omit the original remote URL, got %s", string(serialized))
+	}
+}
+
+func TestWeChatProviderSendMessagesExtractsRemoteVideoFromHTMLPageAndSendsVideoItem(t *testing.T) {
+	t.Parallel()
+
+	const (
+		uploadParam   = "upload-param-remote-video-1"
+		downloadParam = "download-param-remote-video-1"
+	)
+
+	serverURL := ""
+	remoteVideoBody := []byte("fake mp4 bytes for remote wechat upload")
+	sendPayloads := make([]map[string]any, 0, 2)
+	pageFetches := 0
+	videoFetches := 0
+	getUploadCalls := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/story":
+			pageFetches += 1
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><meta property="og:video" content="` + serverURL + `/media/hormuz.mp4"></head><body>story page</body></html>`))
+		case "/media/hormuz.mp4":
+			videoFetches += 1
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write(remoteVideoBody)
+		case "/ilink/bot/getuploadurl":
+			getUploadCalls += 1
+
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode getuploadurl payload: %v", err)
+			}
+			if got := payload["to_user_id"]; got != "wechat-user-remote-video-1" {
+				t.Fatalf("expected getuploadurl to_user_id wechat-user-remote-video-1, got %#v", payload)
+			}
+			if got := int(payload["media_type"].(float64)); got != wechatUploadMediaTypeVideo {
+				t.Fatalf("expected getuploadurl media_type video, got %#v", payload)
+			}
+			if got := int(payload["rawsize"].(float64)); got != len(remoteVideoBody) {
+				t.Fatalf("expected getuploadurl rawsize %d, got %#v", len(remoteVideoBody), payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":          0,
+				"errcode":      0,
+				"errmsg":       "",
+				"upload_param": uploadParam,
+			})
+		case "/c2c/upload":
+			if got := r.URL.Query().Get("encrypted_query_param"); got != uploadParam {
+				t.Fatalf("expected upload encrypted_query_param %q, got %q", uploadParam, got)
+			}
+			w.Header().Set("x-encrypted-param", downloadParam)
+			w.WriteHeader(http.StatusOK)
+		case "/ilink/bot/sendmessage":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode sendmessage payload: %v", err)
+			}
+			sendPayloads = append(sendPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":     0,
+				"errcode": 0,
+				"errmsg":  "",
+			})
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	serverURL = server.URL
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_remote_video_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-remote-video-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-remote-video-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+	conversation := store.BotConversation{
+		ExternalChatID: "wechat-user-remote-video-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-remote-video-1",
+		},
+	}
+
+	if err := provider.SendMessages(context.Background(), connection, conversation, []OutboundMessage{
+		{
+			Text: "发你一个和霍尔木兹海峡相关的视频链接。",
+			Media: []store.BotMessageMedia{
+				{
+					Kind: botMediaKindVideo,
+					URL:  server.URL + "/story",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if pageFetches != 1 {
+		t.Fatalf("expected one story page fetch, got %d", pageFetches)
+	}
+	if videoFetches != 1 {
+		t.Fatalf("expected one extracted video fetch, got %d", videoFetches)
+	}
+	if getUploadCalls != 1 {
+		t.Fatalf("expected one getuploadurl call, got %d", getUploadCalls)
+	}
+	if len(sendPayloads) != 2 {
+		t.Fatalf("expected text caption plus one video payload, got %#v", sendPayloads)
+	}
+	if got := wechatTextFromSendPayload(sendPayloads[0]); got != "发你一个和霍尔木兹海峡相关的视频链接。" {
+		t.Fatalf("expected first payload to contain the caption text, got %#v", sendPayloads[0])
+	}
+
+	msg, _ := sendPayloads[1]["msg"].(map[string]any)
+	itemList, _ := msg["item_list"].([]any)
+	if len(itemList) != 1 {
+		t.Fatalf("expected video payload to have exactly one item, got %#v", msg)
+	}
+	item, _ := itemList[0].(map[string]any)
+	if got := int(item["type"].(float64)); got != wechatItemTypeVideo {
+		t.Fatalf("expected second payload item type video, got %#v", item)
+	}
+	videoItem, _ := item["video_item"].(map[string]any)
+	media, _ := videoItem["media"].(map[string]any)
+	if got := media["encrypt_query_param"]; got != downloadParam {
+		t.Fatalf("expected video payload encrypt_query_param %q, got %#v", downloadParam, media)
+	}
+}
+
+func TestWeChatProviderSendMessagesFallsBackToTextWhenRemoteVideoPageCannotResolveMedia(t *testing.T) {
+	t.Parallel()
+
+	sendPayloads := make([]map[string]any, 0, 1)
+	pageFetches := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/story":
+			pageFetches += 1
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><title>story only</title></head><body>no downloadable media here</body></html>`))
+		case "/ilink/bot/getuploadurl":
+			t.Fatal("did not expect getuploadurl to be called when media extraction fails")
+		case "/ilink/bot/sendmessage":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode sendmessage payload: %v", err)
+			}
+			sendPayloads = append(sendPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret":     0,
+				"errcode": 0,
+				"errmsg":  "",
+			})
+		default:
+			t.Fatalf("unexpected wechat API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newWeChatProvider(server.Client()).(*wechatProvider)
+	connection := store.BotConnection{
+		ID:       "bot_wechat_remote_video_fallback_1",
+		Provider: wechatProviderName,
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      server.URL,
+			wechatCDNBaseURLSetting:   server.URL + "/c2c",
+			wechatAccountIDSetting:    "wechat-account-remote-video-fallback-1",
+			wechatOwnerUserIDSetting:  "wechat-owner-remote-video-fallback-1",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token",
+		},
+	}
+	conversation := store.BotConversation{
+		ExternalChatID: "wechat-user-remote-video-fallback-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-remote-video-fallback-1",
+		},
+	}
+
+	if err := provider.SendMessages(context.Background(), connection, conversation, []OutboundMessage{
+		{
+			Text: "发你一个和霍尔木兹海峡相关的视频链接。",
+			Media: []store.BotMessageMedia{
+				{
+					Kind: botMediaKindVideo,
+					URL:  server.URL + "/story",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if pageFetches != 1 {
+		t.Fatalf("expected one story page fetch, got %d", pageFetches)
+	}
+	if len(sendPayloads) != 1 {
+		t.Fatalf("expected one fallback text payload, got %#v", sendPayloads)
+	}
+	if got := wechatTextFromSendPayload(sendPayloads[0]); got != "发你一个和霍尔木兹海峡相关的视频链接。" {
+		t.Fatalf("expected fallback text payload, got %#v", sendPayloads[0])
+	}
+}
+
 func TestWeChatProviderStartTypingUsesGetConfigAndCachesTypingTicket(t *testing.T) {
 	t.Parallel()
 

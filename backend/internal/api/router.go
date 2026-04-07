@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codex-server/backend/internal/accesscontrol"
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/automations"
@@ -37,6 +38,7 @@ import (
 type Dependencies struct {
 	FrontendOrigin       string
 	EnableRequestLogging bool
+	RequestShutdown      func(reason string) bool
 	Auth                 *auth.Service
 	Workspaces           *workspace.Service
 	Bots                 *bots.Service
@@ -51,49 +53,55 @@ type Dependencies struct {
 	Feedback             *feedback.Service
 	Events               *events.Hub
 	RuntimePrefs         *runtimeprefs.Service
+	AccessControl        *accesscontrol.Service
 }
 
 type Server struct {
-	originMatcher *originMatcher
-	auth          *auth.Service
-	workspaces    *workspace.Service
-	bots          *bots.Service
-	automations   *automations.Service
-	notifications *notifications.Service
-	threads       *threads.Service
-	turns         *turns.Service
-	approvals     *approvals.Service
-	catalog       *catalog.Service
-	configfs      *configfs.Service
-	execfs        *execfs.Service
-	feedback      *feedback.Service
-	events        *events.Hub
-	runtimePrefs  *runtimeprefs.Service
+	originMatcher   *originMatcher
+	requestShutdown func(reason string) bool
+	auth            *auth.Service
+	workspaces      *workspace.Service
+	bots            *bots.Service
+	automations     *automations.Service
+	notifications   *notifications.Service
+	threads         *threads.Service
+	turns           *turns.Service
+	approvals       *approvals.Service
+	catalog         *catalog.Service
+	configfs        *configfs.Service
+	execfs          *execfs.Service
+	feedback        *feedback.Service
+	events          *events.Hub
+	runtimePrefs    *runtimeprefs.Service
+	accessControl   *accesscontrol.Service
 }
 
 func NewRouter(deps Dependencies) http.Handler {
 	originMatcher := newOriginMatcher(deps.FrontendOrigin)
 
 	server := &Server{
-		originMatcher: originMatcher,
-		auth:          deps.Auth,
-		workspaces:    deps.Workspaces,
-		bots:          deps.Bots,
-		automations:   deps.Automations,
-		notifications: deps.Notifications,
-		threads:       deps.Threads,
-		turns:         deps.Turns,
-		approvals:     deps.Approvals,
-		catalog:       deps.Catalog,
-		configfs:      deps.ConfigFS,
-		execfs:        deps.ExecFS,
-		feedback:      deps.Feedback,
-		events:        deps.Events,
-		runtimePrefs:  deps.RuntimePrefs,
+		originMatcher:   originMatcher,
+		requestShutdown: deps.RequestShutdown,
+		auth:            deps.Auth,
+		workspaces:      deps.Workspaces,
+		bots:            deps.Bots,
+		automations:     deps.Automations,
+		notifications:   deps.Notifications,
+		threads:         deps.Threads,
+		turns:           deps.Turns,
+		approvals:       deps.Approvals,
+		catalog:         deps.Catalog,
+		configfs:        deps.ConfigFS,
+		execfs:          deps.ExecFS,
+		feedback:        deps.Feedback,
+		events:          deps.Events,
+		runtimePrefs:    deps.RuntimePrefs,
+		accessControl:   deps.AccessControl,
 	}
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
+	router.Use(server.captureOriginalRemoteAddr)
 	router.Use(middleware.RealIP)
 	if deps.EnableRequestLogging {
 		router.Use(middleware.Logger)
@@ -106,142 +114,151 @@ func NewRouter(deps Dependencies) http.Handler {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+	router.Use(server.requireRemoteAccess)
 
 	router.Get("/healthz", server.handleHealth)
+	router.Post("/__admin/stop", server.handleStopServer)
 	router.Post("/hooks/bots/{connectionId}", server.handleBotWebhook)
 	router.Route("/api", func(r chi.Router) {
-		r.Get("/runtime/preferences", server.handleReadRuntimePreferences)
-		r.Post("/runtime/preferences", server.handleWriteRuntimePreferences)
-		r.Post("/runtime/preferences/import-model-catalog", server.handleImportRuntimeModelCatalog)
+		r.Get("/access/bootstrap", server.handleAccessBootstrap)
+		r.Post("/access/login", server.handleAccessLogin)
+		r.Post("/access/logout", server.handleAccessLogout)
 
-		r.Route("/automations", func(r chi.Router) {
-			r.Get("/", server.handleListAutomations)
-			r.Post("/", server.handleCreateAutomation)
-			r.Get("/{automationId}", server.handleGetAutomation)
-			r.Get("/{automationId}/runs", server.handleListAutomationRuns)
-			r.Post("/{automationId}/pause", server.handlePauseAutomation)
-			r.Post("/{automationId}/resume", server.handleResumeAutomation)
-			r.Post("/{automationId}/fix", server.handleFixAutomation)
-			r.Post("/{automationId}/run", server.handleRunAutomation)
-			r.Delete("/{automationId}", server.handleDeleteAutomation)
-		})
-		r.Route("/automation-templates", func(r chi.Router) {
-			r.Get("/", server.handleListAutomationTemplates)
-			r.Post("/", server.handleCreateAutomationTemplate)
-			r.Get("/{templateId}", server.handleGetAutomationTemplate)
-			r.Post("/{templateId}", server.handleUpdateAutomationTemplate)
-			r.Delete("/{templateId}", server.handleDeleteAutomationTemplate)
-		})
-		r.Get("/automation-runs/{runId}", server.handleGetAutomationRun)
-		r.Get("/notifications", server.handleListNotifications)
-		r.Post("/notifications/read-all", server.handleReadAllNotifications)
-		r.Post("/notifications/{notificationId}/read", server.handleReadNotification)
-		r.Delete("/notifications/read", server.handleDeleteReadNotifications)
+		r.Group(func(r chi.Router) {
+			r.Use(server.requireProtectedAccess)
+			r.Get("/runtime/preferences", server.handleReadRuntimePreferences)
+			r.Post("/runtime/preferences", server.handleWriteRuntimePreferences)
+			r.Post("/runtime/preferences/import-model-catalog", server.handleImportRuntimeModelCatalog)
 
-		r.Route("/workspaces", func(r chi.Router) {
-			r.Get("/", server.handleListWorkspaces)
-			r.Post("/", server.handleCreateWorkspace)
-			r.Get("/{workspaceId}", server.handleGetWorkspace)
-			r.Get("/{workspaceId}/account", server.handleGetAccount)
-			r.Post("/{workspaceId}/account/login", server.handleLogin)
-			r.Post("/{workspaceId}/account/login/cancel", server.handleCancelLogin)
-			r.Post("/{workspaceId}/account/logout", server.handleLogout)
-			r.Get("/{workspaceId}/account/rate-limits", server.handleGetRateLimits)
-			r.Get("/{workspaceId}/runtime-state", server.handleGetWorkspaceRuntimeState)
-			r.Post("/{workspaceId}/name", server.handleRenameWorkspace)
-			r.Post("/{workspaceId}/restart", server.handleRestartWorkspace)
-			r.Delete("/{workspaceId}", server.handleDeleteWorkspace)
-			r.Get("/{workspaceId}/pending-approvals", server.handleListPendingApprovals)
-			r.Get("/{workspaceId}/models", server.handleListModels)
-			r.Get("/{workspaceId}/skills", server.handleListSkills)
-			r.Post("/{workspaceId}/skills/config/write", server.handleWriteSkillConfig)
-			r.Get("/{workspaceId}/apps", server.handleListApps)
-			r.Get("/{workspaceId}/plugins", server.handleListPlugins)
-			r.Post("/{workspaceId}/plugins/read", server.handleReadPlugin)
-			r.Post("/{workspaceId}/plugins/install", server.handleInstallPlugin)
-			r.Post("/{workspaceId}/plugins/uninstall", server.handleUninstallPlugin)
-			r.Post("/{workspaceId}/config/read", server.handleConfigRead)
-			r.Post("/{workspaceId}/config/write", server.handleConfigWrite)
-			r.Post("/{workspaceId}/config/batch-write", server.handleConfigBatchWrite)
-			r.Get("/{workspaceId}/config/requirements", server.handleConfigRequirementsRead)
-			r.Post("/{workspaceId}/config/mcp-server/reload", server.handleConfigMcpServerReload)
-			r.Post("/{workspaceId}/external-agent/detect", server.handleExternalAgentConfigDetect)
-			r.Post("/{workspaceId}/external-agent/import", server.handleExternalAgentConfigImport)
-			r.Post("/{workspaceId}/search/files", server.handleFuzzyFileSearch)
-			r.Post("/{workspaceId}/feedback/upload", server.handleFeedbackUpload)
-			r.Post("/{workspaceId}/mcp/oauth/login", server.handleMcpOauthLogin)
-			r.Get("/{workspaceId}/experimental-features", server.handleListExperimentalFeatures)
-			r.Get("/{workspaceId}/mcp-server-status", server.handleListMcpServerStatus)
-			r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
-			r.Get("/{workspaceId}/collaboration-modes", server.handleListCollaborationModes)
-			r.Get("/{workspaceId}/stream", server.handleWorkspaceStream)
-			r.Route("/{workspaceId}/bot-connections", func(r chi.Router) {
-				r.Get("/", server.handleListBotConnections)
-				r.Post("/", server.handleCreateBotConnection)
-				r.Get("/{connectionId}", server.handleGetBotConnection)
-				r.Post("/{connectionId}", server.handleUpdateBotConnection)
-				r.Get("/{connectionId}/logs", server.handleListBotConnectionLogs)
-				r.Post("/{connectionId}/runtime-mode", server.handleUpdateBotConnectionRuntimeMode)
-				r.Post("/{connectionId}/command-output-mode", server.handleUpdateBotConnectionCommandOutputMode)
-				r.Post("/{connectionId}/wechat-channel-timing", server.handleUpdateBotConnectionWeChatChannelTiming)
-				r.Post("/{connectionId}/pause", server.handlePauseBotConnection)
-				r.Post("/{connectionId}/resume", server.handleResumeBotConnection)
-				r.Delete("/{connectionId}", server.handleDeleteBotConnection)
-				r.Get("/{connectionId}/conversations", server.handleListBotConnectionConversations)
+			r.Route("/automations", func(r chi.Router) {
+				r.Get("/", server.handleListAutomations)
+				r.Post("/", server.handleCreateAutomation)
+				r.Get("/{automationId}", server.handleGetAutomation)
+				r.Get("/{automationId}/runs", server.handleListAutomationRuns)
+				r.Post("/{automationId}/pause", server.handlePauseAutomation)
+				r.Post("/{automationId}/resume", server.handleResumeAutomation)
+				r.Post("/{automationId}/fix", server.handleFixAutomation)
+				r.Post("/{automationId}/run", server.handleRunAutomation)
+				r.Delete("/{automationId}", server.handleDeleteAutomation)
 			})
-			r.Get("/{workspaceId}/bot-conversations", server.handleListBotConversations)
-			r.Get("/{workspaceId}/bot-providers/wechat/accounts", server.handleListWeChatAccounts)
-			r.Patch("/{workspaceId}/bot-providers/wechat/accounts/{accountId}", server.handleUpdateWeChatAccount)
-			r.Delete("/{workspaceId}/bot-providers/wechat/accounts/{accountId}", server.handleDeleteWeChatAccount)
-			r.Post("/{workspaceId}/bot-providers/wechat/login/start", server.handleStartWeChatLogin)
-			r.Get("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleGetWeChatLogin)
-			r.Delete("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleDeleteWeChatLogin)
+			r.Route("/automation-templates", func(r chi.Router) {
+				r.Get("/", server.handleListAutomationTemplates)
+				r.Post("/", server.handleCreateAutomationTemplate)
+				r.Get("/{templateId}", server.handleGetAutomationTemplate)
+				r.Post("/{templateId}", server.handleUpdateAutomationTemplate)
+				r.Delete("/{templateId}", server.handleDeleteAutomationTemplate)
+			})
+			r.Get("/automation-runs/{runId}", server.handleGetAutomationRun)
+			r.Get("/notifications", server.handleListNotifications)
+			r.Post("/notifications/read-all", server.handleReadAllNotifications)
+			r.Post("/notifications/{notificationId}/read", server.handleReadNotification)
+			r.Delete("/notifications/read", server.handleDeleteReadNotifications)
 
-			r.Route("/{workspaceId}/threads", func(r chi.Router) {
-				r.Get("/", server.handleListThreads)
-				r.Get("/loaded", server.handleListLoadedThreads)
-				r.Post("/", server.handleCreateThread)
-				r.Get("/{threadId}", server.handleGetThread)
-				r.Get("/{threadId}/turns/{turnId}", server.handleGetThreadTurn)
-				r.Get("/{threadId}/turns/{turnId}/items/{itemId}", server.handleGetThreadTurnItem)
-				r.Get("/{threadId}/turns/{turnId}/items/{itemId}/output", server.handleGetThreadTurnItemOutput)
-				r.Delete("/{threadId}", server.handleDeleteThread)
-				r.Post("/{threadId}/resume", server.handleResumeThread)
-				r.Post("/{threadId}/fork", server.handleForkThread)
-				r.Post("/{threadId}/archive", server.handleArchiveThread)
-				r.Post("/{threadId}/unarchive", server.handleUnarchiveThread)
-				r.Post("/{threadId}/name", server.handleRenameThread)
-				r.Post("/{threadId}/metadata", server.handleUpdateThreadMetadata)
-				r.Post("/{threadId}/rollback", server.handleRollbackThread)
-				r.Post("/{threadId}/compact", server.handleCompactThread)
-				r.Post("/{threadId}/shell-command", server.handleThreadShellCommand)
-				r.Post("/{threadId}/turns", server.handleStartTurn)
-				r.Post("/{threadId}/turns/steer", server.handleSteerTurn)
-				r.Post("/{threadId}/turns/interrupt", server.handleInterruptTurn)
-				r.Post("/{threadId}/review", server.handleReview)
+			r.Route("/workspaces", func(r chi.Router) {
+				r.Get("/", server.handleListWorkspaces)
+				r.Post("/", server.handleCreateWorkspace)
+				r.Get("/{workspaceId}", server.handleGetWorkspace)
+				r.Get("/{workspaceId}/account", server.handleGetAccount)
+				r.Post("/{workspaceId}/account/login", server.handleLogin)
+				r.Post("/{workspaceId}/account/login/cancel", server.handleCancelLogin)
+				r.Post("/{workspaceId}/account/logout", server.handleLogout)
+				r.Get("/{workspaceId}/account/rate-limits", server.handleGetRateLimits)
+				r.Get("/{workspaceId}/runtime-state", server.handleGetWorkspaceRuntimeState)
+				r.Post("/{workspaceId}/name", server.handleRenameWorkspace)
+				r.Post("/{workspaceId}/restart", server.handleRestartWorkspace)
+				r.Delete("/{workspaceId}", server.handleDeleteWorkspace)
+				r.Get("/{workspaceId}/pending-approvals", server.handleListPendingApprovals)
+				r.Get("/{workspaceId}/models", server.handleListModels)
+				r.Get("/{workspaceId}/skills", server.handleListSkills)
+				r.Post("/{workspaceId}/skills/config/write", server.handleWriteSkillConfig)
+				r.Get("/{workspaceId}/apps", server.handleListApps)
+				r.Get("/{workspaceId}/plugins", server.handleListPlugins)
+				r.Post("/{workspaceId}/plugins/read", server.handleReadPlugin)
+				r.Post("/{workspaceId}/plugins/install", server.handleInstallPlugin)
+				r.Post("/{workspaceId}/plugins/uninstall", server.handleUninstallPlugin)
+				r.Post("/{workspaceId}/config/read", server.handleConfigRead)
+				r.Post("/{workspaceId}/config/write", server.handleConfigWrite)
+				r.Post("/{workspaceId}/config/batch-write", server.handleConfigBatchWrite)
+				r.Get("/{workspaceId}/config/requirements", server.handleConfigRequirementsRead)
+				r.Post("/{workspaceId}/config/mcp-server/reload", server.handleConfigMcpServerReload)
+				r.Post("/{workspaceId}/external-agent/detect", server.handleExternalAgentConfigDetect)
+				r.Post("/{workspaceId}/external-agent/import", server.handleExternalAgentConfigImport)
+				r.Post("/{workspaceId}/search/files", server.handleFuzzyFileSearch)
+				r.Post("/{workspaceId}/feedback/upload", server.handleFeedbackUpload)
+				r.Post("/{workspaceId}/mcp/oauth/login", server.handleMcpOauthLogin)
+				r.Get("/{workspaceId}/experimental-features", server.handleListExperimentalFeatures)
+				r.Get("/{workspaceId}/mcp-server-status", server.handleListMcpServerStatus)
+				r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
+				r.Get("/{workspaceId}/collaboration-modes", server.handleListCollaborationModes)
+				r.Get("/{workspaceId}/stream", server.handleWorkspaceStream)
+				r.Route("/{workspaceId}/bot-connections", func(r chi.Router) {
+					r.Get("/", server.handleListBotConnections)
+					r.Post("/", server.handleCreateBotConnection)
+					r.Get("/{connectionId}", server.handleGetBotConnection)
+					r.Post("/{connectionId}", server.handleUpdateBotConnection)
+					r.Get("/{connectionId}/logs", server.handleListBotConnectionLogs)
+					r.Post("/{connectionId}/runtime-mode", server.handleUpdateBotConnectionRuntimeMode)
+					r.Post("/{connectionId}/command-output-mode", server.handleUpdateBotConnectionCommandOutputMode)
+					r.Post("/{connectionId}/wechat-channel-timing", server.handleUpdateBotConnectionWeChatChannelTiming)
+					r.Post("/{connectionId}/pause", server.handlePauseBotConnection)
+					r.Post("/{connectionId}/resume", server.handleResumeBotConnection)
+					r.Delete("/{connectionId}", server.handleDeleteBotConnection)
+					r.Get("/{connectionId}/conversations", server.handleListBotConnectionConversations)
+				})
+				r.Get("/{workspaceId}/bot-conversations", server.handleListBotConversations)
+				r.Get("/{workspaceId}/bot-providers/wechat/accounts", server.handleListWeChatAccounts)
+				r.Patch("/{workspaceId}/bot-providers/wechat/accounts/{accountId}", server.handleUpdateWeChatAccount)
+				r.Delete("/{workspaceId}/bot-providers/wechat/accounts/{accountId}", server.handleDeleteWeChatAccount)
+				r.Post("/{workspaceId}/bot-providers/wechat/login/start", server.handleStartWeChatLogin)
+				r.Get("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleGetWeChatLogin)
+				r.Delete("/{workspaceId}/bot-providers/wechat/login/{loginId}", server.handleDeleteWeChatLogin)
+
+				r.Route("/{workspaceId}/threads", func(r chi.Router) {
+					r.Get("/", server.handleListThreads)
+					r.Get("/loaded", server.handleListLoadedThreads)
+					r.Post("/", server.handleCreateThread)
+					r.Get("/{threadId}", server.handleGetThread)
+					r.Get("/{threadId}/turns/{turnId}", server.handleGetThreadTurn)
+					r.Get("/{threadId}/turns/{turnId}/items/{itemId}", server.handleGetThreadTurnItem)
+					r.Get("/{threadId}/turns/{turnId}/items/{itemId}/output", server.handleGetThreadTurnItemOutput)
+					r.Delete("/{threadId}", server.handleDeleteThread)
+					r.Post("/{threadId}/resume", server.handleResumeThread)
+					r.Post("/{threadId}/fork", server.handleForkThread)
+					r.Post("/{threadId}/archive", server.handleArchiveThread)
+					r.Post("/{threadId}/unarchive", server.handleUnarchiveThread)
+					r.Post("/{threadId}/name", server.handleRenameThread)
+					r.Post("/{threadId}/metadata", server.handleUpdateThreadMetadata)
+					r.Post("/{threadId}/rollback", server.handleRollbackThread)
+					r.Post("/{threadId}/compact", server.handleCompactThread)
+					r.Post("/{threadId}/shell-command", server.handleThreadShellCommand)
+					r.Post("/{threadId}/turns", server.handleStartTurn)
+					r.Post("/{threadId}/turns/steer", server.handleSteerTurn)
+					r.Post("/{threadId}/turns/interrupt", server.handleInterruptTurn)
+					r.Post("/{threadId}/review", server.handleReview)
+				})
+
+				r.Get("/{workspaceId}/commands", server.handleListCommandSessions)
+				r.Delete("/{workspaceId}/commands/completed", server.handleClearCompletedCommandSessions)
+				r.Post("/{workspaceId}/commands", server.handleStartCommand)
+				r.Post("/{workspaceId}/commands/{processId}/archive", server.handleArchiveCommandSession)
+				r.Post("/{workspaceId}/commands/{processId}/pin", server.handlePinCommandSession)
+				r.Post("/{workspaceId}/commands/{processId}/unarchive", server.handleUnarchiveCommandSession)
+				r.Post("/{workspaceId}/commands/{processId}/unpin", server.handleUnpinCommandSession)
+				r.Delete("/{workspaceId}/commands/{processId}", server.handleCloseCommandSession)
+				r.Post("/{workspaceId}/commands/{processId}/write", server.handleWriteCommand)
+				r.Post("/{workspaceId}/commands/{processId}/resize", server.handleResizeCommand)
+				r.Post("/{workspaceId}/commands/{processId}/terminate", server.handleTerminateCommand)
+				r.Post("/{workspaceId}/fs/read", server.handleFSRead)
+				r.Post("/{workspaceId}/fs/write", server.handleFSWrite)
+				r.Post("/{workspaceId}/fs/read-directory", server.handleFSReadDirectory)
+				r.Post("/{workspaceId}/fs/metadata", server.handleFSMetadata)
+				r.Post("/{workspaceId}/fs/mkdir", server.handleFSMkdir)
+				r.Post("/{workspaceId}/fs/remove", server.handleFSRemove)
+				r.Post("/{workspaceId}/fs/copy", server.handleFSCopy)
 			})
 
-			r.Get("/{workspaceId}/commands", server.handleListCommandSessions)
-			r.Delete("/{workspaceId}/commands/completed", server.handleClearCompletedCommandSessions)
-			r.Post("/{workspaceId}/commands", server.handleStartCommand)
-			r.Post("/{workspaceId}/commands/{processId}/archive", server.handleArchiveCommandSession)
-			r.Post("/{workspaceId}/commands/{processId}/pin", server.handlePinCommandSession)
-			r.Post("/{workspaceId}/commands/{processId}/unarchive", server.handleUnarchiveCommandSession)
-			r.Post("/{workspaceId}/commands/{processId}/unpin", server.handleUnpinCommandSession)
-			r.Delete("/{workspaceId}/commands/{processId}", server.handleCloseCommandSession)
-			r.Post("/{workspaceId}/commands/{processId}/write", server.handleWriteCommand)
-			r.Post("/{workspaceId}/commands/{processId}/resize", server.handleResizeCommand)
-			r.Post("/{workspaceId}/commands/{processId}/terminate", server.handleTerminateCommand)
-			r.Post("/{workspaceId}/fs/read", server.handleFSRead)
-			r.Post("/{workspaceId}/fs/write", server.handleFSWrite)
-			r.Post("/{workspaceId}/fs/read-directory", server.handleFSReadDirectory)
-			r.Post("/{workspaceId}/fs/metadata", server.handleFSMetadata)
-			r.Post("/{workspaceId}/fs/mkdir", server.handleFSMkdir)
-			r.Post("/{workspaceId}/fs/remove", server.handleFSRemove)
-			r.Post("/{workspaceId}/fs/copy", server.handleFSCopy)
+			r.Post("/server-requests/{requestId}/respond", server.handleRespondServerRequest)
 		})
-
-		r.Post("/server-requests/{requestId}/respond", server.handleRespondServerRequest)
 	})
 
 	return router
@@ -252,6 +269,30 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"status": "ok",
 		"ts":     time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+func (s *Server) handleStopServer(w http.ResponseWriter, r *http.Request) {
+	if s.requestShutdown == nil {
+		writeError(w, http.StatusNotFound, "not_found", "server shutdown endpoint is unavailable")
+		return
+	}
+
+	if strings.TrimSpace(r.Header.Get("X-Codex-Server-Action")) != "stop" {
+		writeError(w, http.StatusBadRequest, "bad_request", "missing stop action header")
+		return
+	}
+
+	if !accesscontrol.IsLoopbackRemoteAddr(originalRemoteAddrFromRequest(r)) {
+		writeError(w, http.StatusForbidden, "forbidden", "server shutdown is only available from loopback addresses")
+		return
+	}
+
+	if !s.requestShutdown("http-stop") {
+		writeError(w, http.StatusConflict, "shutdown_in_progress", "backend shutdown is already in progress")
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
@@ -276,17 +317,19 @@ func (s *Server) handleReadRuntimePreferences(w http.ResponseWriter, _ *http.Req
 
 func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		ModelCatalogPath              string            `json:"modelCatalogPath"`
-		DefaultShellType              string            `json:"defaultShellType"`
-		DefaultTerminalShell          string            `json:"defaultTerminalShell"`
-		ModelShellTypeOverrides       map[string]string `json:"modelShellTypeOverrides"`
-		OutboundProxyURL              string            `json:"outboundProxyUrl"`
-		DefaultTurnApprovalPolicy     string            `json:"defaultTurnApprovalPolicy"`
-		DefaultTurnSandboxPolicy      map[string]any    `json:"defaultTurnSandboxPolicy"`
-		DefaultCommandSandboxPolicy   map[string]any    `json:"defaultCommandSandboxPolicy"`
-		BackendThreadTraceEnabled     *bool             `json:"backendThreadTraceEnabled"`
-		BackendThreadTraceWorkspaceID string            `json:"backendThreadTraceWorkspaceId"`
-		BackendThreadTraceThreadID    string            `json:"backendThreadTraceThreadId"`
+		ModelCatalogPath              string                     `json:"modelCatalogPath"`
+		DefaultShellType              string                     `json:"defaultShellType"`
+		DefaultTerminalShell          string                     `json:"defaultTerminalShell"`
+		ModelShellTypeOverrides       map[string]string          `json:"modelShellTypeOverrides"`
+		OutboundProxyURL              string                     `json:"outboundProxyUrl"`
+		DefaultTurnApprovalPolicy     string                     `json:"defaultTurnApprovalPolicy"`
+		DefaultTurnSandboxPolicy      map[string]any             `json:"defaultTurnSandboxPolicy"`
+		DefaultCommandSandboxPolicy   map[string]any             `json:"defaultCommandSandboxPolicy"`
+		AllowRemoteAccess             *bool                      `json:"allowRemoteAccess"`
+		AccessTokens                  []accesscontrol.TokenInput `json:"accessTokens"`
+		BackendThreadTraceEnabled     *bool                      `json:"backendThreadTraceEnabled"`
+		BackendThreadTraceWorkspaceID string                     `json:"backendThreadTraceWorkspaceId"`
+		BackendThreadTraceThreadID    string                     `json:"backendThreadTraceThreadId"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -303,6 +346,8 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 		DefaultTurnApprovalPolicy:     request.DefaultTurnApprovalPolicy,
 		DefaultTurnSandboxPolicy:      request.DefaultTurnSandboxPolicy,
 		DefaultCommandSandboxPolicy:   request.DefaultCommandSandboxPolicy,
+		AllowRemoteAccess:             request.AllowRemoteAccess,
+		AccessTokens:                  request.AccessTokens,
 		BackendThreadTraceEnabled:     request.BackendThreadTraceEnabled,
 		BackendThreadTraceWorkspaceID: request.BackendThreadTraceWorkspaceID,
 		BackendThreadTraceThreadID:    request.BackendThreadTraceThreadID,

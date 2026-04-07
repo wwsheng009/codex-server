@@ -23,6 +23,7 @@ type Config struct {
 	FrontendOrigin        string
 	PublicBaseURL         string
 	LogPath               string
+	AllowRemoteAccess     bool
 	OutboundProxyURL      string
 	BotMessageTimeout     time.Duration
 	BotPollInterval       time.Duration
@@ -77,6 +78,7 @@ func FromEnv() (Config, error) {
 		FrontendOrigin:        getEnv("CODEX_FRONTEND_ORIGIN", "http://0.0.0.0:15173"),
 		PublicBaseURL:         getEnv("CODEX_SERVER_PUBLIC_BASE_URL", ""),
 		LogPath:               resolveServerLogPath(strings.TrimSpace(getEnv("CODEX_SERVER_LOG_PATH", "")), storePath),
+		AllowRemoteAccess:     getEnvBool("CODEX_SERVER_ALLOW_REMOTE_ACCESS", true),
 		OutboundProxyURL:      resolved.Preferences.OutboundProxyURL,
 		BotMessageTimeout:     getEnvDuration("CODEX_SERVER_BOT_MESSAGE_TIMEOUT", 0),
 		BotPollInterval:       getEnvDuration("CODEX_SERVER_BOT_POLL_INTERVAL", 0),

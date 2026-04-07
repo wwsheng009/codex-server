@@ -83,6 +83,30 @@ func (p *wechatProvider) sendMediaMessage(
 	return p.sendMessageItem(ctx, baseURL, token, routeTag, toUserID, contextToken, item)
 }
 
+func (p *wechatProvider) prepareWeChatMediaMessageItem(
+	ctx context.Context,
+	baseURL string,
+	cdnBaseURL string,
+	token string,
+	routeTag string,
+	toUserID string,
+	media store.BotMessageMedia,
+) (wechatMessageItem, error) {
+	filePath, fileName, contentType, cleanup, err := p.resolveOutboundMediaFile(ctx, media)
+	if err != nil {
+		return wechatMessageItem{}, err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	uploaded, err := p.uploadWeChatMedia(ctx, baseURL, cdnBaseURL, token, routeTag, toUserID, filePath, fileName, contentType, media.Kind)
+	if err != nil {
+		return wechatMessageItem{}, err
+	}
+	return buildWeChatOutboundMediaItem(uploaded), nil
+}
+
 func (p *wechatProvider) sendMessageItem(
 	ctx context.Context,
 	baseURL string,
@@ -345,7 +369,7 @@ func detectWeChatContentType(filePath string, declared string) string {
 
 func (p *wechatProvider) resolveOutboundMediaFile(ctx context.Context, media store.BotMessageMedia) (string, string, string, func(), error) {
 	if mediaURL := strings.TrimSpace(media.URL); mediaURL != "" {
-		filePath, contentType, cleanup, err := p.downloadRemoteWeChatMedia(ctx, mediaURL, media.FileName)
+		filePath, contentType, cleanup, err := p.resolveRemoteOutboundMediaFile(ctx, mediaURL, media.FileName, media.Kind)
 		if err != nil {
 			return "", "", "", nil, err
 		}

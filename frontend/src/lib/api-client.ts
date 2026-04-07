@@ -3,6 +3,12 @@ import type { ApiResponse } from '../types/api'
 export const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ?? defaultApiBaseUrl()
 ).replace(/\/$/, '')
+export const ACCESS_UNAUTHORIZED_EVENT = 'codex-server-access-unauthorized'
+
+const ACCESS_UNAUTHORIZED_CODES = new Set([
+  'access_login_required',
+  'access_session_invalid',
+])
 
 export class ApiClientError extends Error {
   code?: string
@@ -32,6 +38,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
+      credentials: init?.credentials ?? 'include',
       headers,
     })
   } catch (error) {
@@ -44,6 +51,19 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   const payload = await readApiResponse<T>(response)
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      payload?.error?.code &&
+      ACCESS_UNAUTHORIZED_CODES.has(payload.error.code) &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(
+        new CustomEvent(ACCESS_UNAUTHORIZED_EVENT, {
+          detail: { code: payload.error.code },
+        }),
+      )
+    }
+
     throw new ApiClientError(payload?.error?.message ?? `Request failed with status ${response.status}`, {
       code: payload?.error?.code ?? undefined,
       status: response.status,

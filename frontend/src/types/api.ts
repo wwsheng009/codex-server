@@ -371,6 +371,8 @@ export type RuntimePreferencesResult = {
   configuredDefaultTurnApprovalPolicy: string
   configuredDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   configuredDefaultCommandSandboxPolicy?: Record<string, unknown> | null
+  configuredAllowRemoteAccess?: boolean | null
+  configuredAccessTokens: AccessTokenDescriptor[]
   configuredBackendThreadTraceEnabled?: boolean | null
   configuredBackendThreadTraceWorkspaceId: string
   configuredBackendThreadTraceThreadId: string
@@ -382,6 +384,7 @@ export type RuntimePreferencesResult = {
   defaultDefaultTurnApprovalPolicy: string
   defaultDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   defaultDefaultCommandSandboxPolicy?: Record<string, unknown> | null
+  defaultAllowRemoteAccess: boolean
   defaultBackendThreadTraceEnabled: boolean
   defaultBackendThreadTraceWorkspaceId: string
   defaultBackendThreadTraceThreadId: string
@@ -393,10 +396,30 @@ export type RuntimePreferencesResult = {
   effectiveDefaultTurnApprovalPolicy: string
   effectiveDefaultTurnSandboxPolicy?: Record<string, unknown> | null
   effectiveDefaultCommandSandboxPolicy?: Record<string, unknown> | null
+  effectiveAllowRemoteAccess: boolean
   effectiveBackendThreadTraceEnabled: boolean
   effectiveBackendThreadTraceWorkspaceId: string
   effectiveBackendThreadTraceThreadId: string
   effectiveCommand: string
+}
+
+export type AccessTokenDescriptor = {
+  id: string
+  label?: string
+  tokenPreview: string
+  expiresAt?: string | null
+  permanent: boolean
+  status: string
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
+export type AccessBootstrapResult = {
+  authenticated: boolean
+  loginRequired: boolean
+  allowRemoteAccess: boolean
+  configuredTokenCount: number
+  activeTokenCount: number
 }
 
 export type ExternalAgentConfigDetectResult = {

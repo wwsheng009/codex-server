@@ -4,5 +4,6 @@
 @import './styles/appearance-settings.css';
 @import './styles/common.css';
 @import './styles/route-error.css';
+@import './styles/thread-terminal.css';
 @import './styles/workbench.css';
 @import './styles/responsive.css';

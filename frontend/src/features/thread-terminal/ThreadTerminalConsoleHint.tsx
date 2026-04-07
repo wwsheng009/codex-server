@@ -48,7 +48,9 @@ export function ThreadTerminalConsoleHint({
 
   return (
     <div className="terminal-dock__input">
-      <span className="terminal-dock__hint">{hintMessage}</span>
+      <span className="terminal-dock__hint" title={hintMessage}>
+        {hintMessage}
+      </span>
     </div>
   )
 }

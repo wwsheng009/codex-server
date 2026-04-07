@@ -25,7 +25,14 @@ export const ThreadTerminalSessionTab = memo(function ThreadTerminalSessionTab({
   updatedAt,
 }: ThreadTerminalSessionTabState) {
   return (
-    <div className={isActive ? 'terminal-dock__tab terminal-dock__tab--active' : 'terminal-dock__tab'}>
+    <div
+      className={isActive ? 'terminal-dock__tab terminal-dock__tab--active' : 'terminal-dock__tab'}
+      title={
+        updatedAt
+          ? `${title} (${formatCommandSessionStatus(status)}) · ${formatRelativeTimeShort(updatedAt)}`
+          : `${title} (${formatCommandSessionStatus(status)})`
+      }
+    >
       <button
         className="terminal-dock__tab-select"
         onClick={() => onSelectSession(sessionId)}
@@ -39,65 +46,67 @@ export const ThreadTerminalSessionTab = memo(function ThreadTerminalSessionTab({
           />
           <strong>{title}</strong>
         </div>
-        <span>
-          {formatCommandSessionStatus(status)}
-          {updatedAt ? ` · ${formatRelativeTimeShort(updatedAt)}` : ''}
-        </span>
       </button>
-      <button
-        aria-label={
-          pinned
-            ? i18n._({
-                id: 'Unpin {command}',
-                message: 'Unpin {command}',
-                values: { command },
-              })
-            : i18n._({
-                id: 'Pin {command}',
-                message: 'Pin {command}',
-                values: { command },
-              })
-        }
-        className={pinned ? 'terminal-dock__tab-pin terminal-dock__tab-pin--active' : 'terminal-dock__tab-pin'}
-        onClick={() => onPinSession(sessionId)}
-        type="button"
-      >
-        <PinToolIcon />
-      </button>
-      <button
-        aria-label={
-          archived
-            ? i18n._({
-                id: 'Unarchive {command}',
-                message: 'Unarchive {command}',
-                values: { command },
-              })
-            : i18n._({
-                id: 'Archive {command}',
-                message: 'Archive {command}',
-                values: { command },
-              })
-        }
-        className={
-          archived ? 'terminal-dock__tab-archive terminal-dock__tab-archive--active' : 'terminal-dock__tab-archive'
-        }
-        onClick={() => onArchiveSession(sessionId)}
-        type="button"
-      >
-        <ArchiveToolIcon />
-      </button>
-      <button
-        aria-label={i18n._({
-          id: 'Close {command}',
-          message: 'Close {command}',
-          values: { command },
-        })}
-        className="terminal-dock__tab-close"
-        onClick={() => onRemoveSession(sessionId)}
-        type="button"
-      >
-        ×
-      </button>
+      <div className="terminal-dock__tab-actions">
+        <button
+          aria-label={
+            pinned
+              ? i18n._({
+                  id: 'Unpin {command}',
+                  message: 'Unpin {command}',
+                  values: { command },
+                })
+              : i18n._({
+                  id: 'Pin {command}',
+                  message: 'Pin {command}',
+                  values: { command },
+                })
+          }
+          className={
+            pinned ? 'terminal-dock__tab-pin terminal-dock__tab-pin--active' : 'terminal-dock__tab-pin'
+          }
+          onClick={() => onPinSession(sessionId)}
+          type="button"
+        >
+          <PinToolIcon />
+        </button>
+        <button
+          aria-label={
+            archived
+              ? i18n._({
+                  id: 'Unarchive {command}',
+                  message: 'Unarchive {command}',
+                  values: { command },
+                })
+              : i18n._({
+                  id: 'Archive {command}',
+                  message: 'Archive {command}',
+                  values: { command },
+                })
+          }
+          className={
+            archived
+              ? 'terminal-dock__tab-archive terminal-dock__tab-archive--active'
+              : 'terminal-dock__tab-archive'
+          }
+          onClick={() => onArchiveSession(sessionId)}
+          type="button"
+        >
+          <ArchiveToolIcon />
+        </button>
+        <button
+          aria-label={i18n._({
+            id: 'Close {command}',
+            message: 'Close {command}',
+            values: { command },
+          })}
+          className="terminal-dock__tab-close"
+          onClick={() => onRemoveSession(sessionId)}
+          type="button"
+        >
+          ×
+        </button>
+      </div>
     </div>
   )
 })

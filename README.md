@@ -59,6 +59,17 @@ go run ./cmd/server
 pwsh -File .\scripts\start-backend.ps1
 ```
 
+如果你已经编译了 `backend/main.exe`，也可以直接使用内置命令：
+
+```powershell
+cd .\backend
+.\main.exe start
+.\main.exe stop
+.\main.exe help
+```
+
+不带参数执行 `.\main.exe` 时，行为等同于 `.\main.exe start`。
+
 如果模型意外全部变成 `LocalShell`，可以清理服务级 shell override：
 
 ```powershell

@@ -3,7 +3,11 @@ import { ThreadTerminalToolbarShellSelect } from './ThreadTerminalToolbarShellSe
 import type {
   ThreadTerminalToolbarLaunchActionsState
 } from './threadTerminalConsoleStateTypes'
-import { TerminalToolbarActionButton } from './threadTerminalToolbarControls'
+import {
+  CommandLaunchToolIcon,
+  ShellLaunchToolIcon,
+  TerminalToolbarActionButton,
+} from './threadTerminalToolbarControls'
 
 export function ThreadTerminalToolbarLaunchActions({
   isLauncherOpen,
@@ -25,24 +29,30 @@ export function ThreadTerminalToolbarLaunchActions({
       {shellSelect ? <ThreadTerminalToolbarShellSelect {...shellSelect} /> : null}
       <TerminalToolbarActionButton
         aria-label={shellActionTitle}
+        className="terminal-dock__toolbar-action--icon"
         data-active={isLauncherOpen && launcherMode === 'shell' ? 'true' : undefined}
         disabled={Boolean(startSessionPending)}
         onClick={onStartShellSession}
         title={shellActionTitle}
       >
-        {shellActionLabel}
+        <ShellLaunchToolIcon />
+        <span className="terminal-dock__sr-only">{shellActionLabel}</span>
       </TerminalToolbarActionButton>
       <TerminalToolbarActionButton
         aria-label={commandActionTitle}
+        className="terminal-dock__toolbar-action--icon"
         data-active={isLauncherOpen && launcherMode === 'command' ? 'true' : undefined}
         disabled={Boolean(startSessionPending)}
         onClick={onOpenCommandLauncher}
         title={commandActionTitle}
       >
-        {i18n._({
-          id: 'Command',
-          message: 'Command',
-        })}
+        <CommandLaunchToolIcon />
+        <span className="terminal-dock__sr-only">
+          {i18n._({
+            id: 'Command',
+            message: 'Command',
+          })}
+        </span>
       </TerminalToolbarActionButton>
     </>
   )

@@ -13,10 +13,12 @@ import type { SettingsSummaryItem } from '../../components/settings/settingsWork
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { SettingsWorkspaceScopePanel } from '../../components/settings/SettingsWorkspaceScopePanel'
 import {
+  type AccessTokenWriteInput,
   batchWriteConfig,
   detectExternalAgentConfig,
   importExternalAgentConfig,
   importRuntimeModelCatalogTemplate,
+  logoutAccess,
   readConfig,
   readConfigRequirements,
   readRuntimePreferences,
@@ -65,6 +67,18 @@ import { ContextIcon, FeedIcon, RefreshIcon, SettingsIcon, SparkIcon, TerminalIc
 import { getWorkspaceRuntimeState, restartWorkspace } from '../../features/workspaces/api'
 import type { RuntimePreferencesResult } from '../../types/api'
 
+type AccessTokenDraft = {
+  id?: string
+  label: string
+  token: string
+  tokenPreview?: string
+  expiresAt: string
+  permanent: boolean
+  status?: string
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
 type RuntimePreferencesMutationInput = {
   modelCatalogPath?: string
   defaultShellType?: string
@@ -74,6 +88,8 @@ type RuntimePreferencesMutationInput = {
   defaultTurnApprovalPolicy?: string
   defaultTurnSandboxPolicy?: Record<string, unknown>
   defaultCommandSandboxPolicy?: Record<string, unknown>
+  allowRemoteAccess?: boolean | null
+  accessTokens?: AccessTokenWriteInput[]
   backendThreadTraceEnabled?: boolean | null
   backendThreadTraceWorkspaceId?: string
   backendThreadTraceThreadId?: string
@@ -107,6 +123,8 @@ export function ConfigSettingsPage() {
   const [defaultTurnApprovalPolicy, setDefaultTurnApprovalPolicy] = useState('')
   const [defaultTurnSandboxPolicyInput, setDefaultTurnSandboxPolicyInput] = useState('')
   const [defaultCommandSandboxPolicyInput, setDefaultCommandSandboxPolicyInput] = useState('')
+  const [allowRemoteAccess, setAllowRemoteAccess] = useState(true)
+  const [accessTokenDrafts, setAccessTokenDrafts] = useState<AccessTokenDraft[]>([])
   const [shellEnvironmentPolicyInput, setShellEnvironmentPolicyInput] = useState('')
   const [frontendRuntimeMode, setFrontendRuntimeMode] = useState(() => readFrontendRuntimeMode())
   const [backendThreadTraceEnabled, setBackendThreadTraceEnabled] = useState(false)
@@ -170,6 +188,8 @@ export function ConfigSettingsPage() {
       defaultCommandSandboxPolicy:
         input?.defaultCommandSandboxPolicy ??
         parseSandboxPolicyInput(defaultCommandSandboxPolicyInput),
+      allowRemoteAccess: input?.allowRemoteAccess ?? allowRemoteAccess,
+      accessTokens: input?.accessTokens ?? buildAccessTokenPayload(accessTokenDrafts),
     }
 
     const backendThreadTracePayload =
@@ -209,6 +229,10 @@ export function ConfigSettingsPage() {
     setDefaultCommandSandboxPolicyInput(
       stringifyJsonInput(result.configuredDefaultCommandSandboxPolicy),
     )
+    setAllowRemoteAccess(
+      result.configuredAllowRemoteAccess ?? result.effectiveAllowRemoteAccess ?? result.defaultAllowRemoteAccess,
+    )
+    setAccessTokenDrafts(buildAccessTokenDrafts(result))
     setBackendThreadTraceEnabled(
       result.configuredBackendThreadTraceEnabled ?? result.effectiveBackendThreadTraceEnabled ?? false,
     )
@@ -403,6 +427,7 @@ export function ConfigSettingsPage() {
     onSuccess: async (result) => {
       syncRuntimePreferencesForm(result)
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['access-bootstrap'] }),
         queryClient.invalidateQueries({ queryKey: ['settings-runtime-preferences'] }),
         queryClient.invalidateQueries({ queryKey: ['runtime-catalog'] }),
         queryClient.invalidateQueries({ queryKey: ['models'] }),
@@ -416,10 +441,25 @@ export function ConfigSettingsPage() {
           message: 'Runtime overrides applied',
         }),
         message: i18n._({
-          id: 'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
+          id: 'Access: {access}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
           message:
-            'Shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
+            'Access: {access}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.',
           values: {
+            access:
+              (result.configuredAccessTokens ?? []).filter((token) => token.status === 'active').length > 0
+                ? i18n._({
+                    id: '{count} active token(s)',
+                    message: '{count} active token(s)',
+                    values: {
+                      count: (result.configuredAccessTokens ?? []).filter(
+                        (token) => token.status === 'active',
+                      ).length,
+                    },
+                  })
+                : i18n._({ id: 'open', message: 'open' }),
+            remote: result.effectiveAllowRemoteAccess
+              ? i18n._({ id: 'allowed', message: 'allowed' })
+              : i18n._({ id: 'localhost only', message: 'localhost only' }),
             shell: shellLabel,
             terminal: terminalLabel,
             turnSandbox: formatSandboxPolicyLabel(result.effectiveDefaultTurnSandboxPolicy),
@@ -440,6 +480,24 @@ export function ConfigSettingsPage() {
           activateStoredTab('settings-config-main-tabs', 'runtime')
           activateStoredTab('settings-config-runtime-side-tabs', 'effective')
         },
+      })
+    },
+  })
+  const logoutAccessMutation = useMutation({
+    mutationFn: logoutAccess,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['access-bootstrap'] })
+      pushToast({
+        title: i18n._({
+          id: 'Browser session cleared',
+          message: 'Browser session cleared',
+        }),
+        message: i18n._({
+          id: 'The current browser access session was removed. If access control is enabled, the login page will appear on the next protected request.',
+          message:
+            'The current browser access session was removed. If access control is enabled, the login page will appear on the next protected request.',
+        }),
+        tone: 'success',
       })
     },
   })
@@ -576,6 +634,21 @@ export function ConfigSettingsPage() {
   )
   const runtimeSummary = {
     catalogBound: Boolean(runtimePreferencesQuery.data?.effectiveModelCatalogPath),
+    accessControl:
+      (runtimePreferencesQuery.data?.configuredAccessTokens ?? []).filter((token) => token.status === 'active').length > 0
+        ? i18n._({
+            id: '{count} active token(s)',
+            message: '{count} active token(s)',
+            values: {
+              count: (runtimePreferencesQuery.data?.configuredAccessTokens ?? []).filter(
+                (token) => token.status === 'active',
+              ).length,
+            },
+          })
+        : i18n._({ id: 'Open', message: 'Open' }),
+    remoteAccess: runtimePreferencesQuery.data?.effectiveAllowRemoteAccess
+      ? i18n._({ id: 'Allowed', message: 'Allowed' })
+      : i18n._({ id: 'localhost only', message: 'localhost only' }),
     defaultShellType:
       runtimePreferencesQuery.data?.effectiveDefaultShellType ||
       i18n._({
@@ -612,6 +685,19 @@ export function ConfigSettingsPage() {
   }
 
   const runtimeSummaryItems: SettingsSummaryItem[] = [
+    {
+      label: i18n._({ id: 'Access', message: 'Access' }),
+      value: runtimeSummary.accessControl,
+      tone:
+        (runtimePreferencesQuery.data?.configuredAccessTokens ?? []).filter((token) => token.status === 'active').length > 0
+          ? 'active'
+          : 'paused',
+    },
+    {
+      label: i18n._({ id: 'Remote', message: 'Remote' }),
+      value: runtimeSummary.remoteAccess,
+      tone: runtimePreferencesQuery.data?.effectiveAllowRemoteAccess ? 'active' : 'paused',
+    },
     {
       label: i18n._({ id: 'Catalog', message: 'Catalog' }),
       value: runtimeSummary.catalogBound
@@ -1297,6 +1383,262 @@ export function ConfigSettingsPage() {
                 <div className="config-card__header">
                   <strong>
                     {i18n._({
+                      id: 'Access Control',
+                      message: 'Access Control',
+                    })}
+                  </strong>
+                  <div className="setting-row__actions">
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      onClick={() =>
+                        setAccessTokenDrafts((current) => [
+                          ...current,
+                          {
+                            label: '',
+                            token: '',
+                            expiresAt: '',
+                            permanent: true,
+                          },
+                        ])
+                      }
+                      type="button"
+                    >
+                      {i18n._({ id: 'Add Token', message: 'Add Token' })}
+                    </button>
+                    <button
+                      className="ide-button ide-button--secondary ide-button--sm"
+                      disabled={logoutAccessMutation.isPending}
+                      onClick={() => logoutAccessMutation.mutate()}
+                      type="button"
+                    >
+                      {logoutAccessMutation.isPending
+                        ? i18n._({ id: 'Clearing…', message: 'Clearing…' })
+                        : i18n._({
+                            id: 'Clear Browser Session',
+                            message: 'Clear Browser Session',
+                          })}
+                    </button>
+                    <button className="ide-button ide-button--primary ide-button--sm" type="submit">
+                      {writeRuntimePreferencesMutation.isPending
+                        ? i18n._({ id: 'Saving…', message: 'Saving…' })
+                        : i18n._({
+                            id: 'Save Access Controls',
+                            message: 'Save Access Controls',
+                          })}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-stack">
+                  <p className="config-inline-note">
+                    {i18n._({
+                      id: 'When at least one active access token exists, the frontend switches to a login screen and the backend requires a validated browser session before serving protected API routes.',
+                      message:
+                        'When at least one active access token exists, the frontend switches to a login screen and the backend requires a validated browser session before serving protected API routes.',
+                    })}
+                  </p>
+
+                  <Switch
+                    checked={allowRemoteAccess}
+                    hint={i18n._({
+                      id: 'When disabled, codex-server only accepts localhost requests. LAN addresses, public IPs, and custom hostnames are rejected even before token login.',
+                      message:
+                        'When disabled, codex-server only accepts localhost requests. LAN addresses, public IPs, and custom hostnames are rejected even before token login.',
+                    })}
+                    label={i18n._({
+                      id: 'Allow Remote Access',
+                      message: 'Allow Remote Access',
+                    })}
+                    onChange={(event) => setAllowRemoteAccess(event.target.checked)}
+                  />
+
+                  {accessTokenDrafts.length === 0 ? (
+                    <div className="config-card config-card--muted">
+                      <p className="config-inline-note">
+                        {i18n._({
+                          id: 'No access tokens are configured. In this state the UI remains open until you save at least one active token.',
+                          message:
+                            'No access tokens are configured. In this state the UI remains open until you save at least one active token.',
+                        })}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {accessTokenDrafts.map((draft, index) => (
+                    <div className="config-card config-card--muted" key={draft.id ?? `access-token-${index}`}>
+                      <div className="config-card__header">
+                        <div>
+                          <strong>
+                            {draft.label?.trim() ||
+                              i18n._({
+                                id: 'Token {index}',
+                                message: 'Token {index}',
+                                values: { index: index + 1 },
+                              })}
+                          </strong>
+                        </div>
+                        <div className="setting-row__actions">
+                          {draft.status ? (
+                            <span
+                              className={
+                                draft.status === 'active'
+                                  ? 'runtime-chip runtime-chip--good'
+                                  : 'runtime-chip runtime-chip--warn'
+                              }
+                            >
+                              {draft.status}
+                            </span>
+                          ) : null}
+                          <button
+                            className="ide-button ide-button--ghost ide-button--ghost-danger ide-button--sm"
+                            onClick={() =>
+                              setAccessTokenDrafts((current) =>
+                                current.filter((_, tokenIndex) => tokenIndex !== index),
+                              )
+                            }
+                            type="button"
+                          >
+                            {i18n._({ id: 'Remove', message: 'Remove' })}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="form-stack">
+                        {draft.tokenPreview ? (
+                          <div className="runtime-inline-meta runtime-inline-meta--dense">
+                            <div className="runtime-inline-meta__entry">
+                              <span>{i18n._({ id: 'Preview', message: 'Preview' })}</span>
+                              <strong>{draft.tokenPreview}</strong>
+                            </div>
+                            {draft.updatedAt ? (
+                              <div className="runtime-inline-meta__entry">
+                                <span>{i18n._({ id: 'Updated', message: 'Updated' })}</span>
+                                <strong>{formatLocaleDateTime(draft.updatedAt)}</strong>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                          <Input
+                            label={i18n._({ id: 'Label', message: 'Label' })}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                              setAccessTokenDrafts((current) =>
+                                current.map((entry, tokenIndex) =>
+                                  tokenIndex === index
+                                    ? { ...entry, label: event.target.value }
+                                    : entry,
+                                ),
+                              )
+                            }
+                            placeholder={i18n._({
+                              id: 'Admin laptop',
+                              message: 'Admin laptop',
+                            })}
+                            value={draft.label}
+                          />
+
+                          <Input
+                            hint={
+                              draft.id
+                                ? i18n._({
+                                    id: 'Leave blank to keep the current token value. Enter a new value to rotate it.',
+                                    message:
+                                      'Leave blank to keep the current token value. Enter a new value to rotate it.',
+                                  })
+                                : i18n._({
+                                    id: 'Required when creating a new token.',
+                                    message: 'Required when creating a new token.',
+                                  })
+                            }
+                            label={i18n._({ id: 'Token Value', message: 'Token Value' })}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                              setAccessTokenDrafts((current) =>
+                                current.map((entry, tokenIndex) =>
+                                  tokenIndex === index
+                                    ? { ...entry, token: event.target.value }
+                                    : entry,
+                                ),
+                              )
+                            }
+                            placeholder={i18n._({
+                              id: 'Paste new token',
+                              message: 'Paste new token',
+                            })}
+                            type="password"
+                            value={draft.token}
+                          />
+                        </div>
+
+                        <Switch
+                          checked={draft.permanent}
+                          hint={i18n._({
+                            id: 'Disable this to enforce an expiry time. Once expired, the token no longer grants frontend access.',
+                            message:
+                              'Disable this to enforce an expiry time. Once expired, the token no longer grants frontend access.',
+                          })}
+                          label={i18n._({ id: 'Permanent Token', message: 'Permanent Token' })}
+                          onChange={(event) =>
+                            setAccessTokenDrafts((current) =>
+                              current.map((entry, tokenIndex) =>
+                                tokenIndex === index
+                                  ? {
+                                      ...entry,
+                                      permanent: event.target.checked,
+                                      expiresAt: event.target.checked ? '' : entry.expiresAt,
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+
+                        {!draft.permanent ? (
+                          <Input
+                            label={i18n._({ id: 'Expires At', message: 'Expires At' })}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                              setAccessTokenDrafts((current) =>
+                                current.map((entry, tokenIndex) =>
+                                  tokenIndex === index
+                                    ? { ...entry, expiresAt: event.target.value }
+                                    : entry,
+                                ),
+                              )
+                            }
+                            type="datetime-local"
+                            value={draft.expiresAt}
+                          />
+                        ) : null}
+
+                        {draft.createdAt ? (
+                          <p className="config-inline-note">
+                            {i18n._({
+                              id: 'Created: {createdAt}',
+                              message: 'Created: {createdAt}',
+                              values: {
+                                createdAt: formatLocaleDateTime(draft.createdAt),
+                              },
+                            })}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </form>
+
+              <form
+                className="config-card"
+                onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                  event.preventDefault()
+                  submitRuntimePreferences(undefined, {
+                    backendThreadTraceSource: 'configured',
+                  })
+                }}
+              >
+                <div className="config-card__header">
+                  <strong>
+                    {i18n._({
                       id: 'Shell & Execution Configuration',
                       message: 'Shell & Execution Configuration',
                     })}
@@ -1571,6 +1913,8 @@ export function ConfigSettingsPage() {
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultTurnSandboxPolicy,
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.effectiveDefaultCommandSandboxPolicy,
+                              allowRemoteAccess: runtimePreferencesQuery.data.effectiveAllowRemoteAccess,
+                              accessTokens: runtimePreferencesQuery.data.configuredAccessTokens,
                               backendThreadTrace: {
                                 enabled: runtimePreferencesQuery.data.effectiveBackendThreadTraceEnabled,
                                 workspaceId:
@@ -1603,6 +1947,9 @@ export function ConfigSettingsPage() {
                               defaultTurnApprovalPolicy: runtimePreferencesQuery.data.configuredDefaultTurnApprovalPolicy,
                               defaultTurnSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultTurnSandboxPolicy,
                               defaultCommandSandboxPolicy: runtimePreferencesQuery.data.configuredDefaultCommandSandboxPolicy,
+                              allowRemoteAccess:
+                                runtimePreferencesQuery.data.configuredAllowRemoteAccess,
+                              accessTokens: runtimePreferencesQuery.data.configuredAccessTokens,
                               backendThreadTrace: {
                                 enabled: runtimePreferencesQuery.data.configuredBackendThreadTraceEnabled,
                                 workspaceId:
@@ -2407,6 +2754,80 @@ function getScenarioMatchStatusLabel(match: ConfigScenarioMatch) {
   }
 
   return i18n._({ id: 'No match', message: 'No match' })
+}
+
+function buildAccessTokenDrafts(result: RuntimePreferencesResult): AccessTokenDraft[] {
+  return (result.configuredAccessTokens ?? []).map((token) => ({
+    id: token.id,
+    label: token.label ?? '',
+    token: '',
+    tokenPreview: token.tokenPreview,
+    expiresAt: token.permanent ? '' : toDateTimeLocalValue(token.expiresAt),
+    permanent: token.permanent,
+    status: token.status,
+    createdAt: token.createdAt ?? null,
+    updatedAt: token.updatedAt ?? null,
+  }))
+}
+
+function buildAccessTokenPayload(drafts: AccessTokenDraft[]): AccessTokenWriteInput[] {
+  return drafts.reduce<AccessTokenWriteInput[]>((items, draft) => {
+    const hasMeaningfulValue =
+      Boolean(draft.id) ||
+      Boolean(draft.label.trim()) ||
+      Boolean(draft.token.trim()) ||
+      Boolean(draft.expiresAt.trim())
+
+    if (!hasMeaningfulValue) {
+      return items
+    }
+
+    items.push({
+        id: draft.id,
+        label: draft.label.trim(),
+        token: draft.token.trim(),
+        expiresAt: draft.permanent ? undefined : toISOStringFromLocalDateTime(draft.expiresAt),
+        permanent: draft.permanent,
+      })
+    return items
+  }, [])
+}
+
+function toDateTimeLocalValue(value?: string | null) {
+  if (!value) {
+    return ''
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return ''
+  }
+
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  const hours = String(parsed.getHours()).padStart(2, '0')
+  const minutes = String(parsed.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function toISOStringFromLocalDateTime(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(
+      i18n._({
+        id: 'Access token expiry must be a valid date and time',
+        message: 'Access token expiry must be a valid date and time',
+      }),
+    )
+  }
+
+  return parsed.toISOString()
 }
 
 function parseJsonInput(value: string) {

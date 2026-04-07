@@ -502,18 +502,65 @@ func (p *wechatProvider) SendMessages(
 			continue
 		}
 
-		for index, media := range message.Media {
-			caption := ""
-			if index == 0 {
-				caption = text
+		items := make([]wechatMessageItem, 0, len(message.Media))
+		prepareFailed := false
+		var prepareErr error
+		for _, media := range message.Media {
+			item, err := p.prepareWeChatMediaMessageItem(ctx, baseURL, cdnBaseURL, token, routeTag, toUserID, media)
+			if err != nil {
+				prepareFailed = true
+				prepareErr = err
+				break
 			}
-			if err := p.sendMediaMessage(ctx, baseURL, cdnBaseURL, token, routeTag, toUserID, contextToken, caption, media); err != nil {
+			items = append(items, item)
+		}
+		if prepareFailed {
+			fallbackText := wechatFallbackTextForMessage(message)
+			if fallbackText == "" {
+				return prepareErr
+			}
+			logBotDebug(ctx, connection, "wechat media preparation failed; falling back to text")
+			if err := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, fallbackText); err != nil {
+				return errors.Join(prepareErr, err)
+			}
+			continue
+		}
+
+		textSent := false
+		if text != "" {
+			if err := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, text); err != nil {
 				return err
+			}
+			textSent = true
+		}
+
+		for _, item := range items {
+			if err := p.sendMessageItem(ctx, baseURL, token, routeTag, toUserID, contextToken, item); err != nil {
+				if !textSent {
+					fallbackText := wechatFallbackTextForMessage(message)
+					if fallbackText == "" {
+						return err
+					}
+					logBotDebug(ctx, connection, "wechat media send failed before any text reply; falling back to text")
+					if fallbackErr := p.sendTextMessage(ctx, baseURL, token, routeTag, toUserID, contextToken, fallbackText); fallbackErr != nil {
+						return errors.Join(err, fallbackErr)
+					}
+				} else {
+					logBotDebug(ctx, connection, "wechat media send failed after text reply; keeping text fallback")
+				}
+				break
 			}
 		}
 	}
 
 	return nil
+}
+
+func wechatFallbackTextForMessage(message OutboundMessage) string {
+	if text := strings.TrimSpace(message.Text); text != "" {
+		return text
+	}
+	return messageSummaryText("", message.Media)
 }
 
 func (p *wechatProvider) StartStreamingReply(

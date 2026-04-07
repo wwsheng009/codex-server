@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"codex-server/backend/internal/accesscontrol"
 	"codex-server/backend/internal/approvals"
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/automations"
@@ -227,6 +228,178 @@ func TestRenameWorkspaceRouteUpdatesWorkspaceName(t *testing.T) {
 
 	if workspace.Name != "Renamed Workspace" {
 		t.Fatalf("expected workspace name to be updated, got %q", workspace.Name)
+	}
+}
+
+func TestStopServerRouteRequestsShutdown(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	var shutdownReason string
+	router := newTestRouterWithShutdown(dataStore, func(reason string) bool {
+		shutdownReason = reason
+		return true
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/__admin/stop", nil)
+	request.Header.Set("X-Codex-Server-Action", "stop")
+	request.RemoteAddr = "127.0.0.1:48321"
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from stop route, got %d", recorder.Code)
+	}
+
+	if shutdownReason != "http-stop" {
+		t.Fatalf("expected shutdown reason %q, got %q", "http-stop", shutdownReason)
+	}
+}
+
+func TestStopServerRouteRejectsNonLoopbackRequests(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	shutdownCalled := false
+	router := newTestRouterWithShutdown(dataStore, func(reason string) bool {
+		shutdownCalled = true
+		return true
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/__admin/stop", nil)
+	request.Header.Set("X-Codex-Server-Action", "stop")
+	request.RemoteAddr = "192.168.1.20:48321"
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 from stop route, got %d", recorder.Code)
+	}
+
+	if shutdownCalled {
+		t.Fatal("expected shutdown callback not to be called for non-loopback request")
+	}
+}
+
+func TestProtectedRoutesRequireAccessLoginWhenTokensConfigured(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	tokens, err := accesscontrol.ApplyTokenInputs(nil, []accesscontrol.TokenInput{
+		{
+			Label:     "Primary",
+			Token:     "super-secret-token",
+			Permanent: true,
+		},
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("ApplyTokenInputs() error = %v", err)
+	}
+	dataStore.SetRuntimePreferences(store.RuntimePreferences{
+		AccessTokens: tokens,
+	})
+
+	router := newTestRouter(dataStore)
+
+	protectedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	protectedRequest.RemoteAddr = "127.0.0.1:41000"
+	protectedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(protectedRecorder, protectedRequest)
+
+	if protectedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 from protected route without session, got %d", protectedRecorder.Code)
+	}
+
+	var unauthorizedPayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, protectedRecorder, &unauthorizedPayload)
+	if unauthorizedPayload.Error.Code != "access_login_required" {
+		t.Fatalf("expected access_login_required, got %q", unauthorizedPayload.Error.Code)
+	}
+
+	loginRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/api/access/login",
+		strings.NewReader(`{"token":"super-secret-token"}`),
+	)
+	loginRequest.RemoteAddr = "127.0.0.1:41000"
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginRecorder := httptest.NewRecorder()
+	router.ServeHTTP(loginRecorder, loginRequest)
+
+	if loginRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from access login, got %d", loginRecorder.Code)
+	}
+
+	cookies := loginRecorder.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected access login to set a session cookie")
+	}
+
+	authorizedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	authorizedRequest.RemoteAddr = "127.0.0.1:41000"
+	authorizedRequest.AddCookie(cookies[0])
+	authorizedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(authorizedRecorder, authorizedRequest)
+
+	if authorizedRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 from protected route with session, got %d", authorizedRecorder.Code)
+	}
+}
+
+func TestRemoteAccessDisabledRejectsNonLoopbackRequests(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	disabled := false
+	dataStore.SetRuntimePreferences(store.RuntimePreferences{
+		AllowRemoteAccess: &disabled,
+	})
+
+	router := newTestRouter(dataStore)
+	request := httptest.NewRequest(http.MethodGet, "/api/access/bootstrap", nil)
+	request.RemoteAddr = "192.168.1.20:48000"
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when remote access is disabled, got %d", recorder.Code)
+	}
+
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, recorder, &payload)
+	if payload.Error.Code != "remote_access_disabled" {
+		t.Fatalf("expected remote_access_disabled, got %q", payload.Error.Code)
 	}
 }
 
@@ -1581,6 +1754,10 @@ func TestWriteStoreErrorMapsAuthenticationFailures(t *testing.T) {
 }
 
 func newTestRouter(dataStore *store.MemoryStore) http.Handler {
+	return newTestRouterWithShutdown(dataStore, nil)
+}
+
+func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown func(reason string) bool) http.Handler {
 	eventHub := events.NewHub()
 	eventHub.AttachStore(dataStore)
 	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
@@ -1591,6 +1768,7 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 		"",
 		nil,
 		"",
+		true,
 		false,
 		"",
 		"",
@@ -1607,23 +1785,26 @@ func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
 	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
+	accessControlService := accesscontrol.NewService(dataStore, true)
 
 	return NewRouter(Dependencies{
-		FrontendOrigin: "http://localhost:15173",
-		Auth:           authService,
-		Workspaces:     workspaceService,
-		Bots:           botService,
-		Automations:    automationService,
-		Notifications:  notificationsService,
-		Threads:        threadService,
-		Turns:          turnService,
-		Approvals:      approvalsService,
-		Catalog:        catalog.NewService(runtimeManager, runtimePrefsService),
-		ConfigFS:       configFSService,
-		ExecFS:         execfsService,
-		Feedback:       feedbackService,
-		Events:         eventHub,
-		RuntimePrefs:   runtimePrefsService,
+		FrontendOrigin:  "http://localhost:15173",
+		RequestShutdown: requestShutdown,
+		Auth:            authService,
+		Workspaces:      workspaceService,
+		Bots:            botService,
+		Automations:     automationService,
+		Notifications:   notificationsService,
+		Threads:         threadService,
+		Turns:           turnService,
+		Approvals:       approvalsService,
+		Catalog:         catalog.NewService(runtimeManager, runtimePrefsService),
+		ConfigFS:        configFSService,
+		ExecFS:          execfsService,
+		Feedback:        feedbackService,
+		Events:          eventHub,
+		RuntimePrefs:    runtimePrefsService,
+		AccessControl:   accessControlService,
 	})
 }
 

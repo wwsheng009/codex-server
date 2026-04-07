@@ -14,25 +14,36 @@ export function ThreadTerminalConsoleMeta({
     !isLauncherOpen && (selectedCommandSession?.currentCwd || selectedCommandSession?.initialCwd)
       ? selectedCommandSession.currentCwd || selectedCommandSession.initialCwd
       : rootPath
+  const metaValues = [
+    !isLauncherOpen && selectedCommandSession?.id ? selectedCommandSession.id : null,
+    !isLauncherOpen && selectedCommandSession?.shellPath ? selectedCommandSession.shellPath : null,
+    currentWorkspacePath ?? null,
+  ].filter((value): value is string => Boolean(value))
 
   return (
     <div className="terminal-dock__meta">
-      {!isLauncherOpen && selectedCommandSession?.id ? <code>{selectedCommandSession.id}</code> : null}
-      {!isLauncherOpen && selectedCommandSession?.shellPath ? (
-        <code>{selectedCommandSession.shellPath}</code>
+      {metaValues.length ? (
+        <div className="terminal-dock__meta-values">
+          {metaValues.map((value) => (
+            <span className="terminal-dock__meta-token" key={value} title={value}>
+              {value}
+            </span>
+          ))}
+        </div>
       ) : null}
-      {currentWorkspacePath ? <code>{currentWorkspacePath}</code> : null}
       {hasFinishedSessions ? (
-        <button
-          className="terminal-dock__meta-action"
-          onClick={onClearCompletedSessions}
-          type="button"
-        >
-          {i18n._({
-            id: 'Clear finished',
-            message: 'Clear finished',
-          })}
-        </button>
+        <div className="terminal-dock__meta-actions">
+          <button
+            className="terminal-dock__meta-action"
+            onClick={onClearCompletedSessions}
+            type="button"
+          >
+            {i18n._({
+              id: 'Clear finished',
+              message: 'Clear finished',
+            })}
+          </button>
+        </div>
       ) : null}
     </div>
   )

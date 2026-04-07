@@ -2,6 +2,7 @@ import { apiRequest } from '../../lib/api-client'
 import type {
   ConfigReadResult,
   ConfigRequirementsResult,
+  AccessBootstrapResult,
   ConfigWriteResult,
   ExternalAgentConfigDetectResult,
   FeedbackUploadResult,
@@ -22,9 +23,19 @@ export type WriteRuntimePreferencesInput = {
   defaultTurnApprovalPolicy?: string
   defaultTurnSandboxPolicy?: Record<string, unknown>
   defaultCommandSandboxPolicy?: Record<string, unknown>
+  allowRemoteAccess?: boolean | null
+  accessTokens?: AccessTokenWriteInput[]
   backendThreadTraceEnabled?: boolean | null
   backendThreadTraceWorkspaceId?: string
   backendThreadTraceThreadId?: string
+}
+
+export type AccessTokenWriteInput = {
+  id?: string
+  label?: string
+  token?: string
+  expiresAt?: string
+  permanent?: boolean
 }
 
 export type WriteConfigValueInput = {
@@ -75,6 +86,23 @@ export function readConfig(workspaceId: string, input: ReadConfigInput) {
 
 export function readRuntimePreferences() {
   return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences`)
+}
+
+export function readAccessBootstrap() {
+  return apiRequest<AccessBootstrapResult>(`/api/access/bootstrap`)
+}
+
+export function loginAccess(token: string) {
+  return apiRequest<AccessBootstrapResult>(`/api/access/login`, {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
+export function logoutAccess() {
+  return apiRequest<{ status: string }>(`/api/access/logout`, {
+    method: 'POST',
+  })
 }
 
 export function writeRuntimePreferences(input: WriteRuntimePreferencesInput) {

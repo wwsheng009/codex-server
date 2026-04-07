@@ -22,12 +22,63 @@ import type {
   ThreadTerminalViewportProps,
 } from './threadTerminalViewportTypes'
 
-const TERMINAL_THEME = {
-  background: '#0c1117',
-  cursor: '#4ec6ff',
-  foreground: '#edf2f7',
-  selectionBackground: 'rgba(255, 255, 255, 0.18)',
+const DEFAULT_TERMINAL_THEME = {
+  background: '#141b24',
+  black: '#667180',
+  blue: '#5c74f7',
+  brightBlack: '#8a96a5',
+  brightBlue: '#8ea2ff',
+  brightCyan: '#56c8cf',
+  brightGreen: '#54c784',
+  brightMagenta: '#ce8cff',
+  brightRed: '#f38b88',
+  brightWhite: '#e8edf5',
+  brightYellow: '#d8b14c',
+  cyan: '#36a7b0',
+  cursor: '#5271ff',
+  cursorAccent: '#ffffff',
+  foreground: '#d8e2ee',
+  green: '#3ea873',
+  magenta: '#b16fe0',
+  red: '#dd6c76',
+  scrollbarSliderActiveBackground: 'rgba(82, 113, 255, 0.24)',
+  scrollbarSliderBackground: 'rgba(148, 163, 184, 0.16)',
+  scrollbarSliderHoverBackground: 'rgba(148, 163, 184, 0.24)',
+  selectionBackground: 'rgba(82, 113, 255, 0.18)',
+  selectionInactiveBackground: 'rgba(148, 163, 184, 0.12)',
+  white: '#aab6c4',
+  yellow: '#ba8d2f',
 } as const
+
+type TerminalThemeTokenKey = keyof typeof DEFAULT_TERMINAL_THEME
+
+const TERMINAL_THEME_CSS_TOKENS: Record<TerminalThemeTokenKey, `--${string}`> = {
+  background: '--surface-terminal-strong',
+  black: '--terminal-ansi-black',
+  blue: '--terminal-ansi-blue',
+  brightBlack: '--terminal-ansi-bright-black',
+  brightBlue: '--terminal-ansi-bright-blue',
+  brightCyan: '--terminal-ansi-bright-cyan',
+  brightGreen: '--terminal-ansi-bright-green',
+  brightMagenta: '--terminal-ansi-bright-magenta',
+  brightRed: '--terminal-ansi-bright-red',
+  brightWhite: '--terminal-ansi-bright-white',
+  brightYellow: '--terminal-ansi-bright-yellow',
+  cyan: '--terminal-ansi-cyan',
+  cursor: '--terminal-cursor',
+  cursorAccent: '--terminal-cursor-accent',
+  foreground: '--text-terminal-primary',
+  green: '--terminal-ansi-green',
+  magenta: '--terminal-ansi-magenta',
+  red: '--terminal-ansi-red',
+  scrollbarSliderActiveBackground: '--terminal-scrollbar-active',
+  scrollbarSliderBackground: '--terminal-scrollbar',
+  scrollbarSliderHoverBackground: '--terminal-scrollbar-hover',
+  selectionBackground: '--surface-terminal-selection',
+  selectionInactiveBackground: '--surface-terminal-selection-inactive',
+  white: '--terminal-ansi-white',
+  yellow: '--terminal-ansi-yellow',
+}
 
 const DEFAULT_TERMINAL_FONT_FAMILY =
   "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Segoe UI Mono', monospace"
@@ -178,7 +229,7 @@ export const ThreadTerminalViewport = forwardRef<
       fontSize: terminalFontSize,
       lineHeight: terminalLineHeight,
       scrollback: TERMINAL_VIEWPORT_SCROLLBACK,
-      theme: TERMINAL_THEME,
+      theme: resolveTerminalThemeFromCss(),
       ...(windowsPty ? { windowsPty: WINDOWS_PTY_OPTIONS } : {}),
     })
     const fitAddon = new FitAddon()
@@ -186,6 +237,7 @@ export const ThreadTerminalViewport = forwardRef<
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(searchAddon)
     terminal.open(host)
+    applyTerminalThemeFromCss(terminal)
     void syncTerminalRenderer(terminal, webglAddonRef, terminalRenderer)
     terminal.attachCustomKeyEventHandler((event) => {
       if (shouldCopyTerminalSelection(event, terminal.getSelection())) {
@@ -206,6 +258,7 @@ export const ThreadTerminalViewport = forwardRef<
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
+    const stopObservingTerminalTheme = observeTerminalThemeChanges(terminal)
 
     const dataDisposable = terminal.onData((data) => {
       if (!latestInteractiveRef.current || !latestSessionIdRef.current) {
@@ -348,6 +401,7 @@ export const ThreadTerminalViewport = forwardRef<
       fitFrameRef.current = undefined
       window.clearTimeout(resizeTimerRef.current)
       resizeObserver.disconnect()
+      stopObservingTerminalTheme()
       dataDisposable.dispose()
       selectionDisposable.dispose()
       fitAddon.dispose()
@@ -562,11 +616,12 @@ export const ThreadTerminalLauncherViewport = forwardRef<
       fontSize: terminalFontSize,
       lineHeight: terminalLineHeight,
       scrollback: TERMINAL_LAUNCHER_SCROLLBACK,
-      theme: TERMINAL_THEME,
+      theme: resolveTerminalThemeFromCss(),
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(host)
+    applyTerminalThemeFromCss(terminal)
     void syncTerminalRenderer(terminal, webglAddonRef, terminalRenderer)
     terminal.attachCustomKeyEventHandler((event) => {
       if (shouldCopyTerminalSelection(event, terminal.getSelection())) {
@@ -583,6 +638,7 @@ export const ThreadTerminalLauncherViewport = forwardRef<
     })
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
+    const stopObservingTerminalTheme = observeTerminalThemeChanges(terminal)
 
     function requestFit() {
       if (fitFrameRef.current !== undefined) {
@@ -635,6 +691,7 @@ export const ThreadTerminalLauncherViewport = forwardRef<
       host.removeEventListener('paste', handleBrowserPaste)
       dataDisposable.dispose()
       selectionDisposable.dispose()
+      stopObservingTerminalTheme()
       if (fitFrameRef.current !== undefined) {
         window.cancelAnimationFrame(fitFrameRef.current)
       }
@@ -1153,4 +1210,82 @@ async function syncTerminalRenderer(
   } catch {
     webglAddonRef.current = null
   }
+}
+
+function resolveTerminalThemeFromCss() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_TERMINAL_THEME
+  }
+
+  const styles = window.getComputedStyle(document.documentElement)
+
+  return {
+    background: readTerminalThemeToken(styles, 'background'),
+    black: readTerminalThemeToken(styles, 'black'),
+    blue: readTerminalThemeToken(styles, 'blue'),
+    brightBlack: readTerminalThemeToken(styles, 'brightBlack'),
+    brightBlue: readTerminalThemeToken(styles, 'brightBlue'),
+    brightCyan: readTerminalThemeToken(styles, 'brightCyan'),
+    brightGreen: readTerminalThemeToken(styles, 'brightGreen'),
+    brightMagenta: readTerminalThemeToken(styles, 'brightMagenta'),
+    brightRed: readTerminalThemeToken(styles, 'brightRed'),
+    brightWhite: readTerminalThemeToken(styles, 'brightWhite'),
+    brightYellow: readTerminalThemeToken(styles, 'brightYellow'),
+    cyan: readTerminalThemeToken(styles, 'cyan'),
+    cursor: readTerminalThemeToken(styles, 'cursor'),
+    cursorAccent: readTerminalThemeToken(styles, 'cursorAccent'),
+    foreground: readTerminalThemeToken(styles, 'foreground'),
+    green: readTerminalThemeToken(styles, 'green'),
+    magenta: readTerminalThemeToken(styles, 'magenta'),
+    red: readTerminalThemeToken(styles, 'red'),
+    scrollbarSliderActiveBackground: readTerminalThemeToken(styles, 'scrollbarSliderActiveBackground'),
+    scrollbarSliderBackground: readTerminalThemeToken(styles, 'scrollbarSliderBackground'),
+    scrollbarSliderHoverBackground: readTerminalThemeToken(styles, 'scrollbarSliderHoverBackground'),
+    selectionBackground: readTerminalThemeToken(styles, 'selectionBackground'),
+    selectionInactiveBackground: readTerminalThemeToken(styles, 'selectionInactiveBackground'),
+    white: readTerminalThemeToken(styles, 'white'),
+    yellow: readTerminalThemeToken(styles, 'yellow'),
+  }
+}
+
+function readCssColorToken(styles: CSSStyleDeclaration, token: string, fallback: string) {
+  const value = styles.getPropertyValue(token).trim()
+  return value || fallback
+}
+
+function readTerminalThemeToken(styles: CSSStyleDeclaration, key: TerminalThemeTokenKey) {
+  return readCssColorToken(styles, TERMINAL_THEME_CSS_TOKENS[key], DEFAULT_TERMINAL_THEME[key])
+}
+
+function applyTerminalThemeFromCss(terminal: Terminal | null) {
+  if (!terminal) {
+    return
+  }
+
+  terminal.options.theme = resolveTerminalThemeFromCss()
+  if (terminal.rows > 0) {
+    terminal.refresh(0, terminal.rows - 1)
+  }
+}
+
+function observeTerminalThemeChanges(terminal: Terminal | null) {
+  if (!terminal || typeof MutationObserver === 'undefined' || typeof document === 'undefined') {
+    return () => undefined
+  }
+
+  const root = document.documentElement
+  const applyTheme = () => {
+    applyTerminalThemeFromCss(terminal)
+  }
+  const observer = new MutationObserver(() => {
+    applyTheme()
+  })
+
+  observer.observe(root, {
+    attributeFilter: ['data-color-theme', 'data-theme', 'style'],
+    attributes: true,
+  })
+  applyTheme()
+
+  return () => observer.disconnect()
 }
