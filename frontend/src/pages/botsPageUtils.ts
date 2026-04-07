@@ -343,7 +343,11 @@ export function formatBotConversationTitle(conversation: BotConversation) {
     conversation.externalChatId
 
   if (conversation.provider.trim().toLowerCase() === 'telegram' && conversation.externalThreadId) {
-    return `${baseTitle} (topic ${conversation.externalThreadId})`
+    return i18n._({
+      id: '{baseTitle} (topic {externalThreadId})',
+      message: '{baseTitle} (topic {externalThreadId})',
+      values: { baseTitle, externalThreadId: conversation.externalThreadId },
+    })
   }
 
   return baseTitle

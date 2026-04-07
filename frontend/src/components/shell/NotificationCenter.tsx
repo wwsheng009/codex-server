@@ -10,6 +10,7 @@ import {
 } from '../../features/notifications/api'
 import {
   buildNotificationItemFromEvent,
+  describeNotificationRealtimeDiagnosticsChangeDetails,
   formatNotificationRealtimeDiagnosticsChangeTrigger,
   formatRealtimeNotificationWorkspaceReason,
   upsertNotificationItem,
@@ -431,66 +432,81 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
                     })}
                   </strong>
                   {diagnosticsHistory.length ? (
-                    diagnosticsHistory.map((entry) => (
-                      <div
-                        className="web-ide__notification-debug-history-item"
-                        key={`${entry.changedAt}-${entry.signature}`}
-                      >
-                        <div className="web-ide__notification-debug-history-item-header">
-                          <span>{formatTimestamp(entry.changedAt)}</span>
-                          <span className="meta-pill">
-                            {i18n._({
-                              id: '{count} workspaces',
-                              message: '{count} workspaces',
-                              values: { count: formatLocaleNumber(entry.subscriptions.length) },
-                            })}
-                          </span>
-                        </div>
-                        <div className="web-ide__notification-debug-history-item-triggers">
-                          {entry.changeTriggerCodes.map((triggerCode) => (
-                            <span className="meta-pill" key={`${entry.signature}-${triggerCode}`}>
-                              {formatNotificationRealtimeDiagnosticsChangeTrigger(triggerCode)}
+                    diagnosticsHistory.map((entry) => {
+                      const changeDetailLines = describeNotificationRealtimeDiagnosticsChangeDetails(
+                        entry.changeDetails,
+                        workspaceNameById,
+                      )
+
+                      return (
+                        <div
+                          className="web-ide__notification-debug-history-item"
+                          key={`${entry.changedAt}-${entry.signature}`}
+                        >
+                          <div className="web-ide__notification-debug-history-item-header">
+                            <span>{formatTimestamp(entry.changedAt)}</span>
+                            <span className="meta-pill">
+                              {i18n._({
+                                id: '{count} workspaces',
+                                message: '{count} workspaces',
+                                values: { count: formatLocaleNumber(entry.subscriptions.length) },
+                              })}
                             </span>
+                          </div>
+                          <div className="web-ide__notification-debug-history-item-triggers">
+                            {entry.changeTriggerCodes.map((triggerCode) => (
+                              <span className="meta-pill" key={`${entry.signature}-${triggerCode}`}>
+                                {formatNotificationRealtimeDiagnosticsChangeTrigger(triggerCode)}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="web-ide__notification-debug-history-item-copy">
+                            {entry.activeWorkspaceId
+                              ? i18n._({
+                                  id: 'Active workspace candidate: {workspaceId}',
+                                  message: 'Active workspace candidate: {workspaceId}',
+                                  values: { workspaceId: entry.activeWorkspaceId },
+                                })
+                              : i18n._({
+                                  id: 'No active workspace candidate',
+                                  message: 'No active workspace candidate',
+                                })}
+                          </div>
+                          <div className="web-ide__notification-debug-history-item-copy">
+                            {entry.routePath
+                              ? i18n._({
+                                  id: 'Route context: {routePath}',
+                                  message: 'Route context: {routePath}',
+                                  values: { routePath: entry.routePath },
+                                })
+                              : i18n._({
+                                  id: 'No route context recorded',
+                                  message: 'No route context recorded',
+                                })}
+                          </div>
+                          {changeDetailLines.map((detailLine) => (
+                            <div
+                              className="web-ide__notification-debug-history-item-copy"
+                              key={`${entry.signature}-${detailLine}`}
+                            >
+                              {detailLine}
+                            </div>
                           ))}
+                          <div className="web-ide__notification-debug-history-item-copy">
+                            {entry.subscriptions.length
+                              ? entry.subscriptions
+                                  .map((subscription) =>
+                                    workspaceNameById[subscription.workspaceId] || subscription.workspaceId,
+                                  )
+                                  .join(', ')
+                              : i18n._({
+                                  id: 'No live workspaces',
+                                  message: 'No live workspaces',
+                                })}
+                          </div>
                         </div>
-                        <div className="web-ide__notification-debug-history-item-copy">
-                          {entry.activeWorkspaceId
-                            ? i18n._({
-                                id: 'Active workspace candidate: {workspaceId}',
-                                message: 'Active workspace candidate: {workspaceId}',
-                                values: { workspaceId: entry.activeWorkspaceId },
-                              })
-                            : i18n._({
-                                id: 'No active workspace candidate',
-                                message: 'No active workspace candidate',
-                              })}
-                        </div>
-                        <div className="web-ide__notification-debug-history-item-copy">
-                          {entry.routePath
-                            ? i18n._({
-                                id: 'Route context: {routePath}',
-                                message: 'Route context: {routePath}',
-                                values: { routePath: entry.routePath },
-                              })
-                            : i18n._({
-                                id: 'No route context recorded',
-                                message: 'No route context recorded',
-                              })}
-                        </div>
-                        <div className="web-ide__notification-debug-history-item-copy">
-                          {entry.subscriptions.length
-                            ? entry.subscriptions
-                                .map((subscription) =>
-                                  workspaceNameById[subscription.workspaceId] || subscription.workspaceId,
-                                )
-                                .join(', ')
-                            : i18n._({
-                                id: 'No live workspaces',
-                                message: 'No live workspaces',
-                              })}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   ) : (
                     <div className="notice">
                       {i18n._({

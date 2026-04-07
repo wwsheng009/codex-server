@@ -21,6 +21,7 @@ export type RealtimeNotificationWorkspaceSubscription = {
 
 export type NotificationRealtimeDiagnosticsHistoryEntry = {
   activeWorkspaceId: string
+  changeDetails: NotificationRealtimeDiagnosticsChangeDetails
   changeTriggerCodes: NotificationRealtimeDiagnosticsChangeTriggerCode[]
   changedAt: string
   routePath: string
@@ -32,6 +33,15 @@ export type NotificationRealtimeDiagnosticsHistoryState = {
   history: NotificationRealtimeDiagnosticsHistoryEntry[]
   lastChangedAt: string
   signature: string
+}
+
+export type NotificationRealtimeDiagnosticsChangeDetails = {
+  recentSuppressionClearedWorkspaceIds: string[]
+  recentSuppressionEnteredWorkspaceIds: string[]
+  unreadScopeClearedWorkspaceIds: string[]
+  unreadScopeEnteredWorkspaceIds: string[]
+  workspaceSubscriptionAddedIds: string[]
+  workspaceSubscriptionRemovedIds: string[]
 }
 
 export type NotificationRealtimeDiagnosticsChangeTriggerCode =
@@ -262,6 +272,105 @@ export function formatNotificationRealtimeDiagnosticsChangeTrigger(
   }
 }
 
+export function describeNotificationRealtimeDiagnosticsChangeDetails(
+  changeDetails: NotificationRealtimeDiagnosticsChangeDetails,
+  workspaceNameById: Record<string, string> = {},
+) {
+  const detailLines: string[] = []
+
+  if (changeDetails.workspaceSubscriptionAddedIds.length) {
+    detailLines.push(
+      i18n._({
+        id: 'Workspaces added: {workspaces}',
+        message: 'Workspaces added: {workspaces}',
+        values: {
+          workspaces: formatNotificationRealtimeDiagnosticsWorkspaceList(
+            changeDetails.workspaceSubscriptionAddedIds,
+            workspaceNameById,
+          ),
+        },
+      }),
+    )
+  }
+
+  if (changeDetails.workspaceSubscriptionRemovedIds.length) {
+    detailLines.push(
+      i18n._({
+        id: 'Workspaces removed: {workspaces}',
+        message: 'Workspaces removed: {workspaces}',
+        values: {
+          workspaces: formatNotificationRealtimeDiagnosticsWorkspaceList(
+            changeDetails.workspaceSubscriptionRemovedIds,
+            workspaceNameById,
+          ),
+        },
+      }),
+    )
+  }
+
+  if (changeDetails.unreadScopeEnteredWorkspaceIds.length) {
+    detailLines.push(
+      i18n._({
+        id: 'Unread entered: {workspaces}',
+        message: 'Unread entered: {workspaces}',
+        values: {
+          workspaces: formatNotificationRealtimeDiagnosticsWorkspaceList(
+            changeDetails.unreadScopeEnteredWorkspaceIds,
+            workspaceNameById,
+          ),
+        },
+      }),
+    )
+  }
+
+  if (changeDetails.unreadScopeClearedWorkspaceIds.length) {
+    detailLines.push(
+      i18n._({
+        id: 'Unread cleared: {workspaces}',
+        message: 'Unread cleared: {workspaces}',
+        values: {
+          workspaces: formatNotificationRealtimeDiagnosticsWorkspaceList(
+            changeDetails.unreadScopeClearedWorkspaceIds,
+            workspaceNameById,
+          ),
+        },
+      }),
+    )
+  }
+
+  if (changeDetails.recentSuppressionEnteredWorkspaceIds.length) {
+    detailLines.push(
+      i18n._({
+        id: 'Suppression entered: {workspaces}',
+        message: 'Suppression entered: {workspaces}',
+        values: {
+          workspaces: formatNotificationRealtimeDiagnosticsWorkspaceList(
+            changeDetails.recentSuppressionEnteredWorkspaceIds,
+            workspaceNameById,
+          ),
+        },
+      }),
+    )
+  }
+
+  if (changeDetails.recentSuppressionClearedWorkspaceIds.length) {
+    detailLines.push(
+      i18n._({
+        id: 'Suppression cleared: {workspaces}',
+        message: 'Suppression cleared: {workspaces}',
+        values: {
+          workspaces: formatNotificationRealtimeDiagnosticsWorkspaceList(
+            changeDetails.recentSuppressionClearedWorkspaceIds,
+            workspaceNameById,
+          ),
+        },
+      }),
+    )
+  }
+
+  return detailLines
+}
+
 export function createEmptyNotificationRealtimeDiagnosticsHistoryState(): NotificationRealtimeDiagnosticsHistoryState {
   return {
     history: [],
@@ -297,13 +406,15 @@ export function updateNotificationRealtimeDiagnosticsHistory(
   }
 
   const previousEntry = current.history[0]
+  const changeDetails = buildNotificationRealtimeDiagnosticsChangeDetails(previousEntry, subscriptions)
   const entry: NotificationRealtimeDiagnosticsHistoryEntry = {
     activeWorkspaceId,
+    changeDetails,
     changeTriggerCodes: buildNotificationRealtimeDiagnosticsChangeTriggerCodes(
       previousEntry,
       activeWorkspaceId,
       routePath,
-      subscriptions,
+      changeDetails,
     ),
     changedAt: input.changedAt,
     routePath,
@@ -401,7 +512,7 @@ function buildNotificationRealtimeDiagnosticsChangeTriggerCodes(
   previousEntry: NotificationRealtimeDiagnosticsHistoryEntry | undefined,
   activeWorkspaceId: string,
   routePath: string,
-  subscriptions: RealtimeNotificationWorkspaceSubscription[],
+  changeDetails: NotificationRealtimeDiagnosticsChangeDetails,
 ): NotificationRealtimeDiagnosticsChangeTriggerCode[] {
   if (!previousEntry) {
     return ['initial_snapshot'] satisfies NotificationRealtimeDiagnosticsChangeTriggerCode[]
@@ -415,6 +526,45 @@ function buildNotificationRealtimeDiagnosticsChangeTriggerCodes(
     triggerCodes.add('active_workspace_changed')
   }
 
+  if (changeDetails.workspaceSubscriptionAddedIds.length) {
+    triggerCodes.add('workspace_subscription_added')
+  }
+  if (changeDetails.workspaceSubscriptionRemovedIds.length) {
+    triggerCodes.add('workspace_subscription_removed')
+  }
+  if (changeDetails.unreadScopeEnteredWorkspaceIds.length) {
+    triggerCodes.add('unread_scope_entered')
+  }
+  if (changeDetails.unreadScopeClearedWorkspaceIds.length) {
+    triggerCodes.add('unread_scope_cleared')
+  }
+  if (changeDetails.recentSuppressionEnteredWorkspaceIds.length) {
+    triggerCodes.add('recent_suppression_entered')
+  }
+  if (changeDetails.recentSuppressionClearedWorkspaceIds.length) {
+    triggerCodes.add('recent_suppression_cleared')
+  }
+
+  return [...triggerCodes] satisfies NotificationRealtimeDiagnosticsChangeTriggerCode[]
+}
+
+function buildNotificationRealtimeDiagnosticsChangeDetails(
+  previousEntry: NotificationRealtimeDiagnosticsHistoryEntry | undefined,
+  subscriptions: RealtimeNotificationWorkspaceSubscription[],
+): NotificationRealtimeDiagnosticsChangeDetails {
+  const changeDetails: NotificationRealtimeDiagnosticsChangeDetails = {
+    recentSuppressionClearedWorkspaceIds: [],
+    recentSuppressionEnteredWorkspaceIds: [],
+    unreadScopeClearedWorkspaceIds: [],
+    unreadScopeEnteredWorkspaceIds: [],
+    workspaceSubscriptionAddedIds: [],
+    workspaceSubscriptionRemovedIds: [],
+  }
+
+  if (!previousEntry) {
+    return changeDetails
+  }
+
   const previousSubscriptionsByWorkspace = buildRealtimeDiagnosticsSubscriptionLookup(
     previousEntry.subscriptions,
   )
@@ -425,42 +575,60 @@ function buildNotificationRealtimeDiagnosticsChangeTriggerCodes(
   ])
 
   for (const workspaceId of workspaceIds) {
-    const previousReasons = previousSubscriptionsByWorkspace.get(workspaceId) ?? new Set()
-    const nextReasons = nextSubscriptionsByWorkspace.get(workspaceId) ?? new Set()
+    const previousReasons =
+      previousSubscriptionsByWorkspace.get(workspaceId) ??
+      new Set<RealtimeNotificationWorkspaceReasonCode>()
+    const nextReasons =
+      nextSubscriptionsByWorkspace.get(workspaceId) ??
+      new Set<RealtimeNotificationWorkspaceReasonCode>()
 
     if (!previousReasons.size && nextReasons.size) {
-      triggerCodes.add('workspace_subscription_added')
+      changeDetails.workspaceSubscriptionAddedIds.push(workspaceId)
     }
     if (previousReasons.size && !nextReasons.size) {
-      triggerCodes.add('workspace_subscription_removed')
+      changeDetails.workspaceSubscriptionRemovedIds.push(workspaceId)
     }
-
     if (!previousReasons.has('unread_notification') && nextReasons.has('unread_notification')) {
-      triggerCodes.add('unread_scope_entered')
+      changeDetails.unreadScopeEnteredWorkspaceIds.push(workspaceId)
     }
     if (previousReasons.has('unread_notification') && !nextReasons.has('unread_notification')) {
-      triggerCodes.add('unread_scope_cleared')
+      changeDetails.unreadScopeClearedWorkspaceIds.push(workspaceId)
     }
-
     if (!previousReasons.has('recent_suppression') && nextReasons.has('recent_suppression')) {
-      triggerCodes.add('recent_suppression_entered')
+      changeDetails.recentSuppressionEnteredWorkspaceIds.push(workspaceId)
     }
     if (previousReasons.has('recent_suppression') && !nextReasons.has('recent_suppression')) {
-      triggerCodes.add('recent_suppression_cleared')
+      changeDetails.recentSuppressionClearedWorkspaceIds.push(workspaceId)
     }
   }
 
-  return [...triggerCodes] satisfies NotificationRealtimeDiagnosticsChangeTriggerCode[]
+  return {
+    recentSuppressionClearedWorkspaceIds:
+      changeDetails.recentSuppressionClearedWorkspaceIds.sort(),
+    recentSuppressionEnteredWorkspaceIds:
+      changeDetails.recentSuppressionEnteredWorkspaceIds.sort(),
+    unreadScopeClearedWorkspaceIds: changeDetails.unreadScopeClearedWorkspaceIds.sort(),
+    unreadScopeEnteredWorkspaceIds: changeDetails.unreadScopeEnteredWorkspaceIds.sort(),
+    workspaceSubscriptionAddedIds: changeDetails.workspaceSubscriptionAddedIds.sort(),
+    workspaceSubscriptionRemovedIds: changeDetails.workspaceSubscriptionRemovedIds.sort(),
+  }
 }
 
 function buildRealtimeDiagnosticsSubscriptionLookup(
   subscriptions: RealtimeNotificationWorkspaceSubscription[],
 ) {
-  return new Map(
+  return new Map<string, Set<RealtimeNotificationWorkspaceReasonCode>>(
     subscriptions.map((subscription) => [subscription.workspaceId, new Set(subscription.reasonCodes)]),
   )
 }
 
 function normalizeRoutePath(routePath?: string) {
   return typeof routePath === 'string' && routePath.trim() ? routePath.trim() : ''
+}
+
+function formatNotificationRealtimeDiagnosticsWorkspaceList(
+  workspaceIds: string[],
+  workspaceNameById: Record<string, string>,
+) {
+  return workspaceIds.map((workspaceId) => workspaceNameById[workspaceId] || workspaceId).join(', ')
 }

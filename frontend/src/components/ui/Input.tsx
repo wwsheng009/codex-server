@@ -2,9 +2,9 @@ import { forwardRef, useId } from 'react'
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  label?: string
-  hint?: string
-  error?: string
+  label?: ReactNode
+  hint?: ReactNode
+  error?: ReactNode
   icon?: ReactNode
   fullWidth?: boolean
 }
@@ -84,9 +84,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 Input.displayName = 'Input'
 
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string
-  hint?: string
-  error?: string
+  label?: ReactNode
+  hint?: ReactNode
+  error?: ReactNode
   fullWidth?: boolean
 }
 

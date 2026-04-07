@@ -12,6 +12,7 @@ import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
 import { Switch } from '../components/ui/Switch'
 import { TextArea } from '../components/ui/TextArea'
+import { Tooltip } from '../components/ui/Tooltip'
 import {
   createBotConnection,
   deleteWeChatAccount,
@@ -65,6 +66,14 @@ import {
   type BotsPageDraft,
 } from './botsPageUtils'
 import type { BotConnection, WeChatAccount, WeChatLogin } from '../types/api'
+
+function HelpTooltip({ content }: { content: React.ReactNode }) {
+  return (
+    <Tooltip content={content}>
+      <span className="info-label__help">?</span>
+    </Tooltip>
+  )
+}
 
 export function BotsPage() {
   const navigate = useNavigate()
@@ -1300,15 +1309,15 @@ export function BotsPage() {
         <aside className="mode-rail">
           <section className="mode-panel">
             <div className="section-header">
-              <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <h2>{i18n._({ id: 'Workspace Scope', message: 'Workspace Scope' })}</h2>
-                <p>
-                  {i18n._({
+                <HelpTooltip
+                  content={i18n._({
                     id: 'Connections are stored per workspace and each external chat can be bound to one internal thread.',
                     message:
                       'Connections are stored per workspace and each external chat can be bound to one internal thread.',
                   })}
-                </p>
+                />
               </div>
             </div>
             <label className="field">
@@ -1345,9 +1354,9 @@ export function BotsPage() {
 
           <section className="mode-panel">
             <div className="section-header">
-              <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <h2>{i18n._({ id: 'Provider Posture', message: 'Provider Posture' })}</h2>
-                <p>{selectedProviderPosture}</p>
+                <HelpTooltip content={selectedProviderPosture} />
               </div>
             </div>
             <div className="mode-metrics">
@@ -1468,18 +1477,20 @@ export function BotsPage() {
 
               <section className="content-section">
                 <div className="section-header section-header--inline">
-                  <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <h2>{i18n._({ id: 'Connections', message: 'Connections' })}</h2>
+                    <HelpTooltip
+                      content={i18n._({
+                        id: 'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
+                        message:
+                          'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
+                      })}
+                    />
                   </div>
                   <div className="section-header__meta">{filteredConnections.length}</div>
                 </div>
 
                 <Input
-                  hint={i18n._({
-                    id: 'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
-                    message:
-                      'Search by connection name, provider, backend, status, or linked WeChat account alias and note.',
-                  })}
                   label={i18n._({ id: 'Search Connections', message: 'Search Connections' })}
                   onChange={(event) => setConnectionSearch(event.target.value)}
                   placeholder={i18n._({ id: 'Support, paused, openai, support queue', message: 'Support, paused, openai, support queue' })}
@@ -1601,24 +1612,20 @@ export function BotsPage() {
 
               <section className="content-section">
                 <div className="section-header section-header--inline">
-                  <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <h2>{i18n._({ id: 'Saved WeChat Accounts', message: 'Saved WeChat Accounts' })}</h2>
-                    <p>
-                      {i18n._({
+                    <HelpTooltip
+                      content={i18n._({
                         id: 'Confirmed WeChat QR logins are stored per workspace so you can create new connections without rescanning the same account.',
                         message:
                           'Confirmed WeChat QR logins are stored per workspace so you can create new connections without rescanning the same account.',
                       })}
-                    </p>
+                    />
                   </div>
                   <div className="section-header__meta">{filteredSavedWeChatAccounts.length}</div>
                 </div>
 
                 <Input
-                  hint={i18n._({
-                    id: 'Search by alias, note, account ID, user ID, or base URL.',
-                    message: 'Search by alias, note, account ID, user ID, or base URL.',
-                  })}
                   label={i18n._({ id: 'Search Saved Accounts', message: 'Search Saved Accounts' })}
                   onChange={(event) => setWeChatAccountSearch(event.target.value)}
                   placeholder={i18n._({ id: 'Support, acct_123, wechat.example.com', message: 'Support, acct_123, wechat.example.com' })}
@@ -1627,12 +1634,18 @@ export function BotsPage() {
 
                 <Switch
                   checked={showUnusedWeChatAccountsOnly}
-                  hint={i18n._({
-                    id: 'Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace.',
-                    message:
-                      'Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace.',
-                  })}
-                  label={i18n._({ id: 'Only Show Unbound Accounts', message: 'Only Show Unbound Accounts' })}
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'Only Show Unbound Accounts', message: 'Only Show Unbound Accounts' })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace.',
+                          message:
+                            'Show only saved WeChat accounts that are not currently linked to any bot connection in this workspace.',
+                        })}
+                      />
+                    </div>
+                  }
                   onChange={(event) => setShowUnusedWeChatAccountsOnly(event.target.checked)}
                 />
 
@@ -1680,7 +1693,7 @@ export function BotsPage() {
                   <div className="directory-list">
                     {filteredSavedWeChatAccounts.map((account) => (
                       <article className="directory-item" key={account.id}>
-                        <div className="directory-item__icon">WX</div>
+                        <div className="directory-item__icon">{i18n._({ id: 'WX', message: 'WX' })}</div>
                         <div className="directory-item__body">
                           <strong>{formatWeChatAccountLabel(account)}</strong>
                           {account.alias?.trim() ? (
@@ -1777,17 +1790,23 @@ export function BotsPage() {
 
               <section className="content-section">
                 <div className="section-header section-header--inline">
-                  <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <h2>{i18n._({ id: 'Connection Detail', message: 'Connection Detail' })}</h2>
+                    <HelpTooltip
+                      content={i18n._({
+                        id: 'Select a connection to inspect provider status, AI backend settings, and conversation bindings.',
+                        message:
+                          'Select a connection to inspect provider status, AI backend settings, and conversation bindings.',
+                      })}
+                    />
                   </div>
                 </div>
 
                 {!selectedConnection ? (
                   <div className="empty-state">
                     {i18n._({
-                      id: 'Select a connection to inspect provider status, AI backend settings, and conversation bindings.',
-                      message:
-                        'Select a connection to inspect provider status, AI backend settings, and conversation bindings.',
+                      id: 'No connection selected.',
+                      message: 'No connection selected.',
                     })}
                   </div>
                 ) : (
@@ -1992,26 +2011,32 @@ export function BotsPage() {
 
                     <section className="mode-panel">
                       <div className="section-header">
-                        <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <h2>{i18n._({ id: 'Runtime Diagnostics', message: 'Runtime Diagnostics' })}</h2>
-                          <p>
-                            {i18n._({
+                          <HelpTooltip
+                            content={i18n._({
                               id: 'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations.',
                               message:
                                 'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations.',
                             })}
-                          </p>
+                          />
                         </div>
                       </div>
                       <Switch
                         checked={selectedRuntimeMode === 'debug'}
                         disabled={runtimeModeMutation.isPending}
-                        hint={i18n._({
-                          id: 'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
-                          message:
-                            'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
-                        })}
-                        label={i18n._({ id: 'Enable Backend Debug Logging', message: 'Enable Backend Debug Logging' })}
+                        label={
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {i18n._({ id: 'Enable Backend Debug Logging', message: 'Enable Backend Debug Logging' })}
+                            <HelpTooltip
+                              content={i18n._({
+                                id: 'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
+                                message:
+                                  'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
+                              })}
+                            />
+                          </div>
+                        }
                         onChange={(event) =>
                           runtimeModeMutation.mutate({
                             workspaceId: selectedConnection.workspaceId,
@@ -2024,19 +2049,36 @@ export function BotsPage() {
 
                     <section className="mode-panel">
                       <div className="section-header">
-                        <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <h2>{i18n._({ id: 'Reply Formatting', message: 'Reply Formatting' })}</h2>
-                          <p>
-                            {i18n._({
+                          <HelpTooltip
+                            content={i18n._({
                               id: 'Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat.',
                               message:
                                 'Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat.',
                             })}
-                          </p>
+                          />
                         </div>
                       </div>
                       <label className="field">
-                        <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+                          <HelpTooltip
+                            content={
+                              <>
+                                {i18n._({
+                                  id: 'No Command Output omits command items entirely.',
+                                  message: 'No Command Output omits command items entirely.',
+                                })}{' '}
+                                {i18n._({
+                                  id: 'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
+                                  message:
+                                    'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
+                                })}
+                              </>
+                            }
+                          />
+                        </div>
                         <SelectControl
                           ariaLabel={i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}
                           disabled={commandOutputModeMutation.isPending}
@@ -2052,30 +2094,25 @@ export function BotsPage() {
                           value={selectedCommandOutputMode}
                         />
                       </label>
-                      <p className="config-inline-note">
-                        {i18n._({
-                          id: 'No Command Output omits command items entirely.',
-                          message: 'No Command Output omits command items entirely.',
-                        })}{' '}
-                        {i18n._({
-                          id: 'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
-                          message:
-                            'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
-                        })}
-                      </p>
                       {selectedProvider === 'wechat' ? (
                         <Switch
                           checked={selectedWeChatChannelTimingEnabled}
                           disabled={wechatChannelTimingMutation.isPending}
-                          hint={i18n._({
-                            id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
-                            message:
-                              'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
-                          })}
-                          label={i18n._({
-                            id: 'Append WeChat Channel Timing',
-                            message: 'Append WeChat Channel Timing',
-                          })}
+                          label={
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {i18n._({
+                                id: 'Append WeChat Channel Timing',
+                                message: 'Append WeChat Channel Timing',
+                              })}
+                              <HelpTooltip
+                                content={i18n._({
+                                  id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
+                                  message:
+                                    'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
+                                })}
+                              />
+                            </div>
+                          }
                           onChange={(event) =>
                             wechatChannelTimingMutation.mutate({
                               workspaceId: selectedConnection.workspaceId,
@@ -2090,18 +2127,18 @@ export function BotsPage() {
                     <section className="mode-panel mode-panel--flush">
                       <div className="mode-panel__body">
                         <div className="section-header section-header--inline">
-                          <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h2>{i18n._({ id: 'Conversation Bindings', message: 'Conversation Bindings' })}</h2>
+                            <HelpTooltip
+                              content={i18n._({
+                                id: 'Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding.',
+                                message:
+                                  'Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding.',
+                              })}
+                            />
                           </div>
                           <div className="section-header__meta">{conversations.length}</div>
                         </div>
-                        <p className="mode-panel__description">
-                          {i18n._({
-                            id: 'Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding.',
-                            message:
-                              'Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding.',
-                          })}
-                        </p>
                       </div>
 
                       {conversationsQuery.error ? (
@@ -2137,7 +2174,7 @@ export function BotsPage() {
                       <div className="directory-list">
                         {conversations.map((conversation) => (
                           <article className="directory-item" key={conversation.id}>
-                            <div className="directory-item__icon">BT</div>
+                            <div className="directory-item__icon">{i18n._({ id: 'BT', message: 'BT' })}</div>
                             <div className="directory-item__body">
                               <strong>{formatBotConversationTitle(conversation)}</strong>
                               <p>
@@ -2226,15 +2263,17 @@ export function BotsPage() {
               </InlineNotice>
             ) : null}
 
-            <p className="config-inline-note">
-              {i18n._({
-                id: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
-                message: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
-              })}{' '}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <p className="config-inline-note" style={{ margin: 0 }}>
+                {i18n._({
+                  id: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
+                  message: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
+                })}
+              </p>
               <Link to="/settings/config">
                 {i18n._({ id: 'Open Settings', message: 'Open Settings' })}
               </Link>
-            </p>
+            </div>
 
             <div className="form-row">
               <label className="field">
@@ -2279,11 +2318,17 @@ export function BotsPage() {
               ) : (
                 <Input
                   disabled
-                  hint={i18n._({
-                    id: 'WeChat currently uses polling-only intake in this phase.',
-                    message: 'WeChat currently uses polling-only intake in this phase.',
-                  })}
-                  label={i18n._({ id: 'WeChat Delivery Mode', message: 'WeChat Delivery Mode' })}
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'WeChat Delivery Mode', message: 'WeChat Delivery Mode' })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'WeChat currently uses polling-only intake in this phase.',
+                          message: 'WeChat currently uses polling-only intake in this phase.',
+                        })}
+                      />
+                    </div>
+                  }
                   value={i18n._({ id: 'Long Polling only', message: 'Long Polling only' })}
                 />
               )}
@@ -2301,11 +2346,17 @@ export function BotsPage() {
 
             <div className="form-row">
               <Input
-                hint={i18n._({
-                  id: 'Optional. Defaults to a provider-specific connection name.',
-                  message: 'Optional. Defaults to a provider-specific connection name.',
-                })}
-                label={i18n._({ id: 'Connection Name', message: 'Connection Name' })}
+                label={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {i18n._({ id: 'Connection Name', message: 'Connection Name' })}
+                    <HelpTooltip
+                      content={i18n._({
+                        id: 'Optional. Defaults to a provider-specific connection name.',
+                        message: 'Optional. Defaults to a provider-specific connection name.',
+                      })}
+                    />
+                  </div>
+                }
                 onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                 placeholder={i18n._({ id: 'Support Bot', message: 'Support Bot' })}
                 value={draft.name}
@@ -2314,19 +2365,42 @@ export function BotsPage() {
 
             <Switch
               checked={draft.runtimeMode === 'debug'}
-              hint={i18n._({
-                id: 'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
-                message:
-                  'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
-              })}
-              label={i18n._({ id: 'Enable Backend Debug Mode', message: 'Enable Backend Debug Mode' })}
+              label={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {i18n._({ id: 'Enable Backend Debug Mode', message: 'Enable Backend Debug Mode' })}
+                  <HelpTooltip
+                    content={i18n._({
+                      id: 'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
+                      message:
+                        'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
+                    })}
+                  />
+                </div>
+              }
               onChange={(event) =>
                 setDraft((current) => ({ ...current, runtimeMode: event.target.checked ? 'debug' : 'normal' }))
               }
             />
 
             <label className="field">
-              <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
+                <HelpTooltip
+                  content={
+                    <>
+                      {i18n._({
+                        id: 'No Command Output omits command items entirely.',
+                        message: 'No Command Output omits command items entirely.',
+                      })}{' '}
+                      {i18n._({
+                        id: 'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
+                        message:
+                          'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
+                      })}
+                    </>
+                  }
+                />
+              </div>
               <SelectControl
                 ariaLabel={i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}
                 fullWidth
@@ -2335,27 +2409,22 @@ export function BotsPage() {
                 value={resolveBotCommandOutputMode(draft.commandOutputMode)}
               />
             </label>
-            <p className="config-inline-note">
-              {i18n._({
-                id: 'No Command Output omits command items entirely.',
-                message: 'No Command Output omits command items entirely.',
-              })}{' '}
-              {i18n._({
-                id: 'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
-                message:
-                  'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
-              })}
-            </p>
 
             {draftProvider === 'telegram' ? (
               <>
                 {draftTelegramDeliveryMode === 'webhook' ? (
                   <Input
-                    hint={i18n._({
-                      id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                      message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                    })}
-                    label={i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
+                    label={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
+                        <HelpTooltip
+                          content={i18n._({
+                            id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                            message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                          })}
+                        />
+                      </div>
+                    }
                     onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
                     placeholder="https://bots.example.com"
                     value={draft.publicBaseUrl}
@@ -2363,16 +2432,20 @@ export function BotsPage() {
                 ) : null}
 
                 <Input
-                  hint={
-                    isEditingConnection
-                      ? i18n._({
-                          id: 'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
-                          message:
-                            'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
-                        })
-                      : undefined
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
+                      {isEditingConnection && (
+                        <HelpTooltip
+                          content={i18n._({
+                            id: 'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
+                            message:
+                              'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
+                          })}
+                        />
+                      )}
+                    </div>
                   }
-                  label={i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
                   onChange={(event) => setDraft((current) => ({ ...current, telegramBotToken: event.target.value }))}
                   placeholder={i18n._({ id: '123456:ABCDEF...', message: '123456:ABCDEF...' })}
                   type="password"
@@ -2383,11 +2456,17 @@ export function BotsPage() {
               <>
                 <div className="form-row">
                   <Input
-                    hint={i18n._({
-                      id: 'Required. Use the iLink channel base URL for this WeChat account.',
-                      message: 'Required. Use the iLink channel base URL for this WeChat account.',
-                    })}
-                    label={i18n._({ id: 'WeChat Base URL', message: 'WeChat Base URL' })}
+                    label={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {i18n._({ id: 'WeChat Base URL', message: 'WeChat Base URL' })}
+                        <HelpTooltip
+                          content={i18n._({
+                            id: 'Required. Use the iLink channel base URL for this WeChat account.',
+                            message: 'Required. Use the iLink channel base URL for this WeChat account.',
+                          })}
+                        />
+                      </div>
+                    }
                     onChange={(event) => setDraft((current) => ({ ...current, wechatBaseUrl: event.target.value }))}
                     placeholder="https://wechat.example.com"
                     value={draft.wechatBaseUrl}
@@ -2405,12 +2484,18 @@ export function BotsPage() {
                 </div>
 
                 <Input
-                  hint={i18n._({
-                    id: 'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
-                    message:
-                      'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
-                  })}
-                  label={i18n._({ id: 'WeChat Route Tag', message: 'WeChat Route Tag' })}
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'WeChat Route Tag', message: 'WeChat Route Tag' })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
+                          message:
+                            'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
+                        })}
+                      />
+                    </div>
+                  }
                   onChange={(event) => setDraft((current) => ({ ...current, wechatRouteTag: event.target.value }))}
                   placeholder={i18n._({ id: 'route-tag-1', message: 'route-tag-1' })}
                   value={draft.wechatRouteTag}
@@ -2418,15 +2503,21 @@ export function BotsPage() {
 
                 <Switch
                   checked={draft.wechatChannelTimingEnabled}
-                  hint={i18n._({
-                    id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
-                    message:
-                      'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
-                  })}
-                  label={i18n._({
-                    id: 'Append WeChat Channel Timing',
-                    message: 'Append WeChat Channel Timing',
-                  })}
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({
+                        id: 'Append WeChat Channel Timing',
+                        message: 'Append WeChat Channel Timing',
+                      })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
+                          message:
+                            'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
+                        })}
+                      />
+                    </div>
+                  }
                   onChange={(event) =>
                     setDraft((current) => ({ ...current, wechatChannelTimingEnabled: event.target.checked }))
                   }
@@ -2469,9 +2560,9 @@ export function BotsPage() {
                         title={i18n._({ id: 'No Saved Accounts Yet', message: 'No Saved Accounts Yet' })}
                       >
                         {i18n._({
-                          id: 'Complete one WeChat QR login first. Confirmed accounts are saved automatically and will appear here for reuse.',
+                          id: 'Complete one WeChat QR login first. Confirmed accounts are saved automatically.',
                           message:
-                            'Complete one WeChat QR login first. Confirmed accounts are saved automatically and will appear here for reuse.',
+                            'Complete one WeChat QR login first. Confirmed accounts are saved automatically.',
                         })}
                       </InlineNotice>
                     ) : selectedSavedWeChatAccount ? (
@@ -2543,36 +2634,49 @@ export function BotsPage() {
                         value={draft.wechatAccountId}
                       />
                       <Input
-                        hint={i18n._({
-                          id: 'Required. This maps to wechat_owner_user_id on the backend.',
-                          message: 'Required. This maps to wechat_owner_user_id on the backend.',
-                        })}
-                        label={i18n._({ id: 'WeChat Owner User ID', message: 'WeChat Owner User ID' })}
+                        label={
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {i18n._({ id: 'WeChat Owner User ID', message: 'WeChat Owner User ID' })}
+                            <HelpTooltip
+                              content={i18n._({
+                                id: 'Required. This maps to wechat_owner_user_id on the backend.',
+                                message: 'Required. This maps to wechat_owner_user_id on the backend.',
+                              })}
+                            />
+                          </div>
+                        }
                         onChange={(event) => setDraft((current) => ({ ...current, wechatUserId: event.target.value }))}
                         placeholder={i18n._({ id: 'wechat-owner-1', message: 'wechat-owner-1' })}
                         value={draft.wechatUserId}
                       />
-                    </div>
+                      </div>
 
-                    <Input
-                      hint={
-                        isEditingConnection
-                          ? i18n._({
-                              id: 'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
-                              message:
-                                'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
-                            })
-                          : i18n._({
-                              id: 'Enter the bot token issued by the WeChat iLink backend for this account.',
-                              message: 'Enter the bot token issued by the WeChat iLink backend for this account.',
-                            })
+                      <Input
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
+                          <HelpTooltip
+                            content={
+                              isEditingConnection
+                                ? i18n._({
+                                    id: 'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
+                                    message:
+                                      'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
+                                  })
+                                : i18n._({
+                                    id: 'Enter the bot token issued by the WeChat iLink backend for this account.',
+                                    message: 'Enter the bot token issued by the WeChat iLink backend for this account.',
+                                  })
+                            }
+                          />
+                        </div>
                       }
-                      label={i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
                       onChange={(event) => setDraft((current) => ({ ...current, wechatBotToken: event.target.value }))}
                       placeholder={i18n._({ id: 'wechat-token-1', message: 'wechat-token-1' })}
                       type="password"
                       value={draft.wechatBotToken}
-                    />
+                      />
+
                   </>
                 ) : (
                   <>
@@ -2716,27 +2820,37 @@ export function BotsPage() {
               <>
                 <div className="form-row">
                   <Input
-                    hint={
-                      isEditingConnection
-                        ? i18n._({
-                            id: 'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
-                            message:
-                              'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
-                          })
-                        : undefined
+                    label={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {i18n._({ id: 'OpenAI API Key', message: 'OpenAI API Key' })}
+                        {isEditingConnection && (
+                          <HelpTooltip
+                            content={i18n._({
+                              id: 'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
+                              message:
+                                'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
+                            })}
+                          />
+                        )}
+                      </div>
                     }
-                    label={i18n._({ id: 'OpenAI API Key', message: 'OpenAI API Key' })}
                     onChange={(event) => setDraft((current) => ({ ...current, openAIApiKey: event.target.value }))}
                     placeholder={i18n._({ id: 'sk-...', message: 'sk-...' })}
                     type="password"
                     value={draft.openAIApiKey}
                   />
                   <Input
-                    hint={i18n._({
-                      id: 'Optional. Defaults to the standard Responses API endpoint.',
-                      message: 'Optional. Defaults to the standard Responses API endpoint.',
-                    })}
-                    label={i18n._({ id: 'OpenAI Base URL', message: 'OpenAI Base URL' })}
+                    label={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {i18n._({ id: 'OpenAI Base URL', message: 'OpenAI Base URL' })}
+                        <HelpTooltip
+                          content={i18n._({
+                            id: 'Optional. Defaults to the standard Responses API endpoint.',
+                            message: 'Optional. Defaults to the standard Responses API endpoint.',
+                          })}
+                        />
+                      </div>
+                    }
                     onChange={(event) => setDraft((current) => ({ ...current, openAIBaseUrl: event.target.value }))}
                     placeholder="https://api.openai.com/v1/responses"
                     value={draft.openAIBaseUrl}
@@ -2763,11 +2877,17 @@ export function BotsPage() {
                 </div>
 
                 <TextArea
-                  hint={i18n._({
-                    id: 'Optional system instructions for the Responses backend.',
-                    message: 'Optional system instructions for the Responses backend.',
-                  })}
-                  label={i18n._({ id: 'Instructions', message: 'Instructions' })}
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'Instructions', message: 'Instructions' })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'Optional system instructions for the Responses backend.',
+                          message: 'Optional system instructions for the Responses backend.',
+                        })}
+                      />
+                    </div>
+                  }
                   onChange={(event) => setDraft((current) => ({ ...current, openAIInstructions: event.target.value }))}
                   rows={5}
                   value={draft.openAIInstructions}
@@ -2775,11 +2895,17 @@ export function BotsPage() {
 
                 <Switch
                   checked={draft.openAIStore}
-                  hint={i18n._({
-                    id: 'Persist conversation state in the OpenAI Responses API when supported.',
-                    message: 'Persist conversation state in the OpenAI Responses API when supported.',
-                  })}
-                  label={i18n._({ id: 'Store OpenAI Response State', message: 'Store OpenAI Response State' })}
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'Store OpenAI Response State', message: 'Store OpenAI Response State' })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'Persist conversation state in the OpenAI Responses API when supported.',
+                          message: 'Persist conversation state in the OpenAI Responses API when supported.',
+                        })}
+                      />
+                    </div>
+                  }
                   onChange={(event) => setDraft((current) => ({ ...current, openAIStore: event.target.checked }))}
                 />
               </>

@@ -44,6 +44,7 @@ import { i18n } from '../../i18n/runtime'
 import { formatLocaleDateTime } from '../../i18n/format'
 import { getErrorMessage } from '../../lib/error-utils'
 import {
+  describeNotificationRealtimeDiagnosticsChangeDetails,
   formatNotificationRealtimeDiagnosticsChangeTrigger,
   formatRealtimeNotificationWorkspaceReason,
 } from '../../features/notifications/notificationStreamUtils'
@@ -1043,71 +1044,84 @@ export function ConfigSettingsPage() {
                         })}
                       </strong>
                       {notificationDiagnosticsHistory.length ? (
-                        notificationDiagnosticsHistory.map((entry) => (
-                          <div
-                            className="config-notification-diagnostics__history-item"
-                            key={`${entry.changedAt}-${entry.signature}`}
-                          >
-                            <div className="config-notification-diagnostics__history-item-header">
-                              <span>{formatLocaleDateTime(entry.changedAt)}</span>
-                              <span className="meta-pill">
-                                {i18n._({
-                                  id: '{count} workspaces',
-                                  message: '{count} workspaces',
-                                  values: { count: entry.subscriptions.length },
-                                })}
-                              </span>
-                            </div>
-                            <div className="config-notification-diagnostics__reasons">
-                              {entry.changeTriggerCodes.map((triggerCode) => (
-                                <span
-                                  className="meta-pill"
-                                  key={`${entry.signature}-${triggerCode}`}
-                                >
-                                  {formatNotificationRealtimeDiagnosticsChangeTrigger(triggerCode)}
+                        notificationDiagnosticsHistory.map((entry) => {
+                          const changeDetailLines =
+                            describeNotificationRealtimeDiagnosticsChangeDetails(
+                              entry.changeDetails,
+                              notificationDiagnosticsWorkspaceNameById,
+                            )
+
+                          return (
+                            <div
+                              className="config-notification-diagnostics__history-item"
+                              key={`${entry.changedAt}-${entry.signature}`}
+                            >
+                              <div className="config-notification-diagnostics__history-item-header">
+                                <span>{formatLocaleDateTime(entry.changedAt)}</span>
+                                <span className="meta-pill">
+                                  {i18n._({
+                                    id: '{count} workspaces',
+                                    message: '{count} workspaces',
+                                    values: { count: entry.subscriptions.length },
+                                  })}
                                 </span>
+                              </div>
+                              <div className="config-notification-diagnostics__reasons">
+                                {entry.changeTriggerCodes.map((triggerCode) => (
+                                  <span
+                                    className="meta-pill"
+                                    key={`${entry.signature}-${triggerCode}`}
+                                  >
+                                    {formatNotificationRealtimeDiagnosticsChangeTrigger(triggerCode)}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="config-inline-note">
+                                {entry.activeWorkspaceId
+                                  ? i18n._({
+                                      id: 'Active workspace candidate: {workspaceId}',
+                                      message: 'Active workspace candidate: {workspaceId}',
+                                      values: { workspaceId: entry.activeWorkspaceId },
+                                    })
+                                  : i18n._({
+                                      id: 'No active workspace candidate',
+                                      message: 'No active workspace candidate',
+                                    })}
+                              </div>
+                              <div className="config-inline-note">
+                                {entry.routePath
+                                  ? i18n._({
+                                      id: 'Route context: {routePath}',
+                                      message: 'Route context: {routePath}',
+                                      values: { routePath: entry.routePath },
+                                    })
+                                  : i18n._({
+                                      id: 'No route context recorded',
+                                      message: 'No route context recorded',
+                                    })}
+                              </div>
+                              {changeDetailLines.map((detailLine) => (
+                                <div className="config-inline-note" key={`${entry.signature}-${detailLine}`}>
+                                  {detailLine}
+                                </div>
                               ))}
+                              <div className="config-inline-note">
+                                {entry.subscriptions.length
+                                  ? entry.subscriptions
+                                      .map((subscription) =>
+                                        notificationDiagnosticsWorkspaceNameById[
+                                          subscription.workspaceId
+                                        ] || subscription.workspaceId,
+                                      )
+                                      .join(', ')
+                                  : i18n._({
+                                      id: 'No live workspaces',
+                                      message: 'No live workspaces',
+                                    })}
+                              </div>
                             </div>
-                            <div className="config-inline-note">
-                              {entry.activeWorkspaceId
-                                ? i18n._({
-                                    id: 'Active workspace candidate: {workspaceId}',
-                                    message: 'Active workspace candidate: {workspaceId}',
-                                    values: { workspaceId: entry.activeWorkspaceId },
-                                  })
-                                : i18n._({
-                                    id: 'No active workspace candidate',
-                                    message: 'No active workspace candidate',
-                                  })}
-                            </div>
-                            <div className="config-inline-note">
-                              {entry.routePath
-                                ? i18n._({
-                                    id: 'Route context: {routePath}',
-                                    message: 'Route context: {routePath}',
-                                    values: { routePath: entry.routePath },
-                                  })
-                                : i18n._({
-                                    id: 'No route context recorded',
-                                    message: 'No route context recorded',
-                                  })}
-                            </div>
-                            <div className="config-inline-note">
-                              {entry.subscriptions.length
-                                ? entry.subscriptions
-                                    .map((subscription) =>
-                                      notificationDiagnosticsWorkspaceNameById[
-                                        subscription.workspaceId
-                                      ] || subscription.workspaceId,
-                                    )
-                                    .join(', ')
-                                : i18n._({
-                                    id: 'No live workspaces',
-                                    message: 'No live workspaces',
-                                  })}
-                            </div>
-                          </div>
-                        ))
+                          )
+                        })
                       ) : (
                         <div className="notice">
                           {i18n._({

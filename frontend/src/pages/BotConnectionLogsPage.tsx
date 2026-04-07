@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
+import { Tooltip } from '../components/ui/Tooltip'
 import { BotConnectionLogStream } from '../features/bots/BotConnectionLogStream'
 import { getBotConnection, listBotConnectionLogs } from '../features/bots/api'
 import {
@@ -23,6 +24,14 @@ import {
   formatBotTimestamp,
   resolveBotCommandOutputMode,
 } from './botsPageUtils'
+
+function HelpTooltip({ content }: { content: React.ReactNode }) {
+  return (
+    <Tooltip content={content}>
+      <span className="info-label__help">?</span>
+    </Tooltip>
+  )
+}
 
 export function BotConnectionLogsPage() {
   const navigate = useNavigate()
@@ -186,15 +195,15 @@ export function BotConnectionLogsPage() {
 
       <section className="mode-panel">
         <div className="section-header">
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h2>{i18n._({ id: 'Polling Health', message: 'Polling Health' })}</h2>
-            <p>
-              {i18n._({
+            <HelpTooltip
+              content={i18n._({
                 id: 'Current connection state plus the latest successful or failed poll result recorded by the backend.',
                 message:
                   'Current connection state plus the latest successful or failed poll result recorded by the backend.',
               })}
-            </p>
+            />
           </div>
         </div>
         <div className="detail-list">
@@ -229,15 +238,15 @@ export function BotConnectionLogsPage() {
 
       <section className="mode-panel">
         <div className="section-header">
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h2>{i18n._({ id: 'Runtime Log Stream', message: 'Runtime Log Stream' })}</h2>
-            <p>
-              {i18n._({
+            <HelpTooltip
+              content={i18n._({
                 id: 'Newest entries first. Filter to isolate suppressed duplicate deliveries, restart replays, and other warning paths.',
                 message:
                   'Newest entries first. Filter to isolate suppressed duplicate deliveries, restart replays, and other warning paths.',
               })}
-            </p>
+            />
           </div>
           <div className="section-header__meta">{logCountLabel}</div>
         </div>

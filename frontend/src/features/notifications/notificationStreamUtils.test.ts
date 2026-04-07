@@ -6,6 +6,7 @@ import {
   buildNotificationItemFromEvent,
   createEmptyNotificationRealtimeDiagnosticsHistoryState,
   collectRealtimeNotificationWorkspaceIds,
+  describeNotificationRealtimeDiagnosticsChangeDetails,
   describeRealtimeNotificationWorkspaceSubscriptions,
   formatNotificationRealtimeDiagnosticsChangeTrigger,
   resolveActiveNotificationWorkspaceId,
@@ -288,6 +289,14 @@ describe('updateNotificationRealtimeDiagnosticsHistory', () => {
     expect(next.history).toEqual([
       {
         activeWorkspaceId: 'ws-active',
+        changeDetails: {
+          recentSuppressionClearedWorkspaceIds: [],
+          recentSuppressionEnteredWorkspaceIds: [],
+          unreadScopeClearedWorkspaceIds: [],
+          unreadScopeEnteredWorkspaceIds: [],
+          workspaceSubscriptionAddedIds: [],
+          workspaceSubscriptionRemovedIds: [],
+        },
         changeTriggerCodes: ['initial_snapshot'],
         changedAt: '2026-04-06T10:00:00.000Z',
         routePath: '/workspaces/ws-active',
@@ -353,6 +362,14 @@ describe('updateNotificationRealtimeDiagnosticsHistory', () => {
       expect.objectContaining({
         changedAt: '2026-04-06T10:02:00.000Z',
         routePath: '/bots/ws-active/connection-1/logs',
+        changeDetails: {
+          recentSuppressionClearedWorkspaceIds: [],
+          recentSuppressionEnteredWorkspaceIds: ['ws-bot'],
+          unreadScopeClearedWorkspaceIds: [],
+          unreadScopeEnteredWorkspaceIds: [],
+          workspaceSubscriptionAddedIds: ['ws-bot'],
+          workspaceSubscriptionRemovedIds: [],
+        },
         changeTriggerCodes: [
           'route_context_changed',
           'workspace_subscription_added',
@@ -400,6 +417,14 @@ describe('updateNotificationRealtimeDiagnosticsHistory', () => {
       expect.objectContaining({
         changedAt: '2026-04-06T10:05:00.000Z',
         routePath: '/workspaces/ws-active/threads/thread-1',
+        changeDetails: {
+          recentSuppressionClearedWorkspaceIds: [],
+          recentSuppressionEnteredWorkspaceIds: [],
+          unreadScopeClearedWorkspaceIds: [],
+          unreadScopeEnteredWorkspaceIds: [],
+          workspaceSubscriptionAddedIds: [],
+          workspaceSubscriptionRemovedIds: [],
+        },
         changeTriggerCodes: ['route_context_changed'],
       }),
     )
@@ -413,5 +438,35 @@ describe('formatNotificationRealtimeDiagnosticsChangeTrigger', () => {
     expect(formatNotificationRealtimeDiagnosticsChangeTrigger('recent_suppression_cleared')).toBe(
       'Suppression cleared',
     )
+  })
+})
+
+describe('describeNotificationRealtimeDiagnosticsChangeDetails', () => {
+  it('renders stable debug copy for workspace deltas', () => {
+    expect(
+      describeNotificationRealtimeDiagnosticsChangeDetails(
+        {
+          recentSuppressionClearedWorkspaceIds: ['ws-c'],
+          recentSuppressionEnteredWorkspaceIds: ['ws-b'],
+          unreadScopeClearedWorkspaceIds: ['ws-d'],
+          unreadScopeEnteredWorkspaceIds: ['ws-a'],
+          workspaceSubscriptionAddedIds: ['ws-a', 'ws-b'],
+          workspaceSubscriptionRemovedIds: ['ws-c'],
+        },
+        {
+          'ws-a': 'Workspace A',
+          'ws-b': 'Workspace B',
+          'ws-c': 'Workspace C',
+          'ws-d': 'Workspace D',
+        },
+      ),
+    ).toEqual([
+      'Workspaces added: Workspace A, Workspace B',
+      'Workspaces removed: Workspace C',
+      'Unread entered: Workspace A',
+      'Unread cleared: Workspace D',
+      'Suppression entered: Workspace B',
+      'Suppression cleared: Workspace C',
+    ])
   })
 })

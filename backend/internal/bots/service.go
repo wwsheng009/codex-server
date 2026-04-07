@@ -496,6 +496,9 @@ func (s *Service) UpdateConnection(
 		}
 	}
 
+	if s.isActivePollingConnection(current) || s.isActivePollingConnection(updated) {
+		s.stopPollingConnection(updated.ID)
+	}
 	s.syncPollingConnections()
 	if strings.EqualFold(strings.TrimSpace(updated.Status), "active") {
 		s.recoverPendingInboundDeliveries(workspaceID, updated.ID)

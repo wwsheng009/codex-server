@@ -222,9 +222,10 @@ function toneFromLogLevel(level: string | null | undefined): BotConnectionLogDes
 }
 
 function formatBotConnectionLogEventTypeLabel(eventType: string) {
-  return eventType
+  const label = eventType
     .split('_')
     .filter(Boolean)
     .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
     .join(' ')
+  return i18n._({ id: label, message: label })
 }

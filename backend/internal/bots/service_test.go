@@ -2153,6 +2153,84 @@ func TestServiceStartsOnlyOneWeChatPollerPerAccountID(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateConnectionRestartsActiveWeChatPoller(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatPollingProvider()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(ctx)
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "wechat",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      "https://wechat.example.com",
+			wechatAccountIDSetting:    "wechat-account-update",
+			wechatOwnerUserIDSetting:  "wechat-owner-update",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-update",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if provider.startedCount() == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if provider.startedCount() != 1 {
+		t.Fatalf("expected initial wechat poller to start once, got %d", provider.startedCount())
+	}
+
+	updated, err := service.UpdateConnection(context.Background(), workspace.ID, connection.ID, UpdateConnectionInput{
+		Provider:  "wechat",
+		Name:      "WeChat Bot Updated",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			wechatDeliveryModeSetting: wechatDeliveryModePolling,
+			wechatBaseURLSetting:      "https://wechat.example.com",
+			wechatAccountIDSetting:    "wechat-account-update",
+			wechatOwnerUserIDSetting:  "wechat-owner-update",
+			wechatRouteTagSetting:     "route-tag-updated",
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-update",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateConnection() error = %v", err)
+	}
+	if updated.Name != "WeChat Bot Updated" {
+		t.Fatalf("expected updated connection name, got %#v", updated)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if provider.startedCount() == 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if provider.startedCount() != 2 {
+		t.Fatalf("expected active wechat poller to restart after update, got %d starts", provider.startedCount())
+	}
+}
+
 func TestHandleWebhookSeparatesTelegramTopicsIntoDistinctConversations(t *testing.T) {
 	t.Parallel()
 

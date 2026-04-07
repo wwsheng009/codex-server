@@ -624,9 +624,6 @@ export const ThreadTerminalLauncherViewport = forwardRef<
     }
 
     requestFit()
-    window.requestAnimationFrame(() => {
-      resetLauncher()
-    })
 
     host.addEventListener('pointerdown', handleFocusLauncher)
     host.addEventListener('copy', handleBrowserCopy)

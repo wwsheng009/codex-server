@@ -1,10 +1,10 @@
 import { forwardRef, useId } from 'react'
-import type { TextareaHTMLAttributes } from 'react'
+import type { ReactNode, TextareaHTMLAttributes } from 'react'
 
 export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  label?: string
-  hint?: string
-  error?: string
+  label?: ReactNode
+  hint?: ReactNode
+  error?: ReactNode
   fullWidth?: boolean
 }
 
