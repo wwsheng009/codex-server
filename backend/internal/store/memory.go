@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -49,6 +50,8 @@ const (
 	botConnectionLogRetentionLimit    = 400
 	threadProjectionCompressionMin    = 1024
 	threadProjectionExternalizeMin    = 32 * 1024
+	threadProjectionSidecarChunkSize  = 8
+	threadProjectionSidecarVersion    = 1
 )
 
 type MemoryStore struct {
@@ -88,10 +91,18 @@ type threadProjectionRecord struct {
 	TurnsCompressed []byte
 	TurnsPath       string
 	TurnsRef        string
+	TurnsManifest   *threadProjectionTurnsManifest
 	Stats           threadProjectionStats
 	StatsDirty      bool
 	SnapshotBytes   int64
 	SnapshotDirty   bool
+}
+
+type threadProjectionTurnsManifest struct {
+	Version   int      `json:"version"`
+	ChunkSize int      `json:"chunkSize"`
+	ChunkRefs []string `json:"chunkRefs,omitempty"`
+	TurnIDs   []string `json:"turnIds,omitempty"`
 }
 
 type storeSnapshot struct {
@@ -395,6 +406,10 @@ func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
 	if len(prefs.DefaultCommandSandboxPolicy) > 0 {
 		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 	}
+	prefs.TurnPolicyAlertCoverageThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertCoverageThresholdPercent)
+	prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs)
+	prefs.TurnPolicyAlertStopLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertStopLatencyP95ThresholdMs)
+	prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent)
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
 	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
@@ -434,6 +449,10 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 	} else {
 		prefs.DefaultCommandSandboxPolicy = nil
 	}
+	prefs.TurnPolicyAlertCoverageThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertCoverageThresholdPercent)
+	prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs)
+	prefs.TurnPolicyAlertStopLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertStopLatencyP95ThresholdMs)
+	prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent)
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
 	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
@@ -452,6 +471,24 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 }
 
 func cloneOptionalBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+
+	cloned := *value
+	return &cloned
+}
+
+func cloneOptionalInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+
+	cloned := *value
+	return &cloned
+}
+
+func cloneOptionalInt64(value *int64) *int64 {
 	if value == nil {
 		return nil
 	}
@@ -3648,6 +3685,10 @@ func normalizeLoadedRuntimePreferences(prefs RuntimePreferences) RuntimePreferen
 	} else {
 		prefs.DefaultCommandSandboxPolicy = nil
 	}
+	prefs.TurnPolicyAlertCoverageThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertCoverageThresholdPercent)
+	prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs)
+	prefs.TurnPolicyAlertStopLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertStopLatencyP95ThresholdMs)
+	prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent)
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
 	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
@@ -3859,10 +3900,13 @@ func (s *MemoryStore) persistLocked() {
 	projectionUpdates := make(map[string]threadProjectionRecord, len(s.projections))
 	activeProjectionSidecars := make(map[string]struct{}, len(s.projections))
 	for key, projection := range s.projections {
-		storedProjection, updatedRecord, activeTurnsPath := s.prepareStoredThreadProjectionSnapshotForPersist(projection)
+		storedProjection, updatedRecord, activeTurnsPaths := s.prepareStoredThreadProjectionSnapshotForPersist(projection)
 		snapshot.ThreadProjections = append(snapshot.ThreadProjections, storedProjection)
 		projectionUpdates[key] = updatedRecord
-		if activeTurnsPath != "" {
+		for _, activeTurnsPath := range activeTurnsPaths {
+			if activeTurnsPath == "" {
+				continue
+			}
 			activeProjectionSidecars[activeTurnsPath] = struct{}{}
 		}
 	}
@@ -4057,6 +4101,8 @@ func threadProjectionStorageKind(record threadProjectionRecord) string {
 	switch {
 	case record.Projection.Turns != nil:
 		return "hot"
+	case record.TurnsManifest != nil:
+		return "sidecar_chunked"
 	case record.TurnsPath != "":
 		return "sidecar"
 	case len(record.TurnsCompressed) > 0:
@@ -4107,6 +4153,11 @@ func normalizeStoredThreadProjection(storePath string, projection storedThreadPr
 		record.TurnsRef = ref
 		record.TurnsPath = threadProjectionTurnsAbsolutePath(storePath, ref)
 		mutated := false
+		if manifest, ok := readThreadProjectionTurnsManifest(record.TurnsPath); ok {
+			record.TurnsManifest = manifest
+		} else {
+			mutated = true
+		}
 		if record.Projection.TurnCount == 0 || threadProjectionStatsIsZero(record.Stats) {
 			refreshed, ok := refreshThreadProjectionRecordStats(record)
 			if ok {
@@ -4173,31 +4224,34 @@ func (s *MemoryStore) buildStoredThreadProjectionSnapshot(record threadProjectio
 
 func (s *MemoryStore) prepareStoredThreadProjectionSnapshotForPersist(
 	record threadProjectionRecord,
-) (storedThreadProjection, threadProjectionRecord, string) {
+) (storedThreadProjection, threadProjectionRecord, []string) {
 	record, _ = refreshThreadProjectionRecordStats(record)
 	if ref := s.threadProjectionRecordTurnsRef(record); ref != "" &&
 		record.Projection.Turns == nil &&
 		len(record.TurnsRaw) == 0 &&
-		len(record.TurnsCompressed) == 0 {
+		len(record.TurnsCompressed) == 0 &&
+		record.TurnsManifest != nil {
 		snapshot := s.buildStoredThreadProjectionSnapshot(record)
 		record.SnapshotBytes = encodedJSONSize(snapshot)
 		record.SnapshotDirty = false
-		return snapshot, record, record.TurnsPath
+		return snapshot, record, threadProjectionActiveSidecarPaths(record)
 	}
 
 	rawTurns := threadProjectionRecordTurnsRaw(record)
 	if shouldExternalizeThreadProjectionTurns(rawTurns) {
 		turnsPath := s.threadProjectionTurnsAbsolutePath(record.Projection.WorkspaceID, record.Projection.ThreadID)
-		if err := writeThreadProjectionTurnsSidecar(turnsPath, rawTurns); err == nil {
+		manifest, activeTurnsPaths, err := writeThreadProjectionTurnsSidecar(turnsPath, rawTurns)
+		if err == nil {
 			updatedRecord := threadProjectionRecord{
-				Projection: cloneThreadProjectionMetadata(record.Projection),
-				TurnsPath:  turnsPath,
-				TurnsRef:   s.threadProjectionRelativePath(turnsPath),
-				Stats:      cloneThreadProjectionStats(record.Stats),
+				Projection:    cloneThreadProjectionMetadata(record.Projection),
+				TurnsPath:     turnsPath,
+				TurnsRef:      s.threadProjectionRelativePath(turnsPath),
+				TurnsManifest: manifest,
+				Stats:         cloneThreadProjectionStats(record.Stats),
 			}
 			snapshot := s.buildStoredThreadProjectionSnapshot(updatedRecord)
 			updatedRecord.SnapshotBytes = encodedJSONSize(snapshot)
-			return snapshot, updatedRecord, turnsPath
+			return snapshot, updatedRecord, activeTurnsPaths
 		}
 	}
 
@@ -4208,18 +4262,21 @@ func (s *MemoryStore) prepareStoredThreadProjectionSnapshotForPersist(
 	updatedRecord.TurnsRaw, updatedRecord.TurnsCompressed = packThreadProjectionTurns(rawTurns)
 	snapshot := s.buildStoredThreadProjectionSnapshot(updatedRecord)
 	updatedRecord.SnapshotBytes = encodedJSONSize(snapshot)
-	return snapshot, updatedRecord, ""
+	return snapshot, updatedRecord, nil
 }
 
 func threadProjectionRecordTurnsRaw(record threadProjectionRecord) json.RawMessage {
 	if record.Projection.Turns != nil {
 		return encodeThreadProjectionTurns(record.Projection.Turns)
 	}
+	if record.TurnsManifest != nil {
+		return readThreadProjectionTurnsSidecar(record.TurnsPath, record.TurnsManifest)
+	}
 	if len(record.TurnsCompressed) > 0 {
 		return unpackThreadProjectionTurns(record.TurnsCompressed)
 	}
 	if record.TurnsPath != "" {
-		return readThreadProjectionTurnsSidecar(record.TurnsPath)
+		return readThreadProjectionTurnsSidecar(record.TurnsPath, nil)
 	}
 	return normalizeThreadProjectionRawJSON(record.TurnsRaw)
 }
@@ -4251,15 +4308,80 @@ func shouldExternalizeThreadProjectionTurns(raw json.RawMessage) bool {
 	return len(normalized) >= threadProjectionExternalizeMin && !bytes.Equal(normalized, []byte("[]"))
 }
 
-func writeThreadProjectionTurnsSidecar(turnsPath string, raw json.RawMessage) error {
+func writeThreadProjectionTurnsSidecar(
+	turnsPath string,
+	raw json.RawMessage,
+) (*threadProjectionTurnsManifest, []string, error) {
 	if turnsPath == "" {
-		return errors.New("thread projection turns path is empty")
+		return nil, nil, errors.New("thread projection turns path is empty")
 	}
 	if err := os.MkdirAll(filepath.Dir(turnsPath), 0o755); err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	file, err := os.Create(turnsPath)
+	turns := decodeThreadProjectionTurns(raw)
+	chunkSize := threadProjectionSidecarChunkSize
+	if chunkSize <= 0 {
+		chunkSize = len(turns)
+	}
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+
+	manifest := &threadProjectionTurnsManifest{
+		Version:   threadProjectionSidecarVersion,
+		ChunkSize: chunkSize,
+		ChunkRefs: make([]string, 0, threadProjectionChunkCapacity(len(turns), chunkSize)),
+		TurnIDs:   make([]string, 0, len(turns)),
+	}
+	activePaths := []string{turnsPath}
+	for start := 0; start < len(turns); start += chunkSize {
+		end := start + chunkSize
+		if end > len(turns) {
+			end = len(turns)
+		}
+		chunkIndex := len(manifest.ChunkRefs)
+		chunkPath := threadProjectionTurnsChunkPath(turnsPath, chunkIndex)
+		if err := os.MkdirAll(filepath.Dir(chunkPath), 0o755); err != nil {
+			return nil, nil, err
+		}
+		if err := writeThreadProjectionSidecarPayload(chunkPath, encodeThreadProjectionTurns(turns[start:end])); err != nil {
+			return nil, nil, err
+		}
+		manifest.ChunkRefs = append(manifest.ChunkRefs, threadProjectionTurnsChunkRelativeRef(turnsPath, chunkPath))
+		activePaths = append(activePaths, chunkPath)
+		for _, turn := range turns[start:end] {
+			manifest.TurnIDs = append(manifest.TurnIDs, turn.ID)
+		}
+	}
+
+	if err := writeThreadProjectionSidecarPayload(turnsPath, mustMarshalJSON(manifest)); err != nil {
+		return nil, nil, err
+	}
+	return manifest, activePaths, nil
+}
+
+func threadProjectionChunkCapacity(turnCount int, chunkSize int) int {
+	if turnCount <= 0 || chunkSize <= 0 {
+		return 1
+	}
+	capacity := (turnCount + chunkSize - 1) / chunkSize
+	if capacity <= 0 {
+		return 1
+	}
+	return capacity
+}
+
+func mustMarshalJSON(value any) []byte {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return []byte("{}")
+	}
+	return data
+}
+
+func writeThreadProjectionSidecarPayload(filePath string, raw []byte) error {
+	file, err := os.Create(filePath)
 	if err != nil {
 		return err
 	}
@@ -4270,29 +4392,103 @@ func writeThreadProjectionTurnsSidecar(turnsPath string, raw json.RawMessage) er
 		_ = writer.Close()
 		return err
 	}
-	if err := writer.Close(); err != nil {
-		return err
-	}
-	return nil
+	return writer.Close()
 }
 
-func readThreadProjectionTurnsSidecar(turnsPath string) json.RawMessage {
-	data, err := os.ReadFile(turnsPath)
+func readThreadProjectionTurnsManifest(turnsPath string) (*threadProjectionTurnsManifest, bool) {
+	data, err := readThreadProjectionSidecarPayload(turnsPath)
+	if err != nil {
+		return nil, false
+	}
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, false
+	}
+
+	var manifest threadProjectionTurnsManifest
+	if err := json.Unmarshal(trimmed, &manifest); err != nil {
+		return nil, false
+	}
+	if manifest.Version != threadProjectionSidecarVersion || manifest.ChunkSize <= 0 {
+		return nil, false
+	}
+	if len(manifest.ChunkRefs) == 0 {
+		if len(manifest.TurnIDs) == 0 {
+			return &manifest, true
+		}
+		return nil, false
+	}
+	if len(manifest.TurnIDs) == 0 || len(manifest.TurnIDs) > len(manifest.ChunkRefs)*manifest.ChunkSize {
+		return nil, false
+	}
+	return &manifest, true
+}
+
+func readThreadProjectionTurnsSidecar(
+	turnsPath string,
+	manifest *threadProjectionTurnsManifest,
+) json.RawMessage {
+	if manifest != nil {
+		turns := make([]ThreadTurn, 0, len(manifest.TurnIDs))
+		for _, chunkRef := range manifest.ChunkRefs {
+			turns = append(turns, readThreadProjectionTurnsChunk(turnsPath, chunkRef)...)
+		}
+		return encodeThreadProjectionTurns(turns)
+	}
+
+	data, err := readThreadProjectionSidecarPayload(turnsPath)
 	if err != nil {
 		return json.RawMessage("[]")
+	}
+	return append(json.RawMessage(nil), normalizeThreadProjectionRawJSON(data)...)
+}
+
+func readThreadProjectionSidecarPayload(turnsPath string) ([]byte, error) {
+	data, err := os.ReadFile(turnsPath)
+	if err != nil {
+		return nil, err
 	}
 
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return append(json.RawMessage(nil), normalizeThreadProjectionRawJSON(data)...)
+		return append([]byte(nil), normalizeThreadProjectionRawJSON(data)...), nil
 	}
 	defer reader.Close()
 
 	raw, err := io.ReadAll(reader)
 	if err != nil {
-		return json.RawMessage("[]")
+		return nil, err
 	}
-	return append(json.RawMessage(nil), normalizeThreadProjectionRawJSON(raw)...)
+	return append([]byte(nil), normalizeThreadProjectionRawJSON(raw)...), nil
+}
+
+func readThreadProjectionTurnsChunk(turnsPath string, chunkRef string) []ThreadTurn {
+	chunkPath := threadProjectionTurnsChunkAbsolutePath(turnsPath, chunkRef)
+	if chunkPath == "" {
+		return []ThreadTurn{}
+	}
+	data, err := readThreadProjectionSidecarPayload(chunkPath)
+	if err != nil {
+		return []ThreadTurn{}
+	}
+	return decodeThreadProjectionTurns(data)
+}
+
+func threadProjectionActiveSidecarPaths(record threadProjectionRecord) []string {
+	if record.TurnsPath == "" {
+		return nil
+	}
+	paths := []string{record.TurnsPath}
+	if record.TurnsManifest == nil {
+		return paths
+	}
+	for _, chunkRef := range record.TurnsManifest.ChunkRefs {
+		chunkPath := threadProjectionTurnsChunkAbsolutePath(record.TurnsPath, chunkRef)
+		if chunkPath != "" {
+			paths = append(paths, chunkPath)
+		}
+	}
+	return paths
 }
 
 func (s *MemoryStore) threadProjectionTurnsRoot() string {
@@ -4324,6 +4520,38 @@ func threadProjectionTurnsRelativeRef(workspaceID string, threadID string) strin
 	}
 	sum := sha256.Sum256([]byte(threadProjectionKey(workspaceID, threadID)))
 	return path.Join(workspaceSegment, hex.EncodeToString(sum[:])+".json.gz")
+}
+
+func threadProjectionTurnsChunkRoot(turnsPath string) string {
+	if strings.HasSuffix(turnsPath, ".json.gz") {
+		return strings.TrimSuffix(turnsPath, ".json.gz") + ".chunks"
+	}
+	return turnsPath + ".chunks"
+}
+
+func threadProjectionTurnsChunkPath(turnsPath string, chunkIndex int) string {
+	if turnsPath == "" {
+		return ""
+	}
+	return filepath.Join(threadProjectionTurnsChunkRoot(turnsPath), fmt.Sprintf("%04d.json.gz", chunkIndex))
+}
+
+func threadProjectionTurnsChunkRelativeRef(turnsPath string, chunkPath string) string {
+	if turnsPath == "" || chunkPath == "" {
+		return ""
+	}
+	relative, err := filepath.Rel(filepath.Dir(turnsPath), chunkPath)
+	if err != nil {
+		return ""
+	}
+	return filepath.ToSlash(relative)
+}
+
+func threadProjectionTurnsChunkAbsolutePath(turnsPath string, chunkRef string) string {
+	if turnsPath == "" || strings.TrimSpace(chunkRef) == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(turnsPath), filepath.FromSlash(chunkRef))
 }
 
 func sanitizeThreadProjectionPathSegment(value string) string {
@@ -4503,6 +4731,10 @@ func decodeThreadProjectionTurnsWindow(
 	turnLimit int,
 	beforeTurnID string,
 ) ([]ThreadTurn, bool, bool, int) {
+	if record.TurnsManifest != nil {
+		return decodeThreadProjectionTurnsChunkedWindow(record, turnLimit, beforeTurnID)
+	}
+
 	reader, err := threadProjectionTurnsReadCloser(record)
 	if err != nil {
 		return []ThreadTurn{}, false, beforeTurnID == "", 0
@@ -4543,6 +4775,95 @@ func decodeThreadProjectionTurnsWindow(
 	}
 
 	return cloneThreadTurns(window), totalAccepted > len(window), beforeFound, scannedTurns
+}
+
+func decodeThreadProjectionTurnsChunkedWindow(
+	record threadProjectionRecord,
+	turnLimit int,
+	beforeTurnID string,
+) ([]ThreadTurn, bool, bool, int) {
+	manifest := record.TurnsManifest
+	if manifest == nil {
+		return []ThreadTurn{}, false, beforeTurnID == "", 0
+	}
+	if turnLimit <= 0 {
+		turns := decodeThreadProjectionTurns(readThreadProjectionTurnsSidecar(record.TurnsPath, manifest))
+		return turns, false, beforeTurnID == "" || threadTurnsContainID(turns, beforeTurnID), len(turns)
+	}
+
+	endExclusive := len(manifest.TurnIDs)
+	beforeFound := beforeTurnID == ""
+	if beforeTurnID != "" {
+		endExclusive = -1
+		for index := len(manifest.TurnIDs) - 1; index >= 0; index-- {
+			if manifest.TurnIDs[index] == beforeTurnID {
+				endExclusive = index
+				beforeFound = true
+				break
+			}
+		}
+		if endExclusive < 0 {
+			return []ThreadTurn{}, false, false, 0
+		}
+	}
+
+	startInclusive := endExclusive - turnLimit
+	if startInclusive < 0 {
+		startInclusive = 0
+	}
+	if endExclusive < startInclusive {
+		endExclusive = startInclusive
+	}
+	if endExclusive == 0 {
+		return []ThreadTurn{}, false, beforeFound, 0
+	}
+
+	chunkSize := manifest.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = threadProjectionSidecarChunkSize
+	}
+	if chunkSize <= 0 {
+		chunkSize = len(manifest.TurnIDs)
+	}
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+
+	chunkStart := startInclusive / chunkSize
+	chunkEnd := (endExclusive - 1) / chunkSize
+	if chunkStart < 0 {
+		chunkStart = 0
+	}
+	if chunkEnd >= len(manifest.ChunkRefs) {
+		chunkEnd = len(manifest.ChunkRefs) - 1
+	}
+	window := make([]ThreadTurn, 0, endExclusive-startInclusive)
+	scannedTurns := 0
+	for chunkIndex := chunkStart; chunkIndex <= chunkEnd; chunkIndex++ {
+		if chunkIndex < 0 || chunkIndex >= len(manifest.ChunkRefs) {
+			continue
+		}
+		chunkTurns := readThreadProjectionTurnsChunk(record.TurnsPath, manifest.ChunkRefs[chunkIndex])
+		scannedTurns += len(chunkTurns)
+		chunkStartInclusive := chunkIndex * chunkSize
+		localStart := startInclusive - chunkStartInclusive
+		if localStart < 0 {
+			localStart = 0
+		}
+		localEnd := endExclusive - chunkStartInclusive
+		if localEnd > len(chunkTurns) {
+			localEnd = len(chunkTurns)
+		}
+		if localEnd < localStart {
+			localEnd = localStart
+		}
+		if localStart >= len(chunkTurns) || localStart == localEnd {
+			continue
+		}
+		window = append(window, chunkTurns[localStart:localEnd]...)
+	}
+
+	return cloneThreadTurns(window), startInclusive > 0, beforeFound, scannedTurns
 }
 
 func threadProjectionTurnsReadCloser(record threadProjectionRecord) (io.ReadCloser, error) {

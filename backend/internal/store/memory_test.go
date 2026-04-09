@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -567,6 +568,12 @@ func TestPersistentStoreExternalizesLargeThreadProjectionTurnsToSidecar(t *testi
 	if record.TurnsPath == "" {
 		t.Fatal("expected large projection turns to be externalized to a sidecar file")
 	}
+	if record.TurnsManifest == nil {
+		t.Fatal("expected large projection turns to persist as a chunked sidecar manifest")
+	}
+	if len(record.TurnsManifest.ChunkRefs) < 2 {
+		t.Fatalf("expected chunked sidecar manifest to contain multiple chunk refs, got %#v", record.TurnsManifest)
+	}
 	if len(record.TurnsRaw) != 0 || len(record.TurnsCompressed) != 0 {
 		t.Fatalf("expected externalized projection to release resident turns payload, got raw=%d compressed=%d", len(record.TurnsRaw), len(record.TurnsCompressed))
 	}
@@ -614,6 +621,9 @@ func TestPersistentStoreExternalizesLargeThreadProjectionTurnsToSidecar(t *testi
 	}
 	if record.TurnsPath == "" {
 		t.Fatal("expected reloaded projection to retain sidecar path")
+	}
+	if record.TurnsManifest == nil {
+		t.Fatal("expected reloaded projection to retain chunked sidecar manifest")
 	}
 	if len(record.TurnsRaw) != 0 || len(record.TurnsCompressed) != 0 {
 		t.Fatalf("expected reloaded sidecar projection to stay file-backed, got raw=%d compressed=%d", len(record.TurnsRaw), len(record.TurnsCompressed))
@@ -1016,11 +1026,11 @@ func TestGetThreadProjectionWindowStreamsCurrentTailFromSidecar(t *testing.T) {
 	if len(window.Projection.Turns) != 3 {
 		t.Fatalf("expected 3 turns in tail window, got %d", len(window.Projection.Turns))
 	}
-	if window.ReadSource != "sidecar" {
-		t.Fatalf("expected sidecar window source, got %q", window.ReadSource)
+	if window.ReadSource != "sidecar_chunked" {
+		t.Fatalf("expected chunked sidecar window source, got %q", window.ReadSource)
 	}
-	if window.ScannedTurns != len(turns) {
-		t.Fatalf("expected tail window to scan %d turns, got %d", len(turns), window.ScannedTurns)
+	if window.ScannedTurns != 10 {
+		t.Fatalf("expected tail window to scan 10 turns from the final chunks, got %d", window.ScannedTurns)
 	}
 	if window.Projection.Turns[0].ID != turns[len(turns)-3].ID ||
 		window.Projection.Turns[1].ID != turns[len(turns)-2].ID ||
@@ -1029,6 +1039,75 @@ func TestGetThreadProjectionWindowStreamsCurrentTailFromSidecar(t *testing.T) {
 	}
 	if window.Projection.TurnCount != len(turns) {
 		t.Fatalf("expected full turn count %d, got %d", len(turns), window.Projection.TurnCount)
+	}
+}
+
+func TestGetThreadProjectionWindowStreamsBeforeTurnWindowFromChunkedSidecar(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	thread := Thread{
+		ID:          "thread-window-before-sidecar",
+		WorkspaceID: workspace.ID,
+		Name:        "Window Before Sidecar Thread",
+		Status:      "completed",
+	}
+	firstStore.UpsertThread(thread)
+
+	turns := make([]ThreadTurn, 0, 18)
+	for index := 1; index <= 18; index++ {
+		turns = append(turns, ThreadTurn{
+			ID:     fmt.Sprintf("turn-%02d", index),
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":     "msg-" + NewID("chunked"),
+					"type":   "agentMessage",
+					"text":   strings.Repeat("chunked before-turn payload ", 140),
+					"status": "completed",
+				},
+			},
+		})
+	}
+
+	firstStore.UpsertThreadProjectionSnapshot(ThreadDetail{
+		Thread: thread,
+		Turns:  turns,
+	})
+
+	reloadedStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	window, ok := reloadedStore.GetThreadProjectionWindow(workspace.ID, thread.ID, 2, "turn-17")
+	if !ok {
+		t.Fatal("expected projection window")
+	}
+	if !window.BeforeTurnFound {
+		t.Fatalf("expected before turn marker to be found, got %#v", window)
+	}
+	if !window.HasMore {
+		t.Fatalf("expected before-turn window to report older turns, got %#v", window)
+	}
+	if len(window.Projection.Turns) != 2 {
+		t.Fatalf("expected 2 turns in before-turn window, got %d", len(window.Projection.Turns))
+	}
+	if window.ReadSource != "sidecar_chunked" {
+		t.Fatalf("expected chunked sidecar before-turn source, got %q", window.ReadSource)
+	}
+	if window.ScannedTurns != 8 {
+		t.Fatalf("expected before-turn chunked window to scan 8 turns, got %d", window.ScannedTurns)
+	}
+	if window.Projection.Turns[0].ID != "turn-15" || window.Projection.Turns[1].ID != "turn-16" {
+		t.Fatalf("unexpected before-turn window turns: %#v", window.Projection.Turns)
 	}
 }
 
