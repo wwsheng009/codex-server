@@ -476,19 +476,8 @@ func (s *Service) GetTurnItemOutput(
 	}
 
 	outputMode = normalizeThreadOutputContentMode(outputMode)
-	output := stringValue(item["aggregatedOutput"])
-	result := ThreadTurnItemOutput{
-		ItemID:            itemID,
-		Command:           stringValue(item["command"]),
-		AggregatedOutput:  output,
-		OutputLineCount:   countOutputLines(output),
-		OutputContentMode: threadContentModeFull,
-		OutputStartLine:   0,
-		OutputEndLine:     countOutputLines(output),
-		OutputStartOffset: 0,
-		OutputEndOffset:   len(output),
-		OutputTotalLength: len(output),
-	}
+	result := buildThreadTurnItemOutputFromItem(itemID, item)
+	output := result.AggregatedOutput
 
 	if outputMode == threadContentModeSummary {
 		if preview, truncated := truncateMiddleSummaryString(output, threadExpandedCommandOutputPreviewLimit); truncated {
@@ -497,12 +486,21 @@ func (s *Service) GetTurnItemOutput(
 			result.OutputTruncated = true
 		}
 	} else if outputMode == threadOutputModeTail {
-		result = buildTailThreadTurnItemOutput(
-			result,
-			output,
-			normalizeThreadOutputTailLines(tailLines),
-			normalizeThreadOutputBeforeLine(beforeLine, result.OutputLineCount),
-		)
+		if result.OutputTruncated && result.OutputContentMode == threadOutputModeTail {
+			result = buildTailThreadTurnItemOutputFromStoredWindow(
+				result,
+				output,
+				normalizeThreadOutputTailLines(tailLines),
+				normalizeThreadOutputBeforeLine(beforeLine, result.OutputEndLine),
+			)
+		} else {
+			result = buildTailThreadTurnItemOutput(
+				result,
+				output,
+				normalizeThreadOutputTailLines(tailLines),
+				normalizeThreadOutputBeforeLine(beforeLine, result.OutputLineCount),
+			)
+		}
 	}
 
 	return result, nil
@@ -516,85 +514,151 @@ func (s *Service) GetDetailWindow(
 	beforeTurnID string,
 	contentMode string,
 ) (store.ThreadDetail, error) {
+	requestStartedAt := time.Now()
 	contentMode = normalizeThreadContentMode(contentMode)
 	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
 		return store.ThreadDetail{}, err
 	}
 
 	if beforeTurnID != "" {
-		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok && threadDetailHasTurnID(cachedDetail, beforeTurnID) {
+		if cachedDetail, beforeFound, ok, projectionReadSource, projectionScannedTurns := s.cachedThreadDetailWindow(workspaceID, threadID, turnLimit, beforeTurnID); ok && beforeFound {
 			diagnostics.LogThreadTrace(
 				workspaceID,
 				threadID,
 				"thread detail served from cache",
-				appendThreadDetailTraceAttrs(
-					[]any{
-						"reason", "before_turn_cached",
-						"beforeTurnId", beforeTurnID,
-						"requestedTurnLimit", turnLimit,
-						"contentMode", contentMode,
-					},
-					cachedDetail,
+				appendThreadDetailPerformanceTraceAttrs(
+					appendThreadDetailWindowReadTraceAttrs(
+						appendThreadDetailTraceAttrs(
+							[]any{
+								"reason", "before_turn_cached",
+								"beforeTurnId", beforeTurnID,
+								"requestedTurnLimit", turnLimit,
+								"contentMode", contentMode,
+							},
+							cachedDetail,
+						),
+						projectionReadSource,
+						projectionScannedTurns,
+					),
+					time.Since(requestStartedAt),
 				)...,
 			)
-			return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
+			return finalizeWindowedThreadDetailResponse(cachedDetail, contentMode), nil
 		}
 	}
 
 	if turnLimit > 0 && beforeTurnID == "" && s.shouldServeCurrentWindowFromCache(workspaceID, threadID) {
-		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+		if cachedDetail, _, ok, projectionReadSource, projectionScannedTurns := s.cachedThreadDetailWindow(workspaceID, threadID, turnLimit, ""); ok {
 			diagnostics.LogThreadTrace(
 				workspaceID,
 				threadID,
 				"thread detail served from cache",
-				appendThreadDetailTraceAttrs(
-					[]any{
-						"reason", "current_window_cached",
-						"requestedTurnLimit", turnLimit,
-						"contentMode", contentMode,
-					},
-					cachedDetail,
+				appendThreadDetailPerformanceTraceAttrs(
+					appendThreadDetailWindowReadTraceAttrs(
+						appendThreadDetailTraceAttrs(
+							[]any{
+								"reason", "current_window_cached",
+								"requestedTurnLimit", turnLimit,
+								"contentMode", contentMode,
+							},
+							cachedDetail,
+						),
+						projectionReadSource,
+						projectionScannedTurns,
+					),
+					time.Since(requestStartedAt),
 				)...,
 			)
-			return finalizeThreadDetailResponse(cachedDetail, turnLimit, "", contentMode), nil
+			return finalizeWindowedThreadDetailResponse(cachedDetail, contentMode), nil
 		}
 	}
 
 	if turnLimit > 0 && !runtimeStateIsLive(s.runtimes.State(workspaceID).Status) {
-		if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
+		if cachedDetail, _, ok, projectionReadSource, projectionScannedTurns := s.cachedThreadDetailWindow(workspaceID, threadID, turnLimit, beforeTurnID); ok {
 			diagnostics.LogThreadTrace(
 				workspaceID,
 				threadID,
 				"thread detail served from cache",
-				appendThreadDetailTraceAttrs(
-					[]any{
-						"reason", "runtime_not_live_cached",
-						"requestedTurnLimit", turnLimit,
-						"contentMode", contentMode,
-					},
-					cachedDetail,
+				appendThreadDetailPerformanceTraceAttrs(
+					appendThreadDetailWindowReadTraceAttrs(
+						appendThreadDetailTraceAttrs(
+							[]any{
+								"reason", "runtime_not_live_cached",
+								"requestedTurnLimit", turnLimit,
+								"contentMode", contentMode,
+							},
+							cachedDetail,
+						),
+						projectionReadSource,
+						projectionScannedTurns,
+					),
+					time.Since(requestStartedAt),
 				)...,
 			)
-			return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
+			return finalizeWindowedThreadDetailResponse(cachedDetail, contentMode), nil
 		}
 	}
 
+	runtimeReadElapsed := time.Duration(0)
+	runtimeReadIncludeTurns := true
+	runtimeReadFallbackUsed := false
+	readStartedAt := time.Now()
 	threadData, err := s.readThread(ctx, workspaceID, threadID, true)
+	runtimeReadElapsed += time.Since(readStartedAt)
 	if err != nil {
 		if !isThreadTurnsUnavailableBeforeFirstUserMessage(err) {
+			if turnLimit > 0 {
+				if cachedDetail, _, ok, projectionReadSource, projectionScannedTurns := s.cachedThreadDetailWindow(workspaceID, threadID, turnLimit, beforeTurnID); ok {
+					diagnostics.LogThreadTrace(
+						workspaceID,
+						threadID,
+						"thread detail served from cache after runtime read failure",
+						appendThreadDetailRuntimeReadTraceAttrs(
+							appendThreadDetailPerformanceTraceAttrs(
+								appendThreadDetailWindowReadTraceAttrs(
+									appendThreadDetailTraceAttrs(
+										[]any{
+											"reason", "runtime_read_failed_cached",
+											"error", err,
+											"requestedTurnLimit", turnLimit,
+											"contentMode", contentMode,
+										},
+										cachedDetail,
+									),
+									projectionReadSource,
+									projectionScannedTurns,
+								),
+								time.Since(requestStartedAt),
+							),
+							runtimeReadElapsed,
+							runtimeReadIncludeTurns,
+							runtimeReadFallbackUsed,
+						)...,
+					)
+					return finalizeWindowedThreadDetailResponse(cachedDetail, contentMode), nil
+				}
+			}
 			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
 				diagnostics.LogThreadTrace(
 					workspaceID,
 					threadID,
 					"thread detail served from cache after runtime read failure",
-					appendThreadDetailTraceAttrs(
-						[]any{
-							"reason", "runtime_read_failed_cached",
-							"error", err,
-							"requestedTurnLimit", turnLimit,
-							"contentMode", contentMode,
-						},
-						cachedDetail,
+					appendThreadDetailRuntimeReadTraceAttrs(
+						appendThreadDetailPerformanceTraceAttrs(
+							appendThreadDetailTraceAttrs(
+								[]any{
+									"reason", "runtime_read_failed_cached",
+									"error", err,
+									"requestedTurnLimit", turnLimit,
+									"contentMode", contentMode,
+								},
+								cachedDetail,
+							),
+							time.Since(requestStartedAt),
+						),
+						runtimeReadElapsed,
+						runtimeReadIncludeTurns,
+						runtimeReadFallbackUsed,
 					)...,
 				)
 				return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
@@ -602,21 +666,64 @@ func (s *Service) GetDetailWindow(
 			return store.ThreadDetail{}, err
 		}
 
+		runtimeReadFallbackUsed = true
+		runtimeReadIncludeTurns = false
+		readStartedAt = time.Now()
 		threadData, err = s.readThread(ctx, workspaceID, threadID, false)
+		runtimeReadElapsed += time.Since(readStartedAt)
 		if err != nil {
+			if turnLimit > 0 {
+				if cachedDetail, _, ok, projectionReadSource, projectionScannedTurns := s.cachedThreadDetailWindow(workspaceID, threadID, turnLimit, beforeTurnID); ok {
+					diagnostics.LogThreadTrace(
+						workspaceID,
+						threadID,
+						"thread detail served from cache after turns-unavailable fallback failed",
+						appendThreadDetailRuntimeReadTraceAttrs(
+							appendThreadDetailPerformanceTraceAttrs(
+								appendThreadDetailWindowReadTraceAttrs(
+									appendThreadDetailTraceAttrs(
+										[]any{
+											"reason", "turns_unavailable_cached",
+											"error", err,
+											"requestedTurnLimit", turnLimit,
+											"contentMode", contentMode,
+										},
+										cachedDetail,
+									),
+									projectionReadSource,
+									projectionScannedTurns,
+								),
+								time.Since(requestStartedAt),
+							),
+							runtimeReadElapsed,
+							runtimeReadIncludeTurns,
+							runtimeReadFallbackUsed,
+						)...,
+					)
+					return finalizeWindowedThreadDetailResponse(cachedDetail, contentMode), nil
+				}
+			}
 			if cachedDetail, ok := s.cachedThreadDetail(workspaceID, threadID); ok {
 				diagnostics.LogThreadTrace(
 					workspaceID,
 					threadID,
 					"thread detail served from cache after turns-unavailable fallback failed",
-					appendThreadDetailTraceAttrs(
-						[]any{
-							"reason", "turns_unavailable_cached",
-							"error", err,
-							"requestedTurnLimit", turnLimit,
-							"contentMode", contentMode,
-						},
-						cachedDetail,
+					appendThreadDetailRuntimeReadTraceAttrs(
+						appendThreadDetailPerformanceTraceAttrs(
+							appendThreadDetailTraceAttrs(
+								[]any{
+									"reason", "turns_unavailable_cached",
+									"error", err,
+									"requestedTurnLimit", turnLimit,
+									"contentMode", contentMode,
+								},
+								cachedDetail,
+							),
+							time.Since(requestStartedAt),
+						),
+						runtimeReadElapsed,
+						runtimeReadIncludeTurns,
+						runtimeReadFallbackUsed,
 					)...,
 				)
 				return finalizeThreadDetailResponse(cachedDetail, turnLimit, beforeTurnID, contentMode), nil
@@ -652,35 +759,59 @@ func (s *Service) GetDetailWindow(
 		workspaceID,
 		threadID,
 		"thread detail loaded from runtime snapshot",
-		appendThreadDetailTraceAttrs(
-			[]any{
-				"contentMode", contentMode,
-				"requestedTurnLimit", turnLimit,
-				"beforeTurnId", beforeTurnID,
-			},
-			detail,
+		appendThreadDetailRuntimeReadTraceAttrs(
+			appendThreadDetailPerformanceTraceAttrs(
+				appendThreadDetailTraceAttrs(
+					[]any{
+						"contentMode", contentMode,
+						"requestedTurnLimit", turnLimit,
+						"beforeTurnId", beforeTurnID,
+					},
+					detail,
+				),
+				time.Since(requestStartedAt),
+			),
+			runtimeReadElapsed,
+			runtimeReadIncludeTurns,
+			runtimeReadFallbackUsed,
 		)...,
 	)
 
+	projectionMergeStartedAt := time.Now()
 	projectedDetail := applyStoredProjection(detail, s.store, s.runtimes, workspaceID, threadID)
 	projectedDetail = reconcileSettledThreadDetail(projectedDetail, s.runtimes.ActiveTurnID(workspaceID, threadID))
 	projectedDetail.TurnCount = len(projectedDetail.Turns)
 	projectedDetail.MessageCount = countThreadMessages(projectedDetail.Turns)
+	projectionMergeElapsed := time.Since(projectionMergeStartedAt)
+	projectionPersistStartedAt := time.Now()
+	s.store.UpsertThreadProjectionSnapshot(projectedDetail)
+	projectionPersistElapsed := time.Since(projectionPersistStartedAt)
 	diagnostics.LogThreadTrace(
 		workspaceID,
 		threadID,
 		"thread detail merged with projection",
-		appendThreadDetailTraceAttrs(
-			[]any{
-				"contentMode", contentMode,
-				"requestedTurnLimit", turnLimit,
-				"beforeTurnId", beforeTurnID,
-				"activeTurnId", s.runtimes.ActiveTurnID(workspaceID, threadID),
-			},
-			projectedDetail,
+		appendThreadDetailProjectionWorkTraceAttrs(
+			appendThreadDetailRuntimeReadTraceAttrs(
+				appendThreadDetailPerformanceTraceAttrs(
+					appendThreadDetailTraceAttrs(
+						[]any{
+							"contentMode", contentMode,
+							"requestedTurnLimit", turnLimit,
+							"beforeTurnId", beforeTurnID,
+							"activeTurnId", s.runtimes.ActiveTurnID(workspaceID, threadID),
+						},
+						projectedDetail,
+					),
+					time.Since(requestStartedAt),
+				),
+				runtimeReadElapsed,
+				runtimeReadIncludeTurns,
+				runtimeReadFallbackUsed,
+			),
+			projectionMergeElapsed,
+			projectionPersistElapsed,
 		)...,
 	)
-	s.store.UpsertThreadProjectionSnapshot(projectedDetail)
 
 	return finalizeThreadDetailResponse(projectedDetail, turnLimit, beforeTurnID, contentMode), nil
 }
@@ -699,6 +830,16 @@ func finalizeThreadDetailResponse(
 		detail = summarizeThreadDetailContent(detail)
 	}
 
+	return detail
+}
+
+func finalizeWindowedThreadDetailResponse(
+	detail store.ThreadDetail,
+	contentMode string,
+) store.ThreadDetail {
+	if contentMode == threadContentModeSummary {
+		detail = summarizeThreadDetailContent(detail)
+	}
 	return detail
 }
 
@@ -725,6 +866,42 @@ func (s *Service) cachedThreadDetail(workspaceID string, threadID string) (store
 	detail.TurnCount = len(detail.Turns)
 	detail.MessageCount = countThreadMessages(detail.Turns)
 	return detail, true
+}
+
+func (s *Service) cachedThreadDetailWindow(
+	workspaceID string,
+	threadID string,
+	turnLimit int,
+	beforeTurnID string,
+) (store.ThreadDetail, bool, bool, string, int) {
+	window, ok := s.store.GetThreadProjectionWindow(workspaceID, threadID, turnLimit, beforeTurnID)
+	if !ok || !window.Projection.SnapshotComplete {
+		return store.ThreadDetail{}, false, false, "", 0
+	}
+
+	thread, foundThread := s.store.GetThread(workspaceID, threadID)
+	if !foundThread {
+		thread = store.Thread{
+			ID:          threadID,
+			WorkspaceID: workspaceID,
+			Name:        "Untitled Thread",
+			Status:      fallbackString(window.Projection.Status, "idle"),
+			UpdatedAt:   window.Projection.UpdatedAt,
+		}
+	}
+
+	detail := buildCachedThreadDetail(thread, window.Projection)
+	detail.HasMoreTurns = window.HasMore
+	detail.Turns = reconcileServerRequestStatuses(detail.Turns, s.runtimes)
+	detail = reconcileSettledThreadDetail(detail, s.runtimes.ActiveTurnID(workspaceID, threadID))
+	if window.Projection.TurnCount > 0 {
+		detail.TurnCount = window.Projection.TurnCount
+	}
+	if window.Projection.MessageCount > 0 {
+		detail.MessageCount = window.Projection.MessageCount
+	}
+	detail.HasMoreTurns = window.HasMore
+	return detail, window.BeforeTurnFound, true, window.ReadSource, window.ScannedTurns
 }
 
 func sliceThreadDetailTurns(
@@ -775,7 +952,7 @@ func buildCachedThreadDetail(thread store.Thread, projection store.ThreadProject
 		TurnCount:    projection.TurnCount,
 		MessageCount: projection.MessageCount,
 		HasMoreTurns: false,
-		Turns:        cloneThreadTurnsLocal(projection.Turns),
+		Turns:        normalizeStoredThreadTurnsForClient(projection.Turns),
 	}
 
 	if detail.TurnCount == 0 && len(projection.Turns) > 0 {
@@ -795,8 +972,84 @@ func buildCachedThreadDetail(thread store.Thread, projection store.ThreadProject
 	return detail
 }
 
+func normalizeStoredThreadTurnsForClient(turns []store.ThreadTurn) []store.ThreadTurn {
+	nextTurns := cloneThreadTurnsLocal(turns)
+	for turnIndex := range nextTurns {
+		for itemIndex := range nextTurns[turnIndex].Items {
+			nextTurns[turnIndex].Items[itemIndex] = normalizeStoredThreadTurnItemForClient(nextTurns[turnIndex].Items[itemIndex])
+		}
+	}
+	return nextTurns
+}
+
+func normalizeStoredThreadTurnItemForClient(item map[string]any) map[string]any {
+	next := cloneTurnItemLocal(item)
+	if stringValue(next["type"]) != "commandExecution" {
+		return next
+	}
+
+	output := stringValue(next["aggregatedOutput"])
+	totalLength := int(int64Value(next["outputTotalLength"]))
+	if totalLength < len(output) {
+		totalLength = len(output)
+	}
+
+	totalLines := int(int64Value(next["outputLineCount"]))
+	if totalLines < countOutputLines(output) {
+		totalLines = countOutputLines(output)
+	}
+
+	storedTruncated := boolValue(next["outputTruncated"]) || totalLength > len(output)
+	if !storedTruncated {
+		return next
+	}
+
+	startOffset := int(int64Value(next["outputStartOffset"]))
+	if startOffset < 0 || startOffset > totalLength {
+		startOffset = totalLength - len(output)
+	}
+	if startOffset < 0 {
+		startOffset = 0
+	}
+
+	endOffset := int(int64Value(next["outputEndOffset"]))
+	if endOffset < startOffset || endOffset > totalLength {
+		endOffset = startOffset + trimOutputLineBreakSuffix(output)
+		if endOffset > totalLength {
+			endOffset = totalLength
+		}
+	}
+
+	storedLineCount := countOutputLines(output)
+	startLine := int(int64Value(next["outputStartLine"]))
+	endLine := int(int64Value(next["outputEndLine"]))
+	if endLine <= 0 || endLine > totalLines {
+		endLine = totalLines
+	}
+	if storedLineCount > 0 {
+		expectedStartLine := endLine - storedLineCount
+		if expectedStartLine < 0 {
+			expectedStartLine = 0
+		}
+		if startLine < 0 || startLine > endLine {
+			startLine = expectedStartLine
+		}
+	}
+
+	next["outputContentMode"] = threadOutputModeTail
+	next["outputTruncated"] = true
+	next["outputStartOffset"] = startOffset
+	next["outputEndOffset"] = endOffset
+	next["outputTotalLength"] = totalLength
+	next["outputStartLine"] = startLine
+	next["outputEndLine"] = endLine
+	next["outputLineCount"] = totalLines
+	next["summaryTruncated"] = true
+	return next
+}
+
 func (s *Service) shouldServeCurrentWindowFromCache(workspaceID string, threadID string) bool {
-	projection, ok := s.store.GetThreadProjection(workspaceID, threadID)
+	projection, ok := s.store.GetThreadProjectionSummary(workspaceID, threadID)
 	if !ok || !projection.SnapshotComplete {
 		return false
 	}
@@ -1119,14 +1372,18 @@ func cloneTurnItemsLocal(items []map[string]any) []map[string]any {
 
 	cloned := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		next := make(map[string]any, len(item))
-		for key, value := range item {
-			next[key] = value
-		}
-		cloned = append(cloned, next)
+		cloned = append(cloned, cloneTurnItemLocal(item))
 	}
 
 	return cloned
+}
+
+func cloneTurnItemLocal(item map[string]any) map[string]any {
+	next := make(map[string]any, len(item))
+	for key, value := range item {
+		next[key] = value
+	}
+	return next
 }
 
 func (s *Service) readThread(ctx context.Context, workspaceID string, threadID string, includeTurns bool) (map[string]any, error) {
@@ -1683,6 +1940,54 @@ func appendThreadDetailTraceAttrs(attrs []any, detail store.ThreadDetail) []any 
 	return attrs
 }
 
+func appendThreadDetailPerformanceTraceAttrs(attrs []any, elapsed time.Duration) []any {
+	return append(attrs, "elapsedMs", durationMilliseconds(elapsed))
+}
+
+func appendThreadDetailRuntimeReadTraceAttrs(
+	attrs []any,
+	runtimeReadElapsed time.Duration,
+	runtimeReadIncludeTurns bool,
+	runtimeReadFallbackUsed bool,
+) []any {
+	attrs = append(attrs,
+		"runtimeReadMs", durationMilliseconds(runtimeReadElapsed),
+		"runtimeReadIncludeTurns", runtimeReadIncludeTurns,
+	)
+	if runtimeReadFallbackUsed {
+		attrs = append(attrs, "runtimeReadFallbackUsed", true)
+	}
+	return attrs
+}
+
+func appendThreadDetailProjectionWorkTraceAttrs(
+	attrs []any,
+	projectionMergeElapsed time.Duration,
+	projectionPersistElapsed time.Duration,
+) []any {
+	return append(attrs,
+		"projectionMergeMs", durationMilliseconds(projectionMergeElapsed),
+		"projectionPersistMs", durationMilliseconds(projectionPersistElapsed),
+	)
+}
+
+func appendThreadDetailWindowReadTraceAttrs(attrs []any, projectionReadSource string, projectionScannedTurns int) []any {
+	if strings.TrimSpace(projectionReadSource) != "" {
+		attrs = append(attrs, "projectionReadSource", projectionReadSource)
+	}
+	if projectionScannedTurns > 0 {
+		attrs = append(attrs, "projectionScannedTurns", projectionScannedTurns)
+	}
+	return attrs
+}
+
+func durationMilliseconds(elapsed time.Duration) int64 {
+	if elapsed <= 0 {
+		return 0
+	}
+	return elapsed.Milliseconds()
+}
+
 func mergeProjectedTurns(base []store.ThreadTurn, overlay []store.ThreadTurn) []store.ThreadTurn {
 	if len(overlay) == 0 {
 		return base
@@ -2197,6 +2502,131 @@ func buildTailThreadTurnItemOutput(
 	return result
 }
 
+func buildTailThreadTurnItemOutputFromStoredWindow(
+	result ThreadTurnItemOutput,
+	storedOutput string,
+	tailLines int,
+	beforeLine int,
+) ThreadTurnItemOutput {
+	lineRanges := buildOutputLineRanges(storedOutput)
+	if len(lineRanges) == 0 {
+		return result
+	}
+
+	storedStartLine := result.OutputStartLine
+	storedEndLine := result.OutputEndLine
+	if storedEndLine <= storedStartLine {
+		storedEndLine = storedStartLine + len(lineRanges)
+	}
+
+	if beforeLine <= storedStartLine {
+		return result
+	}
+	if beforeLine > storedEndLine {
+		beforeLine = storedEndLine
+	}
+
+	startLine := beforeLine - tailLines
+	if startLine < storedStartLine {
+		startLine = storedStartLine
+	}
+	if startLine >= beforeLine {
+		startLine = beforeLine - 1
+		if startLine < storedStartLine {
+			startLine = storedStartLine
+		}
+	}
+
+	relativeStartLine := startLine - storedStartLine
+	if relativeStartLine < 0 {
+		relativeStartLine = 0
+	}
+	relativeEndLine := beforeLine - storedStartLine
+	if relativeEndLine > len(lineRanges) {
+		relativeEndLine = len(lineRanges)
+	}
+	if relativeEndLine <= 0 {
+		relativeEndLine = len(lineRanges)
+	}
+
+	startOffset := result.OutputStartOffset + lineRanges[relativeStartLine].start
+	endOffset := result.OutputStartOffset + lineRanges[relativeEndLine-1].end
+	result.OutputStartLine = startLine
+	result.OutputEndLine = beforeLine
+	result.OutputStartOffset = startOffset
+	result.OutputEndOffset = endOffset
+	result.AggregatedOutput = storedOutput[lineRanges[relativeStartLine].start:lineRanges[relativeEndLine-1].end]
+	result.OutputContentMode = threadOutputModeTail
+	result.OutputTruncated = true
+	if result.OutputStartLine == 0 &&
+		result.OutputLineCount > 0 &&
+		result.OutputEndLine == result.OutputLineCount &&
+		result.OutputTotalLength == len(result.AggregatedOutput) {
+		result.OutputContentMode = threadContentModeFull
+		result.OutputTruncated = false
+	}
+	return result
+}
+
+func buildThreadTurnItemOutputFromItem(itemID string, item map[string]any) ThreadTurnItemOutput {
+	output := stringValue(item["aggregatedOutput"])
+	outputLineCount := countOutputLines(output)
+	outputTotalLength := len(output)
+	outputStartOffset := 0
+	outputEndOffset := trimOutputLineBreakSuffix(output)
+	outputStartLine := 0
+	outputEndLine := outputLineCount
+	outputContentMode := threadContentModeFull
+	outputTruncated := false
+
+	if totalLength := int(int64Value(item["outputTotalLength"])); totalLength > outputTotalLength {
+		outputTotalLength = totalLength
+		outputTruncated = true
+		outputContentMode = threadOutputModeTail
+	}
+	if boolValue(item["outputTruncated"]) {
+		outputTruncated = true
+	}
+	if contentMode := stringValue(item["outputContentMode"]); contentMode != "" {
+		outputContentMode = contentMode
+	}
+	if startOffset := int(int64Value(item["outputStartOffset"])); startOffset >= 0 {
+		outputStartOffset = startOffset
+	}
+	if endOffset := int(int64Value(item["outputEndOffset"])); endOffset > outputStartOffset {
+		outputEndOffset = endOffset
+	}
+	if totalLines := int(int64Value(item["outputLineCount"])); totalLines > outputLineCount {
+		outputLineCount = totalLines
+	}
+	if startLine := int(int64Value(item["outputStartLine"])); startLine >= 0 {
+		outputStartLine = startLine
+	}
+	if endLine := int(int64Value(item["outputEndLine"])); endLine > outputStartLine {
+		outputEndLine = endLine
+	}
+	if outputEndOffset < outputStartOffset {
+		outputEndOffset = outputStartOffset
+	}
+	if outputEndLine < outputStartLine {
+		outputEndLine = outputStartLine
+	}
+
+	return ThreadTurnItemOutput{
+		ItemID:            itemID,
+		Command:           stringValue(item["command"]),
+		AggregatedOutput:  output,
+		OutputLineCount:   outputLineCount,
+		OutputContentMode: outputContentMode,
+		OutputStartLine:   outputStartLine,
+		OutputEndLine:     outputEndLine,
+		OutputStartOffset: outputStartOffset,
+		OutputEndOffset:   outputEndOffset,
+		OutputTotalLength: outputTotalLength,
+		OutputTruncated:   outputTruncated,
+	}
+}
+
 type outputLineRange struct {
 	start int
 	end   int
@@ -2305,6 +2735,10 @@ func summarizeThreadItem(item map[string]any) map[string]any {
 		); truncated {
 			next["aggregatedOutput"] = outputPreview
 			if outputLineCount := countOutputLines(output); outputLineCount > 0 {
+				existingOutputLineCount := int(int64Value(next["outputLineCount"]))
+				if existingOutputLineCount > outputLineCount {
+					outputLineCount = existingOutputLineCount
+				}
 				next["outputLineCount"] = outputLineCount
 			}
 			summaryTruncated = true
@@ -2489,7 +2923,7 @@ func (s *Service) enrichThreadListCounts(workspaceID string, items []store.Threa
 
 	nextItems := append([]store.Thread{}, items...)
 	for index := range nextItems {
-		projection, ok := s.store.GetThreadProjection(workspaceID, nextItems[index].ID)
+		projection, ok := s.store.GetThreadProjectionSummary(workspaceID, nextItems[index].ID)
 		if !ok || !projection.SnapshotComplete {
 			continue
 		}
@@ -2609,6 +3043,11 @@ func int64Value(value any) int64 {
 	default:
 		return 0
 	}
+}
+
+func boolValue(value any) bool {
+	typed, ok := value.(bool)
+	return ok && typed
 }
 
 func fallbackString(value string, fallback string) string {

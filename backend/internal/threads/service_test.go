@@ -2,6 +2,7 @@ package threads
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -942,11 +943,68 @@ func TestGetDetailWindowUsesCachedSnapshotWhenRuntimeIsNotLive(t *testing.T) {
 	if detail.Preview != "cached preview" {
 		t.Fatalf("expected cached preview, got %q", detail.Preview)
 	}
+	if detail.TurnCount != 3 {
+		t.Fatalf("expected cached window to preserve full turn count 3, got %d", detail.TurnCount)
+	}
 	if detail.HasMoreTurns != true {
 		t.Fatalf("expected cached window to report older turns, got %+v", detail.HasMoreTurns)
 	}
 	if len(detail.Turns) != 2 || detail.Turns[0].ID != "turn-2" || detail.Turns[1].ID != "turn-3" {
 		t.Fatalf("unexpected cached detail turns: %+v", detail.Turns)
+	}
+}
+
+func TestGetDetailWindowUsesCachedSnapshotBeforeTurnID(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-cache-before",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Cached Before Thread",
+		Status:      "idle",
+		UpdatedAt:   time.Unix(120, 0).UTC(),
+	}
+	dataStore.UpsertThread(thread)
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread:    thread,
+		Cwd:       thread.Cwd,
+		Preview:   "cached preview before",
+		Path:      `E:\projects\ai\codex-server\.codex\threads\thread-cache-before.jsonl`,
+		Source:    "cache",
+		TurnCount: 5,
+		Turns: []store.ThreadTurn{
+			{ID: "turn-1", Status: "completed"},
+			{ID: "turn-2", Status: "completed"},
+			{ID: "turn-3", Status: "completed"},
+			{ID: "turn-4", Status: "completed"},
+			{ID: "turn-5", Status: "completed"},
+		},
+	})
+
+	service := NewService(dataStore, runtime.NewManager("codex app-server --listen stdio://", nil))
+	detail, err := service.GetDetailWindow(
+		context.Background(),
+		workspace.ID,
+		thread.ID,
+		2,
+		"turn-5",
+		threadContentModeFull,
+	)
+	if err != nil {
+		t.Fatalf("GetDetailWindow() error = %v", err)
+	}
+
+	if detail.TurnCount != 5 {
+		t.Fatalf("expected cached before-turn window to preserve full turn count 5, got %d", detail.TurnCount)
+	}
+	if !detail.HasMoreTurns {
+		t.Fatalf("expected cached before-turn window to report older turns, got %+v", detail)
+	}
+	if len(detail.Turns) != 2 || detail.Turns[0].ID != "turn-3" || detail.Turns[1].ID != "turn-4" {
+		t.Fatalf("unexpected cached before-turn detail turns: %+v", detail.Turns)
 	}
 }
 
@@ -1078,6 +1136,91 @@ func TestShouldServeCurrentWindowFromCacheRequiresFreshSnapshot(t *testing.T) {
 	dataStore.UpsertThread(thread)
 	if service.shouldServeCurrentWindowFromCache(workspace.ID, thread.ID) {
 		t.Fatal("expected stale snapshot to be rejected for current-window cache")
+	}
+}
+
+func TestGetDetailWindowCurrentWindowCacheKeepsColdProjectionCold(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	thread := store.Thread{
+		ID:          "thread-window-cold",
+		WorkspaceID: workspace.ID,
+		Cwd:         `E:\projects\ai\codex-server`,
+		Name:        "Window Cold Thread",
+		Status:      "completed",
+		UpdatedAt:   time.Unix(100, 0).UTC(),
+	}
+	firstStore.UpsertThread(thread)
+
+	turns := make([]store.ThreadTurn, 0, 18)
+	for index := 1; index <= 18; index++ {
+		turns = append(turns, store.ThreadTurn{
+			ID:     "turn-" + string(rune('A'+index-1)),
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "msg-" + string(rune('A'+index-1)),
+					"type": "agentMessage",
+					"text": strings.Repeat("window cache cold payload ", 240),
+				},
+			},
+		})
+	}
+
+	firstStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread: thread,
+		Cwd:    thread.Cwd,
+		Turns:  turns,
+	})
+
+	reloadedStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", nil)
+	runtimeManager.Configure(workspace.ID, workspace.RootPath)
+	service := NewService(reloadedStore, runtimeManager)
+
+	before := reloadedStore.InspectMemory(5).Threads
+	if before.HotProjectionCount != 0 {
+		t.Fatalf("expected reloaded projection to be cold, got hot=%d", before.HotProjectionCount)
+	}
+	if before.ExternalizedProjectionCount != 1 {
+		t.Fatalf("expected projection to be externalized, got %d", before.ExternalizedProjectionCount)
+	}
+
+	detail, err := service.GetDetailWindow(context.Background(), workspace.ID, thread.ID, 2, "", "")
+	if err != nil {
+		t.Fatalf("GetDetailWindow() error = %v", err)
+	}
+	if detail.TurnCount != len(turns) {
+		t.Fatalf("expected full turn count %d, got %d", len(turns), detail.TurnCount)
+	}
+	if len(detail.Turns) != 2 {
+		t.Fatalf("expected 2 returned turns, got %d", len(detail.Turns))
+	}
+	if detail.Turns[0].ID != turns[len(turns)-2].ID || detail.Turns[1].ID != turns[len(turns)-1].ID {
+		t.Fatalf("unexpected returned window turns %#v", detail.Turns)
+	}
+
+	after := reloadedStore.InspectMemory(5).Threads
+	if after.HotProjectionCount != 0 {
+		t.Fatalf("expected current-window cache path to keep projection cold, hot=%d", after.HotProjectionCount)
+	}
+	if after.ExternalizedProjectionCount != before.ExternalizedProjectionCount {
+		t.Fatalf("expected externalized projection count to stay %d, got %d", before.ExternalizedProjectionCount, after.ExternalizedProjectionCount)
+	}
+	if after.ResidentTurnsBytes != before.ResidentTurnsBytes {
+		t.Fatalf("expected resident turn bytes to stay %d, got %d", before.ResidentTurnsBytes, after.ResidentTurnsBytes)
 	}
 }
 
@@ -1378,8 +1521,17 @@ func TestGetTurnItemUsesCachedSnapshotAndSupportsSummaryMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTurnItem(full) error = %v", err)
 	}
-	if got := stringValue(fullItem["aggregatedOutput"]); got != longOutput {
-		t.Fatalf("expected full item output to be preserved, got len=%d", len(got))
+	if got := stringValue(fullItem["aggregatedOutput"]); got == longOutput {
+		t.Fatalf("expected cached full item output to be compacted, got len=%d", len(got))
+	}
+	if fullItem["summaryTruncated"] != true {
+		t.Fatalf("expected cached full item to expose stored truncation, got %#v", fullItem["summaryTruncated"])
+	}
+	if got := stringValue(fullItem["outputContentMode"]); got != threadOutputModeTail {
+		t.Fatalf("expected cached full item to report tail content mode, got %q", got)
+	}
+	if got := int64Value(fullItem["outputTotalLength"]); got != int64(len(longOutput)) {
+		t.Fatalf("expected cached full item to preserve total output length, got %d", got)
 	}
 
 	summaryItem, err := service.GetTurnItem(
@@ -1461,8 +1613,8 @@ func TestGetTurnItemOutputUsesCachedSnapshot(t *testing.T) {
 	if previewOutput.AggregatedOutput == longOutput {
 		t.Fatal("expected preview mode to truncate the command output")
 	}
-	if previewOutput.OutputContentMode != threadContentModeSummary {
-		t.Fatalf("expected preview content mode, got %q", previewOutput.OutputContentMode)
+	if previewOutput.OutputContentMode != threadOutputModeTail {
+		t.Fatalf("expected cached preview mode to stay anchored to the retained tail window, got %q", previewOutput.OutputContentMode)
 	}
 	if !previewOutput.OutputTruncated {
 		t.Fatal("expected preview output to be marked truncated")
@@ -1532,23 +1684,15 @@ func TestGetTurnItemOutputUsesCachedSnapshot(t *testing.T) {
 	if expandedTailOutput.OutputContentMode != threadOutputModeTail {
 		t.Fatalf("expected expanded tail content mode, got %q", expandedTailOutput.OutputContentMode)
 	}
-	if expandedTailOutput.OutputStartLine >= tailOutput.OutputStartLine {
-		t.Fatalf("expected expanded tail to move the start line earlier, got %d then %d", tailOutput.OutputStartLine, expandedTailOutput.OutputStartLine)
-	}
-	if expandedTailOutput.OutputEndLine != tailOutput.OutputStartLine {
-		t.Fatalf(
-			"expected expanded tail chunk to end where the current tail begins, got %d",
-			expandedTailOutput.OutputEndLine,
-		)
-	}
-	if expandedTailOutput.OutputStartOffset >= tailOutput.OutputStartOffset {
-		t.Fatalf("expected expanded tail to move the start offset earlier, got %d then %d", tailOutput.OutputStartOffset, expandedTailOutput.OutputStartOffset)
-	}
 	if len(expandedTailOutput.AggregatedOutput) == 0 {
 		t.Fatal("expected expanded tail chunk to contain output")
 	}
-	if expandedTailOutput.OutputEndOffset != tailOutput.OutputStartOffset {
-		t.Fatalf("expected expanded tail chunk to end where the current tail begins, got %d", expandedTailOutput.OutputEndOffset)
+	if expandedTailOutput.OutputStartLine != tailOutput.OutputStartLine {
+		t.Fatalf(
+			"expected cached snapshot expansion to stay within the retained tail window, got start lines %d then %d",
+			tailOutput.OutputStartLine,
+			expandedTailOutput.OutputStartLine,
+		)
 	}
 
 	fullOutput, err := service.GetTurnItemOutput(
@@ -1564,17 +1708,23 @@ func TestGetTurnItemOutputUsesCachedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTurnItemOutput(full) error = %v", err)
 	}
-	if fullOutput.AggregatedOutput != longOutput {
-		t.Fatalf("expected full command output, got len=%d", len(fullOutput.AggregatedOutput))
+	if fullOutput.AggregatedOutput == longOutput {
+		t.Fatalf("expected cached full command output to stay compacted, got len=%d", len(fullOutput.AggregatedOutput))
 	}
-	if fullOutput.OutputContentMode != threadContentModeFull {
-		t.Fatalf("expected full content mode, got %q", fullOutput.OutputContentMode)
+	if fullOutput.OutputContentMode != threadOutputModeTail {
+		t.Fatalf("expected cached full output to report retained tail mode, got %q", fullOutput.OutputContentMode)
 	}
-	if fullOutput.OutputTruncated {
-		t.Fatal("expected full output not to be marked truncated")
+	if !fullOutput.OutputTruncated {
+		t.Fatal("expected cached full output to be marked truncated")
 	}
 	if fullOutput.OutputLineCount != 4000 {
 		t.Fatalf("expected full output line count 4000, got %d", fullOutput.OutputLineCount)
+	}
+	if fullOutput.OutputTotalLength != len(longOutput) {
+		t.Fatalf("expected cached full output total length %d, got %d", len(longOutput), fullOutput.OutputTotalLength)
+	}
+	if fullOutput.OutputStartLine <= 0 {
+		t.Fatalf("expected cached full output to expose a retained tail window, got start line %d", fullOutput.OutputStartLine)
 	}
 }
 

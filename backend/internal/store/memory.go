@@ -1,11 +1,19 @@
 package store
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -15,19 +23,23 @@ import (
 )
 
 var (
-	ErrWorkspaceNotFound          = errors.New("workspace not found")
-	ErrThreadNotFound             = errors.New("thread not found")
-	ErrApprovalNotFound           = errors.New("approval not found")
-	ErrAutomationNotFound         = errors.New("automation not found")
-	ErrAutomationTemplateNotFound = errors.New("automation template not found")
-	ErrAutomationRunNotFound      = errors.New("automation run not found")
-	ErrNotificationNotFound       = errors.New("notification not found")
-	ErrBotNotFound                = errors.New("bot not found")
-	ErrBotBindingNotFound         = errors.New("bot binding not found")
-	ErrBotConnectionNotFound      = errors.New("bot connection not found")
-	ErrWeChatAccountNotFound      = errors.New("wechat account not found")
-	ErrBotConversationNotFound    = errors.New("bot conversation not found")
-	ErrBotInboundDeliveryNotFound = errors.New("bot inbound delivery not found")
+	ErrWorkspaceNotFound           = errors.New("workspace not found")
+	ErrThreadNotFound              = errors.New("thread not found")
+	ErrApprovalNotFound            = errors.New("approval not found")
+	ErrAutomationNotFound          = errors.New("automation not found")
+	ErrAutomationTemplateNotFound  = errors.New("automation template not found")
+	ErrAutomationRunNotFound       = errors.New("automation run not found")
+	ErrNotificationNotFound        = errors.New("notification not found")
+	ErrBotNotFound                 = errors.New("bot not found")
+	ErrBotBindingNotFound          = errors.New("bot binding not found")
+	ErrThreadBotBindingNotFound    = errors.New("thread bot binding not found")
+	ErrBotTriggerNotFound          = errors.New("bot trigger not found")
+	ErrBotConnectionNotFound       = errors.New("bot connection not found")
+	ErrBotDeliveryTargetNotFound   = errors.New("bot delivery target not found")
+	ErrWeChatAccountNotFound       = errors.New("wechat account not found")
+	ErrBotConversationNotFound     = errors.New("bot conversation not found")
+	ErrBotInboundDeliveryNotFound  = errors.New("bot inbound delivery not found")
+	ErrBotOutboundDeliveryNotFound = errors.New("bot outbound delivery not found")
 )
 
 const (
@@ -35,30 +47,51 @@ const (
 	commandSessionPinnedArchivedLimit = 24
 	commandSessionCompletedTTL        = 24 * time.Hour
 	botConnectionLogRetentionLimit    = 400
+	threadProjectionCompressionMin    = 1024
+	threadProjectionExternalizeMin    = 32 * 1024
 )
 
 type MemoryStore struct {
-	mu                sync.RWMutex
-	path              string
-	runtimePrefs      RuntimePreferences
-	workspaces        map[string]Workspace
-	commandSessions   map[string]map[string]CommandSessionSnapshot
-	automations       map[string]Automation
-	templates         map[string]AutomationTemplate
-	runs              map[string]AutomationRun
-	notifications     map[string]Notification
-	bots              map[string]Bot
-	botBindings       map[string]BotBinding
-	botConnections    map[string]BotConnection
-	botConnectionLogs map[string][]BotConnectionLogEntry
-	wechatAccounts    map[string]WeChatAccount
-	botConversations  map[string]BotConversation
-	botInbound        map[string]BotInboundDelivery
-	botInboundIndex   map[string]string
-	threads           map[string]Thread
-	projections       map[string]ThreadProjection
-	deleted           map[string]DeletedThread
-	approvals         map[string]PendingApproval
+	mu                   sync.RWMutex
+	path                 string
+	inspectionCache      MemoryInspection
+	inspectionCacheValid bool
+	runtimePrefs         RuntimePreferences
+	workspaces           map[string]Workspace
+	commandSessions      map[string]map[string]CommandSessionSnapshot
+	automations          map[string]Automation
+	templates            map[string]AutomationTemplate
+	runs                 map[string]AutomationRun
+	notifications        map[string]Notification
+	turnPolicyDecisions  map[string]TurnPolicyDecision
+	bots                 map[string]Bot
+	botBindings          map[string]BotBinding
+	threadBotBindings    map[string]ThreadBotBinding
+	botTriggers          map[string]BotTrigger
+	botConnections       map[string]BotConnection
+	botConnectionLogs    map[string][]BotConnectionLogEntry
+	wechatAccounts       map[string]WeChatAccount
+	botConversations     map[string]BotConversation
+	botDeliveryTargets   map[string]BotDeliveryTarget
+	botInbound           map[string]BotInboundDelivery
+	botInboundIndex      map[string]string
+	botOutbound          map[string]BotOutboundDelivery
+	threads              map[string]Thread
+	projections          map[string]threadProjectionRecord
+	deleted              map[string]DeletedThread
+	approvals            map[string]PendingApproval
+}
+
+type threadProjectionRecord struct {
+	Projection      ThreadProjection
+	TurnsRaw        json.RawMessage
+	TurnsCompressed []byte
+	TurnsPath       string
+	TurnsRef        string
+	Stats           threadProjectionStats
+	StatsDirty      bool
+	SnapshotBytes   int64
+	SnapshotDirty   bool
 }
 
 type storeSnapshot struct {
@@ -69,38 +102,66 @@ type storeSnapshot struct {
 	AutomationTemplates []AutomationTemplate     `json:"automationTemplates,omitempty"`
 	AutomationRuns      []AutomationRun          `json:"automationRuns,omitempty"`
 	Notifications       []Notification           `json:"notifications,omitempty"`
+	TurnPolicyDecisions []TurnPolicyDecision     `json:"turnPolicyDecisions,omitempty"`
 	Bots                []Bot                    `json:"bots,omitempty"`
-	BotBindings         []BotBinding            `json:"botBindings,omitempty"`
+	BotBindings         []BotBinding             `json:"botBindings,omitempty"`
+	ThreadBotBindings   []ThreadBotBinding       `json:"threadBotBindings,omitempty"`
+	BotTriggers         []BotTrigger             `json:"botTriggers,omitempty"`
 	BotConnections      []BotConnection          `json:"botConnections,omitempty"`
 	BotConnectionLogs   []BotConnectionLogEntry  `json:"botConnectionLogs,omitempty"`
 	WeChatAccounts      []WeChatAccount          `json:"wechatAccounts,omitempty"`
 	BotConversations    []BotConversation        `json:"botConversations,omitempty"`
+	BotDeliveryTargets  []BotDeliveryTarget      `json:"botDeliveryTargets,omitempty"`
 	BotInbound          []BotInboundDelivery     `json:"botInbound,omitempty"`
+	BotOutbound         []BotOutboundDelivery    `json:"botOutbound,omitempty"`
 	Threads             []Thread                 `json:"threads"`
-	ThreadProjections   []ThreadProjection       `json:"threadProjections,omitempty"`
+	ThreadProjections   []storedThreadProjection `json:"threadProjections,omitempty"`
 	DeletedThreads      []DeletedThread          `json:"deletedThreads,omitempty"`
+}
+
+type storedThreadProjection struct {
+	WorkspaceID      string                 `json:"workspaceId"`
+	ThreadID         string                 `json:"threadId"`
+	Cwd              string                 `json:"cwd,omitempty"`
+	Preview          string                 `json:"preview,omitempty"`
+	Path             string                 `json:"path,omitempty"`
+	Source           string                 `json:"source,omitempty"`
+	Status           string                 `json:"status,omitempty"`
+	UpdatedAt        time.Time              `json:"updatedAt"`
+	TokenUsage       *ThreadTokenUsage      `json:"tokenUsage,omitempty"`
+	TurnCount        int                    `json:"turnCount,omitempty"`
+	MessageCount     int                    `json:"messageCount,omitempty"`
+	SnapshotComplete bool                   `json:"snapshotComplete,omitempty"`
+	Stats            *threadProjectionStats `json:"stats,omitempty"`
+	TurnsRef         string                 `json:"turnsRef,omitempty"`
+	Turns            json.RawMessage        `json:"turns"`
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		workspaces:        make(map[string]Workspace),
-		commandSessions:   make(map[string]map[string]CommandSessionSnapshot),
-		automations:       make(map[string]Automation),
-		templates:         make(map[string]AutomationTemplate),
-		runs:              make(map[string]AutomationRun),
-		notifications:     make(map[string]Notification),
-		bots:              make(map[string]Bot),
-		botBindings:       make(map[string]BotBinding),
-		botConnections:    make(map[string]BotConnection),
-		botConnectionLogs: make(map[string][]BotConnectionLogEntry),
-		wechatAccounts:    make(map[string]WeChatAccount),
-		botConversations:  make(map[string]BotConversation),
-		botInbound:        make(map[string]BotInboundDelivery),
-		botInboundIndex:   make(map[string]string),
-		threads:           make(map[string]Thread),
-		projections:       make(map[string]ThreadProjection),
-		deleted:           make(map[string]DeletedThread),
-		approvals:         make(map[string]PendingApproval),
+		workspaces:          make(map[string]Workspace),
+		commandSessions:     make(map[string]map[string]CommandSessionSnapshot),
+		automations:         make(map[string]Automation),
+		templates:           make(map[string]AutomationTemplate),
+		runs:                make(map[string]AutomationRun),
+		notifications:       make(map[string]Notification),
+		turnPolicyDecisions: make(map[string]TurnPolicyDecision),
+		bots:                make(map[string]Bot),
+		botBindings:         make(map[string]BotBinding),
+		threadBotBindings:   make(map[string]ThreadBotBinding),
+		botTriggers:         make(map[string]BotTrigger),
+		botConnections:      make(map[string]BotConnection),
+		botConnectionLogs:   make(map[string][]BotConnectionLogEntry),
+		wechatAccounts:      make(map[string]WeChatAccount),
+		botConversations:    make(map[string]BotConversation),
+		botDeliveryTargets:  make(map[string]BotDeliveryTarget),
+		botInbound:          make(map[string]BotInboundDelivery),
+		botInboundIndex:     make(map[string]string),
+		botOutbound:         make(map[string]BotOutboundDelivery),
+		threads:             make(map[string]Thread),
+		projections:         make(map[string]threadProjectionRecord),
+		deleted:             make(map[string]DeletedThread),
+		approvals:           make(map[string]PendingApproval),
 	}
 }
 
@@ -406,6 +467,7 @@ func NewPersistentStore(path string) (*MemoryStore, error) {
 	if err := store.load(); err != nil {
 		return nil, err
 	}
+	store.releaseTransientLoadMemory()
 
 	return store, nil
 }
@@ -909,9 +971,15 @@ func (s *MemoryStore) DeleteBot(workspaceID string, botID string) error {
 	}
 
 	delete(s.bots, botID)
+	targetIDs := make(map[string]struct{})
 	for bindingID, binding := range s.botBindings {
 		if binding.WorkspaceID == workspaceID && binding.BotID == botID {
 			delete(s.botBindings, bindingID)
+		}
+	}
+	for triggerID, trigger := range s.botTriggers {
+		if trigger.WorkspaceID == workspaceID && trigger.BotID == botID {
+			delete(s.botTriggers, triggerID)
 		}
 	}
 	for connectionID, connection := range s.botConnections {
@@ -925,6 +993,18 @@ func (s *MemoryStore) DeleteBot(workspaceID string, botID string) error {
 			conversation.BotID = ""
 			conversation.BindingID = ""
 			s.botConversations[conversationID] = cloneBotConversation(conversation)
+		}
+	}
+	for targetID, target := range s.botDeliveryTargets {
+		if target.WorkspaceID == workspaceID && target.BotID == botID {
+			targetIDs[targetID] = struct{}{}
+			delete(s.botDeliveryTargets, targetID)
+		}
+	}
+	deleteThreadBotBindingsForTargetIDs(s.threadBotBindings, workspaceID, targetIDs)
+	for deliveryID, delivery := range s.botOutbound {
+		if delivery.WorkspaceID == workspaceID && delivery.BotID == botID {
+			delete(s.botOutbound, deliveryID)
 		}
 	}
 
@@ -1057,6 +1137,276 @@ func (s *MemoryStore) DeleteBotBinding(workspaceID string, bindingID string) err
 		}
 	}
 
+	s.persistLocked()
+	return nil
+}
+
+func threadBotBindingKey(workspaceID string, threadID string) string {
+	return strings.TrimSpace(workspaceID) + ":" + strings.TrimSpace(threadID)
+}
+
+func normalizeThreadBotBindingBotWorkspaceID(binding ThreadBotBinding) string {
+	return firstNonEmpty(strings.TrimSpace(binding.BotWorkspaceID), strings.TrimSpace(binding.WorkspaceID))
+}
+
+func deleteThreadBotBindingsForTargetIDs(
+	items map[string]ThreadBotBinding,
+	workspaceID string,
+	targetIDs map[string]struct{},
+) {
+	if len(targetIDs) == 0 {
+		return
+	}
+	for key, binding := range items {
+		if normalizeThreadBotBindingBotWorkspaceID(binding) != strings.TrimSpace(workspaceID) {
+			continue
+		}
+		if _, ok := targetIDs[strings.TrimSpace(binding.DeliveryTargetID)]; !ok {
+			continue
+		}
+		delete(items, key)
+	}
+}
+
+func (s *MemoryStore) GetThreadBotBinding(workspaceID string, threadID string) (ThreadBotBinding, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	binding, ok := s.threadBotBindings[threadBotBindingKey(workspaceID, threadID)]
+	if !ok || binding.WorkspaceID != workspaceID || binding.ThreadID != threadID {
+		return ThreadBotBinding{}, false
+	}
+
+	return cloneThreadBotBinding(binding), true
+}
+
+func (s *MemoryStore) ListThreadBotBindings(workspaceID string) []ThreadBotBinding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]ThreadBotBinding, 0)
+	for _, binding := range s.threadBotBindings {
+		if binding.WorkspaceID != workspaceID {
+			continue
+		}
+		items = append(items, cloneThreadBotBinding(binding))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) UpsertThreadBotBinding(binding ThreadBotBinding) (ThreadBotBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[binding.WorkspaceID]; !ok {
+		return ThreadBotBinding{}, ErrWorkspaceNotFound
+	}
+	thread, ok := s.threads[binding.ThreadID]
+	if !ok || thread.WorkspaceID != binding.WorkspaceID {
+		return ThreadBotBinding{}, ErrThreadNotFound
+	}
+	key := threadBotBindingKey(binding.WorkspaceID, binding.ThreadID)
+	current, exists := s.threadBotBindings[key]
+	binding.BotWorkspaceID = firstNonEmpty(
+		strings.TrimSpace(binding.BotWorkspaceID),
+		normalizeThreadBotBindingBotWorkspaceID(current),
+		strings.TrimSpace(binding.WorkspaceID),
+	)
+	if _, ok := s.workspaces[binding.BotWorkspaceID]; !ok {
+		return ThreadBotBinding{}, ErrWorkspaceNotFound
+	}
+	bot, ok := s.bots[binding.BotID]
+	if !ok || bot.WorkspaceID != binding.BotWorkspaceID {
+		return ThreadBotBinding{}, ErrBotNotFound
+	}
+	target, ok := s.botDeliveryTargets[binding.DeliveryTargetID]
+	if !ok || target.WorkspaceID != binding.BotWorkspaceID || strings.TrimSpace(target.BotID) != strings.TrimSpace(bot.ID) {
+		return ThreadBotBinding{}, ErrBotDeliveryTargetNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(binding.ID) == "" {
+		if exists {
+			binding.ID = current.ID
+		} else {
+			binding.ID = NewID("tbb")
+		}
+	}
+	if exists {
+		binding.CreatedAt = current.CreatedAt
+	} else if binding.CreatedAt.IsZero() {
+		binding.CreatedAt = now
+	}
+	binding.UpdatedAt = now
+	binding.WorkspaceID = strings.TrimSpace(binding.WorkspaceID)
+	binding.ThreadID = strings.TrimSpace(binding.ThreadID)
+	binding.BotWorkspaceID = strings.TrimSpace(binding.BotWorkspaceID)
+	binding.BotID = strings.TrimSpace(binding.BotID)
+	binding.DeliveryTargetID = strings.TrimSpace(binding.DeliveryTargetID)
+
+	s.threadBotBindings[key] = binding
+	s.persistLocked()
+
+	return cloneThreadBotBinding(binding), nil
+}
+
+func (s *MemoryStore) DeleteThreadBotBinding(workspaceID string, threadID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := threadBotBindingKey(workspaceID, threadID)
+	binding, ok := s.threadBotBindings[key]
+	if !ok || binding.WorkspaceID != workspaceID || binding.ThreadID != threadID {
+		return ErrThreadBotBindingNotFound
+	}
+
+	delete(s.threadBotBindings, key)
+	s.persistLocked()
+	return nil
+}
+
+func (s *MemoryStore) ListBotTriggers(workspaceID string, filter BotTriggerFilter) []BotTrigger {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BotTrigger, 0)
+	filterBotID := strings.TrimSpace(filter.BotID)
+	filterType := strings.TrimSpace(filter.Type)
+	filterTargetID := strings.TrimSpace(filter.DeliveryTargetID)
+	for _, trigger := range s.botTriggers {
+		if trigger.WorkspaceID != workspaceID {
+			continue
+		}
+		if filterBotID != "" && strings.TrimSpace(trigger.BotID) != filterBotID {
+			continue
+		}
+		if filterType != "" && strings.TrimSpace(trigger.Type) != filterType {
+			continue
+		}
+		if filterTargetID != "" && strings.TrimSpace(trigger.DeliveryTargetID) != filterTargetID {
+			continue
+		}
+		if filter.Enabled != nil && trigger.Enabled != *filter.Enabled {
+			continue
+		}
+		items = append(items, cloneBotTrigger(trigger))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBotTrigger(workspaceID string, triggerID string) (BotTrigger, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	trigger, ok := s.botTriggers[triggerID]
+	if !ok || trigger.WorkspaceID != workspaceID {
+		return BotTrigger{}, false
+	}
+
+	return cloneBotTrigger(trigger), true
+}
+
+func (s *MemoryStore) CreateBotTrigger(trigger BotTrigger) (BotTrigger, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[trigger.WorkspaceID]; !ok {
+		return BotTrigger{}, ErrWorkspaceNotFound
+	}
+	bot, ok := s.bots[trigger.BotID]
+	if !ok || bot.WorkspaceID != trigger.WorkspaceID {
+		return BotTrigger{}, ErrBotNotFound
+	}
+	target, ok := s.botDeliveryTargets[trigger.DeliveryTargetID]
+	if !ok || target.WorkspaceID != trigger.WorkspaceID || strings.TrimSpace(target.BotID) != strings.TrimSpace(bot.ID) {
+		return BotTrigger{}, ErrBotDeliveryTargetNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(trigger.ID) == "" {
+		trigger.ID = NewID("btg")
+	}
+	if trigger.CreatedAt.IsZero() {
+		trigger.CreatedAt = now
+	}
+	if trigger.UpdatedAt.IsZero() {
+		trigger.UpdatedAt = now
+	}
+	trigger.WorkspaceID = strings.TrimSpace(trigger.WorkspaceID)
+	trigger.BotID = strings.TrimSpace(trigger.BotID)
+	trigger.Type = strings.TrimSpace(trigger.Type)
+	trigger.DeliveryTargetID = strings.TrimSpace(trigger.DeliveryTargetID)
+	trigger.Filter = cloneStringMap(trigger.Filter)
+
+	s.botTriggers[trigger.ID] = trigger
+	s.persistLocked()
+
+	return cloneBotTrigger(trigger), nil
+}
+
+func (s *MemoryStore) UpdateBotTrigger(
+	workspaceID string,
+	triggerID string,
+	updater func(BotTrigger) BotTrigger,
+) (BotTrigger, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	trigger, ok := s.botTriggers[triggerID]
+	if !ok || trigger.WorkspaceID != workspaceID {
+		return BotTrigger{}, ErrBotTriggerNotFound
+	}
+
+	next := updater(cloneBotTrigger(trigger))
+	next.ID = trigger.ID
+	next.WorkspaceID = trigger.WorkspaceID
+	next.BotID = trigger.BotID
+	next.Type = trigger.Type
+	next.CreatedAt = trigger.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.DeliveryTargetID = strings.TrimSpace(next.DeliveryTargetID)
+	next.Filter = cloneStringMap(next.Filter)
+	if strings.TrimSpace(next.DeliveryTargetID) == "" {
+		next.DeliveryTargetID = trigger.DeliveryTargetID
+	}
+
+	target, ok := s.botDeliveryTargets[next.DeliveryTargetID]
+	if !ok || target.WorkspaceID != trigger.WorkspaceID || strings.TrimSpace(target.BotID) != strings.TrimSpace(trigger.BotID) {
+		return BotTrigger{}, ErrBotDeliveryTargetNotFound
+	}
+
+	s.botTriggers[triggerID] = next
+	s.persistLocked()
+
+	return cloneBotTrigger(next), nil
+}
+
+func (s *MemoryStore) DeleteBotTrigger(workspaceID string, triggerID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	trigger, ok := s.botTriggers[triggerID]
+	if !ok || trigger.WorkspaceID != workspaceID {
+		return ErrBotTriggerNotFound
+	}
+
+	delete(s.botTriggers, trigger.ID)
 	s.persistLocked()
 	return nil
 }
@@ -1364,6 +1714,23 @@ func (s *MemoryStore) UpdateBotConnectionRuntimeState(
 	connectionID string,
 	updater func(BotConnection) BotConnection,
 ) (BotConnection, error) {
+	return s.updateBotConnectionRuntimeState(workspaceID, connectionID, true, updater)
+}
+
+func (s *MemoryStore) UpdateBotConnectionRuntimeStateTransient(
+	workspaceID string,
+	connectionID string,
+	updater func(BotConnection) BotConnection,
+) (BotConnection, error) {
+	return s.updateBotConnectionRuntimeState(workspaceID, connectionID, false, updater)
+}
+
+func (s *MemoryStore) updateBotConnectionRuntimeState(
+	workspaceID string,
+	connectionID string,
+	persist bool,
+	updater func(BotConnection) BotConnection,
+) (BotConnection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1389,7 +1756,11 @@ func (s *MemoryStore) UpdateBotConnectionRuntimeState(
 	}
 
 	s.botConnections[connectionID] = next
-	s.persistLocked()
+	if persist {
+		s.persistLocked()
+	} else {
+		s.invalidateMemoryInspectionLocked()
+	}
 
 	return cloneBotConnection(next), nil
 }
@@ -1405,9 +1776,27 @@ func (s *MemoryStore) DeleteBotConnection(workspaceID string, connectionID strin
 
 	delete(s.botConnections, connectionID)
 	delete(s.botConnectionLogs, connectionID)
+	targetIDs := make(map[string]struct{})
 	for conversationID, conversation := range s.botConversations {
 		if conversation.ConnectionID == connectionID && conversation.WorkspaceID == workspaceID {
 			delete(s.botConversations, conversationID)
+		}
+	}
+	for targetID, target := range s.botDeliveryTargets {
+		if target.WorkspaceID == workspaceID && target.ConnectionID == connectionID {
+			targetIDs[targetID] = struct{}{}
+			for triggerID, trigger := range s.botTriggers {
+				if trigger.WorkspaceID == workspaceID && strings.TrimSpace(trigger.DeliveryTargetID) == strings.TrimSpace(targetID) {
+					delete(s.botTriggers, triggerID)
+				}
+			}
+			delete(s.botDeliveryTargets, targetID)
+		}
+	}
+	deleteThreadBotBindingsForTargetIDs(s.threadBotBindings, workspaceID, targetIDs)
+	for deliveryID, delivery := range s.botOutbound {
+		if delivery.WorkspaceID == workspaceID && delivery.ConnectionID == connectionID {
+			delete(s.botOutbound, deliveryID)
 		}
 	}
 
@@ -1419,6 +1808,23 @@ func (s *MemoryStore) AppendBotConnectionLog(
 	workspaceID string,
 	connectionID string,
 	entry BotConnectionLogEntry,
+) (BotConnectionLogEntry, error) {
+	return s.appendBotConnectionLog(workspaceID, connectionID, entry, true)
+}
+
+func (s *MemoryStore) AppendBotConnectionLogTransient(
+	workspaceID string,
+	connectionID string,
+	entry BotConnectionLogEntry,
+) (BotConnectionLogEntry, error) {
+	return s.appendBotConnectionLog(workspaceID, connectionID, entry, false)
+}
+
+func (s *MemoryStore) appendBotConnectionLog(
+	workspaceID string,
+	connectionID string,
+	entry BotConnectionLogEntry,
+	persist bool,
 ) (BotConnectionLogEntry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1445,7 +1851,11 @@ func (s *MemoryStore) AppendBotConnectionLog(
 		logs = append([]BotConnectionLogEntry(nil), logs[len(logs)-botConnectionLogRetentionLimit:]...)
 	}
 	s.botConnectionLogs[connectionID] = logs
-	s.persistLocked()
+	if persist {
+		s.persistLocked()
+	} else {
+		s.invalidateMemoryInspectionLocked()
+	}
 
 	return entry, nil
 }
@@ -1583,6 +1993,366 @@ func (s *MemoryStore) UpdateBotConversation(
 	s.persistLocked()
 
 	return cloneBotConversation(next), nil
+}
+
+func (s *MemoryStore) ListBotDeliveryTargets(workspaceID string, botID string) []BotDeliveryTarget {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BotDeliveryTarget, 0)
+	for _, target := range s.botDeliveryTargets {
+		if target.WorkspaceID != workspaceID {
+			continue
+		}
+		if strings.TrimSpace(botID) != "" && target.BotID != botID {
+			continue
+		}
+		items = append(items, cloneBotDeliveryTarget(target))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBotDeliveryTarget(workspaceID string, targetID string) (BotDeliveryTarget, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	target, ok := s.botDeliveryTargets[targetID]
+	if !ok || target.WorkspaceID != workspaceID {
+		return BotDeliveryTarget{}, false
+	}
+
+	return cloneBotDeliveryTarget(target), true
+}
+
+func (s *MemoryStore) FindBotDeliveryTargetByConversation(workspaceID string, conversationID string) (BotDeliveryTarget, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	targetConversationID := strings.TrimSpace(conversationID)
+	if targetConversationID == "" {
+		return BotDeliveryTarget{}, false
+	}
+
+	var best BotDeliveryTarget
+	found := false
+	for _, target := range s.botDeliveryTargets {
+		if target.WorkspaceID != workspaceID || strings.TrimSpace(target.ConversationID) != targetConversationID {
+			continue
+		}
+		if !found || target.UpdatedAt.After(best.UpdatedAt) || (target.UpdatedAt.Equal(best.UpdatedAt) && target.ID < best.ID) {
+			best = cloneBotDeliveryTarget(target)
+			found = true
+		}
+	}
+
+	return best, found
+}
+
+func (s *MemoryStore) CreateBotDeliveryTarget(target BotDeliveryTarget) (BotDeliveryTarget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[target.WorkspaceID]; !ok {
+		return BotDeliveryTarget{}, ErrWorkspaceNotFound
+	}
+	bot, ok := s.bots[target.BotID]
+	if !ok || bot.WorkspaceID != target.WorkspaceID {
+		return BotDeliveryTarget{}, ErrBotNotFound
+	}
+	connection, ok := s.botConnections[target.ConnectionID]
+	if !ok || connection.WorkspaceID != target.WorkspaceID || strings.TrimSpace(connection.BotID) != strings.TrimSpace(bot.ID) {
+		return BotDeliveryTarget{}, ErrBotConnectionNotFound
+	}
+	if conversationID := strings.TrimSpace(target.ConversationID); conversationID != "" {
+		conversation, ok := s.botConversations[conversationID]
+		if !ok || conversation.WorkspaceID != target.WorkspaceID || conversation.ConnectionID != connection.ID {
+			return BotDeliveryTarget{}, ErrBotConversationNotFound
+		}
+		if strings.TrimSpace(conversation.BotID) != "" && strings.TrimSpace(conversation.BotID) != strings.TrimSpace(bot.ID) {
+			return BotDeliveryTarget{}, ErrBotConversationNotFound
+		}
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(target.ID) == "" {
+		target.ID = NewID("bdt")
+	}
+	if target.CreatedAt.IsZero() {
+		target.CreatedAt = now
+	}
+	if target.UpdatedAt.IsZero() {
+		target.UpdatedAt = now
+	}
+	target.WorkspaceID = strings.TrimSpace(target.WorkspaceID)
+	target.BotID = strings.TrimSpace(target.BotID)
+	target.ConnectionID = strings.TrimSpace(target.ConnectionID)
+	target.ConversationID = strings.TrimSpace(target.ConversationID)
+	target.Provider = firstNonEmpty(strings.TrimSpace(target.Provider), strings.TrimSpace(connection.Provider))
+	target.TargetType = strings.TrimSpace(target.TargetType)
+	target.RouteType = strings.TrimSpace(target.RouteType)
+	target.RouteKey = strings.TrimSpace(target.RouteKey)
+	target.Title = strings.TrimSpace(target.Title)
+	target.Labels = normalizeStringSlice(target.Labels)
+	target.Capabilities = normalizeStringSlice(target.Capabilities)
+	target.ProviderState = cloneStringMap(target.ProviderState)
+	target.Status = firstNonEmpty(strings.TrimSpace(target.Status), "active")
+	target.LastVerifiedAt = cloneOptionalTime(target.LastVerifiedAt)
+
+	s.botDeliveryTargets[target.ID] = target
+	s.persistLocked()
+
+	return cloneBotDeliveryTarget(target), nil
+}
+
+func (s *MemoryStore) UpdateBotDeliveryTarget(
+	workspaceID string,
+	targetID string,
+	updater func(BotDeliveryTarget) BotDeliveryTarget,
+) (BotDeliveryTarget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	target, ok := s.botDeliveryTargets[targetID]
+	if !ok || target.WorkspaceID != workspaceID {
+		return BotDeliveryTarget{}, ErrBotDeliveryTargetNotFound
+	}
+
+	next := updater(cloneBotDeliveryTarget(target))
+	next.ID = target.ID
+	next.WorkspaceID = target.WorkspaceID
+	next.BotID = target.BotID
+	next.ConnectionID = target.ConnectionID
+	next.ConversationID = target.ConversationID
+	next.CreatedAt = target.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.Provider = firstNonEmpty(strings.TrimSpace(next.Provider), strings.TrimSpace(target.Provider))
+	next.TargetType = firstNonEmpty(strings.TrimSpace(next.TargetType), strings.TrimSpace(target.TargetType))
+	next.RouteType = strings.TrimSpace(next.RouteType)
+	next.RouteKey = strings.TrimSpace(next.RouteKey)
+	next.Title = strings.TrimSpace(next.Title)
+	next.Labels = normalizeStringSlice(next.Labels)
+	next.Capabilities = normalizeStringSlice(next.Capabilities)
+	next.ProviderState = cloneStringMap(next.ProviderState)
+	next.Status = firstNonEmpty(strings.TrimSpace(next.Status), strings.TrimSpace(target.Status), "active")
+	next.LastVerifiedAt = cloneOptionalTime(next.LastVerifiedAt)
+
+	s.botDeliveryTargets[targetID] = next
+	s.persistLocked()
+
+	return cloneBotDeliveryTarget(next), nil
+}
+
+func (s *MemoryStore) DeleteBotDeliveryTarget(workspaceID string, targetID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	target, ok := s.botDeliveryTargets[targetID]
+	if !ok || target.WorkspaceID != workspaceID {
+		return ErrBotDeliveryTargetNotFound
+	}
+
+	delete(s.botDeliveryTargets, targetID)
+	for triggerID, trigger := range s.botTriggers {
+		if trigger.WorkspaceID == workspaceID && strings.TrimSpace(trigger.DeliveryTargetID) == strings.TrimSpace(targetID) {
+			delete(s.botTriggers, triggerID)
+		}
+	}
+	deleteThreadBotBindingsForTargetIDs(s.threadBotBindings, workspaceID, map[string]struct{}{
+		strings.TrimSpace(targetID): {},
+	})
+	s.persistLocked()
+	return nil
+}
+
+func (s *MemoryStore) ListBotOutboundDeliveries(workspaceID string, filter BotOutboundDeliveryFilter) []BotOutboundDelivery {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BotOutboundDelivery, 0)
+	filterBotID := strings.TrimSpace(filter.BotID)
+	filterConnectionID := strings.TrimSpace(filter.ConnectionID)
+	filterConversationID := strings.TrimSpace(filter.ConversationID)
+	filterTargetID := strings.TrimSpace(filter.DeliveryTargetID)
+	filterSourceType := strings.TrimSpace(filter.SourceType)
+	filterSourceRefType := strings.TrimSpace(filter.SourceRefType)
+	filterSourceRefID := strings.TrimSpace(filter.SourceRefID)
+	filterStatus := strings.TrimSpace(filter.Status)
+	for _, delivery := range s.botOutbound {
+		if delivery.WorkspaceID != workspaceID {
+			continue
+		}
+		if filterBotID != "" && delivery.BotID != filterBotID {
+			continue
+		}
+		if filterConnectionID != "" && delivery.ConnectionID != filterConnectionID {
+			continue
+		}
+		if filterConversationID != "" && strings.TrimSpace(delivery.ConversationID) != filterConversationID {
+			continue
+		}
+		if filterTargetID != "" && strings.TrimSpace(delivery.DeliveryTargetID) != filterTargetID {
+			continue
+		}
+		if filterSourceType != "" && strings.TrimSpace(delivery.SourceType) != filterSourceType {
+			continue
+		}
+		if filterSourceRefType != "" && strings.TrimSpace(delivery.SourceRefType) != filterSourceRefType {
+			continue
+		}
+		if filterSourceRefID != "" && strings.TrimSpace(delivery.SourceRefID) != filterSourceRefID {
+			continue
+		}
+		if filterStatus != "" && strings.TrimSpace(delivery.Status) != filterStatus {
+			continue
+		}
+		items = append(items, cloneBotOutboundDelivery(delivery))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		switch {
+		case items[i].CreatedAt.After(items[j].CreatedAt):
+			return true
+		case items[i].CreatedAt.Before(items[j].CreatedAt):
+			return false
+		default:
+			return items[i].ID > items[j].ID
+		}
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBotOutboundDelivery(workspaceID string, deliveryID string) (BotOutboundDelivery, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	delivery, ok := s.botOutbound[deliveryID]
+	if !ok || delivery.WorkspaceID != workspaceID {
+		return BotOutboundDelivery{}, false
+	}
+
+	return cloneBotOutboundDelivery(delivery), true
+}
+
+func (s *MemoryStore) CreateBotOutboundDelivery(delivery BotOutboundDelivery) (BotOutboundDelivery, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[delivery.WorkspaceID]; !ok {
+		return BotOutboundDelivery{}, ErrWorkspaceNotFound
+	}
+	bot, ok := s.bots[delivery.BotID]
+	if !ok || bot.WorkspaceID != delivery.WorkspaceID {
+		return BotOutboundDelivery{}, ErrBotNotFound
+	}
+	connection, ok := s.botConnections[delivery.ConnectionID]
+	if !ok || connection.WorkspaceID != delivery.WorkspaceID || strings.TrimSpace(connection.BotID) != strings.TrimSpace(bot.ID) {
+		return BotOutboundDelivery{}, ErrBotConnectionNotFound
+	}
+	if conversationID := strings.TrimSpace(delivery.ConversationID); conversationID != "" {
+		conversation, ok := s.botConversations[conversationID]
+		if !ok || conversation.WorkspaceID != delivery.WorkspaceID || conversation.ConnectionID != connection.ID {
+			return BotOutboundDelivery{}, ErrBotConversationNotFound
+		}
+		if strings.TrimSpace(conversation.BotID) != "" && strings.TrimSpace(conversation.BotID) != strings.TrimSpace(bot.ID) {
+			return BotOutboundDelivery{}, ErrBotConversationNotFound
+		}
+	}
+	if targetID := strings.TrimSpace(delivery.DeliveryTargetID); targetID != "" {
+		target, ok := s.botDeliveryTargets[targetID]
+		if !ok || target.WorkspaceID != delivery.WorkspaceID || target.BotID != delivery.BotID {
+			return BotOutboundDelivery{}, ErrBotDeliveryTargetNotFound
+		}
+		if target.ConnectionID != connection.ID {
+			return BotOutboundDelivery{}, ErrBotDeliveryTargetNotFound
+		}
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(delivery.ID) == "" {
+		delivery.ID = NewID("bod")
+	}
+	if delivery.CreatedAt.IsZero() {
+		delivery.CreatedAt = now
+	}
+	if delivery.UpdatedAt.IsZero() {
+		delivery.UpdatedAt = now
+	}
+	delivery.WorkspaceID = strings.TrimSpace(delivery.WorkspaceID)
+	delivery.BotID = strings.TrimSpace(delivery.BotID)
+	delivery.ConnectionID = strings.TrimSpace(delivery.ConnectionID)
+	delivery.ConversationID = strings.TrimSpace(delivery.ConversationID)
+	delivery.DeliveryTargetID = strings.TrimSpace(delivery.DeliveryTargetID)
+	delivery.RunID = strings.TrimSpace(delivery.RunID)
+	delivery.TriggerID = strings.TrimSpace(delivery.TriggerID)
+	delivery.SourceType = strings.TrimSpace(delivery.SourceType)
+	delivery.SourceRefType = strings.TrimSpace(delivery.SourceRefType)
+	delivery.SourceRefID = strings.TrimSpace(delivery.SourceRefID)
+	delivery.OriginWorkspaceID = strings.TrimSpace(delivery.OriginWorkspaceID)
+	delivery.OriginThreadID = strings.TrimSpace(delivery.OriginThreadID)
+	delivery.OriginTurnID = strings.TrimSpace(delivery.OriginTurnID)
+	delivery.Messages = cloneBotReplyMessages(delivery.Messages)
+	delivery.Status = firstNonEmpty(strings.TrimSpace(delivery.Status), "queued")
+	delivery.IdempotencyKey = strings.TrimSpace(delivery.IdempotencyKey)
+	delivery.ProviderMessageIDs = normalizeStringSlice(delivery.ProviderMessageIDs)
+	delivery.LastError = strings.TrimSpace(delivery.LastError)
+	delivery.DeliveredAt = cloneOptionalTime(delivery.DeliveredAt)
+
+	s.botOutbound[delivery.ID] = delivery
+	s.persistLocked()
+
+	return cloneBotOutboundDelivery(delivery), nil
+}
+
+func (s *MemoryStore) UpdateBotOutboundDelivery(
+	workspaceID string,
+	deliveryID string,
+	updater func(BotOutboundDelivery) BotOutboundDelivery,
+) (BotOutboundDelivery, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delivery, ok := s.botOutbound[deliveryID]
+	if !ok || delivery.WorkspaceID != workspaceID {
+		return BotOutboundDelivery{}, ErrBotOutboundDeliveryNotFound
+	}
+
+	next := updater(cloneBotOutboundDelivery(delivery))
+	next.ID = delivery.ID
+	next.WorkspaceID = delivery.WorkspaceID
+	next.BotID = delivery.BotID
+	next.ConnectionID = delivery.ConnectionID
+	next.ConversationID = delivery.ConversationID
+	next.DeliveryTargetID = delivery.DeliveryTargetID
+	next.RunID = delivery.RunID
+	next.TriggerID = delivery.TriggerID
+	next.SourceType = delivery.SourceType
+	next.SourceRefType = delivery.SourceRefType
+	next.SourceRefID = delivery.SourceRefID
+	next.OriginWorkspaceID = delivery.OriginWorkspaceID
+	next.OriginThreadID = delivery.OriginThreadID
+	next.OriginTurnID = delivery.OriginTurnID
+	next.Messages = cloneBotReplyMessages(next.Messages)
+	next.CreatedAt = delivery.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.Status = firstNonEmpty(strings.TrimSpace(next.Status), strings.TrimSpace(delivery.Status), "queued")
+	next.IdempotencyKey = delivery.IdempotencyKey
+	next.ProviderMessageIDs = normalizeStringSlice(next.ProviderMessageIDs)
+	next.LastError = strings.TrimSpace(next.LastError)
+	next.DeliveredAt = cloneOptionalTime(next.DeliveredAt)
+
+	s.botOutbound[deliveryID] = next
+	s.persistLocked()
+
+	return cloneBotOutboundDelivery(next), nil
 }
 
 func (s *MemoryStore) UpsertBotInboundDelivery(delivery BotInboundDelivery) (BotInboundDelivery, bool, error) {
@@ -2082,10 +2852,72 @@ func (s *MemoryStore) UpsertThread(thread Thread) {
 
 func (s *MemoryStore) GetThreadProjection(workspaceID string, threadID string) (ThreadProjection, bool) {
 	s.mu.RLock()
+	record, ok := s.projections[threadProjectionKey(workspaceID, threadID)]
+	s.mu.RUnlock()
+	if !ok {
+		return ThreadProjection{}, false
+	}
+
+	return materializeThreadProjectionRecord(record), true
+}
+
+func (s *MemoryStore) GetThreadProjectionWindow(
+	workspaceID string,
+	threadID string,
+	turnLimit int,
+	beforeTurnID string,
+) (ThreadProjectionWindow, bool) {
+	s.mu.RLock()
+	record, ok := s.projections[threadProjectionKey(workspaceID, threadID)]
+	s.mu.RUnlock()
+	if !ok {
+		return ThreadProjectionWindow{}, false
+	}
+
+	return materializeThreadProjectionWindow(record, turnLimit, beforeTurnID), true
+}
+
+func (s *MemoryStore) GetThreadProjectionSummary(workspaceID string, threadID string) (ThreadProjection, bool) {
+	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	projection, ok := s.projections[threadProjectionKey(workspaceID, threadID)]
-	return projection, ok
+	record, ok := s.projections[threadProjectionKey(workspaceID, threadID)]
+	if !ok {
+		return ThreadProjection{}, false
+	}
+
+	return cloneThreadProjectionMetadata(record.Projection), true
+}
+
+func (s *MemoryStore) ListThreadProjections(workspaceID string, threadID string) []ThreadProjection {
+	s.mu.RLock()
+	filterWorkspaceID := strings.TrimSpace(workspaceID)
+	filterThreadID := strings.TrimSpace(threadID)
+	records := make([]threadProjectionRecord, 0)
+	for _, projection := range s.projections {
+		if filterWorkspaceID != "" && projection.Projection.WorkspaceID != filterWorkspaceID {
+			continue
+		}
+		if filterThreadID != "" && projection.Projection.ThreadID != filterThreadID {
+			continue
+		}
+		records = append(records, projection)
+	}
+	s.mu.RUnlock()
+
+	items := make([]ThreadProjection, 0, len(records))
+	for _, record := range records {
+		items = append(items, materializeThreadProjectionRecord(record))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ThreadID > items[j].ThreadID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
 }
 
 func (s *MemoryStore) UpsertThreadProjectionSnapshot(detail ThreadDetail) {
@@ -2111,13 +2943,20 @@ func (s *MemoryStore) UpsertThreadProjectionSnapshot(detail ThreadDetail) {
 		TurnCount:        detail.TurnCount,
 		MessageCount:     detail.MessageCount,
 		SnapshotComplete: true,
-		Turns:            cloneThreadTurns(detail.Turns),
+		Turns:            compactProjectedThreadTurns(detail.Turns),
 	}
+	if projection.TurnCount == 0 && len(projection.Turns) > 0 {
+		projection.TurnCount = len(projection.Turns)
+	}
+	if projection.MessageCount == 0 && len(projection.Turns) > 0 {
+		projection.MessageCount = projectedMessageCount(projection.Turns)
+	}
+	record := newColdThreadProjectionRecord(projection)
 	current := s.projections[threadProjectionKey(detail.WorkspaceID, detail.ID)]
-	if threadProjectionSnapshotEqual(current, projection) {
+	if threadProjectionSnapshotEqual(current, record) {
 		return
 	}
-	s.projections[threadProjectionKey(detail.WorkspaceID, detail.ID)] = projection
+	s.projections[threadProjectionKey(detail.WorkspaceID, detail.ID)] = record
 	s.persistLocked()
 }
 
@@ -2130,7 +2969,8 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	defer s.mu.Unlock()
 
 	key := threadProjectionKey(event.WorkspaceID, event.ThreadID)
-	projection := s.projections[key]
+	record := s.projections[key]
+	projection := record.Projection
 	if projection.ThreadID == "" {
 		projection = ThreadProjection{
 			WorkspaceID:  event.WorkspaceID,
@@ -2139,6 +2979,11 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 			MessageCount: 0,
 			Turns:        []ThreadTurn{},
 		}
+		record = threadProjectionRecord{Projection: projection}
+	} else if projection.Turns == nil {
+		projection.Turns = decodeThreadProjectionTurns(threadProjectionRecordTurnsRaw(record))
+		record.TurnsRaw = nil
+		record.TurnsCompressed = nil
 	}
 	beforeStatus := projection.Status
 	beforeTurnCount := len(projection.Turns)
@@ -2156,7 +3001,11 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 		return
 	}
 
-	s.projections[key] = projection
+	record.Projection = projection
+	record.StatsDirty = true
+	record.SnapshotDirty = true
+	s.projections[key] = record
+	s.invalidateMemoryInspectionLocked()
 	if diagnostics.ShouldLogEventTrace("thread projection updated", event.Method) {
 		diagnostics.LogThreadTrace(
 			event.WorkspaceID,
@@ -2230,6 +3079,7 @@ func (s *MemoryStore) DeleteThread(workspaceID string, threadID string) error {
 	}
 	delete(s.threads, threadID)
 	delete(s.projections, threadProjectionKey(workspaceID, threadID))
+	delete(s.threadBotBindings, threadBotBindingKey(workspaceID, threadID))
 	workspace.UpdatedAt = now
 	s.workspaces[workspaceID] = workspace
 	s.persistLocked()
@@ -2280,6 +3130,16 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 			delete(s.botBindings, bindingID)
 		}
 	}
+	for key, binding := range s.threadBotBindings {
+		if binding.WorkspaceID == workspaceID || normalizeThreadBotBindingBotWorkspaceID(binding) == workspaceID {
+			delete(s.threadBotBindings, key)
+		}
+	}
+	for triggerID, trigger := range s.botTriggers {
+		if trigger.WorkspaceID == workspaceID {
+			delete(s.botTriggers, triggerID)
+		}
+	}
 	for connectionID, connection := range s.botConnections {
 		if connection.WorkspaceID == workspaceID {
 			delete(s.botConnections, connectionID)
@@ -2291,6 +3151,21 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 			delete(s.botConversations, conversationID)
 		}
 	}
+	for targetID, target := range s.botDeliveryTargets {
+		if target.WorkspaceID == workspaceID {
+			delete(s.botDeliveryTargets, targetID)
+		}
+	}
+	for deliveryID, delivery := range s.botOutbound {
+		if delivery.WorkspaceID == workspaceID {
+			delete(s.botOutbound, deliveryID)
+		}
+	}
+	for decisionID, decision := range s.turnPolicyDecisions {
+		if decision.WorkspaceID == workspaceID {
+			delete(s.turnPolicyDecisions, decisionID)
+		}
+	}
 	delete(s.commandSessions, workspaceID)
 
 	for threadID, thread := range s.threads {
@@ -2299,7 +3174,7 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 		}
 	}
 	for key, projection := range s.projections {
-		if projection.WorkspaceID == workspaceID {
+		if projection.Projection.WorkspaceID == workspaceID {
 			delete(s.projections, key)
 		}
 	}
@@ -2384,180 +3259,484 @@ func (s *MemoryStore) load() error {
 		return nil
 	}
 
-	data, err := os.ReadFile(s.path)
+	file, err := os.Open(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if len(data) == 0 {
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	rootToken, err := decoder.Token()
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if rootToken == nil {
 		return nil
 	}
 
-	var snapshot storeSnapshot
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return err
-	}
-
-	if snapshot.RuntimePreferences != nil {
-		s.runtimePrefs = *snapshot.RuntimePreferences
-		if len(s.runtimePrefs.LocalShellModels) > 0 {
-			s.runtimePrefs.LocalShellModels = append([]string(nil), s.runtimePrefs.LocalShellModels...)
-		}
-		if len(s.runtimePrefs.ModelShellTypeOverrides) > 0 {
-			s.runtimePrefs.ModelShellTypeOverrides = cloneStringMap(s.runtimePrefs.ModelShellTypeOverrides)
-		}
-		if len(s.runtimePrefs.DefaultTurnSandboxPolicy) > 0 {
-			s.runtimePrefs.DefaultTurnSandboxPolicy = cloneAnyMap(s.runtimePrefs.DefaultTurnSandboxPolicy)
-		}
-		if len(s.runtimePrefs.DefaultCommandSandboxPolicy) > 0 {
-			s.runtimePrefs.DefaultCommandSandboxPolicy = cloneAnyMap(s.runtimePrefs.DefaultCommandSandboxPolicy)
-		}
-		s.runtimePrefs.AllowRemoteAccess = cloneOptionalBool(s.runtimePrefs.AllowRemoteAccess)
-		s.runtimePrefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(s.runtimePrefs.AllowLocalhostWithoutAccessToken)
-		if len(s.runtimePrefs.AccessTokens) > 0 {
-			s.runtimePrefs.AccessTokens = cloneAccessTokens(s.runtimePrefs.AccessTokens)
-		}
+	rootDelim, ok := rootToken.(json.Delim)
+	if !ok || rootDelim != '{' {
+		return errors.New("store metadata root must be object")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var maxID uint64
-	for _, workspace := range snapshot.Workspaces {
-		s.workspaces[workspace.ID] = workspace
-		if value := NumericIDSuffix(workspace.ID); value > maxID {
-			maxID = value
+	storeMutatedDuringLoad := false
+	pendingConnectionLogs := make([]BotConnectionLogEntry, 0)
+
+	for decoder.More() {
+		fieldToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+
+		fieldName, ok := fieldToken.(string)
+		if !ok {
+			return errors.New("store metadata object field must be string")
+		}
+
+		switch fieldName {
+		case "runtimePreferences":
+			var prefs *RuntimePreferences
+			if err := decoder.Decode(&prefs); err != nil {
+				return err
+			}
+			if prefs != nil {
+				s.runtimePrefs = normalizeLoadedRuntimePreferences(*prefs)
+			}
+		case "workspaces":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var workspace Workspace
+				if err := decoder.Decode(&workspace); err != nil {
+					return err
+				}
+				s.workspaces[workspace.ID] = workspace
+				updateLoadedMaxID(&maxID, workspace.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "commandSessions":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var session CommandSessionSnapshot
+				if err := decoder.Decode(&session); err != nil {
+					return err
+				}
+				workspaceSessions := s.commandSessions[session.WorkspaceID]
+				if workspaceSessions == nil {
+					workspaceSessions = make(map[string]CommandSessionSnapshot)
+					s.commandSessions[session.WorkspaceID] = workspaceSessions
+				}
+				workspaceSessions[session.ID] = session
+				updateLoadedMaxID(&maxID, session.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "automations":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var automation Automation
+				if err := decoder.Decode(&automation); err != nil {
+					return err
+				}
+				s.automations[automation.ID] = automation
+				updateLoadedMaxID(&maxID, automation.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "automationTemplates":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var template AutomationTemplate
+				if err := decoder.Decode(&template); err != nil {
+					return err
+				}
+				s.templates[template.ID] = template
+				updateLoadedMaxID(&maxID, template.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "automationRuns":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var run AutomationRun
+				if err := decoder.Decode(&run); err != nil {
+					return err
+				}
+				s.runs[run.ID] = cloneAutomationRun(run)
+				updateLoadedMaxID(&maxID, run.ID)
+				for _, entry := range run.Logs {
+					updateLoadedMaxID(&maxID, entry.ID)
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "notifications":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var notification Notification
+				if err := decoder.Decode(&notification); err != nil {
+					return err
+				}
+				s.notifications[notification.ID] = notification
+				updateLoadedMaxID(&maxID, notification.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "turnPolicyDecisions":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var decision TurnPolicyDecision
+				if err := decoder.Decode(&decision); err != nil {
+					return err
+				}
+				s.turnPolicyDecisions[decision.ID] = cloneTurnPolicyDecision(decision)
+				updateLoadedMaxID(&maxID, decision.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "bots":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var bot Bot
+				if err := decoder.Decode(&bot); err != nil {
+					return err
+				}
+				s.bots[bot.ID] = cloneBot(bot)
+				updateLoadedMaxID(&maxID, bot.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botBindings":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var binding BotBinding
+				if err := decoder.Decode(&binding); err != nil {
+					return err
+				}
+				s.botBindings[binding.ID] = cloneBotBinding(binding)
+				updateLoadedMaxID(&maxID, binding.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "threadBotBindings":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var binding ThreadBotBinding
+				if err := decoder.Decode(&binding); err != nil {
+					return err
+				}
+				s.threadBotBindings[threadBotBindingKey(binding.WorkspaceID, binding.ThreadID)] = cloneThreadBotBinding(binding)
+				updateLoadedMaxID(&maxID, binding.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botTriggers":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var trigger BotTrigger
+				if err := decoder.Decode(&trigger); err != nil {
+					return err
+				}
+				s.botTriggers[trigger.ID] = cloneBotTrigger(trigger)
+				updateLoadedMaxID(&maxID, trigger.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botConnections":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var connection BotConnection
+				if err := decoder.Decode(&connection); err != nil {
+					return err
+				}
+				s.botConnections[connection.ID] = cloneBotConnection(connection)
+				updateLoadedMaxID(&maxID, connection.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botConnectionLogs":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var entry BotConnectionLogEntry
+				if err := decoder.Decode(&entry); err != nil {
+					return err
+				}
+				pendingConnectionLogs = append(pendingConnectionLogs, entry)
+				updateLoadedMaxID(&maxID, entry.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "wechatAccounts":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var account WeChatAccount
+				if err := decoder.Decode(&account); err != nil {
+					return err
+				}
+				s.wechatAccounts[account.ID] = cloneWeChatAccount(account)
+				updateLoadedMaxID(&maxID, account.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botConversations":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var conversation BotConversation
+				if err := decoder.Decode(&conversation); err != nil {
+					return err
+				}
+				s.botConversations[conversation.ID] = cloneBotConversation(conversation)
+				updateLoadedMaxID(&maxID, conversation.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botDeliveryTargets":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var target BotDeliveryTarget
+				if err := decoder.Decode(&target); err != nil {
+					return err
+				}
+				s.botDeliveryTargets[target.ID] = cloneBotDeliveryTarget(target)
+				updateLoadedMaxID(&maxID, target.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botInbound":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var delivery BotInboundDelivery
+				if err := decoder.Decode(&delivery); err != nil {
+					return err
+				}
+				s.botInbound[delivery.ID] = cloneBotInboundDelivery(delivery)
+				s.botInboundIndex[botInboundLookupKey(
+					delivery.WorkspaceID,
+					delivery.ConnectionID,
+					effectiveBotInboundExternalConversationID(delivery),
+					delivery.MessageID,
+				)] = delivery.ID
+				updateLoadedMaxID(&maxID, delivery.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "botOutbound":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var delivery BotOutboundDelivery
+				if err := decoder.Decode(&delivery); err != nil {
+					return err
+				}
+				s.botOutbound[delivery.ID] = cloneBotOutboundDelivery(delivery)
+				updateLoadedMaxID(&maxID, delivery.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "threads":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var thread Thread
+				if err := decoder.Decode(&thread); err != nil {
+					return err
+				}
+				s.threads[thread.ID] = thread
+				updateLoadedMaxID(&maxID, thread.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "threadProjections":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var projection storedThreadProjection
+				if err := decoder.Decode(&projection); err != nil {
+					return err
+				}
+				compactedProjection, mutated := normalizeStoredThreadProjection(s.path, projection)
+				if mutated {
+					storeMutatedDuringLoad = true
+				}
+				s.projections[threadProjectionKey(compactedProjection.Projection.WorkspaceID, compactedProjection.Projection.ThreadID)] = compactedProjection
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "deletedThreads":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var deletedThread DeletedThread
+				if err := decoder.Decode(&deletedThread); err != nil {
+					return err
+				}
+				s.deleted[deletedThreadKey(deletedThread.WorkspaceID, deletedThread.ThreadID)] = deletedThread
+				return nil
+			}); err != nil {
+				return err
+			}
+		default:
+			if err := discardJSONValue(decoder); err != nil {
+				return err
+			}
 		}
 	}
-	for _, session := range snapshot.CommandSessions {
-		workspaceSessions := s.commandSessions[session.WorkspaceID]
-		if workspaceSessions == nil {
-			workspaceSessions = make(map[string]CommandSessionSnapshot)
-			s.commandSessions[session.WorkspaceID] = workspaceSessions
-		}
-		workspaceSessions[session.ID] = session
-		if value := NumericIDSuffix(session.ID); value > maxID {
-			maxID = value
-		}
+
+	endToken, err := decoder.Token()
+	if err != nil {
+		return err
 	}
-	prunedCommandSessions := false
+	endDelim, ok := endToken.(json.Delim)
+	if !ok || endDelim != '}' {
+		return errors.New("store metadata root must terminate with object end")
+	}
+
 	for _, workspaceSessions := range s.commandSessions {
 		beforeCount := len(workspaceSessions)
 		pruneCommandSessionsLocked(workspaceSessions)
 		if len(workspaceSessions) != beforeCount {
-			prunedCommandSessions = true
+			storeMutatedDuringLoad = true
 		}
 	}
 
-	for _, automation := range snapshot.Automations {
-		s.automations[automation.ID] = automation
-		if value := NumericIDSuffix(automation.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, template := range snapshot.AutomationTemplates {
-		s.templates[template.ID] = template
-		if value := NumericIDSuffix(template.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, run := range snapshot.AutomationRuns {
-		s.runs[run.ID] = cloneAutomationRun(run)
-		if value := NumericIDSuffix(run.ID); value > maxID {
-			maxID = value
-		}
-		for _, entry := range run.Logs {
-			if value := NumericIDSuffix(entry.ID); value > maxID {
-				maxID = value
-			}
-		}
-	}
-	for _, notification := range snapshot.Notifications {
-		s.notifications[notification.ID] = notification
-		if value := NumericIDSuffix(notification.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, bot := range snapshot.Bots {
-		s.bots[bot.ID] = cloneBot(bot)
-		if value := NumericIDSuffix(bot.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, binding := range snapshot.BotBindings {
-		s.botBindings[binding.ID] = cloneBotBinding(binding)
-		if value := NumericIDSuffix(binding.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, connection := range snapshot.BotConnections {
-		s.botConnections[connection.ID] = cloneBotConnection(connection)
-		if value := NumericIDSuffix(connection.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, entry := range snapshot.BotConnectionLogs {
+	for _, entry := range pendingConnectionLogs {
 		connection, ok := s.botConnections[entry.ConnectionID]
 		if !ok || connection.WorkspaceID != entry.WorkspaceID {
 			continue
 		}
 		s.botConnectionLogs[entry.ConnectionID] = append(s.botConnectionLogs[entry.ConnectionID], entry)
-		if value := NumericIDSuffix(entry.ID); value > maxID {
-			maxID = value
-		}
 	}
-	for _, account := range snapshot.WeChatAccounts {
-		s.wechatAccounts[account.ID] = cloneWeChatAccount(account)
-		if value := NumericIDSuffix(account.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, conversation := range snapshot.BotConversations {
-		s.botConversations[conversation.ID] = cloneBotConversation(conversation)
-		if value := NumericIDSuffix(conversation.ID); value > maxID {
-			maxID = value
-		}
-	}
+
 	if migrateBotTopologyLocked(s) {
-		prunedCommandSessions = true
-	}
-	for _, delivery := range snapshot.BotInbound {
-		s.botInbound[delivery.ID] = cloneBotInboundDelivery(delivery)
-		s.botInboundIndex[botInboundLookupKey(
-			delivery.WorkspaceID,
-			delivery.ConnectionID,
-			effectiveBotInboundExternalConversationID(delivery),
-			delivery.MessageID,
-		)] = delivery.ID
-		if value := NumericIDSuffix(delivery.ID); value > maxID {
-			maxID = value
-		}
-	}
-
-	for _, thread := range snapshot.Threads {
-		s.threads[thread.ID] = thread
-		if value := NumericIDSuffix(thread.ID); value > maxID {
-			maxID = value
-		}
-	}
-	for _, projection := range snapshot.ThreadProjections {
-		s.projections[threadProjectionKey(projection.WorkspaceID, projection.ThreadID)] = projection
-	}
-
-	for _, deletedThread := range snapshot.DeletedThreads {
-		s.deleted[deletedThreadKey(deletedThread.WorkspaceID, deletedThread.ThreadID)] = deletedThread
+		storeMutatedDuringLoad = true
 	}
 
 	SeedIDCounter(maxID)
-	if prunedCommandSessions {
+	if storeMutatedDuringLoad {
 		s.persistLocked()
 	}
 	return nil
 }
 
+func normalizeLoadedRuntimePreferences(prefs RuntimePreferences) RuntimePreferences {
+	prefs.ModelCatalogPath = strings.TrimSpace(prefs.ModelCatalogPath)
+	prefs.OutboundProxyURL = strings.TrimSpace(prefs.OutboundProxyURL)
+	prefs.DefaultTerminalShell = strings.TrimSpace(prefs.DefaultTerminalShell)
+	if len(prefs.LocalShellModels) > 0 {
+		prefs.LocalShellModels = append([]string(nil), prefs.LocalShellModels...)
+	} else {
+		prefs.LocalShellModels = nil
+	}
+	if len(prefs.ModelShellTypeOverrides) > 0 {
+		prefs.ModelShellTypeOverrides = cloneStringMap(prefs.ModelShellTypeOverrides)
+	} else {
+		prefs.ModelShellTypeOverrides = nil
+	}
+	prefs.DefaultTurnApprovalPolicy = strings.TrimSpace(prefs.DefaultTurnApprovalPolicy)
+	if len(prefs.DefaultTurnSandboxPolicy) > 0 {
+		prefs.DefaultTurnSandboxPolicy = cloneAnyMap(prefs.DefaultTurnSandboxPolicy)
+	} else {
+		prefs.DefaultTurnSandboxPolicy = nil
+	}
+	if len(prefs.DefaultCommandSandboxPolicy) > 0 {
+		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
+	} else {
+		prefs.DefaultCommandSandboxPolicy = nil
+	}
+	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
+	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
+	if len(prefs.AccessTokens) > 0 {
+		prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
+	} else {
+		prefs.AccessTokens = nil
+	}
+	prefs.BackendThreadTraceEnabled = cloneOptionalBool(prefs.BackendThreadTraceEnabled)
+	prefs.BackendThreadTraceWorkspaceID = strings.TrimSpace(prefs.BackendThreadTraceWorkspaceID)
+	prefs.BackendThreadTraceThreadID = strings.TrimSpace(prefs.BackendThreadTraceThreadID)
+	return prefs
+}
+
+func decodeJSONArray(decoder *json.Decoder, consume func(*json.Decoder) error) error {
+	startToken, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if startToken == nil {
+		return nil
+	}
+
+	startDelim, ok := startToken.(json.Delim)
+	if !ok || startDelim != '[' {
+		return errors.New("store metadata array field must be array or null")
+	}
+
+	for decoder.More() {
+		if err := consume(decoder); err != nil {
+			return err
+		}
+	}
+
+	endToken, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+
+	endDelim, ok := endToken.(json.Delim)
+	if !ok || endDelim != ']' {
+		return errors.New("store metadata array field must terminate with array end")
+	}
+	return nil
+}
+
+func discardJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+
+	switch delim {
+	case '{':
+		for decoder.More() {
+			if _, err := decoder.Token(); err != nil {
+				return err
+			}
+			if err := discardJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err = decoder.Token()
+		return err
+	case '[':
+		for decoder.More() {
+			if err := discardJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err = decoder.Token()
+		return err
+	default:
+		return nil
+	}
+}
+
+func updateLoadedMaxID(maxID *uint64, id string) {
+	if value := NumericIDSuffix(id); value > *maxID {
+		*maxID = value
+	}
+}
+
 func (s *MemoryStore) persistLocked() {
+	s.invalidateMemoryInspectionLocked()
 	if s.path == "" {
 		return
 	}
@@ -2569,15 +3748,20 @@ func (s *MemoryStore) persistLocked() {
 		AutomationTemplates: make([]AutomationTemplate, 0, len(s.templates)),
 		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
 		Notifications:       make([]Notification, 0, len(s.notifications)),
+		TurnPolicyDecisions: make([]TurnPolicyDecision, 0, len(s.turnPolicyDecisions)),
 		Bots:                make([]Bot, 0, len(s.bots)),
 		BotBindings:         make([]BotBinding, 0, len(s.botBindings)),
+		ThreadBotBindings:   make([]ThreadBotBinding, 0, len(s.threadBotBindings)),
+		BotTriggers:         make([]BotTrigger, 0, len(s.botTriggers)),
 		BotConnections:      make([]BotConnection, 0, len(s.botConnections)),
 		BotConnectionLogs:   make([]BotConnectionLogEntry, 0),
 		WeChatAccounts:      make([]WeChatAccount, 0, len(s.wechatAccounts)),
 		BotConversations:    make([]BotConversation, 0, len(s.botConversations)),
+		BotDeliveryTargets:  make([]BotDeliveryTarget, 0, len(s.botDeliveryTargets)),
 		BotInbound:          make([]BotInboundDelivery, 0, len(s.botInbound)),
+		BotOutbound:         make([]BotOutboundDelivery, 0, len(s.botOutbound)),
 		Threads:             make([]Thread, 0, len(s.threads)),
-		ThreadProjections:   make([]ThreadProjection, 0, len(s.projections)),
+		ThreadProjections:   make([]storedThreadProjection, 0, len(s.projections)),
 		DeletedThreads:      make([]DeletedThread, 0, len(s.deleted)),
 	}
 
@@ -2633,11 +3817,20 @@ func (s *MemoryStore) persistLocked() {
 	for _, notification := range s.notifications {
 		snapshot.Notifications = append(snapshot.Notifications, notification)
 	}
+	for _, decision := range s.turnPolicyDecisions {
+		snapshot.TurnPolicyDecisions = append(snapshot.TurnPolicyDecisions, cloneTurnPolicyDecision(decision))
+	}
 	for _, bot := range s.bots {
 		snapshot.Bots = append(snapshot.Bots, cloneBot(bot))
 	}
 	for _, binding := range s.botBindings {
 		snapshot.BotBindings = append(snapshot.BotBindings, cloneBotBinding(binding))
+	}
+	for _, binding := range s.threadBotBindings {
+		snapshot.ThreadBotBindings = append(snapshot.ThreadBotBindings, cloneThreadBotBinding(binding))
+	}
+	for _, trigger := range s.botTriggers {
+		snapshot.BotTriggers = append(snapshot.BotTriggers, cloneBotTrigger(trigger))
 	}
 	for _, connection := range s.botConnections {
 		snapshot.BotConnections = append(snapshot.BotConnections, cloneBotConnection(connection))
@@ -2651,14 +3844,27 @@ func (s *MemoryStore) persistLocked() {
 	for _, conversation := range s.botConversations {
 		snapshot.BotConversations = append(snapshot.BotConversations, cloneBotConversation(conversation))
 	}
+	for _, target := range s.botDeliveryTargets {
+		snapshot.BotDeliveryTargets = append(snapshot.BotDeliveryTargets, cloneBotDeliveryTarget(target))
+	}
 	for _, delivery := range s.botInbound {
 		snapshot.BotInbound = append(snapshot.BotInbound, cloneBotInboundDelivery(delivery))
+	}
+	for _, delivery := range s.botOutbound {
+		snapshot.BotOutbound = append(snapshot.BotOutbound, cloneBotOutboundDelivery(delivery))
 	}
 	for _, thread := range s.threads {
 		snapshot.Threads = append(snapshot.Threads, thread)
 	}
-	for _, projection := range s.projections {
-		snapshot.ThreadProjections = append(snapshot.ThreadProjections, projection)
+	projectionUpdates := make(map[string]threadProjectionRecord, len(s.projections))
+	activeProjectionSidecars := make(map[string]struct{}, len(s.projections))
+	for key, projection := range s.projections {
+		storedProjection, updatedRecord, activeTurnsPath := s.prepareStoredThreadProjectionSnapshotForPersist(projection)
+		snapshot.ThreadProjections = append(snapshot.ThreadProjections, storedProjection)
+		projectionUpdates[key] = updatedRecord
+		if activeTurnsPath != "" {
+			activeProjectionSidecars[activeTurnsPath] = struct{}{}
+		}
 	}
 	for _, deletedThread := range s.deleted {
 		snapshot.DeletedThreads = append(snapshot.DeletedThreads, deletedThread)
@@ -2685,11 +3891,20 @@ func (s *MemoryStore) persistLocked() {
 	sort.Slice(snapshot.Notifications, func(i int, j int) bool {
 		return snapshot.Notifications[i].ID < snapshot.Notifications[j].ID
 	})
+	sort.Slice(snapshot.TurnPolicyDecisions, func(i int, j int) bool {
+		return snapshot.TurnPolicyDecisions[i].ID < snapshot.TurnPolicyDecisions[j].ID
+	})
 	sort.Slice(snapshot.Bots, func(i int, j int) bool {
 		return snapshot.Bots[i].ID < snapshot.Bots[j].ID
 	})
 	sort.Slice(snapshot.BotBindings, func(i int, j int) bool {
 		return snapshot.BotBindings[i].ID < snapshot.BotBindings[j].ID
+	})
+	sort.Slice(snapshot.ThreadBotBindings, func(i int, j int) bool {
+		return snapshot.ThreadBotBindings[i].ID < snapshot.ThreadBotBindings[j].ID
+	})
+	sort.Slice(snapshot.BotTriggers, func(i int, j int) bool {
+		return snapshot.BotTriggers[i].ID < snapshot.BotTriggers[j].ID
 	})
 	sort.Slice(snapshot.BotConnections, func(i int, j int) bool {
 		return snapshot.BotConnections[i].ID < snapshot.BotConnections[j].ID
@@ -2712,8 +3927,14 @@ func (s *MemoryStore) persistLocked() {
 	sort.Slice(snapshot.BotConversations, func(i int, j int) bool {
 		return snapshot.BotConversations[i].ID < snapshot.BotConversations[j].ID
 	})
+	sort.Slice(snapshot.BotDeliveryTargets, func(i int, j int) bool {
+		return snapshot.BotDeliveryTargets[i].ID < snapshot.BotDeliveryTargets[j].ID
+	})
 	sort.Slice(snapshot.BotInbound, func(i int, j int) bool {
 		return snapshot.BotInbound[i].ID < snapshot.BotInbound[j].ID
+	})
+	sort.Slice(snapshot.BotOutbound, func(i int, j int) bool {
+		return snapshot.BotOutbound[i].ID < snapshot.BotOutbound[j].ID
 	})
 	sort.Slice(snapshot.Threads, func(i int, j int) bool {
 		return snapshot.Threads[i].ID < snapshot.Threads[j].ID
@@ -2741,7 +3962,14 @@ func (s *MemoryStore) persistLocked() {
 		return
 	}
 
-	_ = os.WriteFile(s.path, data, 0o644)
+	if err := os.WriteFile(s.path, data, 0o644); err != nil {
+		return
+	}
+
+	for key, record := range projectionUpdates {
+		s.projections[key] = record
+	}
+	s.cleanupThreadProjectionSidecars(activeProjectionSidecars)
 }
 
 func deletedThreadKey(workspaceID string, threadID string) string {
@@ -2750,6 +3978,684 @@ func deletedThreadKey(workspaceID string, threadID string) string {
 
 func threadProjectionKey(workspaceID string, threadID string) string {
 	return workspaceID + "\x00" + threadID
+}
+
+func cloneThreadProjectionMetadata(projection ThreadProjection) ThreadProjection {
+	return ThreadProjection{
+		WorkspaceID:      projection.WorkspaceID,
+		ThreadID:         projection.ThreadID,
+		Cwd:              projection.Cwd,
+		Preview:          projection.Preview,
+		Path:             projection.Path,
+		Source:           projection.Source,
+		Status:           projection.Status,
+		UpdatedAt:        projection.UpdatedAt,
+		TokenUsage:       cloneThreadTokenUsage(projection.TokenUsage),
+		TurnCount:        projection.TurnCount,
+		MessageCount:     projection.MessageCount,
+		SnapshotComplete: projection.SnapshotComplete,
+	}
+}
+
+func materializeThreadProjectionRecord(record threadProjectionRecord) ThreadProjection {
+	projection := cloneThreadProjectionMetadata(record.Projection)
+	if record.Projection.Turns != nil {
+		projection.Turns = cloneThreadTurns(record.Projection.Turns)
+		return projection
+	}
+
+	projection.Turns = decodeThreadProjectionTurns(threadProjectionRecordTurnsRaw(record))
+	return projection
+}
+
+func materializeThreadProjectionWindow(
+	record threadProjectionRecord,
+	turnLimit int,
+	beforeTurnID string,
+) ThreadProjectionWindow {
+	readSource := threadProjectionStorageKind(record)
+	projection := cloneThreadProjectionMetadata(record.Projection)
+	if turnLimit <= 0 {
+		if record.Projection.Turns != nil {
+			projection.Turns = cloneThreadTurns(record.Projection.Turns)
+		} else {
+			projection.Turns = decodeThreadProjectionTurns(threadProjectionRecordTurnsRaw(record))
+		}
+		return ThreadProjectionWindow{
+			Projection:      projection,
+			HasMore:         false,
+			BeforeTurnFound: beforeTurnID == "" || threadTurnsContainID(projection.Turns, beforeTurnID),
+			ReadSource:      readSource,
+			ScannedTurns:    len(projection.Turns),
+		}
+	}
+
+	if record.Projection.Turns != nil {
+		turns, hasMore, beforeFound, scannedTurns := sliceThreadTurnsWindow(record.Projection.Turns, turnLimit, beforeTurnID)
+		projection.Turns = cloneThreadTurns(turns)
+		return ThreadProjectionWindow{
+			Projection:      projection,
+			HasMore:         hasMore,
+			BeforeTurnFound: beforeFound,
+			ReadSource:      readSource,
+			ScannedTurns:    scannedTurns,
+		}
+	}
+
+	turns, hasMore, beforeFound, scannedTurns := decodeThreadProjectionTurnsWindow(record, turnLimit, beforeTurnID)
+	projection.Turns = turns
+	return ThreadProjectionWindow{
+		Projection:      projection,
+		HasMore:         hasMore,
+		BeforeTurnFound: beforeFound,
+		ReadSource:      readSource,
+		ScannedTurns:    scannedTurns,
+	}
+}
+
+func threadProjectionStorageKind(record threadProjectionRecord) string {
+	switch {
+	case record.Projection.Turns != nil:
+		return "hot"
+	case record.TurnsPath != "":
+		return "sidecar"
+	case len(record.TurnsCompressed) > 0:
+		return "compressed"
+	case len(normalizeThreadProjectionRawJSON(record.TurnsRaw)) > 0:
+		return "raw"
+	default:
+		return "empty"
+	}
+}
+
+func newColdThreadProjectionRecord(projection ThreadProjection) threadProjectionRecord {
+	compactedTurns := compactProjectedThreadTurns(projection.Turns)
+	turnCount, messageCount, stats := summarizeThreadProjectionTurns(compactedTurns)
+	nextProjection := cloneThreadProjectionMetadata(projection)
+	nextProjection.TurnCount = turnCount
+	nextProjection.MessageCount = messageCount
+	turnsRaw, turnsCompressed := packThreadProjectionTurns(encodeThreadProjectionTurns(compactedTurns))
+	record := threadProjectionRecord{
+		Projection:      nextProjection,
+		TurnsRaw:        turnsRaw,
+		TurnsCompressed: turnsCompressed,
+		Stats:           stats,
+	}
+	record.SnapshotBytes = encodedJSONSize(buildStoredThreadProjectionSnapshotFromRecord(record))
+	return record
+}
+
+func normalizeStoredThreadProjection(storePath string, projection storedThreadProjection) (threadProjectionRecord, bool) {
+	record := threadProjectionRecord{
+		Projection: ThreadProjection{
+			WorkspaceID:      projection.WorkspaceID,
+			ThreadID:         projection.ThreadID,
+			Cwd:              projection.Cwd,
+			Preview:          projection.Preview,
+			Path:             projection.Path,
+			Source:           projection.Source,
+			Status:           projection.Status,
+			UpdatedAt:        projection.UpdatedAt,
+			TokenUsage:       cloneThreadTokenUsage(projection.TokenUsage),
+			TurnCount:        projection.TurnCount,
+			MessageCount:     projection.MessageCount,
+			SnapshotComplete: projection.SnapshotComplete,
+		},
+		Stats: normalizeThreadProjectionStats(projection.Stats),
+	}
+	if ref := strings.TrimSpace(projection.TurnsRef); ref != "" {
+		record.TurnsRef = ref
+		record.TurnsPath = threadProjectionTurnsAbsolutePath(storePath, ref)
+		mutated := false
+		if record.Projection.TurnCount == 0 || threadProjectionStatsIsZero(record.Stats) {
+			refreshed, ok := refreshThreadProjectionRecordStats(record)
+			if ok {
+				if record.Projection.TurnCount != refreshed.Projection.TurnCount ||
+					record.Projection.MessageCount != refreshed.Projection.MessageCount ||
+					!threadProjectionStatsEqual(record.Stats, refreshed.Stats) {
+					mutated = true
+				}
+				record = refreshed
+			}
+		}
+		record.SnapshotBytes = encodedJSONSize(buildStoredThreadProjectionSnapshotFromRecord(record))
+		return record, mutated
+	}
+
+	compactedTurns := compactProjectedThreadTurns(decodeThreadProjectionTurns(projection.Turns))
+	encodedTurns := encodeThreadProjectionTurns(compactedTurns)
+	turnCount, messageCount, stats := summarizeThreadProjectionTurns(compactedTurns)
+	turnsRaw, turnsCompressed := packThreadProjectionTurns(encodedTurns)
+	record.TurnsRaw = turnsRaw
+	record.TurnsCompressed = turnsCompressed
+	record.Projection.TurnCount = turnCount
+	record.Projection.MessageCount = messageCount
+	record.Stats = stats
+	record.SnapshotBytes = encodedJSONSize(buildStoredThreadProjectionSnapshotFromRecord(record))
+	return record,
+		!bytes.Equal(normalizeThreadProjectionRawJSON(projection.Turns), encodedTurns) ||
+			shouldExternalizeThreadProjectionTurns(encodedTurns) ||
+			projection.TurnCount != turnCount ||
+			projection.MessageCount != messageCount ||
+			!threadProjectionStatsEqual(normalizeThreadProjectionStats(projection.Stats), stats)
+}
+
+func buildStoredThreadProjectionSnapshotFromRecord(record threadProjectionRecord) storedThreadProjection {
+	snapshot := storedThreadProjection{
+		WorkspaceID:      record.Projection.WorkspaceID,
+		ThreadID:         record.Projection.ThreadID,
+		Cwd:              record.Projection.Cwd,
+		Preview:          record.Projection.Preview,
+		Path:             record.Projection.Path,
+		Source:           record.Projection.Source,
+		Status:           record.Projection.Status,
+		UpdatedAt:        record.Projection.UpdatedAt,
+		TokenUsage:       cloneThreadTokenUsage(record.Projection.TokenUsage),
+		TurnCount:        record.Projection.TurnCount,
+		MessageCount:     record.Projection.MessageCount,
+		SnapshotComplete: record.Projection.SnapshotComplete,
+		Stats:            cloneThreadProjectionStatsPtr(record.Stats),
+	}
+	if ref := strings.TrimSpace(record.TurnsRef); ref != "" &&
+		record.Projection.Turns == nil &&
+		len(record.TurnsRaw) == 0 &&
+		len(record.TurnsCompressed) == 0 {
+		snapshot.TurnsRef = ref
+		return snapshot
+	}
+	snapshot.Turns = threadProjectionRecordTurnsRaw(record)
+	return snapshot
+}
+
+func (s *MemoryStore) buildStoredThreadProjectionSnapshot(record threadProjectionRecord) storedThreadProjection {
+	return buildStoredThreadProjectionSnapshotFromRecord(record)
+}
+
+func (s *MemoryStore) prepareStoredThreadProjectionSnapshotForPersist(
+	record threadProjectionRecord,
+) (storedThreadProjection, threadProjectionRecord, string) {
+	record, _ = refreshThreadProjectionRecordStats(record)
+	if ref := s.threadProjectionRecordTurnsRef(record); ref != "" &&
+		record.Projection.Turns == nil &&
+		len(record.TurnsRaw) == 0 &&
+		len(record.TurnsCompressed) == 0 {
+		snapshot := s.buildStoredThreadProjectionSnapshot(record)
+		record.SnapshotBytes = encodedJSONSize(snapshot)
+		record.SnapshotDirty = false
+		return snapshot, record, record.TurnsPath
+	}
+
+	rawTurns := threadProjectionRecordTurnsRaw(record)
+	if shouldExternalizeThreadProjectionTurns(rawTurns) {
+		turnsPath := s.threadProjectionTurnsAbsolutePath(record.Projection.WorkspaceID, record.Projection.ThreadID)
+		if err := writeThreadProjectionTurnsSidecar(turnsPath, rawTurns); err == nil {
+			updatedRecord := threadProjectionRecord{
+				Projection: cloneThreadProjectionMetadata(record.Projection),
+				TurnsPath:  turnsPath,
+				TurnsRef:   s.threadProjectionRelativePath(turnsPath),
+				Stats:      cloneThreadProjectionStats(record.Stats),
+			}
+			snapshot := s.buildStoredThreadProjectionSnapshot(updatedRecord)
+			updatedRecord.SnapshotBytes = encodedJSONSize(snapshot)
+			return snapshot, updatedRecord, turnsPath
+		}
+	}
+
+	updatedRecord := threadProjectionRecord{
+		Projection: cloneThreadProjectionMetadata(record.Projection),
+		Stats:      cloneThreadProjectionStats(record.Stats),
+	}
+	updatedRecord.TurnsRaw, updatedRecord.TurnsCompressed = packThreadProjectionTurns(rawTurns)
+	snapshot := s.buildStoredThreadProjectionSnapshot(updatedRecord)
+	updatedRecord.SnapshotBytes = encodedJSONSize(snapshot)
+	return snapshot, updatedRecord, ""
+}
+
+func threadProjectionRecordTurnsRaw(record threadProjectionRecord) json.RawMessage {
+	if record.Projection.Turns != nil {
+		return encodeThreadProjectionTurns(record.Projection.Turns)
+	}
+	if len(record.TurnsCompressed) > 0 {
+		return unpackThreadProjectionTurns(record.TurnsCompressed)
+	}
+	if record.TurnsPath != "" {
+		return readThreadProjectionTurnsSidecar(record.TurnsPath)
+	}
+	return normalizeThreadProjectionRawJSON(record.TurnsRaw)
+}
+
+func refreshThreadProjectionRecordStats(record threadProjectionRecord) (threadProjectionRecord, bool) {
+	if record.Projection.Turns == nil && !record.StatsDirty && !threadProjectionStatsIsZero(record.Stats) &&
+		record.Projection.TurnCount > 0 {
+		return record, false
+	}
+
+	turnCount, messageCount, stats, err := summarizeThreadProjectionRecord(record)
+	if err != nil {
+		return record, false
+	}
+
+	changed := record.Projection.TurnCount != turnCount ||
+		record.Projection.MessageCount != messageCount ||
+		record.StatsDirty ||
+		!threadProjectionStatsEqual(record.Stats, stats)
+	record.Projection.TurnCount = turnCount
+	record.Projection.MessageCount = messageCount
+	record.Stats = stats
+	record.StatsDirty = false
+	return record, changed
+}
+
+func shouldExternalizeThreadProjectionTurns(raw json.RawMessage) bool {
+	normalized := normalizeThreadProjectionRawJSON(raw)
+	return len(normalized) >= threadProjectionExternalizeMin && !bytes.Equal(normalized, []byte("[]"))
+}
+
+func writeThreadProjectionTurnsSidecar(turnsPath string, raw json.RawMessage) error {
+	if turnsPath == "" {
+		return errors.New("thread projection turns path is empty")
+	}
+	if err := os.MkdirAll(filepath.Dir(turnsPath), 0o755); err != nil {
+		return err
+	}
+
+	file, err := os.Create(turnsPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := gzip.NewWriter(file)
+	if _, err := writer.Write(normalizeThreadProjectionRawJSON(raw)); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readThreadProjectionTurnsSidecar(turnsPath string) json.RawMessage {
+	data, err := os.ReadFile(turnsPath)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return append(json.RawMessage(nil), normalizeThreadProjectionRawJSON(data)...)
+	}
+	defer reader.Close()
+
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	return append(json.RawMessage(nil), normalizeThreadProjectionRawJSON(raw)...)
+}
+
+func (s *MemoryStore) threadProjectionTurnsRoot() string {
+	if strings.TrimSpace(s.path) == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(s.path), "thread-projections")
+}
+
+func (s *MemoryStore) threadProjectionTurnsAbsolutePath(workspaceID string, threadID string) string {
+	ref := threadProjectionTurnsRelativeRef(workspaceID, threadID)
+	if ref == "" {
+		return ""
+	}
+	return threadProjectionTurnsAbsolutePath(s.path, ref)
+}
+
+func threadProjectionTurnsAbsolutePath(storePath string, ref string) string {
+	if strings.TrimSpace(storePath) == "" || strings.TrimSpace(ref) == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(storePath), "thread-projections", filepath.FromSlash(ref))
+}
+
+func threadProjectionTurnsRelativeRef(workspaceID string, threadID string) string {
+	workspaceSegment := sanitizeThreadProjectionPathSegment(workspaceID)
+	if workspaceSegment == "" {
+		workspaceSegment = "workspace"
+	}
+	sum := sha256.Sum256([]byte(threadProjectionKey(workspaceID, threadID)))
+	return path.Join(workspaceSegment, hex.EncodeToString(sum[:])+".json.gz")
+}
+
+func sanitizeThreadProjectionPathSegment(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	return builder.String()
+}
+
+func (s *MemoryStore) threadProjectionRecordTurnsRef(record threadProjectionRecord) string {
+	if ref := strings.TrimSpace(record.TurnsRef); ref != "" {
+		return ref
+	}
+	if record.TurnsPath == "" {
+		return ""
+	}
+
+	root := s.threadProjectionTurnsRoot()
+	if root == "" {
+		return ""
+	}
+	relative, err := filepath.Rel(root, record.TurnsPath)
+	if err != nil {
+		return ""
+	}
+	return filepath.ToSlash(relative)
+}
+
+func (s *MemoryStore) threadProjectionRelativePath(turnsPath string) string {
+	if strings.TrimSpace(turnsPath) == "" {
+		return ""
+	}
+	root := s.threadProjectionTurnsRoot()
+	if root == "" {
+		return ""
+	}
+	relative, err := filepath.Rel(root, turnsPath)
+	if err != nil {
+		return ""
+	}
+	return filepath.ToSlash(relative)
+}
+
+func (s *MemoryStore) cleanupThreadProjectionSidecars(active map[string]struct{}) {
+	root := s.threadProjectionTurnsRoot()
+	if root == "" {
+		return
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return
+	}
+
+	_ = filepath.WalkDir(root, func(entryPath string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if _, ok := active[entryPath]; ok {
+			return nil
+		}
+		_ = os.Remove(entryPath)
+		return nil
+	})
+	pruneEmptyDirectories(root)
+}
+
+func pruneEmptyDirectories(root string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		childPath := filepath.Join(root, entry.Name())
+		pruneEmptyDirectories(childPath)
+	}
+	remaining, err := os.ReadDir(root)
+	if err != nil || len(remaining) > 0 {
+		return
+	}
+	_ = os.Remove(root)
+}
+
+func packThreadProjectionTurns(raw json.RawMessage) (json.RawMessage, []byte) {
+	normalized := normalizeThreadProjectionRawJSON(raw)
+	if len(normalized) < threadProjectionCompressionMin || bytes.Equal(normalized, []byte("[]")) {
+		return append(json.RawMessage(nil), normalized...), nil
+	}
+
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(normalized); err != nil {
+		_ = writer.Close()
+		return append(json.RawMessage(nil), normalized...), nil
+	}
+	if err := writer.Close(); err != nil {
+		return append(json.RawMessage(nil), normalized...), nil
+	}
+
+	if compressed.Len() >= len(normalized) {
+		return append(json.RawMessage(nil), normalized...), nil
+	}
+	return nil, append([]byte(nil), compressed.Bytes()...)
+}
+
+func unpackThreadProjectionTurns(compressed []byte) json.RawMessage {
+	if len(compressed) == 0 {
+		return json.RawMessage("[]")
+	}
+
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	return append(json.RawMessage(nil), normalizeThreadProjectionRawJSON(json.RawMessage(data))...)
+}
+
+func encodeThreadProjectionTurns(turns []ThreadTurn) json.RawMessage {
+	if len(turns) == 0 {
+		return json.RawMessage("[]")
+	}
+
+	data, err := json.Marshal(turns)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	return json.RawMessage(data)
+}
+
+func decodeThreadProjectionTurns(raw json.RawMessage) []ThreadTurn {
+	normalized := normalizeThreadProjectionRawJSON(raw)
+	if bytes.Equal(normalized, []byte("[]")) {
+		return []ThreadTurn{}
+	}
+
+	var turns []ThreadTurn
+	if err := json.Unmarshal(normalized, &turns); err != nil {
+		return []ThreadTurn{}
+	}
+	if turns == nil {
+		return []ThreadTurn{}
+	}
+	return turns
+}
+
+func decodeThreadProjectionTurnsWindow(
+	record threadProjectionRecord,
+	turnLimit int,
+	beforeTurnID string,
+) ([]ThreadTurn, bool, bool, int) {
+	reader, err := threadProjectionTurnsReadCloser(record)
+	if err != nil {
+		return []ThreadTurn{}, false, beforeTurnID == "", 0
+	}
+	defer reader.Close()
+
+	decoder := json.NewDecoder(reader)
+	startToken, err := decoder.Token()
+	if err != nil {
+		return []ThreadTurn{}, false, beforeTurnID == "", 0
+	}
+	startDelim, ok := startToken.(json.Delim)
+	if !ok || startDelim != '[' {
+		return []ThreadTurn{}, false, beforeTurnID == "", 0
+	}
+
+	window := make([]ThreadTurn, 0, turnLimit)
+	totalAccepted := 0
+	scannedTurns := 0
+	beforeFound := beforeTurnID == ""
+	for decoder.More() {
+		var turn ThreadTurn
+		if err := decoder.Decode(&turn); err != nil {
+			return []ThreadTurn{}, false, beforeTurnID == "", scannedTurns
+		}
+		scannedTurns += 1
+		if beforeTurnID != "" && turn.ID == beforeTurnID {
+			beforeFound = true
+			break
+		}
+		totalAccepted++
+		if len(window) < turnLimit {
+			window = append(window, turn)
+			continue
+		}
+		copy(window, window[1:])
+		window[len(window)-1] = turn
+	}
+
+	return cloneThreadTurns(window), totalAccepted > len(window), beforeFound, scannedTurns
+}
+
+func threadProjectionTurnsReadCloser(record threadProjectionRecord) (io.ReadCloser, error) {
+	switch {
+	case len(record.TurnsCompressed) > 0:
+		reader, err := gzip.NewReader(bytes.NewReader(record.TurnsCompressed))
+		if err != nil {
+			return nil, err
+		}
+		return reader, nil
+	case record.TurnsPath != "":
+		file, err := os.Open(record.TurnsPath)
+		if err != nil {
+			return nil, err
+		}
+		reader, err := gzip.NewReader(file)
+		if err != nil {
+			_, _ = file.Seek(0, io.SeekStart)
+			return &threadProjectionTurnsReadCloserImpl{Reader: file, closers: []io.Closer{file}}, nil
+		}
+		return &threadProjectionTurnsReadCloserImpl{Reader: reader, closers: []io.Closer{reader, file}}, nil
+	default:
+		return io.NopCloser(bytes.NewReader(normalizeThreadProjectionRawJSON(record.TurnsRaw))), nil
+	}
+}
+
+type threadProjectionTurnsReadCloserImpl struct {
+	io.Reader
+	closers []io.Closer
+}
+
+func (r *threadProjectionTurnsReadCloserImpl) Close() error {
+	var firstErr error
+	for _, closer := range r.closers {
+		if err := closer.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func sliceThreadTurnsWindow(turns []ThreadTurn, turnLimit int, beforeTurnID string) ([]ThreadTurn, bool, bool, int) {
+	if turnLimit <= 0 {
+		return cloneThreadTurns(turns), false, beforeTurnID == "" || threadTurnsContainID(turns, beforeTurnID), len(turns)
+	}
+
+	endIndex := len(turns)
+	beforeFound := beforeTurnID == ""
+	scannedTurns := len(turns)
+	if beforeTurnID != "" {
+		for index, turn := range turns {
+			if turn.ID == beforeTurnID {
+				endIndex = index
+				beforeFound = true
+				scannedTurns = index + 1
+				break
+			}
+		}
+	}
+
+	if endIndex < 0 {
+		endIndex = 0
+	}
+	if endIndex > len(turns) {
+		endIndex = len(turns)
+	}
+
+	startIndex := endIndex - turnLimit
+	if startIndex < 0 {
+		startIndex = 0
+	}
+
+	return turns[startIndex:endIndex], startIndex > 0, beforeFound, scannedTurns
+}
+
+func threadTurnsContainID(turns []ThreadTurn, turnID string) bool {
+	if strings.TrimSpace(turnID) == "" {
+		return true
+	}
+	for _, turn := range turns {
+		if turn.ID == turnID {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeThreadProjectionRawJSON(raw json.RawMessage) json.RawMessage {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return json.RawMessage("[]")
+	}
+	return trimmed
+}
+
+func (s *MemoryStore) releaseTransientLoadMemory() {
+	if s.path == "" {
+		return
+	}
+
+	s.mu.RLock()
+	shouldRelease := len(s.projections) > 0 ||
+		len(s.commandSessions) > 0 ||
+		len(s.botConnectionLogs) > 0 ||
+		len(s.botInbound) > 0 ||
+		len(s.botOutbound) > 0
+	s.mu.RUnlock()
+	if !shouldRelease {
+		return
+	}
+
+	runtime.GC()
+	debug.FreeOSMemory()
 }
 
 func cloneAutomationRun(run AutomationRun) AutomationRun {
@@ -2772,6 +4678,22 @@ func cloneBotBinding(binding BotBinding) BotBinding {
 		next.AIConfig = cloneStringMap(binding.AIConfig)
 	} else {
 		next.AIConfig = nil
+	}
+	return next
+}
+
+func cloneThreadBotBinding(binding ThreadBotBinding) ThreadBotBinding {
+	next := binding
+	next.BotWorkspaceID = normalizeThreadBotBindingBotWorkspaceID(binding)
+	return next
+}
+
+func cloneBotTrigger(trigger BotTrigger) BotTrigger {
+	next := trigger
+	if len(trigger.Filter) > 0 {
+		next.Filter = cloneStringMap(trigger.Filter)
+	} else {
+		next.Filter = nil
 	}
 	return next
 }
@@ -2812,12 +4734,12 @@ func migrateBotTopologyLocked(s *MemoryStore) bool {
 				now = time.Now().UTC()
 			}
 			bot = Bot{
-				ID:               botID,
-				WorkspaceID:      connection.WorkspaceID,
-				Name:             firstNonEmpty(strings.TrimSpace(connection.Name), "Bot"),
-				Status:           firstNonEmpty(strings.TrimSpace(connection.Status), "active"),
-				CreatedAt:        now,
-				UpdatedAt:        connection.UpdatedAt,
+				ID:          botID,
+				WorkspaceID: connection.WorkspaceID,
+				Name:        firstNonEmpty(strings.TrimSpace(connection.Name), "Bot"),
+				Status:      firstNonEmpty(strings.TrimSpace(connection.Status), "active"),
+				CreatedAt:   now,
+				UpdatedAt:   connection.UpdatedAt,
 			}
 			if bot.UpdatedAt.IsZero() {
 				bot.UpdatedAt = now
@@ -2895,6 +4817,19 @@ func cloneBotConversation(conversation BotConversation) BotConversation {
 	return next
 }
 
+func cloneBotDeliveryTarget(target BotDeliveryTarget) BotDeliveryTarget {
+	next := target
+	next.Labels = cloneStringSlice(target.Labels)
+	next.Capabilities = cloneStringSlice(target.Capabilities)
+	if len(target.ProviderState) > 0 {
+		next.ProviderState = cloneStringMap(target.ProviderState)
+	} else {
+		next.ProviderState = nil
+	}
+	next.LastVerifiedAt = cloneOptionalTime(target.LastVerifiedAt)
+	return next
+}
+
 func cloneBotInboundDelivery(delivery BotInboundDelivery) BotInboundDelivery {
 	next := delivery
 	next.Media = cloneBotMessageMediaList(delivery.Media)
@@ -2906,6 +4841,14 @@ func cloneBotInboundDelivery(delivery BotInboundDelivery) BotInboundDelivery {
 	next.ReplyMessages = cloneBotReplyMessages(delivery.ReplyMessages)
 	next.ReplyTexts = cloneStringSlice(delivery.ReplyTexts)
 	next.ReplyDeliveredAt = cloneOptionalTime(delivery.ReplyDeliveredAt)
+	return next
+}
+
+func cloneBotOutboundDelivery(delivery BotOutboundDelivery) BotOutboundDelivery {
+	next := delivery
+	next.Messages = cloneBotReplyMessages(delivery.Messages)
+	next.ProviderMessageIDs = cloneStringSlice(delivery.ProviderMessageIDs)
+	next.DeliveredAt = cloneOptionalTime(delivery.DeliveredAt)
 	return next
 }
 
@@ -3072,20 +5015,21 @@ func cloneThreadTurns(turns []ThreadTurn) []ThreadTurn {
 	return cloned
 }
 
-func threadProjectionSnapshotEqual(left ThreadProjection, right ThreadProjection) bool {
-	return left.WorkspaceID == right.WorkspaceID &&
-		left.ThreadID == right.ThreadID &&
-		left.Cwd == right.Cwd &&
-		left.Preview == right.Preview &&
-		left.Path == right.Path &&
-		left.Source == right.Source &&
-		left.Status == right.Status &&
-		left.UpdatedAt.Equal(right.UpdatedAt) &&
-		left.TurnCount == right.TurnCount &&
-		left.MessageCount == right.MessageCount &&
-		left.SnapshotComplete == right.SnapshotComplete &&
-		reflect.DeepEqual(left.TokenUsage, right.TokenUsage) &&
-		reflect.DeepEqual(left.Turns, right.Turns)
+func threadProjectionSnapshotEqual(left threadProjectionRecord, right threadProjectionRecord) bool {
+	return left.Projection.WorkspaceID == right.Projection.WorkspaceID &&
+		left.Projection.ThreadID == right.Projection.ThreadID &&
+		left.Projection.Cwd == right.Projection.Cwd &&
+		left.Projection.Preview == right.Projection.Preview &&
+		left.Projection.Path == right.Projection.Path &&
+		left.Projection.Source == right.Projection.Source &&
+		left.Projection.Status == right.Projection.Status &&
+		left.Projection.UpdatedAt.Equal(right.Projection.UpdatedAt) &&
+		left.Projection.TurnCount == right.Projection.TurnCount &&
+		left.Projection.MessageCount == right.Projection.MessageCount &&
+		left.Projection.SnapshotComplete == right.Projection.SnapshotComplete &&
+		reflect.DeepEqual(left.Projection.TokenUsage, right.Projection.TokenUsage) &&
+		threadProjectionStatsEqual(left.Stats, right.Stats) &&
+		bytes.Equal(threadProjectionRecordTurnsRaw(left), threadProjectionRecordTurnsRaw(right))
 }
 
 func cloneStringMap(values map[string]string) map[string]string {
@@ -3108,6 +5052,25 @@ func cloneStringSlice(values []string) []string {
 	cloned := make([]string, len(values))
 	copy(cloned, values)
 	return cloned
+}
+
+func normalizeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func cloneAnyMap(values map[string]any) map[string]any {

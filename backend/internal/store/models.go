@@ -121,6 +121,28 @@ type Notification struct {
 	ReadAt            *time.Time `json:"readAt,omitempty"`
 }
 
+type TurnPolicyDecision struct {
+	ID                  string    `json:"id"`
+	WorkspaceID         string    `json:"workspaceId"`
+	ThreadID            string    `json:"threadId"`
+	TurnID              string    `json:"turnId,omitempty"`
+	ItemID              string    `json:"itemId,omitempty"`
+	TriggerMethod       string    `json:"triggerMethod"`
+	PolicyName          string    `json:"policyName"`
+	Fingerprint         string    `json:"fingerprint"`
+	Verdict             string    `json:"verdict"`
+	Action              string    `json:"action"`
+	ActionStatus        string    `json:"actionStatus"`
+	ActionTurnID        string    `json:"actionTurnId,omitempty"`
+	Reason              string    `json:"reason"`
+	EvidenceSummary     string    `json:"evidenceSummary,omitempty"`
+	Source              string    `json:"source,omitempty"`
+	Error               string    `json:"error,omitempty"`
+	EvaluationStartedAt time.Time `json:"evaluationStartedAt"`
+	DecisionAt          time.Time `json:"decisionAt"`
+	CompletedAt         time.Time `json:"completedAt"`
+}
+
 type Bot struct {
 	ID               string    `json:"id"`
 	WorkspaceID      string    `json:"workspaceId"`
@@ -144,6 +166,36 @@ type BotBinding struct {
 	AIConfig          map[string]string `json:"aiConfig,omitempty"`
 	CreatedAt         time.Time         `json:"createdAt"`
 	UpdatedAt         time.Time         `json:"updatedAt"`
+}
+
+type ThreadBotBinding struct {
+	ID               string    `json:"id"`
+	WorkspaceID      string    `json:"workspaceId"`
+	ThreadID         string    `json:"threadId"`
+	BotWorkspaceID   string    `json:"botWorkspaceId,omitempty"`
+	BotID            string    `json:"botId"`
+	DeliveryTargetID string    `json:"deliveryTargetId"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+type BotTrigger struct {
+	ID               string            `json:"id"`
+	WorkspaceID      string            `json:"workspaceId"`
+	BotID            string            `json:"botId"`
+	Type             string            `json:"type"`
+	DeliveryTargetID string            `json:"deliveryTargetId"`
+	Filter           map[string]string `json:"filter,omitempty"`
+	Enabled          bool              `json:"enabled"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
+}
+
+type BotTriggerFilter struct {
+	BotID            string `json:"botId,omitempty"`
+	Type             string `json:"type,omitempty"`
+	DeliveryTargetID string `json:"deliveryTargetId,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
 }
 
 type BotConnection struct {
@@ -215,6 +267,63 @@ type BotConversation struct {
 	LastOutboundDeliveredAt          *time.Time        `json:"lastOutboundDeliveredAt,omitempty"`
 	CreatedAt                        time.Time         `json:"createdAt"`
 	UpdatedAt                        time.Time         `json:"updatedAt"`
+}
+
+type BotDeliveryTarget struct {
+	ID             string            `json:"id"`
+	WorkspaceID    string            `json:"workspaceId"`
+	BotID          string            `json:"botId"`
+	ConnectionID   string            `json:"connectionId"`
+	ConversationID string            `json:"conversationId,omitempty"`
+	Provider       string            `json:"provider"`
+	TargetType     string            `json:"targetType"`
+	RouteType      string            `json:"routeType,omitempty"`
+	RouteKey       string            `json:"routeKey,omitempty"`
+	Title          string            `json:"title,omitempty"`
+	Labels         []string          `json:"labels,omitempty"`
+	Capabilities   []string          `json:"capabilities,omitempty"`
+	ProviderState  map[string]string `json:"providerState,omitempty"`
+	Status         string            `json:"status"`
+	LastVerifiedAt *time.Time        `json:"lastVerifiedAt,omitempty"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	UpdatedAt      time.Time         `json:"updatedAt"`
+}
+
+type BotOutboundDelivery struct {
+	ID                 string            `json:"id"`
+	WorkspaceID        string            `json:"workspaceId"`
+	BotID              string            `json:"botId"`
+	ConnectionID       string            `json:"connectionId"`
+	ConversationID     string            `json:"conversationId,omitempty"`
+	DeliveryTargetID   string            `json:"deliveryTargetId,omitempty"`
+	RunID              string            `json:"runId,omitempty"`
+	TriggerID          string            `json:"triggerId,omitempty"`
+	SourceType         string            `json:"sourceType"`
+	SourceRefType      string            `json:"sourceRefType,omitempty"`
+	SourceRefID        string            `json:"sourceRefId,omitempty"`
+	OriginWorkspaceID  string            `json:"originWorkspaceId,omitempty"`
+	OriginThreadID     string            `json:"originThreadId,omitempty"`
+	OriginTurnID       string            `json:"originTurnId,omitempty"`
+	Messages           []BotReplyMessage `json:"messages,omitempty"`
+	Status             string            `json:"status"`
+	AttemptCount       int               `json:"attemptCount,omitempty"`
+	IdempotencyKey     string            `json:"idempotencyKey,omitempty"`
+	ProviderMessageIDs []string          `json:"providerMessageIds,omitempty"`
+	LastError          string            `json:"lastError,omitempty"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
+	DeliveredAt        *time.Time        `json:"deliveredAt,omitempty"`
+}
+
+type BotOutboundDeliveryFilter struct {
+	BotID            string `json:"botId,omitempty"`
+	ConnectionID     string `json:"connectionId,omitempty"`
+	ConversationID   string `json:"conversationId,omitempty"`
+	DeliveryTargetID string `json:"deliveryTargetId,omitempty"`
+	SourceType       string `json:"sourceType,omitempty"`
+	SourceRefType    string `json:"sourceRefType,omitempty"`
+	SourceRefID      string `json:"sourceRefId,omitempty"`
+	Status           string `json:"status,omitempty"`
 }
 
 type BotMessageMedia struct {
@@ -327,6 +436,14 @@ type ThreadProjection struct {
 	MessageCount     int               `json:"messageCount,omitempty"`
 	SnapshotComplete bool              `json:"snapshotComplete,omitempty"`
 	Turns            []ThreadTurn      `json:"turns"`
+}
+
+type ThreadProjectionWindow struct {
+	Projection      ThreadProjection `json:"projection"`
+	HasMore         bool             `json:"hasMore"`
+	BeforeTurnFound bool             `json:"beforeTurnFound"`
+	ReadSource      string           `json:"-"`
+	ScannedTurns    int              `json:"-"`
 }
 
 type PendingApproval struct {
