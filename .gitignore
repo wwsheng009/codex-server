@@ -3,6 +3,7 @@ backend/.tmp/
 backend/data/
 backend/schema-out/
 frontend/node_modules/
+node_modules/
 frontend/dist/
 frontend/dist-ssr/
 frontend/test-results/
@@ -21,6 +22,7 @@ __pycache__/
 *.tsbuildinfo
 .idea/
 .DS_Store
+.crush/
 *.suo
 *.sw?
 .gemini/skills/ui-ux-pro-max
