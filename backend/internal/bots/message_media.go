@@ -11,6 +11,7 @@ import (
 const (
 	botMediaKindImage = "image"
 	botMediaKindVideo = "video"
+	botMediaKindAudio = "audio"
 	botMediaKindFile  = "file"
 	botMediaKindVoice = "voice"
 )
@@ -73,7 +74,7 @@ func summarizeMediaItem(item store.BotMessageMedia) string {
 		kind = botMediaKindFile
 	}
 
-	lines := []string{fmt.Sprintf("[WeChat %s attachment]", kind)}
+	lines := []string{fmt.Sprintf("[%s attachment]", humanizeBotMediaKind(kind))}
 	if fileName := strings.TrimSpace(item.FileName); fileName != "" {
 		lines = append(lines, "file_name: "+fileName)
 	} else if mediaPath := strings.TrimSpace(item.Path); mediaPath != "" {
@@ -89,6 +90,17 @@ func summarizeMediaItem(item store.BotMessageMedia) string {
 		lines = append(lines, "source_url: "+mediaURL)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func humanizeBotMediaKind(kind string) string {
+	trimmed := strings.TrimSpace(kind)
+	if trimmed == "" {
+		trimmed = botMediaKindFile
+	}
+	if len(trimmed) == 1 {
+		return strings.ToUpper(trimmed)
+	}
+	return strings.ToUpper(trimmed[:1]) + strings.ToLower(trimmed[1:])
 }
 
 func outboundReplyMessages(messages []OutboundMessage) []store.BotReplyMessage {
@@ -109,3 +121,21 @@ func outboundReplyMessages(messages []OutboundMessage) []store.BotReplyMessage {
 	return replyMessages
 }
 
+func outboundMessagesFromReplyMessages(messages []store.BotReplyMessage) []OutboundMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	outbound := make([]OutboundMessage, 0, len(messages))
+	for _, message := range messages {
+		next := OutboundMessage{
+			Text:  strings.TrimSpace(message.Text),
+			Media: cloneBotMessageMediaList(message.Media),
+		}
+		if !outboundMessageHasContent(next) {
+			continue
+		}
+		outbound = append(outbound, next)
+	}
+	return outbound
+}

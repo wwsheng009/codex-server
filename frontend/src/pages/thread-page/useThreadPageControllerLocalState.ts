@@ -12,6 +12,10 @@ export function useThreadPageControllerLocalState() {
     useState<ContextCompactionFeedback | null>(null)
   const [command, setCommand] = useState('git status')
   const [commandRunMode, setCommandRunMode] = useState<CommandRunMode>('command-exec')
+  const [botSendText, setBotSendText] = useState('')
+  const [botSendError, setBotSendError] = useState<string | null>(null)
+  const [botSendSelectedBotId, setBotSendSelectedBotId] = useState('')
+  const [botSendSelectedDeliveryTargetId, setBotSendSelectedDeliveryTargetId] = useState('')
   const [stdinValue, setStdinValue] = useState('')
   const [selectedProcessId, setSelectedProcessId] = useState<string>()
   const [approvalAnswers, setApprovalAnswers] =
@@ -41,6 +45,10 @@ export function useThreadPageControllerLocalState() {
   return {
     approvalAnswers,
     approvalErrors,
+    botSendError,
+    botSendSelectedBotId,
+    botSendSelectedDeliveryTargetId,
+    botSendText,
     command,
     commandRunMode,
     composerInputRef,
@@ -56,6 +64,10 @@ export function useThreadPageControllerLocalState() {
     selectedProcessId,
     setApprovalAnswers,
     setApprovalErrors,
+    setBotSendError,
+    setBotSendSelectedBotId,
+    setBotSendSelectedDeliveryTargetId,
+    setBotSendText,
     setCommand,
     setCommandRunMode,
     setContextCompactionFeedback,

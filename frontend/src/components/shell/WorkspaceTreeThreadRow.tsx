@@ -9,6 +9,7 @@ import type { WorkspaceTreeThreadRowProps } from './workspaceTreeThreadRowTypes'
 const RUNNING_THREAD_EVENT_METHODS = new Set([
   'turn/started',
   'item/started',
+  'turn/plan/updated',
   'item/agentMessage/delta',
   'item/plan/delta',
   'item/reasoning/summaryTextDelta',

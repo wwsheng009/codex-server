@@ -1,4 +1,5 @@
 import type { ThreadTurn } from '../types/api'
+import { readTurnPlanItem } from '../lib/turn-plan'
 import type {
   ThreadDisplayMetrics,
   ThreadItemDisplayMetrics,
@@ -29,10 +30,14 @@ const runtimeCatalogRefreshMethods = new Set([
   'skills/changed',
 ])
 
+const hookRunRefreshMethods = new Set(['hook/started', 'hook/completed'])
+const turnPolicyGovernanceRefreshMethods = new Set(['hook/completed'])
+
 const threadDetailRefreshMethods = new Set([
   ...threadQueryRefreshMethods,
   'item/started',
   'item/completed',
+  'turn/plan/updated',
   'item/agentMessage/delta',
   'item/plan/delta',
   'item/reasoning/summaryTextDelta',
@@ -41,6 +46,7 @@ const threadDetailRefreshMethods = new Set([
 ])
 
 const threadDetailStreamingMethods = new Set([
+  'turn/plan/updated',
   'item/agentMessage/delta',
   'item/plan/delta',
   'item/reasoning/summaryTextDelta',
@@ -77,6 +83,14 @@ export function shouldRefreshMcpServerStatusForEvent(method?: string) {
 
 export function shouldRefreshRuntimeCatalogForEvent(method?: string) {
   return typeof method === 'string' && runtimeCatalogRefreshMethods.has(method)
+}
+
+export function shouldRefreshHookRunsForEvent(method?: string) {
+  return typeof method === 'string' && hookRunRefreshMethods.has(method)
+}
+
+export function shouldRefreshTurnPolicyGovernanceForEvent(method?: string) {
+  return typeof method === 'string' && turnPolicyGovernanceRefreshMethods.has(method)
 }
 
 export function shouldRefreshThreadDetailForEvent(method?: string) {
@@ -440,6 +454,18 @@ function renderableThreadItemKeySuffix(item: Record<string, unknown>) {
     case 'plan': {
       const text = stringField(item.text)
       return text.trim() ? `plan:${text.length}` : ''
+    }
+    case 'turnPlan': {
+      const turnPlan = readTurnPlanItem(item)
+      if (!turnPlan) {
+        return ''
+      }
+
+      const explanationLength = turnPlan.explanation?.length ?? 0
+      const totalStepLength = turnPlan.steps.reduce((sum, entry) => sum + entry.step.length, 0)
+      return explanationLength || turnPlan.steps.length
+        ? `turnPlan:${turnPlan.status}:${explanationLength}:${turnPlan.steps.length}:${totalStepLength}`
+        : ''
     }
     case 'fileChange': {
       const changeCount = Array.isArray(item.changes) ? item.changes.length : 0

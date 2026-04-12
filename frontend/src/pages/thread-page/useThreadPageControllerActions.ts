@@ -44,6 +44,11 @@ export function useThreadPageControllerActions({
   })
 
   const pageActions = useThreadPageActions({
+    botSendBots: dataState.botSendBotsQuery.data ?? [],
+    botSendSelectedBotId: controllerState.botSendSelectedBotId,
+    botSendSelectedDeliveryTargetId: controllerState.botSendSelectedDeliveryTargetId,
+    botSendText: controllerState.botSendText,
+    bindThreadBotChannelMutation: mutationState.bindThreadBotChannelMutation,
     archiveThreadMutation: mutationState.archiveThreadMutation,
     clearCompletedCommandSessions: controllerState.clearCompletedCommandSessions,
     closeDeleteThreadDialog: railState.handleCloseDeleteThreadDialog,
@@ -55,6 +60,7 @@ export function useThreadPageControllerActions({
     composerPreferences: controllerState.composerPreferences,
     confirmingThreadDelete: railState.confirmingThreadDelete,
     deleteThreadMutation: mutationState.deleteThreadMutation,
+    deleteThreadBotBindingMutation: mutationState.deleteThreadBotBindingMutation,
     editingThreadName: railState.editingThreadName,
     fullTurnItemContentOverridesById: controllerState.fullTurnItemContentOverridesById,
     fullTurnItemOverridesById: controllerState.fullTurnItemOverridesById,
@@ -79,9 +85,12 @@ export function useThreadPageControllerActions({
     selectedProcessId: controllerState.selectedProcessId,
     selectedThread: dataState.selectedThread,
     selectedThreadId: activeSelectedThreadId,
+    sendBotDeliveryTargetOutboundMessageMutation:
+      mutationState.sendBotDeliveryTargetOutboundMessageMutation,
     setActiveComposerPanel: controllerState.setActiveComposerPanel,
     setApprovalAnswers: controllerState.setApprovalAnswers,
     setAuthRecoveryRequestedAt: controllerState.setAuthRecoveryRequestedAt,
+    setBotSendError: controllerState.setBotSendError,
     setComposerCaret: controllerState.setComposerCaret,
     setComposerCommandMenu: controllerState.setComposerCommandMenu,
     setDismissedComposerAutocompleteKey: controllerState.setDismissedComposerAutocompleteKey,

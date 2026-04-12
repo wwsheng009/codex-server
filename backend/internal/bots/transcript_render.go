@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"codex-server/backend/internal/store"
 )
 
 const (
@@ -34,6 +36,8 @@ func renderBotVisibleItemWithConfig(item map[string]any, config botTranscriptRen
 		return strings.TrimSpace(stringValue(item["text"]))
 	case "plan":
 		return renderBotPlanItem(item)
+	case "turnPlan":
+		return renderBotTurnPlanItem(item)
 	case "reasoning":
 		return renderBotReasoningItem(item)
 	case "commandExecution":
@@ -42,6 +46,8 @@ func renderBotVisibleItemWithConfig(item map[string]any, config botTranscriptRen
 		return renderBotFileChangeItem(item)
 	case "mcpToolCall", "dynamicToolCall", "collabAgentToolCall":
 		return renderBotToolCallItem(item)
+	case "hookRun":
+		return renderBotHookRunItem(item)
 	case "serverRequest":
 		return renderBotServerRequestItem(item)
 	default:
@@ -64,6 +70,25 @@ func renderBotPlanItem(item map[string]any) string {
 	lines = append(lines, "Plan:")
 	for index, step := range steps {
 		lines = append(lines, fmt.Sprintf("%d. %s", index+1, step))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderBotTurnPlanItem(item map[string]any) string {
+	explanation := strings.TrimSpace(stringValue(item["explanation"]))
+	steps := botTurnPlanSteps(item["steps"])
+	if explanation == "" && len(steps) == 0 {
+		return ""
+	}
+
+	lines := make([]string, 0, len(steps)+2)
+	lines = append(lines, "Plan Status:")
+	if explanation != "" {
+		lines = append(lines, explanation)
+	}
+	for index, step := range steps {
+		status := humanizeBotStatus(firstNonEmpty(step.status, "pending"))
+		lines = append(lines, fmt.Sprintf("%d. [%s] %s", index+1, status, step.step))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -222,6 +247,42 @@ func renderBotToolCallItem(item map[string]any) string {
 	}
 }
 
+func renderBotHookRunItem(item map[string]any) string {
+	if message := strings.TrimSpace(stringValue(item["message"])); message != "" {
+		return message
+	}
+
+	return store.FormatHookRunMessage(store.HookRunDisplayFields{
+		EventName:  stringValue(item["eventName"]),
+		HandlerKey: stringValue(item["handlerKey"]),
+		Status:     stringValue(item["status"]),
+		Decision:   stringValue(item["decision"]),
+		Reason:     stringValue(item["reason"]),
+		Feedback:   botHookRunFeedbackText(item["entries"]),
+	})
+}
+
+func botHookRunFeedbackText(value any) string {
+	rawEntries, ok := value.([]any)
+	if !ok || len(rawEntries) == 0 {
+		return ""
+	}
+
+	lines := make([]string, 0, len(rawEntries))
+	for _, rawEntry := range rawEntries {
+		text := strings.TrimSpace(stringValue(objectValue(rawEntry)["text"]))
+		if text == "" {
+			continue
+		}
+		lines = append(lines, text)
+		if len(lines) >= 2 {
+			break
+		}
+	}
+
+	return strings.Join(lines, " | ")
+}
+
 func renderBotServerRequestItem(item map[string]any) string {
 	requestKind := strings.TrimSpace(stringValue(item["requestKind"]))
 	status := strings.TrimSpace(firstNonEmpty(stringValue(item["status"]), "pending"))
@@ -323,6 +384,42 @@ func botPlanSteps(text string) []string {
 		steps = append(steps, line)
 	}
 	return steps
+}
+
+func botTurnPlanSteps(value any) []botTurnPlanStep {
+	rawItems := make([]map[string]any, 0)
+	switch typed := value.(type) {
+	case []any:
+		for _, rawItem := range typed {
+			entry := objectValue(rawItem)
+			if len(entry) == 0 {
+				continue
+			}
+			rawItems = append(rawItems, entry)
+		}
+	case []map[string]any:
+		rawItems = append(rawItems, typed...)
+	default:
+		return nil
+	}
+
+	steps := make([]botTurnPlanStep, 0, len(rawItems))
+	for _, entry := range rawItems {
+		step := strings.TrimSpace(stringValue(entry["step"]))
+		if step == "" {
+			continue
+		}
+		steps = append(steps, botTurnPlanStep{
+			step:   step,
+			status: strings.TrimSpace(stringValue(entry["status"])),
+		})
+	}
+	return steps
+}
+
+type botTurnPlanStep struct {
+	step   string
+	status string
 }
 
 func botFileChanges(value any) []botFileChange {

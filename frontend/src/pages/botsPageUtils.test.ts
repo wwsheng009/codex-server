@@ -10,6 +10,7 @@ import {
   buildBotConnectionUpdateInput,
   buildBotsPageDraftFromConnection,
   buildBotConnectionCreateInput,
+  collectBotOutboundMediaAdvisories,
   countWeChatConnectionsForAccount,
   EMPTY_BOTS_PAGE_DRAFT,
   formatBotCommandOutputModeLabel,
@@ -20,14 +21,21 @@ import {
   formatWeChatAccountLabel,
   findWeChatAccountForConnection,
   isBotWorkspacePermissionPresetFullAccess,
+  isBotOutboundMediaKindSupported,
+  isBotOutboundMediaSourceSupported,
   isWeChatConnectionForAccount,
+  listSupportedBotOutboundMediaKinds,
+  listSupportedBotOutboundMediaSources,
   listWeChatConnectionsForAccount,
   matchesBotConnectionSearch,
+  planBotOutboundMediaDelivery,
+  planBotOutboundTextPlacement,
   matchesWeChatAccountSearch,
   resolveBotConnectionPublicBaseUrl,
   resolveBotCommandOutputMode,
   resolveBotConversationBindingMode,
   resolveBotConversationThreadTarget,
+  validateBotOutboundMediaLocation,
   resolveWeChatChannelTimingEnabled,
   summarizeBotMap,
 } from './botsPageUtils'
@@ -274,6 +282,169 @@ describe('botsPageUtils', () => {
         bot_token: 'token-4',
       },
     })
+  })
+
+  it('lists supported outbound media kinds and sources from connection capabilities', () => {
+    expect(
+      listSupportedBotOutboundMediaKinds([
+        'supportsMediaOutbound',
+        'supportsImageOutbound',
+        'supportsVideoOutbound',
+        'supportsVoiceOutbound',
+        'supportsFileOutbound',
+      ]),
+    ).toEqual(['image', 'video', 'voice', 'file'])
+
+    expect(
+      listSupportedBotOutboundMediaSources([
+        'supportsMediaOutbound',
+        'supportsRemoteMediaURLSource',
+        'supportsLocalMediaPathSource',
+      ]),
+    ).toEqual(['url', 'path'])
+  })
+
+  it('checks media kind and source support for the current endpoint capabilities', () => {
+    const telegramVisualOnlyCapabilities = [
+      'supportsMediaOutbound',
+      'supportsImageOutbound',
+      'supportsVideoOutbound',
+      'supportsRemoteMediaURLSource',
+    ]
+
+    expect(isBotOutboundMediaKindSupported(telegramVisualOnlyCapabilities, 'image')).toBe(true)
+    expect(isBotOutboundMediaKindSupported(telegramVisualOnlyCapabilities, 'video')).toBe(true)
+    expect(isBotOutboundMediaKindSupported(telegramVisualOnlyCapabilities, 'voice')).toBe(false)
+    expect(isBotOutboundMediaKindSupported(telegramVisualOnlyCapabilities, 'file')).toBe(false)
+
+    expect(isBotOutboundMediaSourceSupported(telegramVisualOnlyCapabilities, 'url')).toBe(true)
+    expect(isBotOutboundMediaSourceSupported(telegramVisualOnlyCapabilities, 'path')).toBe(false)
+
+    expect(isBotOutboundMediaKindSupported(['supportsMediaOutbound'], 'file')).toBe(true)
+    expect(isBotOutboundMediaKindSupported(['supportsMediaOutbound'], 'image')).toBe(false)
+  })
+
+  it('plans media-group delivery when the endpoint supports grouped media', () => {
+    expect(
+      planBotOutboundMediaDelivery(
+        ['supportsMediaOutbound', 'supportsMediaGroup', 'supportsImageOutbound'],
+        [
+          { kind: 'image', url: 'https://example.com/1.png' },
+          { kind: 'image', url: 'https://example.com/2.png' },
+        ],
+      ),
+    ).toEqual({ mode: 'group', reason: 'group_supported' })
+  })
+
+  it('falls back to sequential delivery when media groups are unavailable or incompatible', () => {
+    expect(
+      planBotOutboundMediaDelivery(
+        ['supportsMediaOutbound', 'supportsImageOutbound'],
+        [
+          { kind: 'image', url: 'https://example.com/1.png' },
+          { kind: 'image', url: 'https://example.com/2.png' },
+        ],
+      ),
+    ).toEqual({ mode: 'sequential', reason: 'group_not_supported_by_connection' })
+
+    expect(
+      planBotOutboundMediaDelivery(
+        ['supportsMediaOutbound', 'supportsMediaGroup', 'supportsImageOutbound', 'supportsFileOutbound'],
+        [
+          { kind: 'image', url: 'https://example.com/1.png' },
+          { kind: 'file', url: 'https://example.com/report.pdf' },
+        ],
+      ),
+    ).toEqual({ mode: 'sequential', reason: 'mixed_document_with_visual_media' })
+
+    expect(
+      planBotOutboundMediaDelivery(
+        ['supportsMediaOutbound', 'supportsMediaGroup', 'supportsVoiceOutbound'],
+        [
+          { kind: 'voice', url: 'https://example.com/1.ogg' },
+          { kind: 'voice', url: 'https://example.com/2.ogg' },
+        ],
+      ),
+    ).toEqual({ mode: 'sequential', reason: 'voice_not_groupable' })
+  })
+
+  it('plans text placement across text-only, single-media, grouped-media, and separate-message cases', () => {
+    expect(planBotOutboundTextPlacement('hello', [], { mode: 'none', reason: 'no_media' })).toBe('text_only')
+
+    expect(
+      planBotOutboundTextPlacement(
+        'caption me',
+        [{ kind: 'image', url: 'https://example.com/1.png' }],
+        { mode: 'single', reason: 'single_item' },
+      ),
+    ).toBe('caption_single')
+
+    expect(
+      planBotOutboundTextPlacement(
+        'album caption',
+        [
+          { kind: 'image', url: 'https://example.com/1.png' },
+          { kind: 'image', url: 'https://example.com/2.png' },
+        ],
+        { mode: 'group', reason: 'group_supported' },
+      ),
+    ).toBe('caption_group')
+
+    expect(
+      planBotOutboundTextPlacement(
+        'voice intro',
+        [
+          { kind: 'voice', url: 'https://example.com/1.ogg' },
+          { kind: 'voice', url: 'https://example.com/2.ogg' },
+        ],
+        { mode: 'sequential', reason: 'voice_not_groupable' },
+      ),
+    ).toBe('separate_before_media')
+
+    expect(
+      planBotOutboundTextPlacement(
+        'x'.repeat(1025),
+        [{ kind: 'image', url: 'https://example.com/1.png' }],
+        { mode: 'single', reason: 'single_item' },
+      ),
+    ).toBe('separate_before_media')
+  })
+
+  it('validates remote URLs and absolute local paths for outbound media drafts', () => {
+    expect(validateBotOutboundMediaLocation('url', 'https://example.com/image.png')).toBe('')
+    expect(validateBotOutboundMediaLocation('url', 'http://example.com/image.png')).toBe('')
+    expect(validateBotOutboundMediaLocation('url', 'ftp://example.com/image.png')).toBe('url_invalid')
+    expect(validateBotOutboundMediaLocation('url', 'relative/image.png')).toBe('url_invalid')
+
+    expect(validateBotOutboundMediaLocation('path', 'E:\\media\\image.png')).toBe('')
+    expect(validateBotOutboundMediaLocation('path', '\\\\server\\share\\image.png')).toBe('')
+    expect(validateBotOutboundMediaLocation('path', '/var/tmp/image.png')).toBe('')
+    expect(validateBotOutboundMediaLocation('path', 'file:///E:/media/image.png')).toBe('')
+    expect(validateBotOutboundMediaLocation('path', 'relative\\image.png')).toBe('path_must_be_absolute')
+  })
+
+  it('adds non-blocking advisories when media kind or metadata look inconsistent', () => {
+    expect(
+      collectBotOutboundMediaAdvisories({
+        kind: 'image',
+        location: 'https://example.com/report.pdf',
+      }),
+    ).toEqual([{ code: 'kind_mismatch', source: 'location', detectedKind: 'file' }])
+
+    expect(
+      collectBotOutboundMediaAdvisories({
+        kind: 'video',
+        contentType: 'image/png',
+      }),
+    ).toEqual([{ code: 'kind_mismatch', source: 'content_type', detectedKind: 'image' }])
+
+    expect(
+      collectBotOutboundMediaAdvisories({
+        kind: 'file',
+        fileName: 'preview.png',
+        contentType: 'application/pdf',
+      }),
+    ).toEqual([{ code: 'metadata_mismatch', nameKind: 'image', contentTypeKind: 'file' }])
   })
 
   it('writes debug runtime mode into bot settings', () => {

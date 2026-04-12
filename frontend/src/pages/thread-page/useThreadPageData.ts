@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 
 import { buildShellEnvironmentDiagnosis } from '../../features/settings/shell-environment-diagnostics'
 import { useSessionStore } from '../../stores/session-store'
+import { useThreadPageBotSendQueries } from './useThreadPageBotSendQueries'
 import { useThreadPagePanelQueries } from './useThreadPagePanelQueries'
 import { useThreadPageQueries } from './useThreadPageQueries'
 import { useThreadPageSelectedThread } from './useThreadPageSelectedThread'
@@ -14,6 +15,7 @@ export function useThreadPageData({
   hasPendingTurn,
   isDocumentVisible,
   normalizedDeferredComposerQuery,
+  selectedBotId,
   selectedProcessId,
   selectedThreadId,
   streamState,
@@ -26,11 +28,15 @@ export function useThreadPageData({
     commandSessionsQuery,
     environmentConfigQuery,
     fileSearchQuery,
+    hookConfigurationQuery,
+    hookRunsQuery,
     loadedThreadsQuery,
     modelsQuery,
     resolvedSelectedThreadId,
     skillsQuery,
     threadDetailQuery,
+    turnPolicyDecisionsQuery,
+    turnPolicyMetricsQuery,
     threadsQuery,
     workspaceRuntimeStateQuery,
     workspaceQuery,
@@ -49,6 +55,12 @@ export function useThreadPageData({
     activeComposerPanel,
     workspaceId,
   })
+  const { botSendBotsQuery, botSendDeliveryTargetsQuery, threadBotBindingQuery } =
+    useThreadPageBotSendQueries({
+      selectedBotId,
+      selectedThreadId: resolvedSelectedThreadId,
+      workspaceId,
+    })
 
   const {
     activeCommandCount,
@@ -105,10 +117,14 @@ export function useThreadPageData({
     activeCommandCount,
     accountQuery,
     approvalsQuery,
+    botSendBotsQuery,
+    botSendDeliveryTargetsQuery,
     commandSessionCount,
     commandSessions,
     environmentConfigQuery,
     fileSearchQuery,
+    hookConfigurationQuery,
+    hookRunsQuery,
     liveThreadDetail,
     loadedThreadsQuery,
     mcpServerStatusQuery,
@@ -123,6 +139,9 @@ export function useThreadPageData({
     shellEnvironmentPolicy,
     skillsQuery,
     threadDetailQuery,
+    threadBotBindingQuery,
+    turnPolicyDecisionsQuery,
+    turnPolicyMetricsQuery,
     threadsQuery,
     workspaceRuntimeStateQuery,
     workspaceActivityEvents,

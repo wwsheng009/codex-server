@@ -9,7 +9,7 @@ import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
 import { Tooltip } from '../components/ui/Tooltip'
 import { BotConnectionLogStream } from '../features/bots/BotConnectionLogStream'
-import { getBotConnection, listBotConnectionLogs } from '../features/bots/api'
+import { getBotConnectionById, listBotConnectionLogsById } from '../features/bots/api'
 import {
   filterBotConnectionLogs,
   summarizeBotConnectionLogs,
@@ -50,16 +50,16 @@ export function BotConnectionLogsPage() {
   }
 
   const connectionQuery = useQuery({
-    queryKey: ['bot-connection', workspaceId, connectionId],
-    queryFn: () => getBotConnection(workspaceId, connectionId),
-    enabled: workspaceId.length > 0 && connectionId.length > 0,
+    queryKey: ['bot-connection', connectionId],
+    queryFn: () => getBotConnectionById(connectionId),
+    enabled: connectionId.length > 0,
     refetchInterval: 5000,
   })
 
   const logsQuery = useQuery({
-    queryKey: ['bot-connection-logs', workspaceId, connectionId],
-    queryFn: () => listBotConnectionLogs(workspaceId, connectionId),
-    enabled: workspaceId.length > 0 && connectionId.length > 0,
+    queryKey: ['bot-connection-logs', connectionId],
+    queryFn: () => listBotConnectionLogsById(connectionId),
+    enabled: connectionId.length > 0,
     refetchInterval: 5000,
   })
 
@@ -116,7 +116,7 @@ export function BotConnectionLogsPage() {
     [logSummary.attentionCount, logSummary.deliveryCount, logSummary.suppressedCount, logSummary.totalCount],
   )
 
-  if (!workspaceId || !connectionId) {
+  if (!connectionId) {
     return (
       <section className="screen screen--centered">
         <div className="notice">
@@ -187,8 +187,8 @@ export function BotConnectionLogsPage() {
             ) : null}
             <span className="meta-pill">
               {i18n._({
-                id: 'Workspace: {workspaceId}',
-                message: 'Workspace: {workspaceId}',
+                id: 'Owner Workspace: {workspaceId}',
+                message: 'Owner Workspace: {workspaceId}',
                 values: { workspaceId: connection.workspaceId },
               })}
             </span>

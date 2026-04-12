@@ -113,6 +113,22 @@ func TestMapThreadFallsBackToUntitledWhenNameAndPreviewAreEmpty(t *testing.T) {
 	}
 }
 
+func TestMapThreadMapsSessionStartSource(t *testing.T) {
+	t.Parallel()
+
+	thread := mapThread("ws-1", map[string]any{
+		"id":                 "thread-1",
+		"cwd":                `E:\projects\ai\codex-server`,
+		"name":               "Named Thread",
+		"sessionStartSource": "clear",
+	}, false)
+
+	if thread.SessionStartSource != ThreadStartSourceClear {
+		t.Fatalf("expected session start source clear, got %q", thread.SessionStartSource)
+	}
+}
+
+
 func TestIsThreadTurnsUnavailableBeforeFirstUserMessage(t *testing.T) {
 	t.Parallel()
 
@@ -352,6 +368,18 @@ func TestBuildThreadStartPayloadAppliesRuntimeDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartPayloadIncludesSessionStartSource(t *testing.T) {
+	t.Parallel()
+
+	payload := buildThreadStartPayload(`E:\projects\ai\codex-server`, CreateInput{
+		SessionStartSource: ThreadStartSourceClear,
+	}, runtimeThreadDefaults{})
+
+	if payload["sessionStartSource"] != ThreadStartSourceClear {
+		t.Fatalf("expected sessionStartSource clear, got %#v", payload["sessionStartSource"])
+	}
+}
+
 func TestBuildThreadStartPayloadSkipsUnsupportedThreadSandboxOverride(t *testing.T) {
 	t.Parallel()
 
@@ -365,6 +393,18 @@ func TestBuildThreadStartPayloadSkipsUnsupportedThreadSandboxOverride(t *testing
 
 	if _, ok := payload["sandbox"]; ok {
 		t.Fatalf("expected unsupported sandbox override to omit thread/start sandbox, got %#v", payload["sandbox"])
+	}
+}
+
+func TestBuildThreadStartPayloadOmitsInvalidSessionStartSource(t *testing.T) {
+	t.Parallel()
+
+	payload := buildThreadStartPayload(`E:\projects\ai\codex-server`, CreateInput{
+		SessionStartSource: "invalid",
+	}, runtimeThreadDefaults{})
+
+	if _, ok := payload["sessionStartSource"]; ok {
+		t.Fatalf("expected invalid sessionStartSource to be omitted, got %#v", payload["sessionStartSource"])
 	}
 }
 
@@ -1432,6 +1472,17 @@ func TestSummarizeThreadDetailContentTruncatesHeavySystemPayloads(t *testing.T) 
 						"type": "agentMessage",
 						"text": longMessage,
 					},
+					{
+						"id":          "turn-plan-1",
+						"type":        "turnPlan",
+						"explanation": longMessage,
+						"steps": []any{
+							map[string]any{
+								"step":   longReasoning,
+								"status": "inProgress",
+							},
+						},
+					},
 				},
 			},
 		},
@@ -1472,6 +1523,19 @@ func TestSummarizeThreadDetailContentTruncatesHeavySystemPayloads(t *testing.T) 
 	assistantText := stringValue(summarized.Turns[0].Items[4]["text"])
 	if len(assistantText) >= len(longMessage) {
 		t.Fatalf("expected assistant message text to be truncated, got len=%d", len(assistantText))
+	}
+
+	turnPlanExplanation := stringValue(summarized.Turns[0].Items[5]["explanation"])
+	if len(turnPlanExplanation) >= len(longMessage) {
+		t.Fatalf("expected turn plan explanation to be truncated, got len=%d", len(turnPlanExplanation))
+	}
+	turnPlanSteps, _ := summarized.Turns[0].Items[5]["steps"].([]any)
+	turnPlanStep, _ := turnPlanSteps[0].(map[string]any)
+	if len(stringValue(turnPlanStep["step"])) >= len(longReasoning) {
+		t.Fatalf("expected turn plan step text to be truncated, got len=%d", len(stringValue(turnPlanStep["step"])))
+	}
+	if summarized.Turns[0].Items[5]["summaryTruncated"] != true {
+		t.Fatalf("expected turn plan item to be marked truncated, got %#v", summarized.Turns[0].Items[5]["summaryTruncated"])
 	}
 }
 

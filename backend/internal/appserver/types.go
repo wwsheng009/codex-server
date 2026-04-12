@@ -28,10 +28,11 @@ type TurnRef struct {
 }
 
 type ThreadStartRequest struct {
-	Cwd            string `json:"cwd"`
-	ApprovalPolicy string `json:"approvalPolicy"`
-	Sandbox        string `json:"sandbox,omitempty"`
-	Model          string `json:"model,omitempty"`
+	Cwd                string `json:"cwd"`
+	ApprovalPolicy     string `json:"approvalPolicy"`
+	Sandbox            string `json:"sandbox,omitempty"`
+	Model              string `json:"model,omitempty"`
+	SessionStartSource string `json:"sessionStartSource,omitempty"`
 }
 
 type ThreadStartResponse struct {
@@ -68,13 +69,14 @@ type UserInput struct {
 }
 
 type TurnStartRequest struct {
-	Input             []UserInput    `json:"input"`
-	ThreadID          string         `json:"threadId"`
-	CollaborationMode map[string]any `json:"collaborationMode,omitempty"`
-	Model             string         `json:"model,omitempty"`
-	Effort            string         `json:"effort,omitempty"`
-	ApprovalPolicy    string         `json:"approvalPolicy,omitempty"`
-	SandboxPolicy     map[string]any `json:"sandboxPolicy,omitempty"`
+	Input                      []UserInput    `json:"input"`
+	ThreadID                   string         `json:"threadId"`
+	CollaborationMode          map[string]any `json:"collaborationMode,omitempty"`
+	Model                      string         `json:"model,omitempty"`
+	Effort                     string         `json:"effort,omitempty"`
+	ApprovalPolicy             string         `json:"approvalPolicy,omitempty"`
+	SandboxPolicy              map[string]any `json:"sandboxPolicy,omitempty"`
+	ResponsesAPIClientMetadata map[string]any `json:"responsesapiClientMetadata,omitempty"`
 }
 
 type TurnStartResponse struct {

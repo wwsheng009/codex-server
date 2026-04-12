@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"codex-server/backend/internal/events"
+	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turns"
@@ -50,12 +52,14 @@ func (f *fakeThreadService) GetDetail(_ context.Context, workspaceID string, thr
 }
 
 type fakeTurnService struct {
-	result turns.Result
-	calls  int
+	result      turns.Result
+	calls       int
+	lastOptions turns.StartOptions
 }
 
-func (f *fakeTurnService) Start(_ context.Context, _ string, _ string, _ string, _ turns.StartOptions) (turns.Result, error) {
+func (f *fakeTurnService) Start(_ context.Context, _ string, _ string, _ string, options turns.StartOptions) (turns.Result, error) {
 	f.calls += 1
+	f.lastOptions = options
 	if f.result.TurnID == "" {
 		f.result = turns.Result{
 			TurnID: "turn_automation",
@@ -64,6 +68,14 @@ func (f *fakeTurnService) Start(_ context.Context, _ string, _ string, _ string,
 	}
 
 	return f.result, nil
+}
+
+func (f *fakeTurnService) Steer(_ context.Context, _ string, _ string, _ string) (turns.Result, error) {
+	return turns.Result{}, nil
+}
+
+func (f *fakeTurnService) Interrupt(_ context.Context, _ string, _ string) (turns.Result, error) {
+	return turns.Result{}, nil
 }
 
 func TestCreateRequiresWorkspace(t *testing.T) {
@@ -199,6 +211,118 @@ func TestTriggerCompletesRunAndCreatesNotification(t *testing.T) {
 	}
 	if notifications[0].Kind != "automation_run_completed" {
 		t.Fatalf("expected completion notification, got %q", notifications[0].Kind)
+	}
+}
+
+func TestTriggerPassesResponsesAPIClientMetadataToTurnStart(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	threadService := &fakeThreadService{}
+	turnService := &fakeTurnService{
+		result: turns.Result{
+			TurnID: "turn_automation_meta",
+			Status: "running",
+		},
+	}
+
+	service := NewService(dataStore, threadService, turnService, nil)
+	service.runPollInterval = time.Hour
+
+	automation, err := service.Create(CreateInput{
+		Title:       "Daily Sync",
+		Description: "Summary",
+		Prompt:      "Summarize changes",
+		WorkspaceID: workspace.ID,
+		Schedule:    "hourly",
+		Model:       "gpt-5.4",
+		Reasoning:   "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	run, err := service.Trigger(context.Background(), automation.ID)
+	if err != nil {
+		t.Fatalf("Trigger() error = %v", err)
+	}
+
+	if turnService.calls != 1 {
+		t.Fatalf("expected turns.Start to be called once, got %d", turnService.calls)
+	}
+	if turnService.lastOptions.PermissionPreset != "full-access" {
+		t.Fatalf("expected automation turn to keep full-access preset, got %#v", turnService.lastOptions.PermissionPreset)
+	}
+	if turnService.lastOptions.ResponsesAPIClientMetadata.Source != "automation" {
+		t.Fatalf("expected automation metadata source, got %#v", turnService.lastOptions.ResponsesAPIClientMetadata.Source)
+	}
+	if turnService.lastOptions.ResponsesAPIClientMetadata.Origin != "codex-server-web" {
+		t.Fatalf("expected codex-server-web metadata origin, got %#v", turnService.lastOptions.ResponsesAPIClientMetadata.Origin)
+	}
+	if turnService.lastOptions.ResponsesAPIClientMetadata.WorkspaceID != workspace.ID {
+		t.Fatalf("expected automation metadata workspace id %q, got %#v", workspace.ID, turnService.lastOptions.ResponsesAPIClientMetadata.WorkspaceID)
+	}
+	if turnService.lastOptions.ResponsesAPIClientMetadata.ThreadID == "" {
+		t.Fatal("expected automation metadata thread id to be populated")
+	}
+	if turnService.lastOptions.ResponsesAPIClientMetadata.AutomationID != automation.ID {
+		t.Fatalf("expected automation metadata automation id %q, got %#v", automation.ID, turnService.lastOptions.ResponsesAPIClientMetadata.AutomationID)
+	}
+	if turnService.lastOptions.ResponsesAPIClientMetadata.AutomationRunID != run.ID {
+		t.Fatalf("expected automation metadata run id %q, got %#v", run.ID, turnService.lastOptions.ResponsesAPIClientMetadata.AutomationRunID)
+	}
+	if turnService.lastOptions.ResponsesAPIClientMetadata.AutomationTrigger != "manual" {
+		t.Fatalf("expected automation metadata trigger manual, got %#v", turnService.lastOptions.ResponsesAPIClientMetadata.AutomationTrigger)
+	}
+}
+
+func TestTriggerBlocksSecretLikeAutomationPromptBeforeStartingTurn(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+
+	threadService := &fakeThreadService{}
+	rawTurnService := &fakeTurnService{}
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	hookService := hooks.NewService(dataStore, rawTurnService, eventHub)
+	governedTurnStarter := hooks.NewGovernedTurnStarter(hookService, "automation/run", "thread")
+
+	service := NewService(dataStore, threadService, governedTurnStarter, nil)
+	automation, err := service.Create(CreateInput{
+		Title:       "Daily Sync",
+		Description: "Summary",
+		Prompt:      "请直接使用这个 key: sk-proj-abcDEF1234567890xyzUVW9876543210",
+		WorkspaceID: workspace.ID,
+		Schedule:    "hourly",
+		Model:       "gpt-5.4",
+		Reasoning:   "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	_, err = service.Trigger(context.Background(), automation.ID)
+	var blockedErr *hooks.GovernedTurnBlockedError
+	if !errors.As(err, &blockedErr) {
+		t.Fatalf("expected governed turn start block error, got %v", err)
+	}
+	if rawTurnService.calls != 0 {
+		t.Fatalf("expected blocked automation prompt to skip turns.Start, got %d calls", rawTurnService.calls)
+	}
+	if threadService.createdThread.ID == "" {
+		t.Fatal("expected automation trigger to prepare a thread before hook evaluation")
+	}
+
+	runs := dataStore.ListHookRuns(workspace.ID, threadService.createdThread.ID)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 hook run, got %#v", runs)
+	}
+	if runs[0].EventName != "UserPromptSubmit" || runs[0].TriggerMethod != "automation/run" || runs[0].Scope != "thread" {
+		t.Fatalf("expected automation trigger to record governed user prompt hook metadata, got %#v", runs[0])
 	}
 }
 

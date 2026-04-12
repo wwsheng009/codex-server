@@ -1806,7 +1806,7 @@ func TestWeChatProviderRunPollingReceivesEncryptedFileAttachment(t *testing.T) {
 	if string(data) != string(plaintext) {
 		t.Fatalf("expected decrypted inbound file contents %q, got %q", string(plaintext), string(data))
 	}
-	if !strings.Contains(messages[0].Text, "[WeChat file attachment]") {
+	if !strings.Contains(messages[0].Text, "[File attachment]") {
 		t.Fatalf("expected message summary text to mention file attachment, got %q", messages[0].Text)
 	}
 }
@@ -1936,7 +1936,7 @@ func TestWeChatProviderRunPollingFallsBackToQuotedFileAttachment(t *testing.T) {
 	if string(data) != string(plaintext) {
 		t.Fatalf("expected quoted file contents %q, got %q", string(plaintext), string(data))
 	}
-	if !strings.Contains(messages[0].Text, "[WeChat file attachment]") {
+	if !strings.Contains(messages[0].Text, "[File attachment]") {
 		t.Fatalf("expected quoted message summary to mention file attachment, got %q", messages[0].Text)
 	}
 }

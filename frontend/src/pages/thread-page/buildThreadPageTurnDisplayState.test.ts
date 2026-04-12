@@ -735,6 +735,59 @@ describe('buildThreadPageTurnDisplayState', () => {
     })
   })
 
+  it('excludes the synthetic governance turn from display turn counts and latest-turn selection', () => {
+    const liveThreadDetail: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'completed',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:02.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          id: 'thread-governance',
+          status: 'completed',
+          items: [
+            {
+              id: 'hook-run-hook-1',
+              type: 'hookRun',
+              eventName: 'UserPromptSubmit',
+              message: 'governance event',
+            },
+          ],
+        },
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: 'real content',
+            },
+          ],
+        },
+      ],
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {},
+      historicalTurns: [],
+      liveThreadDetail,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(state.displayedTurns).toHaveLength(2)
+    expect(state.turnCount).toBe(1)
+    expect(state.latestDisplayedTurn?.id).toBe('turn-1')
+  })
+
   it('reuses the same display-state result for identical inputs', () => {
     const liveThreadDetail: ThreadDetail = {
       id: 'thread-1',

@@ -19,22 +19,22 @@ const wechatAIOutboundMediaNote = "[Channel note: this conversation is on WeChat
 func prepareInboundMessageForAI(connection store.BotConnection, inbound InboundMessage) InboundMessage {
 	next := inbound
 	next.Media = cloneBotMessageMediaList(inbound.Media)
+	mediaSummary := strings.TrimSpace(messageSummaryText("", next.Media))
 
-	if normalizeProviderName(connection.Provider) != wechatProviderName {
+	switch normalizeProviderName(connection.Provider) {
+	case wechatProviderName:
+		next.Text = prepareInboundTextWithMediaSummaryAndNote(next.Text, mediaSummary, wechatAIOutboundMediaNote)
+		return next
+	case telegramProviderName:
+		next.Text = prepareInboundTextWithMediaSummaryAndNote(next.Text, mediaSummary, telegramAIOutboundMediaNote)
+		return next
+	default:
+		if mediaSummary == "" {
+			return next
+		}
+		next.Text = appendInboundMediaSummary(next.Text, mediaSummary)
 		return next
 	}
-
-	baseText := strings.TrimSpace(next.Text)
-	if baseText == "" {
-		baseText = messageSummaryText("", next.Media)
-	}
-	if baseText == "" {
-		baseText = wechatAIOutboundMediaNote
-	} else {
-		baseText += "\n\n" + wechatAIOutboundMediaNote
-	}
-	next.Text = strings.TrimSpace(baseText)
-	return next
 }
 
 func normalizeProviderReplyMessages(connection store.BotConnection, messages []OutboundMessage) []OutboundMessage {
@@ -45,9 +45,38 @@ func normalizeProviderReplyMessages(connection store.BotConnection, messages []O
 	switch normalizeProviderName(connection.Provider) {
 	case wechatProviderName:
 		return normalizeWeChatReplyMessages(messages)
+	case telegramProviderName:
+		return normalizeTelegramReplyMessages(messages)
 	default:
 		return cloneOutboundMessages(messages)
 	}
+}
+
+func prepareInboundTextWithMediaSummaryAndNote(text string, mediaSummary string, note string) string {
+	baseText := appendInboundMediaSummary(text, mediaSummary)
+	note = strings.TrimSpace(note)
+	if note == "" || strings.Contains(baseText, note) {
+		return strings.TrimSpace(baseText)
+	}
+	if strings.TrimSpace(baseText) == "" {
+		return note
+	}
+	return strings.TrimSpace(baseText + "\n\n" + note)
+}
+
+func appendInboundMediaSummary(text string, mediaSummary string) string {
+	baseText := strings.TrimSpace(text)
+	mediaSummary = strings.TrimSpace(mediaSummary)
+	if mediaSummary == "" {
+		return baseText
+	}
+	if baseText == "" {
+		return mediaSummary
+	}
+	if strings.Contains(baseText, mediaSummary) {
+		return baseText
+	}
+	return strings.TrimSpace(baseText + "\n\n" + mediaSummary)
 }
 
 func normalizeWeChatReplyMessages(messages []OutboundMessage) []OutboundMessage {

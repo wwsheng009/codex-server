@@ -5,9 +5,23 @@ import { accountQueryKey, getAccount } from '../../features/account/api'
 import { listPendingApprovals } from '../../features/approvals/api'
 import { listModels, listSkills } from '../../features/catalog/api'
 import { listCommandSessions } from '../../features/commands/api'
-import { fuzzyFileSearch, readConfig } from '../../features/settings/api'
-import { getThread, listLoadedThreadIds, listThreadsPage } from '../../features/threads/api'
-import { getWorkspace, getWorkspaceRuntimeState } from '../../features/workspaces/api'
+import {
+  fuzzyFileSearch,
+  readConfig,
+} from '../../features/settings/api'
+import {
+  getTurnPolicyMetrics,
+  getThread,
+  listHookRuns,
+  listLoadedThreadIds,
+  listThreadsPage,
+  listTurnPolicyDecisions,
+} from '../../features/threads/api'
+import {
+  getWorkspace,
+  getWorkspaceHookConfiguration,
+  getWorkspaceRuntimeState,
+} from '../../features/workspaces/api'
 import type { PendingApproval } from '../../types/api'
 import type { UseThreadPageQueriesInput } from './threadPageRuntimeTypes'
 
@@ -68,6 +82,15 @@ export function useThreadPageQueries({
     queryFn: () => getWorkspaceRuntimeState(workspaceId),
     enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
     staleTime: 10_000,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const hookConfigurationQuery = useQuery({
+    queryKey: ['workspace-hook-configuration', workspaceId],
+    queryFn: () => getWorkspaceHookConfiguration(workspaceId),
+    enabled: Boolean(workspaceId) && areBackgroundQueriesEnabled,
+    staleTime: 30_000,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
   })
@@ -144,6 +167,44 @@ export function useThreadPageQueries({
         : false,
   })
 
+  const turnPolicyDecisionsQuery = useQuery({
+    queryKey: ['turn-policy-decisions', workspaceId, resolvedSelectedThreadId, 5],
+    queryFn: () =>
+      listTurnPolicyDecisions(workspaceId, {
+        threadId: resolvedSelectedThreadId ?? '',
+        limit: 5,
+      }),
+    enabled: Boolean(workspaceId && resolvedSelectedThreadId),
+    staleTime: 15_000,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const hookRunsQuery = useQuery({
+    queryKey: ['hook-runs', workspaceId, resolvedSelectedThreadId, 5],
+    queryFn: () =>
+      listHookRuns(workspaceId, {
+        threadId: resolvedSelectedThreadId ?? '',
+        limit: 5,
+      }),
+    enabled: Boolean(workspaceId && resolvedSelectedThreadId),
+    staleTime: 15_000,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const turnPolicyMetricsQuery = useQuery({
+    queryKey: ['turn-policy-metrics', workspaceId, resolvedSelectedThreadId],
+    queryFn: () =>
+      getTurnPolicyMetrics(workspaceId, {
+        threadId: resolvedSelectedThreadId ?? '',
+      }),
+    enabled: Boolean(workspaceId && resolvedSelectedThreadId),
+    staleTime: 15_000,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  })
+
   const cachedApprovals = queryClient.getQueryData<PendingApproval[]>(['approvals', workspaceId])
   const hasLiveApprovalCache =
     cachedApprovals !== undefined && (streamState === 'connecting' || streamState === 'open')
@@ -191,11 +252,15 @@ export function useThreadPageQueries({
     commandSessionsQuery,
     environmentConfigQuery,
     fileSearchQuery,
+    hookRunsQuery,
+    hookConfigurationQuery,
     loadedThreadsQuery,
     modelsQuery,
     resolvedSelectedThreadId,
     skillsQuery,
     threadDetailQuery,
+    turnPolicyDecisionsQuery,
+    turnPolicyMetricsQuery,
     threadsQuery,
     workspaceRuntimeStateQuery,
     workspaceQuery,

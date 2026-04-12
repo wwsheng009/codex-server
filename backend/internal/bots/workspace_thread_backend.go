@@ -110,11 +110,18 @@ func (b *workspaceThreadAIBackend) processMessage(
 	}
 	defer cancelEvents()
 
+	metadata := turns.BotStartMetadata(connection.WorkspaceID, threadID, connection.ID, "", "", "")
+	if trace, ok := botDebugTraceFromContext(ctx); ok {
+		metadata.BotDeliveryID = trace.DeliveryID
+		metadata.ServerTraceID = trace.TraceID
+	}
+
 	result, err := b.turns.Start(ctx, connection.WorkspaceID, threadID, inbound.Text, turns.StartOptions{
-		Model:             strings.TrimSpace(connection.AIConfig["model"]),
-		ReasoningEffort:   strings.TrimSpace(connection.AIConfig["reasoning_effort"]),
-		PermissionPreset:  strings.TrimSpace(connection.AIConfig["permission_preset"]),
-		CollaborationMode: strings.TrimSpace(connection.AIConfig["collaboration_mode"]),
+		Model:                      strings.TrimSpace(connection.AIConfig["model"]),
+		ReasoningEffort:            strings.TrimSpace(connection.AIConfig["reasoning_effort"]),
+		PermissionPreset:           strings.TrimSpace(connection.AIConfig["permission_preset"]),
+		CollaborationMode:          strings.TrimSpace(connection.AIConfig["collaboration_mode"]),
+		ResponsesAPIClientMetadata: metadata,
 	})
 	if err != nil {
 		return AIResult{}, err
@@ -191,9 +198,10 @@ func (b *workspaceThreadAIBackend) ensureThread(
 	}
 
 	thread, err := b.threads.Create(ctx, connection.WorkspaceID, threads.CreateInput{
-		Name:             buildThreadName(connection, inbound),
-		Model:            strings.TrimSpace(connection.AIConfig["model"]),
-		PermissionPreset: strings.TrimSpace(connection.AIConfig["permission_preset"]),
+		Name:               buildThreadName(connection, inbound),
+		Model:              strings.TrimSpace(connection.AIConfig["model"]),
+		PermissionPreset:   strings.TrimSpace(connection.AIConfig["permission_preset"]),
+		SessionStartSource: pendingConversationSessionStartSource(conversation.BackendState),
 	})
 	if err != nil {
 		return "", err

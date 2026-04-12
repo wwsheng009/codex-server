@@ -20,10 +20,11 @@ type Service struct {
 }
 
 type StartOptions struct {
-	Model             string
-	ReasoningEffort   string
-	PermissionPreset  string
-	CollaborationMode string
+	Model                      string
+	ReasoningEffort            string
+	PermissionPreset           string
+	CollaborationMode          string
+	ResponsesAPIClientMetadata StartMetadata
 }
 
 type Result struct {
@@ -32,6 +33,8 @@ type Result struct {
 }
 
 const interruptRuntimeCallTimeout = 5 * time.Second
+
+const sessionStartSourceResume = "resume"
 
 type turnStartResponse = appserver.TurnStartResponse
 
@@ -204,6 +207,9 @@ func buildTurnStartPayloadWithRuntimeDefaults(
 	if len(request.SandboxPolicy) > 0 {
 		payload["sandboxPolicy"] = request.SandboxPolicy
 	}
+	if len(request.ResponsesAPIClientMetadata) > 0 {
+		payload["responsesapiClientMetadata"] = request.ResponsesAPIClientMetadata
+	}
 
 	return payload
 }
@@ -215,6 +221,7 @@ func buildTurnStartRequestWithRuntimeDefaults(
 	collaborationMode map[string]any,
 	defaults runtimeDefaults,
 ) appserver.TurnStartRequest {
+	responsesAPIClientMetadata := buildResponsesAPIClientMetadata(options.ResponsesAPIClientMetadata)
 	request := appserver.TurnStartRequest{
 		Input: []appserver.UserInput{
 			{
@@ -222,7 +229,8 @@ func buildTurnStartRequestWithRuntimeDefaults(
 				Type: "text",
 			},
 		},
-		ThreadID: threadID,
+		ThreadID:                   threadID,
+		ResponsesAPIClientMetadata: responsesAPIClientMetadata,
 	}
 
 	if collaborationMode != nil {
@@ -585,6 +593,9 @@ func (s *Service) resumeThread(ctx context.Context, workspaceID string, threadID
 		"responseFieldCount",
 		len(response.Thread),
 	)
+	if s.store != nil {
+		s.store.SetThreadSessionStartSource(workspaceID, threadID, sessionStartSourceResume, true)
+	}
 	return nil
 }
 

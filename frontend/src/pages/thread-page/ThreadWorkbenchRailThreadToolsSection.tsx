@@ -1,5 +1,5 @@
-import { DetailGroup } from '../../components/ui/DetailGroup'
 import { i18n } from '../../i18n/runtime'
+import { DetailGroup } from '../../components/ui/DetailGroup'
 import { Tooltip } from '../../components/ui/Tooltip'
 import type {
   ThreadWorkbenchRailInfoLabelProps,

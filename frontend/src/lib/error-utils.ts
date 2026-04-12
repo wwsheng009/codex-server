@@ -3,10 +3,11 @@ import type { UserFacingError } from './errorUtilsTypes'
 export type { UserFacingError } from './errorUtilsTypes'
 
 export function describeError(error: unknown, fallback = 'An unexpected error occurred.') {
-  const message = readErrorMessage(error).trim()
+  const code = readErrorCode(error)
+  const message = friendlyErrorMessageForCode(code) || readErrorMessage(error).trim()
 
   return {
-    code: readErrorCode(error),
+    code,
     title: 'Error',
     message: message || fallback,
   } satisfies UserFacingError
@@ -15,6 +16,11 @@ export function describeError(error: unknown, fallback = 'An unexpected error oc
 export function getErrorMessage(error: unknown, fallback?: string) {
   if (error == null) {
     return fallback ?? ''
+  }
+
+  const friendlyMessage = friendlyErrorMessageForCode(readErrorCode(error))
+  if (friendlyMessage) {
+    return friendlyMessage
   }
 
   const rawMessage = readErrorMessage(error).trim()
@@ -60,4 +66,19 @@ function readErrorMessage(error: unknown) {
   }
 
   return ''
+}
+
+function friendlyErrorMessageForCode(code: string) {
+  switch (code) {
+    case 'telegram_streaming_media_updates_not_supported':
+      return 'Telegram attachments can only be sent in the final completed reply. Streaming updates must stay text-only.'
+    case 'telegram_media_path_must_be_absolute':
+      return 'Telegram attachments must use an absolute local file path.'
+    case 'telegram_media_source_required':
+      return 'Telegram attachments need either a remote HTTP(S) URL or an absolute local file path.'
+    case 'telegram_media_url_invalid':
+      return 'Telegram attachments must use an absolute HTTP or HTTPS URL.'
+    default:
+      return ''
+  }
 }

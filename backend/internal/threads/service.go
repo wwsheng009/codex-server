@@ -41,12 +41,17 @@ const (
 	threadSummaryNestedStringLimit           = 1_200
 	threadListPageDefaultLimit               = 50
 	threadListPageMaxLimit                   = 200
+
+	ThreadStartSourceStartup       = "startup"
+	ThreadStartSourceClear         = "clear"
+	threadSessionStartSourceResume = "resume"
 )
 
 type CreateInput struct {
-	Name             string
-	Model            string
-	PermissionPreset string
+	Name               string
+	Model              string
+	PermissionPreset   string
+	SessionStartSource string
 }
 
 type ListPageInput struct {
@@ -230,6 +235,10 @@ func (s *Service) buildStoredThreadListPage(
 
 func (s *Service) Create(ctx context.Context, workspaceID string, input CreateInput) (store.Thread, error) {
 	trimmedName := strings.TrimSpace(input.Name)
+	sessionStartSource := NormalizeThreadStartSource(input.SessionStartSource)
+	if sessionStartSource == "" {
+		sessionStartSource = ThreadStartSourceStartup
+	}
 
 	var response appserver.ThreadStartResponse
 
@@ -257,9 +266,12 @@ func (s *Service) Create(ctx context.Context, workspaceID string, input CreateIn
 	if err != nil {
 		return store.Thread{}, err
 	}
-	if !thread.Materialized {
-		s.store.UpsertThread(thread)
+	thread.SessionStartSource = normalizeThreadSessionStartSource(thread.SessionStartSource)
+	if thread.SessionStartSource == "" {
+		thread.SessionStartSource = sessionStartSource
 	}
+	s.store.UpsertThread(thread)
+	s.store.SetThreadSessionStartSource(workspaceID, thread.ID, thread.SessionStartSource, true)
 
 	return thread, nil
 }
@@ -291,6 +303,9 @@ func buildThreadStartRequest(rootPath string, input CreateInput, defaults runtim
 	if model := strings.TrimSpace(input.Model); model != "" {
 		request.Model = model
 	}
+	if source := NormalizeThreadStartSource(input.SessionStartSource); source != "" {
+		request.SessionStartSource = source
+	}
 
 	switch normalizePermissionPreset(input.PermissionPreset) {
 	case "full-access":
@@ -312,6 +327,9 @@ func buildThreadStartPayload(rootPath string, input CreateInput, defaults runtim
 	}
 	if strings.TrimSpace(request.Model) != "" {
 		payload["model"] = request.Model
+	}
+	if strings.TrimSpace(request.SessionStartSource) != "" {
+		payload["sessionStartSource"] = request.SessionStartSource
 	}
 	return payload
 }
@@ -340,6 +358,30 @@ func normalizePermissionPreset(value string) string {
 		return "full-access"
 	default:
 		return "default"
+	}
+}
+
+func NormalizeThreadStartSource(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ThreadStartSourceStartup:
+		return ThreadStartSourceStartup
+	case ThreadStartSourceClear:
+		return ThreadStartSourceClear
+	default:
+		return ""
+	}
+}
+
+func normalizeThreadSessionStartSource(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ThreadStartSourceStartup:
+		return ThreadStartSourceStartup
+	case ThreadStartSourceClear:
+		return ThreadStartSourceClear
+	case threadSessionStartSourceResume:
+		return threadSessionStartSourceResume
+	default:
+		return ""
 	}
 }
 
@@ -956,7 +998,7 @@ func buildCachedThreadDetail(thread store.Thread, projection store.ThreadProject
 	}
 
 	if detail.TurnCount == 0 && len(projection.Turns) > 0 {
-		detail.TurnCount = len(projection.Turns)
+		detail.TurnCount = storeProjectedConversationTurnCount(projection.Turns)
 	}
 	if detail.MessageCount == 0 && len(projection.Turns) > 0 {
 		detail.MessageCount = countThreadMessages(projection.Turns)
@@ -970,6 +1012,17 @@ func buildCachedThreadDetail(thread store.Thread, projection store.ThreadProject
 	}
 
 	return detail
+}
+
+func storeProjectedConversationTurnCount(turns []store.ThreadTurn) int {
+	count := 0
+	for _, turn := range turns {
+		if strings.TrimSpace(turn.ID) == "thread-governance" {
+			continue
+		}
+		count += 1
+	}
+	return count
 }
 
 func normalizeStoredThreadTurnsForClient(turns []store.ThreadTurn) []store.ThreadTurn {
@@ -1487,7 +1540,9 @@ func (s *Service) Resume(ctx context.Context, workspaceID string, threadID strin
 	}
 
 	thread := mapThread(workspaceID, response.Thread, isArchived(response.Thread))
+	thread.SessionStartSource = threadSessionStartSourceResume
 	s.cacheThread(thread)
+	s.store.SetThreadSessionStartSource(workspaceID, thread.ID, thread.SessionStartSource, true)
 	return thread, nil
 }
 
@@ -2767,6 +2822,18 @@ func summarizeThreadItem(item map[string]any) map[string]any {
 			next["text"] = text
 			summaryTruncated = true
 		}
+	case "turnPlan":
+		if explanation, truncated := truncateSummaryString(
+			stringValue(next["explanation"]),
+			threadSummaryPlanTextLimit,
+		); truncated {
+			next["explanation"] = explanation
+			summaryTruncated = true
+		}
+		if steps, truncated := summarizeTurnPlanSteps(next["steps"]); truncated {
+			next["steps"] = steps
+			summaryTruncated = true
+		}
 	case "serverRequest":
 		var truncated bool
 		next["details"], truncated = summarizeNestedValue(next["details"])
@@ -2806,6 +2873,43 @@ func summarizeStringSlice(value any) ([]any, bool) {
 		text, didTruncate := truncateSummaryString(stringValue(rawItem), threadSummaryNestedStringLimit)
 		nextItems[index] = text
 		truncated = truncated || didTruncate
+	}
+
+	return nextItems, truncated
+}
+
+func summarizeTurnPlanSteps(value any) ([]any, bool) {
+	rawItems := make([]map[string]any, 0)
+	switch typed := value.(type) {
+	case []any:
+		for _, rawItem := range typed {
+			entry, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			rawItems = append(rawItems, entry)
+		}
+	case []map[string]any:
+		rawItems = append(rawItems, typed...)
+	default:
+		return nil, false
+	}
+	if len(rawItems) == 0 {
+		return []any{}, false
+	}
+
+	nextItems := make([]any, len(rawItems))
+	truncated := false
+	for index, entry := range rawItems {
+		nextEntry := cloneItem(entry)
+		if text, didTruncate := truncateSummaryString(
+			stringValue(nextEntry["step"]),
+			threadSummaryNestedStringLimit,
+		); didTruncate {
+			nextEntry["step"] = text
+			truncated = true
+		}
+		nextItems[index] = nextEntry
 	}
 
 	return nextItems, truncated
@@ -2902,17 +3006,18 @@ func countOutputLines(value string) int {
 
 func mapThread(workspaceID string, raw map[string]any, archived bool) store.Thread {
 	return store.Thread{
-		ID:           stringValue(raw["id"]),
-		WorkspaceID:  workspaceID,
-		Cwd:          stringValue(raw["cwd"]),
-		Materialized: threadIsMaterialized(raw),
-		Name:         threadDisplayName(raw),
-		Status:       nestedType(raw["status"]),
-		Archived:     archived,
-		TurnCount:    int(int64Value(raw["turnCount"])),
-		MessageCount: int(int64Value(raw["messageCount"])),
-		CreatedAt:    unixSeconds(raw["createdAt"]),
-		UpdatedAt:    unixSeconds(raw["updatedAt"]),
+		ID:                 stringValue(raw["id"]),
+		WorkspaceID:        workspaceID,
+		Cwd:                stringValue(raw["cwd"]),
+		Materialized:       threadIsMaterialized(raw),
+		Name:               threadDisplayName(raw),
+		Status:             nestedType(raw["status"]),
+		Archived:           archived,
+		SessionStartSource: normalizeThreadSessionStartSource(stringValue(raw["sessionStartSource"])),
+		TurnCount:          int(int64Value(raw["turnCount"])),
+		MessageCount:       int(int64Value(raw["messageCount"])),
+		CreatedAt:          unixSeconds(raw["createdAt"]),
+		UpdatedAt:          unixSeconds(raw["updatedAt"]),
 	}
 }
 
@@ -3094,9 +3199,21 @@ func (s *Service) cacheThread(thread store.Thread) {
 		return
 	}
 
+	existing, hasExisting := s.store.GetThread(thread.WorkspaceID, thread.ID)
 	if !thread.Materialized {
+		if hasExisting {
+			if strings.TrimSpace(thread.SessionStartSource) == "" {
+				thread.SessionStartSource = existing.SessionStartSource
+			}
+			s.store.UpsertThread(thread)
+			return
+		}
 		s.store.RemoveThread(thread.WorkspaceID, thread.ID)
 		return
+	}
+
+	if hasExisting && strings.TrimSpace(thread.SessionStartSource) == "" {
+		thread.SessionStartSource = existing.SessionStartSource
 	}
 
 	s.store.UpsertThread(thread)

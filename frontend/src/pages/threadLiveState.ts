@@ -1,6 +1,10 @@
-import type { ServerEvent, ThreadDetail, ThreadTurn } from '../types/api'
+import type { HookOutputEntry, ServerEvent, ThreadDetail, ThreadTurn } from '../types/api'
+import { formatHookRunFeedbackEntries, formatHookRunMessage } from '../lib/hook-run-display'
+import { buildTurnPlanItem, turnPlanItemId } from '../lib/turn-plan'
 import type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
 export type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
+
+const THREAD_GOVERNANCE_TURN_ID = 'thread-governance'
 
 export function resolveLiveThreadDetail({
   currentLiveDetail,
@@ -227,6 +231,20 @@ export function applyThreadEventToDetail(
         text: `${stringField(current?.text)}${delta}`,
       }), event.ts)
     }
+    case 'turn/plan/updated': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      if (!turnId) {
+        return withDetailUpdatedAt(detail, event.ts)
+      }
+
+      return updateTurnItem(
+        detail,
+        turnId,
+        turnPlanItemId(turnId),
+        (current) => mergeThreadItem(current, buildTurnPlanItem(turnId, payload)),
+        event.ts,
+      )
+    }
     case 'item/reasoning/summaryTextDelta':
     case 'item/reasoning/textDelta': {
       const turnId = stringField(payload.turnId) || event.turnId
@@ -276,6 +294,23 @@ export function applyThreadEventToDetail(
         status: stringField(current?.status) || 'inProgress',
         aggregatedOutput: `${stringField(current?.aggregatedOutput)}${delta}`,
       }), event.ts)
+    }
+    case 'hook/started':
+    case 'hook/completed': {
+      const run = asObject(payload.run)
+      const turnId = hookRunTurnId(run, event)
+      const runId = stringField(run.id)
+      if (!turnId || !runId) {
+        return withDetailUpdatedAt(detail, event.ts)
+      }
+
+      return updateTurnItem(
+        detail,
+        turnId,
+        hookRunItemId(runId),
+        (current) => mergeThreadItem(current, hookRunTimelineItem(run)),
+        event.ts,
+      )
     }
     default:
       return detail
@@ -359,7 +394,11 @@ function upsertTurn(
 ) {
   const index = turns.findIndex((turn) => turn.id === turnId)
   if (index < 0) {
-    return [...turns, buildTurn()]
+    const nextTurn = buildTurn()
+    if (isSyntheticGovernanceTurnId(turnId)) {
+      return [nextTurn, ...turns]
+    }
+    return [...turns, nextTurn]
   }
 
   const nextTurns = [...turns]
@@ -606,6 +645,59 @@ function isServerRequestMethod(method: string) {
 
 function requestItemId(requestId: string) {
   return `server-request-${requestId}`
+}
+
+function hookRunTurnId(run: Record<string, unknown>, event: ServerEvent) {
+  return stringField(run.turnId) || event.turnId || THREAD_GOVERNANCE_TURN_ID
+}
+
+function isSyntheticGovernanceTurnId(turnId: string) {
+  return turnId === THREAD_GOVERNANCE_TURN_ID
+}
+
+function hookRunItemId(runId: string) {
+  return `hook-run-${runId}`
+}
+
+function hookRunTimelineItem(run: Record<string, unknown>) {
+  return {
+    id: hookRunItemId(stringField(run.id)),
+    type: 'hookRun',
+    hookRunId: stringField(run.id),
+    eventName: stringField(run.eventName),
+    handlerKey: stringField(run.handlerKey),
+    triggerMethod: stringField(run.triggerMethod),
+    sessionStartSource: stringField(run.sessionStartSource),
+    toolKind: stringField(run.toolKind),
+    toolName: stringField(run.toolName),
+    status: stringField(run.status),
+    decision: stringField(run.decision),
+    reason: stringField(run.reason),
+    source: stringField(run.source),
+    completedAt: stringField(run.completedAt) || undefined,
+    durationMs: numberField(run.durationMs),
+    error: stringField(run.error) || undefined,
+    message: hookRunMessage(run),
+  }
+}
+
+function hookRunMessage(run: Record<string, unknown>) {
+  const feedback = formatHookRunFeedbackEntries(
+    Array.isArray(run.entries) ? (run.entries as HookOutputEntry[]) : undefined,
+  )
+
+  return formatHookRunMessage({
+    eventName: stringField(run.eventName),
+    handlerKey: stringField(run.handlerKey),
+    triggerMethod: stringField(run.triggerMethod),
+    status: stringField(run.status),
+    decision: stringField(run.decision),
+    toolName: stringField(run.toolName),
+    toolKind: stringField(run.toolKind),
+    sessionStartSource: stringField(run.sessionStartSource),
+    reason: stringField(run.reason),
+    feedback,
+  })
 }
 
 function turnStatusLooksInterruptible(value: string | undefined) {

@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	goruntime "runtime"
+	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,12 +25,15 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/logging"
+	"codex-server/backend/internal/memorydiag"
 	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/runtimeprefs"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
+	"codex-server/backend/internal/turnpolicies"
 	"codex-server/backend/internal/turns"
 	"codex-server/backend/internal/workspace"
 )
@@ -86,26 +92,38 @@ func runServer(cfg config.Config) error {
 	approvalsService := approvals.NewService(runtimeManager)
 	threadService := threads.NewService(dataStore, runtimeManager)
 	turnService := turns.NewService(runtimeManager, dataStore)
-	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+	hookService := hooks.NewService(dataStore, turnService, eventHub)
+	botService := bots.NewService(dataStore, threadService, hooks.NewGovernedTurnStarter(hookService, "bot/webhook", "thread"), eventHub, bots.Config{
 		PublicBaseURL:    cfg.PublicBaseURL,
 		OutboundProxyURL: cfg.OutboundProxyURL,
 		MessageTimeout:   cfg.BotMessageTimeout,
 		PollInterval:     cfg.BotPollInterval,
 		TurnTimeout:      cfg.BotTurnTimeout,
 	})
-	automationService := automations.NewService(dataStore, threadService, turnService, eventHub)
+	automationService := automations.NewService(
+		dataStore,
+		threadService,
+		hooks.NewGovernedTurnStarter(hookService, "automation/run", "thread"),
+		eventHub,
+	)
+	turnPolicyService := turnpolicies.NewService(dataStore, turnService, eventHub)
+	runtimeManager.SetServerRequestInterceptor(hookService)
 	notificationsService := notifications.NewService(dataStore)
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager, runtimePrefsService)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
 	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
+	memoryDiagService := memorydiag.NewService(dataStore)
 	accessControlService := accesscontrol.NewService(dataStore, cfg.AllowRemoteAccess)
 
 	serviceCtx, serviceCancel := context.WithCancel(context.Background())
 	defer serviceCancel()
 	automationService.Start(serviceCtx)
 	botService.Start(serviceCtx)
+	turnPolicyService.SetHooksPrimary(true)
+	hookService.Start(serviceCtx)
+	turnPolicyService.Start(serviceCtx)
 
 	if len(workspaceService.List()) == 0 {
 		_, _ = workspaceService.Create("Demo Workspace", "E:/projects/ai/codex-server")
@@ -123,21 +141,24 @@ func runServer(cfg config.Config) error {
 				return false
 			}
 		},
-		Auth:          authService,
-		Workspaces:    workspaceService,
-		Bots:          botService,
-		Automations:   automationService,
-		Notifications: notificationsService,
-		Threads:       threadService,
-		Turns:         turnService,
-		Approvals:     approvalsService,
-		Catalog:       catalogService,
-		ConfigFS:      configFSService,
-		ExecFS:        execfsService,
-		Feedback:      feedbackService,
-		Events:        eventHub,
-		RuntimePrefs:  runtimePrefsService,
-		AccessControl: accessControlService,
+		Auth:              authService,
+		Workspaces:        workspaceService,
+		Bots:              botService,
+		Automations:       automationService,
+		Notifications:     notificationsService,
+		Hooks:             hookService,
+		TurnPolicies:      turnPolicyService,
+		Threads:           threadService,
+		Turns:             turnService,
+		Approvals:         approvalsService,
+		Catalog:           catalogService,
+		ConfigFS:          configFSService,
+		ExecFS:            execfsService,
+		Feedback:          feedbackService,
+		Events:            eventHub,
+		RuntimePrefs:      runtimePrefsService,
+		MemoryDiagnostics: memoryDiagService,
+		AccessControl:     accessControlService,
 	})
 
 	server := &http.Server{
@@ -168,6 +189,19 @@ func runServer(cfg config.Config) error {
 			errCh <- err
 		}
 	}()
+	go func() {
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case <-serviceCtx.Done():
+			return
+		case <-timer.C:
+		}
+
+		goruntime.GC()
+		debug.FreeOSMemory()
+	}()
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
@@ -175,6 +209,21 @@ func runServer(cfg config.Config) error {
 
 	select {
 	case err := <-errCh:
+		if alreadyRunning, attempts := classifyListenFailure(cfg.Addr, err); alreadyRunning {
+			logger.Info("codex-server backend already running", "addr", cfg.Addr)
+			return nil
+		} else if isAddrInUseError(err) {
+			logger.Error(
+				"backend listen address is already in use",
+				"addr",
+				cfg.Addr,
+				"error",
+				err,
+				"healthzAttempts",
+				joinAttempts(attempts),
+			)
+			return err
+		}
 		logger.Error("backend server stopped unexpectedly", "error", err)
 		return err
 	case sig := <-signalCh:
@@ -208,4 +257,26 @@ func fallbackRuntimePreferenceSlice(value []string, fallback []string) []string 
 		return append([]string(nil), value...)
 	}
 	return append([]string(nil), fallback...)
+}
+
+func classifyListenFailure(addr string, err error) (bool, []string) {
+	if !isAddrInUseError(err) {
+		return false, nil
+	}
+
+	client := &http.Client{Timeout: stopRequestTimout}
+	return identifyCodexBackend(client, addr)
+}
+
+func isAddrInUseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "address already in use") ||
+		strings.Contains(message, "only one usage of each socket address")
 }

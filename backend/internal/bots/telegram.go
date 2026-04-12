@@ -73,11 +73,18 @@ type telegramUpdate struct {
 }
 
 type telegramMessage struct {
-	MessageID       int64         `json:"message_id"`
-	MessageThreadID int64         `json:"message_thread_id"`
-	Text            string        `json:"text"`
-	Chat            telegramChat  `json:"chat"`
-	From            *telegramUser `json:"from"`
+	MessageID       int64               `json:"message_id"`
+	MessageThreadID int64               `json:"message_thread_id"`
+	MediaGroupID    string              `json:"media_group_id"`
+	Text            string              `json:"text"`
+	Caption         string              `json:"caption"`
+	Photo           []telegramPhotoSize `json:"photo"`
+	Video           *telegramVideo      `json:"video"`
+	Document        *telegramDocument   `json:"document"`
+	Voice           *telegramVoice      `json:"voice"`
+	Audio           *telegramAudio      `json:"audio"`
+	Chat            telegramChat        `json:"chat"`
+	From            *telegramUser       `json:"from"`
 }
 
 type telegramChat struct {
@@ -288,7 +295,7 @@ func (p *telegramProvider) ParseWebhook(r *http.Request, connection store.BotCon
 		return nil, fmt.Errorf("%w: decode telegram webhook: %s", ErrInvalidInput, err.Error())
 	}
 
-	message, err := inboundMessageFromTelegramUpdate(update)
+	message, err := p.inboundMessageFromTelegramUpdate(r.Context(), strings.TrimSpace(connection.Secrets["bot_token"]), update)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +361,7 @@ func (p *telegramProvider) RunPolling(
 
 		for _, update := range updates {
 			nextOffset := update.UpdateID + 1
-			message, err := inboundMessageFromTelegramUpdate(update)
+			message, err := p.inboundMessageFromTelegramUpdate(ctx, token, update)
 			switch {
 			case errors.Is(err, ErrWebhookIgnored):
 				ignoredCount += 1
@@ -418,32 +425,124 @@ func (p *telegramProvider) SendMessages(
 	if chatID == "" {
 		return fmt.Errorf("%w: telegram external chat id is required", ErrInvalidInput)
 	}
+	if err := validateTelegramOutboundMessages(messages); err != nil {
+		return err
+	}
 	threadID := strings.TrimSpace(conversation.ExternalThreadID)
-	chunks := telegramMessageChunks(messages, telegramTextLimitRunes)
 	logBotDebug(ctx, connection, "telegram send messages requested",
 		slog.String("externalChatId", chatID),
 		slog.String("externalThreadId", threadID),
 		slog.Int("messageCount", len(messages)),
-		slog.Int("chunkCount", len(chunks)),
 		slog.Any("messages", debugOutboundMessages(messages)),
 	)
 
-	sentChunks := 0
-	for index, chunk := range chunks {
-		logBotDebug(ctx, connection, "telegram sending chunk",
-			slog.String("externalChatId", chatID),
-			slog.String("externalThreadId", threadID),
-			slog.Int("chunkIndex", index),
-			slog.Int("chunkLength", len([]rune(chunk))),
-			slog.String("chunkPreview", debugTextPreview(chunk)),
-		)
-		if _, err := p.sendTextMessage(ctx, token, chatID, threadID, chunk); err != nil {
-			if sentChunks == 0 {
-				return markReplyDeliveryRetryable(err)
+	sentParts := 0
+	sendTextChunks := func(logMessage string, text string) error {
+		chunks := splitTelegramText(text, telegramTextLimitRunes)
+		for index, chunk := range chunks {
+			logBotDebug(ctx, connection, logMessage,
+				slog.String("externalChatId", chatID),
+				slog.String("externalThreadId", threadID),
+				slog.Int("chunkIndex", index),
+				slog.Int("chunkLength", len([]rune(chunk))),
+				slog.String("chunkPreview", debugTextPreview(chunk)),
+			)
+			if _, err := p.sendTextMessage(ctx, token, chatID, threadID, chunk); err != nil {
+				if sentParts == 0 {
+					return markReplyDeliveryRetryable(err)
+				}
+				return err
 			}
-			return err
+			sentParts += 1
 		}
-		sentChunks += 1
+		return nil
+	}
+	for _, message := range messages {
+		if len(message.Media) == 0 {
+			if strings.TrimSpace(message.Text) == "" {
+				continue
+			}
+			if err := sendTextChunks("telegram sending chunk", message.Text); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if len(message.Media) > 1 {
+			resolvedMedia, err := resolveTelegramOutboundMediaList(message.Media)
+			if err != nil {
+				if sentParts == 0 {
+					return markReplyDeliveryRetryable(err)
+				}
+				return err
+			}
+			groupBatches := telegramMediaGroupBatches(resolvedMedia)
+			if len(groupBatches) > 0 {
+				caption := telegramCaptionForMediaGroup(message)
+				if caption == "" && strings.TrimSpace(message.Text) != "" {
+					if err := sendTextChunks("telegram sending chunk before media group", message.Text); err != nil {
+						return err
+					}
+				}
+
+				for batchIndex, batch := range groupBatches {
+					currentCaption := ""
+					if batchIndex == 0 {
+						currentCaption = caption
+					}
+					logBotDebug(ctx, connection, "telegram sending media group",
+						slog.String("externalChatId", chatID),
+						slog.String("externalThreadId", threadID),
+						slog.Int("batchIndex", batchIndex),
+						slog.Int("mediaCount", len(batch)),
+						slog.Bool("hasCaption", currentCaption != ""),
+					)
+					sent, err := p.sendMediaGroup(ctx, token, chatID, threadID, currentCaption, batch)
+					if err != nil {
+						if sentParts == 0 {
+							return markReplyDeliveryRetryable(err)
+						}
+						return err
+					}
+					if len(sent) == 0 {
+						sentParts += 1
+						continue
+					}
+					sentParts += len(sent)
+				}
+				continue
+			}
+		}
+
+		caption := telegramCaptionForMessage(message)
+		if caption == "" && strings.TrimSpace(message.Text) != "" {
+			if err := sendTextChunks("telegram sending chunk before media", message.Text); err != nil {
+				return err
+			}
+		}
+
+		for mediaIndex, media := range message.Media {
+			currentCaption := ""
+			if mediaIndex == 0 {
+				currentCaption = caption
+			}
+			logBotDebug(ctx, connection, "telegram sending media",
+				slog.String("externalChatId", chatID),
+				slog.String("externalThreadId", threadID),
+				slog.Int("mediaIndex", mediaIndex),
+				slog.String("mediaKind", strings.TrimSpace(media.Kind)),
+				slog.String("mediaPath", strings.TrimSpace(media.Path)),
+				slog.String("mediaURL", strings.TrimSpace(media.URL)),
+				slog.Bool("hasCaption", currentCaption != ""),
+			)
+			if _, err := p.sendMediaMessage(ctx, token, chatID, threadID, currentCaption, media); err != nil {
+				if sentParts == 0 {
+					return markReplyDeliveryRetryable(err)
+				}
+				return err
+			}
+			sentParts += 1
+		}
 	}
 
 	return nil
@@ -739,6 +838,10 @@ func extractTelegramAPIError(method string, target any) error {
 		if !typed.OK {
 			return telegramErrorFromAPI(method, typed.ErrorCode, typed.Description, typed.Parameters)
 		}
+	case *telegramAPIResponse[telegramFile]:
+		if !typed.OK {
+			return telegramErrorFromAPI(method, typed.ErrorCode, typed.Description, typed.Parameters)
+		}
 	case *telegramAPIResponse[[]telegramUpdate]:
 		if !typed.OK {
 			return telegramErrorFromAPI(method, typed.ErrorCode, typed.Description, typed.Parameters)
@@ -924,50 +1027,6 @@ func telegramPollingConflictError(ownerConnectionID string) error {
 	return fmt.Errorf("%w: %s", ErrInvalidInput, message)
 }
 
-func inboundMessageFromTelegramUpdate(update telegramUpdate) (InboundMessage, error) {
-	if update.Message == nil {
-		return InboundMessage{}, ErrWebhookIgnored
-	}
-	if update.Message.From != nil && update.Message.From.IsBot {
-		return InboundMessage{}, ErrWebhookIgnored
-	}
-
-	text := strings.TrimSpace(update.Message.Text)
-	if text == "" {
-		return InboundMessage{}, ErrWebhookIgnored
-	}
-
-	username := ""
-	userID := ""
-	if update.Message.From != nil {
-		userID = strconv.FormatInt(update.Message.From.ID, 10)
-		username = firstNonEmpty(
-			strings.TrimSpace(update.Message.From.Username),
-			joinName(update.Message.From.FirstName, update.Message.From.LastName),
-		)
-	}
-
-	title := firstNonEmpty(
-		strings.TrimSpace(update.Message.Chat.Title),
-		strings.TrimSpace(update.Message.Chat.Username),
-		joinName(update.Message.Chat.FirstName, update.Message.Chat.LastName),
-		username,
-	)
-	chatID := strconv.FormatInt(update.Message.Chat.ID, 10)
-	threadID := telegramThreadID(update.Message.MessageThreadID)
-
-	return InboundMessage{
-		ConversationID:   telegramConversationID(chatID, threadID),
-		ExternalChatID:   chatID,
-		ExternalThreadID: threadID,
-		MessageID:        strconv.FormatInt(update.Message.MessageID, 10),
-		UserID:           userID,
-		Username:         username,
-		Title:            title,
-		Text:             text,
-	}, nil
-}
-
 func telegramConversationID(chatID string, threadID string) string {
 	trimmedChatID := strings.TrimSpace(chatID)
 	trimmedThreadID := strings.TrimSpace(threadID)
@@ -1117,6 +1176,17 @@ func (s *telegramStreamingReplySession) reconcile(
 	messages []OutboundMessage,
 	shrink bool,
 ) error {
+	if !shrink {
+		if err := validateTelegramStreamingUpdateMessages(messages); err != nil {
+			return err
+		}
+	}
+	if shrink && telegramMessagesContainMedia(messages) {
+		return s.completeWithMedia(ctx, messages)
+	}
+	if err := validateTelegramOutboundMessages(messages); err != nil {
+		return err
+	}
 	chunks := telegramMessageChunks(messages, telegramTextLimitRunes)
 	logBotDebug(ctx, s.connection, "telegram reconcile streaming reply",
 		slog.String("externalChatId", s.chatID),
@@ -1184,6 +1254,41 @@ func (s *telegramStreamingReplySession) reconcile(
 	s.messageIDs = append([]int64(nil), s.messageIDs[:len(chunks)]...)
 	s.lastChunks = append([]string(nil), s.lastChunks[:len(chunks)]...)
 	return nil
+}
+
+func (s *telegramStreamingReplySession) completeWithMedia(ctx context.Context, messages []OutboundMessage) error {
+	if err := validateTelegramOutboundMessages(messages); err != nil {
+		return err
+	}
+
+	logBotDebug(ctx, s.connection, "telegram completing streamed reply with media",
+		slog.String("externalChatId", s.chatID),
+		slog.String("externalThreadId", s.threadID),
+		slog.Int("messageCount", len(messages)),
+		slog.Any("messages", debugOutboundMessages(messages)),
+	)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for index := len(s.messageIDs) - 1; index >= 0; index-- {
+		logBotDebug(ctx, s.connection, "telegram deleting streamed chunk before final media send",
+			slog.String("externalChatId", s.chatID),
+			slog.String("externalThreadId", s.threadID),
+			slog.Int("chunkIndex", index),
+			slog.Int64("messageId", s.messageIDs[index]),
+		)
+		if err := s.provider.deleteTextMessage(ctx, s.token, s.chatID, s.messageIDs[index]); err != nil {
+			return err
+		}
+	}
+	s.messageIDs = nil
+	s.lastChunks = nil
+
+	return s.provider.SendMessages(ctx, s.connection, store.BotConversation{
+		ExternalChatID:   s.chatID,
+		ExternalThreadID: s.threadID,
+	}, messages)
 }
 
 func isTelegramMessageNotModified(err error) bool {

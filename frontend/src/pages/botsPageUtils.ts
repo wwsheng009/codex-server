@@ -1,7 +1,7 @@
 import type { CreateBotConnectionInput, UpdateBotConnectionInput } from '../features/bots/api'
 import { formatLocalizedDateTime } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
-import type { BotConnection, BotConversation, WeChatAccount } from '../types/api'
+import type { BotConnection, BotConversation, BotMessageMedia, WeChatAccount } from '../types/api'
 
 export const WECHAT_CHANNEL_TIMING_SETTING = 'wechat_channel_timing'
 export const WECHAT_CHANNEL_TIMING_ENABLED = 'enabled'
@@ -12,6 +12,46 @@ export const BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE = 'single_line'
 export const BOT_COMMAND_OUTPUT_MODE_BRIEF = 'brief'
 export const BOT_COMMAND_OUTPUT_MODE_DETAILED = 'detailed'
 export const BOT_COMMAND_OUTPUT_MODE_FULL = 'full'
+
+export type BotOutboundMediaKind = 'image' | 'video' | 'voice' | 'file'
+export type BotOutboundMediaSource = 'url' | 'path'
+export type BotOutboundMediaDeliveryMode = 'none' | 'unsupported' | 'single' | 'group' | 'sequential'
+export type BotOutboundMediaDeliveryReason =
+  | 'no_media'
+  | 'media_not_supported'
+  | 'single_item'
+  | 'group_supported'
+  | 'group_not_supported_by_connection'
+  | 'voice_not_groupable'
+  | 'mixed_document_with_visual_media'
+
+export type BotOutboundMediaDeliveryPlan = {
+  mode: BotOutboundMediaDeliveryMode
+  reason: BotOutboundMediaDeliveryReason
+}
+
+export type BotOutboundTextPlacement =
+  | 'none'
+  | 'text_only'
+  | 'caption_single'
+  | 'caption_group'
+  | 'separate_before_media'
+
+export type BotOutboundMediaLocationValidationIssue = '' | 'url_invalid' | 'path_must_be_absolute'
+export type BotOutboundMediaAdvisory =
+  | {
+      code: 'kind_mismatch'
+      source: 'location' | 'file_name' | 'content_type'
+      detectedKind: BotOutboundMediaKind
+    }
+  | {
+      code: 'metadata_mismatch'
+      nameKind: BotOutboundMediaKind
+      contentTypeKind: BotOutboundMediaKind
+    }
+
+export const BOT_OUTBOUND_MEDIA_KIND_ORDER: readonly BotOutboundMediaKind[] = ['image', 'video', 'voice', 'file']
+export const BOT_OUTBOUND_MEDIA_SOURCE_ORDER: readonly BotOutboundMediaSource[] = ['url', 'path']
 
 export type BotsPageDraft = {
   workspaceId: string
@@ -77,6 +117,308 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   openAIInstructions: '',
   openAIReasoning: 'medium',
   openAIStore: true,
+}
+
+function normalizeCapabilities(capabilities?: string[] | null) {
+  return new Set((capabilities ?? []).map((capability) => capability.trim()).filter(Boolean))
+}
+
+function normalizeBotOutboundMediaKind(value?: string | null): BotOutboundMediaKind {
+  switch ((value ?? '').trim().toLowerCase()) {
+    case 'image':
+      return 'image'
+    case 'video':
+      return 'video'
+    case 'voice':
+      return 'voice'
+    default:
+      return 'file'
+  }
+}
+
+export function listSupportedBotOutboundMediaKinds(capabilities?: string[] | null): BotOutboundMediaKind[] {
+  const normalized = normalizeCapabilities(capabilities)
+  if (!normalized.has('supportsMediaOutbound')) {
+    return []
+  }
+
+  return BOT_OUTBOUND_MEDIA_KIND_ORDER.filter((kind) => isBotOutboundMediaKindSupported(capabilities, kind))
+}
+
+export function listSupportedBotOutboundMediaSources(capabilities?: string[] | null): BotOutboundMediaSource[] {
+  const normalized = normalizeCapabilities(capabilities)
+  if (!normalized.has('supportsMediaOutbound')) {
+    return []
+  }
+
+  return BOT_OUTBOUND_MEDIA_SOURCE_ORDER.filter((source) => isBotOutboundMediaSourceSupported(capabilities, source))
+}
+
+export function isBotOutboundMediaKindSupported(
+  capabilities: string[] | null | undefined,
+  kind: BotOutboundMediaKind,
+) {
+  const normalized = normalizeCapabilities(capabilities)
+  if (!normalized.has('supportsMediaOutbound')) {
+    return false
+  }
+
+  switch (kind) {
+    case 'image':
+      return normalized.has('supportsImageOutbound')
+    case 'video':
+      return normalized.has('supportsVideoOutbound')
+    case 'voice':
+      return normalized.has('supportsVoiceOutbound')
+    case 'file':
+    default:
+      return (
+        normalized.has('supportsFileOutbound') ||
+        (!normalized.has('supportsImageOutbound') &&
+          !normalized.has('supportsVideoOutbound') &&
+          !normalized.has('supportsVoiceOutbound'))
+      )
+  }
+}
+
+export function isBotOutboundMediaSourceSupported(
+  capabilities: string[] | null | undefined,
+  source: BotOutboundMediaSource,
+) {
+  const normalized = normalizeCapabilities(capabilities)
+  if (!normalized.has('supportsMediaOutbound')) {
+    return false
+  }
+
+  switch (source) {
+    case 'path':
+      return normalized.has('supportsLocalMediaPathSource')
+    case 'url':
+    default:
+      return normalized.has('supportsRemoteMediaURLSource')
+  }
+}
+
+export function planBotOutboundMediaDelivery(
+  capabilities?: string[] | null,
+  media?: BotMessageMedia[] | null,
+): BotOutboundMediaDeliveryPlan {
+  const items = media ?? []
+  const normalized = normalizeCapabilities(capabilities)
+  if (!items.length) {
+    return { mode: 'none', reason: 'no_media' }
+  }
+  if (!normalized.has('supportsMediaOutbound')) {
+    return { mode: 'unsupported', reason: 'media_not_supported' }
+  }
+  if (items.length === 1) {
+    return { mode: 'single', reason: 'single_item' }
+  }
+  if (!normalized.has('supportsMediaGroup')) {
+    return { mode: 'sequential', reason: 'group_not_supported_by_connection' }
+  }
+
+  const kinds = items.map((item) => normalizeBotOutboundMediaKind(item.kind))
+  if (kinds.includes('voice')) {
+    return { mode: 'sequential', reason: 'voice_not_groupable' }
+  }
+
+  const hasDocument = kinds.includes('file')
+  const hasVisualMedia = kinds.includes('image') || kinds.includes('video')
+  if (hasDocument && hasVisualMedia) {
+    return { mode: 'sequential', reason: 'mixed_document_with_visual_media' }
+  }
+
+  return { mode: 'group', reason: 'group_supported' }
+}
+
+export function planBotOutboundTextPlacement(
+  text?: string | null,
+  media?: BotMessageMedia[] | null,
+  mediaDeliveryPlan?: BotOutboundMediaDeliveryPlan | null,
+): BotOutboundTextPlacement {
+  const trimmedText = text?.trim() ?? ''
+  const items = media ?? []
+  if (!trimmedText) {
+    return 'none'
+  }
+  if (!items.length) {
+    return 'text_only'
+  }
+
+  const textLength = Array.from(text ?? '').length
+  if (items.length === 1 && textLength <= 1024) {
+    return 'caption_single'
+  }
+  if (items.length > 1 && mediaDeliveryPlan?.mode === 'group' && textLength <= 1024) {
+    return 'caption_group'
+  }
+  return 'separate_before_media'
+}
+
+function isValidRemoteMediaURL(value: string) {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function isAbsoluteLocalMediaPath(value: string) {
+  if (!value) {
+    return false
+  }
+  if (/^file:\/\/.+/i.test(value)) {
+    return true
+  }
+  if (/^[A-Za-z]:[\\/]/.test(value)) {
+    return true
+  }
+  if (/^\\\\[^\\]+\\[^\\]+/.test(value)) {
+    return true
+  }
+  return value.startsWith('/')
+}
+
+export function validateBotOutboundMediaLocation(
+  source: BotOutboundMediaSource,
+  location?: string | null,
+): BotOutboundMediaLocationValidationIssue {
+  const trimmed = location?.trim() ?? ''
+  if (!trimmed) {
+    return ''
+  }
+  if (source === 'path') {
+    return isAbsoluteLocalMediaPath(trimmed) ? '' : 'path_must_be_absolute'
+  }
+  return isValidRemoteMediaURL(trimmed) ? '' : 'url_invalid'
+}
+
+function extractPathLikeName(value?: string | null) {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) {
+    return ''
+  }
+
+  let candidate = trimmed
+  try {
+    if (/^(https?|file):\/\//i.test(trimmed)) {
+      candidate = new URL(trimmed).pathname
+    }
+  } catch {
+    candidate = trimmed
+  }
+
+  const normalized = candidate.replace(/\\/g, '/').replace(/\/+$/, '')
+  const name = normalized.split('/').pop() ?? normalized
+  if (!name) {
+    return ''
+  }
+
+  try {
+    return decodeURIComponent(name)
+  } catch {
+    return name
+  }
+}
+
+function inferBotOutboundMediaKindFromPathLikeValue(value?: string | null): BotOutboundMediaKind | '' {
+  const name = extractPathLikeName(value).toLowerCase()
+  if (!name) {
+    return ''
+  }
+
+  const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
+  if (!extension) {
+    return ''
+  }
+
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'tif', 'tiff', 'heic', 'heif', 'avif'].includes(extension)) {
+    return 'image'
+  }
+  if (['mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'mpeg', 'mpg', '3gp'].includes(extension)) {
+    return 'video'
+  }
+  if (['ogg', 'oga', 'opus', 'mp3', 'm4a', 'aac', 'wav', 'flac', 'amr'].includes(extension)) {
+    return 'voice'
+  }
+  if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'json', 'xml', 'zip', 'md', 'rtf'].includes(extension)) {
+    return 'file'
+  }
+  return ''
+}
+
+function inferBotOutboundMediaKindFromContentType(value?: string | null): BotOutboundMediaKind | '' {
+  const normalized = value?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized.startsWith('image/')) {
+    return 'image'
+  }
+  if (normalized.startsWith('video/')) {
+    return 'video'
+  }
+  if (normalized.startsWith('audio/')) {
+    return 'voice'
+  }
+  if (
+    normalized.startsWith('text/') ||
+    normalized === 'application/pdf' ||
+    normalized === 'application/zip' ||
+    normalized === 'application/json' ||
+    normalized === 'application/xml' ||
+    normalized.endsWith('+json') ||
+    normalized.endsWith('+xml') ||
+    normalized.includes('msword') ||
+    normalized.includes('officedocument') ||
+    normalized.includes('spreadsheet') ||
+    normalized.includes('powerpoint')
+  ) {
+    return 'file'
+  }
+  return ''
+}
+
+export function collectBotOutboundMediaAdvisories(input: {
+  kind: BotOutboundMediaKind
+  location?: string | null
+  fileName?: string | null
+  contentType?: string | null
+}): BotOutboundMediaAdvisory[] {
+  const advisories: BotOutboundMediaAdvisory[] = []
+  const locationKind = inferBotOutboundMediaKindFromPathLikeValue(input.location)
+  const fileNameKind = inferBotOutboundMediaKindFromPathLikeValue(input.fileName)
+  const contentTypeKind = inferBotOutboundMediaKindFromContentType(input.contentType)
+  const effectiveNameKind = fileNameKind || locationKind
+
+  const addKindMismatch = (
+    source: Extract<BotOutboundMediaAdvisory, { code: 'kind_mismatch' }>['source'],
+    detectedKind: BotOutboundMediaKind | '',
+  ) => {
+    if (!detectedKind || input.kind === 'file' || detectedKind === input.kind) {
+      return
+    }
+    advisories.push({ code: 'kind_mismatch', source, detectedKind })
+  }
+
+  addKindMismatch('location', locationKind)
+  if (fileNameKind && fileNameKind !== locationKind) {
+    addKindMismatch('file_name', fileNameKind)
+  }
+  addKindMismatch('content_type', contentTypeKind)
+
+  if (effectiveNameKind && contentTypeKind && effectiveNameKind !== contentTypeKind) {
+    advisories.push({
+      code: 'metadata_mismatch',
+      nameKind: effectiveNameKind,
+      contentTypeKind,
+    })
+  }
+
+  return advisories
 }
 
 export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotConnectionInput {

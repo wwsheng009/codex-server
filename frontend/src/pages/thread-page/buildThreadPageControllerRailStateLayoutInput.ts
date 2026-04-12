@@ -1,4 +1,5 @@
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
+import { getErrorMessage } from '../../lib/error-utils'
 
 export function buildThreadPageControllerRailStateLayoutInput({
   controllerState,
@@ -22,6 +23,21 @@ export function buildThreadPageControllerRailStateLayoutInput({
     displayState.loadedMessageCount
 
   return {
+    botSendBinding: dataState.threadBotBindingQuery.data ?? null,
+    botSendBindingPending:
+      mutationState.bindThreadBotChannelMutation.isPending ||
+      mutationState.deleteThreadBotBindingMutation.isPending,
+    botSendBots: dataState.botSendBotsQuery.data ?? [],
+    botSendDeliveryTargets: dataState.botSendDeliveryTargetsQuery.data ?? [],
+    botSendErrorMessage: controllerState.botSendError,
+    botSendLoading:
+      dataState.botSendBotsQuery.isLoading ||
+      dataState.botSendDeliveryTargetsQuery.isLoading ||
+      dataState.threadBotBindingQuery.isLoading,
+    botSendPending: mutationState.sendBotDeliveryTargetOutboundMessageMutation.isPending,
+    botSendSelectedBotId: controllerState.botSendSelectedBotId,
+    botSendSelectedDeliveryTargetId: controllerState.botSendSelectedDeliveryTargetId,
+    botSendText: controllerState.botSendText,
     command: controllerState.command,
     commandRunMode: controllerState.commandRunMode,
     commandCount: dataState.commandSessions.length,
@@ -52,6 +68,11 @@ export function buildThreadPageControllerRailStateLayoutInput({
       dataState.workspaceRuntimeStateQuery.data?.configLoadStatus ?? 'not-tracked',
     runtimeRestartRequired:
       dataState.workspaceRuntimeStateQuery.data?.restartRequired ?? false,
+    hookConfiguration: dataState.hookConfigurationQuery.data ?? null,
+    hookConfigurationError: dataState.hookConfigurationQuery.error
+      ? getErrorMessage(dataState.hookConfigurationQuery.error)
+      : null,
+    hookConfigurationLoading: dataState.hookConfigurationQuery.isLoading,
     runtimeStartedAt: dataState.workspaceRuntimeStateQuery.data?.startedAt ?? undefined,
     runtimeUpdatedAt:
       dataState.workspaceRuntimeStateQuery.data?.updatedAt ??
@@ -67,6 +88,21 @@ export function buildThreadPageControllerRailStateLayoutInput({
       mutationState.startCommandMutation.isPending ||
       mutationState.threadShellCommandMutation.isPending,
     streamState: controllerState.streamState,
+    hookRuns: dataState.hookRunsQuery.data ?? [],
+    hookRunsError: dataState.hookRunsQuery.error
+      ? getErrorMessage(dataState.hookRunsQuery.error)
+      : null,
+    hookRunsLoading: dataState.hookRunsQuery.isLoading,
+    turnPolicyDecisions: dataState.turnPolicyDecisionsQuery.data ?? [],
+    turnPolicyDecisionsError: dataState.turnPolicyDecisionsQuery.error
+      ? getErrorMessage(dataState.turnPolicyDecisionsQuery.error)
+      : null,
+    turnPolicyDecisionsLoading: dataState.turnPolicyDecisionsQuery.isLoading,
+    turnPolicyMetrics: dataState.turnPolicyMetricsQuery.data ?? null,
+    turnPolicyMetricsError: dataState.turnPolicyMetricsQuery.error
+      ? getErrorMessage(dataState.turnPolicyMetricsQuery.error)
+      : null,
+    turnPolicyMetricsLoading: dataState.turnPolicyMetricsQuery.isLoading,
     totalMessageCount,
     totalTokens: displayState.contextUsage.totalTokens,
     totalTurnCount,

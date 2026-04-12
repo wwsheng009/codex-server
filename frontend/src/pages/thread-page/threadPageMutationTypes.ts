@@ -49,5 +49,14 @@ export type ThreadPageCommandMutationsInput = {
   workspaceId: string
 }
 
+export type ThreadPageBotMutationsInput = {
+  queryClient: QueryClient
+  setBotSendText: (value: string) => void
+  threadWorkspaceId: string
+  workspaceId: string
+}
+
 export type ThreadPageMutationsInput =
-  ThreadPageThreadMutationsInput & ThreadPageCommandMutationsInput
+  ThreadPageThreadMutationsInput &
+    ThreadPageCommandMutationsInput &
+    ThreadPageBotMutationsInput

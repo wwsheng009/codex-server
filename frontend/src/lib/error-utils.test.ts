@@ -18,6 +18,16 @@ describe('error-utils', () => {
     expect(getErrorMessage(new Error('Failed to fetch'))).toBe('Failed to fetch')
   })
 
+  it('remaps known Telegram validation codes to friendlier messages', () => {
+    const error = new ApiClientError('validation_error: telegram media file path must be absolute: relative/file.png', {
+      code: 'telegram_media_path_must_be_absolute',
+      status: 400,
+    })
+
+    expect(getErrorMessage(error)).toBe('Telegram attachments must use an absolute local file path.')
+    expect(describeError(error).message).toBe('Telegram attachments must use an absolute local file path.')
+  })
+
   it('returns an empty string when no error object exists', () => {
     expect(getErrorMessage(undefined)).toBe('')
     expect(getErrorMessage(null)).toBe('')
@@ -34,5 +44,14 @@ describe('error-utils', () => {
     })
 
     expect(getErrorMessage(error)).toContain('upstream exploded')
+  })
+
+  it('keeps raw backend messages for unknown validation codes', () => {
+    const error = new ApiClientError('telegram media file path must be a file', {
+      code: 'validation_error',
+      status: 400,
+    })
+
+    expect(getErrorMessage(error)).toBe('telegram media file path must be a file')
   })
 })

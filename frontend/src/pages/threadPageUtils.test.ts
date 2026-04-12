@@ -36,12 +36,14 @@ describe('threadPageUtils', () => {
 
   it('marks item deltas for thread detail refresh', () => {
     expect(shouldRefreshThreadDetailForEvent('item/agentMessage/delta')).toBe(true)
+    expect(shouldRefreshThreadDetailForEvent('turn/plan/updated')).toBe(true)
     expect(shouldRefreshThreadDetailForEvent('item/completed')).toBe(true)
     expect(shouldRefreshThreadDetailForEvent('workspace/connected')).toBe(false)
   })
 
   it('throttles only streaming item events', () => {
     expect(shouldThrottleThreadDetailRefreshForEvent('item/agentMessage/delta')).toBe(true)
+    expect(shouldThrottleThreadDetailRefreshForEvent('turn/plan/updated')).toBe(true)
     expect(shouldThrottleThreadDetailRefreshForEvent('item/reasoning/textDelta')).toBe(true)
     expect(shouldThrottleThreadDetailRefreshForEvent('turn/completed')).toBe(false)
   })
@@ -241,6 +243,35 @@ describe('threadPageUtils', () => {
         },
       ]),
     ).toBe('turn-5:reasoning-1:reasoning:16:15')
+  })
+
+  it('treats turn plan status items as renderable timeline entries', () => {
+    expect(
+      latestRenderableThreadItemKey([
+        {
+          id: 'turn-5b',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'turn-plan-turn-5b',
+              type: 'turnPlan',
+              explanation: 'Stabilize the event flow',
+              status: 'inProgress',
+              steps: [
+                {
+                  step: 'Inspect runtime events',
+                  status: 'completed',
+                },
+                {
+                  step: 'Render status badges',
+                  status: 'inProgress',
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-5b:turn-plan-turn-5b:turnPlan:inProgress:24:2:42')
   })
 
   it('collects thread display metrics in a single pass', () => {

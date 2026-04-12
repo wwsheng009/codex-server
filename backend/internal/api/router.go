@@ -5,7 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -21,11 +25,14 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/hooks"
+	"codex-server/backend/internal/memorydiag"
 	"codex-server/backend/internal/notifications"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/runtimeprefs"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
+	"codex-server/backend/internal/turnpolicies"
 	"codex-server/backend/internal/turns"
 	"codex-server/backend/internal/workspace"
 
@@ -44,6 +51,8 @@ type Dependencies struct {
 	Bots                 *bots.Service
 	Automations          *automations.Service
 	Notifications        *notifications.Service
+	Hooks                *hooks.Service
+	TurnPolicies         *turnpolicies.Service
 	Threads              *threads.Service
 	Turns                *turns.Service
 	Approvals            *approvals.Service
@@ -53,6 +62,7 @@ type Dependencies struct {
 	Feedback             *feedback.Service
 	Events               *events.Hub
 	RuntimePrefs         *runtimeprefs.Service
+	MemoryDiagnostics    *memorydiag.Service
 	AccessControl        *accesscontrol.Service
 }
 
@@ -64,6 +74,8 @@ type Server struct {
 	bots            *bots.Service
 	automations     *automations.Service
 	notifications   *notifications.Service
+	hooks           *hooks.Service
+	turnPolicies    *turnpolicies.Service
 	threads         *threads.Service
 	turns           *turns.Service
 	approvals       *approvals.Service
@@ -73,6 +85,7 @@ type Server struct {
 	feedback        *feedback.Service
 	events          *events.Hub
 	runtimePrefs    *runtimeprefs.Service
+	memoryDiag      *memorydiag.Service
 	accessControl   *accesscontrol.Service
 }
 
@@ -87,6 +100,8 @@ func NewRouter(deps Dependencies) http.Handler {
 		bots:            deps.Bots,
 		automations:     deps.Automations,
 		notifications:   deps.Notifications,
+		hooks:           deps.Hooks,
+		turnPolicies:    deps.TurnPolicies,
 		threads:         deps.Threads,
 		turns:           deps.Turns,
 		approvals:       deps.Approvals,
@@ -96,6 +111,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		feedback:        deps.Feedback,
 		events:          deps.Events,
 		runtimePrefs:    deps.RuntimePrefs,
+		memoryDiag:      deps.MemoryDiagnostics,
 		accessControl:   deps.AccessControl,
 	}
 
@@ -129,6 +145,8 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/runtime/preferences", server.handleReadRuntimePreferences)
 			r.Post("/runtime/preferences", server.handleWriteRuntimePreferences)
 			r.Post("/runtime/preferences/import-model-catalog", server.handleImportRuntimeModelCatalog)
+			r.Get("/runtime/memory", server.handleGetRuntimeMemory)
+			r.Get("/runtime/memory/heap", server.handleGetRuntimeMemoryHeapProfile)
 
 			r.Route("/automations", func(r chi.Router) {
 				r.Get("/", server.handleListAutomations)
@@ -153,6 +171,11 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Post("/notifications/read-all", server.handleReadAllNotifications)
 			r.Post("/notifications/{notificationId}/read", server.handleReadNotification)
 			r.Delete("/notifications/read", server.handleDeleteReadNotifications)
+			r.Get("/bots", server.handleListAllBots)
+			r.Get("/bot-connections", server.handleListAllBotConnections)
+			r.Get("/bot-connections/{connectionId}", server.handleGetBotConnectionByID)
+			r.Get("/bot-connections/{connectionId}/logs", server.handleListBotConnectionLogsByID)
+			r.Get("/bot-providers/wechat/accounts", server.handleListAllWeChatAccounts)
 
 			r.Route("/workspaces", func(r chi.Router) {
 				r.Get("/", server.handleListWorkspaces)
@@ -190,6 +213,11 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/{workspaceId}/mcp-server-status", server.handleListMcpServerStatus)
 				r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
 				r.Get("/{workspaceId}/collaboration-modes", server.handleListCollaborationModes)
+				r.Get("/{workspaceId}/turn-policy-decisions", server.handleListTurnPolicyDecisions)
+				r.Get("/{workspaceId}/hook-configuration", server.handleGetHookConfiguration)
+				r.Post("/{workspaceId}/hook-configuration", server.handleWriteHookConfiguration)
+				r.Get("/{workspaceId}/hook-runs", server.handleListHookRuns)
+				r.Get("/{workspaceId}/turn-policy-metrics", server.handleGetTurnPolicyMetrics)
 				r.Get("/{workspaceId}/stream", server.handleWorkspaceStream)
 				r.Route("/{workspaceId}/bot-connections", func(r chi.Router) {
 					r.Get("/", server.handleListBotConnections)
@@ -212,8 +240,22 @@ func NewRouter(deps Dependencies) http.Handler {
 				})
 				r.Route("/{workspaceId}/bots", func(r chi.Router) {
 					r.Get("/", server.handleListBots)
+					r.Post("/", server.handleCreateBot)
 					r.Route("/{botId}", func(r chi.Router) {
 						r.Get("/bindings", server.handleListBotBindings)
+						r.Get("/triggers", server.handleListBotTriggers)
+						r.Get("/delivery-targets", server.handleListBotDeliveryTargets)
+						r.Get("/outbound-deliveries", server.handleListBotOutboundDeliveries)
+						r.Get("/outbound-deliveries/{deliveryId}", server.handleGetBotOutboundDelivery)
+						r.Post("/connections", server.handleCreateBotConnectionForBot)
+						r.Post("/triggers", server.handleCreateBotTrigger)
+						r.Post("/triggers/{triggerId}", server.handleUpdateBotTrigger)
+						r.Delete("/triggers/{triggerId}", server.handleDeleteBotTrigger)
+						r.Post("/delivery-targets", server.handleUpsertBotDeliveryTarget)
+						r.Post("/delivery-targets/{targetId}", server.handleUpdateBotDeliveryTarget)
+						r.Delete("/delivery-targets/{targetId}", server.handleDeleteBotDeliveryTarget)
+						r.Post("/delivery-targets/{targetId}/outbound-messages", server.handleSendBotDeliveryTargetOutboundMessages)
+						r.Post("/sessions/{sessionId}/outbound-messages", server.handleSendBotSessionOutboundMessages)
 						r.Post("/default-binding", server.handleUpdateBotDefaultBinding)
 					})
 				})
@@ -230,6 +272,7 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/loaded", server.handleListLoadedThreads)
 					r.Post("/", server.handleCreateThread)
 					r.Get("/{threadId}", server.handleGetThread)
+					r.Get("/{threadId}/bot-channel-binding", server.handleGetThreadBotBinding)
 					r.Get("/{threadId}/turns/{turnId}", server.handleGetThreadTurn)
 					r.Get("/{threadId}/turns/{turnId}/items/{itemId}", server.handleGetThreadTurnItem)
 					r.Get("/{threadId}/turns/{turnId}/items/{itemId}/output", server.handleGetThreadTurnItemOutput)
@@ -243,6 +286,8 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Post("/{threadId}/rollback", server.handleRollbackThread)
 					r.Post("/{threadId}/compact", server.handleCompactThread)
 					r.Post("/{threadId}/shell-command", server.handleThreadShellCommand)
+					r.Post("/{threadId}/bot-channel-binding", server.handleUpsertThreadBotBinding)
+					r.Delete("/{threadId}/bot-channel-binding", server.handleDeleteThreadBotBinding)
 					r.Post("/{threadId}/turns", server.handleStartTurn)
 					r.Post("/{threadId}/turns/steer", server.handleSteerTurn)
 					r.Post("/{threadId}/turns/interrupt", server.handleInterruptTurn)
@@ -327,22 +372,127 @@ func (s *Server) handleReadRuntimePreferences(w http.ResponseWriter, _ *http.Req
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleGetRuntimeMemory(w http.ResponseWriter, r *http.Request) {
+	if s.memoryDiag == nil {
+		writeError(w, http.StatusServiceUnavailable, "memory_diagnostics_unavailable", "memory diagnostics are unavailable")
+		return
+	}
+
+	forceGC := false
+	if raw := strings.TrimSpace(r.URL.Query().Get("gc")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "gc must be a boolean value")
+			return
+		}
+		forceGC = parsed
+	}
+
+	topN := 10
+	if raw := strings.TrimSpace(r.URL.Query().Get("top")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			writeError(w, http.StatusBadRequest, "bad_request", "top must be a positive integer")
+			return
+		}
+		if parsed > 50 {
+			parsed = 50
+		}
+		topN = parsed
+	}
+
+	writeJSON(w, http.StatusOK, s.memoryDiag.Capture(memorydiag.CaptureOptions{
+		TopN:    topN,
+		ForceGC: forceGC,
+	}))
+}
+
+func (s *Server) handleGetRuntimeMemoryHeapProfile(w http.ResponseWriter, r *http.Request) {
+	forceGC := false
+	if raw := strings.TrimSpace(r.URL.Query().Get("gc")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "gc must be a boolean value")
+			return
+		}
+		forceGC = parsed
+	}
+	if forceGC {
+		runtime.GC()
+		debug.FreeOSMemory()
+	}
+
+	debugLevel := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("debug")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 || parsed > 1 {
+			writeError(w, http.StatusBadRequest, "bad_request", "debug must be 0 or 1")
+			return
+		}
+		debugLevel = parsed
+	}
+
+	profile := pprof.Lookup("heap")
+	if profile == nil {
+		writeError(w, http.StatusServiceUnavailable, "heap_profile_unavailable", "heap profile is unavailable")
+		return
+	}
+
+	filename := "codex-server-heap.pprof"
+	contentType := "application/octet-stream"
+	if debugLevel == 1 {
+		filename = "codex-server-heap.txt"
+		contentType = "text/plain; charset=utf-8"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	if err := profile.WriteTo(w, debugLevel); err != nil {
+		return
+	}
+}
+
 func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		ModelCatalogPath                 string                     `json:"modelCatalogPath"`
-		DefaultShellType                 string                     `json:"defaultShellType"`
-		DefaultTerminalShell             string                     `json:"defaultTerminalShell"`
-		ModelShellTypeOverrides          map[string]string          `json:"modelShellTypeOverrides"`
-		OutboundProxyURL                 string                     `json:"outboundProxyUrl"`
-		DefaultTurnApprovalPolicy        string                     `json:"defaultTurnApprovalPolicy"`
-		DefaultTurnSandboxPolicy         map[string]any             `json:"defaultTurnSandboxPolicy"`
-		DefaultCommandSandboxPolicy      map[string]any             `json:"defaultCommandSandboxPolicy"`
-		AllowRemoteAccess                *bool                      `json:"allowRemoteAccess"`
-		AllowLocalhostWithoutAccessToken *bool                      `json:"allowLocalhostWithoutAccessToken"`
-		AccessTokens                     []accesscontrol.TokenInput `json:"accessTokens"`
-		BackendThreadTraceEnabled        *bool                      `json:"backendThreadTraceEnabled"`
-		BackendThreadTraceWorkspaceID    string                     `json:"backendThreadTraceWorkspaceId"`
-		BackendThreadTraceThreadID       string                     `json:"backendThreadTraceThreadId"`
+		ModelCatalogPath                                                         string                                            `json:"modelCatalogPath"`
+		DefaultShellType                                                         string                                            `json:"defaultShellType"`
+		DefaultTerminalShell                                                     string                                            `json:"defaultTerminalShell"`
+		ModelShellTypeOverrides                                                  map[string]string                                 `json:"modelShellTypeOverrides"`
+		OutboundProxyURL                                                         string                                            `json:"outboundProxyUrl"`
+		DefaultTurnApprovalPolicy                                                string                                            `json:"defaultTurnApprovalPolicy"`
+		DefaultTurnSandboxPolicy                                                 map[string]any                                    `json:"defaultTurnSandboxPolicy"`
+		DefaultCommandSandboxPolicy                                              map[string]any                                    `json:"defaultCommandSandboxPolicy"`
+		HookSessionStartEnabled                                                  *bool                                             `json:"hookSessionStartEnabled"`
+		HookSessionStartContextPaths                                             []string                                          `json:"hookSessionStartContextPaths"`
+		HookSessionStartMaxChars                                                 *int                                              `json:"hookSessionStartMaxChars"`
+		HookUserPromptSubmitBlockSecretPasteEnabled                              *bool                                             `json:"hookUserPromptSubmitBlockSecretPasteEnabled"`
+		HookPreToolUseBlockDangerousCommandEnabled                               *bool                                             `json:"hookPreToolUseBlockDangerousCommandEnabled"`
+		HookPreToolUseAdditionalProtectedGovernancePaths                         []string                                          `json:"hookPreToolUseAdditionalProtectedGovernancePaths"`
+		TurnPolicyPostToolUseFailedValidationEnabled                             *bool                                             `json:"turnPolicyPostToolUseFailedValidationEnabled"`
+		TurnPolicyStopMissingSuccessfulVerificationEnabled                       *bool                                             `json:"turnPolicyStopMissingSuccessfulVerificationEnabled"`
+		TurnPolicyPostToolUsePrimaryAction                                       string                                            `json:"turnPolicyPostToolUsePrimaryAction"`
+		TurnPolicyStopMissingSuccessfulVerificationPrimaryAction                 string                                            `json:"turnPolicyStopMissingSuccessfulVerificationPrimaryAction"`
+		TurnPolicyPostToolUseInterruptNoActiveTurnBehavior                       string                                            `json:"turnPolicyPostToolUseInterruptNoActiveTurnBehavior"`
+		TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior string                                            `json:"turnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior"`
+		TurnPolicyValidationCommandPrefixes                                      []string                                          `json:"turnPolicyValidationCommandPrefixes"`
+		TurnPolicyFollowUpCooldownMs                                             *int64                                            `json:"turnPolicyFollowUpCooldownMs"`
+		TurnPolicyPostToolUseFollowUpCooldownMs                                  *int64                                            `json:"turnPolicyPostToolUseFollowUpCooldownMs"`
+		TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs            *int64                                            `json:"turnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs"`
+		TurnPolicyAlertCoverageThresholdPercent                                  *int                                              `json:"turnPolicyAlertCoverageThresholdPercent"`
+		TurnPolicyAlertPostToolUseLatencyP95ThresholdMs                          *int64                                            `json:"turnPolicyAlertPostToolUseLatencyP95ThresholdMs"`
+		TurnPolicyAlertStopLatencyP95ThresholdMs                                 *int64                                            `json:"turnPolicyAlertStopLatencyP95ThresholdMs"`
+		TurnPolicyAlertSourceActionSuccessThresholdPercent                       *int                                              `json:"turnPolicyAlertSourceActionSuccessThresholdPercent"`
+		TurnPolicyAlertSuppressedCodes                                           []string                                          `json:"turnPolicyAlertSuppressedCodes"`
+		TurnPolicyAlertAcknowledgedCodes                                         []string                                          `json:"turnPolicyAlertAcknowledgedCodes"`
+		TurnPolicyAlertSnoozedCodes                                              []string                                          `json:"turnPolicyAlertSnoozedCodes"`
+		TurnPolicyAlertSnoozeUntil                                               *time.Time                                        `json:"turnPolicyAlertSnoozeUntil"`
+		TurnPolicyAlertGovernanceEvent                                           *runtimeprefs.TurnPolicyAlertGovernanceEventInput `json:"turnPolicyAlertGovernanceEvent"`
+		AllowRemoteAccess                                                        *bool                                             `json:"allowRemoteAccess"`
+		AllowLocalhostWithoutAccessToken                                         *bool                                             `json:"allowLocalhostWithoutAccessToken"`
+		AccessTokens                                                             []accesscontrol.TokenInput                        `json:"accessTokens"`
+		BackendThreadTraceEnabled                                                *bool                                             `json:"backendThreadTraceEnabled"`
+		BackendThreadTraceWorkspaceID                                            string                                            `json:"backendThreadTraceWorkspaceId"`
+		BackendThreadTraceThreadID                                               string                                            `json:"backendThreadTraceThreadId"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -351,20 +501,45 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 	}
 
 	result, err := s.runtimePrefs.Write(runtimeprefs.WriteInput{
-		ModelCatalogPath:                 request.ModelCatalogPath,
-		DefaultShellType:                 request.DefaultShellType,
-		DefaultTerminalShell:             request.DefaultTerminalShell,
-		ModelShellTypeOverrides:          request.ModelShellTypeOverrides,
-		OutboundProxyURL:                 request.OutboundProxyURL,
-		DefaultTurnApprovalPolicy:        request.DefaultTurnApprovalPolicy,
-		DefaultTurnSandboxPolicy:         request.DefaultTurnSandboxPolicy,
-		DefaultCommandSandboxPolicy:      request.DefaultCommandSandboxPolicy,
-		AllowRemoteAccess:                request.AllowRemoteAccess,
-		AllowLocalhostWithoutAccessToken: request.AllowLocalhostWithoutAccessToken,
-		AccessTokens:                     request.AccessTokens,
-		BackendThreadTraceEnabled:        request.BackendThreadTraceEnabled,
-		BackendThreadTraceWorkspaceID:    request.BackendThreadTraceWorkspaceID,
-		BackendThreadTraceThreadID:       request.BackendThreadTraceThreadID,
+		ModelCatalogPath:                                                         request.ModelCatalogPath,
+		DefaultShellType:                                                         request.DefaultShellType,
+		DefaultTerminalShell:                                                     request.DefaultTerminalShell,
+		ModelShellTypeOverrides:                                                  request.ModelShellTypeOverrides,
+		OutboundProxyURL:                                                         request.OutboundProxyURL,
+		DefaultTurnApprovalPolicy:                                                request.DefaultTurnApprovalPolicy,
+		DefaultTurnSandboxPolicy:                                                 request.DefaultTurnSandboxPolicy,
+		DefaultCommandSandboxPolicy:                                              request.DefaultCommandSandboxPolicy,
+		HookSessionStartEnabled:                                                  request.HookSessionStartEnabled,
+		HookSessionStartContextPaths:                                             request.HookSessionStartContextPaths,
+		HookSessionStartMaxChars:                                                 request.HookSessionStartMaxChars,
+		HookUserPromptSubmitBlockSecretPasteEnabled:                              request.HookUserPromptSubmitBlockSecretPasteEnabled,
+		HookPreToolUseBlockDangerousCommandEnabled:                               request.HookPreToolUseBlockDangerousCommandEnabled,
+		HookPreToolUseAdditionalProtectedGovernancePaths:                         request.HookPreToolUseAdditionalProtectedGovernancePaths,
+		TurnPolicyPostToolUseFailedValidationEnabled:                             request.TurnPolicyPostToolUseFailedValidationEnabled,
+		TurnPolicyStopMissingSuccessfulVerificationEnabled:                       request.TurnPolicyStopMissingSuccessfulVerificationEnabled,
+		TurnPolicyPostToolUsePrimaryAction:                                       request.TurnPolicyPostToolUsePrimaryAction,
+		TurnPolicyStopMissingSuccessfulVerificationPrimaryAction:                 request.TurnPolicyStopMissingSuccessfulVerificationPrimaryAction,
+		TurnPolicyPostToolUseInterruptNoActiveTurnBehavior:                       request.TurnPolicyPostToolUseInterruptNoActiveTurnBehavior,
+		TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior: request.TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior,
+		TurnPolicyValidationCommandPrefixes:                                      request.TurnPolicyValidationCommandPrefixes,
+		TurnPolicyFollowUpCooldownMs:                                             request.TurnPolicyFollowUpCooldownMs,
+		TurnPolicyPostToolUseFollowUpCooldownMs:                                  request.TurnPolicyPostToolUseFollowUpCooldownMs,
+		TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs:            request.TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs,
+		TurnPolicyAlertCoverageThresholdPercent:                                  request.TurnPolicyAlertCoverageThresholdPercent,
+		TurnPolicyAlertPostToolUseLatencyP95ThresholdMs:                          request.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs,
+		TurnPolicyAlertStopLatencyP95ThresholdMs:                                 request.TurnPolicyAlertStopLatencyP95ThresholdMs,
+		TurnPolicyAlertSourceActionSuccessThresholdPercent:                       request.TurnPolicyAlertSourceActionSuccessThresholdPercent,
+		TurnPolicyAlertSuppressedCodes:                                           request.TurnPolicyAlertSuppressedCodes,
+		TurnPolicyAlertAcknowledgedCodes:                                         request.TurnPolicyAlertAcknowledgedCodes,
+		TurnPolicyAlertSnoozedCodes:                                              request.TurnPolicyAlertSnoozedCodes,
+		TurnPolicyAlertSnoozeUntil:                                               request.TurnPolicyAlertSnoozeUntil,
+		TurnPolicyAlertGovernanceEvent:                                           request.TurnPolicyAlertGovernanceEvent,
+		AllowRemoteAccess:                                                        request.AllowRemoteAccess,
+		AllowLocalhostWithoutAccessToken:                                         request.AllowLocalhostWithoutAccessToken,
+		AccessTokens:                                                             request.AccessTokens,
+		BackendThreadTraceEnabled:                                                request.BackendThreadTraceEnabled,
+		BackendThreadTraceWorkspaceID:                                            request.BackendThreadTraceWorkspaceID,
+		BackendThreadTraceThreadID:                                               request.BackendThreadTraceThreadID,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "runtime_preferences_invalid", err.Error())
@@ -692,12 +867,149 @@ func (s *Server) handleDeleteReadNotifications(w http.ResponseWriter, _ *http.Re
 	writeJSON(w, http.StatusOK, s.notifications.DeleteRead())
 }
 
+func (s *Server) handleListTurnPolicyDecisions(w http.ResponseWriter, r *http.Request) {
+	if s.turnPolicies == nil {
+		writeJSON(w, http.StatusOK, []store.TurnPolicyDecision{})
+		return
+	}
+
+	limit, err := parseOptionalPositiveIntQuery(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid limit query")
+		return
+	}
+
+	decisions, err := s.turnPolicies.List(
+		chi.URLParam(r, "workspaceId"),
+		turnpolicies.ListOptions{
+			ThreadID:      r.URL.Query().Get("threadId"),
+			PolicyName:    r.URL.Query().Get("policyName"),
+			Action:        r.URL.Query().Get("action"),
+			ActionStatus:  r.URL.Query().Get("actionStatus"),
+			TriggerMethod: r.URL.Query().Get("triggerMethod"),
+			Source:        r.URL.Query().Get("source"),
+			Reason:        r.URL.Query().Get("reason"),
+			Limit:         limit,
+		},
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, decisions)
+}
+
+func (s *Server) handleListHookRuns(w http.ResponseWriter, r *http.Request) {
+	if s.hooks == nil {
+		writeJSON(w, http.StatusOK, []store.HookRun{})
+		return
+	}
+
+	limit, err := parseOptionalPositiveIntQuery(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid limit query")
+		return
+	}
+
+	runs, err := s.hooks.List(
+		chi.URLParam(r, "workspaceId"),
+		hooks.ListOptions{
+			RunID:      r.URL.Query().Get("runId"),
+			ThreadID:   r.URL.Query().Get("threadId"),
+			EventName:  r.URL.Query().Get("eventName"),
+			Status:     r.URL.Query().Get("status"),
+			HandlerKey: r.URL.Query().Get("handlerKey"),
+			Limit:      limit,
+		},
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, runs)
+}
+
+func (s *Server) handleGetHookConfiguration(w http.ResponseWriter, r *http.Request) {
+	if s.hooks == nil {
+		writeError(w, http.StatusServiceUnavailable, "hooks_unavailable", "hooks service is unavailable")
+		return
+	}
+
+	result, err := s.hooks.ReadConfiguration(chi.URLParam(r, "workspaceId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWriteHookConfiguration(w http.ResponseWriter, r *http.Request) {
+	if s.hooks == nil {
+		writeError(w, http.StatusServiceUnavailable, "hooks_unavailable", "hooks service is unavailable")
+		return
+	}
+
+	var request hooks.WorkspaceConfigOverrides
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.hooks.WriteConfiguration(chi.URLParam(r, "workspaceId"), request)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkspaceNotFound) {
+			s.writeStoreError(w, err)
+			return
+		}
+		writeError(w, http.StatusBadRequest, "hook_configuration_invalid", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleGetTurnPolicyMetrics(w http.ResponseWriter, r *http.Request) {
+	source := strings.TrimSpace(r.URL.Query().Get("source"))
+	if s.turnPolicies == nil {
+		writeJSON(w, http.StatusOK, turnpolicies.MetricsSummary{
+			WorkspaceID: chi.URLParam(r, "workspaceId"),
+			ThreadID:    strings.TrimSpace(r.URL.Query().Get("threadId")),
+			Source:      source,
+			Alerts:      []turnpolicies.MetricsAlert{},
+		})
+		return
+	}
+
+	summary, err := s.turnPolicies.Metrics(
+		chi.URLParam(r, "workspaceId"),
+		strings.TrimSpace(r.URL.Query().Get("threadId")),
+		source,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
 func (s *Server) handleListBotConnections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.bots.ListConnections(chi.URLParam(r, "workspaceId")))
 }
 
+func (s *Server) handleListAllBotConnections(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.bots.ListAllConnections())
+}
+
 func (s *Server) handleListBots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.bots.ListBots(chi.URLParam(r, "workspaceId")))
+}
+
+func (s *Server) handleListAllBots(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.bots.ListAllBots())
 }
 
 func (s *Server) handleListBotBindings(w http.ResponseWriter, r *http.Request) {
@@ -708,6 +1020,208 @@ func (s *Server) handleListBotBindings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, bindings)
+}
+
+func (s *Server) handleListBotTriggers(w http.ResponseWriter, r *http.Request) {
+	triggers, err := s.bots.ListTriggers(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "botId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, triggers)
+}
+
+func (s *Server) handleListBotDeliveryTargets(w http.ResponseWriter, r *http.Request) {
+	targets, err := s.bots.ListDeliveryTargets(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "botId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, targets)
+}
+
+func (s *Server) handleListBotOutboundDeliveries(w http.ResponseWriter, r *http.Request) {
+	deliveries, err := s.bots.ListOutboundDeliveries(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "botId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, deliveries)
+}
+
+func (s *Server) handleGetBotOutboundDelivery(w http.ResponseWriter, r *http.Request) {
+	delivery, err := s.bots.GetOutboundDelivery(
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		chi.URLParam(r, "deliveryId"),
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, delivery)
+}
+
+func (s *Server) handleUpsertBotDeliveryTarget(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpsertDeliveryTargetInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	target, err := s.bots.UpsertDeliveryTarget(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, target)
+}
+
+func (s *Server) handleUpdateBotDeliveryTarget(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpsertDeliveryTargetInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	target, err := s.bots.UpdateDeliveryTarget(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		chi.URLParam(r, "targetId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, target)
+}
+
+func (s *Server) handleCreateBotTrigger(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpsertBotTriggerInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	trigger, err := s.bots.CreateTrigger(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, trigger)
+}
+
+func (s *Server) handleUpdateBotTrigger(w http.ResponseWriter, r *http.Request) {
+	var request bots.UpsertBotTriggerInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	trigger, err := s.bots.UpdateTrigger(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		chi.URLParam(r, "triggerId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, trigger)
+}
+
+func (s *Server) handleDeleteBotTrigger(w http.ResponseWriter, r *http.Request) {
+	if err := s.bots.DeleteTrigger(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		chi.URLParam(r, "triggerId"),
+	); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleDeleteBotDeliveryTarget(w http.ResponseWriter, r *http.Request) {
+	if err := s.bots.DeleteDeliveryTarget(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		chi.URLParam(r, "targetId"),
+	); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleSendBotSessionOutboundMessages(w http.ResponseWriter, r *http.Request) {
+	var request bots.SendOutboundMessagesInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	delivery, err := s.bots.SendSessionOutboundMessages(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		chi.URLParam(r, "sessionId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, delivery)
+}
+
+func (s *Server) handleSendBotDeliveryTargetOutboundMessages(w http.ResponseWriter, r *http.Request) {
+	var request bots.SendOutboundMessagesInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	delivery, err := s.bots.SendDeliveryTargetOutboundMessages(
+		r.Context(),
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "botId"),
+		chi.URLParam(r, "targetId"),
+		request,
+	)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, delivery)
 }
 
 func (s *Server) handleUpdateBotDefaultBinding(w http.ResponseWriter, r *http.Request) {
@@ -749,8 +1263,55 @@ func (s *Server) handleCreateBotConnection(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, connection)
 }
 
+func (s *Server) handleCreateBot(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+
+	var request bots.CreateBotInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	bot, err := s.bots.CreateBot(workspaceID, request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, bot)
+}
+
+func (s *Server) handleCreateBotConnectionForBot(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	botID := chi.URLParam(r, "botId")
+
+	var request bots.CreateConnectionInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	connection, err := s.bots.CreateConnectionForBot(r.Context(), workspaceID, botID, request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, connection)
+}
+
 func (s *Server) handleGetBotConnection(w http.ResponseWriter, r *http.Request) {
 	connection, err := s.bots.GetConnection(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, connection)
+}
+
+func (s *Server) handleGetBotConnectionByID(w http.ResponseWriter, r *http.Request) {
+	connection, err := s.bots.GetConnectionByID(chi.URLParam(r, "connectionId"))
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -782,6 +1343,16 @@ func (s *Server) handleUpdateBotConnection(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleListBotConnectionLogs(w http.ResponseWriter, r *http.Request) {
 	logs, err := s.bots.ListConnectionLogs(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, logs)
+}
+
+func (s *Server) handleListBotConnectionLogsByID(w http.ResponseWriter, r *http.Request) {
+	logs, err := s.bots.ListConnectionLogsByID(chi.URLParam(r, "connectionId"))
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -980,6 +1551,10 @@ func (s *Server) handleListWeChatAccounts(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleListAllWeChatAccounts(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.bots.ListAllWeChatAccounts())
+}
+
 func (s *Server) handleUpdateWeChatAccount(w http.ResponseWriter, r *http.Request) {
 	var request bots.UpdateWeChatAccountInput
 	if err := decodeJSON(r, &request); err != nil {
@@ -1116,20 +1691,27 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 
 	var request struct {
-		Name             string `json:"name"`
-		Model            string `json:"model"`
-		PermissionPreset string `json:"permissionPreset"`
+		Name               string `json:"name"`
+		Model              string `json:"model"`
+		PermissionPreset   string `json:"permissionPreset"`
+		SessionStartSource string `json:"sessionStartSource"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
 		return
 	}
+	sessionStartSource := threads.NormalizeThreadStartSource(request.SessionStartSource)
+	if strings.TrimSpace(request.SessionStartSource) != "" && sessionStartSource == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid sessionStartSource")
+		return
+	}
 
 	thread, err := s.threads.Create(r.Context(), workspaceID, threads.CreateInput{
-		Name:             request.Name,
-		Model:            request.Model,
-		PermissionPreset: request.PermissionPreset,
+		Name:               request.Name,
+		Model:              request.Model,
+		PermissionPreset:   request.PermissionPreset,
+		SessionStartSource: sessionStartSource,
 	})
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -1366,12 +1948,200 @@ func (s *Server) handleThreadShellCommand(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ThreadID:      threadID,
+		ToolKind:      "shellCommand",
+		ToolName:      "thread/shellCommand",
+		TriggerMethod: "thread/shellCommand",
+		Scope:         "thread",
+		Command:       request.Command,
+	}) {
+		return
+	}
+
 	if err := s.threads.ShellCommand(r.Context(), workspaceID, threadID, request.Command); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) allowPreToolUse(w http.ResponseWriter, r *http.Request, input hooks.PreToolUseInput) bool {
+	if s.hooks == nil {
+		return true
+	}
+
+	result, err := s.hooks.EvaluatePreToolUse(r.Context(), input)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return false
+	}
+	if result.Blocked {
+		writeError(w, http.StatusForbidden, "pretool_blocked", result.Reason)
+		return false
+	}
+
+	return true
+}
+
+func (s *Server) allowExternalAgentImportPreToolUse(
+	w http.ResponseWriter,
+	r *http.Request,
+	workspaceID string,
+	migrationItems []map[string]any,
+) bool {
+	for _, item := range migrationItems {
+		input, ok := preToolUseInputFromExternalAgentMigrationItem(workspaceID, item)
+		if !ok {
+			continue
+		}
+		if !s.allowPreToolUse(w, r, input) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (s *Server) publishWorkspaceHTTPMutationAudit(
+	r *http.Request,
+	workspaceID string,
+	payload map[string]any,
+) {
+	if s.events == nil || strings.TrimSpace(workspaceID) == "" {
+		return
+	}
+
+	eventPayload := make(map[string]any, len(payload)+2)
+	for key, value := range payload {
+		eventPayload[key] = value
+	}
+	requestKind, _ := eventPayload["requestKind"].(string)
+	scope, _ := eventPayload["scope"].(string)
+	eventPayload["requestKind"] = firstNonEmptyString(requestKind, "httpMutation")
+	eventPayload["scope"] = firstNonEmptyString(scope, "workspace")
+
+	if requestID := strings.TrimSpace(middleware.GetReqID(r.Context())); requestID != "" {
+		eventPayload["requestId"] = requestID
+	}
+
+	threadID := firstNonEmptyString(
+		firstNonEmptyObjectString(eventPayload, "threadId", "threadID"),
+	)
+	turnID := firstNonEmptyString(
+		firstNonEmptyObjectString(eventPayload, "turnId", "turnID"),
+	)
+
+	s.events.Publish(store.EventEnvelope{
+		WorkspaceID: workspaceID,
+		ThreadID:    threadID,
+		TurnID:      turnID,
+		Method:      "workspace/httpMutation",
+		Payload:     eventPayload,
+		TS:          time.Now().UTC(),
+	})
+}
+
+func (s *Server) publishThreadTurnActionAudit(
+	r *http.Request,
+	workspaceID string,
+	threadID string,
+	turnID string,
+	triggerMethod string,
+	toolKind string,
+	reason string,
+	status string,
+) {
+	if strings.TrimSpace(workspaceID) == "" || strings.TrimSpace(threadID) == "" {
+		return
+	}
+
+	contextParts := []string{"threadId=" + threadID}
+	if trimmedStatus := strings.TrimSpace(status); trimmedStatus != "" {
+		contextParts = append(contextParts, "status="+trimmedStatus)
+	}
+
+	s.publishWorkspaceHTTPMutationAudit(r, workspaceID, map[string]any{
+		"threadId":      threadID,
+		"turnId":        strings.TrimSpace(turnID),
+		"triggerMethod": triggerMethod,
+		"toolKind":      toolKind,
+		"toolName":      triggerMethod,
+		"scope":         "thread",
+		"requestKind":   "turnAction",
+		"reason":        reason,
+		"context":       strings.Join(contextParts, " "),
+	})
+}
+
+func preToolUseInputFromExternalAgentMigrationItem(
+	workspaceID string,
+	item map[string]any,
+) (hooks.PreToolUseInput, bool) {
+	targetPath := firstNonEmptyObjectString(
+		item,
+		"targetPath",
+		"target_path",
+		"destinationPath",
+		"destination_path",
+		"path",
+		"filePath",
+		"file_path",
+	)
+	sourcePath := firstNonEmptyObjectString(
+		item,
+		"sourcePath",
+		"source_path",
+		"fromPath",
+		"from_path",
+	)
+
+	if targetPath == "" && sourcePath == "" {
+		return hooks.PreToolUseInput{}, false
+	}
+
+	input := hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "externalAgentImport",
+		ToolName:      "external-agent/import",
+		TriggerMethod: "external-agent/import",
+		Scope:         "workspace",
+	}
+
+	if targetPath != "" && sourcePath != "" {
+		input.TargetPath = sourcePath
+		input.DestinationPath = targetPath
+		return input, true
+	}
+
+	input.TargetPath = firstNonEmptyString(targetPath, sourcePath)
+	return input, true
+}
+
+func firstNonEmptyObjectString(item map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := item[key]
+		if !ok {
+			continue
+		}
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		}
+	}
+
+	return ""
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return ""
 }
 
 func parseOptionalPositiveIntQuery(value string) (int, error) {
@@ -1402,6 +2172,50 @@ func parseOptionalBoolQuery(value string) (*bool, error) {
 	return &parsedValue, nil
 }
 
+func (s *Server) handleGetThreadBotBinding(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+
+	binding, err := s.bots.GetThreadBotBinding(workspaceID, threadID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, binding)
+}
+
+func (s *Server) handleUpsertThreadBotBinding(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+
+	var request bots.UpsertThreadBotBindingInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	binding, err := s.bots.UpsertThreadBotBinding(r.Context(), workspaceID, threadID, request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, binding)
+}
+
+func (s *Server) handleDeleteThreadBotBinding(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	threadID := chi.URLParam(r, "threadId")
+
+	if err := s.bots.DeleteThreadBotBinding(r.Context(), workspaceID, threadID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	threadID := chi.URLParam(r, "threadId")
@@ -1419,15 +2233,54 @@ func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.turns.Start(r.Context(), workspaceID, threadID, request.Input, turns.StartOptions{
-		Model:             request.Model,
-		ReasoningEffort:   request.ReasoningEffort,
-		PermissionPreset:  request.PermissionPreset,
-		CollaborationMode: request.CollaborationMode,
-	})
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
+	var (
+		result turns.Result
+		err    error
+	)
+	if s.hooks != nil {
+		governedResult, governedErr := s.hooks.StartGovernedTurn(r.Context(), hooks.GovernedTurnStartInput{
+			WorkspaceID:   workspaceID,
+			ThreadID:      threadID,
+			Input:         request.Input,
+			TriggerMethod: "turn/start",
+			Scope:         "thread",
+			RequestID:     strings.TrimSpace(middleware.GetReqID(r.Context())),
+			Options: turns.StartOptions{
+				Model:                      request.Model,
+				ReasoningEffort:            request.ReasoningEffort,
+				PermissionPreset:           request.PermissionPreset,
+				CollaborationMode:          request.CollaborationMode,
+				ResponsesAPIClientMetadata: turns.InteractiveStartMetadata(workspaceID, threadID),
+			},
+		})
+		if governedErr != nil {
+			s.writeStoreError(w, governedErr)
+			return
+		}
+		if governedResult.Blocked {
+			writeError(w, http.StatusForbidden, "userprompt_blocked", governedResult.Reason)
+			return
+		}
+		result = governedResult.Turn
+	} else {
+		result, err = s.turns.Start(r.Context(), workspaceID, threadID, request.Input, turns.StartOptions{
+			Model:                      request.Model,
+			ReasoningEffort:            request.ReasoningEffort,
+			PermissionPreset:           request.PermissionPreset,
+			CollaborationMode:          request.CollaborationMode,
+			ResponsesAPIClientMetadata: turns.InteractiveStartMetadata(workspaceID, threadID),
+		})
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+	}
+
+	if s.bots != nil && strings.TrimSpace(result.TurnID) != "" {
+		if err := s.bots.RegisterThreadBoundTurn(workspaceID, threadID, result.TurnID); err != nil &&
+			!errors.Is(err, store.ErrThreadBotBindingNotFound) {
+			_ = err
+		}
 	}
 
 	writeJSON(w, http.StatusAccepted, result)
@@ -1446,12 +2299,45 @@ func (s *Server) handleSteerTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.turns.Steer(r.Context(), workspaceID, threadID, request.Input)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
+	var (
+		result turns.Result
+		err    error
+	)
+	if s.hooks != nil {
+		governedResult, governedErr := s.hooks.SteerGovernedTurn(r.Context(), hooks.GovernedTurnSteerInput{
+			WorkspaceID:   workspaceID,
+			ThreadID:      threadID,
+			Input:         request.Input,
+			TriggerMethod: "turn/steer",
+			Scope:         "thread",
+			RequestID:     strings.TrimSpace(middleware.GetReqID(r.Context())),
+		})
+		if governedErr != nil {
+			s.writeStoreError(w, governedErr)
+			return
+		}
+		if governedResult.Blocked {
+			writeError(w, http.StatusForbidden, "userprompt_blocked", governedResult.Reason)
+			return
+		}
+		result = governedResult.Turn
+	} else {
+		result, err = s.turns.Steer(r.Context(), workspaceID, threadID, request.Input)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		s.publishThreadTurnActionAudit(
+			r,
+			workspaceID,
+			threadID,
+			result.TurnID,
+			"turn/steer",
+			"turnSteer",
+			"turn_steer_audited",
+			result.Status,
+		)
 	}
-
 	writeJSON(w, http.StatusAccepted, result)
 }
 
@@ -1459,10 +2345,39 @@ func (s *Server) handleInterruptTurn(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	threadID := chi.URLParam(r, "threadId")
 
-	result, err := s.turns.Interrupt(r.Context(), workspaceID, threadID)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
+	var (
+		result turns.Result
+		err    error
+	)
+	if s.hooks != nil {
+		governedResult, governedErr := s.hooks.InterruptGovernedTurn(r.Context(), hooks.GovernedTurnInterruptInput{
+			WorkspaceID:   workspaceID,
+			ThreadID:      threadID,
+			TriggerMethod: "turn/interrupt",
+			Scope:         "thread",
+			RequestID:     strings.TrimSpace(middleware.GetReqID(r.Context())),
+		})
+		if governedErr != nil {
+			s.writeStoreError(w, governedErr)
+			return
+		}
+		result = governedResult.Turn
+	} else {
+		result, err = s.turns.Interrupt(r.Context(), workspaceID, threadID)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		s.publishThreadTurnActionAudit(
+			r,
+			workspaceID,
+			threadID,
+			result.TurnID,
+			"turn/interrupt",
+			"turnInterrupt",
+			"turn_interrupt_audited",
+			result.Status,
+		)
 	}
 
 	writeJSON(w, http.StatusAccepted, result)
@@ -1472,10 +2387,39 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	threadID := chi.URLParam(r, "threadId")
 
-	result, err := s.turns.Review(r.Context(), workspaceID, threadID)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
+	var (
+		result turns.Result
+		err    error
+	)
+	if s.hooks != nil {
+		governedResult, governedErr := s.hooks.StartGovernedReview(r.Context(), hooks.GovernedReviewStartInput{
+			WorkspaceID:   workspaceID,
+			ThreadID:      threadID,
+			TriggerMethod: "review/start",
+			Scope:         "thread",
+			RequestID:     strings.TrimSpace(middleware.GetReqID(r.Context())),
+		})
+		if governedErr != nil {
+			s.writeStoreError(w, governedErr)
+			return
+		}
+		result = governedResult.Turn
+	} else {
+		result, err = s.turns.Review(r.Context(), workspaceID, threadID)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		s.publishThreadTurnActionAudit(
+			r,
+			workspaceID,
+			threadID,
+			result.TurnID,
+			"review/start",
+			"reviewStart",
+			"review_start_audited",
+			result.Status,
+		)
 	}
 
 	writeJSON(w, http.StatusAccepted, result)
@@ -1524,6 +2468,17 @@ func (s *Server) handleStartCommand(w http.ResponseWriter, r *http.Request) {
 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "commandExecution",
+		ToolName:      "command/exec",
+		TriggerMethod: "command/exec",
+		Scope:         "workspace",
+		Command:       request.Command,
+	}) {
 		return
 	}
 
@@ -1702,6 +2657,17 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "fileWrite",
+		ToolName:      "fs/writeFile",
+		TriggerMethod: "fs/write",
+		Scope:         "workspace",
+		TargetPath:    request.Path,
+	}) {
+		return
+	}
+
 	result, err := s.execfs.WriteFile(r.Context(), workspaceID, request.Path, request.Content)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -1766,6 +2732,17 @@ func (s *Server) handleFSMkdir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "directoryCreate",
+		ToolName:      "fs/mkdir",
+		TriggerMethod: "fs/mkdir",
+		Scope:         "workspace",
+		TargetPath:    request.Path,
+	}) {
+		return
+	}
+
 	result, err := s.execfs.CreateDirectory(r.Context(), workspaceID, request.Path, request.Recursive)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -1789,6 +2766,17 @@ func (s *Server) handleFSRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "pathRemove",
+		ToolName:      "fs/remove",
+		TriggerMethod: "fs/remove",
+		Scope:         "workspace",
+		TargetPath:    request.Path,
+	}) {
+		return
+	}
+
 	result, err := s.execfs.RemovePath(r.Context(), workspaceID, request.Path, request.Recursive, request.Force)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -1809,6 +2797,18 @@ func (s *Server) handleFSCopy(w http.ResponseWriter, r *http.Request) {
 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:     workspaceID,
+		ToolKind:        "pathCopy",
+		ToolName:        "fs/copy",
+		TriggerMethod:   "fs/copy",
+		Scope:           "workspace",
+		TargetPath:      request.SourcePath,
+		DestinationPath: request.DestinationPath,
+	}) {
 		return
 	}
 
@@ -1851,6 +2851,17 @@ func (s *Server) handleWriteSkillConfig(w http.ResponseWriter, r *http.Request) 
 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "skillConfigWrite",
+		ToolName:      "skills/config/write",
+		TriggerMethod: "skills/config/write",
+		Scope:         "workspace",
+		TargetPath:    request.Path,
+	}) {
 		return
 	}
 
@@ -1919,6 +2930,17 @@ func (s *Server) handleConfigWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "configWrite",
+		ToolName:      "config/value/write",
+		TriggerMethod: "config/write",
+		Scope:         "workspace",
+		TargetPath:    request.FilePath,
+	}) {
+		return
+	}
+
 	result, err := s.configfs.WriteConfigValue(r.Context(), workspaceID, request.FilePath, request.KeyPath, request.MergeStrategy, request.Value)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -1947,6 +2969,17 @@ func (s *Server) handleConfigBatchWrite(w http.ResponseWriter, r *http.Request) 
 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "configBatchWrite",
+		ToolName:      "config/batchWrite",
+		TriggerMethod: "config/batch-write",
+		Scope:         "workspace",
+		TargetPath:    request.FilePath,
+	}) {
 		return
 	}
 
@@ -2051,6 +3084,15 @@ func (s *Server) handleConfigRequirementsRead(w http.ResponseWriter, r *http.Req
 func (s *Server) handleConfigMcpServerReload(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 
+	s.publishWorkspaceHTTPMutationAudit(r, workspaceID, map[string]any{
+		"triggerMethod": "config/mcp-server/reload",
+		"toolKind":      "configMcpServerReload",
+		"toolName":      "config/mcp-server/reload",
+		"reason":        "config_mcp_server_reload_audited",
+		"context":       "Reload MCP servers",
+		"fingerprint":   "config/mcp-server/reload",
+	})
+
 	if err := s.configfs.ReloadMcpServers(r.Context(), workspaceID); err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -2095,7 +3137,19 @@ func (s *Server) handleWindowsSandboxSetupStart(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	result, err := s.configfs.StartWindowsSandboxSetup(r.Context(), workspaceID, request.Mode)
+	mode := strings.TrimSpace(request.Mode)
+	if mode != "" {
+		s.publishWorkspaceHTTPMutationAudit(r, workspaceID, map[string]any{
+			"triggerMethod": "windows-sandbox/setup-start",
+			"toolKind":      "windowsSandboxSetupStart",
+			"toolName":      "windows-sandbox/setup-start",
+			"reason":        "windows_sandbox_setup_start_audited",
+			"context":       "mode=" + mode,
+			"fingerprint":   "windows-sandbox/setup-start\x00" + mode,
+		})
+	}
+
+	result, err := s.configfs.StartWindowsSandboxSetup(r.Context(), workspaceID, mode)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -2134,6 +3188,10 @@ func (s *Server) handleExternalAgentConfigImport(w http.ResponseWriter, r *http.
 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if !s.allowExternalAgentImportPreToolUse(w, r, workspaceID, request.MigrationItems) {
 		return
 	}
 
@@ -2180,6 +3238,17 @@ func (s *Server) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "pluginInstall",
+		ToolName:      "plugins/install",
+		TriggerMethod: "plugins/install",
+		Scope:         "workspace",
+		TargetPath:    request.MarketplacePath,
+	}) {
+		return
+	}
+
 	result, err := s.catalog.InstallPlugin(r.Context(), workspaceID, request.MarketplacePath, request.PluginName)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -2198,6 +3267,17 @@ func (s *Server) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if !s.allowPreToolUse(w, r, hooks.PreToolUseInput{
+		WorkspaceID:   workspaceID,
+		ToolKind:      "pluginUninstall",
+		ToolName:      "plugins/uninstall",
+		TriggerMethod: "plugins/uninstall",
+		Scope:         "workspace",
+		TargetPath:    request.PluginID,
+	}) {
 		return
 	}
 
@@ -2422,14 +3502,22 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "bot_not_found", err.Error())
 	case errors.Is(err, store.ErrBotBindingNotFound):
 		writeError(w, http.StatusNotFound, "bot_binding_not_found", err.Error())
+	case errors.Is(err, store.ErrThreadBotBindingNotFound):
+		writeError(w, http.StatusNotFound, "thread_bot_binding_not_found", err.Error())
+	case errors.Is(err, store.ErrBotTriggerNotFound):
+		writeError(w, http.StatusNotFound, "bot_trigger_not_found", err.Error())
 	case errors.Is(err, store.ErrBotConnectionNotFound):
 		writeError(w, http.StatusNotFound, "bot_connection_not_found", err.Error())
 	case errors.Is(err, store.ErrWeChatAccountNotFound):
 		writeError(w, http.StatusNotFound, "wechat_account_not_found", err.Error())
 	case errors.Is(err, store.ErrBotConversationNotFound):
 		writeError(w, http.StatusNotFound, "bot_conversation_not_found", err.Error())
+	case errors.Is(err, store.ErrBotDeliveryTargetNotFound):
+		writeError(w, http.StatusNotFound, "bot_delivery_target_not_found", err.Error())
 	case errors.Is(err, store.ErrBotInboundDeliveryNotFound):
 		writeError(w, http.StatusNotFound, "bot_inbound_delivery_not_found", err.Error())
+	case errors.Is(err, store.ErrBotOutboundDeliveryNotFound):
+		writeError(w, http.StatusNotFound, "bot_outbound_delivery_not_found", err.Error())
 	case errors.Is(err, bots.ErrWeChatLoginNotFound):
 		writeError(w, http.StatusNotFound, "wechat_login_not_found", err.Error())
 	case errors.Is(err, execfs.ErrCommandSessionNotFound):
@@ -2439,7 +3527,7 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, automations.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, bots.ErrInvalidInput), errors.Is(err, bots.ErrPublicBaseURLMissing):
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		writeError(w, http.StatusBadRequest, botValidationErrorCode(err), err.Error())
 	case errors.Is(err, bots.ErrProviderNotSupported), errors.Is(err, bots.ErrAIBackendUnsupported):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, automations.ErrImmutableTemplate):
@@ -2460,6 +3548,24 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnauthorized, "requires_openai_auth", "OpenAI authentication is required. Reconnect the account or update the API key.")
 	default:
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
+	}
+}
+
+func botValidationErrorCode(err error) string {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+
+	switch {
+	case strings.Contains(message, "telegram streaming updates only support text until completion"):
+		return "telegram_streaming_media_updates_not_supported"
+	case strings.Contains(message, "telegram media file path must be absolute"):
+		return "telegram_media_path_must_be_absolute"
+	case strings.Contains(message, "telegram media requires a remote url or absolute local path"):
+		return "telegram_media_source_required"
+	case strings.Contains(message, "telegram media url must be an absolute http(s) url"),
+		strings.Contains(message, "telegram media url must use http or https"):
+		return "telegram_media_url_invalid"
+	default:
+		return "validation_error"
 	}
 }
 

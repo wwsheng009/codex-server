@@ -43,6 +43,7 @@ const turnIdSetCache = new WeakMap<ThreadTurn[], Set<string>>()
 const turnMetadataCache = new WeakMap<ThreadTurn, TurnMetadata>()
 const pendingTurnMetadataCache = new WeakMap<PendingThreadTurn, PendingTurnMetadata>()
 const turnArrayCache = new WeakMap<ThreadTurn[], TurnArrayCacheEntry>()
+const THREAD_GOVERNANCE_TURN_ID = 'thread-governance'
 
 export function buildThreadPageTurnDisplayState({
   activePendingTurn,
@@ -72,8 +73,8 @@ export function buildThreadPageTurnDisplayState({
   }
 
   const metrics = collectThreadDisplayMetrics(displayedTurns)
-  const latestDisplayedTurn = displayedTurns[displayedTurns.length - 1]
-  const turnCount = displayedTurns.length
+  const latestDisplayedTurn = findLatestDisplayTurn(displayedTurns)
+  const turnCount = countDisplayableTurns(displayedTurns)
   const threadContentSignature = buildThreadContentSignature({
     latestRenderableItemKey: metrics.latestRenderableItemKey,
     latestTurnId: latestDisplayedTurn?.id ?? '',
@@ -101,6 +102,31 @@ export function buildThreadPageTurnDisplayState({
 
   setCachedTurnDisplayStateResult(displayedTurns, selectedThreadCacheKey, activePendingTurn, result)
   return result
+}
+
+function countDisplayableTurns(turns: ThreadTurn[]) {
+  let count = 0
+  for (const turn of turns) {
+    if (isSyntheticGovernanceTurn(turn)) {
+      continue
+    }
+    count += 1
+  }
+  return count
+}
+
+function findLatestDisplayTurn(turns: ThreadTurn[]) {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (!isSyntheticGovernanceTurn(turns[index])) {
+      return turns[index]
+    }
+  }
+
+  return turns[turns.length - 1]
+}
+
+function isSyntheticGovernanceTurn(turn: ThreadTurn | undefined) {
+  return turn?.id === THREAD_GOVERNANCE_TURN_ID
 }
 
 function getCachedTurnDisplayStateResult(

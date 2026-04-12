@@ -9,6 +9,7 @@ import {
   formatShellEnvironmentInheritLabel,
   formatWindowsCommandResolutionLabel,
 } from '../../i18n/display'
+import { formatSessionStartSource } from '../../lib/hook-run-display'
 import { ConversationRenderProfilerRailToggle } from '../../components/workspace/threadConversationProfiler'
 import { i18n } from '../../i18n/runtime'
 import type { ThreadWorkbenchRailWorkspaceContextSectionProps } from './threadWorkbenchRailTypes'
@@ -628,6 +629,14 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
               '—'
             )
           }
+        />
+        <DetailRow
+          label={
+            <InfoLabel
+              label={i18n._({ id: 'Session Start Source', message: 'Session Start Source' })}
+            />
+          }
+          value={formatSessionStartSource(selectedThread?.sessionStartSource)}
         />
         <DetailRow
           emphasis

@@ -457,9 +457,10 @@ func (s *Service) startRun(ctx context.Context, automation store.Automation, tri
 	}
 
 	result, err := s.turns.Start(ctx, automation.WorkspaceID, threadID, automation.Prompt, turns.StartOptions{
-		Model:            automation.Model,
-		ReasoningEffort:  automation.Reasoning,
-		PermissionPreset: "full-access",
+		Model:                      automation.Model,
+		ReasoningEffort:            automation.Reasoning,
+		PermissionPreset:           "full-access",
+		ResponsesAPIClientMetadata: turns.AutomationStartMetadata(automation.WorkspaceID, threadID, automation.ID, run.ID, trigger),
 	})
 	if err != nil {
 		s.failRun(run.ID, automation, "Failed to start automation turn", err)

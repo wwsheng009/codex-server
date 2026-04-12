@@ -185,6 +185,17 @@ type AIResult struct {
 	BackendState map[string]string
 }
 
+type CreateBotInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type UpsertThreadBotBindingInput struct {
+	BotWorkspaceID   string `json:"botWorkspaceId,omitempty"`
+	BotID            string `json:"botId"`
+	DeliveryTargetID string `json:"deliveryTargetId"`
+}
+
 type CreateConnectionInput struct {
 	Provider      string            `json:"provider"`
 	Name          string            `json:"name"`
@@ -222,9 +233,10 @@ type UpdateWeChatChannelTimingInput struct {
 }
 
 type UpdateConversationBindingInput struct {
-	ThreadID     string `json:"threadId"`
-	CreateThread bool   `json:"createThread"`
-	Title        string `json:"title"`
+	ThreadID          string `json:"threadId"`
+	CreateThread      bool   `json:"createThread"`
+	Title             string `json:"title"`
+	TargetWorkspaceID string `json:"targetWorkspaceId"`
 }
 
 type UpdateBotDefaultBindingInput struct {
@@ -234,25 +246,59 @@ type UpdateBotDefaultBindingInput struct {
 	Name              string `json:"name"`
 }
 
+type UpsertBotTriggerInput struct {
+	Type             string            `json:"type"`
+	DeliveryTargetID string            `json:"deliveryTargetId"`
+	Filter           map[string]string `json:"filter,omitempty"`
+	Enabled          *bool             `json:"enabled,omitempty"`
+}
+
+type UpsertDeliveryTargetInput struct {
+	EndpointID    string            `json:"endpointId"`
+	SessionID     string            `json:"sessionId,omitempty"`
+	TargetType    string            `json:"targetType"`
+	RouteType     string            `json:"routeType,omitempty"`
+	RouteKey      string            `json:"routeKey,omitempty"`
+	Title         string            `json:"title,omitempty"`
+	Labels        []string          `json:"labels,omitempty"`
+	Capabilities  []string          `json:"capabilities,omitempty"`
+	ProviderState map[string]string `json:"providerState,omitempty"`
+	Status        string            `json:"status,omitempty"`
+}
+
+type SendOutboundMessagesInput struct {
+	SessionID         string                  `json:"sessionId,omitempty"`
+	DeliveryTargetID  string                  `json:"deliveryTargetId,omitempty"`
+	SourceType        string                  `json:"sourceType"`
+	TriggerID         string                  `json:"triggerId,omitempty"`
+	SourceRefType     string                  `json:"sourceRefType,omitempty"`
+	SourceRefID       string                  `json:"sourceRefId,omitempty"`
+	OriginWorkspaceID string                  `json:"originWorkspaceId,omitempty"`
+	OriginThreadID    string                  `json:"originThreadId,omitempty"`
+	OriginTurnID      string                  `json:"originTurnId,omitempty"`
+	IdempotencyKey    string                  `json:"idempotencyKey,omitempty"`
+	Messages          []store.BotReplyMessage `json:"messages"`
+}
+
 type UpdateWeChatAccountInput struct {
 	Alias string `json:"alias"`
 	Note  string `json:"note"`
 }
 
 type BotView struct {
-	ID                     string     `json:"id"`
-	WorkspaceID            string     `json:"workspaceId"`
-	Name                   string     `json:"name"`
-	Description            string     `json:"description,omitempty"`
-	Status                 string     `json:"status"`
-	DefaultBindingID       string     `json:"defaultBindingId,omitempty"`
-	DefaultBindingMode     string     `json:"defaultBindingMode,omitempty"`
-	DefaultTargetWorkspace string     `json:"defaultTargetWorkspaceId,omitempty"`
-	DefaultTargetThreadID  string     `json:"defaultTargetThreadId,omitempty"`
-	EndpointCount          int        `json:"endpointCount"`
-	ConversationCount      int        `json:"conversationCount"`
-	CreatedAt              time.Time  `json:"createdAt"`
-	UpdatedAt              time.Time  `json:"updatedAt"`
+	ID                     string    `json:"id"`
+	WorkspaceID            string    `json:"workspaceId"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description,omitempty"`
+	Status                 string    `json:"status"`
+	DefaultBindingID       string    `json:"defaultBindingId,omitempty"`
+	DefaultBindingMode     string    `json:"defaultBindingMode,omitempty"`
+	DefaultTargetWorkspace string    `json:"defaultTargetWorkspaceId,omitempty"`
+	DefaultTargetThreadID  string    `json:"defaultTargetThreadId,omitempty"`
+	EndpointCount          int       `json:"endpointCount"`
+	ConversationCount      int       `json:"conversationCount"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 type BotBindingView struct {
@@ -268,6 +314,37 @@ type BotBindingView struct {
 	IsDefault         bool              `json:"isDefault"`
 	CreatedAt         time.Time         `json:"createdAt"`
 	UpdatedAt         time.Time         `json:"updatedAt"`
+}
+
+type ThreadBotBindingView struct {
+	ID                       string    `json:"id"`
+	WorkspaceID              string    `json:"workspaceId"`
+	ThreadID                 string    `json:"threadId"`
+	BotWorkspaceID           string    `json:"botWorkspaceId,omitempty"`
+	BotID                    string    `json:"botId"`
+	BotName                  string    `json:"botName"`
+	DeliveryTargetID         string    `json:"deliveryTargetId"`
+	DeliveryTargetTitle      string    `json:"deliveryTargetTitle,omitempty"`
+	EndpointID               string    `json:"endpointId"`
+	Provider                 string    `json:"provider"`
+	SessionID                string    `json:"sessionId,omitempty"`
+	DeliveryReadiness        string    `json:"deliveryReadiness,omitempty"`
+	DeliveryReadinessMessage string    `json:"deliveryReadinessMessage,omitempty"`
+	Status                   string    `json:"status"`
+	CreatedAt                time.Time `json:"createdAt"`
+	UpdatedAt                time.Time `json:"updatedAt"`
+}
+
+type BotTriggerView struct {
+	ID               string            `json:"id"`
+	WorkspaceID      string            `json:"workspaceId"`
+	BotID            string            `json:"botId"`
+	Type             string            `json:"type"`
+	DeliveryTargetID string            `json:"deliveryTargetId"`
+	Filter           map[string]string `json:"filter,omitempty"`
+	Enabled          bool              `json:"enabled"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
 }
 
 type WeChatAccountView struct {
@@ -294,6 +371,7 @@ type ConnectionView struct {
 	AIBackend       string            `json:"aiBackend"`
 	AIConfig        map[string]string `json:"aiConfig,omitempty"`
 	Settings        map[string]string `json:"settings,omitempty"`
+	Capabilities    []string          `json:"capabilities,omitempty"`
 	SecretKeys      []string          `json:"secretKeys,omitempty"`
 	LastError       string            `json:"lastError,omitempty"`
 	LastPollAt      *time.Time        `json:"lastPollAt,omitempty"`
@@ -330,6 +408,53 @@ type ConversationView struct {
 	LastOutboundDeliveredAt          *time.Time `json:"lastOutboundDeliveredAt,omitempty"`
 	CreatedAt                        time.Time  `json:"createdAt"`
 	UpdatedAt                        time.Time  `json:"updatedAt"`
+}
+
+type DeliveryTargetView struct {
+	ID                       string            `json:"id"`
+	BotID                    string            `json:"botId"`
+	EndpointID               string            `json:"endpointId"`
+	SessionID                string            `json:"sessionId,omitempty"`
+	Provider                 string            `json:"provider"`
+	TargetType               string            `json:"targetType"`
+	RouteType                string            `json:"routeType,omitempty"`
+	RouteKey                 string            `json:"routeKey,omitempty"`
+	Title                    string            `json:"title,omitempty"`
+	Labels                   []string          `json:"labels,omitempty"`
+	Capabilities             []string          `json:"capabilities,omitempty"`
+	ProviderState            map[string]string `json:"providerState,omitempty"`
+	Status                   string            `json:"status"`
+	DeliveryReadiness        string            `json:"deliveryReadiness,omitempty"`
+	DeliveryReadinessMessage string            `json:"deliveryReadinessMessage,omitempty"`
+	LastContextSeenAt        *time.Time        `json:"lastContextSeenAt,omitempty"`
+	LastVerifiedAt           *time.Time        `json:"lastVerifiedAt,omitempty"`
+	CreatedAt                time.Time         `json:"createdAt"`
+	UpdatedAt                time.Time         `json:"updatedAt"`
+}
+
+type OutboundDeliveryView struct {
+	ID                 string                  `json:"id"`
+	BotID              string                  `json:"botId"`
+	EndpointID         string                  `json:"endpointId"`
+	SessionID          string                  `json:"sessionId,omitempty"`
+	DeliveryTargetID   string                  `json:"deliveryTargetId,omitempty"`
+	RunID              string                  `json:"runId,omitempty"`
+	TriggerID          string                  `json:"triggerId,omitempty"`
+	SourceType         string                  `json:"sourceType"`
+	SourceRefType      string                  `json:"sourceRefType,omitempty"`
+	SourceRefID        string                  `json:"sourceRefId,omitempty"`
+	OriginWorkspaceID  string                  `json:"originWorkspaceId,omitempty"`
+	OriginThreadID     string                  `json:"originThreadId,omitempty"`
+	OriginTurnID       string                  `json:"originTurnId,omitempty"`
+	Messages           []store.BotReplyMessage `json:"messages,omitempty"`
+	Status             string                  `json:"status"`
+	AttemptCount       int                     `json:"attemptCount,omitempty"`
+	IdempotencyKey     string                  `json:"idempotencyKey,omitempty"`
+	ProviderMessageIDs []string                `json:"providerMessageIds,omitempty"`
+	LastError          string                  `json:"lastError,omitempty"`
+	CreatedAt          time.Time               `json:"createdAt"`
+	UpdatedAt          time.Time               `json:"updatedAt"`
+	DeliveredAt        *time.Time              `json:"deliveredAt,omitempty"`
 }
 
 type WebhookResult struct {

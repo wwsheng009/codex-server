@@ -1,6 +1,7 @@
 package bots
 
 import (
+	"strings"
 	"testing"
 
 	"codex-server/backend/internal/store"
@@ -156,5 +157,61 @@ func TestFilterWeChatMarkdownTextRemovesRulesAndLinks(t *testing.T) {
 	expected := "Title\nVisit docs and old text."
 	if got := filterWeChatMarkdownText(input); got != expected {
 		t.Fatalf("expected filtered markdown %q, got %q", expected, got)
+	}
+}
+
+func TestPrepareInboundMessageForAINonAttachmentProtocolProviderAppendsMediaSummary(t *testing.T) {
+	t.Parallel()
+
+	prepared := prepareInboundMessageForAI(store.BotConnection{
+		Provider: "fakechat",
+	}, InboundMessage{
+		Text: "please inspect this",
+		Media: []store.BotMessageMedia{
+			{
+				Kind:        botMediaKindImage,
+				FileName:    "photo.jpg",
+				ContentType: "image/jpeg",
+			},
+		},
+	})
+
+	if !strings.Contains(prepared.Text, "please inspect this") {
+		t.Fatalf("expected prepared text to keep original text, got %q", prepared.Text)
+	}
+	if !strings.Contains(prepared.Text, "[Image attachment]") {
+		t.Fatalf("expected prepared text to include media summary, got %q", prepared.Text)
+	}
+	if !strings.Contains(prepared.Text, "file_name: photo.jpg") {
+		t.Fatalf("expected prepared text to include file name summary, got %q", prepared.Text)
+	}
+	if strings.Contains(prepared.Text, telegramAIOutboundMediaNote) {
+		t.Fatalf("did not expect non-attachment provider text to include telegram note, got %q", prepared.Text)
+	}
+}
+
+func TestPrepareInboundMessageForAINonAttachmentProtocolProviderUsesMediaSummaryWhenTextMissing(t *testing.T) {
+	t.Parallel()
+
+	prepared := prepareInboundMessageForAI(store.BotConnection{
+		Provider: "fakechat",
+	}, InboundMessage{
+		Media: []store.BotMessageMedia{
+			{
+				Kind:        botMediaKindFile,
+				FileName:    "report.pdf",
+				ContentType: "application/pdf",
+			},
+		},
+	})
+
+	if !strings.Contains(prepared.Text, "[File attachment]") {
+		t.Fatalf("expected prepared text to fall back to media summary, got %q", prepared.Text)
+	}
+	if !strings.Contains(prepared.Text, "file_name: report.pdf") {
+		t.Fatalf("expected prepared text to include file name summary, got %q", prepared.Text)
+	}
+	if strings.Contains(prepared.Text, telegramAIOutboundMediaNote) {
+		t.Fatalf("did not expect non-attachment provider text to include telegram note, got %q", prepared.Text)
 	}
 }

@@ -33,6 +33,7 @@ import {
   RailIcon,
   RailIconButton,
   ResizeHandle,
+  SendIcon,
   SettingsIcon,
   SparkIcon,
   TerminalIcon,
@@ -69,26 +70,37 @@ import { getActiveLocale, i18n } from '../../i18n/runtime'
 function getPrimaryNavItems() {
   return [
     {
+      section: 'workspaces',
       to: '/workspaces',
       label: i18n._({ id: 'Workspaces', message: 'Workspaces' }),
       icon: AppGridIcon,
     },
     {
+      section: 'automations',
       to: '/automations',
       label: i18n._({ id: 'Automations', message: 'Automations' }),
       icon: AutomationIcon,
     },
     {
+      section: 'bots',
       to: '/bots',
       label: i18n._({ id: 'Bots', message: 'Bots' }),
       icon: FeedIcon,
     },
     {
+      section: 'bots-outbound',
+      to: '/bots/outbound',
+      label: i18n._({ id: 'Bot Outbound', message: 'Bot Outbound' }),
+      icon: SendIcon,
+    },
+    {
+      section: 'skills',
       to: '/skills',
       label: i18n._({ id: 'Skills', message: 'Skills' }),
       icon: SparkIcon,
     },
     {
+      section: 'runtime',
       to: '/runtime',
       label: i18n._({ id: 'Runtime', message: 'Runtime' }),
       icon: TerminalIcon,
@@ -841,6 +853,8 @@ export function AppShell() {
     ? 'workspaces'
     : location.pathname.startsWith('/automations')
       ? 'automations'
+      : location.pathname.startsWith('/bots/outbound')
+        ? 'bots-outbound'
       : location.pathname.startsWith('/bots')
         ? 'bots'
       : location.pathname.startsWith('/skills')
@@ -890,6 +904,18 @@ export function AppShell() {
         onSelect: () => navigate('/bots'),
       },
       {
+        id: 'nav-bots-outbound',
+        group: 'Nav',
+        title: i18n._({ id: 'Open Bot Outbound', message: 'Open Bot Outbound' }),
+        subtitle: i18n._({
+          id: 'Manage proactive recipients and outbound deliveries',
+          message: 'Manage proactive recipients and outbound deliveries',
+        }),
+        keywords: ['bots', 'outbound', 'proactive', 'recipients', 'deliveries', 'operations'],
+        priority: currentSection === 'bots-outbound' ? 40 : 13,
+        onSelect: () => navigate('/bots/outbound'),
+      },
+      {
         id: 'nav-skills',
         group: 'Nav',
         title: i18n._({ id: 'Open Skills', message: 'Open Skills' }),
@@ -898,7 +924,7 @@ export function AppShell() {
           message: 'Browse installed workspace skills',
         }),
         keywords: ['skills', 'catalog', 'directory'],
-        priority: currentSection === 'skills' ? 40 : 13,
+        priority: currentSection === 'skills' ? 40 : 14,
         onSelect: () => navigate('/skills'),
       },
       {
@@ -910,7 +936,7 @@ export function AppShell() {
           message: 'Inspect runtime inventory and actions',
         }),
         keywords: ['runtime', 'catalog', 'models', 'plugins'],
-        priority: currentSection === 'runtime' ? 40 : 14,
+        priority: currentSection === 'runtime' ? 40 : 15,
         onSelect: () => navigate('/runtime'),
       },
       {
@@ -1134,8 +1160,10 @@ export function AppShell() {
             <nav className="web-ide__primary-nav">
               {primaryNav.map((item) => (
                 <NavLink
-                  className={({ isActive }) =>
-                    isActive ? 'web-ide__primary-link web-ide__primary-link--active' : 'web-ide__primary-link'
+                  className={
+                    item.section === currentSection
+                      ? 'web-ide__primary-link web-ide__primary-link--active'
+                      : 'web-ide__primary-link'
                   }
                   key={item.to}
                   onClick={() => {

@@ -5,7 +5,7 @@ import type { RespondServerRequestWithDetailsInput } from '../../features/approv
 import type { StartCommandInput, WriteCommandInput } from '../../features/commands/api'
 import type { RunThreadShellCommandInput, RenameThreadInput } from '../../features/threads/api'
 import type { StartTurnInput } from '../../features/turns/api'
-import type { ThreadDetail, ThreadTurn, TurnResult } from '../../types/api'
+import type { Bot, BotOutboundDelivery, Thread, ThreadDetail, ThreadTurn, TurnResult } from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type {
   ComposerAssistPanel,
@@ -176,5 +176,58 @@ export type ThreadPageCommandActionsInput = {
   }
 }
 
+export type ThreadPageBotActionsInput = {
+  botSendBots: Bot[]
+  botSendSelectedBotId: string
+  botSendSelectedDeliveryTargetId: string
+  botSendText: string
+  bindThreadBotChannelMutation: {
+    isPending: boolean
+    mutate: (
+      input: {
+        botWorkspaceId: string
+        botId: string
+        deliveryTargetId: string
+        threadId: string
+      },
+      options?: {
+        onError?: (error: unknown) => void
+      },
+    ) => void
+  }
+  deleteThreadBotBindingMutation: {
+    isPending: boolean
+    mutate: (
+      input: {
+        threadId: string
+      },
+      options?: {
+        onError?: (error: unknown) => void
+      },
+    ) => void
+  }
+  selectedThread?: Thread
+  sendBotDeliveryTargetOutboundMessageMutation: {
+    isPending: boolean
+    mutate: (
+      input: {
+        botWorkspaceId: string
+        botId: string
+        deliveryTargetId: string
+        text: string
+        threadId: string
+        threadWorkspaceId: string
+      },
+      options?: {
+        onError?: (error: unknown) => void
+        onSuccess?: (data: BotOutboundDelivery) => void
+      },
+    ) => void
+  }
+  setBotSendError: (value: string | null) => void
+}
+
 export type ThreadPageActionsInput =
-  ThreadPageThreadActionsInput & ThreadPageCommandActionsInput
+  ThreadPageThreadActionsInput &
+    ThreadPageCommandActionsInput &
+    ThreadPageBotActionsInput

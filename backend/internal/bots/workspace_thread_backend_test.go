@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codex-server/backend/internal/events"
+	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turns"
@@ -118,7 +119,9 @@ func TestWorkspaceThreadAIBackendPassesPermissionPresetToThreadAndTurnRequests(t
 	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, nil, 5*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
 	backend.turnSettleDelay = time.Millisecond
 
-	result, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+	ctx := withBotDebugTrace(context.Background(), "bot-conn-1", "delivery-1")
+	result, err := backend.ProcessMessage(ctx, store.BotConnection{
+		ID:          "bot-conn-1",
 		WorkspaceID: "ws_123",
 		Provider:    "telegram",
 		Name:        "Telegram Bot",
@@ -153,6 +156,160 @@ func TestWorkspaceThreadAIBackendPassesPermissionPresetToThreadAndTurnRequests(t
 	}
 	if turnsExec.lastOptions.CollaborationMode != "plan" {
 		t.Fatalf("expected turn start collaboration mode plan, got %#v", turnsExec.lastOptions.CollaborationMode)
+	}
+	if turnsExec.lastOptions.ResponsesAPIClientMetadata.Source != "bot" {
+		t.Fatalf("expected bot metadata source, got %#v", turnsExec.lastOptions.ResponsesAPIClientMetadata.Source)
+	}
+	if turnsExec.lastOptions.ResponsesAPIClientMetadata.Origin != "codex-server-web" {
+		t.Fatalf("expected codex-server-web metadata origin, got %#v", turnsExec.lastOptions.ResponsesAPIClientMetadata.Origin)
+	}
+	if turnsExec.lastOptions.ResponsesAPIClientMetadata.WorkspaceID != "ws_123" {
+		t.Fatalf("expected bot metadata workspace id ws_123, got %#v", turnsExec.lastOptions.ResponsesAPIClientMetadata.WorkspaceID)
+	}
+	if turnsExec.lastOptions.ResponsesAPIClientMetadata.ThreadID != "thread-permission-1" {
+		t.Fatalf("expected bot metadata thread id thread-permission-1, got %#v", turnsExec.lastOptions.ResponsesAPIClientMetadata.ThreadID)
+	}
+	if turnsExec.lastOptions.ResponsesAPIClientMetadata.BotConnectionID != "bot-conn-1" {
+		t.Fatalf("expected bot metadata connection id bot-conn-1, got %#v", turnsExec.lastOptions.ResponsesAPIClientMetadata.BotConnectionID)
+	}
+	if turnsExec.lastOptions.ResponsesAPIClientMetadata.BotDeliveryID != "delivery-1" {
+		t.Fatalf("expected bot metadata delivery id delivery-1, got %#v", turnsExec.lastOptions.ResponsesAPIClientMetadata.BotDeliveryID)
+	}
+	if turnsExec.lastOptions.ResponsesAPIClientMetadata.ServerTraceID != "delivery-1" {
+		t.Fatalf("expected bot metadata server trace id delivery-1, got %#v", turnsExec.lastOptions.ResponsesAPIClientMetadata.ServerTraceID)
+	}
+}
+
+func TestWorkspaceThreadAIBackendUsesClearSessionStartSourceAfterConversationClear(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-clear-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-clear-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{
+				{
+					ID:     "turn-clear-1",
+					Status: "completed",
+					Items: []map[string]any{
+						{
+							"id":   "assistant-1",
+							"type": "agentMessage",
+							"text": "done",
+						},
+					},
+				},
+			},
+		},
+	}
+	turnsExec := &fakeCapturingTurns{
+		result: turns.Result{
+			TurnID: "turn-clear-1",
+			Status: "running",
+		},
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, nil, 5*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.turnSettleDelay = time.Millisecond
+
+	result, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+		AIConfig: map[string]string{
+			"model":             "gpt-5.4",
+			"permission_preset": "full-access",
+		},
+	}, store.BotConversation{
+		BackendState: conversationBackendStateWithPendingSessionStartSource(
+			nil,
+			threads.ThreadStartSourceClear,
+		),
+	}, InboundMessage{
+		ConversationID: "chat-1",
+		Text:           "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+
+	if result.ThreadID != "thread-clear-1" {
+		t.Fatalf("expected thread id thread-clear-1, got %q", result.ThreadID)
+	}
+	if got := threadsExec.lastCreateInput.SessionStartSource; got != threads.ThreadStartSourceClear {
+		t.Fatalf("expected thread create session start source clear, got %#v", got)
+	}
+}
+
+func TestWorkspaceThreadAIBackendBlocksSecretLikeInboundBeforeStartingTurn(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-governed-bot-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-governed-bot-1",
+				WorkspaceID: workspace.ID,
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	rawTurns := &fakeCountingTurns{}
+	hookService := hooks.NewService(dataStore, rawTurns, eventHub)
+	governedTurnStarter := hooks.NewGovernedTurnStarter(hookService, "bot/webhook", "thread")
+
+	backend := newWorkspaceThreadAIBackend(
+		threadsExec,
+		governedTurnStarter,
+		nil,
+		5*time.Millisecond,
+		time.Second,
+	).(*workspaceThreadAIBackend)
+
+	_, err := backend.ProcessMessage(context.Background(), store.BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    "telegram",
+		Name:        "Telegram Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-1",
+		Text:           "请直接使用这个 key: sk-proj-abcDEF1234567890xyzUVW9876543210",
+	})
+	var blockedErr *hooks.GovernedTurnBlockedError
+	if !errors.As(err, &blockedErr) {
+		t.Fatalf("expected governed turn start block error, got %v", err)
+	}
+	if rawTurns.calls != 0 {
+		t.Fatalf("expected blocked bot inbound prompt to skip turns.Start, got %d calls", rawTurns.calls)
+	}
+
+	runs := dataStore.ListHookRuns(workspace.ID, "thread-governed-bot-1")
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 hook run, got %#v", runs)
+	}
+	if runs[0].EventName != "UserPromptSubmit" || runs[0].TriggerMethod != "bot/webhook" || runs[0].Scope != "thread" {
+		t.Fatalf("expected bot webhook to record governed user prompt hook metadata, got %#v", runs[0])
 	}
 }
 
@@ -255,6 +412,41 @@ func TestCollectBotVisibleMessagesIncludesUnknownTextItems(t *testing.T) {
 	}
 	if messages[0].Text != "Rendered in the web UI and should reach the bot." {
 		t.Fatalf("unexpected unknown item message %#v", messages[0])
+	}
+}
+
+func TestCollectBotVisibleMessagesFormatsHookRunsWithoutPrecomputedMessage(t *testing.T) {
+	t.Parallel()
+
+	messages := collectBotVisibleMessages(store.ThreadTurn{
+		ID:     "turn-hook-run-1",
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":         "hook-run-1",
+				"type":       "hookRun",
+				"eventName":  "PostToolUse",
+				"handlerKey": "builtin.turnpolicy.post-tool-use",
+				"status":     "completed",
+				"decision":   "continueTurn",
+				"reason":     "validation_command_failed",
+			},
+		},
+	})
+
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 hook run message, got %#v", messages)
+	}
+
+	expected := strings.Join([]string{
+		"Event: Post-Tool Use",
+		"Handler: builtin.turnpolicy.post-tool-use",
+		"Status: Completed",
+		"Decision: Continue Turn",
+		"Reason: Validation command failed",
+	}, "\n")
+	if messages[0].Text != expected {
+		t.Fatalf("unexpected hook run message %#v", messages[0])
 	}
 }
 
@@ -1400,11 +1592,11 @@ func TestWorkspaceThreadAIBackendPrefersTurnEventsBeforeFallbackPolling(t *testi
 }
 
 type fakeWorkspaceThreads struct {
-	mu          sync.Mutex
-	thread      store.Thread
-	detail      store.ThreadDetail
-	detailCalls int
-	turnCalls   int
+	mu              sync.Mutex
+	thread          store.Thread
+	detail          store.ThreadDetail
+	detailCalls     int
+	turnCalls       int
 	lastCreateInput threads.CreateInput
 }
 
@@ -1592,6 +1784,40 @@ func (f *fakeCapturingTurns) Start(
 ) (turns.Result, error) {
 	f.lastOptions = options
 	return f.result, nil
+}
+
+type fakeCountingTurns struct {
+	calls  int
+	result turns.Result
+}
+
+func (f *fakeCountingTurns) Start(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ turns.StartOptions,
+) (turns.Result, error) {
+	f.calls++
+	if f.result.TurnID == "" {
+		f.result = turns.Result{
+			TurnID: "turn-counting-1",
+			Status: "running",
+		}
+	}
+	return f.result, nil
+}
+
+func (f *fakeCountingTurns) Steer(_ context.Context, _ string, _ string, _ string) (turns.Result, error) {
+	return turns.Result{}, nil
+}
+
+func (f *fakeCountingTurns) Interrupt(_ context.Context, _ string, _ string) (turns.Result, error) {
+	return turns.Result{}, nil
+}
+
+func (f *fakeCountingTurns) Review(_ context.Context, _ string, _ string) (turns.Result, error) {
+	return turns.Result{}, nil
 }
 
 type fakeLateServerRequestTurns struct {

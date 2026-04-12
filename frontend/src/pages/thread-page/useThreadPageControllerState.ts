@@ -15,6 +15,8 @@ export function useThreadPageControllerState() {
   const storeState = useThreadPageControllerStoreState(workspaceId, threadId)
 
   useEffect(() => {
+    localState.setBotSendError(null)
+    localState.setBotSendText('')
     localState.setFullTurnItemContentOverridesById({})
     localState.setFullTurnItemRetainCountById({})
     localState.setFullTurnItemOverridesById({})
@@ -25,6 +27,8 @@ export function useThreadPageControllerState() {
     localState.setIsLoadingOlderTurns(false)
     localState.setThreadTurnWindowSize(DEFAULT_THREAD_TURN_WINDOW_SIZE)
   }, [
+    localState.setBotSendError,
+    localState.setBotSendText,
     localState.setFullTurnItemContentOverridesById,
     localState.setFullTurnItemOverridesById,
     localState.setFullTurnItemRetainCountById,

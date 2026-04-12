@@ -171,7 +171,7 @@ func EventTraceAttrs(method string, turnID string, payload any) []any {
 }
 
 func TurnStartTraceAttrs(payload map[string]any) []any {
-	attrs := make([]any, 0, 14)
+	attrs := make([]any, 0, 28)
 
 	if threadID := strings.TrimSpace(stringValue(payload["threadId"])); threadID != "" {
 		attrs = append(attrs, "requestThreadId", threadID)
@@ -190,6 +190,40 @@ func TurnStartTraceAttrs(payload map[string]any) []any {
 	}
 	if _, ok := payload["collaborationMode"]; ok {
 		attrs = append(attrs, "hasCollaborationMode", true)
+	}
+	metadata := asObject(payload["responsesapiClientMetadata"])
+	if len(metadata) > 0 {
+		attrs = append(attrs, "hasResponsesAPIClientMetadata", true, "responsesAPIClientMetadataKeyCount", len(metadata))
+	}
+	if metadataSource := stringValue(metadata["source"]); metadataSource != "" {
+		attrs = append(attrs, "metadataSource", metadataSource)
+	}
+	if metadataOrigin := stringValue(metadata["origin"]); metadataOrigin != "" {
+		attrs = append(attrs, "metadataOrigin", metadataOrigin)
+	}
+	if metadataWorkspaceID := stringValue(metadata["workspaceId"]); metadataWorkspaceID != "" {
+		attrs = append(attrs, "metadataWorkspaceId", metadataWorkspaceID)
+	}
+	if metadataThreadID := stringValue(metadata["threadId"]); metadataThreadID != "" {
+		attrs = append(attrs, "metadataThreadId", metadataThreadID)
+	}
+	if automationRunID := stringValue(metadata["automationRunId"]); automationRunID != "" {
+		attrs = append(attrs, "metadataAutomationRunId", automationRunID)
+	}
+	if botDeliveryID := stringValue(metadata["botDeliveryId"]); botDeliveryID != "" {
+		attrs = append(attrs, "metadataBotDeliveryId", botDeliveryID)
+	}
+	if serverTraceID := stringValue(metadata["serverTraceId"]); serverTraceID != "" {
+		attrs = append(attrs, "metadataServerTraceId", serverTraceID)
+	}
+	if hookPolicyName := stringValue(metadata["hookPolicyName"]); hookPolicyName != "" {
+		attrs = append(attrs, "metadataHookPolicyName", hookPolicyName)
+	}
+	if hookRunID := stringValue(metadata["hookRunId"]); hookRunID != "" {
+		attrs = append(attrs, "metadataHookRunId", hookRunID)
+	}
+	if turnPolicyName := stringValue(metadata["turnPolicyName"]); turnPolicyName != "" {
+		attrs = append(attrs, "metadataTurnPolicyName", turnPolicyName)
 	}
 	if inputCount := len(asArray(payload["input"])); inputCount > 0 {
 		attrs = append(attrs, "inputCount", inputCount)

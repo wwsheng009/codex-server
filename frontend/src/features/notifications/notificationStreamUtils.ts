@@ -119,9 +119,18 @@ export function resolveActiveNotificationWorkspaceId(
     return normalizeWorkspaceId(threadRoute.workspaceId)
   }
 
+  if (/^\/bots\/?$/.test(pathname)) {
+    return ''
+  }
+
   const botLogsRouteMatch = pathname.match(/^\/bots\/([^/]+)\/[^/]+\/logs\/?$/)
   if (botLogsRouteMatch) {
     return normalizeWorkspaceId(decodeURIComponent(botLogsRouteMatch[1]))
+  }
+
+  const globalBotLogsRouteMatch = pathname.match(/^\/bots\/[^/]+\/logs\/?$/)
+  if (globalBotLogsRouteMatch) {
+    return normalizeWorkspaceId(fallbackWorkspaceId)
   }
 
   return normalizeWorkspaceId(fallbackWorkspaceId)

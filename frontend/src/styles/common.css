@@ -1413,6 +1413,8 @@
 
 .segmented-control {
   display: inline-flex;
+  gap: 2px;
+  align-items: center;
   padding: 4px;
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
@@ -1420,17 +1422,53 @@
 }
 
 .segmented-control__item {
+  position: relative;
   min-height: 32px;
   padding: 0 12px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
   color: var(--text-secondary);
+  font-weight: 600;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.segmented-control__item:hover:not(:disabled):not(.segmented-control__item--active) {
+  background: var(--surface-nav-active);
+  border-color: var(--border-strong);
+  box-shadow: none;
+  color: var(--text-strong);
+  transform: none;
+}
+
+.segmented-control__item:active:not(:disabled):not(.segmented-control__item--active) {
+  transform: scale(0.98);
+}
+
+.segmented-control__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .segmented-control__item--active {
-  background: var(--surface-nav-active);
-  color: var(--text-strong);
+  background: var(--surface-control-active);
+  color: var(--accent-strong);
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-control-active);
+  font-weight: 700;
+}
+
+.segmented-control__item--active:hover:not(:disabled) {
+  background: var(--surface-control-active);
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-control-active);
+  color: var(--accent-strong);
+  transform: none;
 }
 
 .theme-swatch-grid {
@@ -5026,7 +5064,7 @@ details.config-details-box[open] .config-details-box__summary-chevron {
   width: 100%;
 }
 
-.segmented-control {
+.modal-footer-distributed .segmented-control {
   display: flex;
   background: var(--surface-selected);
   padding: 3px;
@@ -5034,7 +5072,7 @@ details.config-details-box[open] .config-details-box__summary-chevron {
   gap: 2px;
 }
 
-.segmented-control .ide-button {
+.modal-footer-distributed .segmented-control .ide-button {
   padding: 6px 14px;
   font-size: 0.85rem;
   border-radius: 6px;

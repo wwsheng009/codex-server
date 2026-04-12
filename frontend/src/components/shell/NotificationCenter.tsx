@@ -266,7 +266,7 @@ export function NotificationCenter({ compact = false }: NotificationCenterProps)
     }
 
     if (notification.workspaceId && notification.botConnectionId) {
-      navigate(`/bots/${notification.workspaceId}/${notification.botConnectionId}/logs`)
+      navigate(`/bots/${notification.botConnectionId}/logs`)
       return
     }
 

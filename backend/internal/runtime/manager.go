@@ -47,12 +47,31 @@ type PendingServerRequest struct {
 	RequestedAt time.Time
 }
 
+type ServerRequestInput struct {
+	WorkspaceID string
+	ThreadID    string
+	TurnID      string
+	Method      string
+	Params      any
+}
+
+type ServerRequestInterception struct {
+	Handled  bool
+	Response any
+}
+
+type ServerRequestInterceptor interface {
+	InterceptServerRequest(ctx context.Context, input ServerRequestInput) (ServerRequestInterception, error)
+}
+
 type Manager struct {
 	mu       sync.RWMutex
 	command  string
 	events   *events.Hub
 	runtimes map[string]*instance
 	requests map[string]*PendingServerRequest
+
+	requestInterceptor ServerRequestInterceptor
 }
 
 type instance struct {
@@ -82,6 +101,13 @@ func NewManager(command string, eventHub *events.Hub) *Manager {
 		runtimes: make(map[string]*instance),
 		requests: make(map[string]*PendingServerRequest),
 	}
+}
+
+func (m *Manager) SetServerRequestInterceptor(interceptor ServerRequestInterceptor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.requestInterceptor = interceptor
 }
 
 func (m *Manager) ApplyCommand(command string) {
@@ -489,6 +515,10 @@ func (r *instance) HandleRequest(id json.RawMessage, method string, params json.
 	payload := decodePayload(params)
 	threadID, turnID := extractContext(payload)
 
+	if r.interceptServerRequest(id, method, payload, threadID, turnID) {
+		return
+	}
+
 	requestID := store.NewID("req")
 	request := &PendingServerRequest{
 		RequestID:   requestID,
@@ -524,6 +554,80 @@ func (r *instance) HandleRequest(id json.RawMessage, method string, params json.
 		ServerRequestID: &requestID,
 		TS:              request.RequestedAt,
 	})
+}
+
+func (r *instance) interceptServerRequest(
+	id json.RawMessage,
+	method string,
+	payload any,
+	threadID string,
+	turnID string,
+) bool {
+	r.manager.mu.RLock()
+	interceptor := r.manager.requestInterceptor
+	r.manager.mu.RUnlock()
+	if interceptor == nil {
+		return false
+	}
+
+	decision, err := interceptor.InterceptServerRequest(context.Background(), ServerRequestInput{
+		WorkspaceID: r.workspaceID,
+		ThreadID:    threadID,
+		TurnID:      turnID,
+		Method:      method,
+		Params:      payload,
+	})
+	if err != nil {
+		diagnostics.LogTrace(
+			r.workspaceID,
+			threadID,
+			"runtime request interception failed",
+			append(
+				diagnostics.EventTraceAttrs(method, turnID, payload),
+				"error",
+				err,
+			)...,
+		)
+		return false
+	}
+	if !decision.Handled {
+		return false
+	}
+
+	r.mu.RLock()
+	client := r.client
+	r.mu.RUnlock()
+	if client == nil {
+		diagnostics.LogTrace(
+			r.workspaceID,
+			threadID,
+			"runtime request intercepted without active client",
+			diagnostics.EventTraceAttrs(method, turnID, payload)...,
+		)
+		return true
+	}
+
+	if err := client.Respond(id, decision.Response); err != nil {
+		diagnostics.LogTrace(
+			r.workspaceID,
+			threadID,
+			"runtime request interception response failed",
+			append(
+				diagnostics.EventTraceAttrs(method, turnID, payload),
+				"error",
+				err,
+			)...,
+		)
+		return true
+	}
+
+	diagnostics.LogTrace(
+		r.workspaceID,
+		threadID,
+		"runtime request intercepted",
+		diagnostics.EventTraceAttrs(method, turnID, payload)...,
+	)
+	return true
 }
 
 func (r *instance) HandleStderr(line string) {

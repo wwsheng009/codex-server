@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { i18n } from '../../i18n/runtime'
 import type { ThreadTurn } from '../../types/api'
 import {
   areTurnTimelinePropsEqual,
@@ -10,6 +11,10 @@ import {
 } from './renderers'
 
 describe('TurnTimeline', () => {
+  beforeAll(() => {
+    i18n.loadAndActivate({ locale: 'en', messages: {} })
+  })
+
   it('only enables virtualization for timelines that exceed the threshold with a viewport ref', () => {
     expect(
       shouldVirtualizeTurnTimeline({
@@ -145,6 +150,48 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Files')
     expect(html).toContain('frontend/src/components/workspace/renderers.tsx')
     expect(html).toContain('Update')
+  })
+
+  it('renders turn plan updates with step statuses as a dedicated plan card', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-plan-status',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'turn-plan-turn-plan-status',
+            type: 'turnPlan',
+            explanation: 'Stabilize the thread plan event pipeline.',
+            status: 'inProgress',
+            steps: [
+              {
+                step: 'Project runtime events',
+                status: 'completed',
+              },
+              {
+                step: 'Render status badges',
+                status: 'inProgress',
+              },
+              {
+                step: 'Verify regressions',
+                status: 'pending',
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Plan')
+    expect(html).toContain('Stabilize the thread plan event pipeline.')
+    expect(html).toContain('Project runtime events')
+    expect(html).toContain('Render status badges')
+    expect(html).toContain('Verify regressions')
+    expect(html).toContain('Completed')
+    expect(html).toContain('In progress')
+    expect(html).toContain('Pending')
   })
 
   it('renders web search actions as compact system cards', () => {
@@ -600,6 +647,36 @@ describe('TurnTimeline', () => {
     )
 
     expect(html).not.toContain('Retry In Composer')
+  })
+
+  it('renders hook runs in the timeline using the system card fallback', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-hook',
+        status: 'completed',
+        items: [
+          {
+            id: 'hook-run-hook-1',
+            type: 'hookRun',
+            eventName: 'PostToolUse',
+            handlerKey: 'builtin.posttooluse.failed-validation-rescue',
+            status: 'completed',
+            decision: 'continueTurn',
+            reason: 'validation_command_failed',
+            message:
+              'Event: Post-Tool Use\nHandler: Failed Validation Rescue\nStatus: Completed\nDecision: Continue Turn\nReason: Validation command failed',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Hook Run')
+    expect(html).toContain('Post-Tool Use')
+    expect(html).toContain('Failed Validation Rescue')
+    expect(html).toContain('Continue Turn')
+    expect(html).toContain('Validation command failed')
   })
 
   it('renders streaming markdown as plain text until the message settles', () => {

@@ -24,6 +24,7 @@ export function useThreadPageControllerData(
     ),
     isDocumentVisible: controllerState.isDocumentVisible,
     normalizedDeferredComposerQuery: controllerState.normalizedDeferredComposerQuery,
+    selectedBotId: controllerState.botSendSelectedBotId || undefined,
     selectedProcessId: controllerState.selectedProcessId,
     selectedThreadId: controllerState.selectedThreadId,
     streamState: controllerState.streamState,
@@ -48,6 +49,7 @@ export function useThreadPageControllerData(
     selectedThreadId: controllerState.selectedThreadId,
     setApprovalAnswers: controllerState.setApprovalAnswers,
     setApprovalErrors: controllerState.setApprovalErrors,
+    setBotSendText: controllerState.setBotSendText,
     setCommand: controllerState.setCommand,
     setConfirmingThreadDelete: railState.setConfirmingThreadDelete,
     setContextCompactionFeedback: controllerState.setContextCompactionFeedback,
@@ -60,6 +62,7 @@ export function useThreadPageControllerData(
     setSendError: controllerState.setSendError,
     setStdinValue: controllerState.setStdinValue,
     streamState: controllerState.streamState,
+    threadWorkspaceId: controllerState.workspaceId,
     workspaceId: controllerState.workspaceId,
   })
 
@@ -146,6 +149,118 @@ export function useThreadPageControllerData(
       controllerState.queryClient.removeQueries({ queryKey })
     }
   }, [activeSelectedThreadId, controllerState.queryClient, controllerState.workspaceId])
+
+  useEffect(() => {
+    if (!activeSelectedThreadId) {
+      if (controllerState.botSendSelectedBotId) {
+        controllerState.setBotSendSelectedBotId('')
+      }
+      if (controllerState.botSendSelectedDeliveryTargetId) {
+        controllerState.setBotSendSelectedDeliveryTargetId('')
+      }
+      return
+    }
+
+    const bots = dataState.botSendBotsQuery.data ?? []
+    if (!bots.length) {
+      if (controllerState.botSendSelectedBotId) {
+        controllerState.setBotSendSelectedBotId('')
+      }
+      if (controllerState.botSendSelectedDeliveryTargetId) {
+        controllerState.setBotSendSelectedDeliveryTargetId('')
+      }
+      return
+    }
+
+    const boundBotId = dataState.threadBotBindingQuery.data?.botId?.trim() ?? ''
+    if (boundBotId) {
+      const hasBoundBot = bots.some((bot) => bot.id === boundBotId)
+      if (hasBoundBot && boundBotId !== controllerState.botSendSelectedBotId) {
+        controllerState.setBotSendSelectedBotId(boundBotId)
+        return
+      }
+    }
+
+    const hasSelectedBot = bots.some((bot) => bot.id === controllerState.botSendSelectedBotId)
+    if (hasSelectedBot) {
+      return
+    }
+
+    const selectedThreadWorkspaceId = dataState.selectedThread?.workspaceId?.trim() ?? controllerState.workspaceId
+    const nextBot =
+      bots.find(
+        (bot) =>
+          bot.status === 'active' &&
+          bot.workspaceId?.trim() === selectedThreadWorkspaceId,
+      ) ??
+      bots.find((bot) => bot.status === 'active') ??
+      bots[0]
+    if (nextBot && nextBot.id !== controllerState.botSendSelectedBotId) {
+      controllerState.setBotSendSelectedBotId(nextBot.id)
+    }
+  }, [
+    activeSelectedThreadId,
+    controllerState.botSendSelectedBotId,
+    controllerState.botSendSelectedDeliveryTargetId,
+    controllerState.setBotSendSelectedBotId,
+    controllerState.setBotSendSelectedDeliveryTargetId,
+    controllerState.workspaceId,
+    dataState.botSendBotsQuery.data,
+    dataState.selectedThread?.workspaceId,
+    dataState.threadBotBindingQuery.data,
+  ])
+
+  useEffect(() => {
+    if (!activeSelectedThreadId || !controllerState.botSendSelectedBotId) {
+      if (controllerState.botSendSelectedDeliveryTargetId) {
+        controllerState.setBotSendSelectedDeliveryTargetId('')
+      }
+      return
+    }
+
+    const deliveryTargets = dataState.botSendDeliveryTargetsQuery.data ?? []
+    if (!deliveryTargets.length) {
+      if (controllerState.botSendSelectedDeliveryTargetId) {
+        controllerState.setBotSendSelectedDeliveryTargetId('')
+      }
+      return
+    }
+
+    const boundTargetId = dataState.threadBotBindingQuery.data?.deliveryTargetId?.trim() ?? ''
+    if (boundTargetId) {
+      const boundTarget = deliveryTargets.find((target) => target.id === boundTargetId)
+      if (boundTarget && boundTarget.id !== controllerState.botSendSelectedDeliveryTargetId) {
+        controllerState.setBotSendSelectedDeliveryTargetId(boundTarget.id)
+        return
+      }
+    }
+
+    const hasSelectedDeliveryTarget = deliveryTargets.some(
+      (target) => target.id === controllerState.botSendSelectedDeliveryTargetId,
+    )
+    if (hasSelectedDeliveryTarget) {
+      return
+    }
+
+    const nextDeliveryTarget =
+      deliveryTargets.find(
+        (target) =>
+          target.status === 'active' &&
+          (target.deliveryReadiness?.trim().toLowerCase() ?? 'ready') === 'ready',
+      ) ??
+      deliveryTargets.find((target) => target.status === 'active') ??
+      deliveryTargets[0]
+    if (nextDeliveryTarget && nextDeliveryTarget.id !== controllerState.botSendSelectedDeliveryTargetId) {
+      controllerState.setBotSendSelectedDeliveryTargetId(nextDeliveryTarget.id)
+    }
+  }, [
+    activeSelectedThreadId,
+    controllerState.botSendSelectedBotId,
+    controllerState.botSendSelectedDeliveryTargetId,
+    controllerState.setBotSendSelectedDeliveryTargetId,
+    dataState.botSendDeliveryTargetsQuery.data,
+    dataState.threadBotBindingQuery.data,
+  ])
 
   useEffect(() => {
     if (controllerState.authRecoveryRequestedAt === null) {

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +131,231 @@ func TestTelegramProviderParseWebhookUsesTopicScopedConversationID(t *testing.T)
 	}
 }
 
+func TestTelegramProviderParseWebhookExtractsInboundMediaAttachments(t *testing.T) {
+	t.Parallel()
+
+	type downloadFixture struct {
+		FilePath    string
+		ContentType string
+		Body        string
+	}
+
+	downloads := map[string]downloadFixture{
+		"photo-full": {
+			FilePath:    "photos/test-image.jpg",
+			ContentType: "image/jpeg",
+			Body:        "image-bytes",
+		},
+		"video-1": {
+			FilePath:    "videos/clip.mp4",
+			ContentType: "video/mp4",
+			Body:        "video-bytes",
+		},
+		"document-1": {
+			FilePath:    "docs/report.pdf",
+			ContentType: "application/pdf",
+			Body:        "pdf-bytes",
+		},
+		"voice-1": {
+			FilePath:    "voices/voice.ogg",
+			ContentType: "audio/ogg",
+			Body:        "voice-bytes",
+		},
+		"audio-1": {
+			FilePath:    "audio/track.mp3",
+			ContentType: "audio/mpeg",
+			Body:        "audio-bytes",
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/bot123:abc/getFile":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode getFile payload error = %v", err)
+			}
+			fileID, _ := payload["file_id"].(string)
+			fixture, ok := downloads[fileID]
+			if !ok {
+				t.Fatalf("unexpected telegram file id %q", fileID)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"file_id":        fileID,
+					"file_path":      fixture.FilePath,
+					"file_size":      len(fixture.Body),
+					"file_unique_id": fileID + "-unique",
+				},
+			})
+		case strings.HasPrefix(r.URL.Path, "/file/bot123:abc/"):
+			filePath := strings.TrimPrefix(r.URL.Path, "/file/bot123:abc/")
+			for _, fixture := range downloads {
+				if fixture.FilePath != filePath {
+					continue
+				}
+				w.Header().Set("Content-Type", fixture.ContentType)
+				_, _ = io.WriteString(w, fixture.Body)
+				return
+			}
+			t.Fatalf("unexpected telegram file download path %q", r.URL.Path)
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	testCases := []struct {
+		name            string
+		requestBody     string
+		wantKind        string
+		wantText        string
+		wantFileName    string
+		wantContentType string
+		wantBody        string
+		wantFileID      string
+	}{
+		{
+			name: "photo with caption",
+			requestBody: `{
+				"message":{
+					"message_id":99,
+					"caption":"look at this",
+					"photo":[
+						{"file_id":"photo-thumb","file_unique_id":"photo-thumb-u","width":64,"height":64,"file_size":100},
+						{"file_id":"photo-full","file_unique_id":"photo-full-u","width":1280,"height":720,"file_size":1000}
+					],
+					"chat":{"id":1001,"title":"Alice"},
+					"from":{"id":5001,"username":"alice","first_name":"Alice","is_bot":false}
+				}
+			}`,
+			wantKind:        botMediaKindImage,
+			wantText:        "look at this",
+			wantFileName:    "test-image.jpg",
+			wantContentType: "image/jpeg",
+			wantBody:        "image-bytes",
+			wantFileID:      "photo-full",
+		},
+		{
+			name: "video with caption",
+			requestBody: `{
+				"message":{
+					"message_id":100,
+					"caption":"watch this",
+					"video":{"file_id":"video-1","file_unique_id":"video-u1","file_name":"clip.mp4","mime_type":"video/mp4","file_size":12},
+					"chat":{"id":1002,"title":"Bob"},
+					"from":{"id":5002,"username":"bob","first_name":"Bob","is_bot":false}
+				}
+			}`,
+			wantKind:        botMediaKindVideo,
+			wantText:        "watch this",
+			wantFileName:    "clip.mp4",
+			wantContentType: "video/mp4",
+			wantBody:        "video-bytes",
+			wantFileID:      "video-1",
+		},
+		{
+			name: "document only",
+			requestBody: `{
+				"message":{
+					"message_id":101,
+					"document":{"file_id":"document-1","file_unique_id":"document-u1","file_name":"report.pdf","mime_type":"application/pdf","file_size":12},
+					"chat":{"id":1003,"title":"Carol"},
+					"from":{"id":5003,"username":"carol","first_name":"Carol","is_bot":false}
+				}
+			}`,
+			wantKind:        botMediaKindFile,
+			wantText:        "",
+			wantFileName:    "report.pdf",
+			wantContentType: "application/pdf",
+			wantBody:        "pdf-bytes",
+			wantFileID:      "document-1",
+		},
+		{
+			name: "voice only",
+			requestBody: `{
+				"message":{
+					"message_id":102,
+					"voice":{"file_id":"voice-1","file_unique_id":"voice-u1","mime_type":"audio/ogg","file_size":12},
+					"chat":{"id":1004,"title":"Dana"},
+					"from":{"id":5004,"username":"dana","first_name":"Dana","is_bot":false}
+				}
+			}`,
+			wantKind:        botMediaKindVoice,
+			wantText:        "",
+			wantFileName:    "voice.ogg",
+			wantContentType: "audio/ogg",
+			wantBody:        "voice-bytes",
+			wantFileID:      "voice-1",
+		},
+		{
+			name: "audio with caption",
+			requestBody: `{
+				"message":{
+					"message_id":103,
+					"caption":"listen to this",
+					"audio":{"file_id":"audio-1","file_unique_id":"audio-u1","file_name":"track.mp3","mime_type":"audio/mpeg","file_size":12},
+					"chat":{"id":1005,"title":"Eve"},
+					"from":{"id":5005,"username":"eve","first_name":"Eve","is_bot":false}
+				}
+			}`,
+			wantKind:        botMediaKindAudio,
+			wantText:        "listen to this",
+			wantFileName:    "track.mp3",
+			wantContentType: "audio/mpeg",
+			wantBody:        "audio-bytes",
+			wantFileID:      "audio-1",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/hooks/bots/bot_001", strings.NewReader(tc.requestBody))
+			messages, err := provider.ParseWebhook(request, store.BotConnection{
+				Secrets: map[string]string{"bot_token": "123:abc"},
+			})
+			if err != nil {
+				t.Fatalf("ParseWebhook() error = %v", err)
+			}
+			if len(messages) != 1 {
+				t.Fatalf("expected 1 telegram inbound message, got %d", len(messages))
+			}
+			if messages[0].Text != tc.wantText {
+				t.Fatalf("expected telegram inbound text %q, got %#v", tc.wantText, messages[0])
+			}
+			if messages[0].ProviderData[telegramMediaKindProviderDataKey] != tc.wantKind {
+				t.Fatalf("expected telegram media kind provider data %q, got %#v", tc.wantKind, messages[0].ProviderData)
+			}
+			if messages[0].ProviderData[telegramMediaFileIDProviderDataKey] != tc.wantFileID {
+				t.Fatalf("expected telegram media file id provider data %q, got %#v", tc.wantFileID, messages[0].ProviderData)
+			}
+			if len(messages[0].Media) != 1 {
+				t.Fatalf("expected one telegram inbound media item, got %#v", messages[0])
+			}
+			media := messages[0].Media[0]
+			if media.Kind != tc.wantKind || media.FileName != tc.wantFileName || media.ContentType != tc.wantContentType {
+				t.Fatalf("unexpected telegram inbound media metadata %#v", media)
+			}
+			if media.Path == "" {
+				t.Fatalf("expected telegram inbound media to persist a local path, got %#v", media)
+			}
+			defer os.Remove(media.Path)
+			data, err := os.ReadFile(media.Path)
+			if err != nil {
+				t.Fatalf("os.ReadFile(%q) error = %v", media.Path, err)
+			}
+			if string(data) != tc.wantBody {
+				t.Fatalf("expected telegram inbound media contents %q, got %q", tc.wantBody, string(data))
+			}
+		})
+	}
+}
+
 func TestTelegramProviderActivatePollingAndRunPolling(t *testing.T) {
 	t.Parallel()
 
@@ -241,6 +468,118 @@ func TestTelegramProviderActivatePollingAndRunPolling(t *testing.T) {
 	webhookRequest := httptest.NewRequest(http.MethodPost, "/hooks/bots/bot_002", strings.NewReader(`{}`))
 	if _, err := provider.ParseWebhook(webhookRequest, pollingConnection); !errors.Is(err, ErrWebhookIgnored) {
 		t.Fatalf("expected polling mode webhook parse to be ignored, got %v", err)
+	}
+}
+
+func TestTelegramProviderRunPollingAcceptsDocumentOnlyMessage(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:abc/getUpdates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": []map[string]any{
+					{
+						"update_id": 21,
+						"message": map[string]any{
+							"message_id": 111,
+							"document": map[string]any{
+								"file_id":        "document-1",
+								"file_unique_id": "document-u1",
+								"file_name":      "report.pdf",
+								"mime_type":      "application/pdf",
+								"file_size":      32,
+							},
+							"chat": map[string]any{
+								"id":    1006,
+								"title": "Ops",
+							},
+							"from": map[string]any{
+								"id":         5006,
+								"username":   "ops",
+								"first_name": "Ops",
+								"is_bot":     false,
+							},
+						},
+					},
+				},
+			})
+		case "/bot123:abc/getFile":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode getFile payload error = %v", err)
+			}
+			if payload["file_id"] != "document-1" {
+				t.Fatalf("expected document-1 getFile payload, got %#v", payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"file_id":        "document-1",
+					"file_path":      "docs/report.pdf",
+					"file_size":      32,
+					"file_unique_id": "document-u1",
+				},
+			})
+		case "/file/bot123:abc/docs/report.pdf":
+			w.Header().Set("Content-Type", "application/pdf")
+			_, _ = io.WriteString(w, "document-body")
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	connection := store.BotConnection{
+		ID: "bot_004",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}
+
+	handled := make([]InboundMessage, 0, 1)
+	var persistedSettings map[string]string
+	err := provider.RunPolling(
+		context.Background(),
+		connection,
+		func(_ context.Context, message InboundMessage) error {
+			handled = append(handled, message)
+			return nil
+		},
+		func(_ context.Context, settings map[string]string) error {
+			persistedSettings = settings
+			return context.Canceled
+		},
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected polling to stop with context.Canceled, got %v", err)
+	}
+
+	if len(handled) != 1 {
+		t.Fatalf("expected one handled polling message, got %#v", handled)
+	}
+	if handled[0].Text != "" {
+		t.Fatalf("expected document-only polling message to keep empty text, got %#v", handled[0])
+	}
+	if len(handled[0].Media) != 1 || handled[0].Media[0].Kind != botMediaKindFile {
+		t.Fatalf("expected document-only polling message to include file media, got %#v", handled[0])
+	}
+	defer os.Remove(handled[0].Media[0].Path)
+	data, err := os.ReadFile(handled[0].Media[0].Path)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", handled[0].Media[0].Path, err)
+	}
+	if string(data) != "document-body" {
+		t.Fatalf("expected persisted telegram polling document body, got %q", string(data))
+	}
+	if persistedSettings[telegramUpdateOffsetSetting] != "22" {
+		t.Fatalf("expected telegram update offset 22, got %#v", persistedSettings)
 	}
 }
 
@@ -508,6 +847,238 @@ func TestTelegramStreamingReplySessionFailUsesDetailedFallbackText(t *testing.T)
 	}
 }
 
+func TestTelegramStreamingReplySessionRejectsMediaAttachmentsDuringUpdate(t *testing.T) {
+	t.Parallel()
+
+	provider := newTelegramProvider(nil).(*telegramProvider)
+
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID: "1001",
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	err = session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{
+			{
+				Media: []store.BotMessageMedia{
+					{Kind: botMediaKindImage, URL: "https://example.com/image.png"},
+				},
+			},
+		},
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for telegram streaming update media, got %v", err)
+	}
+}
+
+func TestTelegramStreamingReplySessionCompleteWithMediaDeletesInterimChunks(t *testing.T) {
+	t.Parallel()
+
+	callOrder := make([]string, 0, 3)
+	var deletePayload map[string]any
+	var sendPhotoPayload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:abc/sendMessage":
+			callOrder = append(callOrder, "sendMessage")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 901,
+				},
+			})
+		case "/bot123:abc/deleteMessage":
+			callOrder = append(callOrder, "deleteMessage")
+			if err := json.NewDecoder(r.Body).Decode(&deletePayload); err != nil {
+				t.Fatalf("decode deleteMessage payload error = %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": true,
+			})
+		case "/bot123:abc/sendPhoto":
+			callOrder = append(callOrder, "sendPhoto")
+			if err := json.NewDecoder(r.Body).Decode(&sendPhotoPayload); err != nil {
+				t.Fatalf("decode sendPhoto payload error = %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 902,
+				},
+			})
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID:   "1001",
+		ExternalThreadID: "77",
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "working draft"}},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	err = session.Complete(context.Background(), []OutboundMessage{
+		{
+			Text: "final caption",
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindImage, URL: "https://example.com/image.png"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	expectedOrder := []string{"sendMessage", "deleteMessage", "sendPhoto"}
+	if strings.Join(callOrder, ",") != strings.Join(expectedOrder, ",") {
+		t.Fatalf("unexpected telegram call order %#v", callOrder)
+	}
+	if deletePayload["message_id"] != float64(901) {
+		t.Fatalf("expected deleteMessage for interim streamed message 901, got %#v", deletePayload)
+	}
+	if sendPhotoPayload["chat_id"] != "1001" {
+		t.Fatalf("expected sendPhoto chat_id 1001, got %#v", sendPhotoPayload)
+	}
+	if sendPhotoPayload["message_thread_id"] != float64(77) {
+		t.Fatalf("expected sendPhoto message_thread_id 77, got %#v", sendPhotoPayload)
+	}
+	if sendPhotoPayload["photo"] != "https://example.com/image.png" {
+		t.Fatalf("expected sendPhoto photo url, got %#v", sendPhotoPayload)
+	}
+	if sendPhotoPayload["caption"] != "final caption" {
+		t.Fatalf("expected sendPhoto caption, got %#v", sendPhotoPayload)
+	}
+}
+
+func TestTelegramStreamingReplySessionCompleteWithMediaGroupDeletesInterimChunks(t *testing.T) {
+	t.Parallel()
+
+	callOrder := make([]string, 0, 3)
+	var deletePayload map[string]any
+	var sendMediaGroupPayload map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:abc/sendMessage":
+			callOrder = append(callOrder, "sendMessage")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 911,
+				},
+			})
+		case "/bot123:abc/deleteMessage":
+			callOrder = append(callOrder, "deleteMessage")
+			if err := json.NewDecoder(r.Body).Decode(&deletePayload); err != nil {
+				t.Fatalf("decode deleteMessage payload error = %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": true,
+			})
+		case "/bot123:abc/sendMediaGroup":
+			callOrder = append(callOrder, "sendMediaGroup")
+			if err := json.NewDecoder(r.Body).Decode(&sendMediaGroupPayload); err != nil {
+				t.Fatalf("decode sendMediaGroup payload error = %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": []map[string]any{
+					{"message_id": 912},
+					{"message_id": 913},
+				},
+			})
+		default:
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID:   "1001",
+		ExternalThreadID: "77",
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "working draft"}},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	err = session.Complete(context.Background(), []OutboundMessage{
+		{
+			Text: "final album caption",
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindImage, URL: "https://example.com/image-1.png"},
+				{Kind: botMediaKindImage, URL: "https://example.com/image-2.png"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	expectedOrder := []string{"sendMessage", "deleteMessage", "sendMediaGroup"}
+	if strings.Join(callOrder, ",") != strings.Join(expectedOrder, ",") {
+		t.Fatalf("unexpected telegram call order %#v", callOrder)
+	}
+	if deletePayload["message_id"] != float64(911) {
+		t.Fatalf("expected deleteMessage for interim streamed message 911, got %#v", deletePayload)
+	}
+	if sendMediaGroupPayload["chat_id"] != "1001" {
+		t.Fatalf("expected sendMediaGroup chat_id 1001, got %#v", sendMediaGroupPayload)
+	}
+	if sendMediaGroupPayload["message_thread_id"] != float64(77) {
+		t.Fatalf("expected sendMediaGroup message_thread_id 77, got %#v", sendMediaGroupPayload)
+	}
+	items, ok := sendMediaGroupPayload["media"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("expected 2 sendMediaGroup items, got %#v", sendMediaGroupPayload["media"])
+	}
+	firstItem, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first media item to be an object, got %#v", items[0])
+	}
+	secondItem, ok := items[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second media item to be an object, got %#v", items[1])
+	}
+	if firstItem["caption"] != "final album caption" {
+		t.Fatalf("expected caption on first media group item, got %#v", firstItem)
+	}
+	if secondItem["media"] != "https://example.com/image-2.png" {
+		t.Fatalf("expected second media item to preserve source URL, got %#v", secondItem)
+	}
+}
+
 func TestTelegramProviderSendMessagesIncludesTopicThreadID(t *testing.T) {
 	t.Parallel()
 
@@ -602,6 +1173,429 @@ func TestTelegramProviderSendMessagesPreservesTopicThreadIDAcrossChunks(t *testi
 		if payload["message_thread_id"] != float64(77) {
 			t.Fatalf("expected message_thread_id 77 for chunk %d, got %#v", index, payload)
 		}
+	}
+}
+
+func TestTelegramProviderSendMessagesSendsImageByURL(t *testing.T) {
+	t.Parallel()
+
+	var sendPhotoPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/sendPhoto" {
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&sendPhotoPayload); err != nil {
+			t.Fatalf("decode sendPhoto payload error = %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": map[string]any{
+				"message_id": 730,
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID:   "-100123",
+		ExternalThreadID: "77",
+	}, []OutboundMessage{
+		{
+			Text: "topic image",
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindImage, URL: "https://example.com/image.png"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if sendPhotoPayload["chat_id"] != "-100123" {
+		t.Fatalf("expected chat_id -100123, got %#v", sendPhotoPayload)
+	}
+	if sendPhotoPayload["message_thread_id"] != float64(77) {
+		t.Fatalf("expected message_thread_id 77, got %#v", sendPhotoPayload)
+	}
+	if sendPhotoPayload["photo"] != "https://example.com/image.png" {
+		t.Fatalf("expected photo url in payload, got %#v", sendPhotoPayload)
+	}
+	if sendPhotoPayload["caption"] != "topic image" {
+		t.Fatalf("expected caption topic image, got %#v", sendPhotoPayload)
+	}
+}
+
+func TestTelegramProviderSendMessagesUsesMediaGroupForMultipleImages(t *testing.T) {
+	t.Parallel()
+
+	var sendMediaGroupPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/sendMediaGroup" {
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&sendMediaGroupPayload); err != nil {
+			t.Fatalf("decode sendMediaGroup payload error = %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": []map[string]any{
+				{"message_id": 740},
+				{"message_id": 741},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID:   "-100123",
+		ExternalThreadID: "77",
+	}, []OutboundMessage{
+		{
+			Text: "topic album",
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindImage, URL: "https://example.com/image-1.png"},
+				{Kind: botMediaKindImage, URL: "https://example.com/image-2.png"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if sendMediaGroupPayload["chat_id"] != "-100123" {
+		t.Fatalf("expected chat_id -100123, got %#v", sendMediaGroupPayload)
+	}
+	if sendMediaGroupPayload["message_thread_id"] != float64(77) {
+		t.Fatalf("expected message_thread_id 77, got %#v", sendMediaGroupPayload)
+	}
+
+	items, ok := sendMediaGroupPayload["media"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("expected 2 sendMediaGroup items, got %#v", sendMediaGroupPayload["media"])
+	}
+	firstItem, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first media item to be an object, got %#v", items[0])
+	}
+	secondItem, ok := items[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second media item to be an object, got %#v", items[1])
+	}
+	if firstItem["type"] != "photo" || firstItem["media"] != "https://example.com/image-1.png" {
+		t.Fatalf("unexpected first media group item %#v", firstItem)
+	}
+	if firstItem["caption"] != "topic album" {
+		t.Fatalf("expected caption on first media item, got %#v", firstItem)
+	}
+	if secondItem["type"] != "photo" || secondItem["media"] != "https://example.com/image-2.png" {
+		t.Fatalf("unexpected second media group item %#v", secondItem)
+	}
+	if _, ok := secondItem["caption"]; ok {
+		t.Fatalf("did not expect caption on second media item, got %#v", secondItem)
+	}
+}
+
+func TestTelegramProviderSendMessagesUploadsMediaGroupFromAbsolutePaths(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	firstPath := filepath.Join(tempDir, "album-1.jpg")
+	secondPath := filepath.Join(tempDir, "album-2.jpg")
+	if err := os.WriteFile(firstPath, []byte("album image 1"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(firstPath) error = %v", err)
+	}
+	if err := os.WriteFile(secondPath, []byte("album image 2"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(secondPath) error = %v", err)
+	}
+
+	fields := make(map[string]string)
+	uploadedNames := make(map[string]string)
+	uploadedBodies := make(map[string]string)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/sendMediaGroup" {
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Fatalf("MultipartReader() error = %v", err)
+		}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("NextPart() error = %v", err)
+			}
+			data, readErr := io.ReadAll(part)
+			if readErr != nil {
+				t.Fatalf("io.ReadAll(part) error = %v", readErr)
+			}
+			if part.FileName() != "" {
+				uploadedNames[part.FormName()] = part.FileName()
+				uploadedBodies[part.FormName()] = string(data)
+			} else {
+				fields[part.FormName()] = string(data)
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": []map[string]any{
+				{"message_id": 742},
+				{"message_id": 743},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID: "1001",
+	}, []OutboundMessage{
+		{
+			Text: "album upload",
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindImage, Path: firstPath},
+				{Kind: botMediaKindImage, Path: secondPath},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if fields["chat_id"] != "1001" {
+		t.Fatalf("expected multipart chat_id 1001, got %#v", fields)
+	}
+	var mediaPayload []map[string]any
+	if err := json.Unmarshal([]byte(fields["media"]), &mediaPayload); err != nil {
+		t.Fatalf("json.Unmarshal(media) error = %v", err)
+	}
+	if len(mediaPayload) != 2 {
+		t.Fatalf("expected 2 media payload items, got %#v", mediaPayload)
+	}
+	if mediaPayload[0]["type"] != "photo" || mediaPayload[0]["media"] != "attach://file0" {
+		t.Fatalf("unexpected first media payload %#v", mediaPayload[0])
+	}
+	if mediaPayload[0]["caption"] != "album upload" {
+		t.Fatalf("expected caption on first media payload, got %#v", mediaPayload[0])
+	}
+	if mediaPayload[1]["type"] != "photo" || mediaPayload[1]["media"] != "attach://file1" {
+		t.Fatalf("unexpected second media payload %#v", mediaPayload[1])
+	}
+	if uploadedNames["file0"] != "album-1.jpg" || uploadedBodies["file0"] != "album image 1" {
+		t.Fatalf("unexpected first upload part name/body: name=%q body=%q", uploadedNames["file0"], uploadedBodies["file0"])
+	}
+	if uploadedNames["file1"] != "album-2.jpg" || uploadedBodies["file1"] != "album image 2" {
+		t.Fatalf("unexpected second upload part name/body: name=%q body=%q", uploadedNames["file1"], uploadedBodies["file1"])
+	}
+}
+
+func TestTelegramProviderSendMessagesUploadsDocumentFromAbsolutePath(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "report.txt")
+	if err := os.WriteFile(filePath, []byte("telegram attachment body"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	fields := make(map[string]string)
+	uploadedName := ""
+	uploadedBody := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/sendDocument" {
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Fatalf("MultipartReader() error = %v", err)
+		}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("NextPart() error = %v", err)
+			}
+			data, readErr := io.ReadAll(part)
+			if readErr != nil {
+				t.Fatalf("io.ReadAll(part) error = %v", readErr)
+			}
+			if part.FileName() != "" {
+				uploadedName = part.FileName()
+				uploadedBody = string(data)
+			} else {
+				fields[part.FormName()] = string(data)
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": map[string]any{
+				"message_id": 731,
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID: "1001",
+	}, []OutboundMessage{
+		{
+			Text: "report attached",
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindFile, Path: filePath},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if fields["chat_id"] != "1001" {
+		t.Fatalf("expected multipart chat_id 1001, got %#v", fields)
+	}
+	if fields["caption"] != "report attached" {
+		t.Fatalf("expected multipart caption report attached, got %#v", fields)
+	}
+	if uploadedName != "report.txt" {
+		t.Fatalf("expected uploaded file name report.txt, got %q", uploadedName)
+	}
+	if uploadedBody != "telegram attachment body" {
+		t.Fatalf("expected uploaded file body to match, got %q", uploadedBody)
+	}
+}
+
+func TestTelegramProviderSendMessagesUploadsVideoFromAbsolutePath(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "clip.mp4")
+	if err := os.WriteFile(filePath, []byte("telegram video body"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	fields := make(map[string]string)
+	uploadedName := ""
+	uploadedBody := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bot123:abc/sendVideo" {
+			t.Fatalf("unexpected telegram API path %s", r.URL.Path)
+		}
+
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Fatalf("MultipartReader() error = %v", err)
+		}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("NextPart() error = %v", err)
+			}
+			data, readErr := io.ReadAll(part)
+			if readErr != nil {
+				t.Fatalf("io.ReadAll(part) error = %v", readErr)
+			}
+			if part.FileName() != "" {
+				uploadedName = part.FileName()
+				uploadedBody = string(data)
+			} else {
+				fields[part.FormName()] = string(data)
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": map[string]any{
+				"message_id": 741,
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := newTelegramProvider(server.Client()).(*telegramProvider)
+	provider.apiBaseURL = server.URL
+
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID: "1001",
+	}, []OutboundMessage{
+		{
+			Text: "video attached",
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindVideo, Path: filePath},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if fields["chat_id"] != "1001" {
+		t.Fatalf("expected multipart chat_id 1001, got %#v", fields)
+	}
+	if fields["caption"] != "video attached" {
+		t.Fatalf("expected multipart caption video attached, got %#v", fields)
+	}
+	if uploadedName != "clip.mp4" {
+		t.Fatalf("expected uploaded video name clip.mp4, got %q", uploadedName)
+	}
+	if uploadedBody != "telegram video body" {
+		t.Fatalf("expected uploaded video body to match, got %q", uploadedBody)
+	}
+}
+
+func TestTelegramProviderSendMessagesRejectsRelativeMediaPath(t *testing.T) {
+	t.Parallel()
+
+	provider := newTelegramProvider(nil).(*telegramProvider)
+
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		Secrets: map[string]string{"bot_token": "123:abc"},
+	}, store.BotConversation{
+		ExternalChatID: "1001",
+	}, []OutboundMessage{
+		{
+			Media: []store.BotMessageMedia{
+				{Kind: botMediaKindImage, Path: "relative-image.png"},
+			},
+		},
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for telegram media send, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("expected absolute-path validation error, got %v", err)
 	}
 }
 

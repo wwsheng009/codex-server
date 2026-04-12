@@ -4,6 +4,8 @@ import { i18n } from '../../i18n/runtime'
 import {
   completedAgentMessageRefreshDelayMs,
   shouldFallbackRefreshThreadDetailDuringOpenStream,
+  shouldRefreshHookRunsForEvent,
+  shouldRefreshTurnPolicyGovernanceForEvent,
   shouldRefreshMcpServerStatusForEvent,
   shouldRefreshLoadedThreadsForEvent,
   shouldRefreshRuntimeCatalogForEvent,
@@ -197,10 +199,28 @@ export function useThreadPageRefreshEffects({
     }
 
     void Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['workspace-hook-configuration', workspaceId],
+      }),
       queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['approvals', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['command-sessions', workspaceId] }),
+      selectedThreadId
+        ? queryClient.invalidateQueries({
+            queryKey: ['hook-runs', workspaceId, selectedThreadId],
+          })
+        : Promise.resolve(),
+      selectedThreadId
+        ? queryClient.invalidateQueries({
+            queryKey: ['turn-policy-decisions', workspaceId, selectedThreadId],
+          })
+        : Promise.resolve(),
+      selectedThreadId
+        ? queryClient.invalidateQueries({
+            queryKey: ['turn-policy-metrics', workspaceId, selectedThreadId],
+          })
+        : Promise.resolve(),
       selectedThreadId
         ? queryClient.invalidateQueries({
             queryKey: ['thread-detail', workspaceId, selectedThreadId],
@@ -240,6 +260,23 @@ export function useThreadPageRefreshEffects({
     }
 
     lastProcessedThreadEventKeyRef.current = latestEventKey
+
+    if (selectedThreadId && shouldRefreshHookRunsForEvent(latestEvent.method)) {
+      void queryClient.invalidateQueries({
+        queryKey: ['hook-runs', workspaceId, selectedThreadId],
+      })
+    }
+
+    if (selectedThreadId && shouldRefreshTurnPolicyGovernanceForEvent(latestEvent.method)) {
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['turn-policy-decisions', workspaceId, selectedThreadId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['turn-policy-metrics', workspaceId, selectedThreadId],
+        }),
+      ])
+    }
 
     if (shouldRefreshThreadsForEvent(latestEvent.method)) {
       scheduleThreadQueryRefresh({ threads: true })
@@ -333,6 +370,31 @@ export function useThreadPageRefreshEffects({
       scheduleThreadQueryRefresh({ loadedThreads: true })
     }
 
+    if (
+      selectedThreadId &&
+      latestEvent.threadId === selectedThreadId &&
+      shouldRefreshHookRunsForEvent(latestEvent.method)
+    ) {
+      void queryClient.invalidateQueries({
+        queryKey: ['hook-runs', workspaceId, selectedThreadId],
+      })
+    }
+
+    if (
+      selectedThreadId &&
+      latestEvent.threadId === selectedThreadId &&
+      shouldRefreshTurnPolicyGovernanceForEvent(latestEvent.method)
+    ) {
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['turn-policy-decisions', workspaceId, selectedThreadId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['turn-policy-metrics', workspaceId, selectedThreadId],
+        }),
+      ])
+    }
+
     if (shouldRefreshMcpServerStatusForEvent(latestEvent.method)) {
       scheduleMcpServerStatusRefresh()
     }
@@ -340,7 +402,7 @@ export function useThreadPageRefreshEffects({
     if (shouldRefreshRuntimeCatalogForEvent(latestEvent.method)) {
       scheduleRuntimeCatalogRefresh()
     }
-  }, [queryClient, threadListRefreshTimerRef, workspaceActivityEvents, workspaceId])
+  }, [queryClient, selectedThreadId, threadListRefreshTimerRef, workspaceActivityEvents, workspaceId])
 
   useEffect(
     () => () => {

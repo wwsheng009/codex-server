@@ -130,6 +130,35 @@ func TestRenderBotVisibleItemFallsBackToStructuredUnknownItem(t *testing.T) {
 	}
 }
 
+func TestRenderBotHookRunItemBuildsReadableMessageWithoutPrecomputedSummary(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItem(map[string]any{
+		"id":         "hook-run-1",
+		"type":       "hookRun",
+		"eventName":  "PostToolUse",
+		"handlerKey": "builtin.turnpolicy.post-tool-use",
+		"status":     "completed",
+		"decision":   "continueTurn",
+		"reason":     "validation_command_failed",
+		"entries": []any{
+			map[string]any{"text": "Queued follow-up validation"},
+		},
+	})
+
+	expected := strings.Join([]string{
+		"Event: Post-Tool Use",
+		"Handler: builtin.turnpolicy.post-tool-use",
+		"Status: Completed",
+		"Decision: Continue Turn",
+		"Reason: Validation command failed",
+		"Feedback: Queued follow-up validation",
+	}, "\n")
+	if text != expected {
+		t.Fatalf("unexpected hook run render %q", text)
+	}
+}
+
 func TestRenderBotFileChangeItemMarksOmissions(t *testing.T) {
 	t.Parallel()
 
@@ -152,5 +181,38 @@ func TestRenderBotFileChangeItemMarksOmissions(t *testing.T) {
 	}
 	if !strings.Contains(text, "... 2 more file changes not shown") {
 		t.Fatalf("expected omitted-file marker, got %q", text)
+	}
+}
+
+func TestRenderBotTurnPlanItemIncludesStatuses(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItem(map[string]any{
+		"id":          "turn-plan-1",
+		"type":        "turnPlan",
+		"explanation": "Stabilize the plan event pipeline",
+		"steps": []any{
+			map[string]any{
+				"step":   "Inspect runtime events",
+				"status": "completed",
+			},
+			map[string]any{
+				"step":   "Render status badges",
+				"status": "inProgress",
+			},
+		},
+	})
+
+	if !strings.Contains(text, "Plan Status:") {
+		t.Fatalf("expected turn plan title, got %q", text)
+	}
+	if !strings.Contains(text, "Stabilize the plan event pipeline") {
+		t.Fatalf("expected explanation, got %q", text)
+	}
+	if !strings.Contains(text, "1. [Completed] Inspect runtime events") {
+		t.Fatalf("expected completed step, got %q", text)
+	}
+	if !strings.Contains(text, "2. [In Progress] Render status badges") {
+		t.Fatalf("expected in-progress step, got %q", text)
 	}
 }

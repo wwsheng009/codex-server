@@ -48,12 +48,13 @@ func (s *Service) handleWeChatFailedReplyReplayIntent(
 		slog.Any("messages", debugOutboundMessages(reply.Messages)),
 	)
 
-	attemptCount, err := s.sendReplyWithRetry(
+	attemptCount, err := s.sendReplyWithOutboundDelivery(
 		ctx,
 		provider,
 		connection,
 		conversation,
 		&currentDelivery,
+		&failedDelivery,
 		&inbound,
 		reply,
 		"failed reply replay",

@@ -1,13 +1,33 @@
-import { ResizeHandle } from '../../components/ui/RailControls'
-import { i18n } from '../../i18n/runtime'
-import { ThreadWorkbenchRailCollapsed } from './ThreadWorkbenchRailCollapsed'
-import { ThreadWorkbenchRailMobileQuickActions } from './ThreadWorkbenchRailMobileQuickActions'
-import { ThreadWorkbenchRailThreadToolsSection } from './ThreadWorkbenchRailThreadToolsSection'
-import { ThreadWorkbenchRailWorkbenchToolsSection } from './ThreadWorkbenchRailWorkbenchToolsSection'
-import { ThreadWorkbenchRailWorkspaceContextSection } from './ThreadWorkbenchRailWorkspaceContextSection'
-import type { ThreadWorkbenchRailProps } from './threadWorkbenchRailTypes'
+import { ResizeHandle } from "../../components/ui/RailControls";
+import {
+  buildWorkspaceTurnPolicyCompareRoute,
+  buildWorkspaceTurnPolicyHistoryRoute,
+  buildWorkspaceTurnPolicyRoute,
+  buildWorkspaceTurnPolicySourceOverviewRoute,
+} from "../../lib/thread-routes";
+import { i18n } from "../../i18n/runtime";
+import { ThreadWorkbenchRailCollapsed } from "./ThreadWorkbenchRailCollapsed";
+import { ThreadWorkbenchRailHookConfigurationSection } from "./ThreadWorkbenchRailHookConfigurationSection";
+import { ThreadWorkbenchRailHookRunsSection } from "./ThreadWorkbenchRailHookRunsSection";
+import { ThreadWorkbenchRailMobileQuickActions } from "./ThreadWorkbenchRailMobileQuickActions";
+import { ThreadWorkbenchRailTurnPolicyDecisionsSection } from "./ThreadWorkbenchRailTurnPolicyDecisionsSection";
+import { ThreadWorkbenchRailTurnPolicyMetricsSection } from "./ThreadWorkbenchRailTurnPolicyMetricsSection";
+import { ThreadWorkbenchRailThreadToolsSection } from "./ThreadWorkbenchRailThreadToolsSection";
+import { ThreadWorkbenchRailWorkbenchToolsSection } from "./ThreadWorkbenchRailWorkbenchToolsSection";
+import { ThreadWorkbenchRailWorkspaceContextSection } from "./ThreadWorkbenchRailWorkspaceContextSection";
+import type { ThreadWorkbenchRailProps } from "./threadWorkbenchRailTypes";
 
 export function ThreadWorkbenchRail({
+  botSendBinding,
+  botSendBindingPending,
+  botSendBots,
+  botSendDeliveryTargets,
+  botSendErrorMessage,
+  botSendLoading,
+  botSendPending,
+  botSendSelectedBotId,
+  botSendSelectedDeliveryTargetId,
+  botSendText,
   command,
   commandRunMode,
   commandCount,
@@ -33,6 +53,9 @@ export function ThreadWorkbenchRail({
   rootPath,
   runtimeConfigChangedAt,
   runtimeConfigLoadStatus,
+  hookConfiguration,
+  hookConfigurationError,
+  hookConfigurationLoading,
   runtimeRestartRequired,
   runtimeStartedAt,
   runtimeUpdatedAt,
@@ -44,6 +67,15 @@ export function ThreadWorkbenchRail({
   startCommandPending,
   streamState,
   surfacePanelView,
+  hookRuns,
+  hookRunsError,
+  hookRunsLoading,
+  turnPolicyDecisions,
+  turnPolicyDecisionsError,
+  turnPolicyDecisionsLoading,
+  turnPolicyMetrics,
+  turnPolicyMetricsError,
+  turnPolicyMetricsLoading,
   totalTokens,
   totalMessageCount,
   totalTurnCount,
@@ -53,25 +85,108 @@ export function ThreadWorkbenchRail({
   workspaceName,
   onArchiveToggle,
   onBeginRenameThread,
+  onBindThreadBotChannel,
   onCancelRenameThread,
+  onChangeBotSendSelectedBotId,
+  onChangeBotSendSelectedDeliveryTargetId,
+  onChangeBotSendText,
   onChangeCommand,
   onChangeCommandRunMode,
   onChangeEditingThreadName,
   onCloseWorkbenchOverlay,
   onDeleteThread,
+  onDeleteThreadBotBinding,
   onHideSurfacePanel,
   onInspectorResizeStart,
   onOpenInspector,
   onOpenSurfacePanel,
   onResetInspectorWidth,
+  onSendBotMessage,
   onSubmitRenameThread,
   onStartCommand,
   onToggleThreadToolsExpanded,
   onToggleWorkbenchToolsExpanded,
 }: ThreadWorkbenchRailProps) {
+  const workspaceTurnPolicyRoutes = selectedThread
+    ? {
+        validationRescue: buildWorkspaceTurnPolicyRoute(
+          selectedThread.workspaceId,
+          {
+            turnPolicyThreadId: selectedThread.id,
+            policyName: "posttooluse/failed-validation-command",
+            actionStatus: "succeeded",
+          },
+        ),
+        missingVerify: buildWorkspaceTurnPolicyRoute(
+          selectedThread.workspaceId,
+          {
+            turnPolicyThreadId: selectedThread.id,
+            policyName: "stop/missing-successful-verification",
+          },
+        ),
+        skippedDecisions: buildWorkspaceTurnPolicyRoute(
+          selectedThread.workspaceId,
+          {
+            turnPolicyThreadId: selectedThread.id,
+            actionStatus: "skipped",
+          },
+        ),
+        automationSource: buildWorkspaceTurnPolicySourceOverviewRoute(
+          selectedThread.workspaceId,
+          "automation",
+          {
+            turnPolicyThreadId: selectedThread.id,
+            metricsSource: "automation",
+            source: "automation",
+          },
+        ),
+        botSource: buildWorkspaceTurnPolicySourceOverviewRoute(
+          selectedThread.workspaceId,
+          "bot",
+          {
+            turnPolicyThreadId: selectedThread.id,
+            metricsSource: "bot",
+            source: "bot",
+          },
+        ),
+        sourceComparison: buildWorkspaceTurnPolicyCompareRoute(
+          selectedThread.workspaceId,
+          {
+            turnPolicyThreadId: selectedThread.id,
+          },
+        ),
+        alertHistory: buildWorkspaceTurnPolicyHistoryRoute(
+          selectedThread.workspaceId,
+          {
+            historyRange: "90d",
+            historyGranularity: "week",
+            turnPolicyThreadId: selectedThread.id,
+          },
+        ),
+        automationHistory: buildWorkspaceTurnPolicyHistoryRoute(
+          selectedThread.workspaceId,
+          {
+            historyRange: "90d",
+            historyGranularity: "week",
+            turnPolicyThreadId: selectedThread.id,
+            metricsSource: "automation",
+          },
+        ),
+        botHistory: buildWorkspaceTurnPolicyHistoryRoute(
+          selectedThread.workspaceId,
+          {
+            historyRange: "90d",
+            historyGranularity: "week",
+            turnPolicyThreadId: selectedThread.id,
+            metricsSource: "bot",
+          },
+        ),
+      }
+    : undefined;
+
   if (!isExpanded) {
     if (isMobileViewport) {
-      return null
+      return null;
     }
 
     return (
@@ -79,24 +194,24 @@ export function ThreadWorkbenchRail({
         onOpenInspector={onOpenInspector}
         onOpenSurfacePanel={onOpenSurfacePanel}
       />
-    )
+    );
   }
 
   return (
     <aside
       className={
         isMobileViewport
-          ? 'workbench-pane workbench-pane--expanded workbench-pane--mobile'
+          ? "workbench-pane workbench-pane--expanded workbench-pane--mobile"
           : isResizing
-            ? 'workbench-pane workbench-pane--expanded workbench-pane--resizing'
-            : 'workbench-pane workbench-pane--expanded'
+            ? "workbench-pane workbench-pane--expanded workbench-pane--resizing"
+            : "workbench-pane workbench-pane--expanded"
       }
     >
       {!isMobileViewport ? (
         <ResizeHandle
           aria-label={i18n._({
-            id: 'Resize side rail',
-            message: 'Resize side rail',
+            id: "Resize side rail",
+            message: "Resize side rail",
           })}
           axis="horizontal"
           className="workbench-pane__resize-handle"
@@ -107,20 +222,24 @@ export function ThreadWorkbenchRail({
         <span className="meta-pill">
           {isMobileViewport
             ? i18n._({
-                id: 'Workbench',
-                message: 'Workbench',
+                id: "Workbench",
+                message: "Workbench",
               })
             : i18n._({
-                id: 'Side rail',
-                message: 'Side rail',
+                id: "Side rail",
+                message: "Side rail",
               })}
         </span>
         <div className="workbench-pane__topbar-actions">
           {!isMobileViewport ? (
-            <button className="pane-section__toggle" onClick={onResetInspectorWidth} type="button">
+            <button
+              className="pane-section__toggle"
+              onClick={onResetInspectorWidth}
+              type="button"
+            >
               {i18n._({
-                id: 'Reset width',
-                message: 'Reset width',
+                id: "Reset width",
+                message: "Reset width",
               })}
             </button>
           ) : null}
@@ -131,12 +250,12 @@ export function ThreadWorkbenchRail({
           >
             {isMobileViewport
               ? i18n._({
-                  id: 'Close',
-                  message: 'Close',
+                  id: "Close",
+                  message: "Close",
                 })
               : i18n._({
-                  id: 'Hide rail',
-                  message: 'Hide rail',
+                  id: "Hide rail",
+                  message: "Hide rail",
                 })}
           </button>
         </div>
@@ -163,6 +282,34 @@ export function ThreadWorkbenchRail({
         onSubmitRenameThread={onSubmitRenameThread}
         onToggleThreadToolsExpanded={onToggleThreadToolsExpanded}
         selectedThread={selectedThread}
+      />
+
+      <ThreadWorkbenchRailHookConfigurationSection
+        hookConfiguration={hookConfiguration}
+        hookConfigurationError={hookConfigurationError}
+        hookConfigurationLoading={hookConfigurationLoading}
+      />
+
+      <ThreadWorkbenchRailHookRunsSection
+        hookRuns={hookRuns}
+        hookRunsError={hookRunsError}
+        hookRunsLoading={hookRunsLoading}
+        selectedThread={selectedThread}
+      />
+
+      <ThreadWorkbenchRailTurnPolicyDecisionsSection
+        selectedThread={selectedThread}
+        turnPolicyDecisions={turnPolicyDecisions}
+        turnPolicyDecisionsError={turnPolicyDecisionsError}
+        turnPolicyDecisionsLoading={turnPolicyDecisionsLoading}
+      />
+
+      <ThreadWorkbenchRailTurnPolicyMetricsSection
+        selectedThread={selectedThread}
+        turnPolicyMetrics={turnPolicyMetrics}
+        turnPolicyMetricsError={turnPolicyMetricsError}
+        turnPolicyMetricsLoading={turnPolicyMetricsLoading}
+        workspaceTurnPolicyRoutes={workspaceTurnPolicyRoutes}
       />
 
       <ThreadWorkbenchRailWorkspaceContextSection
@@ -202,11 +349,29 @@ export function ThreadWorkbenchRail({
       />
 
       <ThreadWorkbenchRailWorkbenchToolsSection
+        botSendBinding={botSendBinding}
+        botSendBindingPending={botSendBindingPending}
+        botSendBots={botSendBots}
+        botSendDeliveryTargets={botSendDeliveryTargets}
+        botSendErrorMessage={botSendErrorMessage}
+        botSendLoading={botSendLoading}
+        botSendPending={botSendPending}
+        botSendSelectedBotId={botSendSelectedBotId}
+        botSendSelectedDeliveryTargetId={botSendSelectedDeliveryTargetId}
+        botSendText={botSendText}
         command={command}
         commandRunMode={commandRunMode}
         isWorkbenchToolsExpanded={isWorkbenchToolsExpanded}
+        onBindThreadBotChannel={onBindThreadBotChannel}
+        onChangeBotSendSelectedBotId={onChangeBotSendSelectedBotId}
+        onChangeBotSendSelectedDeliveryTargetId={
+          onChangeBotSendSelectedDeliveryTargetId
+        }
+        onChangeBotSendText={onChangeBotSendText}
         onChangeCommand={onChangeCommand}
         onChangeCommandRunMode={onChangeCommandRunMode}
+        onDeleteThreadBotBinding={onDeleteThreadBotBinding}
+        onSendBotMessage={onSendBotMessage}
         onStartCommand={onStartCommand}
         onToggleWorkbenchToolsExpanded={onToggleWorkbenchToolsExpanded}
         selectedThread={selectedThread}
@@ -214,5 +379,5 @@ export function ThreadWorkbenchRail({
         startCommandPending={startCommandPending}
       />
     </aside>
-  )
+  );
 }

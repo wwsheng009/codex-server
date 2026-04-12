@@ -15,6 +15,12 @@ export function getSettingsSections() {
       caption: 'Theme presets, thread reading controls, density, and motion preferences.',
     },
     {
+      id: 'governance',
+      to: '/settings/governance',
+      label: i18n._({ id: 'Governance', message: 'Governance' }),
+      caption: 'Turn hooks, turn policy, workspace baseline, and audit activity.',
+    },
+    {
       id: 'config',
       to: '/settings/config',
       label: i18n._({ id: 'Config', message: 'Config' }),

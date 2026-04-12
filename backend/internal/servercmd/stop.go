@@ -113,11 +113,19 @@ func identifyCodexBackend(client *http.Client, addr string) (bool, []string) {
 
 		var payload struct {
 			Status string `json:"status"`
+			Data   struct {
+				Status string `json:"status"`
+			} `json:"data"`
 		}
 		decodeErr := json.NewDecoder(response.Body).Decode(&payload)
 		_ = response.Body.Close()
 
-		if response.StatusCode == http.StatusOK && decodeErr == nil && strings.EqualFold(strings.TrimSpace(payload.Status), "ok") {
+		status := strings.TrimSpace(payload.Status)
+		if status == "" {
+			status = strings.TrimSpace(payload.Data.Status)
+		}
+
+		if response.StatusCode == http.StatusOK && decodeErr == nil && strings.EqualFold(status, "ok") {
 			return true, attempts
 		}
 
@@ -125,7 +133,7 @@ func identifyCodexBackend(client *http.Client, addr string) (bool, []string) {
 			attempts = append(attempts, fmt.Sprintf("%s: http %d decode %v", endpoint, response.StatusCode, decodeErr))
 			continue
 		}
-		attempts = append(attempts, fmt.Sprintf("%s: http %d status=%q", endpoint, response.StatusCode, payload.Status))
+		attempts = append(attempts, fmt.Sprintf("%s: http %d status=%q", endpoint, response.StatusCode, status))
 	}
 
 	return false, attempts

@@ -120,6 +120,67 @@ func TestBuildTurnStartPayloadAppliesRuntimeDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildTurnStartPayloadOmitsEmptyResponsesAPIClientMetadata(t *testing.T) {
+	t.Parallel()
+
+	payload := buildTurnStartPayload("thread-1", "Inspect the repo", StartOptions{}, nil)
+	if _, ok := payload["responsesapiClientMetadata"]; ok {
+		t.Fatalf("expected responsesapiClientMetadata to be omitted, got %#v", payload["responsesapiClientMetadata"])
+	}
+}
+
+func TestBuildTurnStartPayloadIncludesResponsesAPIClientMetadata(t *testing.T) {
+	t.Parallel()
+
+	payload := buildTurnStartPayload("thread-1", "Inspect the repo", StartOptions{
+		ResponsesAPIClientMetadata: InteractiveStartMetadata("ws-1", "thread-1"),
+	}, nil)
+
+	metadata, ok := payload["responsesapiClientMetadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected responsesapiClientMetadata map, got %#v", payload["responsesapiClientMetadata"])
+	}
+	if metadata["source"] != "interactive" {
+		t.Fatalf("expected interactive metadata source, got %#v", metadata["source"])
+	}
+	if metadata["origin"] != "codex-server-web" {
+		t.Fatalf("expected codex-server-web origin, got %#v", metadata["origin"])
+	}
+	if metadata["workspaceId"] != "ws-1" {
+		t.Fatalf("expected workspaceId ws-1, got %#v", metadata["workspaceId"])
+	}
+	if metadata["threadId"] != "thread-1" {
+		t.Fatalf("expected threadId thread-1, got %#v", metadata["threadId"])
+	}
+}
+
+func TestBuildTurnStartPayloadKeepsResponsesAPIClientMetadataWithFullAccessPreset(t *testing.T) {
+	t.Parallel()
+
+	payload := buildTurnStartPayload("thread-1", "Inspect the repo", StartOptions{
+		PermissionPreset:           "full-access",
+		ResponsesAPIClientMetadata: InteractiveStartMetadata("ws-1", "thread-1"),
+	}, nil)
+
+	metadata, ok := payload["responsesapiClientMetadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected responsesapiClientMetadata map, got %#v", payload["responsesapiClientMetadata"])
+	}
+	if metadata["source"] != "interactive" {
+		t.Fatalf("expected interactive metadata source, got %#v", metadata["source"])
+	}
+	if payload["approvalPolicy"] != "never" {
+		t.Fatalf("expected full-access approval policy, got %#v", payload["approvalPolicy"])
+	}
+	sandboxPolicy, ok := payload["sandboxPolicy"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sandbox policy override map, got %#v", payload["sandboxPolicy"])
+	}
+	if sandboxPolicy["type"] != "dangerFullAccess" {
+		t.Fatalf("expected danger-full-access sandbox policy, got %#v", sandboxPolicy["type"])
+	}
+}
+
 func TestBuildCollaborationModePayloadUsesPresetDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -331,5 +392,43 @@ func TestStartReturnsRunningWhenCompletionNotificationIsMissing(t *testing.T) {
 	}
 	if activeTurnID := runtimeManager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "turn-missing-complete-1" {
 		t.Fatalf("expected active turn to be remembered, got %q", activeTurnID)
+	}
+}
+
+func TestStartSendsResponsesAPIClientMetadataThroughRuntime(t *testing.T) {
+	session := codexfake.NewSession(t, "TestCodexFakeHelperProcess")
+
+	runtimeManager := runtime.NewManager(session.Command, events.NewHub())
+	workspaceRoot := t.TempDir()
+	runtimeManager.Configure("ws-1", workspaceRoot)
+	defer runtimeManager.Remove("ws-1")
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	result, err := service.Start(context.Background(), "ws-1", "thread-1", "Inspect the repo", StartOptions{
+		ResponsesAPIClientMetadata: AutomationStartMetadata("ws-1", "thread-1", "auto-1", "run-1", "schedule"),
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if result.TurnID != "turn-test-1" {
+		t.Fatalf("expected fake turn id, got %#v", result.TurnID)
+	}
+
+	state := codexfake.ReadState(t, session.StateFile)
+	metadata, ok := state.LastTurn["responsesapiClientMetadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected responsesapiClientMetadata in runtime payload, got %#v", state.LastTurn["responsesapiClientMetadata"])
+	}
+	if metadata["source"] != "automation" {
+		t.Fatalf("expected automation metadata source, got %#v", metadata["source"])
+	}
+	if metadata["automationId"] != "auto-1" {
+		t.Fatalf("expected automationId auto-1, got %#v", metadata["automationId"])
+	}
+	if metadata["automationRunId"] != "run-1" {
+		t.Fatalf("expected automationRunId run-1, got %#v", metadata["automationRunId"])
+	}
+	if metadata["automationTrigger"] != "schedule" {
+		t.Fatalf("expected automationTrigger schedule, got %#v", metadata["automationTrigger"])
 	}
 }

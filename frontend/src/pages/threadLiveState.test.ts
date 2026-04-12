@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { i18n } from '../i18n/runtime'
 import type { ServerEvent, ThreadDetail } from '../types/api'
 import {
   applyLiveThreadEvents,
@@ -8,6 +9,10 @@ import {
   resolveLiveThreadDetail,
   upsertPendingUserMessage,
 } from './threadLiveState'
+
+beforeAll(() => {
+  i18n.loadAndActivate({ locale: 'en', messages: {} })
+})
 
 function makeDetail(): ThreadDetail {
   return {
@@ -191,6 +196,197 @@ describe('threadLiveState', () => {
       command: 'git status',
       aggregatedOutput: 'On branch main',
     })
+  })
+
+  it('projects turn plan updates into a dedicated status item', () => {
+    const started = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('turn/plan/updated', {
+        explanation: 'Stabilize the thread plan pipeline',
+        plan: [
+          {
+            step: 'Inspect runtime events',
+            status: 'completed',
+          },
+          {
+            step: 'Render step states',
+            status: 'inProgress',
+          },
+        ],
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    const updated = applyThreadEventToDetail(
+      started,
+      makeEvent('turn/plan/updated', {
+        explanation: 'Stabilize the thread plan pipeline',
+        plan: [
+          {
+            step: 'Inspect runtime events',
+            status: 'completed',
+          },
+          {
+            step: 'Render step states',
+            status: 'completed',
+          },
+        ],
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(updated?.turns[0]?.items).toHaveLength(1)
+    expect(updated?.turns[0]?.items[0]).toMatchObject({
+      id: 'turn-plan-turn-1',
+      type: 'turnPlan',
+      explanation: 'Stabilize the thread plan pipeline',
+      status: 'completed',
+      steps: [
+        {
+          step: 'Inspect runtime events',
+          status: 'completed',
+        },
+        {
+          step: 'Render step states',
+          status: 'completed',
+        },
+      ],
+    })
+  })
+
+  it('merges hook lifecycle events into the live thread detail', () => {
+    const started = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('hook/started', {
+        run: {
+          id: 'hook-1',
+          turnId: 'turn-1',
+          eventName: 'PostToolUse',
+          handlerKey: 'builtin.posttooluse.failed-validation-rescue',
+          triggerMethod: 'item/completed',
+          toolName: 'command/exec',
+          status: 'running',
+          decision: 'continueTurn',
+          reason: 'validation_command_failed',
+          entries: [
+            {
+              kind: 'feedback',
+              text: 'command=go test ./...',
+            },
+          ],
+        },
+      }),
+    )
+
+    const completed = applyThreadEventToDetail(
+      started,
+      makeEvent('hook/completed', {
+        run: {
+          id: 'hook-1',
+          turnId: 'turn-1',
+          eventName: 'PostToolUse',
+          handlerKey: 'builtin.posttooluse.failed-validation-rescue',
+          triggerMethod: 'item/completed',
+          toolName: 'command/exec',
+          status: 'completed',
+          decision: 'continueTurn',
+          reason: 'validation_command_failed',
+          durationMs: 18,
+        },
+      }),
+    )
+
+    expect(completed?.turns[0]?.items[0]).toMatchObject({
+      id: 'hook-run-hook-1',
+      type: 'hookRun',
+      eventName: 'PostToolUse',
+      status: 'completed',
+      decision: 'continueTurn',
+      reason: 'validation_command_failed',
+      durationMs: 18,
+    })
+    expect(String(completed?.turns[0]?.items[0]?.message ?? '')).toBe(
+      'Event: Post-Tool Use\nHandler: Failed Validation Rescue\nStatus: Completed\nDecision: Continue Turn\nTrigger: Item Completed\nTool: Command Execution\nReason: Validation command failed',
+    )
+  })
+
+  it('places turnless hook lifecycle events into a synthetic governance turn', () => {
+    const detailWithExistingTurn = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('turn/completed', {
+        turn: {
+          id: 'turn-1',
+          status: 'completed',
+          items: [],
+        },
+      }),
+    )
+
+    const updated = applyThreadEventToDetail(
+      detailWithExistingTurn,
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        method: 'hook/completed',
+        payload: {
+          run: {
+            id: 'hook-thread-1',
+            threadId: 'thread-1',
+            eventName: 'UserPromptSubmit',
+            handlerKey: 'builtin.userpromptsubmit.block-secret-paste',
+            triggerMethod: 'turn/start',
+            status: 'completed',
+            decision: 'block',
+            reason: 'secret_like_input_blocked',
+          },
+        },
+        ts: '2026-03-20T00:00:02.000Z',
+      },
+    )
+
+    expect(updated?.turns[0]?.id).toBe('thread-governance')
+    expect(updated?.turns[0]?.items[0]).toMatchObject({
+      id: 'hook-run-hook-thread-1',
+      type: 'hookRun',
+      eventName: 'UserPromptSubmit',
+      status: 'completed',
+      decision: 'block',
+      reason: 'secret_like_input_blocked',
+    })
+    expect(String(updated?.turns[0]?.items[0]?.message ?? '')).toBe(
+      'Event: User Prompt Submit\nHandler: Secret Paste Guard\nStatus: Completed\nDecision: Block\nTrigger: Turn Start\nReason: Secret-like input blocked',
+    )
+    expect(updated?.turns[1]?.id).toBe('turn-1')
+  })
+
+  it('includes session start source in projected hook run timeline messages', () => {
+    const detail = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('hook/completed', {
+        run: {
+          id: 'hook-session-1',
+          eventName: 'SessionStart',
+          handlerKey: 'builtin.sessionstart.inject-project-context',
+          triggerMethod: 'turn/start',
+          status: 'completed',
+          decision: 'continue',
+          sessionStartSource: 'resume',
+          reason: 'project_context_injected',
+        },
+      }),
+    )
+
+    expect(detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'hook-run-hook-session-1',
+      type: 'hookRun',
+      eventName: 'SessionStart',
+      sessionStartSource: 'resume',
+    })
+    expect(String(detail?.turns[0]?.items[0]?.message ?? '')).toBe(
+      'Event: Session Start\nHandler: Project Context Injection\nStatus: Completed\nDecision: Continue\nTrigger: Turn Start\nSession Start Source: Resume\nReason: Project context injected',
+    )
   })
 
   it('applies turn completion payloads without requiring a follow-up thread refresh', () => {
@@ -432,6 +628,66 @@ describe('threadLiveState', () => {
       id: 'item-1',
       type: 'agentMessage',
       text: 'Hello world',
+      phase: 'streaming',
+    })
+  })
+
+  it('keeps live-only trailing items when a newer snapshot omits them', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:01.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['Checking order'],
+              content: [],
+            },
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Newest reply',
+              phase: 'streaming',
+            },
+          ],
+        },
+      ],
+    }
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['Checking order'],
+              content: [],
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items).toHaveLength(2)
+    expect(resolved?.turns[0]?.items[1]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Newest reply',
       phase: 'streaming',
     })
   })

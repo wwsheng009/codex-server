@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"codex-server/backend/internal/approvals"
+	"codex-server/backend/internal/automations"
+	"codex-server/backend/internal/events"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
@@ -51,6 +53,1266 @@ func TestServiceCreatesConnectionAndSanitizesSecrets(t *testing.T) {
 	}
 	if _, ok := dataStore.GetBotConnection(workspace.ID, connection.ID); !ok {
 		t.Fatal("expected bot connection to be persisted")
+	}
+}
+
+func TestServiceCreatesBotAndBotScopedConnectionWithoutRenamingBot(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	bot, err := service.CreateBot(workspace.ID, CreateBotInput{
+		Name:        "Ops Bot",
+		Description: "Primary support bot",
+	})
+	if err != nil {
+		t.Fatalf("CreateBot() error = %v", err)
+	}
+
+	connection, err := service.CreateConnectionForBot(context.Background(), workspace.ID, bot.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Telegram Endpoint",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnectionForBot() error = %v", err)
+	}
+
+	if connection.BotID != bot.ID {
+		t.Fatalf("expected connection bot id %q, got %#v", bot.ID, connection)
+	}
+
+	storedBot, ok := dataStore.GetBot(workspace.ID, bot.ID)
+	if !ok {
+		t.Fatal("expected bot to remain persisted")
+	}
+	if storedBot.Name != "Ops Bot" {
+		t.Fatalf("expected bot name to stay %q, got %#v", "Ops Bot", storedBot)
+	}
+	if storedBot.DefaultBindingID == "" {
+		t.Fatalf("expected default binding to be provisioned, got %#v", storedBot)
+	}
+}
+
+func TestUpsertDeliveryTargetForSessionBackedSession(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspace.ID,
+		BotID:                  connection.BotID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-1",
+		ExternalChatID:         "chat-1",
+		ExternalThreadID:       "topic-9",
+		ExternalTitle:          "Ops Room",
+		ThreadID:               "thr_chat-1",
+		ProviderState: map[string]string{
+			"source": "session",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		SessionID: conversation.ID,
+		Labels:    []string{" ops ", "", "vip"},
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget() error = %v", err)
+	}
+
+	if target.EndpointID != connection.ID {
+		t.Fatalf("expected endpoint id %q, got %#v", connection.ID, target)
+	}
+	if target.SessionID != conversation.ID {
+		t.Fatalf("expected session id %q, got %#v", conversation.ID, target)
+	}
+	if target.TargetType != "session_backed" {
+		t.Fatalf("expected session_backed target, got %#v", target)
+	}
+	if target.RouteType != "thread" || target.RouteKey != "conversation:chat-1:thread:topic-9" {
+		t.Fatalf("expected canonical thread route, got %#v", target)
+	}
+	if len(target.Labels) != 2 || target.Labels[0] != "ops" || target.Labels[1] != "vip" {
+		t.Fatalf("expected normalized labels, got %#v", target.Labels)
+	}
+
+	updated, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		SessionID: conversation.ID,
+		Title:     "Updated Session Target",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget(update) error = %v", err)
+	}
+	if updated.ID != target.ID {
+		t.Fatalf("expected upsert to reuse target id %q, got %#v", target.ID, updated)
+	}
+	if updated.Title != "Updated Session Target" {
+		t.Fatalf("expected title update, got %#v", updated)
+	}
+
+	targets, err := service.ListDeliveryTargets(workspace.ID, connection.BotID)
+	if err != nil {
+		t.Fatalf("ListDeliveryTargets() error = %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected exactly 1 delivery target after upsert, got %#v", targets)
+	}
+}
+
+func TestSendSessionOutboundMessagesCreatesDeliveredRecordAndIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspace.ID,
+		BotID:                  connection.BotID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-proactive-1",
+		ExternalChatID:         "chat-proactive-1",
+		ExternalTitle:          "Alice",
+		ThreadID:               "thr_chat-proactive-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	delivery, err := service.SendSessionOutboundMessages(context.Background(), workspace.ID, connection.BotID, conversation.ID, SendOutboundMessagesInput{
+		SourceType:     "manual",
+		IdempotencyKey: "manual:1",
+		Messages: []store.BotReplyMessage{
+			{Text: "Hello proactive"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendSessionOutboundMessages() error = %v", err)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected connection id %q, got %#v", connection.ID, sent)
+		}
+		if sent.Conversation.ID != conversation.ID || sent.Conversation.ExternalChatID != "chat-proactive-1" {
+			t.Fatalf("expected stored conversation route, got %#v", sent.Conversation)
+		}
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "Hello proactive" {
+			t.Fatalf("expected proactive message payload, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for proactive outbound send")
+	}
+
+	if delivery.Status != "delivered" || delivery.SessionID != conversation.ID || delivery.SourceType != "manual" {
+		t.Fatalf("expected delivered outbound delivery view, got %#v", delivery)
+	}
+
+	deliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:          connection.BotID,
+		ConversationID: conversation.ID,
+	})
+	if len(deliveries) != 1 {
+		t.Fatalf("expected one stored outbound delivery, got %#v", deliveries)
+	}
+	if deliveries[0].Status != "delivered" || deliveries[0].AttemptCount != 1 {
+		t.Fatalf("expected delivered stored outbound delivery, got %#v", deliveries[0])
+	}
+
+	updatedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation after proactive send")
+	}
+	if updatedConversation.LastOutboundText != "Hello proactive" ||
+		updatedConversation.LastOutboundDeliveryStatus != "delivered" ||
+		updatedConversation.LastOutboundDeliveryAttemptCount != 1 {
+		t.Fatalf("expected conversation outbound summary to update, got %#v", updatedConversation)
+	}
+
+	redelivery, err := service.SendSessionOutboundMessages(context.Background(), workspace.ID, connection.BotID, conversation.ID, SendOutboundMessagesInput{
+		SourceType:     "manual",
+		IdempotencyKey: "manual:1",
+		Messages: []store.BotReplyMessage{
+			{Text: "Hello proactive"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendSessionOutboundMessages(idempotent) error = %v", err)
+	}
+	if redelivery.ID != delivery.ID {
+		t.Fatalf("expected idempotent send to return existing delivery %q, got %#v", delivery.ID, redelivery)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		t.Fatalf("expected idempotent send to avoid duplicate provider call, got %#v", sent)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestSendDeliveryTargetOutboundMessagesUsesSyntheticRoute(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "telegram_topic",
+		RouteKey:   "chat:998877:thread:42",
+		Title:      "Ops Topic",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget(route_backed) error = %v", err)
+	}
+
+	delivery, err := service.SendDeliveryTargetOutboundMessages(context.Background(), workspace.ID, connection.BotID, target.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{Text: "Topic hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendDeliveryTargetOutboundMessages() error = %v", err)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.Conversation.ExternalChatID != "998877" {
+			t.Fatalf("expected synthetic chat id 998877, got %#v", sent.Conversation)
+		}
+		if sent.Conversation.ExternalThreadID != "42" {
+			t.Fatalf("expected synthetic thread id 42, got %#v", sent.Conversation)
+		}
+		if sent.Conversation.ExternalConversationID != "998877:thread:42" {
+			t.Fatalf("expected canonical telegram conversation id, got %#v", sent.Conversation)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for route-backed outbound send")
+	}
+
+	if delivery.Status != "delivered" || delivery.SessionID != "" || delivery.DeliveryTargetID != target.ID {
+		t.Fatalf("expected delivered route-backed delivery, got %#v", delivery)
+	}
+}
+
+func TestNotificationTriggerDispatchesOutboundDeliveryExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	eventHub := events.NewHub()
+	provider := newFakeProvider()
+	service := NewService(dataStore, nil, nil, eventHub, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "telegram_chat",
+		RouteKey:   "chat:notify-1",
+		Title:      "Notify Chat",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget() error = %v", err)
+	}
+
+	trigger, err := service.CreateTrigger(context.Background(), workspace.ID, connection.BotID, UpsertBotTriggerInput{
+		DeliveryTargetID: target.ID,
+		Filter: map[string]string{
+			"kind":  "automation_run_completed",
+			"level": "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger() error = %v", err)
+	}
+
+	eventPayload := map[string]any{
+		"notificationId": "ntf_001",
+		"kind":           "automation_run_completed",
+		"title":          "Automation completed",
+		"message":        "Daily Sync completed successfully.",
+		"level":          "success",
+	}
+	eventHub.Publish(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		Method:      "notification/created",
+		Payload:     eventPayload,
+	})
+	eventHub.Publish(store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		Method:      "notification/created",
+		Payload:     eventPayload,
+	})
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected connection id %q, got %#v", connection.ID, sent)
+		}
+		if sent.Conversation.ExternalChatID != "notify-1" {
+			t.Fatalf("expected route-backed chat id notify-1, got %#v", sent.Conversation)
+		}
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "Automation completed\nDaily Sync completed successfully." {
+			t.Fatalf("expected notification payload text, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notification trigger outbound send")
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		t.Fatalf("expected idempotent notification trigger to avoid duplicate send, got %#v", sent)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	deliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:         connection.BotID,
+		SourceType:    "notification",
+		SourceRefType: "notification",
+		SourceRefID:   "ntf_001",
+	})
+	if len(deliveries) != 1 {
+		t.Fatalf("expected exactly 1 notification outbound delivery, got %#v", deliveries)
+	}
+	if deliveries[0].TriggerID != trigger.ID ||
+		deliveries[0].DeliveryTargetID != target.ID ||
+		deliveries[0].Status != "delivered" ||
+		deliveries[0].IdempotencyKey != "notification:ntf_001:trigger:"+trigger.ID {
+		t.Fatalf("unexpected notification outbound delivery: %#v", deliveries[0])
+	}
+}
+
+func TestThreadBoundTurnCompletionDispatchesOutboundDeliveryExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	eventHub := events.NewHub()
+	provider := newFakeProvider()
+	service := NewService(dataStore, threadsExec, nil, eventHub, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	thread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Bound Thread"})
+	if err != nil {
+		t.Fatalf("Create(thread) error = %v", err)
+	}
+	dataStore.UpsertThread(thread)
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider: "fakechat",
+		Name:     "Ops Endpoint",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "telegram_chat",
+		RouteKey:   "chat:thread-bound",
+		Title:      "Bound Chat",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget() error = %v", err)
+	}
+
+	binding, err := service.UpsertThreadBotBinding(context.Background(), workspace.ID, thread.ID, UpsertThreadBotBindingInput{
+		BotID:            connection.BotID,
+		DeliveryTargetID: target.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpsertThreadBotBinding() error = %v", err)
+	}
+	if binding.SessionID == "" {
+		t.Fatal("expected thread binding to create a backing session")
+	}
+	conversation, ok := dataStore.GetBotConversation(workspace.ID, binding.SessionID)
+	if !ok {
+		t.Fatalf("expected backing session %q to be created", binding.SessionID)
+	}
+	if strings.TrimSpace(conversation.ThreadID) != thread.ID {
+		t.Fatalf("expected backing session to bind thread %q, got %#v", thread.ID, conversation)
+	}
+
+	const turnID = "turn-thread-bound-1"
+	threadsExec.setCompletedTurn(thread.ID, store.ThreadTurn{
+		ID:     turnID,
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":   "assistant-thread-bound-1",
+				"type": "agentMessage",
+				"text": "Thread binding final reply",
+			},
+		},
+	})
+
+	if err := service.RegisterThreadBoundTurn(workspace.ID, thread.ID, turnID); err != nil {
+		t.Fatalf("RegisterThreadBoundTurn() error = %v", err)
+	}
+
+	event := store.EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    thread.ID,
+		TurnID:      turnID,
+		Method:      "turn/completed",
+	}
+	eventHub.Publish(event)
+	eventHub.Publish(event)
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected connection id %q, got %#v", connection.ID, sent)
+		}
+		if sent.Conversation.ExternalChatID != "thread-bound" ||
+			sent.Conversation.ExternalConversationID != "thread-bound" {
+			t.Fatalf("expected route-backed delivery conversation, got %#v", sent.Conversation)
+		}
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "Thread binding final reply" {
+			t.Fatalf("expected final assistant reply to be delivered, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for thread-bound outbound send")
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		t.Fatalf("expected duplicate turn/completed event to avoid duplicate send, got %#v", sent)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	deliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:         connection.BotID,
+		SourceType:    "thread_binding",
+		SourceRefType: "thread_turn",
+		SourceRefID:   turnID,
+	})
+	if len(deliveries) != 1 {
+		t.Fatalf("expected exactly 1 thread binding outbound delivery, got %#v", deliveries)
+	}
+	if deliveries[0].DeliveryTargetID != target.ID ||
+		deliveries[0].OriginWorkspaceID != workspace.ID ||
+		deliveries[0].OriginThreadID != thread.ID ||
+		deliveries[0].OriginTurnID != turnID ||
+		deliveries[0].Status != "delivered" ||
+		deliveries[0].AttemptCount != 1 ||
+		deliveries[0].IdempotencyKey != "thread-binding:"+binding.ID+":"+thread.ID+":"+turnID {
+		t.Fatalf("unexpected thread binding outbound delivery: %#v", deliveries[0])
+	}
+	if len(deliveries[0].Messages) != 1 || deliveries[0].Messages[0].Text != "Thread binding final reply" {
+		t.Fatalf("expected stored delivery payload to match reply, got %#v", deliveries[0].Messages)
+	}
+}
+
+func TestCrossWorkspaceThreadBoundTurnCompletionDispatchesOutboundDeliveryExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	threadWorkspace := dataStore.CreateWorkspace("Thread Workspace", "E:/projects/thread")
+	botWorkspace := dataStore.CreateWorkspace("Bot Workspace", "E:/projects/bot")
+	threadsExec := newFakeBotThreads()
+	eventHub := events.NewHub()
+	provider := newFakeProvider()
+	service := NewService(dataStore, threadsExec, nil, eventHub, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	thread, err := threadsExec.Create(context.Background(), threadWorkspace.ID, threads.CreateInput{Name: "Cross Workspace Thread"})
+	if err != nil {
+		t.Fatalf("Create(thread) error = %v", err)
+	}
+	dataStore.UpsertThread(thread)
+
+	connection, err := service.CreateConnection(context.Background(), botWorkspace.ID, CreateConnectionInput{
+		Provider: "fakechat",
+		Name:     "Ops Endpoint",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), botWorkspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "telegram_chat",
+		RouteKey:   "chat:thread-bound-cross-workspace",
+		Title:      "Bound Chat",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget() error = %v", err)
+	}
+
+	binding, err := service.UpsertThreadBotBinding(context.Background(), threadWorkspace.ID, thread.ID, UpsertThreadBotBindingInput{
+		BotWorkspaceID:   botWorkspace.ID,
+		BotID:            connection.BotID,
+		DeliveryTargetID: target.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpsertThreadBotBinding() error = %v", err)
+	}
+	if binding.BotWorkspaceID != botWorkspace.ID {
+		t.Fatalf("expected bot workspace id %q, got %#v", botWorkspace.ID, binding)
+	}
+	if binding.SessionID == "" {
+		t.Fatal("expected cross-workspace thread binding to create a backing session")
+	}
+	conversation, ok := dataStore.GetBotConversation(botWorkspace.ID, binding.SessionID)
+	if !ok {
+		t.Fatalf("expected backing session %q to be created in bot workspace", binding.SessionID)
+	}
+	if strings.TrimSpace(conversation.ThreadID) != thread.ID {
+		t.Fatalf("expected backing session to bind thread %q, got %#v", thread.ID, conversation)
+	}
+
+	const turnID = "turn-thread-bound-cross-workspace-1"
+	threadsExec.setCompletedTurn(thread.ID, store.ThreadTurn{
+		ID:     turnID,
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":   "assistant-thread-bound-cross-workspace-1",
+				"type": "agentMessage",
+				"text": "Cross-workspace thread binding final reply",
+			},
+		},
+	})
+
+	if err := service.RegisterThreadBoundTurn(threadWorkspace.ID, thread.ID, turnID); err != nil {
+		t.Fatalf("RegisterThreadBoundTurn() error = %v", err)
+	}
+
+	event := store.EventEnvelope{
+		WorkspaceID: threadWorkspace.ID,
+		ThreadID:    thread.ID,
+		TurnID:      turnID,
+		Method:      "turn/completed",
+	}
+	eventHub.Publish(event)
+	eventHub.Publish(event)
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected connection id %q, got %#v", connection.ID, sent)
+		}
+		if sent.Conversation.ExternalChatID != "thread-bound-cross-workspace" ||
+			sent.Conversation.ExternalConversationID != "thread-bound-cross-workspace" {
+			t.Fatalf("expected route-backed delivery conversation, got %#v", sent.Conversation)
+		}
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "Cross-workspace thread binding final reply" {
+			t.Fatalf("expected final assistant reply to be delivered, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for cross-workspace thread-bound outbound send")
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		t.Fatalf("expected duplicate turn/completed event to avoid duplicate send, got %#v", sent)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	deliveries := dataStore.ListBotOutboundDeliveries(botWorkspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:         connection.BotID,
+		SourceType:    "thread_binding",
+		SourceRefType: "thread_turn",
+		SourceRefID:   turnID,
+	})
+	if len(deliveries) != 1 {
+		t.Fatalf("expected exactly 1 cross-workspace thread binding outbound delivery, got %#v", deliveries)
+	}
+	if deliveries[0].DeliveryTargetID != target.ID ||
+		deliveries[0].OriginWorkspaceID != threadWorkspace.ID ||
+		deliveries[0].OriginThreadID != thread.ID ||
+		deliveries[0].OriginTurnID != turnID ||
+		deliveries[0].Status != "delivered" ||
+		deliveries[0].AttemptCount != 1 ||
+		deliveries[0].IdempotencyKey != "thread-binding:"+binding.ID+":"+thread.ID+":"+turnID {
+		t.Fatalf("unexpected cross-workspace thread binding outbound delivery: %#v", deliveries[0])
+	}
+	if len(deliveries[0].Messages) != 1 || deliveries[0].Messages[0].Text != "Cross-workspace thread binding final reply" {
+		t.Fatalf("expected stored delivery payload to match reply, got %#v", deliveries[0].Messages)
+	}
+}
+
+func TestAutomationNotificationTriggerCreatesBotOutboundDelivery(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	eventHub := events.NewHub()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+	provider := newFakeProvider()
+
+	botService := NewService(dataStore, threadsExec, turnsExec, eventHub, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	botService.Start(context.Background())
+
+	connection, err := botService.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := botService.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "telegram_chat",
+		RouteKey:   "chat:automation-1",
+		Title:      "Automation Chat",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget() error = %v", err)
+	}
+
+	trigger, err := botService.CreateTrigger(context.Background(), workspace.ID, connection.BotID, UpsertBotTriggerInput{
+		DeliveryTargetID: target.ID,
+		Filter: map[string]string{
+			"kind": "automation_run_completed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger() error = %v", err)
+	}
+
+	automationService := automations.NewService(dataStore, threadsExec, turnsExec, eventHub)
+	automation, err := automationService.Create(automations.CreateInput{
+		Title:       "Daily Sync",
+		Description: "Summary",
+		Prompt:      "Summarize changes",
+		WorkspaceID: workspace.ID,
+		Schedule:    "hourly",
+		Model:       "gpt-5.4",
+		Reasoning:   "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if _, err := automationService.Trigger(context.Background(), automation.ID); err != nil {
+		t.Fatalf("Trigger() error = %v", err)
+	}
+
+	var sentPayload fakeSentPayload
+	select {
+	case sentPayload = <-provider.sentCh:
+	case <-time.After(4 * time.Second):
+		t.Fatal("timed out waiting for automation notification trigger outbound send")
+	}
+
+	if sentPayload.ConnectionID != connection.ID {
+		t.Fatalf("expected automation notification to use connection %q, got %#v", connection.ID, sentPayload)
+	}
+	if len(sentPayload.Messages) != 1 {
+		t.Fatalf("expected a single notification message, got %#v", sentPayload.Messages)
+	}
+	if !strings.Contains(sentPayload.Messages[0].Text, "Automation completed") ||
+		!strings.Contains(sentPayload.Messages[0].Text, "Daily Sync") {
+		t.Fatalf("expected automation completion notification text, got %#v", sentPayload.Messages)
+	}
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		deliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+			BotID:            connection.BotID,
+			SourceType:       "notification",
+			DeliveryTargetID: target.ID,
+		})
+		if len(deliveries) == 1 {
+			if deliveries[0].TriggerID != trigger.ID || deliveries[0].Status != "delivered" {
+				t.Fatalf("unexpected automation-triggered outbound delivery: %#v", deliveries[0])
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	deliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:            connection.BotID,
+		SourceType:       "notification",
+		DeliveryTargetID: target.ID,
+	})
+	t.Fatalf("expected one automation-triggered outbound delivery, got %#v", deliveries)
+}
+
+func TestUpsertWeChatRouteBackedDeliveryTargetAllowsMissingContextAndStripsManagedProviderState(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "wechat_session",
+		RouteKey:   "user:wechat-user-1",
+		Title:      "Alice",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-manual",
+			"to_user_id":          "wechat-user-1",
+			"external_chat_id":    "wechat-user-1",
+			"custom_key":          "custom-value",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget(route_backed wechat) error = %v", err)
+	}
+	if target.DeliveryReadiness != deliveryTargetReadinessWaiting {
+		t.Fatalf("expected waiting readiness without inbound context, got %#v", target)
+	}
+	if !strings.Contains(target.DeliveryReadinessMessage, "send a message first") {
+		t.Fatalf("expected waiting readiness message, got %#v", target)
+	}
+	if got := target.ProviderState[wechatContextTokenKey]; got != "" {
+		t.Fatalf("expected managed wechat context token to be stripped from target view, got %#v", target.ProviderState)
+	}
+	if got := target.ProviderState["custom_key"]; got != "custom-value" {
+		t.Fatalf("expected custom provider state to be preserved, got %#v", target.ProviderState)
+	}
+
+	storedTarget, ok := dataStore.GetBotDeliveryTarget(workspace.ID, target.ID)
+	if !ok {
+		t.Fatal("expected route-backed delivery target to be stored")
+	}
+	if got := storedTarget.ProviderState[wechatContextTokenKey]; got != "" {
+		t.Fatalf("expected stored target to strip managed wechat context token, got %#v", storedTarget.ProviderState)
+	}
+	if got := storedTarget.ProviderState["custom_key"]; got != "custom-value" {
+		t.Fatalf("expected stored target custom provider state, got %#v", storedTarget.ProviderState)
+	}
+
+	_, err = service.SendDeliveryTargetOutboundMessages(context.Background(), workspace.ID, connection.BotID, target.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{Text: "Hello Alice"},
+		},
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput without inbound WeChat context, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "wait for the user to send a message first") {
+		t.Fatalf("expected human-readable waiting-for-context error, got %v", err)
+	}
+}
+
+func TestSendWeChatRouteBackedDeliveryTargetUsesLatestConversationContext(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		BotID:                  connection.BotID,
+		WorkspaceID:            workspace.ID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "wechat-user-1",
+		ExternalChatID:         "wechat-user-1",
+		ExternalUserID:         "wechat-user-1",
+		ExternalTitle:          "Alice",
+		ThreadID:               "thr-wechat-user-1",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-new",
+			"conversation_extra":  "fresh",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	target, err := dataStore.CreateBotDeliveryTarget(store.BotDeliveryTarget{
+		WorkspaceID:   workspace.ID,
+		BotID:         connection.BotID,
+		ConnectionID:  connection.ID,
+		Provider:      connection.Provider,
+		TargetType:    "route_backed",
+		RouteType:     "wechat_session",
+		RouteKey:      "user:wechat-user-1",
+		Title:         "Alice Route",
+		ProviderState: map[string]string{wechatContextTokenKey: "ctx-old", "target_extra": "keep-me"},
+		Status:        "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotDeliveryTarget() error = %v", err)
+	}
+
+	targets, err := service.ListDeliveryTargets(workspace.ID, connection.BotID)
+	if err != nil {
+		t.Fatalf("ListDeliveryTargets() error = %v", err)
+	}
+	var listedTarget DeliveryTargetView
+	for _, candidate := range targets {
+		if candidate.ID == target.ID {
+			listedTarget = candidate
+			break
+		}
+	}
+	if listedTarget.ID == "" {
+		t.Fatalf("expected target %s to appear in delivery target list", target.ID)
+	}
+	if listedTarget.DeliveryReadiness != deliveryTargetReadinessReady {
+		t.Fatalf("expected ready delivery target after matching inbound conversation, got %#v", listedTarget)
+	}
+	if listedTarget.LastContextSeenAt == nil {
+		t.Fatalf("expected lastContextSeenAt to be populated from matched conversation, got %#v", listedTarget)
+	}
+	if got := listedTarget.ProviderState[wechatContextTokenKey]; got != "" {
+		t.Fatalf("expected delivery target view to hide managed wechat context token, got %#v", listedTarget.ProviderState)
+	}
+	if got := listedTarget.ProviderState["target_extra"]; got != "keep-me" {
+		t.Fatalf("expected delivery target view to preserve custom provider state, got %#v", listedTarget.ProviderState)
+	}
+
+	_, err = service.SendDeliveryTargetOutboundMessages(context.Background(), workspace.ID, connection.BotID, target.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{Text: "Hello again"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendDeliveryTargetOutboundMessages() error = %v", err)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if got := sent.Conversation.ProviderState[wechatContextTokenKey]; got != "ctx-new" {
+			t.Fatalf("expected outbound send to use latest conversation context token, got %#v", sent.Conversation.ProviderState)
+		}
+		if got := sent.Conversation.ProviderState["target_extra"]; got != "keep-me" {
+			t.Fatalf("expected outbound send to retain target-specific provider state, got %#v", sent.Conversation.ProviderState)
+		}
+		if sent.Conversation.ThreadID != "thr-wechat-user-1" {
+			t.Fatalf("expected outbound send to reuse matched conversation thread, got %#v", sent.Conversation)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for route-backed WeChat outbound send")
+	}
+
+	updatedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatalf("expected to reload bot conversation %s after outbound send", conversation.ID)
+	}
+	if updatedConversation.LastOutboundDeliveryStatus != "delivered" {
+		t.Fatalf("expected matched conversation outbound status to be updated, got %#v", updatedConversation)
+	}
+}
+
+func TestDeliveryTargetReadinessFallsBackWhenConnectionPaused(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{newFakeProvider()},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspace.ID,
+		BotID:                  connection.BotID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-readiness-1",
+		ExternalChatID:         "chat-readiness-1",
+		ExternalTitle:          "Alice",
+		ThreadID:               "thr_chat-readiness-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		SessionID: conversation.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget() error = %v", err)
+	}
+	if target.DeliveryReadiness != deliveryTargetReadinessReady {
+		t.Fatalf("expected active connection target to be ready, got %#v", target)
+	}
+
+	if _, err := service.PauseConnection(context.Background(), workspace.ID, connection.ID); err != nil {
+		t.Fatalf("PauseConnection() error = %v", err)
+	}
+
+	targets, err := service.ListDeliveryTargets(workspace.ID, connection.BotID)
+	if err != nil {
+		t.Fatalf("ListDeliveryTargets(paused) error = %v", err)
+	}
+
+	var pausedTarget DeliveryTargetView
+	for _, candidate := range targets {
+		if candidate.ID == target.ID {
+			pausedTarget = candidate
+			break
+		}
+	}
+	if pausedTarget.ID == "" {
+		t.Fatalf("expected paused target %s to appear in delivery target list", target.ID)
+	}
+	if pausedTarget.DeliveryReadiness != deliveryTargetReadinessWaiting {
+		t.Fatalf("expected paused connection target to become waiting, got %#v", pausedTarget)
+	}
+	if !strings.Contains(pausedTarget.DeliveryReadinessMessage, "Current provider is paused") {
+		t.Fatalf("expected paused readiness message to mention provider pause, got %#v", pausedTarget)
+	}
+
+	if _, err := service.ResumeConnection(context.Background(), workspace.ID, connection.ID, ResumeConnectionInput{}); err != nil {
+		t.Fatalf("ResumeConnection() error = %v", err)
+	}
+
+	targets, err = service.ListDeliveryTargets(workspace.ID, connection.BotID)
+	if err != nil {
+		t.Fatalf("ListDeliveryTargets(resumed) error = %v", err)
+	}
+
+	var resumedTarget DeliveryTargetView
+	for _, candidate := range targets {
+		if candidate.ID == target.ID {
+			resumedTarget = candidate
+			break
+		}
+	}
+	if resumedTarget.ID == "" {
+		t.Fatalf("expected resumed target %s to appear in delivery target list", target.ID)
+	}
+	if resumedTarget.DeliveryReadiness != deliveryTargetReadinessReady {
+		t.Fatalf("expected resumed connection target to return to ready, got %#v", resumedTarget)
+	}
+}
+
+func TestSendSessionOutboundMessagesRejectsUnsupportedTelegramMedia(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{newTelegramProvider(nil)},
+		AIBackends: []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    telegramProviderName,
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "123:abc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+	connection, bot, _, err := service.ensureConnectionBotResources(connection)
+	if err != nil {
+		t.Fatalf("ensureConnectionBotResources() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspace.ID,
+		BotID:                  bot.ID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-telegram-media-1",
+		ExternalChatID:         "chat-telegram-media-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	_, err = service.SendSessionOutboundMessages(context.Background(), workspace.ID, bot.ID, conversation.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{
+				Media: []store.BotMessageMedia{
+					{Kind: botMediaKindImage, Path: "relative-image.png"},
+				},
+			},
+		},
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for invalid telegram media input, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("expected absolute path validation error, got %v", err)
+	}
+
+	deliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:          bot.ID,
+		ConversationID: conversation.ID,
+	})
+	if len(deliveries) != 0 {
+		t.Fatalf("expected proactive request to fail before persisting deliveries, got %#v", deliveries)
+	}
+}
+
+func TestUpdateRouteBackedDeliveryTarget(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "telegram_chat",
+		RouteKey:   "chat:998877",
+		Title:      "Ops Room",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget(route_backed) error = %v", err)
+	}
+
+	updated, err := service.UpdateDeliveryTarget(context.Background(), workspace.ID, connection.BotID, target.ID, UpsertDeliveryTargetInput{
+		RouteType: "telegram_topic",
+		RouteKey:  "chat:998877:thread:42",
+		Title:     "Ops Topic",
+		Status:    "paused",
+	})
+	if err != nil {
+		t.Fatalf("UpdateDeliveryTarget() error = %v", err)
+	}
+	if updated.ID != target.ID ||
+		updated.RouteType != "telegram_topic" ||
+		updated.RouteKey != "chat:998877:thread:42" ||
+		updated.Title != "Ops Topic" ||
+		updated.Status != "paused" {
+		t.Fatalf("unexpected updated delivery target view: %#v", updated)
+	}
+
+	storedTarget, ok := dataStore.GetBotDeliveryTarget(workspace.ID, target.ID)
+	if !ok {
+		t.Fatal("expected stored delivery target after update")
+	}
+	if storedTarget.RouteType != "telegram_topic" ||
+		storedTarget.RouteKey != "chat:998877:thread:42" ||
+		storedTarget.Title != "Ops Topic" ||
+		storedTarget.Status != "paused" {
+		t.Fatalf("unexpected stored delivery target after update: %#v", storedTarget)
+	}
+}
+
+func TestDeleteRouteBackedDeliveryTarget(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  "telegram_chat",
+		RouteKey:   "chat:998877",
+		Title:      "Ops Room",
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget(route_backed) error = %v", err)
+	}
+
+	if err := service.DeleteDeliveryTarget(context.Background(), workspace.ID, connection.BotID, target.ID); err != nil {
+		t.Fatalf("DeleteDeliveryTarget() error = %v", err)
+	}
+
+	if _, ok := dataStore.GetBotDeliveryTarget(workspace.ID, target.ID); ok {
+		t.Fatal("expected delivery target to be removed from store")
+	}
+
+	if _, err := service.SendDeliveryTargetOutboundMessages(context.Background(), workspace.ID, connection.BotID, target.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{Text: "hello"},
+		},
+	}); !errors.Is(err, store.ErrBotDeliveryTargetNotFound) {
+		t.Fatalf("expected send to fail with ErrBotDeliveryTargetNotFound, got %v", err)
 	}
 }
 
@@ -353,6 +1615,30 @@ func TestHandleWebhookCreatesConversationAndSendsReply(t *testing.T) {
 		t.Fatalf("expected last outbound text to be persisted, got %q", conversations[0].LastOutboundText)
 	}
 
+	deliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:          connection.BotID,
+		ConversationID: conversations[0].ID,
+		SourceType:     "reply",
+	})
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 reply outbound delivery, got %#v", deliveries)
+	}
+	if deliveries[0].Status != "delivered" ||
+		deliveries[0].SourceRefType != "inbound_delivery" ||
+		strings.TrimSpace(deliveries[0].SourceRefID) == "" {
+		t.Fatalf("expected delivered reply outbound delivery linked to inbound delivery, got %#v", deliveries[0])
+	}
+	if len(deliveries[0].Messages) != 1 || deliveries[0].Messages[0].Text != "reply: hello" {
+		t.Fatalf("expected reply outbound delivery payload to match final reply, got %#v", deliveries[0].Messages)
+	}
+	if _, ok := dataStore.GetBotInboundDelivery(workspace.ID, deliveries[0].SourceRefID); !ok {
+		t.Fatalf("expected outbound delivery source ref %q to resolve to inbound delivery", deliveries[0].SourceRefID)
+	}
+	target, ok := dataStore.GetBotDeliveryTarget(workspace.ID, deliveries[0].DeliveryTargetID)
+	if !ok || target.ConversationID != conversations[0].ID {
+		t.Fatalf("expected reply outbound delivery target to resolve back to conversation, got %#v", target)
+	}
+
 	duplicateRequest := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
 		"conversationId":"chat-1",
 		"messageId":"msg-1",
@@ -460,7 +1746,7 @@ func TestHandleWebhookWeChatAddsAIAttachmentHintAndNormalizesReplyMedia(t *testi
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		conversations = service.ListConversations(workspace.ID, connection.ID)
-		if len(conversations) == 1 && strings.Contains(conversations[0].LastOutboundText, "[WeChat image attachment]") {
+		if len(conversations) == 1 && strings.Contains(conversations[0].LastOutboundText, "[Image attachment]") {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -469,6 +1755,100 @@ func TestHandleWebhookWeChatAddsAIAttachmentHintAndNormalizesReplyMedia(t *testi
 		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
 	}
 	t.Fatalf("expected last outbound text to summarize normalized media, got %q", conversations[0].LastOutboundText)
+}
+
+func TestHandleWebhookTelegramAddsAIAttachmentHintAndNormalizesReplyMedia(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeTelegramWebhookProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-telegram-1",
+			Messages: []OutboundMessage{
+				{
+					Text: "视频已经准备好。\n\n```telegram-attachments\nvideo E:\\temp\\news_brief_output\\international_news_brief_2026-04-08.mp4\n```",
+				},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  telegramProviderName,
+		AIBackend: "scripted_ai",
+		Secrets: map[string]string{
+			"bot_token": "telegram-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-telegram-1",
+		"messageId":"msg-telegram-1",
+		"userId":"telegram-user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"把视频发给我"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound telegram message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected 1 normalized telegram outbound message, got %#v", sent.Messages)
+		}
+		if got := sent.Messages[0].Text; got != "视频已经准备好。" {
+			t.Fatalf("expected visible telegram text to exclude attachment protocol, got %#v", sent.Messages[0])
+		}
+		if len(sent.Messages[0].Media) != 1 {
+			t.Fatalf("expected 1 parsed telegram media item, got %#v", sent.Messages[0].Media)
+		}
+		if got := sent.Messages[0].Media[0]; got.Kind != botMediaKindVideo || got.Path != `E:\temp\news_brief_output\international_news_brief_2026-04-08.mp4` || got.FileName != "international_news_brief_2026-04-08.mp4" {
+			t.Fatalf("expected parsed telegram media item to be local video attachment, got %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Telegram provider SendMessages call")
+	}
+
+	inbound := backend.lastInboundMessage()
+	if !strings.Contains(inbound.Text, "把视频发给我") {
+		t.Fatalf("expected telegram ai inbound text to preserve original user text, got %q", inbound.Text)
+	}
+	if strings.Count(inbound.Text, telegramAIOutboundMediaNote) != 1 {
+		t.Fatalf("expected telegram ai inbound text to include telegram media note exactly once, got %q", inbound.Text)
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 && strings.Contains(conversations[0].LastOutboundText, "[Video attachment]") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 telegram bot conversation, got %d", len(conversations))
+	}
+	t.Fatalf("expected telegram last outbound text to summarize normalized media, got %q", conversations[0].LastOutboundText)
 }
 
 func TestHandleWebhookWeChatEchoCommandBypassesAIAndReturnsTiming(t *testing.T) {
@@ -1403,6 +2783,167 @@ func TestHandleWebhookThreadCommandsShowListAndUseKnownThreads(t *testing.T) {
 	}
 }
 
+func TestHandleWebhookThreadCommandsFollowCrossWorkspaceBinding(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  5 * time.Millisecond,
+		TurnTimeout:   time.Second,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.turnSettleDelay = 5 * time.Millisecond
+		backend.pollInterval = 5 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspaceA.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-cross-workspace-commands",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	targetThread, err := threadsExec.Create(context.Background(), workspaceB.ID, threads.CreateInput{Name: "Cross Workspace Bound Thread"})
+	if err != nil {
+		t.Fatalf("Create(targetThread) error = %v", err)
+	}
+	if _, err := service.UpdateBotDefaultBinding(context.Background(), workspaceA.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:       "fixed_thread",
+		TargetWorkspaceID: workspaceB.ID,
+		TargetThreadID:    targetThread.ID,
+	}); err != nil {
+		t.Fatalf("UpdateBotDefaultBinding() error = %v", err)
+	}
+
+	sendWebhook := func(payload string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(payload))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	expectSingleReply := func(expected string) {
+		select {
+		case sent := <-provider.sentCh:
+			if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
+				t.Fatalf("expected sent message %q, got %#v", expected, sent.Messages)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sent message %q", expected)
+		}
+	}
+
+	sendWebhook(`{"conversationId":"chat-cross-command-1","messageId":"msg-1","userId":"user-1","username":"alice","title":"Alice","text":"hello cross workspace"}`)
+	expectSingleReply("reply: hello cross workspace")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspaceA.ID, connection.ID)
+		if len(conversations) == 1 && conversations[0].ThreadID == targetThread.ID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected cross-workspace bound thread to settle, got %#v", conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	sendWebhook(`{"conversationId":"chat-cross-command-1","messageId":"msg-2","userId":"user-1","username":"alice","title":"Alice","text":"/newthread Incident 42"}`)
+	expectSingleReply(fmt.Sprintf(
+		"Started a new workspace thread: %s/thread-bot-2\nName: Support Bot · Incident 42\nFuture messages in this chat will use the new thread.",
+		workspaceB.ID,
+	))
+
+	sendWebhook(`{"conversationId":"chat-cross-command-1","messageId":"msg-3","userId":"user-1","username":"alice","title":"Alice","text":"hello on second cross workspace thread"}`)
+	expectSingleReply("reply: hello on second cross workspace thread")
+
+	sendWebhook(`{"conversationId":"chat-cross-command-1","messageId":"msg-4","userId":"user-1","username":"alice","title":"Alice","text":"/thread list"}`)
+	expectSingleReply(fmt.Sprintf(
+		"Known workspace threads (current first, then recent approvals/activity):\n1. %s/thread-bot-2 (current) | Support Bot · Incident 42 | reply: hello on second cross workspace thread | updated 2026-03-28 12:02:30 UTC\n2. %s/%s | Cross Workspace Bound Thread | reply: hello cross workspace | updated 2026-03-28 12:01:30 UTC",
+		workspaceB.ID,
+		workspaceB.ID,
+		targetThread.ID,
+	))
+
+	sendWebhook(`{"conversationId":"chat-cross-command-1","messageId":"msg-5","userId":"user-1","username":"alice","title":"Alice","text":"/thread use 2"}`)
+	expectSingleReply(fmt.Sprintf("Switched the current conversation to thread: %s/%s", workspaceB.ID, targetThread.ID))
+
+	sendWebhook(`{"conversationId":"chat-cross-command-1","messageId":"msg-6","userId":"user-1","username":"alice","title":"Alice","text":"hello after cross workspace switch back"}`)
+	expectSingleReply("reply: hello after cross workspace switch back")
+
+	workspaceCalls := turnsExec.workspaceCalls()
+	if len(workspaceCalls) != 3 {
+		t.Fatalf("expected three AI turns, got %#v", workspaceCalls)
+	}
+	for _, workspaceID := range workspaceCalls {
+		if workspaceID != workspaceB.ID {
+			t.Fatalf("expected all AI turns to run in workspace %q, got %#v", workspaceB.ID, workspaceCalls)
+		}
+	}
+
+	threadCalls := turnsExec.threadCalls()
+	if len(threadCalls) != 3 {
+		t.Fatalf("expected three AI turns, got %#v", threadCalls)
+	}
+	if threadCalls[0] != targetThread.ID || threadCalls[1] != "thread-bot-2" || threadCalls[2] != targetThread.ID {
+		t.Fatalf("expected AI turns on %q, thread-bot-2, then %q, got %#v", targetThread.ID, targetThread.ID, threadCalls)
+	}
+
+	conversations := service.ListConversationViews(workspaceA.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %#v", conversations)
+	}
+	if conversations[0].ThreadID != targetThread.ID {
+		t.Fatalf("expected conversation to switch back to %q, got %#v", targetThread.ID, conversations[0])
+	}
+	if strings.TrimSpace(conversations[0].BindingID) == "" {
+		t.Fatalf("expected command flow to persist a session binding, got %#v", conversations[0])
+	}
+
+	storedBinding, ok := dataStore.GetBotBinding(workspaceA.ID, conversations[0].BindingID)
+	if !ok {
+		t.Fatalf("expected stored session binding %q", conversations[0].BindingID)
+	}
+	if storedBinding.TargetWorkspaceID != workspaceB.ID || storedBinding.TargetThreadID != targetThread.ID {
+		t.Fatalf("expected stored session binding to target %q/%q, got %#v", workspaceB.ID, targetThread.ID, storedBinding)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspaceA.ID, conversations[0].ID)
+	if !ok {
+		t.Fatalf("expected stored conversation %q", conversations[0].ID)
+	}
+	knownRefs := knownConversationThreadRefs(storedConversation)
+	if len(knownRefs) != 2 {
+		t.Fatalf("expected two known thread refs, got %#v", knownRefs)
+	}
+	if knownRefs[0].WorkspaceID != workspaceB.ID || knownRefs[0].ThreadID != targetThread.ID {
+		t.Fatalf("expected first known thread ref to target %q/%q, got %#v", workspaceB.ID, targetThread.ID, knownRefs[0])
+	}
+	if knownRefs[1].WorkspaceID != workspaceB.ID || knownRefs[1].ThreadID != "thread-bot-2" {
+		t.Fatalf("expected second known thread ref to target %q/thread-bot-2, got %#v", workspaceB.ID, knownRefs[1])
+	}
+}
+
 func TestHandleWebhookThreadRenameAndArchiveCommands(t *testing.T) {
 	t.Parallel()
 
@@ -2049,6 +3590,853 @@ func TestClearConversationBindingRemovesCurrentThread(t *testing.T) {
 	}
 }
 
+func TestClearConversationBindingMarksNextThreadStartAsClear(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	thread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Thread One"})
+	if err != nil {
+		t.Fatalf("Create(thread) error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:  workspace.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		ThreadID:     thread.ID,
+		BackendState: conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, []string{thread.ID}),
+			0,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	if _, err := service.ClearConversationBinding(context.Background(), workspace.ID, connection.ID, conversation.ID); err != nil {
+		t.Fatalf("ClearConversationBinding() error = %v", err)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation to be persisted")
+	}
+	if got := pendingConversationSessionStartSource(storedConversation.BackendState); got != threads.ThreadStartSourceClear {
+		t.Fatalf("expected next thread start source clear after binding clear, got %#v", got)
+	}
+}
+
+func TestUpdateConversationBindingCreateThreadUsesClearSessionStartSourceAfterClear(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspace.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+		AIConfig: map[string]string{
+			"model": "gpt-5.4",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	thread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Thread One"})
+	if err != nil {
+		t.Fatalf("Create(thread) error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:  workspace.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		ThreadID:     thread.ID,
+		BackendState: conversationBackendStateWithVersion(
+			conversationBackendStateWithKnownThreads(nil, []string{thread.ID}),
+			0,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	if _, err := service.ClearConversationBinding(context.Background(), workspace.ID, connection.ID, conversation.ID); err != nil {
+		t.Fatalf("ClearConversationBinding() error = %v", err)
+	}
+
+	updated, err := service.UpdateConversationBinding(context.Background(), workspace.ID, connection.ID, conversation.ID, UpdateConversationBindingInput{
+		CreateThread: true,
+		Title:        "Fresh Queue",
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationBinding(createThread) error = %v", err)
+	}
+	if updated.ThreadID == "" {
+		t.Fatalf("expected new thread id to be returned, got %#v", updated)
+	}
+	if got := threadsExec.lastCreateInput.SessionStartSource; got != threads.ThreadStartSourceClear {
+		t.Fatalf("expected created thread to use clear session start source, got %#v", got)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation to be persisted")
+	}
+	if got := pendingConversationSessionStartSource(storedConversation.BackendState); got != "" {
+		t.Fatalf("expected clear session start source marker to be consumed after new thread creation, got %#v", got)
+	}
+}
+
+func TestUpdateConversationBindingSwitchesExistingThreadAcrossWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspaceA.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	targetThread, err := threadsExec.Create(context.Background(), workspaceB.ID, threads.CreateInput{Name: "Workspace B Thread"})
+	if err != nil {
+		t.Fatalf("Create(targetThread) error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:  workspaceA.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	updated, err := service.UpdateConversationBinding(context.Background(), workspaceA.ID, connection.ID, conversation.ID, UpdateConversationBindingInput{
+		ThreadID:          targetThread.ID,
+		TargetWorkspaceID: workspaceB.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationBinding() error = %v", err)
+	}
+	if updated.ThreadID != targetThread.ID {
+		t.Fatalf("expected updated thread id %q, got %#v", targetThread.ID, updated)
+	}
+	if updated.ResolvedTargetWorkspaceID != workspaceB.ID {
+		t.Fatalf("expected resolved target workspace %q, got %#v", workspaceB.ID, updated)
+	}
+	if updated.ResolvedTargetThreadID != targetThread.ID {
+		t.Fatalf("expected resolved target thread %q, got %#v", targetThread.ID, updated)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspaceA.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation to be persisted")
+	}
+	if strings.TrimSpace(storedConversation.BindingID) == "" {
+		t.Fatalf("expected conversation binding id to be persisted, got %#v", storedConversation)
+	}
+
+	storedBinding, ok := dataStore.GetBotBinding(workspaceA.ID, storedConversation.BindingID)
+	if !ok {
+		t.Fatalf("expected stored session binding %q", storedConversation.BindingID)
+	}
+	if storedBinding.TargetWorkspaceID != workspaceB.ID || storedBinding.TargetThreadID != targetThread.ID {
+		t.Fatalf("expected cross-workspace binding target, got %#v", storedBinding)
+	}
+}
+
+func TestUpdateConversationBindingCreatesAndBindsNewThreadAcrossWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	threadsExec := newFakeBotThreads()
+	service := NewService(dataStore, threadsExec, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspaceA.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspaceA.ID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-cross-1",
+		ExternalChatID:         "chat-cross-1",
+		ExternalUsername:       "alice",
+		ExternalTitle:          "Alice",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	updated, err := service.UpdateConversationBinding(context.Background(), workspaceA.ID, connection.ID, conversation.ID, UpdateConversationBindingInput{
+		CreateThread:      true,
+		Title:             "VIP Queue",
+		TargetWorkspaceID: workspaceB.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationBinding(createThread) error = %v", err)
+	}
+	if updated.ThreadID == "" {
+		t.Fatalf("expected new cross-workspace thread id to be returned, got %#v", updated)
+	}
+	if updated.ResolvedTargetWorkspaceID != workspaceB.ID {
+		t.Fatalf("expected resolved target workspace %q, got %#v", workspaceB.ID, updated)
+	}
+
+	detail, err := threadsExec.GetDetail(context.Background(), workspaceB.ID, updated.ThreadID)
+	if err != nil {
+		t.Fatalf("GetDetail(newThread) error = %v", err)
+	}
+	if detail.Thread.WorkspaceID != workspaceB.ID {
+		t.Fatalf("expected created thread workspace %q, got %#v", workspaceB.ID, detail.Thread)
+	}
+	if detail.Name != "Support Bot · VIP Queue" {
+		t.Fatalf("expected created thread name to use requested title, got %#v", detail)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspaceA.ID, conversation.ID)
+	if !ok {
+		t.Fatal("expected updated conversation to be persisted")
+	}
+	storedBinding, ok := dataStore.GetBotBinding(workspaceA.ID, storedConversation.BindingID)
+	if !ok {
+		t.Fatalf("expected stored session binding %q", storedConversation.BindingID)
+	}
+	if storedBinding.TargetWorkspaceID != workspaceB.ID || storedBinding.TargetThreadID != updated.ThreadID {
+		t.Fatalf("expected stored binding to target new cross-workspace thread, got %#v", storedBinding)
+	}
+}
+
+func TestHandleWebhookAppliesDefaultFixedThreadBindingAtRuntime(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: defaultAIBackend,
+		AIConfig: map[string]string{
+			"model": "gpt-5.4",
+		},
+		Secrets: map[string]string{
+			"bot_token": "token-runtime-binding",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	targetThread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Bound Thread"})
+	if err != nil {
+		t.Fatalf("Create(targetThread) error = %v", err)
+	}
+
+	updatedBinding, err := service.UpdateBotDefaultBinding(context.Background(), workspace.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:    "fixed_thread",
+		TargetThreadID: targetThread.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateBotDefaultBinding() error = %v", err)
+	}
+	if updatedBinding.TargetThreadID != targetThread.ID {
+		t.Fatalf("expected default binding target thread %q, got %#v", targetThread.ID, updatedBinding)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-binding-runtime-1",
+		"messageId":"msg-binding-runtime-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello binding runtime"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: hello binding runtime" {
+			t.Fatalf("unexpected provider reply payload %#v", sent)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for provider reply")
+	}
+
+	if calls := turnsExec.threadCalls(); len(calls) != 1 || calls[0] != targetThread.ID {
+		t.Fatalf("expected turn to start on bound thread %q, got %#v", targetThread.ID, calls)
+	}
+	if workspaces := turnsExec.workspaceCalls(); len(workspaces) != 1 || workspaces[0] != workspace.ID {
+		t.Fatalf("expected turn to stay in source workspace %q, got %#v", workspace.ID, workspaces)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == targetThread.ID &&
+			conversations[0].LastOutboundText == "reply: hello binding runtime" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected conversation to settle on bound thread %q, got %#v", targetThread.ID, conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestHandleWebhookPrefersConversationBindingOverDefaultBindingAtRuntime(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-binding-priority",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	defaultThread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Default Thread"})
+	if err != nil {
+		t.Fatalf("Create(defaultThread) error = %v", err)
+	}
+	sessionThread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Session Thread"})
+	if err != nil {
+		t.Fatalf("Create(sessionThread) error = %v", err)
+	}
+
+	if _, err := service.UpdateBotDefaultBinding(context.Background(), workspace.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:    "fixed_thread",
+		TargetThreadID: defaultThread.ID,
+	}); err != nil {
+		t.Fatalf("UpdateBotDefaultBinding() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		BotID:                  connection.BotID,
+		WorkspaceID:            workspace.ID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "chat-binding-priority-1",
+		ExternalChatID:         "chat-binding-priority-1",
+		ExternalUserID:         "user-1",
+		ExternalUsername:       "alice",
+		ExternalTitle:          "Alice",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	updatedConversation, err := service.UpdateConversationBinding(context.Background(), workspace.ID, connection.ID, conversation.ID, UpdateConversationBindingInput{
+		ThreadID: sessionThread.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationBinding() error = %v", err)
+	}
+	if updatedConversation.ThreadID != sessionThread.ID {
+		t.Fatalf("expected session binding thread %q, got %#v", sessionThread.ID, updatedConversation)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-binding-priority-1",
+		"messageId":"msg-binding-priority-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello binding priority"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for provider reply")
+	}
+
+	if calls := turnsExec.threadCalls(); len(calls) != 1 || calls[0] != sessionThread.ID {
+		t.Fatalf("expected session binding to win over default thread %q, got %#v", sessionThread.ID, calls)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == sessionThread.ID &&
+			strings.TrimSpace(conversations[0].BindingID) != "" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected conversation to keep session binding on thread %q, got %#v", sessionThread.ID, conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestHandleWebhookAppliesCrossWorkspaceDefaultBindingAtRuntime(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspaceA.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-cross-workspace",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	targetThread, err := threadsExec.Create(context.Background(), workspaceB.ID, threads.CreateInput{Name: "Cross Workspace Thread"})
+	if err != nil {
+		t.Fatalf("Create(targetThread) error = %v", err)
+	}
+
+	updatedBinding, err := service.UpdateBotDefaultBinding(context.Background(), workspaceA.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:       "fixed_thread",
+		TargetWorkspaceID: workspaceB.ID,
+		TargetThreadID:    targetThread.ID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateBotDefaultBinding() error = %v", err)
+	}
+	if updatedBinding.TargetWorkspaceID != workspaceB.ID {
+		t.Fatalf("expected default binding target workspace %q, got %#v", workspaceB.ID, updatedBinding)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-cross-workspace-1",
+		"messageId":"msg-cross-workspace-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello cross workspace"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for provider reply")
+	}
+
+	if calls := turnsExec.threadCalls(); len(calls) != 1 || calls[0] != targetThread.ID {
+		t.Fatalf("expected turn to start on cross-workspace thread %q, got %#v", targetThread.ID, calls)
+	}
+	if workspaces := turnsExec.workspaceCalls(); len(workspaces) != 1 || workspaces[0] != workspaceB.ID {
+		t.Fatalf("expected turn workspace %q, got %#v", workspaceB.ID, workspaces)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversationViews(workspaceA.ID, connection.ID)
+		if len(conversations) == 1 && conversations[0].ThreadID == targetThread.ID {
+			if conversations[0].WorkspaceID != workspaceA.ID {
+				t.Fatalf("expected provider conversation to remain in workspace %q, got %#v", workspaceA.ID, conversations[0])
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected conversation to settle on cross-workspace thread %q, got %#v", targetThread.ID, conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestResolveConversationExecutionContextUsesKnownThreadWorkspaceForLegacyWorkspaceAutoThreadConversation(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	workspaceC := dataStore.CreateWorkspace("Workspace C", "E:/projects/c")
+	service := NewService(dataStore, nil, nil, nil, Config{})
+
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspaceA.ID,
+		Provider:    "telegram",
+		Name:        "Support Bot",
+		Status:      "active",
+		AIBackend:   defaultAIBackend,
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+	connection, bot, defaultBinding, err := service.ensureConnectionBotResources(connection)
+	if err != nil {
+		t.Fatalf("ensureConnectionBotResources() error = %v", err)
+	}
+	if _, err := dataStore.UpdateBotBinding(workspaceA.ID, defaultBinding.ID, func(current store.BotBinding) store.BotBinding {
+		current.BindingMode = "workspace_auto_thread"
+		current.TargetWorkspaceID = workspaceC.ID
+		current.TargetThreadID = ""
+		return current
+	}); err != nil {
+		t.Fatalf("UpdateBotBinding() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:  workspaceA.ID,
+		BotID:        bot.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		ThreadID:     "thread-legacy-b",
+		BackendState: conversationBackendStateWithKnownThreadRefs(nil, []botThreadRef{
+			{WorkspaceID: workspaceB.ID, ThreadID: "thread-legacy-b"},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	executionConnection, executionConversation := service.resolveConversationExecutionContext(connection, conversation)
+	if executionConnection.WorkspaceID != workspaceB.ID {
+		t.Fatalf("expected execution workspace %q, got %#v", workspaceB.ID, executionConnection)
+	}
+	if executionConversation.ThreadID != "thread-legacy-b" {
+		t.Fatalf("expected execution thread thread-legacy-b, got %#v", executionConversation)
+	}
+
+	conversations := service.ListConversationViews(workspaceA.ID, connection.ID)
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %#v", conversations)
+	}
+	if conversations[0].ResolvedTargetWorkspaceID != workspaceB.ID {
+		t.Fatalf("expected resolved target workspace %q, got %#v", workspaceB.ID, conversations[0])
+	}
+	if conversations[0].ResolvedTargetThreadID != "thread-legacy-b" {
+		t.Fatalf("expected resolved target thread thread-legacy-b, got %#v", conversations[0])
+	}
+}
+
+func TestHandleWebhookKeepsExistingCrossWorkspaceAutoThreadAfterDefaultBindingRetarget(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	workspaceC := dataStore.CreateWorkspace("Workspace C", "E:/projects/c")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspaceA.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-auto-thread-retarget",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	if _, err := service.UpdateBotDefaultBinding(context.Background(), workspaceA.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:       "workspace_auto_thread",
+		TargetWorkspaceID: workspaceB.ID,
+	}); err != nil {
+		t.Fatalf("UpdateBotDefaultBinding(workspaceB) error = %v", err)
+	}
+
+	sendWebhook := func(messageID string, text string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+			"conversationId":"chat-auto-thread-retarget-1",
+			"messageId":"%s",
+			"userId":"user-1",
+			"username":"alice",
+			"title":"Alice",
+			"text":"%s"
+		}`, messageID, text)))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+	expectReply := func(expected string) {
+		select {
+		case sent := <-provider.sentCh:
+			if len(sent.Messages) != 1 || sent.Messages[0].Text != expected {
+				t.Fatalf("expected sent message %q, got %#v", expected, sent.Messages)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for sent message %q", expected)
+		}
+	}
+
+	sendWebhook("msg-1", "hello auto thread")
+	expectReply("reply: hello auto thread")
+
+	firstThreadID := ""
+	conversationID := ""
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversationViews(workspaceA.ID, connection.ID)
+		if len(conversations) == 1 && conversations[0].ThreadID != "" {
+			firstThreadID = conversations[0].ThreadID
+			conversationID = conversations[0].ID
+			if conversations[0].ResolvedTargetWorkspaceID != workspaceB.ID {
+				t.Fatalf("expected first resolved workspace %q, got %#v", workspaceB.ID, conversations[0])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected auto-thread conversation to settle in workspace %q, got %#v", workspaceB.ID, conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	storedConversation, ok := dataStore.GetBotConversation(workspaceA.ID, conversationID)
+	if !ok {
+		t.Fatalf("expected stored conversation %q", conversationID)
+	}
+	currentRef := currentConversationThreadRefFromState(storedConversation.BackendState, workspaceA.ID)
+	if currentRef.WorkspaceID != workspaceB.ID || currentRef.ThreadID != firstThreadID {
+		t.Fatalf("expected stored current thread ref %q/%q, got %#v", workspaceB.ID, firstThreadID, currentRef)
+	}
+
+	if _, err := service.UpdateBotDefaultBinding(context.Background(), workspaceA.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:       "workspace_auto_thread",
+		TargetWorkspaceID: workspaceC.ID,
+	}); err != nil {
+		t.Fatalf("UpdateBotDefaultBinding(workspaceC) error = %v", err)
+	}
+
+	sendWebhook("msg-2", "hello after retarget")
+	expectReply("reply: hello after retarget")
+
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		threadCalls := turnsExec.threadCalls()
+		workspaceCalls := turnsExec.workspaceCalls()
+		conversations := service.ListConversationViews(workspaceA.ID, connection.ID)
+		if len(threadCalls) == 2 && len(workspaceCalls) == 2 && len(conversations) == 1 {
+			if workspaceCalls[0] != workspaceB.ID || workspaceCalls[1] != workspaceB.ID {
+				t.Fatalf("expected both AI turns to stay in workspace %q, got %#v", workspaceB.ID, workspaceCalls)
+			}
+			if threadCalls[0] != firstThreadID || threadCalls[1] != firstThreadID {
+				t.Fatalf("expected both AI turns to stay on thread %q, got %#v", firstThreadID, threadCalls)
+			}
+			if conversations[0].ResolvedTargetWorkspaceID != workspaceB.ID || conversations[0].ResolvedTargetThreadID != firstThreadID {
+				t.Fatalf("expected conversation view to stay on %q/%q, got %#v", workspaceB.ID, firstThreadID, conversations[0])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected retargeted auto-thread conversation to stay on %q/%q, threadCalls=%#v workspaceCalls=%#v conversations=%#v", workspaceB.ID, firstThreadID, threadCalls, workspaceCalls, conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestHandleWebhookStreamingAppliesDefaultFixedThreadBindingAtRuntime(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeStreamingProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := &fakeBotTurns{threads: threadsExec}
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "streamchat",
+		Name:      "Support Bot",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-stream-binding",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	targetThread, err := threadsExec.Create(context.Background(), workspace.ID, threads.CreateInput{Name: "Streaming Bound Thread"})
+	if err != nil {
+		t.Fatalf("Create(targetThread) error = %v", err)
+	}
+
+	if _, err := service.UpdateBotDefaultBinding(context.Background(), workspace.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:    "fixed_thread",
+		TargetThreadID: targetThread.ID,
+	}); err != nil {
+		t.Fatalf("UpdateBotDefaultBinding() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-stream-binding-1",
+		"messageId":"msg-stream-binding-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello streaming binding"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.completedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for streaming completion")
+	}
+
+	provider.mu.Lock()
+	sendMessagesCalls := provider.sendMessagesCalls
+	completedMessages := append([]OutboundMessage(nil), provider.completedMessages...)
+	provider.mu.Unlock()
+
+	if sendMessagesCalls != 0 {
+		t.Fatalf("expected streaming provider to avoid SendMessages fallback, got %d calls", sendMessagesCalls)
+	}
+	if len(completedMessages) != 1 || completedMessages[0].Text != "reply: hello streaming binding" {
+		t.Fatalf("unexpected completed streaming messages %#v", completedMessages)
+	}
+	if calls := turnsExec.threadCalls(); len(calls) != 1 || calls[0] != targetThread.ID {
+		t.Fatalf("expected streaming turn to use bound thread %q, got %#v", targetThread.ID, calls)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == targetThread.ID &&
+			conversations[0].LastOutboundText == "reply: hello streaming binding" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected streaming conversation to settle on bound thread %q, got %#v", targetThread.ID, conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestServiceRejectsDuplicateTelegramPollingTokenOnCreate(t *testing.T) {
 	t.Parallel()
 
@@ -2541,6 +4929,446 @@ func TestHandleWebhookSeparatesTelegramTopicsIntoDistinctConversations(t *testin
 	}
 }
 
+func TestHandleWebhookAggregatesTelegramMediaGroupsIntoSingleInboundDelivery(t *testing.T) {
+	t.Parallel()
+
+	groupID := "group-album-1"
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeTelegramWebhookProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-album-1",
+			Messages: []OutboundMessage{
+				{Text: "album reply"},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.telegramMediaGroupQuiet = 30 * time.Millisecond
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  telegramProviderName,
+		AIBackend: "scripted_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	send := func(message InboundMessage) WebhookResult {
+		payload, err := json.Marshal(message)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(string(payload)))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		return result
+	}
+
+	firstResult := send(InboundMessage{
+		ConversationID: "chat-album-1",
+		ExternalChatID: "chat-album-1",
+		MessageID:      "101",
+		UserID:         "user-1",
+		Username:       "alice",
+		Title:          "Alice",
+		Text:           "album caption",
+		Media: []store.BotMessageMedia{
+			{
+				Kind:        botMediaKindImage,
+				Path:        "C:/tmp/album-1.jpg",
+				FileName:    "album-1.jpg",
+				ContentType: "image/jpeg",
+			},
+		},
+		ProviderData: map[string]string{
+			telegramMediaGroupIDProviderDataKey: groupID,
+			telegramMediaKindProviderDataKey:    botMediaKindImage,
+			telegramMediaFileIDProviderDataKey:  "file-101",
+		},
+	})
+	if firstResult.Accepted != 1 {
+		t.Fatalf("expected first media-group item to be accepted into buffer, got %d", firstResult.Accepted)
+	}
+
+	secondResult := send(InboundMessage{
+		ConversationID: "chat-album-1",
+		ExternalChatID: "chat-album-1",
+		MessageID:      "102",
+		UserID:         "user-1",
+		Username:       "alice",
+		Title:          "Alice",
+		Media: []store.BotMessageMedia{
+			{
+				Kind:        botMediaKindImage,
+				Path:        "C:/tmp/album-2.jpg",
+				FileName:    "album-2.jpg",
+				ContentType: "image/jpeg",
+			},
+		},
+		ProviderData: map[string]string{
+			telegramMediaGroupIDProviderDataKey: groupID,
+			telegramMediaKindProviderDataKey:    botMediaKindImage,
+			telegramMediaFileIDProviderDataKey:  "file-102",
+		},
+	})
+	if secondResult.Accepted != 0 {
+		t.Fatalf("expected subsequent media-group item to merge into existing buffer, got %d", secondResult.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected sent connection id %q, got %q", connection.ID, sent.ConnectionID)
+		}
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "album reply" {
+			t.Fatalf("expected aggregated ai reply to be forwarded, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for aggregated Telegram reply")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected ai backend to run once for Telegram media group, got %d calls", backend.callCount())
+	}
+
+	inbound := backend.lastInboundMessage()
+	if !strings.HasPrefix(inbound.MessageID, "telegram-media-group:group-album-1:2:") {
+		t.Fatalf("expected synthetic media-group message id, got %#v", inbound)
+	}
+	if !strings.Contains(inbound.Text, "album caption") {
+		t.Fatalf("expected AI-bound inbound text to retain caption, got %#v", inbound)
+	}
+	if !strings.Contains(inbound.Text, "[Image attachment]") {
+		t.Fatalf("expected AI-bound inbound text to include media summary, got %#v", inbound)
+	}
+	if len(inbound.Media) != 2 {
+		t.Fatalf("expected 2 media items after aggregation, got %#v", inbound.Media)
+	}
+	if inbound.ProviderData[telegramMediaGroupIDProviderDataKey] != "group-album-1" {
+		t.Fatalf("expected media_group_id to be preserved, got %#v", inbound.ProviderData)
+	}
+	if inbound.ProviderData[telegramMediaGroupMessageIDsProviderDataKey] != "101,102" {
+		t.Fatalf("expected aggregated message ids to be preserved, got %#v", inbound.ProviderData)
+	}
+	if _, ok := inbound.ProviderData[telegramMediaFileIDProviderDataKey]; ok {
+		t.Fatalf("did not expect single-item file_id provider data on aggregated album, got %#v", inbound.ProviderData)
+	}
+	if _, ok := inbound.ProviderData[telegramMediaKindProviderDataKey]; ok {
+		t.Fatalf("did not expect single-item media kind provider data on aggregated album, got %#v", inbound.ProviderData)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var outboundDeliveries []store.BotOutboundDelivery
+	for time.Now().Before(deadline) {
+		outboundDeliveries = dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+			BotID:          connection.BotID,
+			ConversationID: "",
+			SourceType:     "reply",
+		})
+		if len(outboundDeliveries) == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(outboundDeliveries) != 1 {
+		t.Fatalf("expected 1 outbound reply delivery after aggregation, got %#v", outboundDeliveries)
+	}
+
+	inboundDelivery, ok := dataStore.GetBotInboundDelivery(workspace.ID, outboundDeliveries[0].SourceRefID)
+	if !ok {
+		t.Fatalf("expected outbound delivery source ref %q to resolve to inbound delivery", outboundDeliveries[0].SourceRefID)
+	}
+	if !strings.HasPrefix(inboundDelivery.MessageID, "telegram-media-group:group-album-1:2:") {
+		t.Fatalf("expected stored inbound delivery to use synthetic album id, got %#v", inboundDelivery)
+	}
+	if inboundDelivery.Text != "album caption" {
+		t.Fatalf("expected stored inbound delivery to keep raw caption text, got %#v", inboundDelivery)
+	}
+	if len(inboundDelivery.Media) != 2 {
+		t.Fatalf("expected stored inbound delivery to include aggregated media, got %#v", inboundDelivery.Media)
+	}
+	if inboundDelivery.ProviderData[telegramMediaGroupMessageIDsProviderDataKey] != "101,102" {
+		t.Fatalf("expected stored inbound delivery to keep grouped message ids, got %#v", inboundDelivery.ProviderData)
+	}
+}
+
+func TestHandleWebhookProcessesLateTelegramMediaGroupItemsAsFollowUpBatch(t *testing.T) {
+	t.Parallel()
+
+	groupID := "group-album-late-1"
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeTelegramWebhookProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-album-late-1",
+			Messages: []OutboundMessage{
+				{Text: "album reply"},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.telegramMediaGroupQuiet = 30 * time.Millisecond
+	service.telegramMediaGroupSeenTTL = 500 * time.Millisecond
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  telegramProviderName,
+		AIBackend: "scripted_ai",
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	send := func(message InboundMessage) WebhookResult {
+		payload, err := json.Marshal(message)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(string(payload)))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		return result
+	}
+
+	baseMessage := func(messageID string, fileName string) InboundMessage {
+		return InboundMessage{
+			ConversationID: "chat-album-late-1",
+			ExternalChatID: "chat-album-late-1",
+			MessageID:      messageID,
+			UserID:         "user-1",
+			Username:       "alice",
+			Title:          "Alice",
+			Media: []store.BotMessageMedia{
+				{
+					Kind:        botMediaKindImage,
+					Path:        "C:/tmp/" + fileName,
+					FileName:    fileName,
+					ContentType: "image/jpeg",
+				},
+			},
+			ProviderData: map[string]string{
+				telegramMediaGroupIDProviderDataKey: groupID,
+				telegramMediaKindProviderDataKey:    botMediaKindImage,
+			},
+		}
+	}
+
+	first := baseMessage("101", "late-album-1.jpg")
+	first.Text = "late album caption"
+	if result := send(first); result.Accepted != 1 {
+		t.Fatalf("expected first album item to enter buffer, got %d", result.Accepted)
+	}
+
+	if result := send(baseMessage("102", "late-album-2.jpg")); result.Accepted != 0 {
+		t.Fatalf("expected second album item to merge into buffer, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first album batch reply")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected initial album batch to trigger one AI call, got %d", backend.callCount())
+	}
+
+	if result := send(baseMessage("103", "late-album-3.jpg")); result.Accepted != 1 {
+		t.Fatalf("expected late album item to open a follow-up buffer, got %d", result.Accepted)
+	}
+	if result := send(baseMessage("101", "late-album-1.jpg")); result.Accepted != 0 {
+		t.Fatalf("expected duplicate old album item to be suppressed after flush, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for late album follow-up reply")
+	}
+
+	if backend.callCount() != 2 {
+		t.Fatalf("expected late Telegram album item to trigger a second AI call, got %d", backend.callCount())
+	}
+
+	inbounds := backend.inboundMessages()
+	if len(inbounds) != 2 {
+		t.Fatalf("expected 2 AI inbound calls, got %#v", inbounds)
+	}
+	if inbounds[0].MessageID == inbounds[1].MessageID {
+		t.Fatalf("expected follow-up batch to use a different synthetic message id, got %#v", inbounds)
+	}
+	if !strings.HasPrefix(inbounds[0].MessageID, "telegram-media-group:"+groupID+":2:") {
+		t.Fatalf("expected first batch to encode 2 grouped items, got %#v", inbounds[0])
+	}
+	if !strings.HasPrefix(inbounds[1].MessageID, "telegram-media-group:"+groupID+":1:") {
+		t.Fatalf("expected late batch to encode 1 grouped item, got %#v", inbounds[1])
+	}
+	if inbounds[1].ProviderData[telegramMediaGroupLateBatchProviderDataKey] != "true" {
+		t.Fatalf("expected late batch marker on follow-up Telegram album message, got %#v", inbounds[1].ProviderData)
+	}
+	if inbounds[1].ProviderData[telegramMediaGroupMessageIDsProviderDataKey] != "103" {
+		t.Fatalf("expected late batch to carry only the late item id, got %#v", inbounds[1].ProviderData)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		t.Fatalf("expected duplicate old album item not to trigger a third reply, got %#v", sent)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	assertConnectionLogContainsEvent(
+		t,
+		service,
+		workspace.ID,
+		connection.ID,
+		"telegram_media_group_split_detected",
+		[]string{groupID, "late items", "follow-up batch"},
+	)
+}
+
+func TestPollingAggregatesTelegramMediaGroupsIntoSingleInboundDelivery(t *testing.T) {
+	t.Parallel()
+
+	groupID := "group-poll-1"
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeTelegramScriptedPollingProvider([]InboundMessage{
+		{
+			ConversationID: "chat-poll-album-1",
+			ExternalChatID: "chat-poll-album-1",
+			MessageID:      "201",
+			UserID:         "user-1",
+			Username:       "alice",
+			Title:          "Alice",
+			Text:           "polling album",
+			Media: []store.BotMessageMedia{
+				{
+					Kind:        botMediaKindImage,
+					Path:        "C:/tmp/poll-album-1.jpg",
+					FileName:    "poll-album-1.jpg",
+					ContentType: "image/jpeg",
+				},
+			},
+			ProviderData: map[string]string{
+				telegramMediaGroupIDProviderDataKey: groupID,
+			},
+		},
+		{
+			ConversationID: "chat-poll-album-1",
+			ExternalChatID: "chat-poll-album-1",
+			MessageID:      "202",
+			UserID:         "user-1",
+			Username:       "alice",
+			Title:          "Alice",
+			Media: []store.BotMessageMedia{
+				{
+					Kind:        botMediaKindImage,
+					Path:        "C:/tmp/poll-album-2.jpg",
+					FileName:    "poll-album-2.jpg",
+					ContentType: "image/jpeg",
+				},
+			},
+			ProviderData: map[string]string{
+				telegramMediaGroupIDProviderDataKey: groupID,
+			},
+		},
+	})
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-poll-album-1",
+			Messages: []OutboundMessage{
+				{Text: "poll album reply"},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		Providers:  []Provider{provider},
+		AIBackends: []AIBackend{backend},
+	})
+	service.telegramMediaGroupQuiet = 30 * time.Millisecond
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  telegramProviderName,
+		AIBackend: "scripted_ai",
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryModePolling,
+		},
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.ConnectionID != connection.ID {
+			t.Fatalf("expected sent connection id %q, got %q", connection.ID, sent.ConnectionID)
+		}
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "poll album reply" {
+			t.Fatalf("expected polling aggregated ai reply, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for polling aggregated Telegram reply")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected polling ai backend to run once for Telegram media group, got %d calls", backend.callCount())
+	}
+
+	inbound := backend.lastInboundMessage()
+	if !strings.HasPrefix(inbound.MessageID, "telegram-media-group:group-poll-1:2:") {
+		t.Fatalf("expected synthetic polling media-group message id, got %#v", inbound)
+	}
+	if len(inbound.Media) != 2 {
+		t.Fatalf("expected polling media group to aggregate 2 media items, got %#v", inbound.Media)
+	}
+	if inbound.ProviderData[telegramMediaGroupMessageIDsProviderDataKey] != "201,202" {
+		t.Fatalf("expected polling grouped message ids to be preserved, got %#v", inbound.ProviderData)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if ok && storedConnection.Settings[telegramUpdateOffsetSetting] == "2" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected polling cursor to advance after aggregated media group")
+}
+
 func TestServiceRunsPollingProvidersWithoutPublicBaseURL(t *testing.T) {
 	t.Parallel()
 
@@ -2628,6 +5456,122 @@ func TestServiceRunsPollingProvidersWithoutPublicBaseURL(t *testing.T) {
 	}
 	if !foundStarted || !foundSuccess {
 		t.Fatalf("expected polling logs to include start and success entries, got %#v", logs)
+	}
+}
+
+func TestPauseResumeConnectionSyncsHealthStateAndLogs(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakePollingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "pollchat",
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			"delivery_mode": "polling",
+		},
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+		if !ok {
+			t.Fatal("expected polling connection to remain persisted")
+		}
+		if storedConnection.LastPollAt != nil && storedConnection.LastPollStatus == "success" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected initial polling success state, got %#v", storedConnection)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	paused, err := service.PauseConnection(context.Background(), workspace.ID, connection.ID)
+	if err != nil {
+		t.Fatalf("PauseConnection() error = %v", err)
+	}
+	if paused.Status != "paused" || paused.LastPollStatus != "paused" {
+		t.Fatalf("expected paused connection view to expose paused health state, got %#v", paused)
+	}
+	if !strings.Contains(paused.LastPollMessage, "participate in routing again") {
+		t.Fatalf("expected paused connection message to explain routing suspension, got %#v", paused)
+	}
+
+	storedPaused, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected paused connection to remain persisted")
+	}
+	if storedPaused.LastPollAt == nil ||
+		storedPaused.LastPollStatus != "paused" ||
+		!strings.Contains(storedPaused.LastPollMessage, "participate in routing again") {
+		t.Fatalf("expected paused connection runtime fields to be persisted, got %#v", storedPaused)
+	}
+
+	logs, err := service.ListConnectionLogs(workspace.ID, connection.ID)
+	if err != nil {
+		t.Fatalf("ListConnectionLogs(paused) error = %v", err)
+	}
+	foundPausedLog := false
+	for _, entry := range logs {
+		if entry.EventType == "connection_paused" && strings.Contains(entry.Message, "Provider paused") {
+			foundPausedLog = true
+			break
+		}
+	}
+	if !foundPausedLog {
+		t.Fatalf("expected connection_paused log entry, got %#v", logs)
+	}
+
+	resumed, err := service.ResumeConnection(context.Background(), workspace.ID, connection.ID, ResumeConnectionInput{})
+	if err != nil {
+		t.Fatalf("ResumeConnection() error = %v", err)
+	}
+	if resumed.Status != "active" || resumed.LastPollStatus != "starting" {
+		t.Fatalf("expected resumed connection view to expose starting health state, got %#v", resumed)
+	}
+	if !strings.Contains(resumed.LastPollMessage, "Waiting for the next health update") {
+		t.Fatalf("expected resumed connection message to mention health refresh, got %#v", resumed)
+	}
+
+	storedResumed, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatal("expected resumed connection to remain persisted")
+	}
+	if storedResumed.LastPollAt == nil ||
+		storedResumed.LastPollStatus != "starting" ||
+		!strings.Contains(storedResumed.LastPollMessage, "Waiting for the next health update") {
+		t.Fatalf("expected resumed connection runtime fields to be persisted, got %#v", storedResumed)
+	}
+
+	logs, err = service.ListConnectionLogs(workspace.ID, connection.ID)
+	if err != nil {
+		t.Fatalf("ListConnectionLogs(resumed) error = %v", err)
+	}
+	foundResumedLog := false
+	for _, entry := range logs {
+		if entry.EventType == "connection_resumed" && strings.Contains(entry.Message, "Provider resumed") {
+			foundResumedLog = true
+			break
+		}
+	}
+	if !foundResumedLog {
+		t.Fatalf("expected connection_resumed log entry, got %#v", logs)
 	}
 }
 
@@ -2824,8 +5768,9 @@ func TestServiceStreamsReplyWhenProviderAndBackendSupportStreaming(t *testing.T)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
+	var conversations []store.BotConversation
 	for {
-		conversations := service.ListConversations(workspace.ID, connection.ID)
+		conversations = service.ListConversations(workspace.ID, connection.ID)
 		if len(conversations) == 1 &&
 			conversations[0].ThreadID == "thr_chat-stream-1" &&
 			conversations[0].LastOutboundText == "final: hello streaming" {
@@ -2835,6 +5780,34 @@ func TestServiceStreamsReplyWhenProviderAndBackendSupportStreaming(t *testing.T)
 			t.Fatalf("expected streaming conversation state to settle, got %#v", conversations)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+
+	var outboundDeliveries []store.BotOutboundDelivery
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		outboundDeliveries = dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+			BotID:          connection.BotID,
+			ConversationID: conversations[0].ID,
+			SourceType:     "reply",
+		})
+		if len(outboundDeliveries) == 1 && outboundDeliveries[0].Status == "delivered" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(outboundDeliveries) != 1 {
+		t.Fatalf("expected a single streaming reply outbound delivery, got %#v", outboundDeliveries)
+	}
+	if outboundDeliveries[0].Status != "delivered" ||
+		outboundDeliveries[0].SourceRefType != "inbound_delivery" ||
+		strings.TrimSpace(outboundDeliveries[0].SourceRefID) == "" {
+		t.Fatalf("expected delivered streaming reply outbound delivery linked to inbound delivery, got %#v", outboundDeliveries[0])
+	}
+	if len(outboundDeliveries[0].Messages) != 1 || outboundDeliveries[0].Messages[0].Text != "final: hello streaming" {
+		t.Fatalf("expected streaming reply outbound delivery to persist final reply payload, got %#v", outboundDeliveries[0].Messages)
+	}
+	if _, ok := dataStore.GetBotInboundDelivery(workspace.ID, outboundDeliveries[0].SourceRefID); !ok {
+		t.Fatalf("expected streaming outbound delivery source ref %q to resolve to inbound delivery", outboundDeliveries[0].SourceRefID)
 	}
 }
 
@@ -4092,6 +7065,16 @@ func TestServiceReplaysFailedWeChatReplyAfterRetryIntentWithoutRerunningAI(t *te
 	if conversations[0].LastOutboundText != "这是上一次已经生成好的回复" {
 		t.Fatalf("expected replayed reply to become last outbound text, got %#v", conversations[0])
 	}
+	target, ok := dataStore.FindBotDeliveryTargetByConversation(workspace.ID, conversations[0].ID)
+	if !ok {
+		t.Fatalf("expected wechat reply flow to ensure a session-backed delivery target for conversation %s", conversations[0].ID)
+	}
+	if target.TargetType != "session_backed" || target.RouteType != "wechat_session" {
+		t.Fatalf("expected wechat reply target to be session-backed wechat session, got %#v", target)
+	}
+	if got := target.ProviderState[wechatContextTokenKey]; got != "ctx-new" {
+		t.Fatalf("expected wechat delivery target provider state to refresh context token ctx-new, got %#v", target.ProviderState)
+	}
 
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -4196,6 +7179,15 @@ func TestReplayLatestFailedReplyReplaysSavedDeliveryAndAccumulatesAttempts(t *te
 	if conversations[0].LastOutboundDeliveryStatus != botReplyDeliveryStatusFailed {
 		t.Fatalf("expected failed conversation before manual replay, got %#v", conversations[0])
 	}
+	initialOutboundDeliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:         connection.BotID,
+		SourceType:    "reply",
+		SourceRefType: "inbound_delivery",
+		SourceRefID:   failedDelivery.ID,
+	})
+	if len(initialOutboundDeliveries) != 1 || initialOutboundDeliveries[0].Status != "failed" {
+		t.Fatalf("expected initial failed reply outbound delivery before manual replay, got %#v", initialOutboundDeliveries)
+	}
 
 	replayedConversation, err := service.ReplayLatestFailedReply(
 		context.Background(),
@@ -4235,6 +7227,24 @@ func TestReplayLatestFailedReplyReplaysSavedDeliveryAndAccumulatesAttempts(t *te
 	}
 	if storedFailedDelivery.ReplyDeliveryAttemptCount != 3 {
 		t.Fatalf("expected failed delivery attempt count to accumulate to 3, got %#v", storedFailedDelivery)
+	}
+
+	replayedOutboundDeliveries := dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+		BotID:         connection.BotID,
+		SourceType:    "reply",
+		SourceRefType: "inbound_delivery",
+		SourceRefID:   failedDelivery.ID,
+	})
+	if len(replayedOutboundDeliveries) != 2 {
+		t.Fatalf("expected manual replay to append a second reply outbound delivery, got %#v", replayedOutboundDeliveries)
+	}
+	if replayedOutboundDeliveries[0].Status != "delivered" ||
+		replayedOutboundDeliveries[0].SourceRefType != "inbound_delivery" ||
+		replayedOutboundDeliveries[0].SourceRefID != failedDelivery.ID {
+		t.Fatalf("expected latest reply outbound delivery to be delivered and linked to failed inbound, got %#v", replayedOutboundDeliveries[0])
+	}
+	if replayedOutboundDeliveries[0].ID == initialOutboundDeliveries[0].ID {
+		t.Fatalf("expected manual replay to create a new outbound delivery record, got %#v", replayedOutboundDeliveries)
 	}
 
 	storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
@@ -4841,6 +7851,134 @@ func TestHandleWebhookApproveCommandSupportsTelegramBotMentions(t *testing.T) {
 	}
 }
 
+func TestHandleWebhookApprovalCommandsFollowCrossWorkspaceBinding(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceA := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	workspaceB := dataStore.CreateWorkspace("Workspace B", "E:/projects/b")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	approvalService := newFakeApprovalService([]store.PendingApproval{
+		{
+			ID:          "req_cross_1",
+			WorkspaceID: workspaceB.ID,
+			ThreadID:    "thread-bot-1",
+			Kind:        "item/tool/call",
+			Summary:     "Need remote input",
+			Status:      "pending",
+			Actions:     []string{"accept", "decline", "cancel"},
+			RequestedAt: time.Now().UTC(),
+		},
+		{
+			ID:          "req_source_1",
+			WorkspaceID: workspaceA.ID,
+			ThreadID:    "thread-a-unrelated",
+			Kind:        "item/commandExecution/requestApproval",
+			Summary:     "go test ./...",
+			Status:      "pending",
+			Actions:     []string{"accept", "decline", "cancel"},
+			RequestedAt: time.Now().Add(-time.Minute).UTC(),
+		},
+	})
+
+	service := NewService(dataStore, threadsExec, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Approvals:     approvalService,
+		Providers:     []Provider{provider},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspaceA.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		Name:      "Support Bot",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-approval-cross-workspace",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	targetThread, err := threadsExec.Create(context.Background(), workspaceB.ID, threads.CreateInput{Name: "Cross Workspace Approval Thread"})
+	if err != nil {
+		t.Fatalf("Create(targetThread) error = %v", err)
+	}
+	if targetThread.ID != "thread-bot-1" {
+		t.Fatalf("expected first cross-workspace thread id thread-bot-1, got %#v", targetThread)
+	}
+
+	if _, err := service.UpdateBotDefaultBinding(context.Background(), workspaceA.ID, connection.BotID, UpdateBotDefaultBindingInput{
+		BindingMode:       "fixed_thread",
+		TargetWorkspaceID: workspaceB.ID,
+		TargetThreadID:    targetThread.ID,
+	}); err != nil {
+		t.Fatalf("UpdateBotDefaultBinding() error = %v", err)
+	}
+
+	sendWebhook := func(text string, messageID string) {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+			"conversationId":"chat-approval-cross-1",
+			"messageId":"`+messageID+`",
+			"userId":"user-1",
+			"username":"alice",
+			"title":"Alice",
+			"text":"`+text+`"
+		}`))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	sendWebhook("/approvals", "msg-approval-cross-1")
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 {
+			t.Fatalf("expected one approvals list message, got %#v", sent.Messages)
+		}
+		if !strings.Contains(sent.Messages[0].Text, "Pending approvals:") ||
+			!strings.Contains(sent.Messages[0].Text, "req_cross_1") ||
+			!strings.Contains(sent.Messages[0].Text, "thread="+workspaceB.ID+"/"+targetThread.ID) {
+			t.Fatalf("expected cross-workspace approval listing, got %#v", sent.Messages[0])
+		}
+		if strings.Contains(sent.Messages[0].Text, "req_source_1") {
+			t.Fatalf("did not expect source-workspace approval to leak into cross-workspace conversation view, got %#v", sent.Messages[0])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for approvals list response")
+	}
+
+	sendWebhook("/approve req_cross_1", "msg-approval-cross-2")
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 ||
+			!strings.Contains(sent.Messages[0].Text, "req_cross_1") ||
+			!strings.Contains(sent.Messages[0].Text, "was approved") {
+			t.Fatalf("expected cross-workspace approval confirmation, got %#v", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for cross-workspace approval confirmation")
+	}
+
+	call := approvalService.lastCall()
+	if call.requestID != "req_cross_1" {
+		t.Fatalf("expected cross-workspace approval request id req_cross_1, got %#v", call)
+	}
+	if call.input.Action != "accept" {
+		t.Fatalf("expected approval action accept, got %#v", call.input)
+	}
+}
+
 func TestHandleWebhookAnswerCommandBuildsQuestionAnswers(t *testing.T) {
 	t.Parallel()
 
@@ -5133,6 +8271,71 @@ func (p *fakeProvider) setReplyDeliveryRetryDelay(delay time.Duration) {
 	p.replyDeliveryRetryDelay = delay
 }
 
+type fakeTelegramWebhookProvider struct {
+	mu     sync.Mutex
+	sentCh chan fakeSentPayload
+	errors []error
+}
+
+func newFakeTelegramWebhookProvider() *fakeTelegramWebhookProvider {
+	return &fakeTelegramWebhookProvider{
+		sentCh: make(chan fakeSentPayload, 8),
+	}
+}
+
+func (p *fakeTelegramWebhookProvider) Name() string {
+	return telegramProviderName
+}
+
+func (p *fakeTelegramWebhookProvider) Activate(_ context.Context, connection store.BotConnection, publicBaseURL string) (ActivationResult, error) {
+	return ActivationResult{
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryMode(connection),
+			"webhook_url":               strings.TrimRight(publicBaseURL, "/") + "/hooks/bots/" + connection.ID,
+		},
+		Secrets: map[string]string{
+			"webhook_secret": "fake-secret",
+		},
+	}, nil
+}
+
+func (p *fakeTelegramWebhookProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *fakeTelegramWebhookProvider) ParseWebhook(r *http.Request, _ store.BotConnection) ([]InboundMessage, error) {
+	if strings.TrimSpace(r.Header.Get("X-Test-Secret")) != "fake-secret" {
+		return nil, ErrWebhookUnauthorized
+	}
+
+	defer r.Body.Close()
+
+	var payload InboundMessage
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	return []InboundMessage{payload}, nil
+}
+
+func (p *fakeTelegramWebhookProvider) SendMessages(_ context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error {
+	p.mu.Lock()
+	if len(p.errors) > 0 {
+		err := p.errors[0]
+		p.errors = append([]error(nil), p.errors[1:]...)
+		p.mu.Unlock()
+		return err
+	}
+	p.mu.Unlock()
+
+	p.sentCh <- fakeSentPayload{
+		ConnectionID: connection.ID,
+		Conversation: conversation,
+		Messages:     append([]OutboundMessage(nil), messages...),
+	}
+	return nil
+}
+
 type fakeWeChatProvider struct {
 	mu                       sync.Mutex
 	sentCh                   chan fakeSentPayload
@@ -5362,6 +8565,109 @@ func (p *fakeTelegramPollingProvider) startedConnectionIDs() []string {
 	return append([]string(nil), p.startedIDs...)
 }
 
+type fakeTelegramScriptedPollingProvider struct {
+	mu        sync.Mutex
+	delivered map[string]bool
+	messages  []InboundMessage
+	sentCh    chan fakeSentPayload
+}
+
+func newFakeTelegramScriptedPollingProvider(messages []InboundMessage) *fakeTelegramScriptedPollingProvider {
+	return &fakeTelegramScriptedPollingProvider{
+		delivered: make(map[string]bool),
+		messages:  append([]InboundMessage(nil), messages...),
+		sentCh:    make(chan fakeSentPayload, 8),
+	}
+}
+
+func (p *fakeTelegramScriptedPollingProvider) Name() string {
+	return telegramProviderName
+}
+
+func (p *fakeTelegramScriptedPollingProvider) Activate(_ context.Context, connection store.BotConnection, _ string) (ActivationResult, error) {
+	return ActivationResult{
+		Settings: map[string]string{
+			telegramDeliveryModeSetting: telegramDeliveryMode(connection),
+		},
+	}, nil
+}
+
+func (p *fakeTelegramScriptedPollingProvider) Deactivate(context.Context, store.BotConnection) error {
+	return nil
+}
+
+func (p *fakeTelegramScriptedPollingProvider) ParseWebhook(*http.Request, store.BotConnection) ([]InboundMessage, error) {
+	return nil, ErrWebhookIgnored
+}
+
+func (p *fakeTelegramScriptedPollingProvider) SendMessages(_ context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error {
+	p.sentCh <- fakeSentPayload{
+		ConnectionID: connection.ID,
+		Conversation: conversation,
+		Messages:     append([]OutboundMessage(nil), messages...),
+	}
+	return nil
+}
+
+func (p *fakeTelegramScriptedPollingProvider) SupportsPolling(connection store.BotConnection) bool {
+	return telegramDeliveryMode(connection) == telegramDeliveryModePolling
+}
+
+func (p *fakeTelegramScriptedPollingProvider) PollingOwnerKey(connection store.BotConnection) string {
+	if telegramDeliveryMode(connection) != telegramDeliveryModePolling {
+		return ""
+	}
+	token := strings.TrimSpace(connection.Secrets["bot_token"])
+	if token == "" {
+		return ""
+	}
+	return telegramProviderName + ":" + token
+}
+
+func (p *fakeTelegramScriptedPollingProvider) PollingConflictError(ownerConnectionID string) error {
+	return telegramPollingConflictError(ownerConnectionID)
+}
+
+func (p *fakeTelegramScriptedPollingProvider) RunPolling(
+	ctx context.Context,
+	connection store.BotConnection,
+	handleMessage PollingMessageHandler,
+	updateSettings PollingSettingsHandler,
+	reportEvent PollingEventHandler,
+) error {
+	p.mu.Lock()
+	delivered := p.delivered[connection.ID]
+	if !delivered {
+		p.delivered[connection.ID] = true
+	}
+	messages := append([]InboundMessage(nil), p.messages...)
+	p.mu.Unlock()
+
+	if !delivered {
+		for index, message := range messages {
+			if err := handleMessage(ctx, message); err != nil {
+				return err
+			}
+			if err := updateSettings(ctx, map[string]string{
+				telegramUpdateOffsetSetting: intToString(index + 1),
+			}); err != nil {
+				return err
+			}
+		}
+		if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
+			EventType:      "poll_success",
+			Message:        fmt.Sprintf("Poll completed successfully. Received %d scripted Telegram message(s).", len(messages)),
+			ReceivedCount:  len(messages),
+			ProcessedCount: len(messages),
+		}); err != nil {
+			return err
+		}
+	}
+
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 type fakeWeChatPollingProvider struct {
 	mu         sync.Mutex
 	startedIDs []string
@@ -5449,9 +8755,10 @@ func (p *fakeWeChatPollingProvider) startedConnectionIDs() []string {
 }
 
 type fakeBotThreads struct {
-	mu      sync.Mutex
-	nextID  int
-	details map[string]store.ThreadDetail
+	mu              sync.Mutex
+	nextID          int
+	details         map[string]store.ThreadDetail
+	lastCreateInput threads.CreateInput
 }
 
 func newFakeBotThreads() *fakeBotThreads {
@@ -5464,6 +8771,7 @@ func (f *fakeBotThreads) Create(_ context.Context, workspaceID string, input thr
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.lastCreateInput = input
 	f.nextID += 1
 	threadID := fmt.Sprintf("thread-bot-%d", f.nextID)
 	now := time.Date(2026, time.March, 28, 12, f.nextID, 0, 0, time.UTC)
@@ -5482,23 +8790,23 @@ func (f *fakeBotThreads) Create(_ context.Context, workspaceID string, input thr
 	return thread, nil
 }
 
-func (f *fakeBotThreads) GetDetail(_ context.Context, _ string, threadID string) (store.ThreadDetail, error) {
+func (f *fakeBotThreads) GetDetail(_ context.Context, workspaceID string, threadID string) (store.ThreadDetail, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	detail, ok := f.details[threadID]
-	if !ok {
+	if !ok || detail.Thread.WorkspaceID != workspaceID {
 		return store.ThreadDetail{}, store.ErrThreadNotFound
 	}
 	return cloneThreadDetailForTest(detail), nil
 }
 
-func (f *fakeBotThreads) GetTurn(_ context.Context, _ string, threadID string, turnID string, _ string) (store.ThreadTurn, error) {
+func (f *fakeBotThreads) GetTurn(_ context.Context, workspaceID string, threadID string, turnID string, _ string) (store.ThreadTurn, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	detail, ok := f.details[threadID]
-	if !ok {
+	if !ok || detail.Thread.WorkspaceID != workspaceID {
 		return store.ThreadTurn{}, store.ErrThreadNotFound
 	}
 	for _, turn := range detail.Turns {
@@ -5509,12 +8817,12 @@ func (f *fakeBotThreads) GetTurn(_ context.Context, _ string, threadID string, t
 	return store.ThreadTurn{}, store.ErrThreadNotFound
 }
 
-func (f *fakeBotThreads) Rename(_ context.Context, _ string, threadID string, name string) (store.Thread, error) {
+func (f *fakeBotThreads) Rename(_ context.Context, workspaceID string, threadID string, name string) (store.Thread, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	detail, ok := f.details[threadID]
-	if !ok {
+	if !ok || detail.Thread.WorkspaceID != workspaceID {
 		return store.Thread{}, store.ErrThreadNotFound
 	}
 	detail.Thread.Name = strings.TrimSpace(name)
@@ -5523,12 +8831,12 @@ func (f *fakeBotThreads) Rename(_ context.Context, _ string, threadID string, na
 	return detail.Thread, nil
 }
 
-func (f *fakeBotThreads) Archive(_ context.Context, _ string, threadID string) (store.Thread, error) {
+func (f *fakeBotThreads) Archive(_ context.Context, workspaceID string, threadID string) (store.Thread, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	detail, ok := f.details[threadID]
-	if !ok {
+	if !ok || detail.Thread.WorkspaceID != workspaceID {
 		return store.Thread{}, store.ErrThreadNotFound
 	}
 	detail.Thread.Archived = true
@@ -5537,12 +8845,12 @@ func (f *fakeBotThreads) Archive(_ context.Context, _ string, threadID string) (
 	return detail.Thread, nil
 }
 
-func (f *fakeBotThreads) Unarchive(_ context.Context, _ string, threadID string) (store.Thread, error) {
+func (f *fakeBotThreads) Unarchive(_ context.Context, workspaceID string, threadID string) (store.Thread, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	detail, ok := f.details[threadID]
-	if !ok {
+	if !ok || detail.Thread.WorkspaceID != workspaceID {
 		return store.Thread{}, store.ErrThreadNotFound
 	}
 	detail.Thread.Archived = false
@@ -5581,15 +8889,17 @@ func (f *fakeBotThreads) setCompletedTurn(threadID string, turn store.ThreadTurn
 }
 
 type fakeBotTurns struct {
-	mu      sync.Mutex
-	threads *fakeBotThreads
-	calls   []string
+	mu         sync.Mutex
+	threads    *fakeBotThreads
+	calls      []string
+	workspaces []string
 }
 
-func (f *fakeBotTurns) Start(_ context.Context, _ string, threadID string, input string, _ turns.StartOptions) (turns.Result, error) {
+func (f *fakeBotTurns) Start(_ context.Context, workspaceID string, threadID string, input string, _ turns.StartOptions) (turns.Result, error) {
 	f.mu.Lock()
 	callIndex := len(f.calls) + 1
 	f.calls = append(f.calls, threadID)
+	f.workspaces = append(f.workspaces, workspaceID)
 	f.mu.Unlock()
 
 	turnID := fmt.Sprintf("turn-bot-%d", callIndex)
@@ -5614,6 +8924,12 @@ func (f *fakeBotTurns) threadCalls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
+}
+
+func (f *fakeBotTurns) workspaceCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.workspaces...)
 }
 
 type fakeAIBackend struct{}
@@ -5663,6 +8979,7 @@ type scriptedAIBackend struct {
 	mu          sync.Mutex
 	calls       int
 	lastInbound InboundMessage
+	inbounds    []InboundMessage
 	result      AIResult
 	err         error
 }
@@ -5677,6 +8994,7 @@ func (b *scriptedAIBackend) ProcessMessage(_ context.Context, _ store.BotConnect
 
 	b.calls += 1
 	b.lastInbound = cloneInboundMessageForTest(inbound)
+	b.inbounds = append(b.inbounds, cloneInboundMessageForTest(inbound))
 	if b.err != nil {
 		return AIResult{}, b.err
 	}
@@ -5693,6 +9011,17 @@ func (b *scriptedAIBackend) lastInboundMessage() InboundMessage {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return cloneInboundMessageForTest(b.lastInbound)
+}
+
+func (b *scriptedAIBackend) inboundMessages() []InboundMessage {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	items := make([]InboundMessage, 0, len(b.inbounds))
+	for _, inbound := range b.inbounds {
+		items = append(items, cloneInboundMessageForTest(inbound))
+	}
+	return items
 }
 
 func cloneInboundMessageForTest(message InboundMessage) InboundMessage {

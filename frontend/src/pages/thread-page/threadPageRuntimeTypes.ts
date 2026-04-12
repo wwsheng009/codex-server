@@ -65,12 +65,19 @@ export type UseThreadPagePanelQueriesInput = {
   workspaceId: string
 }
 
+export type UseThreadPageBotSendQueriesInput = {
+  selectedBotId?: string
+  selectedThreadId?: string
+  workspaceId: string
+}
+
 export type UseThreadPageDataInput = {
   activeComposerMatchMode?: ComposerAutocompleteMode
   activeComposerPanel: ComposerAssistPanel | null
   hasPendingTurn: boolean
   isDocumentVisible: boolean
   normalizedDeferredComposerQuery: string
+  selectedBotId?: string
   selectedProcessId?: string
   selectedThreadId?: string
   streamState: string

@@ -1,5 +1,6 @@
 import { decodeBase64 } from '../thread/threadRender'
 import { formatRelativeTimeShort } from '../../i18n/format'
+import { readTurnPlanExplanation, readTurnPlanSteps } from '../../lib/turn-plan'
 import type { ServerEvent } from '../../types/api'
 
 export { formatRelativeTimeShort }
@@ -55,6 +56,20 @@ function toDeltaAggregate(event: ServerEvent) {
         subtitle: stringField(payload.itemId) || undefined,
         text: stringField(payload.delta),
       }
+    case 'item/plan/delta':
+      return {
+        groupKey: `plan-text:${stringField(payload.itemId) || 'unknown'}`,
+        title: 'Plan Draft',
+        subtitle: stringField(payload.itemId) || undefined,
+        text: stringField(payload.delta),
+      }
+    case 'turn/plan/updated':
+      return {
+        groupKey: `turn-plan:${stringField(payload.turnId) || event.turnId || 'unknown'}`,
+        title: 'Plan Status',
+        subtitle: stringField(payload.turnId) || event.turnId || undefined,
+        text: formatTurnPlanUpdate(payload),
+      }
     case 'item/reasoning/summaryTextDelta':
     case 'item/reasoning/textDelta':
       return {
@@ -75,6 +90,26 @@ function toDeltaAggregate(event: ServerEvent) {
     default:
       return null
   }
+}
+
+function formatTurnPlanUpdate(payload: Record<string, unknown>) {
+  const explanation = readTurnPlanExplanation(payload)
+  const steps = readTurnPlanSteps(payload.plan)
+  const lines: string[] = []
+
+  if (explanation) {
+    lines.push(`Explanation: ${explanation}`)
+  }
+
+  if (steps.length) {
+    lines.push(...steps.map((step) => `[${step.status || 'pending'}] ${step.step}`))
+  }
+
+  if (!lines.length) {
+    return 'Plan updated\n\n'
+  }
+
+  return `${lines.join('\n')}\n\n`
 }
 
 function asObject(value: unknown) {

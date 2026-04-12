@@ -67,6 +67,7 @@ type MemoryStore struct {
 	runs                 map[string]AutomationRun
 	notifications        map[string]Notification
 	turnPolicyDecisions  map[string]TurnPolicyDecision
+	hookRuns             map[string]HookRun
 	bots                 map[string]Bot
 	botBindings          map[string]BotBinding
 	threadBotBindings    map[string]ThreadBotBinding
@@ -80,6 +81,7 @@ type MemoryStore struct {
 	botInboundIndex      map[string]string
 	botOutbound          map[string]BotOutboundDelivery
 	threads              map[string]Thread
+	pendingSessionStarts map[string]string
 	projections          map[string]threadProjectionRecord
 	deleted              map[string]DeletedThread
 	approvals            map[string]PendingApproval
@@ -114,6 +116,7 @@ type storeSnapshot struct {
 	AutomationRuns      []AutomationRun          `json:"automationRuns,omitempty"`
 	Notifications       []Notification           `json:"notifications,omitempty"`
 	TurnPolicyDecisions []TurnPolicyDecision     `json:"turnPolicyDecisions,omitempty"`
+	HookRuns            []HookRun                `json:"hookRuns,omitempty"`
 	Bots                []Bot                    `json:"bots,omitempty"`
 	BotBindings         []BotBinding             `json:"botBindings,omitempty"`
 	ThreadBotBindings   []ThreadBotBinding       `json:"threadBotBindings,omitempty"`
@@ -150,29 +153,31 @@ type storedThreadProjection struct {
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		workspaces:          make(map[string]Workspace),
-		commandSessions:     make(map[string]map[string]CommandSessionSnapshot),
-		automations:         make(map[string]Automation),
-		templates:           make(map[string]AutomationTemplate),
-		runs:                make(map[string]AutomationRun),
-		notifications:       make(map[string]Notification),
-		turnPolicyDecisions: make(map[string]TurnPolicyDecision),
-		bots:                make(map[string]Bot),
-		botBindings:         make(map[string]BotBinding),
-		threadBotBindings:   make(map[string]ThreadBotBinding),
-		botTriggers:         make(map[string]BotTrigger),
-		botConnections:      make(map[string]BotConnection),
-		botConnectionLogs:   make(map[string][]BotConnectionLogEntry),
-		wechatAccounts:      make(map[string]WeChatAccount),
-		botConversations:    make(map[string]BotConversation),
-		botDeliveryTargets:  make(map[string]BotDeliveryTarget),
-		botInbound:          make(map[string]BotInboundDelivery),
-		botInboundIndex:     make(map[string]string),
-		botOutbound:         make(map[string]BotOutboundDelivery),
-		threads:             make(map[string]Thread),
-		projections:         make(map[string]threadProjectionRecord),
-		deleted:             make(map[string]DeletedThread),
-		approvals:           make(map[string]PendingApproval),
+		workspaces:           make(map[string]Workspace),
+		commandSessions:      make(map[string]map[string]CommandSessionSnapshot),
+		automations:          make(map[string]Automation),
+		templates:            make(map[string]AutomationTemplate),
+		runs:                 make(map[string]AutomationRun),
+		notifications:        make(map[string]Notification),
+		turnPolicyDecisions:  make(map[string]TurnPolicyDecision),
+		hookRuns:             make(map[string]HookRun),
+		bots:                 make(map[string]Bot),
+		botBindings:          make(map[string]BotBinding),
+		threadBotBindings:    make(map[string]ThreadBotBinding),
+		botTriggers:          make(map[string]BotTrigger),
+		botConnections:       make(map[string]BotConnection),
+		botConnectionLogs:    make(map[string][]BotConnectionLogEntry),
+		wechatAccounts:       make(map[string]WeChatAccount),
+		botConversations:     make(map[string]BotConversation),
+		botDeliveryTargets:   make(map[string]BotDeliveryTarget),
+		botInbound:           make(map[string]BotInboundDelivery),
+		botInboundIndex:      make(map[string]string),
+		botOutbound:          make(map[string]BotOutboundDelivery),
+		threads:              make(map[string]Thread),
+		pendingSessionStarts: make(map[string]string),
+		projections:          make(map[string]threadProjectionRecord),
+		deleted:              make(map[string]DeletedThread),
+		approvals:            make(map[string]PendingApproval),
 	}
 }
 
@@ -406,10 +411,25 @@ func (s *MemoryStore) GetRuntimePreferences() RuntimePreferences {
 	if len(prefs.DefaultCommandSandboxPolicy) > 0 {
 		prefs.DefaultCommandSandboxPolicy = cloneAnyMap(prefs.DefaultCommandSandboxPolicy)
 	}
+	prefs.TurnPolicyPostToolUseFailedValidationEnabled = cloneOptionalBool(prefs.TurnPolicyPostToolUseFailedValidationEnabled)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationEnabled = cloneOptionalBool(prefs.TurnPolicyStopMissingSuccessfulVerificationEnabled)
+	prefs.TurnPolicyPostToolUsePrimaryAction = strings.TrimSpace(prefs.TurnPolicyPostToolUsePrimaryAction)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationPrimaryAction = strings.TrimSpace(prefs.TurnPolicyStopMissingSuccessfulVerificationPrimaryAction)
+	prefs.TurnPolicyPostToolUseInterruptNoActiveTurnBehavior = strings.TrimSpace(prefs.TurnPolicyPostToolUseInterruptNoActiveTurnBehavior)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior = strings.TrimSpace(prefs.TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior)
+	prefs.TurnPolicyValidationCommandPrefixes = cloneStringSlice(prefs.TurnPolicyValidationCommandPrefixes)
+	prefs.TurnPolicyFollowUpCooldownMs = cloneOptionalInt64(prefs.TurnPolicyFollowUpCooldownMs)
+	prefs.TurnPolicyPostToolUseFollowUpCooldownMs = cloneOptionalInt64(prefs.TurnPolicyPostToolUseFollowUpCooldownMs)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs = cloneOptionalInt64(prefs.TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs)
 	prefs.TurnPolicyAlertCoverageThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertCoverageThresholdPercent)
 	prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs)
 	prefs.TurnPolicyAlertStopLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertStopLatencyP95ThresholdMs)
 	prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent)
+	prefs.TurnPolicyAlertSuppressedCodes = cloneStringSlice(prefs.TurnPolicyAlertSuppressedCodes)
+	prefs.TurnPolicyAlertAcknowledgedCodes = cloneStringSlice(prefs.TurnPolicyAlertAcknowledgedCodes)
+	prefs.TurnPolicyAlertSnoozedCodes = cloneStringSlice(prefs.TurnPolicyAlertSnoozedCodes)
+	prefs.TurnPolicyAlertSnoozeUntil = cloneOptionalTime(prefs.TurnPolicyAlertSnoozeUntil)
+	prefs.TurnPolicyAlertGovernanceHistory = cloneTurnPolicyAlertGovernanceHistory(prefs.TurnPolicyAlertGovernanceHistory)
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
 	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
@@ -449,10 +469,25 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 	} else {
 		prefs.DefaultCommandSandboxPolicy = nil
 	}
+	prefs.TurnPolicyPostToolUseFailedValidationEnabled = cloneOptionalBool(prefs.TurnPolicyPostToolUseFailedValidationEnabled)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationEnabled = cloneOptionalBool(prefs.TurnPolicyStopMissingSuccessfulVerificationEnabled)
+	prefs.TurnPolicyPostToolUsePrimaryAction = strings.TrimSpace(prefs.TurnPolicyPostToolUsePrimaryAction)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationPrimaryAction = strings.TrimSpace(prefs.TurnPolicyStopMissingSuccessfulVerificationPrimaryAction)
+	prefs.TurnPolicyPostToolUseInterruptNoActiveTurnBehavior = strings.TrimSpace(prefs.TurnPolicyPostToolUseInterruptNoActiveTurnBehavior)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior = strings.TrimSpace(prefs.TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior)
+	prefs.TurnPolicyValidationCommandPrefixes = cloneStringSlice(prefs.TurnPolicyValidationCommandPrefixes)
+	prefs.TurnPolicyFollowUpCooldownMs = cloneOptionalInt64(prefs.TurnPolicyFollowUpCooldownMs)
+	prefs.TurnPolicyPostToolUseFollowUpCooldownMs = cloneOptionalInt64(prefs.TurnPolicyPostToolUseFollowUpCooldownMs)
+	prefs.TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs = cloneOptionalInt64(prefs.TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs)
 	prefs.TurnPolicyAlertCoverageThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertCoverageThresholdPercent)
 	prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs)
 	prefs.TurnPolicyAlertStopLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertStopLatencyP95ThresholdMs)
 	prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent)
+	prefs.TurnPolicyAlertSuppressedCodes = cloneStringSlice(prefs.TurnPolicyAlertSuppressedCodes)
+	prefs.TurnPolicyAlertAcknowledgedCodes = cloneStringSlice(prefs.TurnPolicyAlertAcknowledgedCodes)
+	prefs.TurnPolicyAlertSnoozedCodes = cloneStringSlice(prefs.TurnPolicyAlertSnoozedCodes)
+	prefs.TurnPolicyAlertSnoozeUntil = cloneOptionalTime(prefs.TurnPolicyAlertSnoozeUntil)
+	prefs.TurnPolicyAlertGovernanceHistory = cloneTurnPolicyAlertGovernanceHistory(prefs.TurnPolicyAlertGovernanceHistory)
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
 	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
@@ -2817,6 +2852,44 @@ func (s *MemoryStore) GetThread(workspaceID string, threadID string) (Thread, bo
 	return thread, true
 }
 
+func (s *MemoryStore) SetThreadSessionStartSource(workspaceID string, threadID string, source string, pending bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	normalizedSource := strings.TrimSpace(source)
+	pendingKey := pendingSessionStartKey(workspaceID, threadID)
+	if normalizedSource == "" {
+		delete(s.pendingSessionStarts, pendingKey)
+		return
+	}
+
+	if thread, ok := s.threads[threadID]; ok && thread.WorkspaceID == workspaceID {
+		thread.SessionStartSource = normalizedSource
+		s.threads[threadID] = thread
+		s.persistLocked()
+	}
+
+	if pending {
+		s.pendingSessionStarts[pendingKey] = normalizedSource
+		return
+	}
+	delete(s.pendingSessionStarts, pendingKey)
+}
+
+func (s *MemoryStore) PendingThreadSessionStartSource(workspaceID string, threadID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return strings.TrimSpace(s.pendingSessionStarts[pendingSessionStartKey(workspaceID, threadID)])
+}
+
+func (s *MemoryStore) ClearPendingThreadSessionStartSource(workspaceID string, threadID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.pendingSessionStarts, pendingSessionStartKey(workspaceID, threadID))
+}
+
 func (s *MemoryStore) SetThreadStatus(workspaceID string, threadID string, status string) (Thread, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2983,7 +3056,7 @@ func (s *MemoryStore) UpsertThreadProjectionSnapshot(detail ThreadDetail) {
 		Turns:            compactProjectedThreadTurns(detail.Turns),
 	}
 	if projection.TurnCount == 0 && len(projection.Turns) > 0 {
-		projection.TurnCount = len(projection.Turns)
+		projection.TurnCount = projectedConversationTurnCount(projection.Turns)
 	}
 	if projection.MessageCount == 0 && len(projection.Turns) > 0 {
 		projection.MessageCount = projectedMessageCount(projection.Turns)
@@ -3086,6 +3159,7 @@ func (s *MemoryStore) RemoveThread(workspaceID string, threadID string) {
 	}
 
 	delete(s.threads, threadID)
+	delete(s.pendingSessionStarts, pendingSessionStartKey(workspaceID, threadID))
 	delete(s.projections, threadProjectionKey(workspaceID, threadID))
 	s.persistLocked()
 }
@@ -3115,8 +3189,14 @@ func (s *MemoryStore) DeleteThread(workspaceID string, threadID string) error {
 		DeletedAt:   now,
 	}
 	delete(s.threads, threadID)
+	delete(s.pendingSessionStarts, pendingSessionStartKey(workspaceID, threadID))
 	delete(s.projections, threadProjectionKey(workspaceID, threadID))
 	delete(s.threadBotBindings, threadBotBindingKey(workspaceID, threadID))
+	for hookRunID, hookRun := range s.hookRuns {
+		if hookRun.WorkspaceID == workspaceID && hookRun.ThreadID == threadID {
+			delete(s.hookRuns, hookRunID)
+		}
+	}
 	workspace.UpdatedAt = now
 	s.workspaces[workspaceID] = workspace
 	s.persistLocked()
@@ -3201,6 +3281,11 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 	for decisionID, decision := range s.turnPolicyDecisions {
 		if decision.WorkspaceID == workspaceID {
 			delete(s.turnPolicyDecisions, decisionID)
+		}
+	}
+	for hookRunID, hookRun := range s.hookRuns {
+		if hookRun.WorkspaceID == workspaceID {
+			delete(s.hookRuns, hookRunID)
 		}
 	}
 	delete(s.commandSessions, workspaceID)
@@ -3437,6 +3522,18 @@ func (s *MemoryStore) load() error {
 				}
 				s.turnPolicyDecisions[decision.ID] = cloneTurnPolicyDecision(decision)
 				updateLoadedMaxID(&maxID, decision.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "hookRuns":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var run HookRun
+				if err := decoder.Decode(&run); err != nil {
+					return err
+				}
+				s.hookRuns[run.ID] = cloneHookRun(run)
+				updateLoadedMaxID(&maxID, run.ID)
 				return nil
 			}); err != nil {
 				return err
@@ -3685,10 +3782,16 @@ func normalizeLoadedRuntimePreferences(prefs RuntimePreferences) RuntimePreferen
 	} else {
 		prefs.DefaultCommandSandboxPolicy = nil
 	}
+	prefs.TurnPolicyValidationCommandPrefixes = cloneStringSlice(prefs.TurnPolicyValidationCommandPrefixes)
 	prefs.TurnPolicyAlertCoverageThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertCoverageThresholdPercent)
 	prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertPostToolUseLatencyP95ThresholdMs)
 	prefs.TurnPolicyAlertStopLatencyP95ThresholdMs = cloneOptionalInt64(prefs.TurnPolicyAlertStopLatencyP95ThresholdMs)
 	prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent = cloneOptionalInt(prefs.TurnPolicyAlertSourceActionSuccessThresholdPercent)
+	prefs.TurnPolicyAlertSuppressedCodes = cloneStringSlice(prefs.TurnPolicyAlertSuppressedCodes)
+	prefs.TurnPolicyAlertAcknowledgedCodes = cloneStringSlice(prefs.TurnPolicyAlertAcknowledgedCodes)
+	prefs.TurnPolicyAlertSnoozedCodes = cloneStringSlice(prefs.TurnPolicyAlertSnoozedCodes)
+	prefs.TurnPolicyAlertSnoozeUntil = cloneOptionalTime(prefs.TurnPolicyAlertSnoozeUntil)
+	prefs.TurnPolicyAlertGovernanceHistory = cloneTurnPolicyAlertGovernanceHistory(prefs.TurnPolicyAlertGovernanceHistory)
 	prefs.AllowRemoteAccess = cloneOptionalBool(prefs.AllowRemoteAccess)
 	prefs.AllowLocalhostWithoutAccessToken = cloneOptionalBool(prefs.AllowLocalhostWithoutAccessToken)
 	if len(prefs.AccessTokens) > 0 {
@@ -3790,6 +3893,7 @@ func (s *MemoryStore) persistLocked() {
 		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
 		Notifications:       make([]Notification, 0, len(s.notifications)),
 		TurnPolicyDecisions: make([]TurnPolicyDecision, 0, len(s.turnPolicyDecisions)),
+		HookRuns:            make([]HookRun, 0, len(s.hookRuns)),
 		Bots:                make([]Bot, 0, len(s.bots)),
 		BotBindings:         make([]BotBinding, 0, len(s.botBindings)),
 		ThreadBotBindings:   make([]ThreadBotBinding, 0, len(s.threadBotBindings)),
@@ -3860,6 +3964,9 @@ func (s *MemoryStore) persistLocked() {
 	}
 	for _, decision := range s.turnPolicyDecisions {
 		snapshot.TurnPolicyDecisions = append(snapshot.TurnPolicyDecisions, cloneTurnPolicyDecision(decision))
+	}
+	for _, run := range s.hookRuns {
+		snapshot.HookRuns = append(snapshot.HookRuns, cloneHookRun(run))
 	}
 	for _, bot := range s.bots {
 		snapshot.Bots = append(snapshot.Bots, cloneBot(bot))
@@ -3937,6 +4044,9 @@ func (s *MemoryStore) persistLocked() {
 	})
 	sort.Slice(snapshot.TurnPolicyDecisions, func(i int, j int) bool {
 		return snapshot.TurnPolicyDecisions[i].ID < snapshot.TurnPolicyDecisions[j].ID
+	})
+	sort.Slice(snapshot.HookRuns, func(i int, j int) bool {
+		return snapshot.HookRuns[i].ID < snapshot.HookRuns[j].ID
 	})
 	sort.Slice(snapshot.Bots, func(i int, j int) bool {
 		return snapshot.Bots[i].ID < snapshot.Bots[j].ID
@@ -4017,6 +4127,10 @@ func (s *MemoryStore) persistLocked() {
 }
 
 func deletedThreadKey(workspaceID string, threadID string) string {
+	return workspaceID + "\x00" + threadID
+}
+
+func pendingSessionStartKey(workspaceID string, threadID string) string {
 	return workspaceID + "\x00" + threadID
 }
 
@@ -5314,6 +5428,22 @@ func cloneAccessTokens(values []AccessToken) []AccessToken {
 	for index, token := range values {
 		next := token
 		next.ExpiresAt = cloneOptionalTime(token.ExpiresAt)
+		cloned[index] = next
+	}
+	return cloned
+}
+
+func cloneTurnPolicyAlertGovernanceHistory(values []TurnPolicyAlertGovernanceEvent) []TurnPolicyAlertGovernanceEvent {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make([]TurnPolicyAlertGovernanceEvent, len(values))
+	for index, event := range values {
+		next := event
+		next.Codes = cloneStringSlice(event.Codes)
+		next.SnoozeUntil = cloneOptionalTime(event.SnoozeUntil)
+		next.CreatedAt = event.CreatedAt.UTC()
 		cloned[index] = next
 	}
 	return cloned

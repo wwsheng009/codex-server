@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const threadGovernanceTurnID = "thread-governance"
+
 func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvelope) bool {
 	payload := asObject(event.Payload)
 	changed := false
@@ -134,6 +136,19 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 			return next
 		})
 		changed = true
+	case "turn/plan/updated":
+		turnID := stringValue(payload["turnId"])
+		if turnID == "" {
+			turnID = event.TurnID
+		}
+		if turnID == "" {
+			break
+		}
+
+		updateProjectedItem(&projection.Turns, turnID, turnPlanItemID(turnID), func(current map[string]any) map[string]any {
+			return mergeProjectedItem(current, projectedTurnPlanItem(turnID, payload))
+		})
+		changed = true
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
 		turnID := stringValue(payload["turnId"])
 		if turnID == "" {
@@ -181,8 +196,19 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 			if stringValue(next["status"]) == "" {
 				next["status"] = "inProgress"
 			}
-			next["aggregatedOutput"] = stringValue(next["aggregatedOutput"]) + delta
-			return next
+			return appendProjectedCommandExecutionOutput(next, delta)
+		})
+		changed = true
+	case "hook/started", "hook/completed":
+		run := asObject(payload["run"])
+		turnID := hookRunProjectionTurnID(run, event)
+		runID := stringValue(run["id"])
+		if turnID == "" || runID == "" {
+			break
+		}
+
+		updateProjectedItem(&projection.Turns, turnID, hookRunItemID(runID), func(current map[string]any) map[string]any {
+			return mergeProjectedItem(current, projectedHookRunItem(run))
 		})
 		changed = true
 	case "thread/tokenUsage/updated":
@@ -193,7 +219,7 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 	}
 
 	if changed {
-		projection.TurnCount = len(projection.Turns)
+		projection.TurnCount = projectedConversationTurnCount(projection.Turns)
 		projection.MessageCount = projectedMessageCount(projection.Turns)
 		if projection.UpdatedAt.IsZero() || event.TS.After(projection.UpdatedAt) {
 			projection.UpdatedAt = event.TS
@@ -241,7 +267,13 @@ func updateProjectedTurn(turns *[]ThreadTurn, turnID string, build func(current 
 		return
 	}
 
-	*turns = append(*turns, build(nil))
+	nextTurn := build(nil)
+	if isSyntheticGovernanceTurnID(turnID) {
+		*turns = append([]ThreadTurn{nextTurn}, *turns...)
+		return
+	}
+
+	*turns = append(*turns, nextTurn)
 }
 
 func updateProjectedItem(
@@ -367,6 +399,175 @@ func requestItemID(requestID string) string {
 	return "server-request-" + requestID
 }
 
+func hookRunProjectionTurnID(run map[string]any, event EventEnvelope) string {
+	turnID := stringValue(run["turnId"])
+	if turnID == "" {
+		turnID = event.TurnID
+	}
+	if turnID != "" {
+		return turnID
+	}
+
+	if stringValue(run["threadId"]) != "" || event.ThreadID != "" {
+		return threadGovernanceTurnID
+	}
+	return ""
+}
+
+func hookRunItemID(runID string) string {
+	return "hook-run-" + runID
+}
+
+func turnPlanItemID(turnID string) string {
+	return "turn-plan-" + turnID
+}
+
+func projectedTurnPlanItem(turnID string, payload map[string]any) map[string]any {
+	steps := turnPlanSteps(payload["plan"])
+	item := map[string]any{
+		"id":     turnPlanItemID(turnID),
+		"type":   "turnPlan",
+		"steps":  steps,
+		"status": turnPlanStatus(steps),
+	}
+	if hasOwn(payload, "explanation") {
+		item["explanation"] = stringValue(payload["explanation"])
+	}
+	return item
+}
+
+func turnPlanSteps(value any) []map[string]any {
+	rawItems, ok := value.([]any)
+	if !ok || len(rawItems) == 0 {
+		return []map[string]any{}
+	}
+
+	items := make([]map[string]any, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		entry := asObject(rawItem)
+		step := strings.TrimSpace(stringValue(entry["step"]))
+		if step == "" {
+			continue
+		}
+
+		item := map[string]any{
+			"step": step,
+		}
+		if status := strings.TrimSpace(stringValue(entry["status"])); status != "" {
+			item["status"] = status
+		}
+		items = append(items, item)
+	}
+
+	return items
+}
+
+func turnPlanStatus(steps []map[string]any) string {
+	if len(steps) == 0 {
+		return ""
+	}
+
+	allCompleted := true
+	for _, step := range steps {
+		switch strings.TrimSpace(stringValue(step["status"])) {
+		case "completed":
+			continue
+		case "inProgress":
+			return "inProgress"
+		default:
+			allCompleted = false
+		}
+	}
+
+	if allCompleted {
+		return "completed"
+	}
+	return "pending"
+}
+
+func projectedHookRunItem(run map[string]any) map[string]any {
+	item := map[string]any{
+		"id":                 hookRunItemID(stringValue(run["id"])),
+		"type":               "hookRun",
+		"hookRunId":          stringValue(run["id"]),
+		"eventName":          stringValue(run["eventName"]),
+		"handlerKey":         stringValue(run["handlerKey"]),
+		"triggerMethod":      stringValue(run["triggerMethod"]),
+		"sessionStartSource": stringValue(run["sessionStartSource"]),
+		"toolKind":           stringValue(run["toolKind"]),
+		"toolName":           stringValue(run["toolName"]),
+		"status":             stringValue(run["status"]),
+		"decision":           stringValue(run["decision"]),
+		"reason":             stringValue(run["reason"]),
+		"source":             stringValue(run["source"]),
+		"message":            hookRunMessage(run),
+	}
+	if errorValue := stringValue(run["error"]); errorValue != "" {
+		item["error"] = errorValue
+	}
+	if completedAt := stringValue(run["completedAt"]); completedAt != "" {
+		item["completedAt"] = completedAt
+	}
+	if durationMs := intValue(run["durationMs"]); durationMs > 0 {
+		item["durationMs"] = durationMs
+	}
+	return item
+}
+
+func hookRunMessage(run map[string]any) string {
+	entries := hookRunEntries(run["entries"])
+
+	return FormatHookRunMessage(HookRunDisplayFields{
+		EventName:          stringValue(run["eventName"]),
+		HandlerKey:         stringValue(run["handlerKey"]),
+		TriggerMethod:      stringValue(run["triggerMethod"]),
+		Status:             stringValue(run["status"]),
+		Decision:           stringValue(run["decision"]),
+		ToolName:           stringValue(run["toolName"]),
+		ToolKind:           stringValue(run["toolKind"]),
+		Reason:             stringValue(run["reason"]),
+		Feedback:           FormatHookRunFeedbackEntries(entries, 2),
+		SessionStartSource: stringValue(run["sessionStartSource"]),
+	})
+}
+
+func hookRunEntries(value any) []HookOutputEntry {
+	rawEntries, ok := value.([]any)
+	if !ok || len(rawEntries) == 0 {
+		return nil
+	}
+
+	entries := make([]HookOutputEntry, 0, len(rawEntries))
+	for _, rawEntry := range rawEntries {
+		entry := asObject(rawEntry)
+		text := strings.TrimSpace(stringValue(asObject(rawEntry)["text"]))
+		if text == "" {
+			continue
+		}
+		entries = append(entries, HookOutputEntry{
+			Kind: strings.TrimSpace(stringValue(entry["kind"])),
+			Text: text,
+		})
+	}
+
+	return entries
+}
+
+func projectedConversationTurnCount(turns []ThreadTurn) int {
+	count := 0
+	for _, turn := range turns {
+		if isSyntheticGovernanceTurnID(turn.ID) {
+			continue
+		}
+		count += 1
+	}
+	return count
+}
+
+func isSyntheticGovernanceTurnID(turnID string) bool {
+	return strings.TrimSpace(turnID) == threadGovernanceTurnID
+}
+
 func mergeProjectedItem(current map[string]any, incoming map[string]any) map[string]any {
 	if current == nil {
 		return cloneItem(incoming)
@@ -395,6 +596,10 @@ func mergeProjectedItem(current map[string]any, incoming map[string]any) map[str
 		if len(stringSlice(incoming["content"])) == 0 && len(stringSlice(current["content"])) > 0 {
 			merged["content"] = current["content"]
 		}
+	}
+
+	if stringValue(merged["type"]) == "commandExecution" {
+		return compactProjectedCommandExecutionItem(merged)
 	}
 
 	return merged

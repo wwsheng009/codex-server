@@ -29,22 +29,56 @@ type AccessToken struct {
 }
 
 type RuntimePreferences struct {
-	ModelCatalogPath                 string            `json:"modelCatalogPath"`
-	LocalShellModels                 []string          `json:"localShellModels,omitempty"`
-	DefaultShellType                 string            `json:"defaultShellType,omitempty"`
-	DefaultTerminalShell             string            `json:"defaultTerminalShell,omitempty"`
-	ModelShellTypeOverrides          map[string]string `json:"modelShellTypeOverrides,omitempty"`
-	OutboundProxyURL                 string            `json:"outboundProxyUrl,omitempty"`
-	DefaultTurnApprovalPolicy        string            `json:"defaultTurnApprovalPolicy,omitempty"`
-	DefaultTurnSandboxPolicy         map[string]any    `json:"defaultTurnSandboxPolicy,omitempty"`
-	DefaultCommandSandboxPolicy      map[string]any    `json:"defaultCommandSandboxPolicy,omitempty"`
-	AllowRemoteAccess                *bool             `json:"allowRemoteAccess"`
-	AllowLocalhostWithoutAccessToken *bool             `json:"allowLocalhostWithoutAccessToken"`
-	AccessTokens                     []AccessToken     `json:"accessTokens,omitempty"`
-	BackendThreadTraceEnabled        *bool             `json:"backendThreadTraceEnabled"`
-	BackendThreadTraceWorkspaceID    string            `json:"backendThreadTraceWorkspaceId,omitempty"`
-	BackendThreadTraceThreadID       string            `json:"backendThreadTraceThreadId,omitempty"`
-	UpdatedAt                        time.Time         `json:"updatedAt,omitempty"`
+	ModelCatalogPath                                                         string                           `json:"modelCatalogPath"`
+	LocalShellModels                                                         []string                         `json:"localShellModels,omitempty"`
+	DefaultShellType                                                         string                           `json:"defaultShellType,omitempty"`
+	DefaultTerminalShell                                                     string                           `json:"defaultTerminalShell,omitempty"`
+	ModelShellTypeOverrides                                                  map[string]string                `json:"modelShellTypeOverrides,omitempty"`
+	OutboundProxyURL                                                         string                           `json:"outboundProxyUrl,omitempty"`
+	DefaultTurnApprovalPolicy                                                string                           `json:"defaultTurnApprovalPolicy,omitempty"`
+	DefaultTurnSandboxPolicy                                                 map[string]any                   `json:"defaultTurnSandboxPolicy,omitempty"`
+	DefaultCommandSandboxPolicy                                              map[string]any                   `json:"defaultCommandSandboxPolicy,omitempty"`
+	HookSessionStartEnabled                                                  *bool                            `json:"hookSessionStartEnabled"`
+	HookSessionStartContextPaths                                             []string                         `json:"hookSessionStartContextPaths,omitempty"`
+	HookSessionStartMaxChars                                                 *int                             `json:"hookSessionStartMaxChars"`
+	HookUserPromptSubmitBlockSecretPasteEnabled                              *bool                            `json:"hookUserPromptSubmitBlockSecretPasteEnabled"`
+	HookPreToolUseBlockDangerousCommandEnabled                               *bool                            `json:"hookPreToolUseBlockDangerousCommandEnabled"`
+	HookPreToolUseAdditionalProtectedGovernancePaths                         []string                         `json:"hookPreToolUseAdditionalProtectedGovernancePaths,omitempty"`
+	TurnPolicyPostToolUseFailedValidationEnabled                             *bool                            `json:"turnPolicyPostToolUseFailedValidationEnabled"`
+	TurnPolicyStopMissingSuccessfulVerificationEnabled                       *bool                            `json:"turnPolicyStopMissingSuccessfulVerificationEnabled"`
+	TurnPolicyPostToolUsePrimaryAction                                       string                           `json:"turnPolicyPostToolUsePrimaryAction,omitempty"`
+	TurnPolicyStopMissingSuccessfulVerificationPrimaryAction                 string                           `json:"turnPolicyStopMissingSuccessfulVerificationPrimaryAction,omitempty"`
+	TurnPolicyPostToolUseInterruptNoActiveTurnBehavior                       string                           `json:"turnPolicyPostToolUseInterruptNoActiveTurnBehavior,omitempty"`
+	TurnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior string                           `json:"turnPolicyStopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior,omitempty"`
+	TurnPolicyValidationCommandPrefixes                                      []string                         `json:"turnPolicyValidationCommandPrefixes,omitempty"`
+	TurnPolicyFollowUpCooldownMs                                             *int64                           `json:"turnPolicyFollowUpCooldownMs"`
+	TurnPolicyPostToolUseFollowUpCooldownMs                                  *int64                           `json:"turnPolicyPostToolUseFollowUpCooldownMs"`
+	TurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs            *int64                           `json:"turnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs"`
+	TurnPolicyAlertCoverageThresholdPercent                                  *int                             `json:"turnPolicyAlertCoverageThresholdPercent"`
+	TurnPolicyAlertPostToolUseLatencyP95ThresholdMs                          *int64                           `json:"turnPolicyAlertPostToolUseLatencyP95ThresholdMs"`
+	TurnPolicyAlertStopLatencyP95ThresholdMs                                 *int64                           `json:"turnPolicyAlertStopLatencyP95ThresholdMs"`
+	TurnPolicyAlertSourceActionSuccessThresholdPercent                       *int                             `json:"turnPolicyAlertSourceActionSuccessThresholdPercent"`
+	TurnPolicyAlertSuppressedCodes                                           []string                         `json:"turnPolicyAlertSuppressedCodes,omitempty"`
+	TurnPolicyAlertAcknowledgedCodes                                         []string                         `json:"turnPolicyAlertAcknowledgedCodes,omitempty"`
+	TurnPolicyAlertSnoozedCodes                                              []string                         `json:"turnPolicyAlertSnoozedCodes,omitempty"`
+	TurnPolicyAlertSnoozeUntil                                               *time.Time                       `json:"turnPolicyAlertSnoozeUntil,omitempty"`
+	TurnPolicyAlertGovernanceHistory                                         []TurnPolicyAlertGovernanceEvent `json:"turnPolicyAlertGovernanceHistory,omitempty"`
+	AllowRemoteAccess                                                        *bool                            `json:"allowRemoteAccess"`
+	AllowLocalhostWithoutAccessToken                                         *bool                            `json:"allowLocalhostWithoutAccessToken"`
+	AccessTokens                                                             []AccessToken                    `json:"accessTokens,omitempty"`
+	BackendThreadTraceEnabled                                                *bool                            `json:"backendThreadTraceEnabled"`
+	BackendThreadTraceWorkspaceID                                            string                           `json:"backendThreadTraceWorkspaceId,omitempty"`
+	BackendThreadTraceThreadID                                               string                           `json:"backendThreadTraceThreadId,omitempty"`
+	UpdatedAt                                                                time.Time                        `json:"updatedAt,omitempty"`
+}
+
+type TurnPolicyAlertGovernanceEvent struct {
+	ID          string     `json:"id"`
+	Action      string     `json:"action"`
+	Source      string     `json:"source,omitempty"`
+	Codes       []string   `json:"codes,omitempty"`
+	SnoozeUntil *time.Time `json:"snoozeUntil,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
 }
 
 type Automation struct {
@@ -136,11 +170,48 @@ type TurnPolicyDecision struct {
 	ActionTurnID        string    `json:"actionTurnId,omitempty"`
 	Reason              string    `json:"reason"`
 	EvidenceSummary     string    `json:"evidenceSummary,omitempty"`
+	GovernanceLayer     string    `json:"governanceLayer,omitempty"`
+	HookRunID           string    `json:"hookRunId,omitempty"`
 	Source              string    `json:"source,omitempty"`
 	Error               string    `json:"error,omitempty"`
 	EvaluationStartedAt time.Time `json:"evaluationStartedAt"`
 	DecisionAt          time.Time `json:"decisionAt"`
 	CompletedAt         time.Time `json:"completedAt"`
+}
+
+type HookOutputEntry struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+type HookRun struct {
+	ID                 string            `json:"id"`
+	WorkspaceID        string            `json:"workspaceId"`
+	ThreadID           string            `json:"threadId,omitempty"`
+	TurnID             string            `json:"turnId,omitempty"`
+	ItemID             string            `json:"itemId,omitempty"`
+	EventName          string            `json:"eventName"`
+	HandlerKey         string            `json:"handlerKey"`
+	HandlerType        string            `json:"handlerType,omitempty"`
+	Provider           string            `json:"provider,omitempty"`
+	ExecutionMode      string            `json:"executionMode,omitempty"`
+	Scope              string            `json:"scope,omitempty"`
+	TriggerMethod      string            `json:"triggerMethod,omitempty"`
+	SessionStartSource string            `json:"sessionStartSource,omitempty"`
+	ToolKind           string            `json:"toolKind,omitempty"`
+	ToolName           string            `json:"toolName,omitempty"`
+	Status             string            `json:"status"`
+	Decision           string            `json:"decision,omitempty"`
+	Reason             string            `json:"reason,omitempty"`
+	Fingerprint        string            `json:"fingerprint,omitempty"`
+	AdditionalContext  string            `json:"additionalContext,omitempty"`
+	UpdatedInput       any               `json:"updatedInput,omitempty"`
+	Entries            []HookOutputEntry `json:"entries,omitempty"`
+	Source             string            `json:"source,omitempty"`
+	Error              string            `json:"error,omitempty"`
+	StartedAt          time.Time         `json:"startedAt"`
+	CompletedAt        *time.Time        `json:"completedAt,omitempty"`
+	DurationMs         *int64            `json:"durationMs,omitempty"`
 }
 
 type Bot struct {
@@ -369,17 +440,18 @@ type BotInboundDelivery struct {
 }
 
 type Thread struct {
-	ID           string    `json:"id"`
-	WorkspaceID  string    `json:"workspaceId"`
-	Cwd          string    `json:"cwd,omitempty"`
-	Materialized bool      `json:"materialized,omitempty"`
-	Name         string    `json:"name"`
-	Status       string    `json:"status"`
-	Archived     bool      `json:"archived"`
-	TurnCount    int       `json:"turnCount,omitempty"`
-	MessageCount int       `json:"messageCount,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID                 string    `json:"id"`
+	WorkspaceID        string    `json:"workspaceId"`
+	Cwd                string    `json:"cwd,omitempty"`
+	Materialized       bool      `json:"materialized,omitempty"`
+	Name               string    `json:"name"`
+	Status             string    `json:"status"`
+	Archived           bool      `json:"archived"`
+	SessionStartSource string    `json:"sessionStartSource,omitempty"`
+	TurnCount          int       `json:"turnCount,omitempty"`
+	MessageCount       int       `json:"messageCount,omitempty"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 type DeletedThread struct {

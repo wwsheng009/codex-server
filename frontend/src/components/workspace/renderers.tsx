@@ -20,6 +20,12 @@ import { i18n } from '../../i18n/runtime'
 import { containsAnsiEscapeCode, safeJson } from '../thread/threadRender'
 import { InlineNotice } from '../ui/InlineNotice'
 import { Input } from '../ui/Input'
+import {
+  normalizeTurnPlanStatus,
+  readTurnPlanItem,
+  type TurnPlanItem,
+  type TurnPlanStep,
+} from '../../lib/turn-plan'
 import type {
   ApprovalCardProps,
   ApprovalDialogProps,
@@ -1418,6 +1424,48 @@ function TimelineItem({
         </SystemTimelineCard>
       )
     }
+    case 'turnPlan': {
+      const turnPlan = readTurnPlanItem(item)
+      const steps = turnPlan?.steps ?? []
+      const explanation = turnPlan?.explanation ?? ''
+
+      if (!steps.length && !explanation) {
+        logSuppressedTimelineItem(item, turnId, 'turnPlan without content')
+        return null
+      }
+
+      return (
+        <SystemTimelineCard
+          className="conversation-card--plan"
+          meta={turnPlanProgressMeta(steps)}
+          statusTone={turnPlanStatusTone(turnPlan)}
+          summary={turnPlanCardSummary(explanation, steps)}
+          title="Plan"
+        >
+          {explanation ? <p className="conversation-plan__explanation">{explanation}</p> : null}
+          {steps.length ? (
+            <ol className="conversation-plan">
+              {steps.map((entry, index) => (
+                <li
+                  className={`conversation-plan__step conversation-plan__step--${turnPlanStepClassName(entry.status)}`}
+                  key={`${entry.step}-${index}`}
+                >
+                  <span className="conversation-plan__index">{index + 1}</span>
+                  <span className="conversation-plan__body">
+                    <span className="conversation-plan__text">{entry.step}</span>
+                  </span>
+                  <span
+                    className={`detail-badge detail-badge--${turnPlanStepBadgeTone(entry.status)} conversation-plan__status`}
+                  >
+                    {turnPlanStepStatusLabel(entry.status)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </SystemTimelineCard>
+      )
+    }
     case 'plan': {
       const steps = planSteps(item)
 
@@ -1435,9 +1483,11 @@ function TimelineItem({
         >
           <ol className="conversation-plan">
             {steps.map((step, index) => (
-              <li className="conversation-plan__step" key={index}>
+              <li className="conversation-plan__step conversation-plan__step--pending" key={index}>
                 <span className="conversation-plan__index">{index + 1}</span>
-                <span>{step}</span>
+                <span className="conversation-plan__body">
+                  <span className="conversation-plan__text">{step}</span>
+                </span>
               </li>
             ))}
           </ol>
@@ -2639,6 +2689,59 @@ function planCardSummary(steps: string[]) {
     : `${truncateSingleLine(steps[0], 84)} +${steps.length - 1}`
 }
 
+function turnPlanCardSummary(explanation: string, steps: TurnPlanStep[]) {
+  if (explanation) {
+    return truncateSingleLine(explanation, 100)
+  }
+
+  const activeStep = steps.find((entry) => turnPlanNormalizedStatus(entry.status) !== 'completed')
+  if (activeStep) {
+    return truncateSingleLine(activeStep.step, 100)
+  }
+
+  if (!steps.length) {
+    return i18n._({ id: 'No steps', message: 'No steps' })
+  }
+
+  return truncateSingleLine(steps[0].step, 100)
+}
+
+function turnPlanProgressMeta(steps: TurnPlanStep[]) {
+  if (!steps.length) {
+    return '0 steps'
+  }
+
+  let completed = 0
+  let active = 0
+  let pending = 0
+
+  for (const entry of steps) {
+    switch (turnPlanNormalizedStatus(entry.status)) {
+      case 'completed':
+        completed += 1
+        break
+      case 'inprogress':
+        active += 1
+        break
+      default:
+        pending += 1
+        break
+    }
+  }
+
+  const parts = [`${steps.length} step${steps.length === 1 ? '' : 's'}`]
+  if (active) {
+    parts.push(`${active} active`)
+  }
+  if (completed) {
+    parts.push(`${completed} done`)
+  }
+  if (pending) {
+    parts.push(`${pending} pending`)
+  }
+  return parts.join(' · ')
+}
+
 function fileChangeCardSummary(changes: Array<{ kind: string; path: string }>) {
   if (!changes.length) {
     return i18n._({ id: 'No files', message: 'No files' })
@@ -2694,6 +2797,62 @@ function statusToneFromValue(value: string): CompactSystemStatusTone | undefined
   }
 
   return undefined
+}
+
+function turnPlanNormalizedStatus(value: string) {
+  return normalizeTurnPlanStatus(value)
+}
+
+function turnPlanStatusTone(turnPlan: TurnPlanItem | null): CompactSystemStatusTone | undefined {
+  const explicitStatus = turnPlan?.status ?? ''
+  if (explicitStatus) {
+    return statusToneFromValue(explicitStatus)
+  }
+
+  if (!turnPlan?.steps.length) {
+    return undefined
+  }
+
+  if (turnPlan.steps.every((entry) => turnPlanNormalizedStatus(entry.status) === 'completed')) {
+    return 'success'
+  }
+
+  return 'running'
+}
+
+function turnPlanStepClassName(value: string) {
+  switch (turnPlanNormalizedStatus(value)) {
+    case 'completed':
+      return 'completed'
+    case 'inprogress':
+      return 'in-progress'
+    default:
+      return 'pending'
+  }
+}
+
+function turnPlanStepBadgeTone(value: string) {
+  switch (turnPlanNormalizedStatus(value)) {
+    case 'completed':
+      return 'success'
+    case 'inprogress':
+      return 'info'
+    default:
+      return 'warning'
+  }
+}
+
+function turnPlanStepStatusLabel(value: string) {
+  switch (turnPlanNormalizedStatus(value)) {
+    case 'completed':
+      return humanizeToolStatus('completed')
+    case 'inprogress':
+      return humanizeToolStatus('inProgress')
+    case 'pending':
+      return humanizeToolStatus('pending')
+    default:
+      return humanizeToolStatus(value || 'pending')
+  }
 }
 
 function countOutputLines(value: string) {
@@ -3045,6 +3204,14 @@ function estimateConversationEntryHeight(entry: ConversationEntry) {
       const lineCount = integerField(entry.item.outputLineCount) ?? countOutputLines(output)
       return 140 + Math.min(lineCount, 12) * 18
     }
+    case 'turnPlan':
+      {
+        const turnPlan = readTurnPlanItem(entry.item)
+        return estimateTextEntryHeight(
+          `${turnPlan?.explanation ?? ''}\n${turnPlan?.steps.map((step) => step.step).join('\n') ?? ''}`,
+          128,
+        )
+      }
     case 'plan':
       return estimateTextEntryHeight(stringField(entry.item.text), 112)
     case 'fileChange':
@@ -3120,6 +3287,13 @@ function conversationEntryOmissionReason(item: Record<string, unknown>) {
         ? null
         : 'commandExecution without command/output/status'
     }
+    case 'turnPlan':
+      return (() => {
+        const turnPlan = readTurnPlanItem(item)
+        return turnPlan?.steps.length || turnPlan?.explanation
+          ? null
+          : 'turnPlan without content'
+      })()
     case 'plan':
       return planSteps(item).length ? null : 'plan without steps'
     case 'fileChange':

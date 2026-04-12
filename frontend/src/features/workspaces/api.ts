@@ -1,5 +1,10 @@
 import { apiRequest } from '../../lib/api-client'
-import type { Workspace, WorkspaceRuntimeState } from '../../types/api'
+import type {
+  Workspace,
+  WorkspaceHookConfigurationResult,
+  WorkspaceHookConfigurationWriteResult,
+  WorkspaceRuntimeState,
+} from '../../types/api'
 
 export type CreateWorkspaceInput = {
   name: string
@@ -8,6 +13,15 @@ export type CreateWorkspaceInput = {
 
 export type RenameWorkspaceInput = {
   name: string
+}
+
+export type WriteWorkspaceHookConfigurationInput = {
+  hookSessionStartEnabled?: boolean | null
+  hookSessionStartContextPaths?: string[] | null
+  hookSessionStartMaxChars?: number | null
+  hookUserPromptSubmitBlockSecretPasteEnabled?: boolean | null
+  hookPreToolUseBlockDangerousCommandEnabled?: boolean | null
+  hookPreToolUseAdditionalProtectedGovernancePaths?: string[] | null
 }
 
 export function listWorkspaces() {
@@ -20,6 +34,25 @@ export function getWorkspace(workspaceId: string) {
 
 export function getWorkspaceRuntimeState(workspaceId: string) {
   return apiRequest<WorkspaceRuntimeState>(`/api/workspaces/${workspaceId}/runtime-state`)
+}
+
+export function getWorkspaceHookConfiguration(workspaceId: string) {
+  return apiRequest<WorkspaceHookConfigurationResult>(
+    `/api/workspaces/${workspaceId}/hook-configuration`,
+  )
+}
+
+export function writeWorkspaceHookConfiguration(
+  workspaceId: string,
+  input: WriteWorkspaceHookConfigurationInput,
+) {
+  return apiRequest<WorkspaceHookConfigurationWriteResult>(
+    `/api/workspaces/${workspaceId}/hook-configuration`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  )
 }
 
 export function createWorkspace(input: CreateWorkspaceInput) {

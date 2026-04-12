@@ -167,6 +167,12 @@ describe('resolveActiveNotificationWorkspaceId', () => {
       resolveActiveNotificationWorkspaceId('/bots/ws-bot-1/connection-1/logs', 'ws-fallback'),
     ).toBe('ws-bot-1')
 
+    expect(
+      resolveActiveNotificationWorkspaceId('/bots/connection-1/logs', 'ws-fallback'),
+    ).toBe('ws-fallback')
+
+    expect(resolveActiveNotificationWorkspaceId('/bots', 'ws-fallback')).toBe('')
+
     expect(resolveActiveNotificationWorkspaceId('/automations', 'ws-fallback')).toBe('ws-fallback')
   })
 })

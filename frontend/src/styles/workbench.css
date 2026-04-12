@@ -1848,10 +1848,29 @@
 
 .conversation-plan__step {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   gap: 6px;
   align-items: start;
   color: var(--text-primary);
+}
+
+.conversation-plan__body {
+  min-width: 0;
+}
+
+.conversation-plan__text {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.conversation-plan__status {
+  justify-self: end;
+  align-self: center;
+}
+
+.conversation-plan__explanation {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
 }
 
 .conversation-plan__index {
@@ -1865,6 +1884,25 @@
   color: var(--warning);
   font-size: 0.66rem;
   font-weight: 700;
+}
+
+.conversation-plan__step--completed .conversation-plan__index {
+  background: var(--surface-success-soft);
+  color: var(--success);
+}
+
+.conversation-plan__step--completed .conversation-plan__text {
+  color: var(--text-secondary);
+}
+
+.conversation-plan__step--in-progress .conversation-plan__index {
+  background: var(--surface-selected);
+  color: var(--accent-strong);
+}
+
+.conversation-plan__step--in-progress .conversation-plan__text {
+  color: var(--text-strong);
+  font-weight: 600;
 }
 
 .conversation-file-list {

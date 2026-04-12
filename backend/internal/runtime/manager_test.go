@@ -18,6 +18,20 @@ func TestCodexFakeHelperProcess(t *testing.T) {
 	codexfake.RunHelperProcessIfRequested(t)
 }
 
+type fakeServerRequestInterceptor struct {
+	calls    []ServerRequestInput
+	decision ServerRequestInterception
+	err      error
+}
+
+func (f *fakeServerRequestInterceptor) InterceptServerRequest(
+	_ context.Context,
+	input ServerRequestInput,
+) (ServerRequestInterception, error) {
+	f.calls = append(f.calls, input)
+	return f.decision, f.err
+}
+
 func TestQueueCommandOutputDeltaMergesAdjacentChunks(t *testing.T) {
 	t.Parallel()
 
@@ -158,6 +172,104 @@ func TestSplitCommandOutputDeltaPreservesUTF8Boundaries(t *testing.T) {
 
 	if rebuilt.String() != string(input) {
 		t.Fatal("expected UTF-8 chunks to reassemble without loss")
+	}
+}
+
+func TestHandleRequestSkipsPendingStorageWhenInterceptorHandlesRequest(t *testing.T) {
+	t.Parallel()
+
+	hub := events.NewHub()
+	manager := NewManager("codex app-server --listen stdio://", hub)
+	interceptor := &fakeServerRequestInterceptor{
+		decision: ServerRequestInterception{
+			Handled: true,
+			Response: map[string]any{
+				"success": false,
+			},
+		},
+	}
+	manager.SetServerRequestInterceptor(interceptor)
+
+	runtime := &instance{
+		manager:     manager,
+		workspaceID: "ws-1",
+	}
+	eventsCh, cancel := hub.Subscribe("ws-1")
+	defer cancel()
+
+	payload, _ := json.Marshal(map[string]any{
+		"threadId": "thread-1",
+		"turnId":   "turn-1",
+		"tool":     "fs/writeFile",
+		"arguments": map[string]any{
+			"path": ".codex/hooks.json",
+		},
+	})
+
+	runtime.HandleRequest(json.RawMessage(`1`), "item/tool/call", payload)
+
+	if len(interceptor.calls) != 1 {
+		t.Fatalf("expected interceptor to be called once, got %#v", interceptor.calls)
+	}
+	if len(manager.ListPendingRequests("ws-1")) != 0 {
+		t.Fatalf("expected handled request to skip pending storage, got %#v", manager.ListPendingRequests("ws-1"))
+	}
+
+	select {
+	case event := <-eventsCh:
+		t.Fatalf("expected handled request to skip event publication, got %#v", event)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestHandleRequestPreservesPendingStorageWhenInterceptorDoesNotHandle(t *testing.T) {
+	t.Parallel()
+
+	hub := events.NewHub()
+	manager := NewManager("codex app-server --listen stdio://", hub)
+	interceptor := &fakeServerRequestInterceptor{}
+	manager.SetServerRequestInterceptor(interceptor)
+
+	runtime := &instance{
+		manager:     manager,
+		workspaceID: "ws-1",
+	}
+	eventsCh, cancel := hub.Subscribe("ws-1")
+	defer cancel()
+
+	payload, _ := json.Marshal(map[string]any{
+		"threadId": "thread-1",
+		"turnId":   "turn-1",
+		"tool":     "search_query",
+		"arguments": map[string]any{
+			"q": "codex server",
+		},
+	})
+
+	runtime.HandleRequest(json.RawMessage(`1`), "item/tool/call", payload)
+
+	if len(interceptor.calls) != 1 {
+		t.Fatalf("expected interceptor to be called once, got %#v", interceptor.calls)
+	}
+
+	requests := manager.ListPendingRequests("ws-1")
+	if len(requests) != 1 {
+		t.Fatalf("expected unhandled request to remain pending, got %#v", requests)
+	}
+	if requests[0].Method != "item/tool/call" || requests[0].ThreadID != "thread-1" || requests[0].TurnID != "turn-1" {
+		t.Fatalf("unexpected pending request metadata %#v", requests[0])
+	}
+
+	select {
+	case event := <-eventsCh:
+		if event.Method != "item/tool/call" {
+			t.Fatalf("expected item/tool/call event, got %#v", event)
+		}
+		if event.ServerRequestID == nil || *event.ServerRequestID == "" {
+			t.Fatalf("expected published request event to carry server request id, got %#v", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected unhandled request event to be published")
 	}
 }
 
