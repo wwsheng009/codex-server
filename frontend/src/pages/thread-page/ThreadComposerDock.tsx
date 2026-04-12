@@ -17,6 +17,7 @@ import {
   ContextUsageIndicator,
   composerSectionLabel,
   describeRateLimits,
+  getRateLimitsNextResetAt,
   formatShortTime,
   truncateInlineText,
 } from './threadPageComposerShared'
@@ -160,6 +161,7 @@ export function ThreadComposerDock({
   const timerStartTime = activePendingTurn?.submittedAt
     ? new Date(activePendingTurn.submittedAt).getTime()
     : processingStartTimeRef.current
+  const nextQuotaResetAt = getRateLimitsNextResetAt(rateLimits)
 
   useLayoutEffect(() => {
     const textarea = composerInputRef.current
@@ -390,11 +392,11 @@ export function ThreadComposerDock({
                 </div>
                 <div className="composer-assist-card__footer">
                   <span className="composer-assist-card__hint">
-                    {rateLimits?.[0]?.resetsAt
+                    {nextQuotaResetAt
                       ? i18n._({
                           id: 'Quota resets {time}',
                           message: 'Quota resets {time}',
-                          values: { time: formatShortTime(rateLimits[0].resetsAt) },
+                          values: { time: formatShortTime(nextQuotaResetAt) },
                         })
                       : accountEmail ??
                         i18n._({

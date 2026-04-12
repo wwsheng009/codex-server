@@ -69,6 +69,10 @@ export type ApprovalStackProps = {
   onRespond: ApprovalRespondHandler
 }
 
+export type PlanStatusStackProps = {
+  turns: ThreadTurn[]
+}
+
 export type ApprovalDialogProps = {
   approval: PendingApproval
   approvalAnswers: Record<string, Record<string, string>>

@@ -146,7 +146,16 @@ export function ThreadWorkbenchRailThreadToolsSection({
             </form>
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <div className="pane-section-content">
+          <p className="config-inline-note" style={{ margin: 0 }}>
+            {i18n._({
+              id: 'Select a thread from the left sidebar to start working in this workspace.',
+              message: 'Select a thread from the left sidebar to start working in this workspace.',
+            })}
+          </p>
+        </div>
+      )}
     </DetailGroup>
   )
 }

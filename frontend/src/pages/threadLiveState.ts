@@ -1,4 +1,9 @@
 import type { HookOutputEntry, ServerEvent, ThreadDetail, ThreadTurn } from '../types/api'
+import {
+  frontendDebugLog,
+  summarizeServerEventForDebug,
+  summarizeThreadDetailForDebug,
+} from '../lib/frontend-runtime-mode'
 import { formatHookRunFeedbackEntries, formatHookRunMessage } from '../lib/hook-run-display'
 import { buildTurnPlanItem, turnPlanItemId } from '../lib/turn-plan'
 import type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
@@ -25,16 +30,63 @@ export function applyLiveThreadEvents(
 
   const baselineMs = parseTimestamp(detail.updatedAt)
   if (baselineMs === null) {
+    frontendDebugLog('thread-live', 'applying live events without baseline filter', {
+      detail: summarizeThreadDetailForDebug(detail),
+      eventCount: events.length,
+    })
     return applyThreadEventsToDetail(detail, events)
   }
 
-  return applyThreadEventsToDetail(
-    detail,
-    events.filter((event) => {
-      const eventMs = parseTimestamp(event.ts)
-      return eventMs === null || eventMs > baselineMs
-    }),
-  )
+  let nextDetail: ThreadDetail | undefined = detail
+  const replayState = createFilteredEventReplayState()
+  const acceptedEvents: ServerEvent[] = []
+  const recoveredEvents: ServerEvent[] = []
+  const filteredEvents: ServerEvent[] = []
+  for (const event of events) {
+    const eventMs = parseTimestamp(event.ts)
+    if (eventMs === null || eventMs > baselineMs) {
+      acceptedEvents.push(event)
+      nextDetail = applyThreadEventToDetail(nextDetail, event)
+      continue
+    }
+
+    if (
+      nextDetail &&
+      shouldReplayFilteredBaselineEvent(
+        nextDetail,
+        event,
+        replayState,
+      )
+    ) {
+      recoveredEvents.push(event)
+      nextDetail = applyThreadEventToDetailPreservingUpdatedAt(nextDetail, event)
+      continue
+    }
+
+    filteredEvents.push(event)
+  }
+
+  if (filteredEvents.length > 0) {
+    frontendDebugLog('thread-live', 'baseline filtered live events', {
+      baselineUpdatedAt: detail.updatedAt,
+      baselineUpdatedAtMs: baselineMs,
+      filteredCount: filteredEvents.length,
+      filteredEvents: filteredEvents
+        .slice(-16)
+        .map(summarizeFilteredLiveEventForDebug),
+      threadId: detail.id,
+    })
+  }
+
+  frontendDebugLog('thread-live', 'applying baseline-accepted live events', {
+    acceptedCount: acceptedEvents.length,
+    baselineUpdatedAt: detail.updatedAt,
+    detail: summarizeThreadDetailForDebug(detail),
+    recoveredCount: recoveredEvents.length,
+    threadId: detail.id,
+  })
+
+  return nextDetail
 }
 
 export function applyThreadEventsToDetail(
@@ -132,40 +184,49 @@ export function applyThreadEventToDetail(
     }
   }
 
+  let nextDetail: ThreadDetail | undefined = detail
+
   switch (event.method) {
     case 'thread/status/changed': {
       const status = stringField(asObject(payload.status).type)
       if (!status || status === detail.status) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return {
+      nextDetail = {
         ...detail,
         status,
         updatedAt: event.ts,
       }
+      break
     }
     case 'turn/started':
     case 'turn/completed': {
       const turn = asObject(payload.turn)
       const turnId = stringField(turn.id) || event.turnId
       if (!turnId) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
       const turnStatus =
         stringField(turn.status) || (event.method === 'turn/completed' ? 'completed' : 'inProgress')
+      const incomingItems = readTurnItems(turn.items, [])
 
-      return {
+      nextDetail = {
         ...detail,
         updatedAt: event.ts,
         turns: upsertTurn(detail.turns, turnId, (current) => ({
           id: turnId,
           status: turnStatus || current?.status || 'inProgress',
-          items: readTurnItems(turn.items, current?.items ?? []),
+          items: incomingItems.length
+            ? mergeLiveTurnItemsPreservingCurrentOrder(current?.items ?? [], incomingItems)
+            : current?.items ?? [],
           error: hasOwn(turn, 'error') ? turn.error ?? undefined : current?.error,
         })),
       }
+      break
     }
     case 'item/started':
     case 'item/completed': {
@@ -173,10 +234,11 @@ export function applyThreadEventToDetail(
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(item.id)
       if (!turnId || !itemId) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return updateTurnItem(detail, turnId, itemId, (current) => {
+      nextDetail = updateTurnItem(detail, turnId, itemId, (current) => {
         const merged = mergeThreadItem(current, item)
         const previousText = stringField(current?.text)
         const nextText = stringField(merged.text)
@@ -198,16 +260,18 @@ export function applyThreadEventToDetail(
         }
         return merged
       }, event.ts)
+      break
     }
     case 'item/agentMessage/delta': {
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(payload.itemId)
       const delta = stringField(payload.delta)
       if (!turnId || !itemId || !delta) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return updateTurnItem(detail, turnId, itemId, (current) => ({
+      nextDetail = updateTurnItem(detail, turnId, itemId, (current) => ({
         ...current,
         id: itemId,
         type: 'agentMessage',
@@ -215,35 +279,40 @@ export function applyThreadEventToDetail(
         phase: 'streaming',
         clientRenderMode: undefined,
       }), event.ts)
+      break
     }
     case 'item/plan/delta': {
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(payload.itemId)
       const delta = stringField(payload.delta)
       if (!turnId || !itemId || !delta) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return updateTurnItem(detail, turnId, itemId, (current) => ({
+      nextDetail = updateTurnItem(detail, turnId, itemId, (current) => ({
         ...current,
         id: itemId,
         type: 'plan',
         text: `${stringField(current?.text)}${delta}`,
       }), event.ts)
+      break
     }
     case 'turn/plan/updated': {
       const turnId = stringField(payload.turnId) || event.turnId
       if (!turnId) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return updateTurnItem(
+      nextDetail = updateTurnItem(
         detail,
         turnId,
         turnPlanItemId(turnId),
         (current) => mergeThreadItem(current, buildTurnPlanItem(turnId, payload)),
         event.ts,
       )
+      break
     }
     case 'item/reasoning/summaryTextDelta':
     case 'item/reasoning/textDelta': {
@@ -251,10 +320,11 @@ export function applyThreadEventToDetail(
       const itemId = stringField(payload.itemId)
       const delta = stringField(payload.delta)
       if (!turnId || !itemId || !delta) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return updateTurnItem(detail, turnId, itemId, (current) => {
+      nextDetail = updateTurnItem(detail, turnId, itemId, (current) => {
         const summary = stringList(current?.summary)
         const content = stringList(current?.content)
 
@@ -278,22 +348,25 @@ export function applyThreadEventToDetail(
           content: nextContent,
         }
       }, event.ts)
+      break
     }
     case 'item/commandExecution/outputDelta': {
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(payload.itemId)
       const delta = stringField(payload.delta)
       if (!turnId || !itemId || !delta) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return updateTurnItem(detail, turnId, itemId, (current) => ({
+      nextDetail = updateTurnItem(detail, turnId, itemId, (current) => ({
         ...current,
         id: itemId,
         type: 'commandExecution',
         status: stringField(current?.status) || 'inProgress',
         aggregatedOutput: `${stringField(current?.aggregatedOutput)}${delta}`,
       }), event.ts)
+      break
     }
     case 'hook/started':
     case 'hook/completed': {
@@ -301,20 +374,33 @@ export function applyThreadEventToDetail(
       const turnId = hookRunTurnId(run, event)
       const runId = stringField(run.id)
       if (!turnId || !runId) {
-        return withDetailUpdatedAt(detail, event.ts)
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
       }
 
-      return updateTurnItem(
+      nextDetail = updateTurnItem(
         detail,
         turnId,
         hookRunItemId(runId),
         (current) => mergeThreadItem(current, hookRunTimelineItem(run)),
         event.ts,
       )
+      break
     }
     default:
-      return detail
+      nextDetail = detail
+      break
   }
+
+  if (nextDetail !== detail && isLiveThreadDebugMethod(event.method)) {
+    frontendDebugLog('thread-live', 'applied live thread event', {
+      after: summarizeThreadDetailForDebug(nextDetail),
+      before: summarizeThreadDetailForDebug(detail),
+      event: summarizeServerEventForDebug(event),
+    })
+  }
+
+  return nextDetail
 }
 
 export function upsertPendingUserMessage(
@@ -368,6 +454,32 @@ function withDetailUpdatedAt(detail: ThreadDetail, updatedAt: string) {
   }
 }
 
+function applyThreadEventToDetailPreservingUpdatedAt(
+  detail: ThreadDetail,
+  event: ServerEvent,
+) {
+  const nextDetail = applyThreadEventToDetail(detail, event)
+  if (!nextDetail) {
+    return nextDetail
+  }
+
+  const previousUpdatedAtMs = parseTimestamp(detail.updatedAt)
+  const nextUpdatedAtMs = parseTimestamp(nextDetail.updatedAt)
+  if (
+    previousUpdatedAtMs !== null &&
+    nextUpdatedAtMs !== null &&
+    nextUpdatedAtMs <= previousUpdatedAtMs &&
+    nextDetail.updatedAt !== detail.updatedAt
+  ) {
+    return {
+      ...nextDetail,
+      updatedAt: detail.updatedAt,
+    }
+  }
+
+  return nextDetail
+}
+
 function updateTurnItem(
   detail: ThreadDetail,
   turnId: string,
@@ -413,12 +525,29 @@ function upsertItem(
 ) {
   const index = items.findIndex((item) => stringField(item.id) === itemId)
   if (index < 0) {
-    return [...items, buildItem()]
+    return insertLiveTurnItem(items, buildItem())
   }
 
   const nextItems = [...items]
   nextItems[index] = buildItem(items[index])
   return nextItems
+}
+
+function insertLiveTurnItem(
+  items: Record<string, unknown>[],
+  item: Record<string, unknown>,
+) {
+  if (stringField(item.type) === 'hookRun') {
+    const relatedItemId = stringField(item.itemId)
+    if (relatedItemId) {
+      const relatedIndex = items.findIndex((existing) => stringField(existing.id) === relatedItemId)
+      if (relatedIndex >= 0) {
+        return [...items.slice(0, relatedIndex + 1), item, ...items.slice(relatedIndex + 1)]
+      }
+    }
+  }
+
+  return [...items, item]
 }
 
 function mergeThreadItem(
@@ -460,6 +589,408 @@ function mergeThreadItem(
   }
 
   return merged
+}
+
+function mergeLiveTurnItemsPreservingCurrentOrder(
+  base: Record<string, unknown>[],
+  overlay: Record<string, unknown>[],
+) {
+  if (overlay.length === 0) {
+    return base
+  }
+
+  const nextItems = base.map((item) => ({ ...item }))
+  for (const overlayItem of overlay) {
+    const overlayItemId = stringField(overlayItem.id)
+    if (!overlayItemId) {
+      nextItems.push({ ...overlayItem })
+      continue
+    }
+
+    let itemIndex = nextItems.findIndex((item) => stringField(item.id) === overlayItemId)
+    let semanticMatch = false
+    if (itemIndex < 0) {
+      itemIndex = findEquivalentLiveTurnItemIndex(nextItems, overlayItem)
+      semanticMatch = itemIndex >= 0
+    }
+
+    if (itemIndex < 0) {
+      nextItems.push({ ...overlayItem })
+      continue
+    }
+
+    const mergedItem = mergeThreadItem(nextItems[itemIndex], overlayItem)
+    if (semanticMatch) {
+      mergedItem.id = chooseCanonicalLiveTurnItemId(
+        stringField(nextItems[itemIndex].id),
+        overlayItemId,
+      )
+    }
+    nextItems[itemIndex] = mergedItem
+  }
+
+  return nextItems
+}
+
+function findEquivalentLiveTurnItemIndex(
+  items: Record<string, unknown>[],
+  candidate: Record<string, unknown>,
+) {
+  const candidateType = stringField(candidate.type)
+  if (!candidateType) {
+    return -1
+  }
+
+  const candidateText = liveTurnItemSemanticText(candidate)
+  const matchingTypeIndices: number[] = []
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]
+    if (stringField(item.type) !== candidateType) {
+      continue
+    }
+
+    matchingTypeIndices.push(index)
+    if (candidateText && liveTurnItemSemanticText(item) === candidateText) {
+      return index
+    }
+  }
+
+  switch (candidateType) {
+    case 'userMessage':
+    case 'agentMessage':
+    case 'reasoning':
+      return matchingTypeIndices.length === 1 ? matchingTypeIndices[0] : -1
+    default:
+      return -1
+  }
+}
+
+function liveTurnItemSemanticText(item: Record<string, unknown>) {
+  switch (stringField(item.type)) {
+    case 'userMessage':
+      return normalizeLiveTurnItemText(liveUserMessageContentText(item))
+    case 'agentMessage':
+    case 'plan':
+      return normalizeLiveTurnItemText(stringField(item.text))
+    case 'reasoning':
+      return normalizeLiveTurnItemText(
+        `${stringList(item.summary).join('\n')}\n${stringList(item.content).join('\n')}`,
+      )
+    default:
+      return ''
+  }
+}
+
+function liveUserMessageContentText(item: Record<string, unknown>) {
+  if (!Array.isArray(item.content) || item.content.length === 0) {
+    return ''
+  }
+
+  const lines: string[] = []
+  for (const rawEntry of item.content) {
+    const entry = asObject(rawEntry)
+    const text = stringField(entry.text).trim()
+    if (text) {
+      lines.push(text)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function normalizeLiveTurnItemText(value: string) {
+  return value.replace(/\r\n/g, '\n').trim()
+}
+
+function chooseCanonicalLiveTurnItemId(baseId: string, overlayId: string) {
+  if (!baseId) {
+    return overlayId
+  }
+  if (!overlayId) {
+    return baseId
+  }
+
+  const baseTemporary = isTemporaryLiveTurnItemId(baseId)
+  const overlayTemporary = isTemporaryLiveTurnItemId(overlayId)
+  switch (true) {
+    case baseTemporary && !overlayTemporary:
+      return overlayId
+    case !baseTemporary && overlayTemporary:
+      return baseId
+    default:
+      return baseId
+  }
+}
+
+function isTemporaryLiveTurnItemId(value: string) {
+  if (!value.startsWith('item-')) {
+    return false
+  }
+
+  for (const char of value.slice('item-'.length)) {
+    if (char < '0' || char > '9') {
+      return false
+    }
+  }
+
+  return value.length > 'item-'.length
+}
+
+type FilteredEventReplayState = {
+  agentMessageItemKeys: Set<string>
+  commandExecutionItemKeys: Set<string>
+  planItemKeys: Set<string>
+  reasoningItemKeys: Set<string>
+}
+
+function createFilteredEventReplayState(): FilteredEventReplayState {
+  return {
+    agentMessageItemKeys: new Set<string>(),
+    commandExecutionItemKeys: new Set<string>(),
+    planItemKeys: new Set<string>(),
+    reasoningItemKeys: new Set<string>(),
+  }
+}
+
+function shouldReplayFilteredBaselineEvent(
+  detail: ThreadDetail,
+  event: ServerEvent,
+  replayState: FilteredEventReplayState,
+) {
+  const payload = asObject(event.payload)
+
+  switch (event.method) {
+    case 'turn/started':
+    case 'turn/completed': {
+      const turn = asObject(payload.turn)
+      const turnId = stringField(turn.id) || event.turnId
+      if (!turnId) {
+        return false
+      }
+
+      const currentTurn = detail.turns.find((entry) => entry.id === turnId)
+      const incomingItems = readTurnItems(turn.items, [])
+      return !currentTurn || (currentTurn.items.length === 0 && incomingItems.length > 0)
+    }
+    case 'item/started':
+    case 'item/completed': {
+      const item = asObject(payload.item)
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(item.id)
+      if (!turnId || !itemId) {
+        return false
+      }
+
+      const currentItem = findTurnItem(detail, turnId, itemId)
+      switch (stringField(item.type)) {
+        case 'agentMessage':
+          return shouldReplayAgentMessageItem(
+            turnId,
+            itemId,
+            currentItem,
+            item,
+            replayState,
+          )
+        case 'commandExecution':
+          return shouldReplayCommandExecutionItem(
+            turnId,
+            itemId,
+            currentItem,
+            item,
+            replayState,
+          )
+        case 'plan':
+          return shouldReplayPlanItem(
+            turnId,
+            itemId,
+            currentItem,
+            item,
+            replayState,
+          )
+        case 'reasoning':
+          return shouldReplayReasoningItem(
+            turnId,
+            itemId,
+            currentItem,
+            item,
+            replayState,
+          )
+        default:
+          return !currentItem
+      }
+    }
+    case 'item/agentMessage/delta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      if (!turnId || !itemId) {
+        return false
+      }
+
+      return shouldReplayAgentMessageItem(
+        turnId,
+        itemId,
+        findTurnItem(detail, turnId, itemId),
+        undefined,
+        replayState,
+      )
+    }
+    case 'item/commandExecution/outputDelta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      if (!turnId || !itemId) {
+        return false
+      }
+
+      return shouldReplayCommandExecutionItem(
+        turnId,
+        itemId,
+        findTurnItem(detail, turnId, itemId),
+        undefined,
+        replayState,
+      )
+    }
+    case 'item/plan/delta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      if (!turnId || !itemId) {
+        return false
+      }
+
+      return shouldReplayPlanItem(
+        turnId,
+        itemId,
+        findTurnItem(detail, turnId, itemId),
+        undefined,
+        replayState,
+      )
+    }
+    case 'item/reasoning/summaryTextDelta':
+    case 'item/reasoning/textDelta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      if (!turnId || !itemId) {
+        return false
+      }
+
+      return shouldReplayReasoningItem(
+        turnId,
+        itemId,
+        findTurnItem(detail, turnId, itemId),
+        undefined,
+        replayState,
+      )
+    }
+    default:
+      return false
+  }
+}
+
+function shouldReplayAgentMessageItem(
+  turnId: string,
+  itemId: string,
+  currentItem: Record<string, unknown> | undefined,
+  incomingItem: Record<string, unknown> | undefined,
+  replayState: FilteredEventReplayState,
+) {
+  const itemKey = buildLiveItemLookupKey(turnId, itemId)
+  if (replayState.agentMessageItemKeys.has(itemKey)) {
+    return true
+  }
+
+  const currentText = stringField(currentItem?.text)
+  const incomingText = stringField(incomingItem?.text)
+  if (!currentItem || (!currentText && Boolean(incomingText || currentItem?.phase === 'streaming'))) {
+    replayState.agentMessageItemKeys.add(itemKey)
+    return true
+  }
+
+  return false
+}
+
+function shouldReplayCommandExecutionItem(
+  turnId: string,
+  itemId: string,
+  currentItem: Record<string, unknown> | undefined,
+  incomingItem: Record<string, unknown> | undefined,
+  replayState: FilteredEventReplayState,
+) {
+  const itemKey = buildLiveItemLookupKey(turnId, itemId)
+  if (replayState.commandExecutionItemKeys.has(itemKey)) {
+    return true
+  }
+
+  const currentOutput = stringField(currentItem?.aggregatedOutput)
+  const incomingOutput = stringField(incomingItem?.aggregatedOutput)
+  if (!currentItem || (!currentOutput && Boolean(incomingOutput))) {
+    replayState.commandExecutionItemKeys.add(itemKey)
+    return true
+  }
+
+  return false
+}
+
+function shouldReplayPlanItem(
+  turnId: string,
+  itemId: string,
+  currentItem: Record<string, unknown> | undefined,
+  incomingItem: Record<string, unknown> | undefined,
+  replayState: FilteredEventReplayState,
+) {
+  const itemKey = buildLiveItemLookupKey(turnId, itemId)
+  if (replayState.planItemKeys.has(itemKey)) {
+    return true
+  }
+
+  const currentText = stringField(currentItem?.text)
+  const incomingText = stringField(incomingItem?.text)
+  if (!currentItem || (!currentText && Boolean(incomingText))) {
+    replayState.planItemKeys.add(itemKey)
+    return true
+  }
+
+  return false
+}
+
+function shouldReplayReasoningItem(
+  turnId: string,
+  itemId: string,
+  currentItem: Record<string, unknown> | undefined,
+  incomingItem: Record<string, unknown> | undefined,
+  replayState: FilteredEventReplayState,
+) {
+  const itemKey = buildLiveItemLookupKey(turnId, itemId)
+  if (replayState.reasoningItemKeys.has(itemKey)) {
+    return true
+  }
+
+  const currentSummary = stringList(currentItem?.summary)
+  const currentContent = stringList(currentItem?.content)
+  const incomingSummary = stringList(incomingItem?.summary)
+  const incomingContent = stringList(incomingItem?.content)
+  if (
+    !currentItem ||
+    (!currentSummary.length && incomingSummary.length > 0) ||
+    (!currentContent.length && incomingContent.length > 0)
+  ) {
+    replayState.reasoningItemKeys.add(itemKey)
+    return true
+  }
+
+  return false
+}
+
+function findTurnItem(
+  detail: ThreadDetail,
+  turnId: string,
+  itemId: string,
+) {
+  const turn = detail.turns.find((entry) => entry.id === turnId)
+  return turn?.items.find((item) => stringField(item.id) === itemId)
+}
+
+function buildLiveItemLookupKey(turnId: string, itemId: string) {
+  return `${turnId}:${itemId}`
 }
 
 function readTurnItems(value: unknown, fallback: Record<string, unknown>[]) {
@@ -562,6 +1093,7 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
     }
 
     let turnChanged = false
+    let lastMatchedCurrentItemIndex = -1
     const items = snapshotTurn.items.map((snapshotItem) => {
       const snapshotItemId = stringField(snapshotItem.id)
       if (!snapshotItemId) {
@@ -572,7 +1104,20 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
         (item) => stringField(item.id) === snapshotItemId,
       )
       if (!currentItem || stringField(snapshotItem.type) !== 'agentMessage') {
+        const currentItemIndex = currentTurn.items.findIndex(
+          (item) => stringField(item.id) === snapshotItemId,
+        )
+        if (currentItemIndex > lastMatchedCurrentItemIndex) {
+          lastMatchedCurrentItemIndex = currentItemIndex
+        }
         return snapshotItem
+      }
+
+      const currentItemIndex = currentTurn.items.findIndex(
+        (item) => stringField(item.id) === snapshotItemId,
+      )
+      if (currentItemIndex > lastMatchedCurrentItemIndex) {
+        lastMatchedCurrentItemIndex = currentItemIndex
       }
 
       const currentText = stringField(currentItem.text)
@@ -580,6 +1125,9 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
       if (snapshotText.length > currentText.length) {
         return snapshotItem
       }
+
+      const shouldPreserveLongerCurrentText =
+        currentText.length > snapshotText.length
 
       const shouldPreserveStreamingPhase =
         stringField(currentItem.type) === 'agentMessage' &&
@@ -589,11 +1137,26 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
         stringField(currentItem.type) === 'agentMessage' &&
         stringField(currentItem.clientRenderMode) === 'animate-once'
 
-      if (!shouldPreserveStreamingPhase && !shouldPreserveClientRenderMode) {
+      if (
+        !shouldPreserveLongerCurrentText &&
+        !shouldPreserveStreamingPhase &&
+        !shouldPreserveClientRenderMode
+      ) {
         return snapshotItem
       }
 
       turnChanged = true
+      frontendDebugLog('thread-live', 'reconciled snapshot agent item with live state', {
+        currentItem: summarizeLiveItemForDebug(currentItem),
+        reason: {
+          preserveClientRenderMode: shouldPreserveClientRenderMode,
+          preserveLongerCurrentText: shouldPreserveLongerCurrentText,
+          preserveStreamingPhase: shouldPreserveStreamingPhase,
+        },
+        snapshotItem: summarizeLiveItemForDebug(snapshotItem),
+        threadId: threadDetail.id,
+        turnId: snapshotTurn.id,
+      })
       const reconciledItem: Record<string, unknown> = {
         ...snapshotItem,
         text: currentText || snapshotText,
@@ -607,6 +1170,36 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
 
       return reconciledItem
     })
+
+    const trailingLiveItems = currentTurn.items.filter((currentItem, currentItemIndex) => {
+      if (currentItemIndex <= lastMatchedCurrentItemIndex) {
+        return false
+      }
+
+      const currentItemId = stringField(currentItem.id)
+      if (!currentItemId) {
+        return false
+      }
+
+      const alreadyPresent = snapshotTurn.items.some(
+        (snapshotItem) => stringField(snapshotItem.id) === currentItemId,
+      )
+      if (alreadyPresent) {
+        return false
+      }
+
+      return shouldPreserveMissingTrailingLiveItem(currentItem)
+    })
+
+    if (trailingLiveItems.length > 0) {
+      turnChanged = true
+      frontendDebugLog('thread-live', 'preserved trailing live items missing from snapshot', {
+        items: trailingLiveItems.map(summarizeLiveItemForDebug),
+        snapshotTurnId: snapshotTurn.id,
+        threadId: threadDetail.id,
+      })
+      items.push(...trailingLiveItems)
+    }
 
     if (!turnChanged) {
       return snapshotTurn
@@ -627,6 +1220,18 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
     ...threadDetail,
     turns,
   }
+}
+
+function shouldPreserveMissingTrailingLiveItem(item: Record<string, unknown>) {
+  if (stringField(item.type) !== 'agentMessage') {
+    return false
+  }
+
+  return (
+    stringField(item.text).length > 0 ||
+    stringsEqualFold(stringField(item.phase), 'streaming') ||
+    stringField(item.clientRenderMode) === 'animate-once'
+  )
 }
 
 function isServerRequestMethod(method: string) {
@@ -664,6 +1269,7 @@ function hookRunTimelineItem(run: Record<string, unknown>) {
     id: hookRunItemId(stringField(run.id)),
     type: 'hookRun',
     hookRunId: stringField(run.id),
+    itemId: stringField(run.itemId),
     eventName: stringField(run.eventName),
     handlerKey: stringField(run.handlerKey),
     triggerMethod: stringField(run.triggerMethod),
@@ -707,4 +1313,49 @@ function turnStatusLooksInterruptible(value: string | undefined) {
 
 function stringsEqualFold(left: string | undefined, right: string) {
   return stringField(left).toLowerCase() === right.toLowerCase()
+}
+
+function isLiveThreadDebugMethod(method: string) {
+  return [
+    'turn/started',
+    'turn/completed',
+    'item/started',
+    'item/completed',
+    'item/agentMessage/delta',
+    'item/plan/delta',
+    'item/reasoning/summaryTextDelta',
+    'item/reasoning/textDelta',
+    'item/commandExecution/outputDelta',
+    'turn/plan/updated',
+  ].includes(method)
+}
+
+function summarizeFilteredLiveEventForDebug(event: ServerEvent) {
+  const payload = asObject(event.payload)
+  return {
+    itemId: stringField(payload.itemId) || stringField(asObject(payload.item).id) || null,
+    method: event.method,
+    threadId: event.threadId ?? null,
+    ts: event.ts,
+    turnId: event.turnId ?? (stringField(payload.turnId) || null),
+  }
+}
+
+function summarizeLiveItemForDebug(item: Record<string, unknown>) {
+  return {
+    clientRenderMode: stringField(item.clientRenderMode) || null,
+    id: stringField(item.id) || null,
+    phase: stringField(item.phase) || null,
+    textPreview: previewDebugText(stringField(item.text) || stringField(item.message)),
+    type: stringField(item.type) || null,
+  }
+}
+
+function previewDebugText(value: string) {
+  const normalized = value.trim()
+  if (normalized.length <= 120) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, 120)} ... [truncated, ${normalized.length - 120} more chars]`
 }

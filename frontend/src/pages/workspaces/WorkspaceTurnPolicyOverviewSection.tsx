@@ -26,7 +26,6 @@ import {
   formatTurnPolicyMetricCoverageLatencyFooter,
   formatTurnPolicyMetricDecisionCount,
   formatTurnPolicyMetricDecisionSummary,
-  formatTurnPolicyMetricLatencyMs,
   formatTurnPolicyMetricLatencyRange,
   formatTurnPolicyMetricRate,
   formatTurnPolicyMetricSuccessValue,
@@ -468,7 +467,11 @@ function AlertRow({
     >
       {onDrillDown ? (
         <button
-          aria-label={`Inspect alert ${alert.title}`}
+          aria-label={i18n._({
+            id: "Inspect alert {title}",
+            message: "Inspect alert {title}",
+            values: { title: alert.title },
+          })}
           onClick={onDrillDown}
           style={{
             background: "transparent",

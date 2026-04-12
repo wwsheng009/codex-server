@@ -111,7 +111,7 @@ export function useThreadPageQueries({
         archived: false,
         limit: 200,
         preferCached: true,
-        sortKey: 'updated_at',
+        sortKey: 'created_at',
       }).then((page) => page.data),
     enabled: Boolean(workspaceId),
     staleTime: 30_000,

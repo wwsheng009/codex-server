@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -105,6 +105,7 @@ vi.mock("../workspaces/WorkspaceHookRunsSection", () => ({
 let GovernanceSettingsPageComponent: Awaited<
   typeof import("./GovernanceSettingsPage")
 >["GovernanceSettingsPage"];
+let zhMessages: Record<string, string>;
 
 function createQueryClient() {
   return new QueryClient({
@@ -436,13 +437,17 @@ function createTurnPolicyMetricsSummary(
 describe("GovernanceSettingsPage", () => {
   beforeAll(async () => {
     i18n.loadAndActivate({ locale: "en", messages: {} });
-    GovernanceSettingsPageComponent = (
-      await import("./GovernanceSettingsPage")
-    ).GovernanceSettingsPage;
+    [GovernanceSettingsPageComponent, zhMessages] = await Promise.all([
+      import("./GovernanceSettingsPage").then(
+        (module) => module.GovernanceSettingsPage,
+      ),
+      import("../../locales/zh-CN/messages.po").then((module) => module.messages),
+    ]);
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    i18n.loadAndActivate({ locale: "en", messages: {} });
 
     shellContextState.useSettingsShellContext.mockReturnValue({
       workspaceId: "ws-1",
@@ -514,5 +519,54 @@ describe("GovernanceSettingsPage", () => {
     expect(screen.getByText("Open workspace")).toBeTruthy();
     expect(screen.getByText("Metrics history")).toBeTruthy();
     expect(screen.getByText("Compare sources")).toBeTruthy();
+  });
+
+  it("renders governance quick navigation and field labels in Chinese", async () => {
+    i18n.loadAndActivate({ locale: "zh-CN", messages: zhMessages });
+    const queryClient = createQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <GovernanceSettingsPageComponent />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "治理" })).toBeTruthy();
+    expect(screen.getByText("快速导航")).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "概览" })).toBeTruthy();
+      expect(screen.getByText("查看生效状态与来源分层。")).toBeTruthy();
+      expect(screen.getByText("通过可折叠分区编辑全局覆盖项。")).toBeTruthy();
+    });
+  });
+
+  it("renders workspace baseline governance sections in Chinese", async () => {
+    i18n.loadAndActivate({ locale: "zh-CN", messages: zhMessages });
+    const queryClient = createQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <GovernanceSettingsPageComponent />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+	    await waitFor(() => {
+	      expect(screen.getAllByRole("tab", { name: /工作区基线/ }).length).toBeGreaterThan(0);
+	    });
+
+	    fireEvent.click(screen.getAllByRole("tab", { name: /工作区基线/ })[0]!);
+
+    await waitFor(() => {
+      expect(screen.getByText("生效 Hook 解析")).toBeTruthy();
+      expect(screen.getByText("基线编辑说明")).toBeTruthy();
+      expect(
+        screen.getByText("对比生效中的 Hook 行为与工作区文件、运行时覆盖层之间的差异。"),
+      ).toBeTruthy();
+    });
   });
 });

@@ -418,6 +418,55 @@ function stringRecordField(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function numberRecordField(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    if (normalized !== '') {
+      const parsed = Number(normalized)
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+  }
+
+  return null
+}
+
+function booleanRecordField(value: unknown) {
+  return typeof value === 'boolean' ? value : null
+}
+
+function objectRecordField(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  return value as Record<string, unknown>
+}
+
+function formatRateLimitPercent(value: number | null) {
+  if (value === null) {
+    return i18n._({
+      id: 'Usage unavailable',
+      message: 'Usage unavailable',
+    })
+  }
+
+  const roundedValue = Math.abs(value - Math.round(value)) < 0.05 ? Math.round(value) : Math.round(value * 10) / 10
+
+  return i18n._({
+    id: '{percent}% used',
+    message: '{percent}% used',
+    values: {
+      percent: formatLocaleNumber(roundedValue),
+    },
+  })
+}
+
 export function formatShortTime(value: string) {
   const timestamp = Date.parse(value)
   if (Number.isNaN(timestamp)) {
@@ -439,6 +488,286 @@ export function truncateInlineText(value: string, maxLength = 120) {
   return `${compact.slice(0, Math.max(0, maxLength - 1))}…`
 }
 
+export type RateLimitWindowSummary = {
+  key: string
+  label: string
+  usedPercent: number | null
+  resetsAt: string | null
+  windowDurationMins: number | null
+}
+
+export type RateLimitSummary = {
+  key: string
+  title: string
+  subtitle: string
+  windows: RateLimitWindowSummary[]
+  creditsSummary: string | null
+  planType: string | null
+  nextResetAt: string | null
+}
+
+function getRateLimitRecord(limit: RateLimit) {
+  return limit as unknown as Record<string, unknown>
+}
+
+export function getRateLimitDisplayName(limit: RateLimit) {
+  const record = getRateLimitRecord(limit)
+
+  return (
+    stringRecordField(record.limitName) ||
+    stringRecordField(record.name) ||
+    stringRecordField(record.limitId) ||
+    i18n._({
+      id: 'Rate limit',
+      message: 'Rate limit',
+    })
+  )
+}
+
+function getRateLimitPrimaryFallbackWindow(limit: RateLimit): RateLimitWindowSummary | null {
+  const record = getRateLimitRecord(limit)
+  const limitValue = numberRecordField(record.limit)
+  const remainingValue = numberRecordField(record.remaining)
+  const resetsAt = stringRecordField(record.resetsAt) || null
+
+  if (limitValue === null && remainingValue === null && !resetsAt) {
+    return null
+  }
+
+  let usedPercent: number | null = null
+  if (limitValue !== null && limitValue > 0 && remainingValue !== null) {
+    usedPercent = ((limitValue - remainingValue) / limitValue) * 100
+  }
+
+  return {
+    key: 'legacy',
+    label: i18n._({
+      id: 'Usage',
+      message: 'Usage',
+    }),
+    usedPercent,
+    resetsAt,
+    windowDurationMins: null,
+  }
+}
+
+function getRateLimitWindow(limit: RateLimit, windowKey: 'primary' | 'secondary'): RateLimitWindowSummary | null {
+  const record = getRateLimitRecord(limit)
+  const windowRecord = objectRecordField(record[windowKey])
+  if (!windowRecord) {
+    return null
+  }
+
+  const usedPercent = numberRecordField(windowRecord.usedPercent)
+  const resetsAt = stringRecordField(windowRecord.resetsAt) || null
+  const windowDurationMins = numberRecordField(windowRecord.windowDurationMins)
+  if (usedPercent === null && !resetsAt && windowDurationMins === null) {
+    return null
+  }
+
+  return {
+    key: windowKey,
+    label:
+      windowKey === 'primary'
+        ? i18n._({
+            id: 'Primary',
+            message: 'Primary',
+          })
+        : i18n._({
+            id: 'Secondary',
+            message: 'Secondary',
+          }),
+    usedPercent,
+    resetsAt,
+    windowDurationMins,
+  }
+}
+
+export function getRateLimitWindows(limit: RateLimit): RateLimitWindowSummary[] {
+  const primaryWindow = getRateLimitWindow(limit, 'primary')
+  const secondaryWindow = getRateLimitWindow(limit, 'secondary')
+  const windows = [primaryWindow, secondaryWindow].filter((window): window is RateLimitWindowSummary => window !== null)
+  if (windows.length > 0) {
+    return windows
+  }
+
+  const legacyWindow = getRateLimitPrimaryFallbackWindow(limit)
+  return legacyWindow ? [legacyWindow] : []
+}
+
+export function getRateLimitCreditsSummary(limit: RateLimit) {
+  const record = getRateLimitRecord(limit)
+  const creditsRecord = objectRecordField(record.credits)
+  if (!creditsRecord) {
+    return null
+  }
+
+  const unlimited = booleanRecordField(creditsRecord.unlimited)
+  const hasCredits = booleanRecordField(creditsRecord.hasCredits)
+  const balanceText = stringRecordField(creditsRecord.balance)
+  const balance = numberRecordField(creditsRecord.balance)
+
+  if (unlimited) {
+    return i18n._({
+      id: 'Unlimited credits',
+      message: 'Unlimited credits',
+    })
+  }
+
+  if (balance !== null) {
+    return i18n._({
+      id: '{balance} credits balance',
+      message: '{balance} credits balance',
+      values: {
+        balance: formatLocaleNumber(balance),
+      },
+    })
+  }
+
+  if (balanceText) {
+    return i18n._({
+      id: '{balance} credits balance',
+      message: '{balance} credits balance',
+      values: {
+        balance: balanceText,
+      },
+    })
+  }
+
+  if (hasCredits === false) {
+    return i18n._({
+      id: 'No credits',
+      message: 'No credits',
+    })
+  }
+
+  if (hasCredits === true) {
+    return i18n._({
+      id: 'Credits available',
+      message: 'Credits available',
+    })
+  }
+
+  return null
+}
+
+export function getRateLimitPlanType(limit: RateLimit) {
+  const record = getRateLimitRecord(limit)
+  const planType = stringRecordField(record.planType)
+  return planType || null
+}
+
+function getNextResetAt(windows: RateLimitWindowSummary[]) {
+  let earliestTimestamp: number | null = null
+  let earliestValue: string | null = null
+
+  for (const window of windows) {
+    if (!window.resetsAt) {
+      continue
+    }
+
+    const timestamp = Date.parse(window.resetsAt)
+    if (Number.isNaN(timestamp)) {
+      if (!earliestValue) {
+        earliestValue = window.resetsAt
+      }
+      continue
+    }
+
+    if (earliestTimestamp === null || timestamp < earliestTimestamp) {
+      earliestTimestamp = timestamp
+      earliestValue = window.resetsAt
+    }
+  }
+
+  return earliestValue
+}
+
+export function summarizeRateLimit(limit: RateLimit): RateLimitSummary {
+  const title = getRateLimitDisplayName(limit)
+  const record = getRateLimitRecord(limit)
+  const key =
+    stringRecordField(record.limitId) ||
+    stringRecordField(record.limitName) ||
+    stringRecordField(record.name) ||
+    title
+  const windows = getRateLimitWindows(limit)
+  const creditsSummary = getRateLimitCreditsSummary(limit)
+  const planType = getRateLimitPlanType(limit)
+  const subtitleParts = windows.map((window) =>
+    i18n._({
+      id: '{label} {usage}',
+      message: '{label} {usage}',
+      values: {
+        label: window.label,
+        usage: formatRateLimitPercent(window.usedPercent),
+      },
+    }),
+  )
+
+  if (creditsSummary) {
+    subtitleParts.push(creditsSummary)
+  }
+
+  if (planType) {
+    subtitleParts.push(
+      i18n._({
+        id: 'Plan {planType}',
+        message: 'Plan {planType}',
+        values: {
+          planType,
+        },
+      }),
+    )
+  }
+
+  return {
+    key,
+    title,
+    subtitle:
+      subtitleParts.join(' · ') ||
+      i18n._({
+        id: 'No usage snapshot available',
+        message: 'No usage snapshot available',
+      }),
+    windows,
+    creditsSummary,
+    planType,
+    nextResetAt: getNextResetAt(windows),
+  }
+}
+
+export function getRateLimitsNextResetAt(rateLimits: RateLimit[] | undefined) {
+  if (!rateLimits?.length) {
+    return null
+  }
+
+  let earliestTimestamp: number | null = null
+  let earliestValue: string | null = null
+
+  for (const rateLimit of rateLimits) {
+    const nextResetAt = summarizeRateLimit(rateLimit).nextResetAt
+    if (!nextResetAt) {
+      continue
+    }
+
+    const timestamp = Date.parse(nextResetAt)
+    if (Number.isNaN(timestamp)) {
+      if (!earliestValue) {
+        earliestValue = nextResetAt
+      }
+      continue
+    }
+
+    if (earliestTimestamp === null || timestamp < earliestTimestamp) {
+      earliestTimestamp = timestamp
+      earliestValue = nextResetAt
+    }
+  }
+
+  return earliestValue
+}
+
 export function describeRateLimits(rateLimits: RateLimit[] | undefined) {
   if (!rateLimits?.length) {
     return i18n._({
@@ -447,10 +776,59 @@ export function describeRateLimits(rateLimits: RateLimit[] | undefined) {
     })
   }
 
-  return rateLimits
-    .slice(0, 2)
-    .map((limit) => `${limit.name}: ${formatLocaleNumber(limit.remaining)}/${formatLocaleNumber(limit.limit)}`)
-    .join(' · ')
+  const summaries = rateLimits.slice(0, 2).map((limit) => {
+    const summary = summarizeRateLimit(limit)
+    const compactParts = summary.windows.map((window) =>
+      i18n._({
+        id: '{label} {usage}',
+        message: '{label} {usage}',
+        values: {
+          label: window.label,
+          usage:
+            window.usedPercent === null
+              ? i18n._({
+                  id: 'n/a',
+                  message: 'n/a',
+                })
+              : `${formatLocaleNumber(
+                  Math.abs(window.usedPercent - Math.round(window.usedPercent)) < 0.05
+                    ? Math.round(window.usedPercent)
+                    : Math.round(window.usedPercent * 10) / 10,
+                )}%`,
+        },
+      }),
+    )
+
+    if (summary.creditsSummary) {
+      compactParts.push(summary.creditsSummary)
+    }
+
+    if (summary.planType) {
+      compactParts.push(summary.planType)
+    }
+
+    return `${truncateInlineText(summary.title, 24)}: ${
+      compactParts.join(', ') ||
+      i18n._({
+        id: 'No snapshot',
+        message: 'No snapshot',
+      })
+    }`
+  })
+
+  if (rateLimits.length > 2) {
+    summaries.push(
+      i18n._({
+        id: '+{count} more buckets',
+        message: '+{count} more buckets',
+        values: {
+          count: formatLocaleNumber(rateLimits.length - 2),
+        },
+      }),
+    )
+  }
+
+  return summaries.join(' · ')
 }
 
 export function normalizeMcpServerState(entry: Record<string, unknown>): NormalizedMcpServerState {

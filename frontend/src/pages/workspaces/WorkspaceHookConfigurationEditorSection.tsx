@@ -12,6 +12,10 @@ import {
 } from "../../features/settings/governanceNavigation";
 import { writeWorkspaceHookConfiguration } from "../../features/workspaces/api";
 import { i18n } from "../../i18n/runtime";
+import {
+  DEFAULT_SESSION_START_TEMPLATE,
+  renderSessionStartTemplatePreview,
+} from "../../lib/session-start-template";
 import { getErrorMessage } from "../../lib/error-utils";
 import type {
   Workspace,
@@ -81,6 +85,20 @@ function hasPathValues(values?: string[] | null) {
   return (values ?? []).some((value) => value.trim());
 }
 
+function formatWorkspaceHookLoadStatusLabel(status?: string | null) {
+  switch ((status ?? "").trim()) {
+    case "loaded":
+      return i18n._({ id: "Loaded", message: "Loaded" });
+    case "error":
+      return i18n._({ id: "Error", message: "Error" });
+    case "missing":
+    case "not_found":
+      return i18n._({ id: "Not found", message: "Not found" });
+    default:
+      return status?.trim() || i18n._({ id: "Not found", message: "Not found" });
+  }
+}
+
 export function WorkspaceHookConfigurationEditorSection({
   selectedWorkspace,
   hookConfiguration,
@@ -91,6 +109,7 @@ export function WorkspaceHookConfigurationEditorSection({
     useState<TriStateValue>("inherit");
   const [sessionStartContextPaths, setSessionStartContextPaths] = useState("");
   const [sessionStartMaxChars, setSessionStartMaxChars] = useState("");
+  const [sessionStartTemplate, setSessionStartTemplate] = useState("");
   const [secretPasteBlockEnabled, setSecretPasteBlockEnabled] =
     useState<TriStateValue>("inherit");
   const [dangerousCommandBlockEnabled, setDangerousCommandBlockEnabled] =
@@ -101,6 +120,7 @@ export function WorkspaceHookConfigurationEditorSection({
     hasConfiguredOverride(hookConfiguration?.configuredHookSessionStartEnabled),
     hasPathValues(hookConfiguration?.configuredHookSessionStartContextPaths),
     hasConfiguredOverride(hookConfiguration?.configuredHookSessionStartMaxChars),
+    hasConfiguredOverride(hookConfiguration?.configuredHookSessionStartTemplate),
     hasConfiguredOverride(
       hookConfiguration?.configuredHookUserPromptSubmitBlockSecretPasteEnabled,
     ),
@@ -113,6 +133,9 @@ export function WorkspaceHookConfigurationEditorSection({
   ].filter(Boolean).length;
   const showGovernanceLink = !location.pathname.startsWith(
     GOVERNANCE_SETTINGS_PATH,
+  );
+  const sessionStartTemplatePreview = renderSessionStartTemplatePreview(
+    sessionStartTemplate,
   );
 
   useEffect(() => {
@@ -128,6 +151,9 @@ export function WorkspaceHookConfigurationEditorSection({
       typeof hookConfiguration?.baselineHookSessionStartMaxChars === "number"
         ? String(hookConfiguration.baselineHookSessionStartMaxChars)
         : "",
+    );
+    setSessionStartTemplate(
+      hookConfiguration?.baselineHookSessionStartTemplate ?? "",
     );
     setSecretPasteBlockEnabled(
       formatTriStateValue(
@@ -150,6 +176,7 @@ export function WorkspaceHookConfigurationEditorSection({
     hookConfiguration?.baselineHookSessionStartContextPaths,
     hookConfiguration?.baselineHookSessionStartEnabled,
     hookConfiguration?.baselineHookSessionStartMaxChars,
+    hookConfiguration?.baselineHookSessionStartTemplate,
     hookConfiguration?.baselineHookUserPromptSubmitBlockSecretPasteEnabled,
     selectedWorkspace?.id,
   ]);
@@ -173,6 +200,7 @@ export function WorkspaceHookConfigurationEditorSection({
               hookSessionStartMaxChars: sessionStartMaxChars.trim()
                 ? Number(sessionStartMaxChars)
                 : null,
+              hookSessionStartTemplate: sessionStartTemplate.trim() || null,
               hookUserPromptSubmitBlockSecretPasteEnabled: parseTriStateValue(
                 secretPasteBlockEnabled,
               ),
@@ -253,16 +281,16 @@ export function WorkspaceHookConfigurationEditorSection({
       <div className="form-stack">
         <p className="config-inline-note">
           {i18n._({
-            id: "This editor writes only the workspace baseline stored in .codex/hooks.json.",
+            id: "This editor writes only the workspace baseline to .codex/hooks.json in the current workspace.",
             message:
-              "This editor writes only the workspace baseline stored in .codex/hooks.json.",
+              "This editor writes only the workspace baseline to .codex/hooks.json in the current workspace.",
           })}
         </p>
         <p className="config-inline-note">
           {i18n._({
-            id: "Runtime preferences are separate global overrides. Effective hook behavior is resolved from built-in defaults, this workspace baseline, and any saved runtime overrides.",
+            id: "Runtime preferences are separate global overrides. Effective hook behavior is resolved from built-in defaults, workspace hooks.json first, CODEX_HOME/hooks.json fallback when needed, and any saved runtime overrides.",
             message:
-              "Runtime preferences are separate global overrides. Effective hook behavior is resolved from built-in defaults, this workspace baseline, and any saved runtime overrides.",
+              "Runtime preferences are separate global overrides. Effective hook behavior is resolved from built-in defaults, workspace hooks.json first, CODEX_HOME/hooks.json fallback when needed, and any saved runtime overrides.",
           })}
         </p>
 
@@ -275,9 +303,9 @@ export function WorkspaceHookConfigurationEditorSection({
             })}
           >
             {i18n._({
-              id: "{count} runtime override values are currently configured. Saving this form updates only the workspace baseline and does not clear those overrides.",
+              id: "{count} runtime override values are currently configured. Saving this form updates only workspace .codex/hooks.json and does not clear those overrides.",
               message:
-                "{count} runtime override values are currently configured. Saving this form updates only the workspace baseline and does not clear those overrides.",
+                "{count} runtime override values are currently configured. Saving this form updates only workspace .codex/hooks.json and does not clear those overrides.",
               values: {
                 count: runtimeOverrideCount,
               },
@@ -359,7 +387,9 @@ export function WorkspaceHookConfigurationEditorSection({
                 message: "Workspace status",
               })}
             </span>
-            <strong>{hookConfiguration?.loadStatus ?? "not_found"}</strong>
+            <strong>
+              {formatWorkspaceHookLoadStatusLabel(hookConfiguration?.loadStatus)}
+            </strong>
           </div>
           <div className="runtime-inline-meta__entry">
             <span>
@@ -426,18 +456,21 @@ export function WorkspaceHookConfigurationEditorSection({
           />
         </label>
 
-        <TextArea
-          hint={i18n._({
-            id: "One candidate path per line. This saves the workspace baseline only. If runtime preferences define SessionStart context paths, those effective paths replace this baseline at runtime.",
-            message:
-              "One candidate path per line. This saves the workspace baseline only. If runtime preferences define SessionStart context paths, those effective paths replace this baseline at runtime.",
-          })}
+          <TextArea
+            hint={i18n._({
+              id: "One candidate path per line. This saves only workspace .codex/hooks.json. If runtime preferences define SessionStart context paths, those effective paths replace both workspace and CODEX_HOME baseline paths at runtime.",
+              message:
+                "One candidate path per line. This saves only workspace .codex/hooks.json. If runtime preferences define SessionStart context paths, those effective paths replace both workspace and CODEX_HOME baseline paths at runtime.",
+            })}
           label={i18n._({
             id: "SessionStart context paths",
             message: "SessionStart context paths",
           })}
           onChange={(event) => setSessionStartContextPaths(event.target.value)}
-          placeholder=".codex/SESSION_START.md\nREADME.md"
+          placeholder={i18n._({
+            id: "SessionStart context paths placeholder",
+            message: ".codex/SESSION_START.md\n.codex/session-start.md",
+          })}
           rows={5}
           value={sessionStartContextPaths}
         />
@@ -457,6 +490,68 @@ export function WorkspaceHookConfigurationEditorSection({
           type="number"
           value={sessionStartMaxChars}
         />
+
+        <TextArea
+          hint={i18n._({
+            id: "Optional template for the final injected prompt. Use {{context}} and {{user_request}}. {{source_path_line}} inserts the full source line only when a file matched.",
+            message:
+              "Optional template for the final injected prompt. Use {{context}} and {{user_request}}. {{source_path_line}} inserts the full source line only when a file matched.",
+          })}
+          label={i18n._({
+            id: "SessionStart template",
+            message: "SessionStart template",
+          })}
+          onChange={(event) => setSessionStartTemplate(event.target.value)}
+          placeholder={i18n._({
+            id: "SessionStart template placeholder",
+            message:
+              "在处理当前请求前，请先遵循以下项目上下文与约定。\n{{source_path_line}}项目上下文摘录：\n{{context}}\n\n用户请求：\n{{user_request}}",
+          })}
+          rows={8}
+          value={sessionStartTemplate}
+        />
+
+        <div className="setting-row__actions">
+          <button
+            className="ide-button ide-button--secondary ide-button--sm"
+            onClick={() => setSessionStartTemplate(DEFAULT_SESSION_START_TEMPLATE)}
+            type="button"
+          >
+            {i18n._({
+              id: "Load default template",
+              message: "Load default template",
+            })}
+          </button>
+        </div>
+
+        <p className="config-inline-note">
+          {i18n._({
+            id: "Supported placeholders: {{context}}, {{user_request}}, {{source_path_line}}, and {{source_path}}.",
+            message:
+              "Supported placeholders: {{context}}, {{user_request}}, {{source_path_line}}, and {{source_path}}.",
+          })}
+        </p>
+
+        <div className="settings-subsection settings-output-card">
+          <div className="settings-subsection__header">
+            <div className="settings-output-card__title-block">
+              <strong>
+                {i18n._({
+                  id: "SessionStart template preview",
+                  message: "SessionStart template preview",
+                })}
+              </strong>
+              <p>
+                {i18n._({
+                  id: "Preview uses sample context and request values. A blank field falls back to the built-in default template preview.",
+                  message:
+                    "Preview uses sample context and request values. A blank field falls back to the built-in default template preview.",
+                })}
+              </p>
+            </div>
+          </div>
+          <pre className="code-block">{sessionStartTemplatePreview}</pre>
+        </div>
 
         <label className="field">
           <span>
@@ -557,7 +652,10 @@ export function WorkspaceHookConfigurationEditorSection({
           onChange={(event) =>
             setAdditionalProtectedGovernancePaths(event.target.value)
           }
-          placeholder="docs/governance.md\nops/release-policy.md"
+          placeholder={i18n._({
+            id: "Additional protected governance paths placeholder",
+            message: "docs/governance.md\nops/release-policy.md",
+          })}
           rows={4}
           value={additionalProtectedGovernancePaths}
         />

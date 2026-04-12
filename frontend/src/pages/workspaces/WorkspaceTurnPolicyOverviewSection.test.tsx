@@ -27,8 +27,16 @@ vi.mock("./useTurnPolicyAlertGovernanceActions", () => ({
 }));
 
 describe("WorkspaceTurnPolicyOverviewSection", () => {
+  let zhMessages: Record<string, string>;
+
   beforeAll(() => {
     i18n.loadAndActivate({ locale: "en", messages: {} });
+  });
+
+  beforeAll(async () => {
+    zhMessages = (
+      await import("../../locales/zh-CN/messages.po")
+    ).messages as Record<string, string>;
   });
 
   beforeEach(() => {
@@ -210,10 +218,10 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
         snoozeUntil: "2026-04-10T04:30:00.000Z",
       },
       config: {
-        postToolUsePolicyEnabled: true,
+        postToolUseFailedValidationPolicyEnabled: true,
         postToolUsePrimaryAction: "interrupt",
         postToolUseFollowUpCooldownMs: 30000,
-        stopMissingVerificationPolicyEnabled: false,
+        stopMissingSuccessfulVerificationPolicyEnabled: false,
         stopMissingSuccessfulVerificationPrimaryAction: "followUp",
         stopMissingSuccessfulVerificationFollowUpCooldownMs: 180000,
         followUpCooldownMs: 120000,
@@ -223,10 +231,10 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
         followUpCooldownMs: number;
         postToolUseFollowUpCooldownMs: number;
         postToolUsePrimaryAction: string;
-        postToolUsePolicyEnabled: boolean;
+        postToolUseFailedValidationPolicyEnabled: boolean;
         stopMissingSuccessfulVerificationFollowUpCooldownMs: number;
         stopMissingSuccessfulVerificationPrimaryAction: string;
-        stopMissingVerificationPolicyEnabled: boolean;
+        stopMissingSuccessfulVerificationPolicyEnabled: boolean;
       };
     };
 
@@ -975,6 +983,7 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
     render(
       <MemoryRouter>
         <WorkspaceTurnPolicyOverviewSection
+          onDrillDown={vi.fn()}
           selectedWorkspace={{
             id: "ws-1",
             name: "Alpha Workspace",
@@ -1276,5 +1285,153 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
     );
 
     expect(screen.queryByText("Execution Controls")).toBeNull();
+  });
+
+  it("localizes alert drill-down aria labels in Chinese", () => {
+    i18n.loadAndActivate({ locale: "zh-CN", messages: zhMessages });
+
+    render(
+      <MemoryRouter>
+        <WorkspaceTurnPolicyOverviewSection
+          selectedWorkspace={{
+            id: "ws-1",
+            name: "Alpha Workspace",
+            rootPath: "E:/projects/alpha",
+            runtimeStatus: "ready",
+            createdAt: "2026-04-08T00:00:00.000Z",
+            updatedAt: "2026-04-08T00:00:00.000Z",
+          }}
+          turnPolicyMetrics={{
+            workspaceId: "ws-1",
+            generatedAt: "2026-04-08T12:00:00.000Z",
+            decisions: {
+              total: 1,
+              actionAttempts: 1,
+              actionSucceeded: 0,
+              actionSuccessRate: 0,
+              actionStatusCounts: {
+                succeeded: 0,
+                failed: 1,
+                skipped: 0,
+                other: 0,
+              },
+              actionCounts: {
+                steer: 0,
+                followUp: 0,
+                interrupt: 1,
+                none: 0,
+                other: 0,
+              },
+              policyCounts: {
+                failedValidationCommand: 1,
+                missingSuccessfulVerification: 0,
+                other: 0,
+              },
+              skipReasonCounts: {
+                total: 0,
+                duplicateFingerprint: 0,
+                followUpCooldownActive: 0,
+                interruptNoActiveTurn: 0,
+                other: 0,
+              },
+            },
+            sources: {
+              interactive: {
+                total: 1,
+                actionAttempts: 1,
+                actionSucceeded: 0,
+                actionSuccessRate: 0,
+                skipped: 0,
+              },
+              automation: {
+                total: 0,
+                actionAttempts: 0,
+                actionSucceeded: 0,
+                actionSuccessRate: 0,
+                skipped: 0,
+              },
+              bot: {
+                total: 0,
+                actionAttempts: 0,
+                actionSucceeded: 0,
+                actionSuccessRate: 0,
+                skipped: 0,
+              },
+              other: {
+                total: 0,
+                actionAttempts: 0,
+                actionSucceeded: 0,
+                actionSuccessRate: 0,
+                skipped: 0,
+              },
+            },
+            turns: {
+              completedWithFileChange: 1,
+              missingSuccessfulVerification: 0,
+              missingSuccessfulVerificationRate: 0,
+              failedValidationCommand: 1,
+              failedValidationWithPolicyAction: 1,
+              failedValidationWithPolicyActionRate: 1,
+            },
+            audit: {
+              coveredTurns: 1,
+              eligibleTurns: 1,
+              coverageRate: 1,
+              coverageDefinition: "Coverage only counts eligible workspace turns.",
+            },
+            timings: {
+              postToolUseDecisionLatency: {
+                p50Ms: 120,
+                p95Ms: 180,
+              },
+              stopDecisionLatency: {
+                p50Ms: 90,
+                p95Ms: 140,
+              },
+            },
+            alerts: [
+              {
+                code: "post_tool_use_latency_high",
+                severity: "warning",
+                title: "Post-tool-use decisions are slow",
+                message: "Review the slow decision path.",
+                source: "automation",
+                actionStatus: "failed",
+              },
+            ],
+            alertPolicy: {
+              acknowledgedCodes: [],
+              acknowledgedCount: 0,
+              suppressedCodes: [],
+              suppressedCount: 0,
+              snoozedCodes: [],
+              snoozedCount: 0,
+              snoozeUntil: undefined,
+            },
+            config: {
+              postToolUseFailedValidationPolicyEnabled: true,
+              stopMissingSuccessfulVerificationPolicyEnabled: true,
+              postToolUsePrimaryAction: "interrupt",
+              stopMissingSuccessfulVerificationPrimaryAction: "followUp",
+              postToolUseInterruptNoActiveTurnBehavior: "skip",
+              stopMissingSuccessfulVerificationInterruptNoActiveTurnBehavior:
+                "followUp",
+              validationCommandPrefixes: ["npm test"],
+              followUpCooldownMs: 60000,
+              postToolUseFollowUpCooldownMs: 120000,
+              stopMissingSuccessfulVerificationFollowUpCooldownMs: 180000,
+            },
+          } as TurnPolicyMetricsSummary}
+          turnPolicyMetricsError={null}
+          turnPolicyMetricsLoading={false}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "检查告警 Post-tool-use decisions are slow",
+      }),
+    ).toBeTruthy();
   });
 });

@@ -3,7 +3,8 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, RefOb
 
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { LoadingState } from '../../components/ui/LoadingState'
-import { ApprovalStack, LiveFeed, TurnTimeline } from '../../components/workspace/renderers'
+import { RailIconButton } from '../../components/ui/RailControls'
+import { ApprovalStack, LiveFeed, PlanStatusStack, TurnTimeline } from '../../components/workspace/renderers'
 import {
   ConversationRenderProfilerBoundary,
   ConversationRenderProfilerPanel,
@@ -75,6 +76,34 @@ export type ThreadWorkbenchSurfaceProps = {
 
 const OLDER_TURNS_AUTOLOAD_THRESHOLD_PX = 72
 const OLDER_TURNS_AUTOLOAD_IDLE_DELAY_MS = 0
+
+function SurfacePanelDockLeftIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <rect height="15" rx="2.5" stroke="currentColor" strokeWidth="1.7" width="17" x="3.5" y="4.5" />
+      <path d="M8.5 5v14" stroke="currentColor" strokeWidth="1.7" />
+      <path d="m14.5 8.5-3.5 3.5 3.5 3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
+function SurfacePanelDockRightIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <rect height="15" rx="2.5" stroke="currentColor" strokeWidth="1.7" width="17" x="3.5" y="4.5" />
+      <path d="M15.5 5v14" stroke="currentColor" strokeWidth="1.7" />
+      <path d="m9.5 8.5 3.5 3.5-3.5 3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
+function SurfacePanelCloseIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+      <path d="m7 7 10 10M17 7 7 17" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
 
 export function shouldScheduleOlderTurnsAutoload({
   hasMoreTurnsBefore,
@@ -266,6 +295,51 @@ export function ThreadWorkbenchSurface({
     isThreadProcessing,
     isThreadViewportInteracting,
   })
+  const surfacePanelTitle =
+    surfacePanelView === 'feed'
+      ? i18n._({
+          id: 'Live feed',
+          message: 'Live feed',
+        })
+      : surfacePanelView === 'plans'
+        ? i18n._({
+            id: 'Plans',
+            message: 'Plans',
+          })
+        : i18n._({
+            id: 'Approvals',
+            message: 'Approvals',
+          })
+  const surfacePanelDescription =
+    surfacePanelView === 'feed'
+      ? null
+      : surfacePanelView === 'plans'
+        ? null
+        : i18n._({
+            id: 'Review pending approvals as a smaller in-surface panel.',
+            message: 'Review pending approvals as a smaller in-surface panel.',
+          })
+  const isPlansSurfacePanel = surfacePanelView === 'plans'
+  const surfacePanelClassName = isMobileViewport
+    ? isPlansSurfacePanel
+      ? 'workbench-log__panel workbench-log__panel--mobile workbench-log__panel--plans'
+      : 'workbench-log__panel workbench-log__panel--mobile'
+    : isSurfacePanelResizing
+      ? isPlansSurfacePanel
+        ? `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide} workbench-log__panel--resizing workbench-log__panel--plans`
+        : `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide} workbench-log__panel--resizing`
+      : isPlansSurfacePanel
+        ? `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide} workbench-log__panel--plans`
+        : `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide}`
+  const surfacePanelBodyClassName = isPlansSurfacePanel
+    ? 'workbench-log__panel-body workbench-log__panel-body--plans'
+    : 'workbench-log__panel-body'
+  const surfacePanelHeaderClassName = isPlansSurfacePanel
+    ? 'workbench-log__panel-header workbench-log__panel-header--plans'
+    : 'workbench-log__panel-header'
+  const surfacePanelActionsClassName = isPlansSurfacePanel
+    ? 'workbench-log__panel-actions workbench-log__panel-actions--plans'
+    : 'workbench-log__panel-actions'
 
   return (
     <div className="workbench-stage__canvas">
@@ -438,15 +512,7 @@ export function ThreadWorkbenchSurface({
           </div>
         </ConversationRenderProfilerBoundary>
         {surfacePanelView ? (
-          <section
-            className={
-              isMobileViewport
-                ? 'workbench-log__panel workbench-log__panel--mobile'
-                : isSurfacePanelResizing
-                  ? `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide} workbench-log__panel--resizing`
-                  : `workbench-log__panel workbench-log__panel--${activeSurfacePanelSide}`
-            }
-          >
+          <section className={surfacePanelClassName}>
             {!isMobileViewport ? (
               <button
                 aria-label={i18n._({
@@ -458,62 +524,63 @@ export function ThreadWorkbenchSurface({
                 type="button"
               />
             ) : null}
-            <div className="workbench-log__panel-header">
+            <div className={surfacePanelHeaderClassName}>
               <div>
-                <h2>
-                  {surfacePanelView === 'feed'
-                    ? i18n._({
-                        id: 'Live feed',
-                        message: 'Live feed',
-                      })
-                    : i18n._({
-                        id: 'Approvals',
-                        message: 'Approvals',
-                      })}
-                </h2>
-                <p>
-                  {surfacePanelView === 'feed'
-                    ? i18n._({
-                        id: 'Inspect recent live activity without opening the full side rail.',
-                        message: 'Inspect recent live activity without opening the full side rail.',
-                      })
-                    : i18n._({
-                        id: 'Review pending approvals as a smaller in-surface panel.',
-                        message: 'Review pending approvals as a smaller in-surface panel.',
-                      })}
-                </p>
+                <h2>{surfacePanelTitle}</h2>
+                {surfacePanelDescription ? <p>{surfacePanelDescription}</p> : null}
               </div>
-              <div className="workbench-log__panel-actions">
+              <div className={surfacePanelActionsClassName}>
                 {!isMobileViewport ? (
-                  <button
-                    className="pane-section__toggle"
+                  <RailIconButton
+                    aria-label={
+                      activeSurfacePanelSide === 'right'
+                        ? i18n._({
+                            id: 'Dock left',
+                            message: 'Dock left',
+                          })
+                        : i18n._({
+                            id: 'Dock right',
+                            message: 'Dock right',
+                          })
+                    }
+                    className="workbench-log__panel-action-button"
                     onClick={onToggleSurfacePanelSide}
-                    type="button"
+                    title={
+                      activeSurfacePanelSide === 'right'
+                        ? i18n._({
+                            id: 'Dock left',
+                            message: 'Dock left',
+                          })
+                        : i18n._({
+                            id: 'Dock right',
+                            message: 'Dock right',
+                          })
+                    }
                   >
-                    {activeSurfacePanelSide === 'right'
-                      ? i18n._({
-                          id: 'Dock left',
-                          message: 'Dock left',
-                        })
-                      : i18n._({
-                          id: 'Dock right',
-                          message: 'Dock right',
-                        })}
-                  </button>
+                    {activeSurfacePanelSide === 'right' ? (
+                      <SurfacePanelDockLeftIcon />
+                    ) : (
+                      <SurfacePanelDockRightIcon />
+                    )}
+                  </RailIconButton>
                 ) : null}
-                <button
-                  className="pane-section__toggle"
-                  onClick={onCloseWorkbenchOverlay}
-                  type="button"
-                >
-                  {i18n._({
+                <RailIconButton
+                  aria-label={i18n._({
                     id: 'Close',
                     message: 'Close',
                   })}
-                </button>
+                  className="workbench-log__panel-action-button"
+                  onClick={onCloseWorkbenchOverlay}
+                  title={i18n._({
+                    id: 'Close',
+                    message: 'Close',
+                  })}
+                >
+                  <SurfacePanelCloseIcon />
+                </RailIconButton>
               </div>
             </div>
-            <div className="workbench-log__panel-body">
+            <div className={surfacePanelBodyClassName}>
               {surfacePanelView === 'feed' ? (
                 liveTimelineEntries.length ? (
                   <LiveFeed entries={liveTimelineEntries} />
@@ -525,6 +592,8 @@ export function ThreadWorkbenchSurface({
                     })}
                   </div>
                 )
+              ) : surfacePanelView === 'plans' ? (
+                <PlanStatusStack turns={displayedTurns} />
               ) : approvals?.length ? (
                 <ApprovalStack
                   approvalAnswers={approvalAnswers}

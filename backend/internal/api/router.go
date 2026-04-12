@@ -465,6 +465,7 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 		HookSessionStartEnabled                                                  *bool                                             `json:"hookSessionStartEnabled"`
 		HookSessionStartContextPaths                                             []string                                          `json:"hookSessionStartContextPaths"`
 		HookSessionStartMaxChars                                                 *int                                              `json:"hookSessionStartMaxChars"`
+		HookSessionStartTemplate                                                 *string                                           `json:"hookSessionStartTemplate"`
 		HookUserPromptSubmitBlockSecretPasteEnabled                              *bool                                             `json:"hookUserPromptSubmitBlockSecretPasteEnabled"`
 		HookPreToolUseBlockDangerousCommandEnabled                               *bool                                             `json:"hookPreToolUseBlockDangerousCommandEnabled"`
 		HookPreToolUseAdditionalProtectedGovernancePaths                         []string                                          `json:"hookPreToolUseAdditionalProtectedGovernancePaths"`
@@ -512,6 +513,7 @@ func (s *Server) handleWriteRuntimePreferences(w http.ResponseWriter, r *http.Re
 		HookSessionStartEnabled:                                                  request.HookSessionStartEnabled,
 		HookSessionStartContextPaths:                                             request.HookSessionStartContextPaths,
 		HookSessionStartMaxChars:                                                 request.HookSessionStartMaxChars,
+		HookSessionStartTemplate:                                                 request.HookSessionStartTemplate,
 		HookUserPromptSubmitBlockSecretPasteEnabled:                              request.HookUserPromptSubmitBlockSecretPasteEnabled,
 		HookPreToolUseBlockDangerousCommandEnabled:                               request.HookPreToolUseBlockDangerousCommandEnabled,
 		HookPreToolUseAdditionalProtectedGovernancePaths:                         request.HookPreToolUseAdditionalProtectedGovernancePaths,

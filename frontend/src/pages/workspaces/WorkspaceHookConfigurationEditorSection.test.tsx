@@ -34,12 +34,18 @@ function renderWithClient(children: ReactNode) {
 }
 
 describe("WorkspaceHookConfigurationEditorSection", () => {
-  beforeAll(() => {
+  let zhMessages: Record<string, string>;
+
+  beforeAll(async () => {
     i18n.loadAndActivate({ locale: "en", messages: {} });
+    zhMessages = (
+      await import("../../locales/zh-CN/messages.po")
+    ).messages as Record<string, string>;
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    i18n.loadAndActivate({ locale: "en", messages: {} });
     workspacesApiState.writeWorkspaceHookConfiguration.mockResolvedValue({
       status: "written",
       filePath: "E:/projects/ai/codex-server/.codex/hooks.json",
@@ -134,12 +140,12 @@ describe("WorkspaceHookConfigurationEditorSection", () => {
 
     expect(
       screen.getByText(
-        "This editor writes only the workspace baseline stored in .codex/hooks.json.",
+        "This editor writes only the workspace baseline to .codex/hooks.json in the current workspace.",
       ),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Runtime preferences are separate global overrides. Effective hook behavior is resolved from built-in defaults, this workspace baseline, and any saved runtime overrides.",
+        "Runtime preferences are separate global overrides. Effective hook behavior is resolved from built-in defaults, workspace hooks.json first, CODEX_HOME/hooks.json fallback when needed, and any saved runtime overrides.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Runtime overrides are active")).toBeTruthy();
@@ -148,7 +154,7 @@ describe("WorkspaceHookConfigurationEditorSection", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "2 runtime override values are currently configured. Saving this form updates only the workspace baseline and does not clear those overrides.",
+        "2 runtime override values are currently configured. Saving this form updates only workspace .codex/hooks.json and does not clear those overrides.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("2 active")).toBeTruthy();
@@ -198,6 +204,7 @@ describe("WorkspaceHookConfigurationEditorSection", () => {
           "README.md",
         ],
         hookSessionStartMaxChars: 720,
+        hookSessionStartTemplate: null,
         hookUserPromptSubmitBlockSecretPasteEnabled: true,
         hookPreToolUseBlockDangerousCommandEnabled: false,
         hookPreToolUseAdditionalProtectedGovernancePaths: [
@@ -242,5 +249,58 @@ describe("WorkspaceHookConfigurationEditorSection", () => {
       "ws-1",
       {},
     );
+  });
+
+  it("renders workspace baseline labels in Chinese", () => {
+    i18n.loadAndActivate({ locale: "zh-CN", messages: zhMessages });
+
+    renderWithClient(
+      <WorkspaceHookConfigurationEditorSection
+        hookConfiguration={{
+          workspaceId: "ws-1",
+          workspaceRootPath: "E:/projects/ai/codex-server",
+          loadStatus: "loaded",
+          loadedFromPath: "E:/projects/ai/codex-server/.codex/hooks.json",
+          baselineHookSessionStartEnabled: false,
+          baselineHookSessionStartContextPaths: ["docs/session-start.md"],
+          baselineHookSessionStartMaxChars: 480,
+          baselineHookUserPromptSubmitBlockSecretPasteEnabled: true,
+          baselineHookPreToolUseBlockDangerousCommandEnabled: false,
+          baselineHookPreToolUseAdditionalProtectedGovernancePaths: [
+            "docs/governance.md",
+          ],
+          configuredHookSessionStartEnabled: true,
+          configuredHookSessionStartContextPaths: [],
+          configuredHookSessionStartMaxChars: 1200,
+          effectiveHookSessionStartEnabled: false,
+          effectiveHookSessionStartContextPaths: ["docs/session-start.md"],
+          effectiveHookSessionStartMaxChars: 480,
+          effectiveHookUserPromptSubmitBlockSecretPasteEnabled: true,
+          effectiveHookPreToolUseBlockDangerousCommandEnabled: false,
+          effectiveHookPreToolUseProtectedGovernancePaths: [
+            ".codex/hooks.json",
+            "docs/governance.md",
+          ],
+        }}
+        selectedWorkspace={{
+          id: "ws-1",
+          name: "Workspace A",
+          rootPath: "E:/projects/ai/codex-server",
+          runtimeStatus: "ready",
+          createdAt: "2026-04-10T00:00:00.000Z",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("工作区 Hook 基线")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "打开治理工作区" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重置工作区基线" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存工作区基线" })).toBeTruthy();
+    expect(screen.getByText("目标文件")).toBeTruthy();
+    expect(screen.getByText("工作区状态")).toBeTruthy();
+    expect(screen.getByText("已加载")).toBeTruthy();
+    expect(screen.getByLabelText("SessionStart 上下文路径")).toBeTruthy();
+    expect(screen.getByLabelText("附加受保护治理路径")).toBeTruthy();
   });
 });

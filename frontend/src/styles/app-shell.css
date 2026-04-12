@@ -1581,15 +1581,20 @@
   min-width: 0;
 }
 
-.workspace-tree__thread-time {
+.workspace-tree__thread-time-meta {
   position: absolute;
-  left: -44px;
-  width: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-height: 20px;
-  padding: 0;
+  left: -58px;
+  width: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  min-height: 30px;
+  padding: 1px 0;
+}
+
+.workspace-tree__thread-time {
   color: var(--text-faint);
   font-size: 0.66rem;
   font-weight: 700;
@@ -1598,45 +1603,87 @@
   white-space: nowrap;
 }
 
+.workspace-tree__thread-status-text {
+  max-width: 100%;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--text-faint) 92%, white 8%);
+  font-size: 0.54rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workspace-tree__thread-row:hover .workspace-tree__thread-time,
-.workspace-tree__thread-row--active .workspace-tree__thread-time {
+.workspace-tree__thread-row--active .workspace-tree__thread-time,
+.workspace-tree__thread-row:hover .workspace-tree__thread-status-text,
+.workspace-tree__thread-row--active .workspace-tree__thread-status-text {
   color: var(--text-secondary);
 }
 
-.workspace-tree__thread-activity {
+.workspace-tree__thread-status-icon {
   position: relative;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
+.workspace-tree__thread-status-icon > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-tree__thread-status-icon--idle {
+  color: color-mix(in srgb, var(--text-faint) 84%, white 16%);
+}
+
+.workspace-tree__thread-status-icon--processing,
+.workspace-tree__thread-status-icon--sending,
+.workspace-tree__thread-status-icon--streaming,
+.workspace-tree__thread-status-icon--waiting,
+.workspace-tree__thread-status-icon--approval {
+  color: #2ecc71;
+}
+
+.workspace-tree__thread-status-icon--success {
+  color: #2ecc71;
+}
+
+.workspace-tree__thread-status-icon--error {
+  color: #ff7b72;
+}
+
+.workspace-tree__thread-status-icon--archived {
+  color: color-mix(in srgb, var(--text-faint) 78%, #b8c2cc 22%);
+}
+
+.workspace-tree__thread-status-icon--foreground.workspace-tree__thread-status-icon--processing,
+.workspace-tree__thread-status-icon--foreground.workspace-tree__thread-status-icon--sending,
+.workspace-tree__thread-status-icon--foreground.workspace-tree__thread-status-icon--streaming,
+.workspace-tree__thread-status-icon--foreground.workspace-tree__thread-status-icon--waiting,
+.workspace-tree__thread-status-icon--foreground.workspace-tree__thread-status-icon--approval {
+  filter: drop-shadow(0 0 6px rgba(46, 204, 113, 0.26));
+}
+
+.workspace-tree__thread-status-icon--background.workspace-tree__thread-status-icon--processing,
+.workspace-tree__thread-status-icon--background.workspace-tree__thread-status-icon--sending,
+.workspace-tree__thread-status-icon--background.workspace-tree__thread-status-icon--streaming,
+.workspace-tree__thread-status-icon--background.workspace-tree__thread-status-icon--waiting,
+.workspace-tree__thread-status-icon--background.workspace-tree__thread-status-icon--approval {
+  filter: drop-shadow(0 0 6px rgba(46, 204, 113, 0.26));
+}
+
+.workspace-tree__thread-status-icon--processing > svg,
+.workspace-tree__thread-status-icon--sending > svg,
+.workspace-tree__thread-status-icon--streaming > svg,
+.workspace-tree__thread-status-icon--waiting > svg,
+.workspace-tree__thread-status-icon--approval > svg {
   animation: workspace-thread-activity-pulse 1.5s ease-in-out infinite;
-}
-
-.workspace-tree__thread-activity::after {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border-radius: inherit;
-  opacity: 0.42;
-  animation: workspace-thread-activity-ring 1.5s ease-out infinite;
-}
-
-.workspace-tree__thread-activity--foreground {
-  background: #2ecc71;
-  box-shadow: 0 0 0 4px rgba(46, 204, 113, 0.12);
-}
-
-.workspace-tree__thread-activity--foreground::after {
-  border: 1px solid rgba(46, 204, 113, 0.35);
-}
-
-.workspace-tree__thread-activity--background {
-  background: #f2c94c;
-  box-shadow: 0 0 0 4px rgba(242, 201, 76, 0.16);
-}
-
-.workspace-tree__thread-activity--background::after {
-  border: 1px solid rgba(242, 201, 76, 0.4);
 }
 
 .workspace-tree__thread-meta {

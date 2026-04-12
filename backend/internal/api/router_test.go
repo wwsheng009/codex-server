@@ -6165,8 +6165,8 @@ func TestWorkspaceHookConfigurationRouteReturnsBaselineConfiguredAndEffectiveVal
 	if payload.Data.LoadedFromPath != configPath {
 		t.Fatalf("expected loaded path %q, got %q", configPath, payload.Data.LoadedFromPath)
 	}
-	if len(payload.Data.SearchedPaths) != 2 {
-		t.Fatalf("expected searched paths to include primary and fallback, got %#v", payload.Data.SearchedPaths)
+	if len(payload.Data.SearchedPaths) != 3 {
+		t.Fatalf("expected searched paths to include workspace primary, workspace fallback, and user fallback, got %#v", payload.Data.SearchedPaths)
 	}
 	if payload.Data.BaselineHookSessionStartEnabled == nil || *payload.Data.BaselineHookSessionStartEnabled {
 		t.Fatalf("unexpected baseline session-start enabled %#v", payload.Data.BaselineHookSessionStartEnabled)

@@ -309,9 +309,33 @@ func updateProjectedItem(
 			return next
 		}
 
-		next.Items = append(next.Items, build(nil))
+		next.Items = insertProjectedItem(next.Items, build(nil))
 		return next
 	})
+}
+
+func insertProjectedItem(items []map[string]any, item map[string]any) []map[string]any {
+	if len(items) == 0 {
+		return append(items, item)
+	}
+
+	if stringValue(item["type"]) == "hookRun" {
+		relatedItemID := stringValue(item["itemId"])
+		if relatedItemID != "" {
+			for index, existing := range items {
+				if stringValue(existing["id"]) != relatedItemID {
+					continue
+				}
+
+				next := append([]map[string]any{}, items[:index+1]...)
+				next = append(next, item)
+				next = append(next, items[index+1:]...)
+				return next
+			}
+		}
+	}
+
+	return append(items, item)
 }
 
 func upsertProjectedServerRequest(turns *[]ThreadTurn, event EventEnvelope, payload map[string]any) {
@@ -490,6 +514,7 @@ func projectedHookRunItem(run map[string]any) map[string]any {
 		"id":                 hookRunItemID(stringValue(run["id"])),
 		"type":               "hookRun",
 		"hookRunId":          stringValue(run["id"]),
+		"itemId":             stringValue(run["itemId"]),
 		"eventName":          stringValue(run["eventName"]),
 		"handlerKey":         stringValue(run["handlerKey"]),
 		"triggerMethod":      stringValue(run["triggerMethod"]),

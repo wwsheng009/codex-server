@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 
+import { syncAccountQueriesFromEvent } from '../../features/account/realtime'
 import { i18n } from '../../i18n/runtime'
 import {
   completedAgentMessageRefreshDelayMs,
@@ -369,6 +370,8 @@ export function useThreadPageRefreshEffects({
     if (shouldRefreshLoadedThreadsForEvent(latestEvent.method)) {
       scheduleThreadQueryRefresh({ loadedThreads: true })
     }
+
+    void syncAccountQueriesFromEvent(queryClient, workspaceId, latestEvent)
 
     if (
       selectedThreadId &&

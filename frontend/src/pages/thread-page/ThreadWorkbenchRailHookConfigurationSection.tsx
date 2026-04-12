@@ -158,6 +158,7 @@ export function ThreadWorkbenchRailHookConfigurationSection({
   hookConfiguration,
   hookConfigurationError,
   hookConfigurationLoading,
+  governanceTab = "overview",
 }: ThreadWorkbenchRailHookConfigurationSectionProps) {
   const runtimeOverrideCount = [
     hasConfiguredOverride(hookConfiguration?.configuredHookSessionStartEnabled),
@@ -231,16 +232,16 @@ export function ThreadWorkbenchRailHookConfigurationSection({
         <div className="pane-section-content">
           <p className="config-inline-note" style={{ margin: "0 0 8px" }}>
             {i18n._({
-              id: "Workspace baseline loads from hooks.json, runtime overrides come from Settings, and the rows below show the final effective result used by the hook engine.",
+              id: "Hook baseline loads workspace hooks.json first, falls back to CODEX_HOME/hooks.json when needed, runtime overrides come from Settings, and the rows below show the final effective result used by the hook engine.",
               message:
-                "Workspace baseline loads from hooks.json, runtime overrides come from Settings, and the rows below show the final effective result used by the hook engine.",
+                "Hook baseline loads workspace hooks.json first, falls back to CODEX_HOME/hooks.json when needed, runtime overrides come from Settings, and the rows below show the final effective result used by the hook engine.",
             })}
           </p>
           <p className="config-inline-note" style={{ margin: "0 0 12px" }}>
             {i18n._({
-              id: "Each effective row includes a source label so you can tell whether that value currently comes from the built-in default, the workspace baseline, or a runtime override.",
+              id: "Each effective row includes a source label so you can tell whether that value currently comes from the built-in default, the hook baseline layer, or a runtime override.",
               message:
-                "Each effective row includes a source label so you can tell whether that value currently comes from the built-in default, the workspace baseline, or a runtime override.",
+                "Each effective row includes a source label so you can tell whether that value currently comes from the built-in default, the hook baseline layer, or a runtime override.",
             })}
           </p>
 
@@ -254,9 +255,9 @@ export function ThreadWorkbenchRailHookConfigurationSection({
               })}
             >
               {i18n._({
-                id: "{count} runtime override values are active. Editing hooks.json alone will not remove them.",
+                id: "{count} runtime override values are active. Editing workspace hooks.json alone will not remove them.",
                 message:
-                  "{count} runtime override values are active. Editing hooks.json alone will not remove them.",
+                  "{count} runtime override values are active. Editing workspace hooks.json alone will not remove them.",
                 values: {
                   count: formatLocalizedNumber(runtimeOverrideCount, "0"),
                 },
@@ -454,7 +455,7 @@ export function ThreadWorkbenchRailHookConfigurationSection({
           <div style={{ paddingTop: 12 }}>
             <Link
               className="ide-button ide-button--secondary ide-button--sm"
-              onClick={() => activateGovernanceSettingsTab("overview")}
+              onClick={() => activateGovernanceSettingsTab(governanceTab)}
               to={GOVERNANCE_SETTINGS_PATH}
             >
               {i18n._({

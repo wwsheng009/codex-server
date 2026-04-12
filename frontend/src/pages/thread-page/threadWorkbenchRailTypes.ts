@@ -154,6 +154,7 @@ export type ThreadWorkbenchRailHookConfigurationSectionProps = {
   hookConfiguration?: WorkspaceHookConfigurationResult | null
   hookConfigurationError?: string | null
   hookConfigurationLoading: boolean
+  governanceTab?: 'overview' | 'runtime' | 'workspace' | 'activity'
 }
 
 export type ThreadWorkbenchRailTurnPolicyMetricsSectionProps = {

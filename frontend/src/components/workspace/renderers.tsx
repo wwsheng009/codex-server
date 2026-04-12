@@ -42,6 +42,7 @@ import type {
   ExpandableThreadMessageProps,
   LiveFeedProps,
   MeasuredConversationEntryProps,
+  PlanStatusStackProps,
   ServerRequestTimelineCardProps,
   SystemTimelineCardProps,
   TimelineItemProps,
@@ -273,35 +274,111 @@ export function shouldVirtualizeTurnTimeline({
 }
 
 export const LiveFeed = memo(function LiveFeed({ entries }: LiveFeedProps) {
+  const displayEntries = useMemo(() => [...entries].reverse(), [entries])
+
   return (
     <div className="live-feed">
-      {entries.map((entry) =>
-        entry.kind === 'delta' ? (
-          <article className="live-feed__card" key={entry.key}>
-            <div className="live-feed__header">
-              <strong>{entry.title}</strong>
-              <span>{entry.count} chunk(s)</span>
-            </div>
-            {entry.subtitle ? <small>{entry.subtitle}</small> : null}
-            {entry.title === 'Command Output' || containsAnsiEscapeCode(entry.text) ? (
-              <ThreadTerminalBlock className="live-feed__output live-feed__output--terminal" content={entry.text || '—'} />
-            ) : (
-              <ThreadCodeBlock className="live-feed__output" content={entry.text || '—'} />
-            )}
-          </article>
-        ) : (
-          <article className="live-feed__card" key={entry.key}>
-            <div className="live-feed__header">
-              <strong>{entry.event.method}</strong>
-              <span>{formatLocalizedTime(entry.event.ts)}</span>
-            </div>
-            <ThreadCodeBlock className="live-feed__output" content={safeJson(entry.event.payload)} />
-          </article>
-        ),
-      )}
+      <ol className="live-feed__list">
+        {displayEntries.map((entry) => {
+          const summary = describeLiveFeedEntry(entry)
+          return (
+            <li className="live-feed__item" key={entry.key}>
+              <details className="live-feed__entry">
+                <summary className="live-feed__summary">
+                  <span className="live-feed__summary-time">
+                    {formatLocalizedTime(summary.timestamp)}
+                  </span>
+                  <div className="live-feed__summary-copy">
+                    <div className="live-feed__summary-title-row">
+                      <strong>{summary.title}</strong>
+                    </div>
+                    {summary.caption ? (
+                      <span className="live-feed__summary-text">{summary.caption}</span>
+                    ) : null}
+                  </div>
+                  <span aria-hidden="true" className="live-feed__summary-action" />
+                </summary>
+                <div className="live-feed__detail-panel">
+                  {summary.tokens.length ? (
+                    <div className="live-feed__detail-meta">
+                      {summary.tokens.map((token) => (
+                        <span className="live-feed__detail-token" key={`${entry.key}-${token}`}>
+                          {token}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {entry.kind === 'delta' ? (
+                    entry.title === 'Command Output' || containsAnsiEscapeCode(entry.text) ? (
+                      <ThreadTerminalBlock
+                        className="live-feed__output live-feed__output--terminal"
+                        content={entry.text || '—'}
+                      />
+                    ) : (
+                      <ThreadCodeBlock className="live-feed__output" content={entry.text || '—'} />
+                    )
+                  ) : (
+                    <ThreadCodeBlock
+                      className="live-feed__output"
+                      content={safeJson(entry.event.payload)}
+                    />
+                  )}
+                </div>
+              </details>
+            </li>
+          )
+        })}
+      </ol>
     </div>
   )
 }, (previous, next) => previous.entries === next.entries)
+
+function describeLiveFeedEntry(entry: LiveFeedProps['entries'][number]) {
+  if (entry.kind === 'delta') {
+    const captionParts = [
+      entry.subtitle?.trim() || '',
+      `${entry.count} ${entry.count === 1 ? 'update' : 'updates'}`,
+    ].filter(Boolean)
+    const tokens = [
+      entry.subtitle?.trim() || '',
+      `${entry.count} ${entry.count === 1 ? 'chunk' : 'chunks'}`,
+      `Started ${formatLocalizedTime(entry.startedTs)}`,
+      `Updated ${formatLocalizedTime(entry.endedTs)}`,
+    ].filter(Boolean)
+
+    return {
+      title: entry.title,
+      caption: captionParts.join(' | '),
+      timestamp: entry.endedTs,
+      tokens,
+    }
+  }
+
+  const event = entry.event
+  const tokens = [
+    event.threadId ? `Thread ${truncateLiveFeedIdentifier(event.threadId)}` : '',
+    event.turnId ? `Turn ${truncateLiveFeedIdentifier(event.turnId)}` : '',
+    event.serverRequestId
+      ? `Request ${truncateLiveFeedIdentifier(event.serverRequestId)}`
+      : '',
+  ].filter(Boolean)
+
+  return {
+    title: event.method,
+    caption: tokens.join(' | '),
+    timestamp: event.ts,
+    tokens,
+  }
+}
+
+function truncateLiveFeedIdentifier(value: string) {
+  const trimmed = value.trim()
+  if (trimmed.length <= 12) {
+    return trimmed
+  }
+
+  return `${trimmed.slice(0, 8)}...`
+}
 
 export function ApprovalStack({
   approvals,
@@ -324,6 +401,79 @@ export function ApprovalStack({
           responding={responding}
         />
       ))}
+    </div>
+  )
+}
+
+type PlanStatusStackEntry = {
+  key: string
+  turnId: string
+  turnPlan: TurnPlanItem
+}
+
+export function PlanStatusStack({ turns }: PlanStatusStackProps) {
+  const entries = useMemo(() => collectTurnPlanStackEntries(turns), [turns])
+
+  if (!entries.length) {
+    return (
+      <div className="empty-state">
+        {i18n._({
+          id: 'No plan status entries yet.',
+          message: 'No plan status entries yet.',
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div className="plan-status-stack">
+      {entries.map(({ key, turnId, turnPlan }) => {
+        const steps = turnPlan.steps ?? []
+        const explanation = turnPlan.explanation ?? ''
+
+        return (
+          <article className="plan-status-panel" key={key}>
+            <div className="plan-status-panel__header">
+              <div className="plan-status-panel__header-copy">
+                <strong>
+                  {i18n._({
+                    id: 'Plan',
+                    message: 'Plan',
+                  })}
+                </strong>
+                <span className="plan-status-panel__summary">{turnPlanCompactProgressMeta(steps)}</span>
+              </div>
+              <div className="plan-status-panel__meta">
+                <span
+                  className={`detail-badge detail-badge--${turnPlanOverallBadgeTone(turnPlan)}`}
+                >
+                  {turnPlanOverallStatusLabel(turnPlan)}
+                </span>
+              </div>
+            </div>
+            {explanation ? (
+              <p className="plan-status-panel__explanation">{explanation}</p>
+            ) : null}
+            {steps.length ? (
+              <ol className="plan-status-panel__steps">
+                {steps.map((entry, index) => (
+                  <li className="plan-status-panel__step" key={`${turnId}-${entry.step}-${index}`}>
+                    <span className="plan-status-panel__step-index">{index + 1}</span>
+                    <div className="plan-status-panel__step-copy">
+                      <span className="plan-status-panel__step-text">{entry.step}</span>
+                    </div>
+                    <span
+                      className={`detail-badge detail-badge--${turnPlanStepBadgeTone(entry.status)}`}
+                    >
+                      {turnPlanStepStatusLabel(entry.status)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </article>
+        )
+      })}
     </div>
   )
 }
@@ -2706,6 +2856,34 @@ function turnPlanCardSummary(explanation: string, steps: TurnPlanStep[]) {
   return truncateSingleLine(steps[0].step, 100)
 }
 
+function collectTurnPlanStackEntries(turns: ThreadTurn[]): PlanStatusStackEntry[] {
+  const entries: PlanStatusStackEntry[] = []
+
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = turns[turnIndex]
+    const turnItems = Array.isArray(turn.items) ? turn.items : []
+
+    for (let itemIndex = turnItems.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = turnItems[itemIndex]
+      const turnPlan = readTurnPlanItem(item)
+      if (!turnPlan) {
+        continue
+      }
+      if (!turnPlan.steps.length && !turnPlan.explanation) {
+        continue
+      }
+
+      entries.push({
+        key: `${turn.id}:${turnPlan.id || stringField(item.id) || itemIndex}`,
+        turnId: turn.id,
+        turnPlan,
+      })
+    }
+  }
+
+  return entries
+}
+
 function turnPlanProgressMeta(steps: TurnPlanStep[]) {
   if (!steps.length) {
     return '0 steps'
@@ -2740,6 +2918,22 @@ function turnPlanProgressMeta(steps: TurnPlanStep[]) {
     parts.push(`${pending} pending`)
   }
   return parts.join(' · ')
+}
+
+function turnPlanCompactProgressMeta(steps: TurnPlanStep[]) {
+  if (!steps.length) {
+    return '0/0'
+  }
+
+  let completed = 0
+
+  for (const entry of steps) {
+    if (turnPlanNormalizedStatus(entry.status) === 'completed') {
+      completed += 1
+    }
+  }
+
+  return `${completed}/${steps.length} done`
 }
 
 function fileChangeCardSummary(changes: Array<{ kind: string; path: string }>) {
@@ -2820,6 +3014,17 @@ function turnPlanStatusTone(turnPlan: TurnPlanItem | null): CompactSystemStatusT
   return 'running'
 }
 
+function turnPlanOverallBadgeTone(turnPlan: TurnPlanItem | null) {
+  switch (turnPlanNormalizedStatus(turnPlan?.status ?? '')) {
+    case 'completed':
+      return 'success'
+    case 'inprogress':
+      return 'info'
+    default:
+      return 'warning'
+  }
+}
+
 function turnPlanStepClassName(value: string) {
   switch (turnPlanNormalizedStatus(value)) {
     case 'completed':
@@ -2839,6 +3044,19 @@ function turnPlanStepBadgeTone(value: string) {
       return 'info'
     default:
       return 'warning'
+  }
+}
+
+function turnPlanOverallStatusLabel(turnPlan: TurnPlanItem | null) {
+  switch (turnPlanNormalizedStatus(turnPlan?.status ?? '')) {
+    case 'completed':
+      return humanizeToolStatus('completed')
+    case 'inprogress':
+      return humanizeToolStatus('inProgress')
+    case 'pending':
+      return humanizeToolStatus('pending')
+    default:
+      return humanizeToolStatus(turnPlan?.status ?? 'pending')
   }
 }
 
@@ -3332,7 +3550,7 @@ function collectTurnConversationEntries(turn: ThreadTurn) {
 
     entries.push({
       kind: 'item',
-      key: `${turn.id}-${itemIndex}`,
+      key: buildConversationEntryItemKey(turn.id, item, itemIndex),
       item,
       turnId: turn.id,
     })
@@ -3348,6 +3566,19 @@ function collectTurnConversationEntries(turn: ThreadTurn) {
 
   turnConversationEntriesCache.set(turn, entries)
   return entries
+}
+
+function buildConversationEntryItemKey(
+  turnId: string,
+  item: Record<string, unknown>,
+  itemIndex: number,
+) {
+  const itemId = stringField(item.id)
+  if (itemId) {
+    return `${turnId}:${itemId}`
+  }
+
+  return `${turnId}:index:${itemIndex}`
 }
 
 function logSuppressedTimelineItem(

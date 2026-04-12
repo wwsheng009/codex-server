@@ -27,6 +27,7 @@ describe("ThreadWorkbenchRailHookConfigurationSection", () => {
               searchedPaths: [
                 "E:/projects/ai/codex-server/.codex/hooks.json",
                 "E:/projects/ai/codex-server/hooks.json",
+                "C:/Users/vince/.codex/hooks.json",
               ],
               baselineHookSessionStartContextPaths: [
                 ".codex/SESSION_START.md",
@@ -77,12 +78,12 @@ describe("ThreadWorkbenchRailHookConfigurationSection", () => {
     expect(screen.getByText("Hook Configuration")).toBeTruthy();
     expect(
       screen.getByText(
-        "Workspace baseline loads from hooks.json, runtime overrides come from Settings, and the rows below show the final effective result used by the hook engine.",
+        "Hook baseline loads workspace hooks.json first, falls back to CODEX_HOME/hooks.json when needed, runtime overrides come from Settings, and the rows below show the final effective result used by the hook engine.",
       ),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Each effective row includes a source label so you can tell whether that value currently comes from the built-in default, the workspace baseline, or a runtime override.",
+        "Each effective row includes a source label so you can tell whether that value currently comes from the built-in default, the hook baseline layer, or a runtime override.",
       ),
     ).toBeTruthy();
     expect(
@@ -92,7 +93,7 @@ describe("ThreadWorkbenchRailHookConfigurationSection", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "4 runtime override values are active. Editing hooks.json alone will not remove them.",
+        "4 runtime override values are active. Editing workspace hooks.json alone will not remove them.",
       ),
     ).toBeTruthy();
     expect(
@@ -123,6 +124,40 @@ describe("ThreadWorkbenchRailHookConfigurationSection", () => {
     );
     expect(window.localStorage.getItem("settings-governance-tab")).toBe(
       "overview",
+    );
+  });
+
+  it("can direct the governance link to the workspace baseline tab", () => {
+    render(
+      <MemoryRouter>
+        <ThreadWorkbenchRailHookConfigurationSection
+          governanceTab="workspace"
+          hookConfiguration={
+            {
+              workspaceId: "ws-1",
+              workspaceRootPath: "E:/projects/ai/codex-server",
+              loadStatus: "loaded",
+              loadedFromPath:
+                "E:/projects/ai/codex-server/.codex/hooks.json",
+              effectiveHookSessionStartEnabled: true,
+              effectiveHookSessionStartContextPaths: [],
+              effectiveHookSessionStartMaxChars: 1200,
+              effectiveHookUserPromptSubmitBlockSecretPasteEnabled: true,
+              effectiveHookPreToolUseBlockDangerousCommandEnabled: true,
+              effectiveHookPreToolUseProtectedGovernancePaths: [],
+            } as WorkspaceHookConfigurationResult
+          }
+          hookConfigurationError={null}
+          hookConfigurationLoading={false}
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("link", { name: "Open governance settings" }).at(-1)!,
+    );
+    expect(window.localStorage.getItem("settings-governance-tab")).toBe(
+      "workspace",
     );
   });
 });

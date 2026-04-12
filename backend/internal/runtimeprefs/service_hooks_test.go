@@ -42,6 +42,9 @@ func TestRuntimePreferencesReadIncludesHookDefaults(t *testing.T) {
 	if result.ConfiguredHookSessionStartMaxChars != nil {
 		t.Fatalf("expected no configured session-start max chars override, got %#v", result.ConfiguredHookSessionStartMaxChars)
 	}
+	if result.ConfiguredHookSessionStartTemplate != nil {
+		t.Fatalf("expected no configured session-start template override, got %#v", result.ConfiguredHookSessionStartTemplate)
+	}
 	if result.ConfiguredHookUserPromptSubmitBlockSecretPasteEnabled != nil {
 		t.Fatalf("expected no configured secret-block override, got %#v", result.ConfiguredHookUserPromptSubmitBlockSecretPasteEnabled)
 	}
@@ -66,6 +69,9 @@ func TestRuntimePreferencesReadIncludesHookDefaults(t *testing.T) {
 	if result.DefaultHookSessionStartMaxChars != hooks.DefaultSessionStartMaxChars {
 		t.Fatalf("unexpected default session-start max chars %d", result.DefaultHookSessionStartMaxChars)
 	}
+	if result.DefaultHookSessionStartTemplate != hooks.DefaultSessionStartTemplate {
+		t.Fatalf("unexpected default session-start template %q", result.DefaultHookSessionStartTemplate)
+	}
 	if result.DefaultHookUserPromptSubmitBlockSecretPasteEnabled != hooks.DefaultUserPromptSecretBlockEnabled {
 		t.Fatalf("unexpected default secret-block enabled %t", result.DefaultHookUserPromptSubmitBlockSecretPasteEnabled)
 	}
@@ -88,6 +94,9 @@ func TestRuntimePreferencesReadIncludesHookDefaults(t *testing.T) {
 	}
 	if result.EffectiveHookSessionStartMaxChars != hooks.DefaultSessionStartMaxChars {
 		t.Fatalf("unexpected effective session-start max chars %d", result.EffectiveHookSessionStartMaxChars)
+	}
+	if result.EffectiveHookSessionStartTemplate != hooks.DefaultSessionStartTemplate {
+		t.Fatalf("unexpected effective session-start template %q", result.EffectiveHookSessionStartTemplate)
 	}
 	if result.EffectiveHookUserPromptSubmitBlockSecretPasteEnabled != hooks.DefaultUserPromptSecretBlockEnabled {
 		t.Fatalf("unexpected effective secret-block enabled %t", result.EffectiveHookUserPromptSubmitBlockSecretPasteEnabled)
@@ -126,6 +135,7 @@ func TestRuntimePreferencesWritePersistsHookConfig(t *testing.T) {
 		HookSessionStartEnabled:                     boolPtr(false),
 		HookSessionStartContextPaths:                []string{" docs/session-start.md ", "README.md", "docs\\session-start.md"},
 		HookSessionStartMaxChars:                    intPtr(512),
+		HookSessionStartTemplate:                    stringPtr("Workspace context:\n{{context}}\nRequest:\n{{user_request}}"),
 		HookUserPromptSubmitBlockSecretPasteEnabled: boolPtr(false),
 		HookPreToolUseBlockDangerousCommandEnabled:  boolPtr(false),
 		HookPreToolUseAdditionalProtectedGovernancePaths: []string{
@@ -147,6 +157,9 @@ func TestRuntimePreferencesWritePersistsHookConfig(t *testing.T) {
 	}
 	if written.ConfiguredHookSessionStartMaxChars == nil || *written.ConfiguredHookSessionStartMaxChars != 512 {
 		t.Fatalf("unexpected configured session-start max chars %#v", written.ConfiguredHookSessionStartMaxChars)
+	}
+	if written.ConfiguredHookSessionStartTemplate == nil || *written.ConfiguredHookSessionStartTemplate != "Workspace context:\n{{context}}\nRequest:\n{{user_request}}" {
+		t.Fatalf("unexpected configured session-start template %#v", written.ConfiguredHookSessionStartTemplate)
 	}
 	if written.ConfiguredHookUserPromptSubmitBlockSecretPasteEnabled == nil || *written.ConfiguredHookUserPromptSubmitBlockSecretPasteEnabled {
 		t.Fatalf("unexpected configured secret-block enabled %#v", written.ConfiguredHookUserPromptSubmitBlockSecretPasteEnabled)
@@ -172,6 +185,9 @@ func TestRuntimePreferencesWritePersistsHookConfig(t *testing.T) {
 	}
 	if written.EffectiveHookSessionStartMaxChars != 512 {
 		t.Fatalf("unexpected effective session-start max chars %d", written.EffectiveHookSessionStartMaxChars)
+	}
+	if written.EffectiveHookSessionStartTemplate != "Workspace context:\n{{context}}\nRequest:\n{{user_request}}" {
+		t.Fatalf("unexpected effective session-start template %q", written.EffectiveHookSessionStartTemplate)
 	}
 	if written.EffectiveHookUserPromptSubmitBlockSecretPasteEnabled {
 		t.Fatalf("expected effective secret-block to be disabled")
@@ -199,6 +215,9 @@ func TestRuntimePreferencesWritePersistsHookConfig(t *testing.T) {
 	if stored.HookSessionStartMaxChars == nil || *stored.HookSessionStartMaxChars != 512 {
 		t.Fatalf("unexpected stored session-start max chars %#v", stored.HookSessionStartMaxChars)
 	}
+	if stored.HookSessionStartTemplate == nil || *stored.HookSessionStartTemplate != "Workspace context:\n{{context}}\nRequest:\n{{user_request}}" {
+		t.Fatalf("unexpected stored session-start template %#v", stored.HookSessionStartTemplate)
+	}
 	if stored.HookUserPromptSubmitBlockSecretPasteEnabled == nil || *stored.HookUserPromptSubmitBlockSecretPasteEnabled {
 		t.Fatalf("unexpected stored secret-block enabled %#v", stored.HookUserPromptSubmitBlockSecretPasteEnabled)
 	}
@@ -214,4 +233,8 @@ func TestRuntimePreferencesWritePersistsHookConfig(t *testing.T) {
 			stored.HookPreToolUseAdditionalProtectedGovernancePaths,
 		)
 	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

@@ -3,16 +3,26 @@ import {
   ContextIcon,
   FeedIcon,
   PanelOpenIcon,
+  PlanIcon,
   RailIconButton,
   ToolsIcon,
 } from '../../components/ui/RailControls'
 import { i18n } from '../../i18n/runtime'
+import {
+  activateThreadWorkbenchRailPanel,
+  THREAD_WORKBENCH_RAIL_PANEL_IDS,
+} from './threadWorkbenchRailPanelState'
 import type { ThreadWorkbenchRailCollapsedProps } from './threadWorkbenchRailTypes'
 
 export function ThreadWorkbenchRailCollapsed({
   onOpenInspector,
   onOpenSurfacePanel,
 }: ThreadWorkbenchRailCollapsedProps) {
+  function handleOpenPanel(panelId: keyof typeof THREAD_WORKBENCH_RAIL_PANEL_IDS) {
+    activateThreadWorkbenchRailPanel(THREAD_WORKBENCH_RAIL_PANEL_IDS[panelId])
+    onOpenInspector()
+  }
+
   return (
     <aside className="workbench-pane workbench-pane--collapsed">
       <div className="workbench-pane__collapsed">
@@ -22,7 +32,7 @@ export function ThreadWorkbenchRailCollapsed({
             message: 'Open side rail',
           })}
           className="workbench-pane__mini-button"
-          onClick={onOpenInspector}
+          onClick={() => handleOpenPanel('overview')}
           primary
           title={i18n._({
             id: 'Open side rail',
@@ -37,7 +47,7 @@ export function ThreadWorkbenchRailCollapsed({
             message: 'Open workspace context',
           })}
           className="workbench-pane__mini-button"
-          onClick={onOpenInspector}
+          onClick={() => handleOpenPanel('overview')}
           title={i18n._({
             id: 'Context',
             message: 'Context',
@@ -61,6 +71,20 @@ export function ThreadWorkbenchRailCollapsed({
         </RailIconButton>
         <RailIconButton
           aria-label={i18n._({
+            id: 'Open plans panel',
+            message: 'Open plans panel',
+          })}
+          className="workbench-pane__mini-button"
+          onClick={() => onOpenSurfacePanel('plans')}
+          title={i18n._({
+            id: 'Plans',
+            message: 'Plans',
+          })}
+        >
+          <PlanIcon />
+        </RailIconButton>
+        <RailIconButton
+          aria-label={i18n._({
             id: 'Open approvals panel',
             message: 'Open approvals panel',
           })}
@@ -79,7 +103,7 @@ export function ThreadWorkbenchRailCollapsed({
             message: 'Open workbench tools',
           })}
           className="workbench-pane__mini-button"
-          onClick={onOpenInspector}
+          onClick={() => handleOpenPanel('tools')}
           title={i18n._({
             id: 'Tools',
             message: 'Tools',

@@ -312,6 +312,63 @@ describe('threadLiveState', () => {
     )
   })
 
+  it('inserts hook lifecycle items after their related turn item instead of appending them to the bottom', () => {
+    const withItems = applyThreadEventsToDetail(makeDetail(), [
+      makeEvent('item/completed', {
+        item: {
+          id: 'cmd-1',
+          type: 'commandExecution',
+          command: 'go test ./...',
+          status: 'completed',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+      makeEvent('item/completed', {
+        item: {
+          id: 'msg-1',
+          type: 'agentMessage',
+          text: 'done',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    ])
+
+    const updated = applyThreadEventToDetail(
+      withItems,
+      makeEvent('hook/completed', {
+        run: {
+          id: 'hook-1',
+          turnId: 'turn-1',
+          itemId: 'cmd-1',
+          eventName: 'PostToolUse',
+          handlerKey: 'builtin.posttooluse.failed-validation-rescue',
+          triggerMethod: 'item/completed',
+          toolName: 'command/exec',
+          status: 'completed',
+          decision: 'continueTurn',
+          reason: 'validation_command_failed',
+        },
+      }),
+    )
+
+    expect(updated?.turns[0]?.items).toHaveLength(3)
+    expect(updated?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+    })
+    expect(updated?.turns[0]?.items[1]).toMatchObject({
+      id: 'hook-run-hook-1',
+      type: 'hookRun',
+      itemId: 'cmd-1',
+    })
+    expect(updated?.turns[0]?.items[2]).toMatchObject({
+      id: 'msg-1',
+      type: 'agentMessage',
+    })
+  })
+
   it('places turnless hook lifecycle events into a synthetic governance turn', () => {
     const detailWithExistingTurn = applyThreadEventToDetail(
       makeDetail(),
@@ -417,6 +474,57 @@ describe('threadLiveState', () => {
           id: 'assistant-1',
           type: 'agentMessage',
           text: 'Finished',
+        },
+      ],
+    })
+  })
+
+  it('merges turn completion payload items with streamed content instead of wiping the live reply', () => {
+    const streamed = applyThreadEventsToDetail(makeDetail(), [
+      makeEvent('turn/started', {
+        turn: {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [],
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+      makeEvent('item/agentMessage/delta', {
+        delta: 'Hello world',
+        itemId: 'item-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    ])
+
+    const completed = applyThreadEventToDetail(
+      streamed,
+      makeEvent('turn/completed', {
+        turn: {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: '',
+            },
+          ],
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(completed?.turns[0]).toMatchObject({
+      id: 'turn-1',
+      status: 'completed',
+      items: [
+        {
+          id: 'item-1',
+          type: 'agentMessage',
+          text: 'Hello world',
         },
       ],
     })
@@ -529,6 +637,101 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('replays older agent deltas when a newer snapshot still has an empty streaming placeholder', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: '',
+              phase: 'streaming',
+            },
+          ],
+        },
+      ],
+    }
+
+    const nextDetail = applyLiveThreadEvents(detail, [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/agentMessage/delta',
+        payload: {
+          delta: 'Hello world',
+          itemId: 'item-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:02.000Z',
+      },
+    ])
+
+    expect(nextDetail?.updatedAt).toBe('2026-03-20T00:00:03.000Z')
+    expect(nextDetail?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello world',
+      phase: 'streaming',
+    })
+  })
+
+  it('replays older turn completion payloads when a newer snapshot still lacks the completed items', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [],
+        },
+      ],
+    }
+
+    const nextDetail = applyLiveThreadEvents(detail, [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'turn/completed',
+        payload: {
+          turn: {
+            id: 'turn-1',
+            status: 'completed',
+            items: [
+              {
+                id: 'assistant-1',
+                type: 'agentMessage',
+                text: 'Finished',
+              },
+            ],
+          },
+        },
+        ts: '2026-03-20T00:00:02.000Z',
+      },
+    ])
+
+    expect(nextDetail?.updatedAt).toBe('2026-03-20T00:00:03.000Z')
+    expect(nextDetail?.turns[0]).toMatchObject({
+      id: 'turn-1',
+      status: 'completed',
+      items: [
+        {
+          id: 'assistant-1',
+          type: 'agentMessage',
+          text: 'Finished',
+        },
+      ],
+    })
+  })
+
   it('keeps accumulated streaming text when a refreshed snapshot lags behind the live state', () => {
     const chunks = Array.from({ length: 240 }, (_, index) => `chunk-${index.toString().padStart(3, '0')} `)
     const allEvents = chunks.map((chunk, index) => makeAgentDeltaEvent(index + 1, chunk))
@@ -632,14 +835,73 @@ describe('threadLiveState', () => {
     })
   })
 
-  it('keeps live-only trailing items when a newer snapshot omits them', () => {
-    const currentLiveDetail: ThreadDetail = {
+  it('does not let a newer snapshot with empty agent text wipe the live reply', () => {
+    const currentLiveDetail = applyThreadEventsToDetail(makeDetail(), [
+      makeEvent('turn/started', {
+        turn: {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [],
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+      makeEvent('item/agentMessage/delta', {
+        delta: 'Hello world',
+        itemId: 'item-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+      makeEvent('item/completed', {
+        item: {
+          id: 'item-1',
+          type: 'agentMessage',
+          text: '',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    ]) as ThreadDetail
+
+    const newerSnapshot: ThreadDetail = {
       ...makeDetail(),
-      updatedAt: '2026-03-20T00:00:01.000Z',
+      updatedAt: '2026-03-20T00:00:03.000Z',
       turns: [
         {
           id: 'turn-1',
-          status: 'inProgress',
+          status: 'completed',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: '',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello world',
+    })
+  })
+
+  it('preserves a trailing live agent message when a newer snapshot temporarily omits it', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
           items: [
             {
               id: 'reasoning-1',
@@ -651,7 +913,6 @@ describe('threadLiveState', () => {
               id: 'item-1',
               type: 'agentMessage',
               text: 'Newest reply',
-              phase: 'streaming',
             },
           ],
         },
@@ -660,11 +921,11 @@ describe('threadLiveState', () => {
 
     const newerSnapshot: ThreadDetail = {
       ...makeDetail(),
-      updatedAt: '2026-03-20T00:00:02.000Z',
+      updatedAt: '2026-03-20T00:00:03.000Z',
       turns: [
         {
           id: 'turn-1',
-          status: 'inProgress',
+          status: 'completed',
           items: [
             {
               id: 'reasoning-1',
@@ -688,7 +949,6 @@ describe('threadLiveState', () => {
       id: 'item-1',
       type: 'agentMessage',
       text: 'Newest reply',
-      phase: 'streaming',
     })
   })
 

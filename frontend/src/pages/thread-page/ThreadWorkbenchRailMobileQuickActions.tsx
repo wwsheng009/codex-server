@@ -40,6 +40,20 @@ export function ThreadWorkbenchRailMobileQuickActions({
         </button>
         <button
           className={
+            surfacePanelView === 'plans'
+              ? 'pane-section__toggle workbench-mobile-actions__button workbench-mobile-actions__button--active'
+              : 'pane-section__toggle workbench-mobile-actions__button'
+          }
+          onClick={() => onOpenSurfacePanel('plans')}
+          type="button"
+        >
+          {i18n._({
+            id: 'Plans',
+            message: 'Plans',
+          })}
+        </button>
+        <button
+          className={
             surfacePanelView === 'approvals'
               ? 'pane-section__toggle workbench-mobile-actions__button workbench-mobile-actions__button--active'
               : 'pane-section__toggle workbench-mobile-actions__button'

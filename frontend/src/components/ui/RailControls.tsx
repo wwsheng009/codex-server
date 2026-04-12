@@ -208,6 +208,17 @@ export function ApprovalIcon() {
   )
 }
 
+export function PlanIcon() {
+  return (
+    <svg fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <rect height="15" rx="2.5" stroke="currentColor" strokeWidth="1.7" width="14" x="5" y="4.5" />
+      <path d="M9 9h6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="M9 13h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="m8 16 1.2 1.2L11.7 14.7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
 export function ToolsIcon() {
   return (
     <svg fill="none" height="16" viewBox="0 0 24 24" width="16">

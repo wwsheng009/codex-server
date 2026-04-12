@@ -36,7 +36,7 @@ export function ThreadTerminalDockWorkspace({
       })
 
   return (
-    <>
+    <div className="terminal-dock__workspace" ref={workspaceRef}>
       {resizeHandle ? (
         <ResizeHandle
           aria-label={i18n._({
@@ -48,47 +48,45 @@ export function ThreadTerminalDockWorkspace({
           onPointerDown={resizeHandle.onResizeStart}
         />
       ) : null}
-      <div className="terminal-dock__workspace" ref={workspaceRef}>
-        <div className="terminal-dock__body">
-          <div className="terminal-dock__workspace-controls">
-            <button
-              aria-expanded={isTabsExpanded}
-              aria-label={`${tabsToggleLabel} (${visibleSessionCount})`}
-              className="terminal-dock__tabs-toggle"
-              onClick={() => setIsTabsExpanded(!isTabsExpanded)}
-              title={`${tabsToggleTitle} (${visibleSessionCount})`}
-              type="button"
-            >
-              <TabsToggleIcon expanded={isTabsExpanded} />
-              <span className="terminal-dock__tabs-count">
-                {visibleSessionCount}
-              </span>
-            </button>
-            {isTabsExpanded && (
-              <ThreadTerminalSessionTabsSection {...sessionTabsSection} />
-            )}
-          </div>
-          <ThreadTerminalConsoleSection {...consoleSection} />
-        </div>
-        {windowResizeHandle ? (
+      <div className="terminal-dock__body">
+        <div className="terminal-dock__workspace-controls">
           <button
-            aria-label={i18n._({
-              id: 'Resize terminal window',
-              message: 'Resize terminal window',
-            })}
-            className="terminal-dock__window-resize"
-            onPointerDown={windowResizeHandle.onWindowResizeStart}
-            title={i18n._({
-              id: 'Resize terminal window',
-              message: 'Resize terminal window',
-            })}
+            aria-expanded={isTabsExpanded}
+            aria-label={`${tabsToggleLabel} (${visibleSessionCount})`}
+            className="terminal-dock__tabs-toggle"
+            onClick={() => setIsTabsExpanded(!isTabsExpanded)}
+            title={`${tabsToggleTitle} (${visibleSessionCount})`}
             type="button"
           >
-            <CornerResizeToolIcon />
+            <TabsToggleIcon expanded={isTabsExpanded} />
+            <span className="terminal-dock__tabs-count">
+              {visibleSessionCount}
+            </span>
           </button>
-        ) : null}
+          {isTabsExpanded && (
+            <ThreadTerminalSessionTabsSection {...sessionTabsSection} />
+          )}
+        </div>
+        <ThreadTerminalConsoleSection {...consoleSection} />
       </div>
-    </>
+      {windowResizeHandle ? (
+        <button
+          aria-label={i18n._({
+            id: 'Resize terminal window',
+            message: 'Resize terminal window',
+          })}
+          className="terminal-dock__window-resize"
+          onPointerDown={windowResizeHandle.onWindowResizeStart}
+          title={i18n._({
+            id: 'Resize terminal window',
+            message: 'Resize terminal window',
+          })}
+          type="button"
+        >
+          <CornerResizeToolIcon />
+        </button>
+      ) : null}
+    </div>
   )
 }
 

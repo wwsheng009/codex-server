@@ -22,14 +22,135 @@ import {
   type CancelLoginAccountInput,
   type LoginAccountInput,
 } from '../../features/account/api'
+import { useAccountRealtimeSync } from '../../features/account/useAccountRealtimeSync'
 import { useSettingsLocalStore } from '../../features/settings/local-store'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
-import { formatLocaleDateTime, formatLocaleNumber, formatLocaleTime } from '../../i18n/format'
+import { formatLocaleDateTime, formatLocaleNumber } from '../../i18n/format'
 import { localeLabels } from '../../i18n/config'
 import type { AppLocale } from '../../i18n/configTypes'
 import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import { Input } from '../../components/ui/Input'
+import {
+  summarizeRateLimit,
+  type RateLimitWindowSummary,
+} from '../thread-page/threadPageComposerShared'
+
+function formatRateLimitResetDateTime(value: string) {
+  const timestamp = Date.parse(value)
+  if (Number.isNaN(timestamp)) {
+    return i18n._({
+      id: 'Unknown',
+      message: 'Unknown',
+    })
+  }
+
+  return formatLocaleDateTime(new Date(timestamp).toISOString())
+}
+
+function formatRateLimitWindowDetails(window: RateLimitWindowSummary) {
+  const parts = [
+    window.usedPercent === null
+      ? i18n._({
+          id: 'Usage unavailable',
+          message: 'Usage unavailable',
+        })
+      : i18n._({
+          id: '{percent}% used',
+          message: '{percent}% used',
+          values: {
+            percent: formatLocaleNumber(
+              Math.abs(window.usedPercent - Math.round(window.usedPercent)) < 0.05
+                ? Math.round(window.usedPercent)
+                : Math.round(window.usedPercent * 10) / 10,
+            ),
+          },
+        }),
+  ]
+
+  if (window.windowDurationMins !== null) {
+    parts.push(
+      i18n._({
+        id: '{minutes} min window',
+        message: '{minutes} min window',
+        values: {
+          minutes: formatLocaleNumber(window.windowDurationMins),
+        },
+      }),
+    )
+  }
+
+  if (window.resetsAt) {
+    parts.push(
+      i18n._({
+        id: 'resets {time}',
+        message: 'resets {time}',
+        values: {
+          time: formatRateLimitResetDateTime(window.resetsAt),
+        },
+      }),
+    )
+  }
+
+  return parts.join(' · ')
+}
+
+function formatAccountAuthMode(value?: string | null) {
+  switch ((value ?? '').trim().toLowerCase()) {
+    case 'apikey':
+      return i18n._({
+        id: 'API Key',
+        message: 'API Key',
+      })
+    case 'chatgpt':
+      return 'ChatGPT'
+    default:
+      return i18n._({
+        id: 'Not connected',
+        message: 'Not connected',
+      })
+  }
+}
+
+function formatAccountPlanType(value?: string | null) {
+  const normalized = (value ?? '').trim()
+  if (!normalized) {
+    return i18n._({
+      id: 'Unavailable',
+      message: 'Unavailable',
+    })
+  }
+
+  switch (normalized.toLowerCase()) {
+    case 'free':
+      return i18n._({
+        id: 'Free',
+        message: 'Free',
+      })
+    case 'plus':
+      return i18n._({
+        id: 'Plus',
+        message: 'Plus',
+      })
+    case 'pro':
+      return i18n._({
+        id: 'Pro',
+        message: 'Pro',
+      })
+    case 'team':
+      return i18n._({
+        id: 'Team',
+        message: 'Team',
+      })
+    case 'enterprise':
+      return i18n._({
+        id: 'Enterprise',
+        message: 'Enterprise',
+      })
+    default:
+      return normalized
+  }
+}
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient()
@@ -41,6 +162,8 @@ export function GeneralSettingsPage() {
   const resolvedWorkspaceId = workspaceId ?? ''
   const accountKey = accountQueryKey(resolvedWorkspaceId)
   const rateLimitsKey = rateLimitsQueryKey(resolvedWorkspaceId)
+
+  useAccountRealtimeSync(resolvedWorkspaceId)
 
   const accountQuery = useQuery({
     queryKey: accountKey,
@@ -232,6 +355,14 @@ export function GeneralSettingsPage() {
                 <strong>{lastSyncedLabel}</strong>
               </div>
               <div className="detail-row">
+                <span>{i18n._({ id: 'Authentication', message: 'Authentication' })}</span>
+                <strong>{formatAccountAuthMode(accountQuery.data?.authMode)}</strong>
+              </div>
+              <div className="detail-row">
+                <span>{i18n._({ id: 'Plan', message: 'Plan' })}</span>
+                <strong>{formatAccountPlanType(accountQuery.data?.planType)}</strong>
+              </div>
+              <div className="detail-row">
                 <span>{i18n._({ id: 'Login Flow', message: 'Login Flow' })}</span>
                 <strong>
                   {pendingLoginId
@@ -398,8 +529,9 @@ export function GeneralSettingsPage() {
         >
           <SettingRow
             description={i18n._({
-              id: 'Track how much quota remains before the next reset window.',
-              message: 'Track how much quota remains before the next reset window.',
+              id: 'Inspect the latest quota snapshots, including primary and secondary usage windows, reset times, credits, and plan state.',
+              message:
+                'Inspect the latest quota snapshots, including primary and secondary usage windows, reset times, credits, and plan state.',
             })}
             title={i18n._({ id: 'Rate Limits', message: 'Rate Limits' })}
           >
@@ -429,25 +561,47 @@ export function GeneralSettingsPage() {
               </div>
             ) : null}
             <div className="resource-list resource-list--runtime">
-              {rateLimitsQuery.data?.map((limit) => (
-                <article className="resource-row" key={limit.name}>
-                  <div className="resource-row__icon">RL</div>
-                  <div className="resource-row__body">
-                    <strong>{limit.name}</strong>
-                    <p>
-                      {i18n._({
-                        id: '{remaining} / {limit} remaining · resets {time}',
-                        message: '{remaining} / {limit} remaining · resets {time}',
-                        values: {
-                          remaining: formatLocaleNumber(limit.remaining),
-                          limit: formatLocaleNumber(limit.limit),
-                          time: formatLocaleTime(limit.resetsAt),
-                        },
-                      })}
-                    </p>
-                  </div>
-                </article>
-              ))}
+              {rateLimitsQuery.data?.map((limit, index) => {
+                const summary = summarizeRateLimit(limit)
+
+                return (
+                  <article className="resource-row" key={`${summary.key}-${index}`}>
+                    <div className="resource-row__icon">RL</div>
+                    <div className="resource-row__body">
+                      <strong>{summary.title}</strong>
+                      <p>{summary.subtitle}</p>
+                      {summary.windows.length || summary.creditsSummary || summary.planType ? (
+                        <div className="detail-list">
+                          {summary.windows.map((window) => (
+                            <div className="detail-row" key={window.key}>
+                              <span>{window.label}</span>
+                              <strong>{formatRateLimitWindowDetails(window)}</strong>
+                            </div>
+                          ))}
+                          {summary.creditsSummary ? (
+                            <div className="detail-row">
+                              <span>{i18n._({ id: 'Credits', message: 'Credits' })}</span>
+                              <strong>{summary.creditsSummary}</strong>
+                            </div>
+                          ) : null}
+                          {summary.planType ? (
+                            <div className="detail-row">
+                              <span>{i18n._({ id: 'Plan', message: 'Plan' })}</span>
+                              <strong>{summary.planType}</strong>
+                            </div>
+                          ) : null}
+                          {summary.nextResetAt && !summary.windows.length ? (
+                            <div className="detail-row">
+                              <span>{i18n._({ id: 'Next Reset', message: 'Next Reset' })}</span>
+                              <strong>{formatRateLimitResetDateTime(summary.nextResetAt)}</strong>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                )
+              })}
             </div>
           </SettingRow>
         </SettingsGroup>

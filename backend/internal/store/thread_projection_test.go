@@ -229,6 +229,82 @@ func TestApplyThreadEventToProjectionPersistsHookRunsInsideTurnTimeline(t *testi
 	}
 }
 
+func TestApplyThreadEventToProjectionInsertsHookRunAfterRelatedItem(t *testing.T) {
+	t.Parallel()
+
+	projection := &ThreadProjection{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+	}
+
+	applyThreadEventToProjection(projection, EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/completed",
+		Payload: map[string]any{
+			"turnId": "turn-1",
+			"item": map[string]any{
+				"id":      "cmd-1",
+				"type":    "commandExecution",
+				"command": "go test ./...",
+				"status":  "completed",
+			},
+		},
+	})
+	applyThreadEventToProjection(projection, EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/completed",
+		Payload: map[string]any{
+			"turnId": "turn-1",
+			"item": map[string]any{
+				"id":   "msg-1",
+				"type": "agentMessage",
+				"text": "done",
+			},
+		},
+	})
+
+	applyThreadEventToProjection(projection, EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "hook/completed",
+		Payload: map[string]any{
+			"run": map[string]any{
+				"id":            "hook-1",
+				"turnId":        "turn-1",
+				"itemId":        "cmd-1",
+				"eventName":     "PostToolUse",
+				"handlerKey":    "builtin.posttooluse.failed-validation-rescue",
+				"triggerMethod": "item/completed",
+				"toolName":      "command/exec",
+				"status":        "completed",
+				"decision":      "continueTurn",
+				"reason":        "validation_command_failed",
+			},
+		},
+	})
+
+	if len(projection.Turns) != 1 || len(projection.Turns[0].Items) != 3 {
+		t.Fatalf("expected hook run to be inserted into turn timeline, got %#v", projection.Turns)
+	}
+	if got := projection.Turns[0].Items[0]["id"]; got != "cmd-1" {
+		t.Fatalf("expected related command item to stay first, got %#v", projection.Turns[0].Items)
+	}
+	if got := projection.Turns[0].Items[1]["id"]; got != "hook-run-hook-1" {
+		t.Fatalf("expected hook run to be inserted after related item, got %#v", projection.Turns[0].Items)
+	}
+	if got := projection.Turns[0].Items[2]["id"]; got != "msg-1" {
+		t.Fatalf("expected later items to remain after hook run, got %#v", projection.Turns[0].Items)
+	}
+	if got := projection.Turns[0].Items[1]["itemId"]; got != "cmd-1" {
+		t.Fatalf("expected projected hook run to preserve related item id, got %#v", projection.Turns[0].Items[1])
+	}
+}
+
 func TestApplyThreadEventToProjectionPersistsSessionStartSource(t *testing.T) {
 	t.Parallel()
 

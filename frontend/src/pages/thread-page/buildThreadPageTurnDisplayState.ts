@@ -1170,7 +1170,7 @@ function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: Thread
   }
 
   if (!hasOverlap) {
-    const mergedTurns = [...historicalTurns, ...liveTurns]
+    const mergedTurns = mergeTurnsPreservingGovernanceLead(historicalTurns, liveTurns)
 
     let cacheByLiveTurns = mergedTurnHistoryCache.get(historicalTurns)
     if (!cacheByLiveTurns) {
@@ -1190,6 +1190,8 @@ function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: Thread
   for (const turn of liveTurns) {
     liveTurnsById.set(turn.id, turn)
   }
+
+  prependLeadingGovernanceTurns(mergedTurns, seenTurnIds, historicalTurnIds, liveTurns)
 
   for (const turn of historicalTurns) {
     if (seenTurnIds.has(turn.id)) {
@@ -1218,6 +1220,48 @@ function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: Thread
   turnIdSetCache.set(mergedTurns, seenTurnIds)
   cacheByLiveTurns.set(liveTurns, mergedTurns)
   return mergedTurns
+}
+
+function mergeTurnsPreservingGovernanceLead(historicalTurns: ThreadTurn[], liveTurns: ThreadTurn[]) {
+  const historicalTurnIds = getTurnIdSet(historicalTurns)
+  const mergedTurns: ThreadTurn[] = []
+  const seenTurnIds = new Set<string>()
+
+  prependLeadingGovernanceTurns(mergedTurns, seenTurnIds, historicalTurnIds, liveTurns)
+
+  for (const turn of historicalTurns) {
+    if (seenTurnIds.has(turn.id)) {
+      continue
+    }
+    seenTurnIds.add(turn.id)
+    mergedTurns.push(turn)
+  }
+
+  for (const turn of liveTurns) {
+    if (seenTurnIds.has(turn.id)) {
+      continue
+    }
+    seenTurnIds.add(turn.id)
+    mergedTurns.push(turn)
+  }
+
+  return mergedTurns
+}
+
+function prependLeadingGovernanceTurns(
+  mergedTurns: ThreadTurn[],
+  seenTurnIds: Set<string>,
+  historicalTurnIds: Set<string>,
+  liveTurns: ThreadTurn[],
+) {
+  for (const turn of liveTurns) {
+    if (!isSyntheticGovernanceTurn(turn) || historicalTurnIds.has(turn.id) || seenTurnIds.has(turn.id)) {
+      continue
+    }
+
+    seenTurnIds.add(turn.id)
+    mergedTurns.push(turn)
+  }
 }
 
 function buildTurnIndexById(turns: ThreadTurn[]) {

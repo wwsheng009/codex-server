@@ -39,6 +39,10 @@ import {
   TerminalIcon,
 } from '../ui/RailControls'
 import { createThread, deleteThread, listThreadsPage, renameThread } from '../../features/threads/api'
+import {
+  removeThreadFromThreadCaches,
+  syncThreadIntoThreadCaches,
+} from '../../features/threads/cache'
 import { removeThreadApprovalsFromList } from '../../features/approvals/cache'
 import { refetchApprovalsQueryIfNeeded } from '../../features/approvals/sync'
 import { deleteWorkspace, listWorkspaces, renameWorkspace, restartWorkspace } from '../../features/workspaces/api'
@@ -49,7 +53,6 @@ import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-util
 import type {
   PendingApproval,
   Thread,
-  ThreadDetail,
   ThreadListPage,
   Workspace,
 } from '../../types/api'
@@ -109,25 +112,6 @@ function getPrimaryNavItems() {
 }
 
 const DEFAULT_VISIBLE_THREADS = 8
-function updateThreadInList(current: Thread[] | undefined, thread: Thread) {
-  if (!current?.length) {
-    return current
-  }
-
-  return current.map((item) => (item.id === thread.id ? thread : item))
-}
-
-function upsertThreadInList(current: Thread[] | undefined, thread: Thread) {
-  const items = current ?? []
-  const nextItems = items.some((item) => item.id === thread.id)
-    ? items.map((item) => (item.id === thread.id ? thread : item))
-    : [thread, ...items]
-
-  return [...nextItems].sort(
-    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-  )
-}
-
 function updateWorkspaceInList(current: Workspace[] | undefined, workspace: Workspace) {
   if (!current?.length) {
     return current
@@ -214,7 +198,7 @@ export function AppShell() {
             archived: false,
             limit: requestedThreadCount,
             preferCached: preferCachedThreadPage,
-            sortKey: 'updated_at',
+            sortKey: 'created_at',
           },
         ],
         queryFn: () =>
@@ -222,7 +206,7 @@ export function AppShell() {
             archived: false,
             limit: requestedThreadCount,
             preferCached: preferCachedThreadPage,
-            sortKey: 'updated_at',
+            sortKey: 'created_at',
           }),
         enabled: shouldEnableThreadQuery,
         placeholderData: (previous: ThreadListPage | undefined) => previous,
@@ -478,12 +462,7 @@ export function AppShell() {
   const createThreadMutation = useMutation({
     mutationFn: ({ workspaceId }: CreateThreadMutationInput) => createThread(workspaceId),
     onSuccess: async (thread) => {
-      queryClient.setQueryData<Thread[]>(['threads', thread.workspaceId], (current) =>
-        upsertThreadInList(current, thread),
-      )
-      queryClient.setQueryData<Thread[]>(['shell-threads', thread.workspaceId], (current) =>
-        upsertThreadInList(current, thread),
-      )
+      syncThreadIntoThreadCaches(queryClient, thread.workspaceId, thread)
       setSelectedWorkspace(thread.workspaceId)
       setSelectedThread(thread.workspaceId, thread.id)
       setWorkspaceThreadGroupsCollapsed((current) => ({
@@ -513,20 +492,7 @@ export function AppShell() {
       setOpenMenu(null)
       setRenameTarget(null)
       setRenameValue('')
-      queryClient.setQueryData<Thread[]>(['threads', thread.workspaceId], (current) =>
-        updateThreadInList(current, thread),
-      )
-      queryClient.setQueryData<Thread[]>(['shell-threads', thread.workspaceId], (current) =>
-        updateThreadInList(current, thread),
-      )
-      queryClient.setQueryData<ThreadDetail>(['thread-detail', thread.workspaceId, thread.id], (current) =>
-        current
-          ? {
-              ...current,
-              ...thread,
-            }
-          : current,
-      )
+      syncThreadIntoThreadCaches(queryClient, thread.workspaceId, thread)
       await invalidateThreadQueries(thread.workspaceId)
     },
   })
@@ -554,10 +520,7 @@ export function AppShell() {
         queryClient.getQueryData<Thread[]>(['threads', variables.workspaceId]) ?? cachedShellThreads
       ).filter((thread) => thread.id !== variables.threadId)
 
-      queryClient.setQueryData<Thread[]>(['shell-threads', variables.workspaceId], remainingThreads)
-      queryClient.setQueryData<Thread[]>(['threads', variables.workspaceId], (current) =>
-        (current ?? []).filter((thread) => thread.id !== variables.threadId),
-      )
+      removeThreadFromThreadCaches(queryClient, variables.workspaceId, variables.threadId)
       queryClient.setQueryData<PendingApproval[]>(
         ['approvals', variables.workspaceId],
         (current: PendingApproval[] | undefined) =>

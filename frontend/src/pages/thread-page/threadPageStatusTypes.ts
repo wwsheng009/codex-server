@@ -1,5 +1,5 @@
 import type { Account, PendingApproval, Thread, ThreadTurn } from '../../types/api'
-import type { TerminalDockPlacement } from '../../lib/layout-config-types'
+import type { SurfacePanelView, TerminalDockPlacement } from '../../lib/layout-config-types'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ComposerStatusInfo, ContextCompactionFeedback } from './threadPageComposerShared'
 
@@ -40,7 +40,7 @@ export type ThreadPageStatusStateInput = {
   sendError: string | null
   suppressAuthenticationError: boolean
   streamState: string
-  surfacePanelView: 'approvals' | 'feed' | null
+  surfacePanelView: SurfacePanelView | null
   syncClock: number
   threadDetailDataUpdatedAt: number
   threadDetailIsFetching: boolean
@@ -100,7 +100,7 @@ export type ThreadPageWorkbenchStatusInput = {
   selectedThreadEvents: ThreadPageStatusEventTimestamp[]
   selectedThreadId?: string
   streamState: string
-  surfacePanelView: 'approvals' | 'feed' | null
+  surfacePanelView: SurfacePanelView | null
   syncLabel: string
   terminalDockPlacement: TerminalDockPlacement
   workspaceEvents: ThreadPageStatusEventTimestamp[]

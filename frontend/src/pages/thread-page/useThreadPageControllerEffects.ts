@@ -4,6 +4,7 @@ import type { UseThreadPageControllerEffectsInput } from './threadPageController
 export function useThreadPageControllerEffects({
   controllerState,
   dataState,
+  displayState,
   statusState,
   viewportState,
 }: UseThreadPageControllerEffectsInput) {
@@ -14,6 +15,7 @@ export function useThreadPageControllerEffects({
     contextCompactionFeedback: controllerState.contextCompactionFeedback,
     chromeState: statusState.chromeState,
     currentThreads: dataState.threadsQuery.data ?? [],
+    displayedTurns: displayState.displayedTurns,
     isHeaderSyncBusy: statusState.isHeaderSyncBusy,
     isDocumentVisible: controllerState.isDocumentVisible,
     isMobileViewport: controllerState.isMobileViewport,
@@ -39,6 +41,7 @@ export function useThreadPageControllerEffects({
     setMobileThreadToolsOpen: controllerState.setMobileThreadToolsOpen,
     setSelectedThread: controllerState.setSelectedThread,
     setSelectedWorkspace: controllerState.setSelectedWorkspace,
+    surfacePanelView: controllerState.surfacePanelView,
     setSurfacePanelView: controllerState.setSurfacePanelView,
     setSyncClock: controllerState.setSyncClock,
     streamState: controllerState.streamState,

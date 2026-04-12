@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ThreadDetail } from '../../types/api'
+import type { ThreadDetail, ThreadTurn } from '../../types/api'
 import { buildThreadPageTurnDisplayState } from './buildThreadPageTurnDisplayState'
 import { threadTurnItemOverrideKey } from './threadPageContentOverrideUtils'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
@@ -786,6 +786,77 @@ describe('buildThreadPageTurnDisplayState', () => {
     expect(state.displayedTurns).toHaveLength(2)
     expect(state.turnCount).toBe(1)
     expect(state.latestDisplayedTurn?.id).toBe('turn-1')
+  })
+
+  it('keeps a live-only synthetic governance turn pinned ahead of merged historical turns', () => {
+    const historicalTurns: ThreadTurn[] = [
+      {
+        id: 'turn-1',
+        status: 'completed',
+        items: [
+          {
+            id: 'msg-1',
+            type: 'agentMessage',
+            text: 'historical content',
+          },
+        ],
+      },
+    ]
+    const liveThreadDetail: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'completed',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:02.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          id: 'thread-governance',
+          status: 'completed',
+          items: [
+            {
+              id: 'hook-run-hook-1',
+              type: 'hookRun',
+              eventName: 'SessionStart',
+              message: 'governance event',
+            },
+          ],
+        },
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: 'live content',
+            },
+          ],
+        },
+      ],
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {},
+      historicalTurns,
+      liveThreadDetail,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(state.displayedTurns).toHaveLength(2)
+    expect(state.displayedTurns[0]?.id).toBe('thread-governance')
+    expect(state.displayedTurns[1]?.id).toBe('turn-1')
+    expect(state.displayedTurns[1]?.items[0]).toMatchObject({
+      id: 'msg-1',
+      type: 'agentMessage',
+      text: 'live content',
+    })
   })
 
   it('reuses the same display-state result for identical inputs', () => {

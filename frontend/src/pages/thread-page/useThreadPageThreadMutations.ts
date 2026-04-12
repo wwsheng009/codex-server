@@ -3,6 +3,10 @@ import { useMutation } from '@tanstack/react-query'
 import { accountQueryKey, rateLimitsQueryKey } from '../../features/account/api'
 import { removeApprovalFromList, removeThreadApprovalsFromList } from '../../features/approvals/cache'
 import { respondServerRequestWithDetails } from '../../features/approvals/api'
+import {
+  removeThreadFromThreadCaches,
+  syncThreadIntoThreadCaches,
+} from '../../features/threads/cache'
 import { i18n } from '../../i18n/runtime'
 import {
   archiveThread,
@@ -14,7 +18,7 @@ import {
   unarchiveThread,
 } from '../../features/threads/api'
 import { interruptTurn, startTurn } from '../../features/turns/api'
-import type { PendingApproval, Thread, ThreadDetail, TurnResult } from '../../types/api'
+import type { PendingApproval, Thread, ThreadDetail, ThreadListPage, TurnResult } from '../../types/api'
 import {
   reconcileInterruptedThreadDetail,
   settleInterruptedThreadStatusInList,
@@ -56,8 +60,13 @@ export function useThreadPageThreadMutations({
     queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
       settleInterruptedThreadStatusInList(current, threadId, updatedAt),
     )
-    queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
-      settleInterruptedThreadStatusInList(current, threadId, updatedAt),
+    queryClient.setQueriesData<ThreadListPage>({ queryKey: ['shell-threads', workspaceId] }, (current) =>
+      current
+        ? {
+            ...current,
+            data: settleInterruptedThreadStatusInList(current.data, threadId, updatedAt) ?? current.data,
+          }
+        : current,
     )
 
     for (const [queryKey] of queryClient.getQueriesData({
@@ -72,12 +81,7 @@ export function useThreadPageThreadMutations({
   const createThreadMutation = useMutation({
     mutationFn: () => createThread(workspaceId),
     onSuccess: async (thread) => {
-      queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
-        upsertThreadInList(current, thread),
-      )
-      queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
-        upsertThreadInList(current, thread),
-      )
+      syncThreadIntoThreadCaches(queryClient, workspaceId, thread)
       setSelectedThread(workspaceId, thread.id)
       setSendError(null)
       await Promise.all([
@@ -91,9 +95,10 @@ export function useThreadPageThreadMutations({
   const renameThreadMutation = useMutation({
     mutationFn: ({ threadId, name }: ThreadPageRenameThreadMutationInput) =>
       renameThread(workspaceId, threadId, { name }),
-    onSuccess: async () => {
+    onSuccess: async (thread) => {
       setEditingThreadId(undefined)
       setEditingThreadName('')
+      syncThreadIntoThreadCaches(queryClient, workspaceId, thread)
       await invalidateThreadQueries()
     },
   })
@@ -115,12 +120,7 @@ export function useThreadPageThreadMutations({
   const deleteThreadMutation = useMutation({
     mutationFn: (threadId: string) => deleteThread(workspaceId, threadId),
     onSuccess: async (_, threadId) => {
-      queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
-        (current ?? []).filter((thread) => thread.id !== threadId),
-      )
-      queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
-        (current ?? []).filter((thread) => thread.id !== threadId),
-      )
+      removeThreadFromThreadCaches(queryClient, workspaceId, threadId)
       queryClient.removeQueries({ queryKey: ['thread-detail', workspaceId, threadId] })
 
       const remainingThreads =
@@ -280,15 +280,4 @@ export function useThreadPageThreadMutations({
     threadShellCommandMutation,
     unarchiveThreadMutation,
   }
-}
-
-function upsertThreadInList(current: Thread[] | undefined, thread: Thread) {
-  const items = current ?? []
-  const nextItems = items.some((item) => item.id === thread.id)
-    ? items.map((item) => (item.id === thread.id ? thread : item))
-    : [thread, ...items]
-
-  return [...nextItems].sort(
-    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-  )
 }

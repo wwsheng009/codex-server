@@ -8,8 +8,9 @@ import {
   getThreadTurnItemOutput,
   resumeThread,
 } from '../../features/threads/api'
+import { updateThreadPage } from '../../features/threads/cache'
 import { getErrorMessage, isAuthenticationError } from '../../lib/error-utils'
-import type { Thread, ThreadTurn, TurnResult } from '../../types/api'
+import type { Thread, ThreadListPage, ThreadTurn, TurnResult } from '../../types/api'
 import {
   createPendingTurn,
   shouldRetryTurnAfterResume,
@@ -189,8 +190,24 @@ export function buildThreadPageThreadActions({
     queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
       updateThreadStatusInList(current, selectedThreadId, 'running', optimisticStatusUpdatedAt),
     )
-    queryClient.setQueryData<Thread[]>(['shell-threads', workspaceId], (current) =>
-      updateThreadStatusInList(current, selectedThreadId, 'running', optimisticStatusUpdatedAt),
+    queryClient.setQueriesData<ThreadListPage>(
+      { queryKey: ['shell-threads', workspaceId] },
+      (current) =>
+        current
+          ? updateThreadPage(current, {
+              ...(current.data.find((thread) => thread.id === selectedThreadId) ?? {
+                archived: false,
+                createdAt: optimisticStatusUpdatedAt,
+                id: selectedThreadId,
+                name: '',
+                status: 'running',
+                updatedAt: optimisticStatusUpdatedAt,
+                workspaceId,
+              }),
+              status: 'running',
+              updatedAt: optimisticStatusUpdatedAt,
+            })
+          : current,
     )
     queryClient.setQueryData<string[]>(['loaded-threads', workspaceId], (current) => {
       if (!current?.length) {

@@ -51,10 +51,12 @@ export const layoutConfig = {
       defaultWidths: {
         approvals: 360,
         feed: 360,
+        plans: 380,
       } satisfies Record<SurfacePanelView, number>,
       defaultSides: {
         approvals: 'right',
         feed: 'right',
+        plans: 'right',
       } satisfies Record<SurfacePanelView, SurfacePanelSide>,
       widthLimits: {
         min: 280,

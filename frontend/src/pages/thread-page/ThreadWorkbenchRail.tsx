@@ -1,4 +1,11 @@
-import { ResizeHandle } from "../../components/ui/RailControls";
+import {
+  ApprovalIcon,
+  ContextIcon,
+  FolderOpenIcon,
+  ResizeHandle,
+  ToolsIcon,
+} from "../../components/ui/RailControls";
+import { Tabs } from "../../components/ui/Tabs";
 import {
   buildWorkspaceTurnPolicyCompareRoute,
   buildWorkspaceTurnPolicyHistoryRoute,
@@ -15,6 +22,10 @@ import { ThreadWorkbenchRailTurnPolicyMetricsSection } from "./ThreadWorkbenchRa
 import { ThreadWorkbenchRailThreadToolsSection } from "./ThreadWorkbenchRailThreadToolsSection";
 import { ThreadWorkbenchRailWorkbenchToolsSection } from "./ThreadWorkbenchRailWorkbenchToolsSection";
 import { ThreadWorkbenchRailWorkspaceContextSection } from "./ThreadWorkbenchRailWorkspaceContextSection";
+import {
+  THREAD_WORKBENCH_RAIL_PANEL_IDS,
+  THREAD_WORKBENCH_RAIL_PANEL_STORAGE_KEY,
+} from "./threadWorkbenchRailPanelState";
 import type { ThreadWorkbenchRailProps } from "./threadWorkbenchRailTypes";
 
 export function ThreadWorkbenchRail({
@@ -197,6 +208,158 @@ export function ThreadWorkbenchRail({
     );
   }
 
+  const railPanelItems = [
+    {
+      content: (
+        <ThreadWorkbenchRailWorkspaceContextSection
+          commandCount={commandCount}
+          contextUsagePercent={contextUsagePercent}
+          contextWindow={contextWindow}
+          isMobileViewport={isMobileViewport}
+          lastTimelineEventTs={lastTimelineEventTs}
+          latestTurnStatus={latestTurnStatus}
+          loadedAssistantMessageCount={loadedAssistantMessageCount}
+          loadedMessageCount={loadedMessageCount}
+          loadedTurnCount={loadedTurnCount}
+          liveThreadCwd={liveThreadCwd}
+          loadedUserMessageCount={loadedUserMessageCount}
+          onHideSurfacePanel={onHideSurfacePanel}
+          onOpenSurfacePanel={onOpenSurfacePanel}
+          pendingApprovalsCount={pendingApprovalsCount}
+          rootPath={rootPath}
+          runtimeConfigChangedAt={runtimeConfigChangedAt}
+          runtimeConfigLoadStatus={runtimeConfigLoadStatus}
+          runtimeRestartRequired={runtimeRestartRequired}
+          runtimeStartedAt={runtimeStartedAt}
+          runtimeUpdatedAt={runtimeUpdatedAt}
+          selectedThread={selectedThread}
+          shellEnvironmentInfo={shellEnvironmentInfo}
+          shellEnvironmentSummary={shellEnvironmentSummary}
+          shellEnvironmentWarning={shellEnvironmentWarning}
+          streamState={streamState}
+          surfacePanelView={surfacePanelView}
+          totalTokens={totalTokens}
+          totalMessageCount={totalMessageCount}
+          totalTurnCount={totalTurnCount}
+          threadCount={threadCount}
+          timelineItemCount={timelineItemCount}
+          turnCount={turnCount}
+          workspaceName={workspaceName}
+        />
+      ),
+      icon: <ContextIcon />,
+      id: THREAD_WORKBENCH_RAIL_PANEL_IDS.overview,
+      label: i18n._({
+        id: "Overview",
+        message: "Overview",
+      }),
+    },
+    {
+      content: (
+        <>
+          <ThreadWorkbenchRailHookConfigurationSection
+            hookConfiguration={hookConfiguration}
+            hookConfigurationError={hookConfigurationError}
+            hookConfigurationLoading={hookConfigurationLoading}
+          />
+
+          <ThreadWorkbenchRailHookRunsSection
+            hookRuns={hookRuns}
+            hookRunsError={hookRunsError}
+            hookRunsLoading={hookRunsLoading}
+            selectedThread={selectedThread}
+          />
+
+          <ThreadWorkbenchRailTurnPolicyDecisionsSection
+            selectedThread={selectedThread}
+            turnPolicyDecisions={turnPolicyDecisions}
+            turnPolicyDecisionsError={turnPolicyDecisionsError}
+            turnPolicyDecisionsLoading={turnPolicyDecisionsLoading}
+          />
+
+          <ThreadWorkbenchRailTurnPolicyMetricsSection
+            selectedThread={selectedThread}
+            turnPolicyMetrics={turnPolicyMetrics}
+            turnPolicyMetricsError={turnPolicyMetricsError}
+            turnPolicyMetricsLoading={turnPolicyMetricsLoading}
+            workspaceTurnPolicyRoutes={workspaceTurnPolicyRoutes}
+          />
+        </>
+      ),
+      icon: <ApprovalIcon />,
+      id: THREAD_WORKBENCH_RAIL_PANEL_IDS.governance,
+      label: i18n._({
+        id: "Governance",
+        message: "Governance",
+      }),
+    },
+    {
+      content: (
+        <ThreadWorkbenchRailThreadToolsSection
+          deletePending={deletePending}
+          deletingThreadId={deletingThreadId}
+          editingThreadId={editingThreadId}
+          editingThreadName={editingThreadName}
+          isThreadToolsExpanded={isThreadToolsExpanded}
+          onArchiveToggle={onArchiveToggle}
+          onBeginRenameThread={onBeginRenameThread}
+          onCancelRenameThread={onCancelRenameThread}
+          onChangeEditingThreadName={onChangeEditingThreadName}
+          onDeleteThread={onDeleteThread}
+          onSubmitRenameThread={onSubmitRenameThread}
+          onToggleThreadToolsExpanded={onToggleThreadToolsExpanded}
+          selectedThread={selectedThread}
+        />
+      ),
+      icon: <FolderOpenIcon />,
+      id: THREAD_WORKBENCH_RAIL_PANEL_IDS.thread,
+      label: i18n._({
+        id: "Thread",
+        message: "Thread",
+      }),
+    },
+    {
+      content: (
+        <ThreadWorkbenchRailWorkbenchToolsSection
+          botSendBinding={botSendBinding}
+          botSendBindingPending={botSendBindingPending}
+          botSendBots={botSendBots}
+          botSendDeliveryTargets={botSendDeliveryTargets}
+          botSendErrorMessage={botSendErrorMessage}
+          botSendLoading={botSendLoading}
+          botSendPending={botSendPending}
+          botSendSelectedBotId={botSendSelectedBotId}
+          botSendSelectedDeliveryTargetId={botSendSelectedDeliveryTargetId}
+          botSendText={botSendText}
+          command={command}
+          commandRunMode={commandRunMode}
+          isWorkbenchToolsExpanded={isWorkbenchToolsExpanded}
+          onBindThreadBotChannel={onBindThreadBotChannel}
+          onChangeBotSendSelectedBotId={onChangeBotSendSelectedBotId}
+          onChangeBotSendSelectedDeliveryTargetId={
+            onChangeBotSendSelectedDeliveryTargetId
+          }
+          onChangeBotSendText={onChangeBotSendText}
+          onChangeCommand={onChangeCommand}
+          onChangeCommandRunMode={onChangeCommandRunMode}
+          onDeleteThreadBotBinding={onDeleteThreadBotBinding}
+          onSendBotMessage={onSendBotMessage}
+          onStartCommand={onStartCommand}
+          onToggleWorkbenchToolsExpanded={onToggleWorkbenchToolsExpanded}
+          selectedThread={selectedThread}
+          startCommandModeDisabled={startCommandModeDisabled}
+          startCommandPending={startCommandPending}
+        />
+      ),
+      icon: <ToolsIcon />,
+      id: THREAD_WORKBENCH_RAIL_PANEL_IDS.tools,
+      label: i18n._({
+        id: "Tools",
+        message: "Tools",
+      }),
+    },
+  ];
+
   return (
     <aside
       className={
@@ -268,115 +431,15 @@ export function ThreadWorkbenchRail({
         />
       ) : null}
 
-      <ThreadWorkbenchRailThreadToolsSection
-        deletePending={deletePending}
-        deletingThreadId={deletingThreadId}
-        editingThreadId={editingThreadId}
-        editingThreadName={editingThreadName}
-        isThreadToolsExpanded={isThreadToolsExpanded}
-        onArchiveToggle={onArchiveToggle}
-        onBeginRenameThread={onBeginRenameThread}
-        onCancelRenameThread={onCancelRenameThread}
-        onChangeEditingThreadName={onChangeEditingThreadName}
-        onDeleteThread={onDeleteThread}
-        onSubmitRenameThread={onSubmitRenameThread}
-        onToggleThreadToolsExpanded={onToggleThreadToolsExpanded}
-        selectedThread={selectedThread}
-      />
-
-      <ThreadWorkbenchRailHookConfigurationSection
-        hookConfiguration={hookConfiguration}
-        hookConfigurationError={hookConfigurationError}
-        hookConfigurationLoading={hookConfigurationLoading}
-      />
-
-      <ThreadWorkbenchRailHookRunsSection
-        hookRuns={hookRuns}
-        hookRunsError={hookRunsError}
-        hookRunsLoading={hookRunsLoading}
-        selectedThread={selectedThread}
-      />
-
-      <ThreadWorkbenchRailTurnPolicyDecisionsSection
-        selectedThread={selectedThread}
-        turnPolicyDecisions={turnPolicyDecisions}
-        turnPolicyDecisionsError={turnPolicyDecisionsError}
-        turnPolicyDecisionsLoading={turnPolicyDecisionsLoading}
-      />
-
-      <ThreadWorkbenchRailTurnPolicyMetricsSection
-        selectedThread={selectedThread}
-        turnPolicyMetrics={turnPolicyMetrics}
-        turnPolicyMetricsError={turnPolicyMetricsError}
-        turnPolicyMetricsLoading={turnPolicyMetricsLoading}
-        workspaceTurnPolicyRoutes={workspaceTurnPolicyRoutes}
-      />
-
-      <ThreadWorkbenchRailWorkspaceContextSection
-        commandCount={commandCount}
-        contextUsagePercent={contextUsagePercent}
-        contextWindow={contextWindow}
-        isMobileViewport={isMobileViewport}
-        lastTimelineEventTs={lastTimelineEventTs}
-        latestTurnStatus={latestTurnStatus}
-        loadedAssistantMessageCount={loadedAssistantMessageCount}
-        loadedMessageCount={loadedMessageCount}
-        loadedTurnCount={loadedTurnCount}
-        liveThreadCwd={liveThreadCwd}
-        loadedUserMessageCount={loadedUserMessageCount}
-        onHideSurfacePanel={onHideSurfacePanel}
-        onOpenSurfacePanel={onOpenSurfacePanel}
-        pendingApprovalsCount={pendingApprovalsCount}
-        rootPath={rootPath}
-        runtimeConfigChangedAt={runtimeConfigChangedAt}
-        runtimeConfigLoadStatus={runtimeConfigLoadStatus}
-        runtimeRestartRequired={runtimeRestartRequired}
-        runtimeStartedAt={runtimeStartedAt}
-        runtimeUpdatedAt={runtimeUpdatedAt}
-        selectedThread={selectedThread}
-        shellEnvironmentInfo={shellEnvironmentInfo}
-        shellEnvironmentSummary={shellEnvironmentSummary}
-        shellEnvironmentWarning={shellEnvironmentWarning}
-        streamState={streamState}
-        surfacePanelView={surfacePanelView}
-        totalTokens={totalTokens}
-        totalMessageCount={totalMessageCount}
-        totalTurnCount={totalTurnCount}
-        threadCount={threadCount}
-        timelineItemCount={timelineItemCount}
-        turnCount={turnCount}
-        workspaceName={workspaceName}
-      />
-
-      <ThreadWorkbenchRailWorkbenchToolsSection
-        botSendBinding={botSendBinding}
-        botSendBindingPending={botSendBindingPending}
-        botSendBots={botSendBots}
-        botSendDeliveryTargets={botSendDeliveryTargets}
-        botSendErrorMessage={botSendErrorMessage}
-        botSendLoading={botSendLoading}
-        botSendPending={botSendPending}
-        botSendSelectedBotId={botSendSelectedBotId}
-        botSendSelectedDeliveryTargetId={botSendSelectedDeliveryTargetId}
-        botSendText={botSendText}
-        command={command}
-        commandRunMode={commandRunMode}
-        isWorkbenchToolsExpanded={isWorkbenchToolsExpanded}
-        onBindThreadBotChannel={onBindThreadBotChannel}
-        onChangeBotSendSelectedBotId={onChangeBotSendSelectedBotId}
-        onChangeBotSendSelectedDeliveryTargetId={
-          onChangeBotSendSelectedDeliveryTargetId
-        }
-        onChangeBotSendText={onChangeBotSendText}
-        onChangeCommand={onChangeCommand}
-        onChangeCommandRunMode={onChangeCommandRunMode}
-        onDeleteThreadBotBinding={onDeleteThreadBotBinding}
-        onSendBotMessage={onSendBotMessage}
-        onStartCommand={onStartCommand}
-        onToggleWorkbenchToolsExpanded={onToggleWorkbenchToolsExpanded}
-        selectedThread={selectedThread}
-        startCommandModeDisabled={startCommandModeDisabled}
-        startCommandPending={startCommandPending}
+      <Tabs
+        ariaLabel={i18n._({
+          id: "Side rail",
+          message: "Side rail",
+        })}
+        className="workbench-rail-tabs"
+        defaultValue={THREAD_WORKBENCH_RAIL_PANEL_IDS.overview}
+        items={railPanelItems}
+        storageKey={THREAD_WORKBENCH_RAIL_PANEL_STORAGE_KEY}
       />
     </aside>
   );

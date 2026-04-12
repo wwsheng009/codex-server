@@ -26,6 +26,10 @@ import { getWorkspaceHookConfiguration } from "../../features/workspaces/api";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../../i18n/display";
 import { i18n } from "../../i18n/runtime";
 import { getErrorMessage } from "../../lib/error-utils";
+import {
+  DEFAULT_SESSION_START_TEMPLATE,
+  renderSessionStartTemplatePreview,
+} from "../../lib/session-start-template";
 import type {
   RuntimePreferencesResult,
   WorkspaceHookConfigurationResult,
@@ -48,6 +52,7 @@ import {
   datetimeLocalInputToIsoString,
   formatHookPreToolUseAdditionalProtectedGovernancePathsInput,
   formatHookSessionStartContextPathsInput,
+  formatHookSessionStartTemplateInput,
   formatTurnPolicyAlertAcknowledgedCodesInput,
   formatTurnPolicyAlertSnoozedCodesInput,
   formatTurnPolicyAlertSuppressedCodesInput,
@@ -59,6 +64,7 @@ import {
   normalizeTurnPolicyPrimaryAction,
   parseHookPreToolUseAdditionalProtectedGovernancePathsInput,
   parseHookSessionStartContextPathsInput,
+  parseHookSessionStartTemplateInput,
   parseTurnPolicyAlertAcknowledgedCodesInput,
   parseTurnPolicyAlertSnoozedCodesInput,
   parseTurnPolicyAlertSuppressedCodesInput,
@@ -166,6 +172,55 @@ function formatRuntimeSourceLabel(isConfigured: boolean) {
     : i18n._({ id: "Built-in default", message: "Built-in default" });
 }
 
+function getTriStateOptions() {
+  return [
+    {
+      value: "inherit",
+      label: i18n._({ id: "Inherit default", message: "Inherit default" }),
+    },
+    {
+      value: "enabled",
+      label: i18n._({ id: "Enabled", message: "Enabled" }),
+    },
+    {
+      value: "disabled",
+      label: i18n._({ id: "Disabled", message: "Disabled" }),
+    },
+  ];
+}
+
+function getPrimaryActionOptions() {
+  return [
+    {
+      value: "inherit",
+      label: i18n._({ id: "Inherit default", message: "Inherit default" }),
+    },
+    { value: "steer", label: i18n._({ id: "Steer", message: "Steer" }) },
+    {
+      value: "followUp",
+      label: i18n._({ id: "Follow-up", message: "Follow-up" }),
+    },
+    {
+      value: "interrupt",
+      label: i18n._({ id: "Interrupt", message: "Interrupt" }),
+    },
+  ];
+}
+
+function getInterruptFallbackOptions() {
+  return [
+    {
+      value: "inherit",
+      label: i18n._({ id: "Inherit default", message: "Inherit default" }),
+    },
+    { value: "skip", label: i18n._({ id: "Skip", message: "Skip" }) },
+    {
+      value: "followUp",
+      label: i18n._({ id: "Follow-up", message: "Follow-up" }),
+    },
+  ];
+}
+
 function formatListPreview(values?: string[] | null, emptyLabel?: string) {
   const normalized = (values ?? []).map((value) => value.trim()).filter(Boolean);
   if (!normalized.length) {
@@ -192,6 +247,7 @@ function countRuntimeHookOverrides(configuration?: WorkspaceHookConfigurationRes
     hasConfiguredValue(configuration?.configuredHookSessionStartEnabled),
     hasPathValues(configuration?.configuredHookSessionStartContextPaths),
     hasConfiguredValue(configuration?.configuredHookSessionStartMaxChars),
+    hasConfiguredString(configuration?.configuredHookSessionStartTemplate),
     hasConfiguredValue(
       configuration?.configuredHookUserPromptSubmitBlockSecretPasteEnabled,
     ),
@@ -209,6 +265,7 @@ function countWorkspaceBaselineValues(configuration?: WorkspaceHookConfiguration
     hasConfiguredValue(configuration?.baselineHookSessionStartEnabled),
     hasPathValues(configuration?.baselineHookSessionStartContextPaths),
     hasConfiguredValue(configuration?.baselineHookSessionStartMaxChars),
+    hasConfiguredString(configuration?.baselineHookSessionStartTemplate),
     hasConfiguredValue(
       configuration?.baselineHookUserPromptSubmitBlockSecretPasteEnabled,
     ),
@@ -299,6 +356,9 @@ export function GovernanceSettingsPage() {
   const { workspaceId, workspaceName, workspaces } = useSettingsShellContext();
   const selectedWorkspace =
     workspaces.find((workspace) => workspace.id === workspaceId) ?? null;
+  const triStateOptions = getTriStateOptions();
+  const primaryActionOptions = getPrimaryActionOptions();
+  const interruptFallbackOptions = getInterruptFallbackOptions();
 
   const runtimePreferencesQuery = useQuery({
     queryKey: ["settings-runtime-preferences"],
@@ -400,6 +460,7 @@ export function GovernanceSettingsPage() {
   const [hookSessionStartContextPaths, setHookSessionStartContextPaths] =
     useState("");
   const [hookSessionStartMaxChars, setHookSessionStartMaxChars] = useState("");
+  const [hookSessionStartTemplate, setHookSessionStartTemplate] = useState("");
   const [hookSecretPasteBlockEnabled, setHookSecretPasteBlockEnabled] =
     useState<TriStateValue>("inherit");
   const [hookDangerousCommandBlockEnabled, setHookDangerousCommandBlockEnabled] =
@@ -492,6 +553,11 @@ export function GovernanceSettingsPage() {
     );
     setHookSessionStartMaxChars(
       stringifyOptionalNumberInput(runtimePreferences?.configuredHookSessionStartMaxChars),
+    );
+    setHookSessionStartTemplate(
+      formatHookSessionStartTemplateInput(
+        runtimePreferences?.configuredHookSessionStartTemplate,
+      ),
     );
     setHookSecretPasteBlockEnabled(
       formatTriStateValue(
@@ -678,6 +744,8 @@ export function GovernanceSettingsPage() {
           hookSessionStartMaxChars,
           i18n._({ id: "SessionStart max chars", message: "SessionStart max chars" }),
         ),
+        hookSessionStartTemplate:
+          parseHookSessionStartTemplateInput(hookSessionStartTemplate),
         hookUserPromptSubmitBlockSecretPasteEnabled: parseTriStateValue(
           hookSecretPasteBlockEnabled,
         ),
@@ -699,6 +767,7 @@ export function GovernanceSettingsPage() {
       hookSessionStartEnabled: null,
       hookSessionStartContextPaths: null,
       hookSessionStartMaxChars: null,
+      hookSessionStartTemplate: null,
       hookUserPromptSubmitBlockSecretPasteEnabled: null,
       hookPreToolUseBlockDangerousCommandEnabled: null,
       hookPreToolUseAdditionalProtectedGovernancePaths: null,
@@ -904,6 +973,9 @@ export function GovernanceSettingsPage() {
   const turnPolicyAlertCount = turnPolicyMetrics?.alerts?.length ?? 0;
   const runtimeDisabled =
     runtimePreferencesQuery.isLoading || runtimePreferencesMutation.isPending;
+  const sessionStartTemplatePreview = renderSessionStartTemplatePreview(
+    hookSessionStartTemplate,
+  );
   const effectiveSnapshot = {
     workspace: {
       id: workspaceId ?? "",
@@ -917,6 +989,7 @@ export function GovernanceSettingsPage() {
         sessionStartContextPaths:
           hookConfiguration?.effectiveHookSessionStartContextPaths,
         sessionStartMaxChars: hookConfiguration?.effectiveHookSessionStartMaxChars,
+        sessionStartTemplate: hookConfiguration?.effectiveHookSessionStartTemplate,
         secretPasteBlock:
           hookConfiguration?.effectiveHookUserPromptSubmitBlockSecretPasteEnabled,
         dangerousCommandBlock:
@@ -1033,9 +1106,9 @@ export function GovernanceSettingsPage() {
                 message: "Workspace Baseline",
               })}
               meta={i18n._({
-                id: "Values stored in .codex/hooks.json for the selected workspace.",
+                id: "Values load from workspace hooks.json first and fall back to CODEX_HOME/hooks.json when no workspace file exists.",
                 message:
-                  "Values stored in .codex/hooks.json for the selected workspace.",
+                  "Values load from workspace hooks.json first and fall back to CODEX_HOME/hooks.json when no workspace file exists.",
               })}
               tone={workspaceBaselineCount > 0 ? "active" : "default"}
               value={i18n._({
@@ -1100,9 +1173,9 @@ export function GovernanceSettingsPage() {
                 })}
                 <HelpBadge
                   content={i18n._({
-                    id: "Hooks and turn policy do not share the same storage layer. This page unifies access, but still keeps runtime overrides separate from workspace baseline.",
+                    id: "Hooks and turn policy do not share the same storage layer. Hook baseline reads workspace hooks.json first, falls back to CODEX_HOME/hooks.json when needed, and still keeps runtime overrides separate.",
                     message:
-                      "Hooks and turn policy do not share the same storage layer. This page unifies access, but still keeps runtime overrides separate from workspace baseline.",
+                      "Hooks and turn policy do not share the same storage layer. Hook baseline reads workspace hooks.json first, falls back to CODEX_HOME/hooks.json when needed, and still keeps runtime overrides separate.",
                   })}
                   label={i18n._({
                     id: "Explain governance operating model",
@@ -1171,9 +1244,9 @@ export function GovernanceSettingsPage() {
                   </button>
                 }
                 description={i18n._({
-                  id: "Workspace baseline writes only .codex/hooks.json and remains isolated from global runtime preferences.",
+                  id: "Workspace baseline reads workspace hooks.json first, falls back to CODEX_HOME/hooks.json when needed, and writes only workspace .codex/hooks.json.",
                   message:
-                    "Workspace baseline writes only .codex/hooks.json and remains isolated from global runtime preferences.",
+                    "Workspace baseline reads workspace hooks.json first, falls back to CODEX_HOME/hooks.json when needed, and writes only workspace .codex/hooks.json.",
                 })}
                 marker="W"
                 meta={hookConfiguration?.loadedFromPath ?? ".codex/hooks.json"}
@@ -1642,11 +1715,7 @@ export function GovernanceSettingsPage() {
                       onChange={(value) =>
                         setHookSessionStartEnabled(value as TriStateValue)
                       }
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "enabled", label: "Enabled" },
-                        { value: "disabled", label: "Disabled" },
-                      ]}
+                      options={triStateOptions}
                       value={hookSessionStartEnabled}
                     />
                   </label>
@@ -1683,11 +1752,7 @@ export function GovernanceSettingsPage() {
                       onChange={(value) =>
                         setHookSecretPasteBlockEnabled(value as TriStateValue)
                       }
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "enabled", label: "Enabled" },
-                        { value: "disabled", label: "Disabled" },
-                      ]}
+                      options={triStateOptions}
                       value={hookSecretPasteBlockEnabled}
                     />
                   </label>
@@ -1710,51 +1775,119 @@ export function GovernanceSettingsPage() {
                           value as TriStateValue,
                         )
                       }
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "enabled", label: "Enabled" },
-                        { value: "disabled", label: "Disabled" },
-                      ]}
+                      options={triStateOptions}
                       value={hookDangerousCommandBlockEnabled}
                     />
                   </label>
                 </div>
 
-                <TextArea
-                  hint={i18n._({
-                    id: "One path per line. When configured, these replace workspace baseline SessionStart context paths at runtime.",
-                    message:
-                      "One path per line. When configured, these replace workspace baseline SessionStart context paths at runtime.",
-                  })}
-                  label={i18n._({
-                    id: "SessionStart context paths",
-                    message: "SessionStart context paths",
-                  })}
-                  onChange={(event) =>
-                    setHookSessionStartContextPaths(event.target.value)
-                  }
-                  placeholder=".codex/SESSION_START.md\nREADME.md"
-                  rows={5}
-                  value={hookSessionStartContextPaths}
-                />
+	                <TextArea
+	                  hint={i18n._({
+	                    id: "One path per line. When configured, these replace workspace baseline SessionStart context paths at runtime.",
+	                    message:
+	                      "One path per line. When configured, these replace workspace baseline SessionStart context paths at runtime.",
+	                  })}
+	                  label={i18n._({
+	                    id: "SessionStart context paths",
+	                    message: "SessionStart context paths",
+	                  })}
+	                  onChange={(event) =>
+	                    setHookSessionStartContextPaths(event.target.value)
+	                  }
+	                  placeholder={i18n._({
+	                    id: "SessionStart context paths placeholder",
+	                    message: ".codex/SESSION_START.md\n.codex/session-start.md",
+	                  })}
+	                  rows={5}
+	                  value={hookSessionStartContextPaths}
+	                />
 
-                <TextArea
-                  hint={i18n._({
-                    id: "Additional protected paths merged into the effective governance path set.",
-                    message:
-                      "Additional protected paths merged into the effective governance path set.",
-                  })}
-                  label={i18n._({
-                    id: "Additional protected governance paths",
-                    message: "Additional protected governance paths",
-                  })}
-                  onChange={(event) =>
-                    setHookProtectedGovernancePaths(event.target.value)
-                  }
-                  placeholder="docs/governance.md\nops/release-policy.md"
-                  rows={4}
-                  value={hookProtectedGovernancePaths}
-                />
+	                <TextArea
+	                  hint={i18n._({
+	                    id: "Leave blank to stop overriding the template. Use {{context}} and {{user_request}}. {{source_path_line}} expands to the full source line only when a file matched.",
+	                    message:
+	                      "Leave blank to stop overriding the template. Use {{context}} and {{user_request}}. {{source_path_line}} expands to the full source line only when a file matched.",
+	                  })}
+	                  label={i18n._({
+	                    id: "SessionStart template override",
+	                    message: "SessionStart template override",
+	                  })}
+	                  onChange={(event) =>
+	                    setHookSessionStartTemplate(event.target.value)
+	                  }
+	                  placeholder={i18n._({
+	                    id: "SessionStart template override placeholder",
+	                    message:
+	                      "在处理当前请求前，请先遵循以下项目上下文与约定。\n{{source_path_line}}项目上下文摘录：\n{{context}}\n\n用户请求：\n{{user_request}}",
+	                  })}
+	                  rows={8}
+	                  value={hookSessionStartTemplate}
+	                />
+
+	                <div className="setting-row__actions">
+	                  <button
+	                    className="ide-button ide-button--secondary ide-button--sm"
+	                    onClick={() =>
+	                      setHookSessionStartTemplate(DEFAULT_SESSION_START_TEMPLATE)
+	                    }
+	                    type="button"
+	                  >
+	                    {i18n._({
+	                      id: "Load default template",
+	                      message: "Load default template",
+	                    })}
+	                  </button>
+	                </div>
+
+	                <p className="config-inline-note">
+	                  {i18n._({
+	                    id: "Supported placeholders: {{context}}, {{user_request}}, {{source_path_line}}, and {{source_path}}.",
+	                    message:
+	                      "Supported placeholders: {{context}}, {{user_request}}, {{source_path_line}}, and {{source_path}}.",
+	                  })}
+	                </p>
+
+	                <div className="settings-subsection settings-output-card">
+	                  <div className="settings-subsection__header">
+	                    <div className="settings-output-card__title-block">
+	                      <strong>
+	                        {i18n._({
+	                          id: "SessionStart template preview",
+	                          message: "SessionStart template preview",
+	                        })}
+	                      </strong>
+	                      <p>
+	                        {i18n._({
+	                          id: "Preview uses sample context and request values. A blank field falls back to the built-in default template preview.",
+	                          message:
+	                            "Preview uses sample context and request values. A blank field falls back to the built-in default template preview.",
+	                        })}
+	                      </p>
+	                    </div>
+	                  </div>
+	                  <pre className="code-block">{sessionStartTemplatePreview}</pre>
+	                </div>
+
+	                <TextArea
+	                  hint={i18n._({
+	                    id: "Additional protected paths merged into the effective governance path set.",
+	                    message:
+	                      "Additional protected paths merged into the effective governance path set.",
+	                  })}
+	                  label={i18n._({
+	                    id: "Additional protected governance paths",
+	                    message: "Additional protected governance paths",
+	                  })}
+	                  onChange={(event) =>
+	                    setHookProtectedGovernancePaths(event.target.value)
+	                  }
+	                  placeholder={i18n._({
+	                    id: "Additional protected governance paths placeholder",
+	                    message: "docs/governance.md\nops/release-policy.md",
+	                  })}
+	                  rows={4}
+	                  value={hookProtectedGovernancePaths}
+	                />
               </div>
             </div>
           </CollapsiblePanel>
@@ -1824,41 +1957,52 @@ export function GovernanceSettingsPage() {
 
                 <div className="governance-form-grid">
                   <label className="field">
-                    <span>Post-tool-use failed validation</span>
+                    <span>
+                      {i18n._({
+                        id: "Post-tool-use failed validation",
+                        message: "Post-tool-use failed validation",
+                      })}
+                    </span>
                     <SelectControl
-                      ariaLabel="Select post-tool-use policy override"
+                      ariaLabel={i18n._({
+                        id: "Select post-tool-use policy override",
+                        message: "Select post-tool-use policy override",
+                      })}
                       fullWidth
                       onChange={(value) =>
                         setTurnPolicyPostToolUseEnabled(value as TriStateValue)
                       }
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "enabled", label: "Enabled" },
-                        { value: "disabled", label: "Disabled" },
-                      ]}
+                      options={triStateOptions}
                       value={turnPolicyPostToolUseEnabled}
                     />
                   </label>
                   <label className="field">
-                    <span>Missing successful verification</span>
+                    <span>
+                      {i18n._({
+                        id: "Missing successful verification",
+                        message: "Missing successful verification",
+                      })}
+                    </span>
                     <SelectControl
-                      ariaLabel="Select missing verification policy override"
+                      ariaLabel={i18n._({
+                        id: "Select missing verification policy override",
+                        message: "Select missing verification policy override",
+                      })}
                       fullWidth
                       onChange={(value) =>
                         setTurnPolicyStopMissingVerificationEnabled(
                           value as TriStateValue,
                         )
                       }
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "enabled", label: "Enabled" },
-                        { value: "disabled", label: "Disabled" },
-                      ]}
+                      options={triStateOptions}
                       value={turnPolicyStopMissingVerificationEnabled}
                     />
                   </label>
                   <Input
-                    label="Follow-up cooldown (ms)"
+                    label={i18n._({
+                      id: "Follow-up cooldown (ms)",
+                      message: "Follow-up cooldown (ms)",
+                    })}
                     min={1}
                     onChange={(event) =>
                       setTurnPolicyFollowUpCooldownMs(event.target.value)
@@ -1867,7 +2011,10 @@ export function GovernanceSettingsPage() {
                     value={turnPolicyFollowUpCooldownMs}
                   />
                   <Input
-                    label="Post-tool-use follow-up cooldown (ms)"
+                    label={i18n._({
+                      id: "Post-tool-use follow-up cooldown (ms)",
+                      message: "Post-tool-use follow-up cooldown (ms)",
+                    })}
                     min={1}
                     onChange={(event) =>
                       setTurnPolicyPostToolUseFollowUpCooldownMs(
@@ -1878,7 +2025,10 @@ export function GovernanceSettingsPage() {
                     value={turnPolicyPostToolUseFollowUpCooldownMs}
                   />
                   <Input
-                    label="Missing verification follow-up cooldown (ms)"
+                    label={i18n._({
+                      id: "Missing verification follow-up cooldown (ms)",
+                      message: "Missing verification follow-up cooldown (ms)",
+                    })}
                     min={1}
                     onChange={(event) =>
                       setTurnPolicyStopMissingVerificationFollowUpCooldownMs(
@@ -1892,72 +2042,96 @@ export function GovernanceSettingsPage() {
 
                 <div className="governance-form-grid">
                   <label className="field">
-                    <span>Post-tool-use primary action</span>
+                    <span>
+                      {i18n._({
+                        id: "Post-tool-use primary action",
+                        message: "Post-tool-use primary action",
+                      })}
+                    </span>
                     <SelectControl
-                      ariaLabel="Select post-tool-use primary action"
+                      ariaLabel={i18n._({
+                        id: "Select post-tool-use primary action",
+                        message: "Select post-tool-use primary action",
+                      })}
                       fullWidth
                       onChange={setTurnPolicyPostToolUsePrimaryAction}
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "steer", label: "Steer" },
-                        { value: "followUp", label: "Follow-up" },
-                        { value: "interrupt", label: "Interrupt" },
-                      ]}
+                      options={primaryActionOptions}
                       value={turnPolicyPostToolUsePrimaryAction}
                     />
                   </label>
                   <label className="field">
-                    <span>Missing verification primary action</span>
+                    <span>
+                      {i18n._({
+                        id: "Missing verification primary action",
+                        message: "Missing verification primary action",
+                      })}
+                    </span>
                     <SelectControl
-                      ariaLabel="Select missing verification primary action"
+                      ariaLabel={i18n._({
+                        id: "Select missing verification primary action",
+                        message: "Select missing verification primary action",
+                      })}
                       fullWidth
                       onChange={setTurnPolicyStopMissingVerificationPrimaryAction}
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "steer", label: "Steer" },
-                        { value: "followUp", label: "Follow-up" },
-                        { value: "interrupt", label: "Interrupt" },
-                      ]}
+                      options={primaryActionOptions}
                       value={turnPolicyStopMissingVerificationPrimaryAction}
                     />
                   </label>
                   <label className="field">
-                    <span>Post-tool-use interrupt fallback</span>
+                    <span>
+                      {i18n._({
+                        id: "Post-tool-use interrupt fallback",
+                        message: "Post-tool-use interrupt fallback",
+                      })}
+                    </span>
                     <SelectControl
-                      ariaLabel="Select post-tool-use interrupt fallback"
+                      ariaLabel={i18n._({
+                        id: "Select post-tool-use interrupt fallback",
+                        message: "Select post-tool-use interrupt fallback",
+                      })}
                       fullWidth
                       onChange={setTurnPolicyPostToolUseInterruptBehavior}
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "skip", label: "Skip" },
-                        { value: "followUp", label: "Follow-up" },
-                      ]}
+                      options={interruptFallbackOptions}
                       value={turnPolicyPostToolUseInterruptBehavior}
                     />
                   </label>
                   <label className="field">
-                    <span>Missing verification interrupt fallback</span>
+                    <span>
+                      {i18n._({
+                        id: "Missing verification interrupt fallback",
+                        message: "Missing verification interrupt fallback",
+                      })}
+                    </span>
                     <SelectControl
-                      ariaLabel="Select missing verification interrupt fallback"
+                      ariaLabel={i18n._({
+                        id: "Select missing verification interrupt fallback",
+                        message: "Select missing verification interrupt fallback",
+                      })}
                       fullWidth
                       onChange={setTurnPolicyStopMissingVerificationInterruptBehavior}
-                      options={[
-                        { value: "inherit", label: "Inherit default" },
-                        { value: "skip", label: "Skip" },
-                        { value: "followUp", label: "Follow-up" },
-                      ]}
+                      options={interruptFallbackOptions}
                       value={turnPolicyStopMissingVerificationInterruptBehavior}
                     />
                   </label>
                 </div>
 
                 <TextArea
-                  hint="One prefix per line. Leave blank to remove runtime overrides and fall back to built-in validation command prefixes."
-                  label="Validation command prefixes"
+                  hint={i18n._({
+                    id: "One prefix per line. Leave blank to remove runtime overrides and fall back to built-in validation command prefixes.",
+                    message:
+                      "One prefix per line. Leave blank to remove runtime overrides and fall back to built-in validation command prefixes.",
+                  })}
+                  label={i18n._({
+                    id: "Validation command prefixes",
+                    message: "Validation command prefixes",
+                  })}
                   onChange={(event) =>
                     setTurnPolicyValidationCommandPrefixes(event.target.value)
                   }
-                  placeholder="npm test\npytest"
+                  placeholder={i18n._({
+                    id: "Validation command prefixes placeholder",
+                    message: "npm test\npytest",
+                  })}
                   rows={4}
                   value={turnPolicyValidationCommandPrefixes}
                 />
@@ -2029,7 +2203,10 @@ export function GovernanceSettingsPage() {
                 )}
                 <div className="governance-form-grid">
                   <Input
-                    label="Coverage threshold (%)"
+                    label={i18n._({
+                      id: "Coverage threshold (%)",
+                      message: "Coverage threshold (%)",
+                    })}
                     min={0}
                     onChange={(event) =>
                       setTurnPolicyAlertCoverageThresholdPercent(
@@ -2040,7 +2217,10 @@ export function GovernanceSettingsPage() {
                     value={turnPolicyAlertCoverageThresholdPercent}
                   />
                   <Input
-                    label="Post-tool-use latency P95 (ms)"
+                    label={i18n._({
+                      id: "Post-tool-use latency P95 (ms)",
+                      message: "Post-tool-use latency P95 (ms)",
+                    })}
                     min={0}
                     onChange={(event) =>
                       setTurnPolicyAlertPostToolUseLatencyP95ThresholdMs(
@@ -2051,7 +2231,10 @@ export function GovernanceSettingsPage() {
                     value={turnPolicyAlertPostToolUseLatencyP95ThresholdMs}
                   />
                   <Input
-                    label="Stop latency P95 (ms)"
+                    label={i18n._({
+                      id: "Stop latency P95 (ms)",
+                      message: "Stop latency P95 (ms)",
+                    })}
                     min={0}
                     onChange={(event) =>
                       setTurnPolicyAlertStopLatencyP95ThresholdMs(
@@ -2062,7 +2245,10 @@ export function GovernanceSettingsPage() {
                     value={turnPolicyAlertStopLatencyP95ThresholdMs}
                   />
                   <Input
-                    label="Source action success threshold (%)"
+                    label={i18n._({
+                      id: "Source action success threshold (%)",
+                      message: "Source action success threshold (%)",
+                    })}
                     min={0}
                     onChange={(event) =>
                       setTurnPolicyAlertSourceActionSuccessThresholdPercent(
@@ -2141,38 +2327,72 @@ export function GovernanceSettingsPage() {
                   }),
                 )}
                 <TextArea
-                  hint="One alert code per line."
-                  label="Suppressed alert codes"
+                  hint={i18n._({
+                    id: "One alert code per line.",
+                    message: "One alert code per line.",
+                  })}
+                  label={i18n._({
+                    id: "Suppressed alert codes",
+                    message: "Suppressed alert codes",
+                  })}
                   onChange={(event) =>
                     setTurnPolicyAlertSuppressedCodes(event.target.value)
                   }
-                  placeholder="coverage_low\naction_success_low"
+                  placeholder={i18n._({
+                    id: "Suppressed alert codes placeholder",
+                    message: "coverage_low\naction_success_low",
+                  })}
                   rows={4}
                   value={turnPolicyAlertSuppressedCodes}
                 />
                 <TextArea
-                  hint="One alert code per line."
-                  label="Acknowledged alert codes"
+                  hint={i18n._({
+                    id: "One alert code per line.",
+                    message: "One alert code per line.",
+                  })}
+                  label={i18n._({
+                    id: "Acknowledged alert codes",
+                    message: "Acknowledged alert codes",
+                  })}
                   onChange={(event) =>
                     setTurnPolicyAlertAcknowledgedCodes(event.target.value)
                   }
-                  placeholder="stop_latency_high"
+                  placeholder={i18n._({
+                    id: "Acknowledged alert codes placeholder",
+                    message: "stop_latency_high",
+                  })}
                   rows={4}
                   value={turnPolicyAlertAcknowledgedCodes}
                 />
                 <TextArea
-                  hint="One alert code per line."
-                  label="Snoozed alert codes"
+                  hint={i18n._({
+                    id: "One alert code per line.",
+                    message: "One alert code per line.",
+                  })}
+                  label={i18n._({
+                    id: "Snoozed alert codes",
+                    message: "Snoozed alert codes",
+                  })}
                   onChange={(event) =>
                     setTurnPolicyAlertSnoozedCodes(event.target.value)
                   }
-                  placeholder="bot_action_success_low"
+                  placeholder={i18n._({
+                    id: "Snoozed alert codes placeholder",
+                    message: "bot_action_success_low",
+                  })}
                   rows={4}
                   value={turnPolicyAlertSnoozedCodes}
                 />
                 <Input
-                  hint="Optional shared snooze-until timestamp for current snoozed codes."
-                  label="Snooze until"
+                  hint={i18n._({
+                    id: "Optional shared snooze-until timestamp for current snoozed codes.",
+                    message:
+                      "Optional shared snooze-until timestamp for current snoozed codes.",
+                  })}
+                  label={i18n._({
+                    id: "Snooze until",
+                    message: "Snooze until",
+                  })}
                   onChange={(event) =>
                     setTurnPolicyAlertSnoozeUntil(event.target.value)
                   }
@@ -2485,8 +2705,15 @@ export function GovernanceSettingsPage() {
                 }
                 type="button"
               >
-                <strong>Overview</strong>
-                <span>Inspect effective state and source layering.</span>
+                <strong>
+                  {i18n._({ id: "Overview", message: "Overview" })}
+                </strong>
+                <span>
+                  {i18n._({
+                    id: "Inspect effective state and source layering.",
+                    message: "Inspect effective state and source layering.",
+                  })}
+                </span>
               </button>
               <button
                 className="governance-quick-menu__item"
@@ -2498,8 +2725,18 @@ export function GovernanceSettingsPage() {
                 }
                 type="button"
               >
-                <strong>Runtime Controls</strong>
-                <span>Edit global overrides with collapsible sections.</span>
+                <strong>
+                  {i18n._({
+                    id: "Runtime Controls",
+                    message: "Runtime Controls",
+                  })}
+                </strong>
+                <span>
+                  {i18n._({
+                    id: "Edit global overrides with collapsible sections.",
+                    message: "Edit global overrides with collapsible sections.",
+                  })}
+                </span>
               </button>
               <button
                 className="governance-quick-menu__item"
@@ -2511,8 +2748,18 @@ export function GovernanceSettingsPage() {
                 }
                 type="button"
               >
-                <strong>Workspace Baseline</strong>
-                <span>Edit .codex/hooks.json without leaving settings.</span>
+                <strong>
+                  {i18n._({
+                    id: "Workspace Baseline",
+                    message: "Workspace Baseline",
+                  })}
+                </strong>
+                <span>
+                  {i18n._({
+                    id: "Edit .codex/hooks.json without leaving settings.",
+                    message: "Edit .codex/hooks.json without leaving settings.",
+                  })}
+                </span>
               </button>
               <button
                 className="governance-quick-menu__item"
@@ -2524,8 +2771,15 @@ export function GovernanceSettingsPage() {
                 }
                 type="button"
               >
-                <strong>Activity</strong>
-                <span>Review policy decisions and hook runs together.</span>
+                <strong>
+                  {i18n._({ id: "Activity", message: "Activity" })}
+                </strong>
+                <span>
+                  {i18n._({
+                    id: "Review policy decisions and hook runs together.",
+                    message: "Review policy decisions and hook runs together.",
+                  })}
+                </span>
               </button>
             </div>
             <div className="governance-quick-menu__links">

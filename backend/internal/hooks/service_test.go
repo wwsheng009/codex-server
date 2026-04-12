@@ -17,6 +17,36 @@ import (
 	"codex-server/backend/internal/turns"
 )
 
+func writeDefaultSessionStartDocument(t *testing.T, rootDir string, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Join(rootDir, ".codex"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(rootDir, ".codex", "SESSION_START.md"),
+		[]byte(content),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func writeUserCodexSessionStartDocument(t *testing.T, codexHome string, fileName string, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(codexHome, fileName),
+		[]byte(content),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
 func TestServiceRecordsHookRunAndDecisionForFailedValidationCommand(t *testing.T) {
 	t.Parallel()
 
@@ -833,13 +863,11 @@ func TestServiceUsesGovernedFollowUpForConfiguredFollowUpAction(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
-	if err := os.WriteFile(
-		filepath.Join(rootDir, "README.md"),
-		[]byte("# Hook Context\n\n- governed follow-up should inherit session start context"),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Hook Context\n\n- governed follow-up should inherit session start context",
+	)
 
 	dataStore := store.NewMemoryStore()
 	dataStore.SetRuntimePreferences(store.RuntimePreferences{
@@ -886,7 +914,7 @@ func TestServiceUsesGovernedFollowUpForConfiguredFollowUpAction(t *testing.T) {
 		return fakeTurns.startCount() == 1
 	})
 
-	if fakeTurns.startCalls[0].input == "" || !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：README.md") {
+	if fakeTurns.startCalls[0].input == "" || !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：.codex/SESSION_START.md") {
 		t.Fatalf("expected governed follow-up input to include injected session-start context, got %q", fakeTurns.startCalls[0].input)
 	}
 
@@ -921,13 +949,11 @@ func TestServiceUsesGovernedFollowUpWhenSteerFallsBackWithoutActiveTurn(t *testi
 	t.Parallel()
 
 	rootDir := t.TempDir()
-	if err := os.WriteFile(
-		filepath.Join(rootDir, "README.md"),
-		[]byte("# Hook Context\n\n- steer fallback follow-up should inherit session start context"),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Hook Context\n\n- steer fallback follow-up should inherit session start context",
+	)
 
 	dataStore := store.NewMemoryStore()
 	workspace := dataStore.CreateWorkspace("Workspace A", rootDir)
@@ -965,7 +991,7 @@ func TestServiceUsesGovernedFollowUpWhenSteerFallsBackWithoutActiveTurn(t *testi
 		return fakeTurns.steerCount() == 1 && fakeTurns.startCount() == 1
 	})
 
-	if fakeTurns.startCalls[0].input == "" || !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：README.md") {
+	if fakeTurns.startCalls[0].input == "" || !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：.codex/SESSION_START.md") {
 		t.Fatalf("expected steer fallback follow-up input to include injected session-start context, got %q", fakeTurns.startCalls[0].input)
 	}
 
@@ -1000,13 +1026,11 @@ func TestServiceFallsBackToFollowUpWhenStopInterruptHasNoActiveTurn(t *testing.T
 	t.Parallel()
 
 	rootDir := t.TempDir()
-	if err := os.WriteFile(
-		filepath.Join(rootDir, "README.md"),
-		[]byte("# Hook Context\n\n- interrupt fallback follow-up should inherit session start context"),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Hook Context\n\n- interrupt fallback follow-up should inherit session start context",
+	)
 
 	dataStore := store.NewMemoryStore()
 	dataStore.SetRuntimePreferences(store.RuntimePreferences{
@@ -1059,7 +1083,7 @@ func TestServiceFallsBackToFollowUpWhenStopInterruptHasNoActiveTurn(t *testing.T
 		return fakeTurns.interruptCount() == 1 && fakeTurns.startCount() == 1
 	})
 
-	if fakeTurns.startCalls[0].input == "" || !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：README.md") {
+	if fakeTurns.startCalls[0].input == "" || !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：.codex/SESSION_START.md") {
 		t.Fatalf("expected interrupt fallback follow-up input to include injected session-start context, got %q", fakeTurns.startCalls[0].input)
 	}
 
@@ -1141,13 +1165,11 @@ func TestStartGovernedTurnAppliesSessionStartBeforeStartingTurn(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
-	if err := os.WriteFile(
-		filepath.Join(rootDir, "README.md"),
-		[]byte("# Repo Rules\n\n- governed turn start should inject this context"),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Repo Rules\n\n- governed turn start should inject this context",
+	)
 
 	dataStore := store.NewMemoryStore()
 	workspace := dataStore.CreateWorkspace("Workspace A", rootDir)
@@ -1186,7 +1208,7 @@ func TestStartGovernedTurnAppliesSessionStartBeforeStartingTurn(t *testing.T) {
 	if fakeTurns.startCalls[0].input != result.FinalInput {
 		t.Fatalf("expected turns.Start input to match governed final input, got call=%q result=%q", fakeTurns.startCalls[0].input, result.FinalInput)
 	}
-	if !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：README.md") {
+	if !strings.Contains(fakeTurns.startCalls[0].input, "来源文件：.codex/SESSION_START.md") {
 		t.Fatalf("expected governed final input to include injected session-start context, got %q", fakeTurns.startCalls[0].input)
 	}
 	if result.Run == nil {
@@ -2043,13 +2065,11 @@ func TestEvaluateSessionStartInjectsProjectContextForFirstTurn(t *testing.T) {
 	t.Parallel()
 
 	rootDir := t.TempDir()
-	if err := os.WriteFile(
-		filepath.Join(rootDir, "README.md"),
-		[]byte("# Repo Rules\n\n- run tests before finalizing\n- keep hooks visible in the thread"),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Repo Rules\n\n- run tests before finalizing\n- keep hooks visible in the thread",
+	)
 
 	dataStore := store.NewMemoryStore()
 	workspace := dataStore.CreateWorkspace("Workspace A", rootDir)
@@ -2078,7 +2098,7 @@ func TestEvaluateSessionStartInjectsProjectContextForFirstTurn(t *testing.T) {
 	if !result.Applied {
 		t.Fatalf("expected session-start context injection, got %#v", result)
 	}
-	if !strings.Contains(result.UpdatedInput, "来源文件：README.md") || !strings.Contains(result.UpdatedInput, "请修复 hooks 的入口治理") {
+	if !strings.Contains(result.UpdatedInput, "来源文件：.codex/SESSION_START.md") || !strings.Contains(result.UpdatedInput, "请修复 hooks 的入口治理") {
 		t.Fatalf("expected updated input to include context and original request, got %q", result.UpdatedInput)
 	}
 	if !strings.Contains(result.AdditionalContext, "run tests before finalizing") {
@@ -2104,6 +2124,152 @@ func TestEvaluateSessionStartInjectsProjectContextForFirstTurn(t *testing.T) {
 	}
 	if !strings.Contains(run.AdditionalContext, "keep hooks visible in the thread") {
 		t.Fatalf("expected persisted additional context, got %#v", run)
+	}
+}
+
+func TestEvaluateSessionStartUsesConfiguredTemplate(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Repo Rules\n\n- keep template configurable",
+	)
+
+	template := "项目摘要:\n{{context}}\n{{source_path_line}}请求如下:\n{{user_request}}"
+	dataStore := store.NewMemoryStore()
+	dataStore.SetRuntimePreferences(store.RuntimePreferences{
+		HookSessionStartTemplate: &template,
+	})
+	workspace := dataStore.CreateWorkspace("Workspace A", rootDir)
+	dataStore.UpsertThread(store.Thread{
+		ID:           "thread-1",
+		WorkspaceID:  workspace.ID,
+		Cwd:          rootDir,
+		Materialized: true,
+		Name:         "Thread 1",
+		Status:       "idle",
+	})
+
+	service := NewService(dataStore, nil, events.NewHub())
+	result, err := service.EvaluateSessionStart(context.Background(), SessionStartInput{
+		WorkspaceID:   workspace.ID,
+		ThreadID:      "thread-1",
+		TriggerMethod: "turn/start",
+		Scope:         "thread",
+		Input:         "请允许前端配置模板",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateSessionStart() error = %v", err)
+	}
+	if !result.Applied {
+		t.Fatalf("expected configured template injection, got %#v", result)
+	}
+	if strings.Contains(result.UpdatedInput, "项目上下文摘录：") {
+		t.Fatalf("expected default template labels to be replaced, got %q", result.UpdatedInput)
+	}
+	if !strings.Contains(result.UpdatedInput, "项目摘要:\n# Repo Rules") {
+		t.Fatalf("expected configured template to include context, got %q", result.UpdatedInput)
+	}
+	if !strings.Contains(result.UpdatedInput, "来源文件：.codex/SESSION_START.md") {
+		t.Fatalf("expected source path line placeholder to expand, got %q", result.UpdatedInput)
+	}
+	if !strings.Contains(result.UpdatedInput, "请求如下:\n请允许前端配置模板") {
+		t.Fatalf("expected configured template to include request, got %q", result.UpdatedInput)
+	}
+}
+
+func TestEvaluateSessionStartFallsBackToUserCodexHomeWhenWorkspaceDocumentIsMissing(t *testing.T) {
+	rootDir := t.TempDir()
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	writeUserCodexSessionStartDocument(
+		t,
+		codexHome,
+		"SESSION_START.md",
+		"# User Rules\n\n- use codex home fallback when workspace document is missing",
+	)
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", rootDir)
+	dataStore.UpsertThread(store.Thread{
+		ID:           "thread-1",
+		WorkspaceID:  workspace.ID,
+		Cwd:          rootDir,
+		Materialized: true,
+		Name:         "Thread 1",
+		Status:       "idle",
+	})
+
+	service := NewService(dataStore, nil, events.NewHub())
+	result, err := service.EvaluateSessionStart(context.Background(), SessionStartInput{
+		WorkspaceID:   workspace.ID,
+		ThreadID:      "thread-1",
+		TriggerMethod: "turn/start",
+		Scope:         "thread",
+		Input:         "请验证用户级 .codex 回退",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateSessionStart() error = %v", err)
+	}
+	if !result.Applied {
+		t.Fatalf("expected CODEX_HOME fallback to inject session-start context, got %#v", result)
+	}
+	if !strings.Contains(result.UpdatedInput, "来源文件：.codex/SESSION_START.md") {
+		t.Fatalf("expected CODEX_HOME fallback to preserve .codex display path, got %q", result.UpdatedInput)
+	}
+	if !strings.Contains(result.AdditionalContext, "use codex home fallback") {
+		t.Fatalf("expected CODEX_HOME fallback context, got %q", result.AdditionalContext)
+	}
+}
+
+func TestEvaluateSessionStartPrefersWorkspaceCodexDocumentOverUserCodexHome(t *testing.T) {
+	rootDir := t.TempDir()
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Workspace Rules\n\n- prefer workspace codex document first",
+	)
+	writeUserCodexSessionStartDocument(
+		t,
+		codexHome,
+		"SESSION_START.md",
+		"# User Rules\n\n- do not override workspace codex document",
+	)
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", rootDir)
+	dataStore.UpsertThread(store.Thread{
+		ID:           "thread-1",
+		WorkspaceID:  workspace.ID,
+		Cwd:          rootDir,
+		Materialized: true,
+		Name:         "Thread 1",
+		Status:       "idle",
+	})
+
+	service := NewService(dataStore, nil, events.NewHub())
+	result, err := service.EvaluateSessionStart(context.Background(), SessionStartInput{
+		WorkspaceID:   workspace.ID,
+		ThreadID:      "thread-1",
+		TriggerMethod: "turn/start",
+		Scope:         "thread",
+		Input:         "请验证 workspace .codex 优先级",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateSessionStart() error = %v", err)
+	}
+	if !result.Applied {
+		t.Fatalf("expected workspace .codex document to inject session-start context, got %#v", result)
+	}
+	if !strings.Contains(result.AdditionalContext, "prefer workspace codex document first") {
+		t.Fatalf("expected workspace .codex document to win, got %q", result.AdditionalContext)
+	}
+	if strings.Contains(result.AdditionalContext, "do not override workspace codex document") {
+		t.Fatalf("expected workspace .codex document to take precedence over CODEX_HOME, got %q", result.AdditionalContext)
 	}
 }
 
@@ -2355,13 +2521,11 @@ func TestEvaluateSessionStartAppliesPendingResumeSourceForThreadWithTurns(t *tes
 	t.Parallel()
 
 	rootDir := t.TempDir()
-	if err := os.WriteFile(
-		filepath.Join(rootDir, "README.md"),
-		[]byte("# Repo Rules\n\n- reload project context after resume"),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	writeDefaultSessionStartDocument(
+		t,
+		rootDir,
+		"# Repo Rules\n\n- reload project context after resume",
+	)
 
 	dataStore := store.NewMemoryStore()
 	workspace := dataStore.CreateWorkspace("Workspace A", rootDir)
@@ -2422,7 +2586,7 @@ func TestEvaluateSessionStartAppliesPendingResumeSourceForThreadWithTurns(t *tes
 	if result.Run == nil || result.Run.SessionStartSource != sessionStartSourceResume {
 		t.Fatalf("expected persisted resume session-start source, got %#v", result.Run)
 	}
-	if !strings.Contains(result.UpdatedInput, "来源文件：README.md") {
+	if !strings.Contains(result.UpdatedInput, "来源文件：.codex/SESSION_START.md") {
 		t.Fatalf("expected resume session-start to load project context, got %q", result.UpdatedInput)
 	}
 	if got := dataStore.PendingThreadSessionStartSource(workspace.ID, "thread-1"); got != "" {

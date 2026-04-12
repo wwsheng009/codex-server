@@ -5,7 +5,9 @@ import { i18n } from '../../i18n/runtime'
 import type { ThreadTurn } from '../../types/api'
 import {
   areTurnTimelinePropsEqual,
+  LiveFeed,
   nextStreamingRevealLength,
+  PlanStatusStack,
   shouldVirtualizeTurnTimeline,
   TurnTimeline,
 } from './renderers'
@@ -192,6 +194,64 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Completed')
     expect(html).toContain('In progress')
     expect(html).toContain('Pending')
+  })
+
+  it('renders a standalone plan status stack in reverse chronological order', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-older',
+        status: 'completed',
+        items: [
+          {
+            id: 'turn-plan-older',
+            type: 'turnPlan',
+            explanation: 'Prepare the migration.',
+            status: 'completed',
+            steps: [
+              {
+                step: 'Audit existing events',
+                status: 'completed',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'turn-newer',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'turn-plan-newer',
+            type: 'turnPlan',
+            explanation: 'Ship the new plans panel.',
+            status: 'inProgress',
+            steps: [
+              {
+                step: 'Wire plans surface panel',
+                status: 'completed',
+              },
+              {
+                step: 'Add regression coverage',
+                status: 'inProgress',
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<PlanStatusStack turns={turns} />)
+
+    expect(html).toContain('Plan')
+    expect(html).toContain('1/1 done')
+    expect(html).toContain('1/2 done')
+    expect(html).toContain('Ship the new plans panel.')
+    expect(html).toContain('Prepare the migration.')
+    expect(html).not.toContain('Turn turn-newer')
+    expect(html).not.toContain('Turn turn-older')
+    expect(html.indexOf('Ship the new plans panel.')).toBeLessThan(
+      html.indexOf('Prepare the migration.'),
+    )
   })
 
   it('renders web search actions as compact system cards', () => {
@@ -730,5 +790,47 @@ describe('TurnTimeline', () => {
     renderToStaticMarkup(<TurnTimeline turns={[sharedTurn]} />)
 
     expect(itemsAccessCount).toBe(accessesAfterFirstRender)
+  })
+
+  it('renders live feed entries as a collapsed newest-first list', () => {
+    const html = renderToStaticMarkup(
+      <LiveFeed
+        entries={[
+          {
+            kind: 'event',
+            key: 'older-event',
+            event: {
+              workspaceId: 'ws-1',
+              method: 'thread/started',
+              payload: {
+                status: 'started',
+              },
+              ts: '2026-04-12T08:00:00.000Z',
+            },
+          },
+          {
+            kind: 'delta',
+            key: 'newer-delta',
+            groupKey: 'agent:item-1',
+            title: 'Agent Message Stream',
+            subtitle: 'item-1',
+            text: 'Streaming output',
+            startedTs: '2026-04-12T09:00:00.000Z',
+            endedTs: '2026-04-12T09:00:02.000Z',
+            count: 2,
+          },
+        ]}
+      />,
+    )
+
+    expect(html).toContain('live-feed__list')
+    expect(html).toContain('live-feed__entry')
+    expect(html).not.toContain('<details open')
+    expect(html.indexOf('Agent Message Stream')).toBeLessThan(
+      html.indexOf('thread/started'),
+    )
+    expect(html).toContain('2 updates')
+    expect(html).not.toContain('Open to inspect payload details')
+    expect(html).not.toContain('Open to inspect streamed content')
   })
 })

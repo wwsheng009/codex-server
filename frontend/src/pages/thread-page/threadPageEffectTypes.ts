@@ -2,8 +2,9 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { MutableRefObject } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
 
+import type { SurfacePanelView } from '../../lib/layout-config-types'
 import type { MobileThreadChromeInput } from '../../stores/ui-store-types'
-import type { ServerEvent } from '../../types/api'
+import type { ServerEvent, ThreadTurn } from '../../types/api'
 import type { ContextCompactionFeedback } from './threadPageComposerShared'
 
 export type ThreadPageEffectsQueryClient = {
@@ -29,6 +30,7 @@ export type ThreadPageEffectsInput = {
   clearPendingTurn: (threadId: string) => void
   contextCompactionFeedback: ContextCompactionFeedback | null
   currentThreads: Array<{ id: string }>
+  displayedTurns: ThreadTurn[]
   isHeaderSyncBusy: boolean
   isDocumentVisible: boolean
   isMobileViewport: boolean
@@ -58,7 +60,8 @@ export type ThreadPageEffectsInput = {
   setMobileThreadToolsOpen: (value: boolean) => void
   setSelectedThread: (workspaceId: string, threadId?: string) => void
   setSelectedWorkspace: (workspaceId: string) => void
-  setSurfacePanelView: (value: 'approvals' | 'feed' | null) => void
+  surfacePanelView: SurfacePanelView | null
+  setSurfacePanelView: (value: SurfacePanelView | null) => void
   setSyncClock: (value: number) => void
   streamState: string
   syncTitle: string
@@ -127,6 +130,7 @@ export type ThreadPageChromeEffectsInput = {
     statusTone: string
     syncLabel: string
   }
+  displayedTurns: ThreadTurn[]
   isHeaderSyncBusy: boolean
   isMobileViewport: boolean
   isMobileWorkbenchOverlayOpen: boolean
@@ -137,7 +141,8 @@ export type ThreadPageChromeEffectsInput = {
   setIsInspectorExpanded: (value: boolean) => void
   setMobileThreadChrome: (input: MobileThreadChromeInput) => void
   setMobileThreadToolsOpen: (value: boolean) => void
-  setSurfacePanelView: (value: 'approvals' | 'feed' | null) => void
+  surfacePanelView: SurfacePanelView | null
+  setSurfacePanelView: (value: SurfacePanelView | null) => void
   setSyncClock: (value: number) => void
   streamState: string
   syncTitle: string

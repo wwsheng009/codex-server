@@ -351,4 +351,96 @@ describe('ThreadWorkbenchSurface', () => {
     expect(html).not.toContain('Generating reply…')
     expect(html).not.toContain('Sending message…')
   })
+
+  it('renders the standalone plans surface panel when plans view is active', () => {
+    const html = renderToStaticMarkup(
+      <ThreadWorkbenchSurface
+        activeSurfacePanelSide="right"
+        approvalAnswers={{}}
+        approvalErrors={{}}
+        approvals={[]}
+        createThreadErrorMessage={undefined}
+        displayedTurns={[
+          {
+            id: 'turn-1',
+            status: 'inProgress',
+            items: [
+              {
+                id: 'turn-plan-1',
+                type: 'turnPlan',
+                explanation: 'Track update_plan state separately from the chat timeline.',
+                status: 'inProgress',
+                steps: [
+                  {
+                    step: 'Add plans panel view',
+                    status: 'completed',
+                  },
+                  {
+                    step: 'Render grouped plan statuses',
+                    status: 'inProgress',
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+        hasMoreTurnsBefore={false}
+        hasThreads={true}
+        hiddenTurnsCount={0}
+        isCreateThreadPending={false}
+        isLoadingOlderTurns={false}
+        isThreadsLoaded={true}
+        isThreadSelectionLoading={false}
+        isMobileViewport={false}
+        isSurfacePanelResizing={false}
+        isThreadPinnedToLatest={true}
+        isThreadProcessing={false}
+        isThreadViewportInteracting={false}
+        isWaitingForThreadData={false}
+        liveTimelineEntries={[]}
+        onChangeApprovalAnswer={() => undefined}
+        onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
+        onCreateThread={() => undefined}
+        onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
+        onRespondApproval={() => undefined}
+        onRetryServerRequest={() => undefined}
+        onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
+        onSurfacePanelResizeStart={() => undefined}
+        onThreadViewportScroll={() => undefined}
+        onToggleSurfacePanelSide={() => undefined}
+        respondingToApproval={false}
+        selectedThread={{
+          id: 'thread-1',
+          workspaceId: 'ws-1',
+          name: 'Thread 1',
+          status: 'inProgress',
+          archived: false,
+          createdAt: '2026-03-20T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:00.000Z',
+        }}
+        surfacePanelView="plans"
+        threadDetailError={null}
+        threadDetailIsLoading={false}
+        threadLogStyle={{}}
+        threadViewportRef={{ current: null }}
+        timelineIdentity="thread-1"
+        workspaceName="workspace"
+      >
+        <div>composer-probe</div>
+      </ThreadWorkbenchSurface>,
+    )
+
+    expect(html).toContain('<h2>Plans</h2>')
+    expect(html).not.toContain('Review update_plan step lists and their current execution status in one place.')
+    expect(html).toContain('Track update_plan state separately from the chat timeline.')
+    expect(html).toContain('Add plans panel view')
+    expect(html).toContain('Render grouped plan statuses')
+    expect(html).toContain('workbench-log__panel--plans')
+    expect(html).toContain('workbench-log__panel-body--plans')
+  })
 })

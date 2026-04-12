@@ -402,6 +402,22 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           </button>
           <button
             className={
+              surfacePanelView === 'plans'
+                ? 'pane-section__toggle workbench-pane__panel-toggle workbench-pane__panel-toggle--active'
+                : 'pane-section__toggle workbench-pane__panel-toggle'
+            }
+            onClick={() =>
+              surfacePanelView === 'plans' ? onHideSurfacePanel() : onOpenSurfacePanel('plans')
+            }
+            type="button"
+          >
+            {i18n._({
+              id: 'Plans',
+              message: 'Plans',
+            })}
+          </button>
+          <button
+            className={
               surfacePanelView === 'approvals'
                 ? 'pane-section__toggle workbench-pane__panel-toggle workbench-pane__panel-toggle--active'
                 : 'pane-section__toggle workbench-pane__panel-toggle'

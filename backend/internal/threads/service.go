@@ -2049,6 +2049,7 @@ func mergeProjectedTurns(base []store.ThreadTurn, overlay []store.ThreadTurn) []
 	}
 
 	nextTurns := append([]store.ThreadTurn{}, base...)
+	insertedLeadingGovernance := false
 	for _, projectedTurn := range overlay {
 		index := -1
 		for turnIndex, turn := range nextTurns {
@@ -2059,6 +2060,11 @@ func mergeProjectedTurns(base []store.ThreadTurn, overlay []store.ThreadTurn) []
 		}
 
 		if index < 0 {
+			if !insertedLeadingGovernance && strings.TrimSpace(projectedTurn.ID) == "thread-governance" {
+				nextTurns = append([]store.ThreadTurn{cloneThreadTurn(projectedTurn)}, nextTurns...)
+				insertedLeadingGovernance = true
+				continue
+			}
 			nextTurns = append(nextTurns, cloneThreadTurn(projectedTurn))
 			continue
 		}

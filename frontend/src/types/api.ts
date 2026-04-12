@@ -654,6 +654,8 @@ export type Account = {
   id: string;
   email: string;
   status: string;
+  authMode?: string | null;
+  planType?: string | null;
   lastSyncedAt: string;
 };
 
@@ -673,11 +675,25 @@ export type McpOauthLoginResult = {
   authorizationUrl: string;
 };
 
+export type RateLimitWindow = {
+  usedPercent: number;
+  windowDurationMins?: number | null;
+  resetsAt?: string | null;
+};
+
+export type RateLimitCredits = {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance?: string | null;
+};
+
 export type RateLimit = {
-  name: string;
-  limit: number;
-  remaining: number;
-  resetsAt: string;
+  limitId?: string | null;
+  limitName?: string | null;
+  primary?: RateLimitWindow | null;
+  secondary?: RateLimitWindow | null;
+  credits?: RateLimitCredits | null;
+  planType?: string | null;
 };
 
 export type CatalogItem = {
@@ -745,9 +761,10 @@ export type RuntimePreferencesResult = {
   supportedTerminalShells: string[];
   configuredModelShellTypeOverrides: Record<string, string>;
   configuredOutboundProxyUrl: string;
-  configuredHookSessionStartEnabled?: boolean | null;
-  configuredHookSessionStartContextPaths?: string[];
-  configuredHookSessionStartMaxChars?: number | null;
+	  configuredHookSessionStartEnabled?: boolean | null;
+	  configuredHookSessionStartContextPaths?: string[];
+	  configuredHookSessionStartMaxChars?: number | null;
+	  configuredHookSessionStartTemplate?: string | null;
   configuredHookUserPromptSubmitBlockSecretPasteEnabled?: boolean | null;
   configuredHookPreToolUseBlockDangerousCommandEnabled?: boolean | null;
   configuredHookPreToolUseAdditionalProtectedGovernancePaths?: string[];
@@ -788,9 +805,10 @@ export type RuntimePreferencesResult = {
   defaultDefaultTerminalShell: string;
   defaultModelShellTypeOverrides: Record<string, string>;
   defaultOutboundProxyUrl: string;
-  defaultHookSessionStartEnabled?: boolean;
-  defaultHookSessionStartContextPaths?: string[];
-  defaultHookSessionStartMaxChars?: number;
+	  defaultHookSessionStartEnabled?: boolean;
+	  defaultHookSessionStartContextPaths?: string[];
+	  defaultHookSessionStartMaxChars?: number;
+	  defaultHookSessionStartTemplate?: string;
   defaultHookUserPromptSubmitBlockSecretPasteEnabled?: boolean;
   defaultHookPreToolUseBlockDangerousCommandEnabled?: boolean;
   defaultHookPreToolUseProtectedGovernancePaths?: string[];
@@ -825,9 +843,10 @@ export type RuntimePreferencesResult = {
   effectiveDefaultTerminalShell: string;
   effectiveModelShellTypeOverrides: Record<string, string>;
   effectiveOutboundProxyUrl: string;
-  effectiveHookSessionStartEnabled?: boolean;
-  effectiveHookSessionStartContextPaths?: string[];
-  effectiveHookSessionStartMaxChars?: number;
+	  effectiveHookSessionStartEnabled?: boolean;
+	  effectiveHookSessionStartContextPaths?: string[];
+	  effectiveHookSessionStartMaxChars?: number;
+	  effectiveHookSessionStartTemplate?: string;
   effectiveHookUserPromptSubmitBlockSecretPasteEnabled?: boolean;
   effectiveHookPreToolUseBlockDangerousCommandEnabled?: boolean;
   effectiveHookPreToolUseProtectedGovernancePaths?: string[];
@@ -867,27 +886,31 @@ export type WorkspaceHookConfigurationResult = {
   loadError?: string | null;
   loadedFromPath?: string;
   searchedPaths?: string[];
-  baselineHookSessionStartEnabled?: boolean | null;
-  baselineHookSessionStartContextPaths?: string[];
-  baselineHookSessionStartMaxChars?: number | null;
+	  baselineHookSessionStartEnabled?: boolean | null;
+	  baselineHookSessionStartContextPaths?: string[];
+	  baselineHookSessionStartMaxChars?: number | null;
+	  baselineHookSessionStartTemplate?: string | null;
   baselineHookUserPromptSubmitBlockSecretPasteEnabled?: boolean | null;
   baselineHookPreToolUseBlockDangerousCommandEnabled?: boolean | null;
   baselineHookPreToolUseAdditionalProtectedGovernancePaths?: string[];
-  configuredHookSessionStartEnabled?: boolean | null;
-  configuredHookSessionStartContextPaths?: string[];
-  configuredHookSessionStartMaxChars?: number | null;
+	  configuredHookSessionStartEnabled?: boolean | null;
+	  configuredHookSessionStartContextPaths?: string[];
+	  configuredHookSessionStartMaxChars?: number | null;
+	  configuredHookSessionStartTemplate?: string | null;
   configuredHookUserPromptSubmitBlockSecretPasteEnabled?: boolean | null;
   configuredHookPreToolUseBlockDangerousCommandEnabled?: boolean | null;
   configuredHookPreToolUseAdditionalProtectedGovernancePaths?: string[];
-  effectiveHookSessionStartEnabled?: boolean;
-  effectiveHookSessionStartContextPaths?: string[];
-  effectiveHookSessionStartMaxChars?: number;
+	  effectiveHookSessionStartEnabled?: boolean;
+	  effectiveHookSessionStartContextPaths?: string[];
+	  effectiveHookSessionStartMaxChars?: number;
+	  effectiveHookSessionStartTemplate?: string;
   effectiveHookUserPromptSubmitBlockSecretPasteEnabled?: boolean;
   effectiveHookPreToolUseBlockDangerousCommandEnabled?: boolean;
   effectiveHookPreToolUseProtectedGovernancePaths?: string[];
-  effectiveHookSessionStartEnabledSource?: string;
-  effectiveHookSessionStartContextPathsSource?: string;
-  effectiveHookSessionStartMaxCharsSource?: string;
+	  effectiveHookSessionStartEnabledSource?: string;
+	  effectiveHookSessionStartContextPathsSource?: string;
+	  effectiveHookSessionStartMaxCharsSource?: string;
+	  effectiveHookSessionStartTemplateSource?: string;
   effectiveHookUserPromptSubmitBlockSecretPasteSource?: string;
   effectiveHookPreToolUseDangerousCommandBlockSource?: string;
   effectiveHookPreToolUseProtectedGovernancePathsSource?: string;

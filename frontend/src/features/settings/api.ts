@@ -20,10 +20,11 @@ export type WriteRuntimePreferencesInput = {
   defaultTerminalShell: string;
   modelShellTypeOverrides: Record<string, string>;
   outboundProxyUrl: string;
-  hookSessionStartEnabled?: boolean | null;
-  hookSessionStartContextPaths?: string[] | null;
-  hookSessionStartMaxChars?: number | null;
-  hookUserPromptSubmitBlockSecretPasteEnabled?: boolean | null;
+	  hookSessionStartEnabled?: boolean | null;
+	  hookSessionStartContextPaths?: string[] | null;
+	  hookSessionStartMaxChars?: number | null;
+	  hookSessionStartTemplate?: string | null;
+	  hookUserPromptSubmitBlockSecretPasteEnabled?: boolean | null;
   hookPreToolUseBlockDangerousCommandEnabled?: boolean | null;
   hookPreToolUseAdditionalProtectedGovernancePaths?: string[] | null;
   turnPolicyPostToolUseFailedValidationEnabled?: boolean | null;

@@ -60,7 +60,7 @@ import {
 import { getThread, listThreadsPage } from '../features/threads/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { summarizeRecentBotConnectionSuppressions } from '../features/bots/logStreamUtils'
-import { formatLocalizedStatusLabel, humanizeDisplayValue } from '../i18n/display'
+import { formatLocalizedNumber, formatLocalizedStatusLabel, humanizeDisplayValue } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
 import { buildWorkspaceThreadRoute } from '../lib/thread-routes'
@@ -148,6 +148,57 @@ function botConversationDeliveryPillStatus(status?: string) {
     default:
       return ''
   }
+}
+
+function formatWeChatLoginExpiresInLabel(expiresAt?: string, nowMs = Date.now()) {
+  const expiresAtMs = Date.parse(expiresAt ?? '')
+  if (Number.isNaN(expiresAtMs)) {
+    return ''
+  }
+
+  const remainingMs = expiresAtMs - nowMs
+  if (remainingMs <= 0) {
+    return i18n._({
+      id: 'Expired',
+      message: 'Expired',
+    })
+  }
+  if (remainingMs < 1_000) {
+    return i18n._({
+      id: 'soon',
+      message: 'soon',
+    })
+  }
+
+  const totalSeconds = Math.ceil(remainingMs / 1_000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+
+  if (!minutes) {
+    return i18n._({
+      id: '{seconds} s',
+      message: '{seconds} s',
+      values: { seconds: formatLocalizedNumber(totalSeconds, '0') },
+    })
+  }
+
+  const minutesLabel = i18n._({
+    id: '{minutes} min',
+    message: '{minutes} min',
+    values: { minutes: formatLocalizedNumber(minutes, '0') },
+  })
+
+  if (!seconds) {
+    return minutesLabel
+  }
+
+  const secondsLabel = i18n._({
+    id: '{seconds} s',
+    message: '{seconds} s',
+    values: { seconds: formatLocalizedNumber(seconds, '0') },
+  })
+
+  return `${minutesLabel} ${secondsLabel}`
 }
 
 function summarizeBotConversationDeliveryError(error?: string) {
@@ -1379,8 +1430,15 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     mutationFn: ({ workspaceId, baseUrl }: { workspaceId: string; baseUrl: string }) =>
       startWeChatLogin(workspaceId, { baseUrl }),
     onSuccess: (result) => {
+      if (wechatLoginRefreshReasonRef.current === 'auto-expired') {
+        setWechatLoginAutoRefreshNoticeKey(`auto-refreshed-${result.loginId}`)
+      }
       setWechatLoginId(result.loginId)
       setWechatLoginCopyState('idle')
+    },
+    onSettled: () => {
+      setWechatLoginAutoRefreshPending(false)
+      wechatLoginRefreshReasonRef.current = 'manual'
     },
   })
 
@@ -2826,6 +2884,20 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
           : i18n._({ id: 'None', message: 'None' })
   const activeWeChatLogin: WeChatLogin | null = wechatLoginQuery.data ?? wechatLoginStartMutation.data ?? null
   const activeWeChatLoginStatus = activeWeChatLogin?.status?.trim().toLowerCase() ?? ''
+  const [wechatLoginNow, setWechatLoginNow] = useState(() => Date.now())
+  const [wechatLoginAutoRefreshEnabled, setWechatLoginAutoRefreshEnabled] = useState(false)
+  const [wechatLoginAutoRefreshPending, setWechatLoginAutoRefreshPending] = useState(false)
+  const [wechatLoginAutoRefreshNoticeKey, setWechatLoginAutoRefreshNoticeKey] = useState('')
+  const isWechatLoginExpired = activeWeChatLoginStatus === 'expired'
+  const isWechatLoginRefreshPending = wechatLoginStartMutation.isPending || wechatLoginDeleteMutation.isPending
+  const shouldShowWeChatLoginExpiresIn =
+    Boolean(activeWeChatLogin?.qrCodeContent?.trim()) && !activeWeChatLogin?.credentialReady
+  const wechatLoginExpiresAtMs = Date.parse(activeWeChatLogin?.expiresAt ?? '')
+  const wechatLoginRemainingMs = Number.isNaN(wechatLoginExpiresAtMs) ? 0 : wechatLoginExpiresAtMs - wechatLoginNow
+  const isWechatLoginExpiringSoon =
+    shouldShowWeChatLoginExpiresIn && wechatLoginRemainingMs > 0 && wechatLoginRemainingMs <= 30_000
+  const showWechatLoginRefreshPlaceholder =
+    wechatLoginAutoRefreshPending && !(activeWeChatLogin?.qrCodeContent?.trim() ?? '')
   const wechatLoginWorkspaceId = draft.workspaceId.trim()
   const wechatLoginErrorMessage =
     getErrorMessage(wechatLoginStartMutation.error) ||
@@ -2855,6 +2927,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const wechatDraftPayloadLabel = draft.wechatQrCodeContent.trim()
     ? i18n._({ id: 'Ready', message: 'Ready' })
     : i18n._({ id: 'Not fetched', message: 'Not fetched' })
+  const wechatLoginExpiresInLabel = shouldShowWeChatLoginExpiresIn
+    ? formatWeChatLoginExpiresInLabel(activeWeChatLogin?.expiresAt, wechatLoginNow)
+    : ''
   const wechatDraftCredentialBundleLabel = hasDraftWeChatCredentialBundle
     ? i18n._({ id: 'Applied to form', message: 'Applied to form' })
     : hasDraftConfirmedWeChatLoginSession || activeWeChatLogin?.credentialReady
@@ -2880,7 +2955,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
             id: 'Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service.',
             message:
               'Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service.',
-          })
+        })
   const savedWeChatAccountOptions = useMemo(
     () =>
       savedWeChatAccounts.map((account: WeChatAccount) => ({
@@ -2889,6 +2964,8 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       })),
     [savedWeChatAccounts],
   )
+  const wechatLoginAutoRefreshHandledLoginIdRef = useRef('')
+  const wechatLoginRefreshReasonRef = useRef<'manual' | 'auto-expired'>('manual')
 
   useEffect(() => {
     setWechatLoginModalOpen(false)
@@ -2925,6 +3002,46 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       }
     })
   }, [activeWeChatLogin?.loginId, activeWeChatLogin?.qrCodeContent, activeWeChatLogin?.status])
+
+  useEffect(() => {
+    if (!wechatLoginModalOpen || !shouldShowWeChatLoginExpiresIn) {
+      return
+    }
+
+    setWechatLoginNow(Date.now())
+    const intervalID = window.setInterval(() => {
+      setWechatLoginNow(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalID)
+    }
+  }, [activeWeChatLogin?.expiresAt, shouldShowWeChatLoginExpiresIn, wechatLoginModalOpen])
+
+  useEffect(() => {
+    if (
+      !wechatLoginModalOpen ||
+      !wechatLoginAutoRefreshEnabled ||
+      !isWechatLoginExpired ||
+      isWechatLoginRefreshPending
+    ) {
+      return
+    }
+
+    const currentLoginId = activeWeChatLogin?.loginId?.trim() ?? ''
+    if (!currentLoginId || wechatLoginAutoRefreshHandledLoginIdRef.current === currentLoginId) {
+      return
+    }
+
+    wechatLoginAutoRefreshHandledLoginIdRef.current = currentLoginId
+    void handleRefreshWeChatQRCode('auto-expired')
+  }, [
+    activeWeChatLogin?.loginId,
+    isWechatLoginExpired,
+    isWechatLoginRefreshPending,
+    wechatLoginAutoRefreshEnabled,
+    wechatLoginModalOpen,
+  ])
 
   useEffect(() => {
     const qrCodeContent = activeWeChatLogin?.qrCodeContent?.trim() ?? ''
@@ -3037,6 +3154,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setWechatLoginId('')
     setWechatLoginQRCodeUrl('')
     setWechatLoginCopyState('idle')
+    setWechatLoginAutoRefreshEnabled(false)
+    setWechatLoginAutoRefreshPending(false)
+    setWechatLoginAutoRefreshNoticeKey('')
+    wechatLoginAutoRefreshHandledLoginIdRef.current = ''
+    wechatLoginRefreshReasonRef.current = 'manual'
     setDraft((current) => ({
       ...current,
       wechatLoginSessionId: '',
@@ -3051,6 +3173,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setWechatLoginModalOpen(false)
     setWechatLoginQRCodeUrl('')
     setWechatLoginCopyState('idle')
+    setWechatLoginAutoRefreshEnabled(false)
+    setWechatLoginAutoRefreshPending(false)
+    setWechatLoginAutoRefreshNoticeKey('')
+    wechatLoginAutoRefreshHandledLoginIdRef.current = ''
+    wechatLoginRefreshReasonRef.current = 'manual'
     wechatLoginDeleteMutation.reset()
   }
 
@@ -3106,6 +3233,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   function openWeChatLoginModal() {
     setWechatLoginModalOpen(true)
     setWechatLoginCopyState('idle')
+    setWechatLoginAutoRefreshEnabled(false)
+    setWechatLoginAutoRefreshPending(false)
+    setWechatLoginAutoRefreshNoticeKey('')
+    wechatLoginAutoRefreshHandledLoginIdRef.current = ''
+    wechatLoginRefreshReasonRef.current = 'manual'
     if (!draft.wechatBaseUrl.trim()) {
       setDraft((current) => ({
         ...current,
@@ -3139,9 +3271,12 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     }
 
     setFormError('')
+    setWechatLoginAutoRefreshPending(false)
+    setWechatLoginAutoRefreshNoticeKey('')
     setWechatLoginId('')
     setWechatLoginQRCodeUrl('')
     setWechatLoginCopyState('idle')
+    wechatLoginRefreshReasonRef.current = 'manual'
     setDraft((current) => ({
       ...current,
       wechatLoginSessionId: '',
@@ -3168,6 +3303,68 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     } catch {
       setWechatLoginCopyState('error')
     }
+  }
+
+  async function handleRefreshWeChatQRCode(reason: 'manual' | 'auto-expired' = 'manual') {
+    if (!wechatLoginWorkspaceId) {
+      setWechatLoginAutoRefreshPending(false)
+      setFormError(
+        i18n._({
+          id: 'Select an owner workspace before starting WeChat login.',
+          message: 'Select an owner workspace before starting WeChat login.',
+        }),
+      )
+      return
+    }
+    if (!draft.wechatBaseUrl.trim()) {
+      setWechatLoginAutoRefreshPending(false)
+      setFormError(
+        i18n._({
+          id: 'WeChat base URL is required before starting QR login.',
+          message: 'WeChat base URL is required before starting QR login.',
+        }),
+      )
+      return
+    }
+
+    const previousLoginId = wechatLoginId.trim()
+
+    setFormError('')
+    setWechatLoginAutoRefreshPending(reason === 'auto-expired')
+    if (reason === 'manual') {
+      setWechatLoginAutoRefreshNoticeKey('')
+    }
+    setWechatLoginId('')
+    setWechatLoginQRCodeUrl('')
+    setWechatLoginCopyState('idle')
+    wechatLoginRefreshReasonRef.current = reason
+    setDraft((current) => ({
+      ...current,
+      wechatLoginSessionId: '',
+      wechatLoginStatus: '',
+      wechatQrCodeContent: '',
+    }))
+    wechatLoginStartMutation.reset()
+
+    if (previousLoginId) {
+      try {
+        await wechatLoginDeleteMutation.mutateAsync({
+          workspaceId: wechatLoginWorkspaceId,
+          loginId: previousLoginId,
+        })
+      } catch {
+        // Ignore stale session cleanup errors and still request a fresh QR code.
+      } finally {
+        wechatLoginDeleteMutation.reset()
+      }
+    } else {
+      wechatLoginDeleteMutation.reset()
+    }
+
+    wechatLoginStartMutation.mutate({
+      workspaceId: wechatLoginWorkspaceId,
+      baseUrl: draft.wechatBaseUrl.trim(),
+    })
   }
 
   function handleUseWeChatCredentials() {
@@ -4328,9 +4525,13 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
           {i18n._({ id: 'Use Credentials', message: 'Use Credentials' })}
         </Button>
       ) : (
-        <Button isLoading={wechatLoginStartMutation.isPending} onClick={handleStartWeChatLogin} type="button">
+        <Button
+          isLoading={isWechatLoginRefreshPending}
+          onClick={wechatLoginId ? () => void handleRefreshWeChatQRCode() : handleStartWeChatLogin}
+          type="button"
+        >
           {wechatLoginId
-            ? i18n._({ id: 'Restart Login', message: 'Restart Login' })
+            ? i18n._({ id: 'Refresh QR Code', message: 'Refresh QR Code' })
             : i18n._({ id: 'Fetch QR Code', message: 'Fetch QR Code' })}
         </Button>
       )}
@@ -8840,6 +9041,37 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
               </InlineNotice>
             ) : null}
 
+            {wechatLoginAutoRefreshNoticeKey ? (
+              <InlineNotice
+                dismissible
+                noticeKey={wechatLoginAutoRefreshNoticeKey}
+                title={i18n._({ id: 'QR Code Auto-Refreshed', message: 'QR Code Auto-Refreshed' })}
+                tone="info"
+              >
+                {i18n._({
+                  id: 'A fresh QR code was requested automatically after the previous one expired.',
+                  message: 'A fresh QR code was requested automatically after the previous one expired.',
+                })}
+              </InlineNotice>
+            ) : null}
+
+            {wechatLoginAutoRefreshPending ? (
+              <InlineNotice
+                dismissible={false}
+                noticeKey="wechat-login-auto-refreshing"
+                title={i18n._({
+                  id: 'Refreshing QR Code Automatically',
+                  message: 'Refreshing QR Code Automatically',
+                })}
+                tone="info"
+              >
+                {i18n._({
+                  id: 'The previous QR code expired. Requesting a fresh code automatically now.',
+                  message: 'The previous QR code expired. Requesting a fresh code automatically now.',
+                })}
+              </InlineNotice>
+            ) : null}
+
             <Input
               hint={i18n._({
                 id: 'This base URL is used both for fetching the QR code and for the final confirmed credential bundle.',
@@ -8850,6 +9082,19 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
               onChange={(event) => setDraft((current) => ({ ...current, wechatBaseUrl: event.target.value }))}
               placeholder="https://ilinkai.weixin.qq.com"
               value={draft.wechatBaseUrl}
+            />
+
+            <Switch
+              checked={wechatLoginAutoRefreshEnabled}
+              hint={i18n._({
+                id: 'When enabled, the dialog automatically requests a fresh QR code after the current one expires.',
+                message: 'When enabled, the dialog automatically requests a fresh QR code after the current one expires.',
+              })}
+              label={i18n._({
+                id: 'Auto Refresh When Expired',
+                message: 'Auto Refresh When Expired',
+              })}
+              onChange={(event) => setWechatLoginAutoRefreshEnabled(event.target.checked)}
             />
 
             {activeWeChatLogin ? (
@@ -8867,11 +9112,71 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                     <span>{i18n._({ id: 'Expires', message: 'Expires' })}</span>
                     <strong>{formatBotTimestamp(activeWeChatLogin.expiresAt)}</strong>
                   </div>
+                  {wechatLoginExpiresInLabel ? (
+                    <div className="detail-row">
+                      <span>{i18n._({ id: 'Expires In', message: 'Expires In' })}</span>
+                      <strong
+                        style={
+                          isWechatLoginExpiringSoon
+                            ? {
+                                color: '#b45309',
+                              }
+                            : undefined
+                        }
+                      >
+                        {wechatLoginExpiresInLabel}
+                      </strong>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
 
-            {activeWeChatLogin?.qrCodeContent ? (
+            {showWechatLoginRefreshPlaceholder ? (
+              <div
+                style={{
+                  alignItems: 'center',
+                  display: 'grid',
+                  gap: '16px',
+                  justifyItems: 'center',
+                }}
+              >
+                <div
+                  aria-live="polite"
+                  style={{
+                    alignItems: 'center',
+                    background: 'linear-gradient(135deg, rgba(248, 250, 252, 0.96), rgba(226, 232, 240, 0.9))',
+                    border: '1px dashed rgba(71, 85, 105, 0.3)',
+                    borderRadius: '16px',
+                    color: '#334155',
+                    display: 'flex',
+                    fontWeight: 600,
+                    height: '320px',
+                    justifyContent: 'center',
+                    maxWidth: '100%',
+                    padding: '24px',
+                    textAlign: 'center',
+                    width: '320px',
+                  }}
+                >
+                  <div style={{ display: 'grid', gap: '10px' }}>
+                    <strong>{i18n._({ id: 'Getting a Fresh QR Code...', message: 'Getting a Fresh QR Code...' })}</strong>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 500 }}>
+                      {i18n._({
+                        id: 'Please wait while the expired QR code is replaced.',
+                        message: 'Please wait while the expired QR code is replaced.',
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="notice">
+                  {i18n._({
+                    id: 'The QR area will update automatically as soon as the new code is ready.',
+                    message: 'The QR area will update automatically as soon as the new code is ready.',
+                  })}
+                </div>
+              </div>
+            ) : activeWeChatLogin?.qrCodeContent ? (
               <div
                 style={{
                   alignItems: 'center',
@@ -8889,7 +9194,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                       border: '1px solid rgba(15, 23, 42, 0.12)',
                       borderRadius: '16px',
                       maxWidth: '100%',
+                      opacity: isWechatLoginExpired ? 0.5 : 1,
                       padding: '12px',
+                      transition: 'opacity 180ms ease',
                       width: '320px',
                     }}
                   />
@@ -8898,9 +9205,31 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                     {i18n._({ id: 'Rendering QR code...', message: 'Rendering QR code...' })}
                   </div>
                 )}
-                <Button intent="secondary" onClick={() => void handleCopyWeChatPayload()} type="button">
-                  {wechatLoginCopyLabel}
-                </Button>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Button
+                    disabled={isWechatLoginExpired}
+                    intent="secondary"
+                    onClick={() => void handleCopyWeChatPayload()}
+                    type="button"
+                  >
+                    {wechatLoginCopyLabel}
+                  </Button>
+                  <Button
+                    intent="secondary"
+                    isLoading={isWechatLoginRefreshPending}
+                    onClick={() => void handleRefreshWeChatQRCode()}
+                    type="button"
+                  >
+                    {i18n._({ id: 'Refresh QR Code', message: 'Refresh QR Code' })}
+                  </Button>
+                </div>
                 <TextArea
                   hint={i18n._({
                     id: 'Fallback payload for copy or external inspection. The QR image above is rendered locally from this exact value.',
@@ -8926,6 +9255,44 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                   id: 'The QR code has been scanned. Keep this dialog open until the remote service confirms the login and returns the final credential bundle.',
                   message:
                     'The QR code has been scanned. Keep this dialog open until the remote service confirms the login and returns the final credential bundle.',
+                })}
+              </InlineNotice>
+            ) : null}
+
+            {isWechatLoginExpiringSoon ? (
+              <InlineNotice
+                action={
+                  <Button intent="secondary" isLoading={isWechatLoginRefreshPending} onClick={() => void handleRefreshWeChatQRCode()} type="button">
+                    {i18n._({ id: 'Refresh QR Code', message: 'Refresh QR Code' })}
+                  </Button>
+                }
+                dismissible={false}
+                noticeKey="wechat-login-expiring-soon"
+                title={i18n._({ id: 'QR Code Expiring Soon', message: 'QR Code Expiring Soon' })}
+              >
+                {i18n._({
+                  id: 'This QR code will expire in less than 30 seconds. Refresh it now if you still need time to scan in WeChat.',
+                  message:
+                    'This QR code will expire in less than 30 seconds. Refresh it now if you still need time to scan in WeChat.',
+                })}
+              </InlineNotice>
+            ) : null}
+
+            {isWechatLoginExpired ? (
+              <InlineNotice
+                action={
+                  <Button isLoading={isWechatLoginRefreshPending} onClick={() => void handleRefreshWeChatQRCode()} type="button">
+                    {i18n._({ id: 'Refresh QR Code', message: 'Refresh QR Code' })}
+                  </Button>
+                }
+                dismissible={false}
+                noticeKey="wechat-login-expired"
+                title={i18n._({ id: 'QR Code Expired', message: 'QR Code Expired' })}
+                tone="error"
+              >
+                {i18n._({
+                  id: 'This login QR code has expired. Refresh it to fetch a new code before scanning in WeChat.',
+                  message: 'This login QR code has expired. Refresh it to fetch a new code before scanning in WeChat.',
                 })}
               </InlineNotice>
             ) : null}

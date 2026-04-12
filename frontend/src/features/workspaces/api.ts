@@ -19,6 +19,7 @@ export type WriteWorkspaceHookConfigurationInput = {
   hookSessionStartEnabled?: boolean | null
   hookSessionStartContextPaths?: string[] | null
   hookSessionStartMaxChars?: number | null
+  hookSessionStartTemplate?: string | null
   hookUserPromptSubmitBlockSecretPasteEnabled?: boolean | null
   hookPreToolUseBlockDangerousCommandEnabled?: boolean | null
   hookPreToolUseAdditionalProtectedGovernancePaths?: string[] | null

@@ -42,6 +42,7 @@ type ReadResult struct {
 	ConfiguredHookSessionStartEnabled                                                  *bool                                  `json:"configuredHookSessionStartEnabled"`
 	ConfiguredHookSessionStartContextPaths                                             []string                               `json:"configuredHookSessionStartContextPaths"`
 	ConfiguredHookSessionStartMaxChars                                                 *int                                   `json:"configuredHookSessionStartMaxChars"`
+	ConfiguredHookSessionStartTemplate                                                 *string                                `json:"configuredHookSessionStartTemplate"`
 	ConfiguredHookUserPromptSubmitBlockSecretPasteEnabled                              *bool                                  `json:"configuredHookUserPromptSubmitBlockSecretPasteEnabled"`
 	ConfiguredHookPreToolUseBlockDangerousCommandEnabled                               *bool                                  `json:"configuredHookPreToolUseBlockDangerousCommandEnabled"`
 	ConfiguredHookPreToolUseAdditionalProtectedGovernancePaths                         []string                               `json:"configuredHookPreToolUseAdditionalProtectedGovernancePaths"`
@@ -83,6 +84,7 @@ type ReadResult struct {
 	DefaultHookSessionStartEnabled                                                     bool                                   `json:"defaultHookSessionStartEnabled"`
 	DefaultHookSessionStartContextPaths                                                []string                               `json:"defaultHookSessionStartContextPaths"`
 	DefaultHookSessionStartMaxChars                                                    int                                    `json:"defaultHookSessionStartMaxChars"`
+	DefaultHookSessionStartTemplate                                                    string                                 `json:"defaultHookSessionStartTemplate"`
 	DefaultHookUserPromptSubmitBlockSecretPasteEnabled                                 bool                                   `json:"defaultHookUserPromptSubmitBlockSecretPasteEnabled"`
 	DefaultHookPreToolUseBlockDangerousCommandEnabled                                  bool                                   `json:"defaultHookPreToolUseBlockDangerousCommandEnabled"`
 	DefaultHookPreToolUseProtectedGovernancePaths                                      []string                               `json:"defaultHookPreToolUseProtectedGovernancePaths"`
@@ -120,6 +122,7 @@ type ReadResult struct {
 	EffectiveHookSessionStartEnabled                                                   bool                                   `json:"effectiveHookSessionStartEnabled"`
 	EffectiveHookSessionStartContextPaths                                              []string                               `json:"effectiveHookSessionStartContextPaths"`
 	EffectiveHookSessionStartMaxChars                                                  int                                    `json:"effectiveHookSessionStartMaxChars"`
+	EffectiveHookSessionStartTemplate                                                  string                                 `json:"effectiveHookSessionStartTemplate"`
 	EffectiveHookUserPromptSubmitBlockSecretPasteEnabled                               bool                                   `json:"effectiveHookUserPromptSubmitBlockSecretPasteEnabled"`
 	EffectiveHookPreToolUseBlockDangerousCommandEnabled                                bool                                   `json:"effectiveHookPreToolUseBlockDangerousCommandEnabled"`
 	EffectiveHookPreToolUseProtectedGovernancePaths                                    []string                               `json:"effectiveHookPreToolUseProtectedGovernancePaths"`
@@ -161,6 +164,7 @@ type WriteInput struct {
 	HookSessionStartEnabled                                                  *bool                                `json:"hookSessionStartEnabled"`
 	HookSessionStartContextPaths                                             []string                             `json:"hookSessionStartContextPaths"`
 	HookSessionStartMaxChars                                                 *int                                 `json:"hookSessionStartMaxChars"`
+	HookSessionStartTemplate                                                 *string                              `json:"hookSessionStartTemplate"`
 	HookUserPromptSubmitBlockSecretPasteEnabled                              *bool                                `json:"hookUserPromptSubmitBlockSecretPasteEnabled"`
 	HookPreToolUseBlockDangerousCommandEnabled                               *bool                                `json:"hookPreToolUseBlockDangerousCommandEnabled"`
 	HookPreToolUseAdditionalProtectedGovernancePaths                         []string                             `json:"hookPreToolUseAdditionalProtectedGovernancePaths"`
@@ -288,6 +292,7 @@ func (s *Service) Write(input WriteInput) (ReadResult, error) {
 		HookSessionStartEnabled:                                                  cloneOptionalBool(input.HookSessionStartEnabled),
 		HookSessionStartContextPaths:                                             cloneStrings(input.HookSessionStartContextPaths),
 		HookSessionStartMaxChars:                                                 cloneOptionalInt(input.HookSessionStartMaxChars),
+		HookSessionStartTemplate:                                                 cloneOptionalString(input.HookSessionStartTemplate),
 		HookUserPromptSubmitBlockSecretPasteEnabled:                              cloneOptionalBool(input.HookUserPromptSubmitBlockSecretPasteEnabled),
 		HookPreToolUseBlockDangerousCommandEnabled:                               cloneOptionalBool(input.HookPreToolUseBlockDangerousCommandEnabled),
 		HookPreToolUseAdditionalProtectedGovernancePaths:                         cloneStrings(input.HookPreToolUseAdditionalProtectedGovernancePaths),
@@ -380,6 +385,7 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 		HookSessionStartEnabled:                                  cloneOptionalBool(currentConfigured.HookSessionStartEnabled),
 		HookSessionStartContextPaths:                             cloneStrings(currentConfigured.HookSessionStartContextPaths),
 		HookSessionStartMaxChars:                                 cloneOptionalInt(currentConfigured.HookSessionStartMaxChars),
+		HookSessionStartTemplate:                                 cloneOptionalString(currentConfigured.HookSessionStartTemplate),
 		HookUserPromptSubmitBlockSecretPasteEnabled:              cloneOptionalBool(currentConfigured.HookUserPromptSubmitBlockSecretPasteEnabled),
 		HookPreToolUseBlockDangerousCommandEnabled:               cloneOptionalBool(currentConfigured.HookPreToolUseBlockDangerousCommandEnabled),
 		HookPreToolUseAdditionalProtectedGovernancePaths:         cloneStrings(currentConfigured.HookPreToolUseAdditionalProtectedGovernancePaths),
@@ -521,6 +527,12 @@ func normalizeConfiguredPreferences(input store.RuntimePreferences) (store.Runti
 	input.HookSessionStartMaxChars, err = normalizeOptionalPositiveInt(
 		input.HookSessionStartMaxChars,
 		"hook session-start max chars",
+	)
+	if err != nil {
+		return store.RuntimePreferences{}, err
+	}
+	input.HookSessionStartTemplate, err = normalizeOptionalSessionStartTemplate(
+		input.HookSessionStartTemplate,
 	)
 	if err != nil {
 		return store.RuntimePreferences{}, err
@@ -742,6 +754,15 @@ func cloneOptionalInt(value *int) *int {
 	return &cloned
 }
 
+func cloneOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+
+	cloned := *value
+	return &cloned
+}
+
 func cloneOptionalInt64(value *int64) *int64 {
 	if value == nil {
 		return nil
@@ -788,6 +809,17 @@ func normalizeOptionalPositiveInt(value *int, fieldName string) (*int, error) {
 		return nil, errors.New(fieldName + " must be greater than 0")
 	}
 	return cloneOptionalInt(value), nil
+}
+
+func normalizeOptionalSessionStartTemplate(value *string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	normalized, err := hooks.NormalizeSessionStartTemplate(*value)
+	if err != nil {
+		return nil, err
+	}
+	return cloneOptionalString(&normalized), nil
 }
 
 func normalizeOptionalUTC(value *time.Time) *time.Time {
@@ -878,6 +910,7 @@ func (s *Service) buildReadResult(
 		ConfiguredHookSessionStartEnabled:                                                  cloneOptionalBool(configuredPrefs.HookSessionStartEnabled),
 		ConfiguredHookSessionStartContextPaths:                                             cloneStringsOrEmpty(configuredPrefs.HookSessionStartContextPaths),
 		ConfiguredHookSessionStartMaxChars:                                                 cloneOptionalInt(configuredPrefs.HookSessionStartMaxChars),
+		ConfiguredHookSessionStartTemplate:                                                 cloneOptionalString(configuredPrefs.HookSessionStartTemplate),
 		ConfiguredHookUserPromptSubmitBlockSecretPasteEnabled:                              cloneOptionalBool(configuredPrefs.HookUserPromptSubmitBlockSecretPasteEnabled),
 		ConfiguredHookPreToolUseBlockDangerousCommandEnabled:                               cloneOptionalBool(configuredPrefs.HookPreToolUseBlockDangerousCommandEnabled),
 		ConfiguredHookPreToolUseAdditionalProtectedGovernancePaths:                         cloneStringsOrEmpty(configuredPrefs.HookPreToolUseAdditionalProtectedGovernancePaths),
@@ -919,6 +952,7 @@ func (s *Service) buildReadResult(
 		DefaultHookSessionStartEnabled:                                                     hooks.DefaultSessionStartEnabled,
 		DefaultHookSessionStartContextPaths:                                                hooks.DefaultSessionStartContextPaths(),
 		DefaultHookSessionStartMaxChars:                                                    hooks.DefaultSessionStartMaxChars,
+		DefaultHookSessionStartTemplate:                                                    hooks.DefaultSessionStartTemplate,
 		DefaultHookUserPromptSubmitBlockSecretPasteEnabled:                                 hooks.DefaultUserPromptSecretBlockEnabled,
 		DefaultHookPreToolUseBlockDangerousCommandEnabled:                                  hooks.DefaultPreToolUseDangerousCommandBlockEnabled,
 		DefaultHookPreToolUseProtectedGovernancePaths:                                      hooks.DefaultProtectedGovernancePaths(),
@@ -956,6 +990,7 @@ func (s *Service) buildReadResult(
 		EffectiveHookSessionStartEnabled:                                                   hookRuntimeConfig.SessionStartEnabled,
 		EffectiveHookSessionStartContextPaths:                                              cloneStringsOrEmpty(hookRuntimeConfig.SessionStartContextPaths),
 		EffectiveHookSessionStartMaxChars:                                                  hookRuntimeConfig.SessionStartMaxChars,
+		EffectiveHookSessionStartTemplate:                                                  hookRuntimeConfig.SessionStartTemplate,
 		EffectiveHookUserPromptSubmitBlockSecretPasteEnabled:                               hookRuntimeConfig.UserPromptSecretBlockEnabled,
 		EffectiveHookPreToolUseBlockDangerousCommandEnabled:                                hookRuntimeConfig.PreToolUseDangerousCommandBlockEnabled,
 		EffectiveHookPreToolUseProtectedGovernancePaths:                                    cloneStringsOrEmpty(hookRuntimeConfig.PreToolUseProtectedGovernancePaths),

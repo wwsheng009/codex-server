@@ -2,6 +2,7 @@ import type {
   AccessTokenDescriptor,
   RuntimePreferencesResult,
 } from "../../types/api";
+import { normalizeSessionStartTemplate } from "../../lib/session-start-template";
 import type {
   AccessTokenWriteInput,
   WriteRuntimePreferencesInput,
@@ -281,6 +282,14 @@ export function formatHookSessionStartContextPathsInput(
   return normalized.join("\n");
 }
 
+export function parseHookSessionStartTemplateInput(value: string) {
+  return normalizeSessionStartTemplate(value);
+}
+
+export function formatHookSessionStartTemplateInput(value?: string | null) {
+  return normalizeSessionStartTemplate(value) ?? "";
+}
+
 function normalizeHookPreToolUseAdditionalProtectedGovernancePaths(
   values?: string[] | null,
 ) {
@@ -505,12 +514,15 @@ export function buildConfiguredRuntimePreferencesWritePayload(
     outboundProxyUrl: trimStringValue(result?.configuredOutboundProxyUrl),
     hookSessionStartEnabled:
       result?.configuredHookSessionStartEnabled ?? null,
-    hookSessionStartContextPaths: normalizeSessionStartContextPaths(
-      result?.configuredHookSessionStartContextPaths,
-    ),
-    hookSessionStartMaxChars:
-      result?.configuredHookSessionStartMaxChars ?? null,
-    hookUserPromptSubmitBlockSecretPasteEnabled:
+	    hookSessionStartContextPaths: normalizeSessionStartContextPaths(
+	      result?.configuredHookSessionStartContextPaths,
+	    ),
+	    hookSessionStartMaxChars:
+	      result?.configuredHookSessionStartMaxChars ?? null,
+	    hookSessionStartTemplate: normalizeSessionStartTemplate(
+	      result?.configuredHookSessionStartTemplate,
+	    ),
+	    hookUserPromptSubmitBlockSecretPasteEnabled:
       result?.configuredHookUserPromptSubmitBlockSecretPasteEnabled ?? null,
     hookPreToolUseBlockDangerousCommandEnabled:
       result?.configuredHookPreToolUseBlockDangerousCommandEnabled ?? null,

@@ -41,6 +41,7 @@ type RuntimePreferences struct {
 	HookSessionStartEnabled                                                  *bool                            `json:"hookSessionStartEnabled"`
 	HookSessionStartContextPaths                                             []string                         `json:"hookSessionStartContextPaths,omitempty"`
 	HookSessionStartMaxChars                                                 *int                             `json:"hookSessionStartMaxChars"`
+	HookSessionStartTemplate                                                 *string                          `json:"hookSessionStartTemplate"`
 	HookUserPromptSubmitBlockSecretPasteEnabled                              *bool                            `json:"hookUserPromptSubmitBlockSecretPasteEnabled"`
 	HookPreToolUseBlockDangerousCommandEnabled                               *bool                            `json:"hookPreToolUseBlockDangerousCommandEnabled"`
 	HookPreToolUseAdditionalProtectedGovernancePaths                         []string                         `json:"hookPreToolUseAdditionalProtectedGovernancePaths,omitempty"`
@@ -534,14 +535,30 @@ type Account struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
 	Status       string    `json:"status"`
+	AuthMode     string    `json:"authMode,omitempty"`
+	PlanType     string    `json:"planType,omitempty"`
 	LastSyncedAt time.Time `json:"lastSyncedAt"`
 }
 
+type RateLimitWindow struct {
+	UsedPercent        int        `json:"usedPercent"`
+	WindowDurationMins *int64     `json:"windowDurationMins,omitempty"`
+	ResetsAt           *time.Time `json:"resetsAt,omitempty"`
+}
+
+type RateLimitCredits struct {
+	HasCredits bool   `json:"hasCredits"`
+	Unlimited  bool   `json:"unlimited"`
+	Balance    string `json:"balance,omitempty"`
+}
+
 type RateLimit struct {
-	Name      string    `json:"name"`
-	Limit     int       `json:"limit"`
-	Remaining int       `json:"remaining"`
-	ResetsAt  time.Time `json:"resetsAt"`
+	LimitID   string            `json:"limitId,omitempty"`
+	LimitName string            `json:"limitName,omitempty"`
+	Primary   *RateLimitWindow  `json:"primary,omitempty"`
+	Secondary *RateLimitWindow  `json:"secondary,omitempty"`
+	Credits   *RateLimitCredits `json:"credits,omitempty"`
+	PlanType  string            `json:"planType,omitempty"`
 }
 
 type CommandSession struct {

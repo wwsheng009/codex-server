@@ -1,4 +1,4 @@
-export type SurfacePanelView = 'approvals' | 'feed'
+export type SurfacePanelView = 'approvals' | 'feed' | 'plans'
 export type SurfacePanelSide = 'left' | 'right'
 export type TerminalDockPlacement = 'bottom' | 'right' | 'floating'
 export type TerminalWindowBounds = {

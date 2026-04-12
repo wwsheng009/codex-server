@@ -1,5 +1,7 @@
 import { useEffect, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
+import { threadSnapshotFromDetail, updateThreadInThreadCaches } from '../../features/threads/cache'
 import { buildShellEnvironmentDiagnosis } from '../../features/settings/shell-environment-diagnostics'
 import { useSessionStore } from '../../stores/session-store'
 import { useThreadPageBotSendQueries } from './useThreadPageBotSendQueries'
@@ -22,6 +24,7 @@ export function useThreadPageData({
   threadTurnWindowSize,
   workspaceId,
 }: UseThreadPageDataInput) {
+  const queryClient = useQueryClient()
   const {
     accountQuery,
     approvalsQuery,
@@ -112,6 +115,15 @@ export function useThreadPageData({
       .getState()
       .syncCommandSessions(workspaceId, commandSessionsQuery.data ?? [])
   }, [commandSessionsQuery.data, commandSessionsQuery.isSuccess, workspaceId])
+
+  useEffect(() => {
+    const detail = threadDetailQuery.data
+    if (!workspaceId || !detail) {
+      return
+    }
+
+    updateThreadInThreadCaches(queryClient, workspaceId, threadSnapshotFromDetail(detail))
+  }, [queryClient, threadDetailQuery.data, workspaceId])
 
   return {
     activeCommandCount,

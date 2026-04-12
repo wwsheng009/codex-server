@@ -714,6 +714,80 @@ func TestApplyStoredProjectionPreservesProjectedItemOrderAcrossCompletion(t *tes
 	}
 }
 
+func TestApplyStoredProjectionKeepsSyntheticGovernanceTurnAheadOfRuntimeTurns(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+
+	dataStore.UpsertThreadProjectionSnapshot(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "completed",
+			UpdatedAt:   time.Unix(100, 0).UTC(),
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "thread-governance",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":      "hook-run-hook-1",
+						"type":    "hookRun",
+						"hookRunId": "hook-1",
+						"message": "governance event",
+					},
+				},
+			},
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":   "msg-1",
+						"type": "agentMessage",
+						"text": "live content",
+					},
+				},
+			},
+		},
+	})
+
+	detail := applyStoredProjection(store.ThreadDetail{
+		Thread: store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Thread A",
+			Status:      "completed",
+		},
+		Turns: []store.ThreadTurn{
+			{
+				ID:     "turn-1",
+				Status: "completed",
+				Items: []map[string]any{
+					{
+						"id":   "msg-1",
+						"type": "agentMessage",
+						"text": "live content",
+					},
+				},
+			},
+		},
+	}, dataStore, runtime.NewManager("codex app-server --listen stdio://", nil), workspace.ID, "thread-1")
+
+	if len(detail.Turns) != 2 {
+		t.Fatalf("expected governance turn plus runtime turn, got %#v", detail.Turns)
+	}
+	if got := detail.Turns[0].ID; got != "thread-governance" {
+		t.Fatalf("expected governance turn to stay first after projection merge, got %#v", detail.Turns)
+	}
+	if got := detail.Turns[1].ID; got != "turn-1" {
+		t.Fatalf("expected conversation turn to remain after governance turn, got %#v", detail.Turns)
+	}
+}
+
 func TestApplyStoredProjectionSettlesProjectedFinalAnswerWithoutActiveTurn(t *testing.T) {
 	t.Parallel()
 

@@ -65,7 +65,15 @@ export function writeRightRailWidth(value: number) {
 }
 
 export function readSurfacePanelWidths() {
-  return readJsonPreference('surfacePanelWidths', layoutConfig.workbench.surfacePanel.defaultWidths)
+  const stored = readJsonPreference<Partial<Record<SurfacePanelView, number>>>(
+    'surfacePanelWidths',
+    {},
+  )
+
+  return {
+    ...layoutConfig.workbench.surfacePanel.defaultWidths,
+    ...(stored && typeof stored === 'object' ? stored : {}),
+  }
 }
 
 export function writeSurfacePanelWidths(value: Record<SurfacePanelView, number>) {
@@ -73,7 +81,15 @@ export function writeSurfacePanelWidths(value: Record<SurfacePanelView, number>)
 }
 
 export function readSurfacePanelSides() {
-  return readJsonPreference('surfacePanelSides', layoutConfig.workbench.surfacePanel.defaultSides)
+  const stored = readJsonPreference<Partial<Record<SurfacePanelView, SurfacePanelSide>>>(
+    'surfacePanelSides',
+    {},
+  )
+
+  return {
+    ...layoutConfig.workbench.surfacePanel.defaultSides,
+    ...(stored && typeof stored === 'object' ? stored : {}),
+  }
 }
 
 export function writeSurfacePanelSides(value: Record<SurfacePanelView, SurfacePanelSide>) {

@@ -331,7 +331,7 @@ func (s *Service) WriteConfiguration(workspaceID string, input WorkspaceConfigOv
 		return ConfigurationWriteResult{}, err
 	}
 
-	searchPaths := workspaceHookConfigurationSearchPaths(rootPath)
+	searchPaths := workspaceHookConfigurationWritePaths(rootPath)
 	if len(searchPaths) == 0 {
 		return ConfigurationWriteResult{}, errors.New("workspace hook configuration path is unavailable")
 	}
@@ -423,7 +423,12 @@ func (s *Service) EvaluateSessionStart(_ context.Context, input SessionStartInpu
 	reason := reasonSessionStartAudited
 	entries := make([]store.HookOutputEntry, 0, 3)
 	if contextLoaded {
-		updatedInput = injectSessionStartContext(input.Input, contextSource, contextText)
+		updatedInput = injectSessionStartContext(
+			input.Input,
+			contextSource,
+			contextText,
+			runtimeConfig.EffectiveHookSessionStartTemplate,
+		)
 		reason = "project_context_injected"
 		entries = append(entries,
 			store.HookOutputEntry{Kind: "feedback", Text: "loaded project context from " + contextSource},
@@ -2088,23 +2093,122 @@ func (s *Service) loadSessionStartContext(
 	}
 
 	for _, relativePath := range contextPaths {
-		absolutePath := filepath.Join(baseDir, filepath.FromSlash(relativePath))
-		content, err := os.ReadFile(absolutePath)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
+		for _, candidate := range resolveSessionStartContextCandidates(
+			workspace.RootPath,
+			baseDir,
+			relativePath,
+		) {
+			content, err := os.ReadFile(candidate.absolutePath)
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
 				continue
 			}
-			continue
-		}
 
-		normalized := normalizeSessionStartContext(string(content), maxChars)
-		if normalized == "" {
-			continue
+			normalized := normalizeSessionStartContext(string(content), maxChars)
+			if normalized == "" {
+				continue
+			}
+			return candidate.displayPath, normalized, true
 		}
-		return sessionStartDisplayPath(workspace.RootPath, absolutePath), normalized, true
 	}
 
 	return "", "", false
+}
+
+type sessionStartContextCandidate struct {
+	absolutePath string
+	displayPath  string
+}
+
+func resolveSessionStartContextCandidates(
+	workspaceRoot string,
+	baseDir string,
+	relativePath string,
+) []sessionStartContextCandidate {
+	trimmed := strings.TrimSpace(relativePath)
+	if trimmed == "" {
+		return nil
+	}
+
+	normalizedRelative := filepath.ToSlash(trimmed)
+	candidates := []sessionStartContextCandidate{
+		{
+			absolutePath: filepath.Join(baseDir, filepath.FromSlash(normalizedRelative)),
+			displayPath:  normalizedRelative,
+		},
+	}
+
+	if !strings.HasPrefix(strings.ToLower(normalizedRelative), ".codex/") {
+		if len(candidates) == 1 {
+			candidates[0].displayPath = sessionStartDisplayPath(workspaceRoot, candidates[0].absolutePath)
+		}
+		return candidates
+	}
+
+	codexHome := discoverCodexHomePath()
+	if codexHome == "" {
+		if len(candidates) == 1 {
+			candidates[0].displayPath = sessionStartDisplayPath(workspaceRoot, candidates[0].absolutePath)
+		}
+		return candidates
+	}
+
+	suffix := normalizedRelative[len(".codex/"):]
+	candidates = append(
+		candidates,
+		sessionStartContextCandidate{
+			absolutePath: filepath.Join(codexHome, filepath.FromSlash(suffix)),
+			displayPath:  normalizedRelative,
+		},
+	)
+
+	if len(candidates) >= 1 {
+		candidates[0].displayPath = sessionStartDisplayPath(workspaceRoot, candidates[0].absolutePath)
+	}
+	return dedupeSessionStartContextCandidates(candidates)
+}
+
+func dedupeSessionStartContextCandidates(
+	candidates []sessionStartContextCandidate,
+) []sessionStartContextCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	result := make([]sessionStartContextCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		absolutePath := strings.TrimSpace(candidate.absolutePath)
+		if absolutePath == "" {
+			continue
+		}
+		key := filepath.Clean(absolutePath)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		candidate.absolutePath = key
+		if strings.TrimSpace(candidate.displayPath) == "" {
+			candidate.displayPath = filepath.ToSlash(filepath.Base(key))
+		}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func discoverCodexHomePath() string {
+	codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if codexHome != "" {
+		return filepath.Clean(codexHome)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(homeDir) == "" {
+		return ""
+	}
+	return filepath.Join(strings.TrimSpace(homeDir), ".codex")
 }
 
 func sessionStartDisplayPath(workspaceRoot string, absolutePath string) string {
@@ -2145,19 +2249,24 @@ func normalizeSessionStartContext(value string, maxChars int) string {
 	return normalized
 }
 
-func injectSessionStartContext(input string, sourcePath string, context string) string {
-	var builder strings.Builder
-	builder.WriteString("在处理当前请求前，请先遵循以下项目上下文与约定。\n")
-	if strings.TrimSpace(sourcePath) != "" {
-		builder.WriteString("来源文件：")
-		builder.WriteString(sourcePath)
-		builder.WriteString("\n")
+func injectSessionStartContext(input string, sourcePath string, context string, template string) string {
+	resolvedTemplate := strings.TrimSpace(template)
+	if resolvedTemplate == "" {
+		resolvedTemplate = DefaultSessionStartTemplate
 	}
-	builder.WriteString("项目上下文摘录：\n")
-	builder.WriteString(strings.TrimSpace(context))
-	builder.WriteString("\n\n用户请求：\n")
-	builder.WriteString(strings.TrimSpace(input))
-	return builder.String()
+
+	sourcePathLine := ""
+	if trimmedSourcePath := strings.TrimSpace(sourcePath); trimmedSourcePath != "" {
+		sourcePathLine = "来源文件：" + trimmedSourcePath + "\n"
+	}
+
+	replacer := strings.NewReplacer(
+		"{{source_path_line}}", sourcePathLine,
+		"{{source_path}}", strings.TrimSpace(sourcePath),
+		"{{context}}", strings.TrimSpace(context),
+		"{{user_request}}", strings.TrimSpace(input),
+	)
+	return strings.TrimSpace(replacer.Replace(resolvedTemplate))
 }
 
 func cloneAnyValue(value any) any {

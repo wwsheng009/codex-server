@@ -44,6 +44,7 @@ export type UseThreadPageControllerActionsInput = ThreadPageControllerData
 export type UseThreadPageControllerEffectsInput = {
   controllerState: ControllerState
   dataState: DataState
+  displayState: DisplayState
   statusState: StatusState
   viewportState: ViewportState
 }

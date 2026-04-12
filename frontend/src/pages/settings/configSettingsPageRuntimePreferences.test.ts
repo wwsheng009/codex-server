@@ -514,6 +514,7 @@ describe("configSettingsPageRuntimePreferences", () => {
       hookSessionStartEnabled: false,
       hookSessionStartContextPaths: ["docs/session-start.md", "README.md"],
       hookSessionStartMaxChars: 512,
+      hookSessionStartTemplate: null,
       hookUserPromptSubmitBlockSecretPasteEnabled: false,
       hookPreToolUseBlockDangerousCommandEnabled: true,
       hookPreToolUseAdditionalProtectedGovernancePaths: [
