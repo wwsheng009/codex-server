@@ -20,6 +20,8 @@
 - 审批抽屉支持基础审批和 `requestUserInput` 问题填写
 - 聊天页支持独立 `command/exec` 终端面板和流式输出展示
 - 线程工作台右侧工具区支持在 `command/exec` 与 `thread/shellCommand` 之间切换执行单条命令
+- 后端已内嵌 `turnpolicies.Service`，支持“验证失败自动 `turn/steer`”与“改了文件但缺少成功验证时自动 follow-up `turn/start`”
+- 后端已补 `turn-policy-decisions` / `turn-policy-metrics` 只读接口，thread 工作台右侧 rail 已展示最近 policy decisions 与 thread 级 KPI summary
 - 线程详情支持基于 `thread/read` 的历史 turn / item 回放
 - 历史回放已按 `userMessage / agentMessage / plan / reasoning / commandExecution / fileChange` 分类渲染
 - `Live Events` 区也已升级为专用事件卡片，而不是原始 JSON

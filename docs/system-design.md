@@ -1,6 +1,12 @@
 # codex-server 系统设计方案
 
-更新时间：2026-03-19
+更新时间：2026-04-11
+
+关联文档：
+
+- `E:\projects\ai\codex-server\docs\development\turn-policy\turn-policy-implementation-status-2026-04-08.md`
+- `E:\projects\ai\codex-server\docs\development\turn-policy\hooks-compatible-governance-layer-design-2026-04-10.md`
+- `E:\projects\ai\codex-server\docs\development\turn-policy\hooks-governance-coverage-matrix-2026-04-10.md`
 
 ## 1. 目标
 
@@ -48,11 +54,14 @@ codex-core / workspace / shell / tools
 1. 浏览器只和 Go 后端通信
 2. Go 后端负责 `app-server` 生命周期、鉴权、审计和工作区隔离
 3. `codex app-server` 作为 sidecar 运行时，保持官方协议语义
-4. 如需覆盖模型能力元数据（例如把某个模型的 `shell_type` 改成 `local`），后端可通过
+4. Go 后端内部可以叠加 hooks-compatible 治理层与事件驱动 fallback 层，例如
+   `hooks.Service` 负责前置拦截、显式 hook run 审计与部分执行期治理，
+   `turnpolicies.Service` 负责后置补救、自动 follow-up、审计与指标聚合
+5. 如需覆盖模型能力元数据（例如把某个模型的 `shell_type` 改成 `local`），后端可通过
    `CODEX_MODEL_CATALOG_JSON` 在启动时追加 `--config model_catalog_json=...`
-5. 如需按配置自动启用 `LocalShell`，后端可读取 `CODEX_LOCAL_SHELL_MODELS`，基于完整模型目录
+6. 如需按配置自动启用 `LocalShell`，后端可读取 `CODEX_LOCAL_SHELL_MODELS`，基于完整模型目录
    生成派生 catalog，再把该派生 catalog 注入到 app-server 启动命令
-4. 前端不直接消费原始 JSON-RPC，而消费后端包装后的 Web API 与事件流
+7. 前端不直接消费原始 JSON-RPC，而消费后端包装后的 Web API 与事件流
 
 ## 3. 关键约束
 
@@ -121,6 +130,8 @@ backend/
     bridge/
     threads/
     turns/
+    hooks/
+    turnpolicies/
     approvals/
     catalog/
     execfs/
@@ -203,7 +214,44 @@ backend/
 - 审批响应路由
 - `tool/requestUserInput` 响应
 
-### 5.9 `catalog`
+### 5.9 `hooks`
+
+职责：
+
+- 运行 hooks-compatible 治理主链
+- 对可稳定接入的 server request 做前置拦截
+- 在关键 server request / item / turn 事件上记录 hook run
+- 复用 `turns.Service` 执行部分治理动作
+- 持久化 `HookRun` 审计记录
+
+当前边界：
+
+- `item/tool/call` 是当前稳定的前置拦截入口
+- `mcpServer/elicitation/request` 当前是显式 `ServerRequest` 审计面
+- 关键 `mcpToolCall` 当前是审计型 `PostToolUse` 覆盖
+- 截至 2026-04-10，仓库内还不存在独立的 native MCP pre-exec request surface
+
+### 5.10 `turnpolicies`
+
+职责：
+
+- 订阅 `events.Hub` 的统一事件流
+- 在 `item/completed` 与 `turn/completed` 上运行 turn policy
+- 复用 `turns.Service` 执行 `turn/steer`、`turn/start` 等动作
+- 持久化 `TurnPolicyDecision` 审计记录
+- 聚合 thread / workspace 级 turn policy KPI
+
+当前定位：
+
+- 作为后置补救、自动续跑、KPI 聚合与 fallback 层存在
+- 不再适合被表述为唯一治理入口
+
+当前已实现的首期规则包括：
+
+- 验证命令失败时自动 `turn/steer`
+- 本轮存在 `fileChange` 但之后没有成功验证时自动 follow-up `turn/start`
+
+### 5.11 `catalog`
 
 职责：
 
@@ -213,14 +261,14 @@ backend/
 - `plugin/list`
 - `collaborationMode/list`
 
-### 5.10 `execfs`
+### 5.12 `execfs`
 
 职责：
 
 - `command/exec*`
 - `fs/*`
 
-### 5.11 `events`
+### 5.13 `events`
 
 职责：
 
@@ -229,7 +277,7 @@ backend/
 - WebSocket fan-out
 - reconnect 后状态补偿
 
-### 5.12 `store`
+### 5.14 `store`
 
 职责：
 
@@ -294,6 +342,7 @@ frontend/
 - Item 级内容流
 - 正在运行中的 turn
 - 中断按钮
+- 右侧 workbench rail 中的 thread tools、recent turn policy decisions、turn policy metrics
 
 ### 7.4 审批抽屉
 
@@ -392,12 +441,20 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 - `POST /api/workspaces/:workspaceId/threads/:threadId/turns/interrupt`
 - `POST /api/workspaces/:workspaceId/threads/:threadId/review`
 
-### 9.4 审批接口
+### 9.4 Turn Policy 接口
+
+- `GET /api/workspaces/:workspaceId/turn-policy-decisions`
+  - 支持 `threadId`
+  - 支持 `limit`
+- `GET /api/workspaces/:workspaceId/turn-policy-metrics`
+  - 支持可选 `threadId`
+
+### 9.5 审批接口
 
 - `GET /api/workspaces/:workspaceId/pending-approvals`
 - `POST /api/server-requests/:requestId/respond`
 
-### 9.5 命令与文件接口
+### 9.6 命令与文件接口
 
 - `POST /api/workspaces/:workspaceId/commands`
 - `POST /api/workspaces/:workspaceId/commands/:processId/write`
@@ -411,7 +468,7 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 - `POST /api/workspaces/:workspaceId/fs/remove`
 - `POST /api/workspaces/:workspaceId/fs/copy`
 
-### 9.6 目录接口
+### 9.7 目录接口
 
 - `GET /api/workspaces/:workspaceId/models`
 - `GET /api/workspaces/:workspaceId/skills`
@@ -435,7 +492,7 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 - `POST /api/workspaces/:workspaceId/windows-sandbox/setup-start`
 - `GET /api/workspaces/:workspaceId/collaboration-modes`
 
-### 9.7 账号接口
+### 9.8 账号接口
 
 - `GET /api/account`
 - `POST /api/account/login`
@@ -447,7 +504,7 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 
 - `POST /api/workspaces/:workspaceId/mcp/oauth/login`
 
-### 9.8 事件流接口
+### 9.9 事件流接口
 
 - `GET /api/workspaces/:workspaceId/stream`（WebSocket）
 
@@ -534,6 +591,14 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 - `pendingServerRequests`
 - requestId 到 workspace / thread / turn 的映射
 
+并需要区分两类不同的 server request 面：
+
+- `item/tool/call`
+  - 当前 runtime 可同步前置拦截的 dynamic tool request
+- `mcpServer/elicitation/request`
+  - MCP 向用户收集输入的 request 面
+  - 当前应视为显式审计与交互请求，不等于 native MCP 工具前置 gate
+
 ### 12.2 前端
 
 审批应双重展示：
@@ -570,13 +635,22 @@ Go 后端对前端暴露统一 REST + WebSocket 接口。
 - 默认在受控工作区运行
 - 命令与 patch 全部记录审计日志
 - 高危能力通过审批流控制
+- 对 `item/tool/call` 中的关键 dynamic tools 可做执行前 veto
 
-### 13.3 认证与凭据
+### 13.3 hooks 治理边界
+
+- 当前稳定的执行前门禁入口是 `item/tool/call`
+- `mcpServer/elicitation/request` 与关键 `mcpToolCall` 当前都已纳入治理主链，但语义分别是显式审计和审计型 `PostToolUse`
+- 截至 2026-04-10，仓库内不存在独立的 native MCP pre-exec request surface
+- 不应把 dynamic tool 的前置拦截表述成“所有 MCP 工具都可前置门禁”
+- 具体覆盖矩阵以 `hooks-governance-coverage-matrix-2026-04-10.md` 为准
+
+### 13.4 认证与凭据
 
 - Web 用户认证与 Codex 账号认证分离
 - 服务端存储凭据时做加密或系统密钥保护
 
-### 13.4 事件鉴权
+### 13.5 事件鉴权
 
 - WebSocket 必须绑定用户身份
 - 一个用户只能订阅自己可见的 workspace 事件
