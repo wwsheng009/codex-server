@@ -22,6 +22,11 @@ export type WorkspaceRuntimeState = {
   command: string;
   rootPath: string;
   lastError?: string;
+  lastErrorCategory?: string;
+  lastErrorRecoveryAction?: string;
+  lastErrorRetryable: boolean;
+  lastErrorRequiresRuntimeRecycle: boolean;
+  recentStderr?: string[];
   startedAt?: string | null;
   updatedAt: string;
   runtimeConfigChangedAt?: string | null;
@@ -879,6 +884,56 @@ export type RuntimePreferencesResult = {
   effectiveCommand: string;
 };
 
+export type EventHubSubscriberDiagnostics = {
+  id: number;
+  scope?: string;
+  role?: string;
+  source?: string;
+  closed: boolean;
+  queueLen: number;
+  outputBufferLen: number;
+  outputBufferCap: number;
+  queuedCount: number;
+  droppedCount: number;
+  softDroppedCount: number;
+  hardDroppedCount: number;
+  hardEvictedCount: number;
+  mergedCount: number;
+  coalescedCommandOutputBytes: number;
+  coalescedByMethod?: Record<string, number>;
+  lastQueuedAt?: string | null;
+  lastMergedAt?: string | null;
+  lastDroppedAt?: string | null;
+  lastDequeuedAt?: string | null;
+  lastMethod?: string;
+  lastSeq?: number;
+};
+
+export type EventHubWorkspaceDiagnostics = {
+  workspaceId: string;
+  subscriberCount: number;
+  headSeq?: number;
+  subscribers: EventHubSubscriberDiagnostics[];
+};
+
+export type EventHubDiagnosticsSnapshot = {
+  capturedAt: string;
+  workspaceCount: number;
+  workspaceSubscriberCount: number;
+  globalSubscriberCount: number;
+  totalSubscriberCount: number;
+  totalBufferedEventCount: number;
+  totalDroppedCount: number;
+  totalSoftDroppedCount: number;
+  totalHardDroppedCount: number;
+  totalHardEvictedCount: number;
+  totalMergedCount: number;
+  totalCoalescedCommandOutputBytes: number;
+  totalCoalescedByMethod?: Record<string, number>;
+  workspaces: EventHubWorkspaceDiagnostics[];
+  globalSubscribers: EventHubSubscriberDiagnostics[];
+};
+
 export type WorkspaceHookConfigurationResult = {
   workspaceId: string;
   workspaceRootPath: string;
@@ -983,12 +1038,14 @@ export type ThreadTokenUsage = {
 };
 
 export type ServerEvent = {
+  seq?: number;
   workspaceId: string;
   threadId?: string;
   turnId?: string;
   method: string;
   payload: unknown;
   serverRequestId?: string | null;
+  replay?: boolean;
   ts: string;
 };
 

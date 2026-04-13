@@ -16,16 +16,21 @@ type Service struct {
 }
 
 type RuntimeStateResult struct {
-	WorkspaceID            string     `json:"workspaceId"`
-	Status                 string     `json:"status"`
-	Command                string     `json:"command"`
-	RootPath               string     `json:"rootPath"`
-	LastError              string     `json:"lastError,omitempty"`
-	StartedAt              *time.Time `json:"startedAt,omitempty"`
-	UpdatedAt              time.Time  `json:"updatedAt"`
-	RuntimeConfigChangedAt *time.Time `json:"runtimeConfigChangedAt,omitempty"`
-	ConfigLoadStatus       string     `json:"configLoadStatus"`
-	RestartRequired        bool       `json:"restartRequired"`
+	WorkspaceID                     string     `json:"workspaceId"`
+	Status                          string     `json:"status"`
+	Command                         string     `json:"command"`
+	RootPath                        string     `json:"rootPath"`
+	LastError                       string     `json:"lastError,omitempty"`
+	LastErrorCategory               string     `json:"lastErrorCategory,omitempty"`
+	LastErrorRecoveryAction         string     `json:"lastErrorRecoveryAction,omitempty"`
+	LastErrorRetryable              bool       `json:"lastErrorRetryable"`
+	LastErrorRequiresRuntimeRecycle bool       `json:"lastErrorRequiresRuntimeRecycle"`
+	RecentStderr                    []string   `json:"recentStderr,omitempty"`
+	StartedAt                       *time.Time `json:"startedAt,omitempty"`
+	UpdatedAt                       time.Time  `json:"updatedAt"`
+	RuntimeConfigChangedAt          *time.Time `json:"runtimeConfigChangedAt,omitempty"`
+	ConfigLoadStatus                string     `json:"configLoadStatus"`
+	RestartRequired                 bool       `json:"restartRequired"`
 }
 
 func NewService(dataStore *store.MemoryStore, runtimeManager *runtime.Manager) *Service {
@@ -134,16 +139,21 @@ func (s *Service) RuntimeState(workspaceID string) (RuntimeStateResult, error) {
 
 	configLoadStatus, restartRequired := runtimeConfigLoadState(state.StartedAt, workspace.RuntimeConfigChangedAt)
 	return RuntimeStateResult{
-		WorkspaceID:            workspace.ID,
-		Status:                 state.Status,
-		Command:                state.Command,
-		RootPath:               state.RootPath,
-		LastError:              state.LastError,
-		StartedAt:              state.StartedAt,
-		UpdatedAt:              state.UpdatedAt,
-		RuntimeConfigChangedAt: workspace.RuntimeConfigChangedAt,
-		ConfigLoadStatus:       configLoadStatus,
-		RestartRequired:        restartRequired,
+		WorkspaceID:                     workspace.ID,
+		Status:                          state.Status,
+		Command:                         state.Command,
+		RootPath:                        state.RootPath,
+		LastError:                       state.LastError,
+		LastErrorCategory:               state.LastErrorCategory,
+		LastErrorRecoveryAction:         state.LastErrorRecoveryAction,
+		LastErrorRetryable:              state.LastErrorRetryable,
+		LastErrorRequiresRuntimeRecycle: state.LastErrorRequiresRuntimeRecycle,
+		RecentStderr:                    append([]string(nil), state.RecentStderr...),
+		StartedAt:                       state.StartedAt,
+		UpdatedAt:                       state.UpdatedAt,
+		RuntimeConfigChangedAt:          workspace.RuntimeConfigChangedAt,
+		ConfigLoadStatus:                configLoadStatus,
+		RestartRequired:                 restartRequired,
 	}, nil
 }
 

@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 
 import type { ComposerAutocompleteMode } from '../../lib/composer-autocomplete-types'
+import type { ThreadPageRecoverableCommandOperation } from './threadPageActionTypes'
 import type {
   ComposerAssistPanel,
   ComposerAutocompleteItem,
@@ -56,10 +57,16 @@ export type BuildComposerKeyDownHandlerInput = ThreadComposerAutocompleteKeyDown
 }
 
 export type BuildComposerMessageChangeHandlerInput = {
+  recoverableCommandOperation: ThreadPageRecoverableCommandOperation | null
+  recoverableSendInput: string | null
   sendError: string | null
   setComposerCaret: (value: number) => void
   setComposerCommandMenu: Dispatch<SetStateAction<ComposerCommandMenu>>
   setDismissedComposerAutocompleteKey: (value: string | null) => void
+  setRecoverableCommandOperation: (
+    value: ThreadPageRecoverableCommandOperation | null,
+  ) => void
+  setRecoverableSendInput: (value: string | null) => void
   setMessage: (value: string) => void
   setSendError: (value: string | null) => void
 }

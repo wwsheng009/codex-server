@@ -7,7 +7,12 @@ import {
 import type { UseThreadPageComposerCallbacksInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageComposerCallbacks({
+  handleRestartAndRetryCommandOperation,
+  handleRestartAndRetryRuntimeOperation,
   hasAccountError,
+  hasRecoverableCommandOperation,
+  hasRecoverableRuntimeOperation,
+  isRestartAndRetryPending,
   queryClient,
   requiresOpenAIAuth,
   sendError,
@@ -50,7 +55,14 @@ export function useThreadPageComposerCallbacks({
 
   const handleRetryComposerStatus = hasAccountError
     ? () => void queryClient.invalidateQueries({ queryKey: accountQueryKey(workspaceId) })
-    : !requiresOpenAIAuth && sendError
+    : hasRecoverableRuntimeOperation && !isRestartAndRetryPending
+      ? () =>
+          void (
+            hasRecoverableCommandOperation
+              ? handleRestartAndRetryCommandOperation()
+              : handleRestartAndRetryRuntimeOperation()
+          )
+      : !requiresOpenAIAuth && sendError
       ? () => {
           setSendError(null)
         }

@@ -6,6 +6,7 @@ import type {
   ConfigWriteResult,
   ExternalAgentConfigDetectResult,
   FeedbackUploadResult,
+  EventHubDiagnosticsSnapshot,
   McpOauthLoginResult,
   RuntimePreferencesResult,
 } from "../../types/api";
@@ -123,6 +124,10 @@ export function readConfig(workspaceId: string, input: ReadConfigInput) {
 
 export function readRuntimePreferences() {
   return apiRequest<RuntimePreferencesResult>(`/api/runtime/preferences`);
+}
+
+export function readRuntimeEventHubDiagnostics() {
+  return apiRequest<EventHubDiagnosticsSnapshot>(`/api/runtime/event-hub`);
 }
 
 export function readAccessBootstrap() {

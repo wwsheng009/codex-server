@@ -62,12 +62,14 @@ export function ThreadWorkbenchRail({
   loadedUserMessageCount,
   pendingApprovalsCount,
   rootPath,
+  runtimeRecoverySummary,
   runtimeConfigChangedAt,
   runtimeConfigLoadStatus,
   hookConfiguration,
   hookConfigurationError,
   hookConfigurationLoading,
   runtimeRestartRequired,
+  restartRuntimePending,
   runtimeStartedAt,
   runtimeUpdatedAt,
   selectedThread,
@@ -111,6 +113,7 @@ export function ThreadWorkbenchRail({
   onInspectorResizeStart,
   onOpenInspector,
   onOpenSurfacePanel,
+  onRestartRuntime,
   onResetInspectorWidth,
   onSendBotMessage,
   onSubmitRenameThread,
@@ -227,9 +230,11 @@ export function ThreadWorkbenchRail({
           onOpenSurfacePanel={onOpenSurfacePanel}
           pendingApprovalsCount={pendingApprovalsCount}
           rootPath={rootPath}
+          runtimeRecoverySummary={runtimeRecoverySummary}
           runtimeConfigChangedAt={runtimeConfigChangedAt}
           runtimeConfigLoadStatus={runtimeConfigLoadStatus}
           runtimeRestartRequired={runtimeRestartRequired}
+          restartRuntimePending={restartRuntimePending}
           runtimeStartedAt={runtimeStartedAt}
           runtimeUpdatedAt={runtimeUpdatedAt}
           selectedThread={selectedThread}
@@ -238,6 +243,7 @@ export function ThreadWorkbenchRail({
           shellEnvironmentWarning={shellEnvironmentWarning}
           streamState={streamState}
           surfacePanelView={surfacePanelView}
+          onRestartRuntime={onRestartRuntime}
           totalTokens={totalTokens}
           totalMessageCount={totalMessageCount}
           totalTurnCount={totalTurnCount}

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"codex-server/backend/internal/bridge"
+	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/diagnostics"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
@@ -27,13 +28,18 @@ const commandOutputBatchWindow = 16 * time.Millisecond
 const commandOutputMaxChunkBytes = 16 * 1024
 
 type State struct {
-	WorkspaceID string     `json:"workspaceId"`
-	Status      string     `json:"status"`
-	Command     string     `json:"command"`
-	RootPath    string     `json:"rootPath"`
-	LastError   string     `json:"lastError,omitempty"`
-	StartedAt   *time.Time `json:"startedAt,omitempty"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	WorkspaceID                     string     `json:"workspaceId"`
+	Status                          string     `json:"status"`
+	Command                         string     `json:"command"`
+	RootPath                        string     `json:"rootPath"`
+	LastError                       string     `json:"lastError,omitempty"`
+	LastErrorCategory               string     `json:"lastErrorCategory,omitempty"`
+	LastErrorRecoveryAction         string     `json:"lastErrorRecoveryAction,omitempty"`
+	LastErrorRetryable              bool       `json:"lastErrorRetryable"`
+	LastErrorRequiresRuntimeRecycle bool       `json:"lastErrorRequiresRuntimeRecycle"`
+	RecentStderr                    []string   `json:"recentStderr,omitempty"`
+	StartedAt                       *time.Time `json:"startedAt,omitempty"`
+	UpdatedAt                       time.Time  `json:"updatedAt"`
 }
 
 type PendingServerRequest struct {
@@ -65,11 +71,11 @@ type ServerRequestInterceptor interface {
 }
 
 type Manager struct {
-	mu       sync.RWMutex
-	command  string
-	events   *events.Hub
-	runtimes map[string]*instance
-	requests map[string]*PendingServerRequest
+	mu           sync.RWMutex
+	launchConfig appconfig.RuntimeLaunchConfig
+	events       *events.Hub
+	runtimes     map[string]*instance
+	requests     *serverRequestRegistry
 
 	requestInterceptor ServerRequestInterceptor
 }
@@ -82,7 +88,10 @@ type instance struct {
 	client                  *bridge.Client
 	expectClose             bool
 	state                   State
+	stderrBuffer            *stderrRingBuffer
 	activeTurns             map[string]string
+	interruptingTurns       map[string]string
+	lastTerminalTurns       map[string]string
 	commandOutputFlushTimer *time.Timer
 	pendingCommandOutputLen int
 	pendingCommandOutput    []pendingCommandOutputChunk
@@ -95,11 +104,19 @@ type pendingCommandOutputChunk struct {
 }
 
 func NewManager(command string, eventHub *events.Hub) *Manager {
+	return NewManagerWithLaunchConfig(appconfig.RuntimeLaunchConfig{
+		BaseCommand: command,
+		Command:     command,
+	}, eventHub)
+}
+
+func NewManagerWithLaunchConfig(launchConfig appconfig.RuntimeLaunchConfig, eventHub *events.Hub) *Manager {
+	launchConfig = appconfig.NormalizeRuntimeLaunchConfig(launchConfig)
 	return &Manager{
-		command:  command,
-		events:   eventHub,
-		runtimes: make(map[string]*instance),
-		requests: make(map[string]*PendingServerRequest),
+		launchConfig: launchConfig,
+		events:       eventHub,
+		runtimes:     make(map[string]*instance),
+		requests:     newServerRequestRegistry(),
 	}
 }
 
@@ -111,21 +128,34 @@ func (m *Manager) SetServerRequestInterceptor(interceptor ServerRequestIntercept
 }
 
 func (m *Manager) ApplyCommand(command string) {
-	command = strings.TrimSpace(command)
-	if command == "" {
+	m.ApplyLaunchConfig(appconfig.RuntimeLaunchConfig{
+		BaseCommand: command,
+		Command:     command,
+	})
+}
+
+func (m *Manager) ApplyLaunchConfig(launchConfig appconfig.RuntimeLaunchConfig) {
+	launchConfig = appconfig.NormalizeRuntimeLaunchConfig(launchConfig)
+	if launchConfig.Command == "" {
 		return
 	}
 
 	m.mu.Lock()
-	m.command = command
+	m.launchConfig = launchConfig
 	clients := make([]*bridge.Client, 0, len(m.runtimes))
 	for _, runtime := range m.runtimes {
 		runtime.mu.Lock()
-		runtime.state.Command = command
+		runtime.state.Command = launchConfig.Command
 		runtime.state.Status = "stopped"
 		runtime.state.LastError = ""
+		runtime.state.RecentStderr = nil
+		if runtime.stderrBuffer != nil {
+			runtime.stderrBuffer.Reset()
+		}
 		runtime.state.UpdatedAt = time.Now().UTC()
 		runtime.activeTurns = make(map[string]string)
+		runtime.interruptingTurns = make(map[string]string)
+		runtime.lastTerminalTurns = make(map[string]string)
 		if runtime.client != nil {
 			runtime.expectClose = true
 			clients = append(clients, runtime.client)
@@ -177,7 +207,7 @@ func (m *Manager) State(workspaceID string) State {
 		return State{
 			WorkspaceID: workspaceID,
 			Status:      "unconfigured",
-			Command:     m.command,
+			Command:     m.launchConfig.Command,
 			UpdatedAt:   time.Now().UTC(),
 		}
 	}
@@ -185,7 +215,7 @@ func (m *Manager) State(workspaceID string) State {
 	runtime.mu.RLock()
 	defer runtime.mu.RUnlock()
 
-	return runtime.state
+	return cloneRuntimeState(runtime.state)
 }
 
 func (m *Manager) EnsureStarted(ctx context.Context, workspaceID string) (State, error) {
@@ -224,43 +254,20 @@ func (m *Manager) Call(ctx context.Context, workspaceID string, method string, p
 }
 
 func (m *Manager) ListPendingRequests(workspaceID string) []PendingServerRequest {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	items := make([]PendingServerRequest, 0)
-	for _, request := range m.requests {
-		if request.WorkspaceID == workspaceID {
-			items = append(items, *request)
-		}
-	}
-
-	sort.Slice(items, func(i int, j int) bool {
-		return items[i].RequestedAt.After(items[j].RequestedAt)
-	})
-
-	return items
+	return m.requests.ListByWorkspace(workspaceID)
 }
 
 func (m *Manager) GetPendingRequest(requestID string) (PendingServerRequest, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	request, ok := m.requests[requestID]
-	if !ok {
-		return PendingServerRequest{}, false
-	}
-
-	return *request, true
+	return m.requests.Get(requestID)
 }
 
 func (m *Manager) Respond(ctx context.Context, requestID string, result any) (PendingServerRequest, error) {
-	m.mu.RLock()
-	request, ok := m.requests[requestID]
+	request, ok := m.requests.Get(requestID)
 	if !ok {
-		m.mu.RUnlock()
 		return PendingServerRequest{}, ErrServerRequestNotFound
 	}
 
+	m.mu.RLock()
 	runtime := m.runtimes[request.WorkspaceID]
 	m.mu.RUnlock()
 
@@ -283,21 +290,22 @@ func (m *Manager) Respond(ctx context.Context, requestID string, result any) (Pe
 		return PendingServerRequest{}, err
 	}
 
-	m.mu.Lock()
-	delete(m.requests, requestID)
-	m.mu.Unlock()
+	resolved, ok := m.requests.Resolve(requestID)
+	if !ok {
+		return request, nil
+	}
 
 	m.publish(store.EventEnvelope{
-		WorkspaceID:     request.WorkspaceID,
-		ThreadID:        request.ThreadID,
-		TurnID:          request.TurnID,
+		WorkspaceID:     resolved.WorkspaceID,
+		ThreadID:        resolved.ThreadID,
+		TurnID:          resolved.TurnID,
 		Method:          "server/request/resolved",
-		Payload:         map[string]any{"method": request.Method},
+		Payload:         map[string]any{"method": resolved.Method},
 		ServerRequestID: &requestID,
 		TS:              time.Now().UTC(),
 	})
 
-	return *request, nil
+	return resolved, nil
 }
 
 func (m *Manager) ActiveTurnID(workspaceID string, threadID string) string {
@@ -327,12 +335,113 @@ func (m *Manager) RememberActiveTurn(workspaceID string, threadID string, turnID
 
 	if strings.TrimSpace(turnID) == "" {
 		delete(runtime.activeTurns, threadID)
+		delete(runtime.interruptingTurns, threadID)
 		diagnostics.LogThreadTrace(workspaceID, threadID, "runtime active turn cleared")
 		return
 	}
 
+	if runtime.lastTerminalTurns[threadID] == turnID {
+		diagnostics.LogThreadTrace(
+			workspaceID,
+			threadID,
+			"runtime active turn remember skipped for terminal turn",
+			"turnId",
+			turnID,
+		)
+		return
+	}
+
 	runtime.activeTurns[threadID] = turnID
+	delete(runtime.interruptingTurns, threadID)
+	delete(runtime.lastTerminalTurns, threadID)
 	diagnostics.LogThreadTrace(workspaceID, threadID, "runtime active turn remembered", "turnId", turnID)
+}
+
+func (m *Manager) BeginInterrupt(workspaceID string, threadID string) string {
+	m.mu.RLock()
+	runtime, ok := m.runtimes[workspaceID]
+	m.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if interruptingTurnID := runtime.interruptingTurns[threadID]; strings.TrimSpace(interruptingTurnID) != "" {
+		diagnostics.LogThreadTrace(
+			workspaceID,
+			threadID,
+			"runtime interrupt already in progress",
+			"turnId",
+			interruptingTurnID,
+		)
+		return ""
+	}
+
+	turnID := strings.TrimSpace(runtime.activeTurns[threadID])
+	if turnID == "" {
+		return ""
+	}
+
+	delete(runtime.activeTurns, threadID)
+	runtime.interruptingTurns[threadID] = turnID
+	diagnostics.LogThreadTrace(workspaceID, threadID, "runtime interrupt begun", "turnId", turnID)
+	return turnID
+}
+
+func (m *Manager) FinishInterrupt(workspaceID string, threadID string, turnID string) {
+	m.mu.RLock()
+	runtime, ok := m.runtimes[workspaceID]
+	m.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	interruptingTurnID := strings.TrimSpace(runtime.interruptingTurns[threadID])
+	if interruptingTurnID == "" {
+		return
+	}
+	if turnID != "" && interruptingTurnID != turnID {
+		return
+	}
+
+	delete(runtime.interruptingTurns, threadID)
+	diagnostics.LogThreadTrace(workspaceID, threadID, "runtime interrupt finished", "turnId", interruptingTurnID)
+}
+
+func (m *Manager) RestoreInterruptedTurn(workspaceID string, threadID string, turnID string) {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return
+	}
+
+	m.mu.RLock()
+	runtime, ok := m.runtimes[workspaceID]
+	m.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if runtime.interruptingTurns[threadID] != turnID {
+		return
+	}
+	delete(runtime.interruptingTurns, threadID)
+	if runtime.lastTerminalTurns[threadID] == turnID {
+		return
+	}
+	if strings.TrimSpace(runtime.activeTurns[threadID]) != "" {
+		return
+	}
+
+	runtime.activeTurns[threadID] = turnID
+	diagnostics.LogThreadTrace(workspaceID, threadID, "runtime interrupted turn restored", "turnId", turnID)
 }
 
 func (m *Manager) FirstWorkspaceID() string {
@@ -389,13 +498,16 @@ func (m *Manager) getOrCreateLocked(workspaceID string) *instance {
 	}
 
 	runtime := &instance{
-		manager:     m,
-		workspaceID: workspaceID,
-		activeTurns: make(map[string]string),
+		manager:           m,
+		workspaceID:       workspaceID,
+		stderrBuffer:      newStderrRingBuffer(runtimeStderrRingBufferCapacity),
+		activeTurns:       make(map[string]string),
+		interruptingTurns: make(map[string]string),
+		lastTerminalTurns: make(map[string]string),
 		state: State{
 			WorkspaceID: workspaceID,
 			Status:      "stopped",
-			Command:     m.command,
+			Command:     m.launchConfig.Command,
 			UpdatedAt:   time.Now().UTC(),
 		},
 	}
@@ -407,7 +519,7 @@ func (m *Manager) getOrCreateLocked(workspaceID string) *instance {
 func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 	r.mu.RLock()
 	if r.client != nil {
-		state := r.state
+		state := cloneRuntimeState(r.state)
 		r.mu.RUnlock()
 		return state, nil
 	}
@@ -420,13 +532,17 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 
 	r.mu.Lock()
 	if r.client != nil {
-		state := r.state
+		state := cloneRuntimeState(r.state)
 		r.mu.Unlock()
 		return state, nil
 	}
 
+	if r.stderrBuffer != nil {
+		r.stderrBuffer.Reset()
+	}
 	r.state.Status = "starting"
 	r.state.RootPath = rootPath
+	r.clearRuntimeErrorStateLocked()
 	r.state.UpdatedAt = time.Now().UTC()
 	r.mu.Unlock()
 	diagnostics.LogWorkspaceTrace(
@@ -435,11 +551,11 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 		"rootPath",
 		rootPath,
 		"command",
-		diagnostics.TruncateString(r.manager.command, 240),
+		diagnostics.TruncateString(r.manager.launchConfig.Command, 240),
 	)
 
 	client, err := bridge.Start(ctx, bridge.Config{
-		Command:         r.manager.command,
+		LaunchConfig:    r.manager.launchConfig,
 		Cwd:             rootPath,
 		ClientName:      "codex-server",
 		ClientVersion:   "0.1.0",
@@ -448,9 +564,9 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 	if err != nil {
 		r.mu.Lock()
 		r.state.Status = "error"
-		r.state.LastError = err.Error()
+		r.applyRuntimeFailureLocked(err)
 		r.state.UpdatedAt = time.Now().UTC()
-		state := r.state
+		state := cloneRuntimeState(r.state)
 		r.mu.Unlock()
 		diagnostics.LogWorkspaceTrace(r.workspaceID, "runtime ensure-start failed", "error", err)
 		return state, err
@@ -461,11 +577,12 @@ func (r *instance) ensureStarted(ctx context.Context) (State, error) {
 	r.mu.Lock()
 	r.client = client
 	r.state.Status = "ready"
-	r.state.LastError = ""
+	r.clearRuntimeErrorStateLocked()
 	r.state.RootPath = rootPath
 	r.state.StartedAt = &now
+	r.state.RecentStderr = r.stderrSnapshotLocked()
 	r.state.UpdatedAt = now
-	state := r.state
+	state := cloneRuntimeState(r.state)
 	r.mu.Unlock()
 	diagnostics.LogWorkspaceTrace(
 		r.workspaceID,
@@ -531,9 +648,7 @@ func (r *instance) HandleRequest(id json.RawMessage, method string, params json.
 		RequestedAt: time.Now().UTC(),
 	}
 
-	r.manager.mu.Lock()
-	r.manager.requests[requestID] = request
-	r.manager.mu.Unlock()
+	registered := r.manager.requests.Register(*request)
 	diagnostics.LogTrace(
 		r.workspaceID,
 		threadID,
@@ -552,7 +667,7 @@ func (r *instance) HandleRequest(id json.RawMessage, method string, params json.
 		Method:          method,
 		Payload:         payload,
 		ServerRequestID: &requestID,
-		TS:              request.RequestedAt,
+		TS:              registered.RequestedAt,
 	})
 }
 
@@ -632,7 +747,15 @@ func (r *instance) interceptServerRequest(
 
 func (r *instance) HandleStderr(line string) {
 	r.mu.Lock()
-	r.state.LastError = line
+	if r.stderrBuffer != nil {
+		r.stderrBuffer.Append(line)
+	}
+	r.state.RecentStderr = r.stderrSnapshotLocked()
+	r.state.LastError = truncateRuntimeStderrText(strings.TrimSpace(line), runtimeStderrSummaryMaxChars)
+	r.state.LastErrorCategory = ""
+	r.state.LastErrorRecoveryAction = ""
+	r.state.LastErrorRetryable = false
+	r.state.LastErrorRequiresRuntimeRecycle = false
 	r.state.UpdatedAt = time.Now().UTC()
 	r.mu.Unlock()
 	diagnostics.LogWorkspaceTrace(
@@ -650,15 +773,25 @@ func (r *instance) HandleClosed(err error) {
 
 	r.mu.Lock()
 	expectClose := r.expectClose
+	wasRunning := r.client != nil || r.state.Status == "ready" || r.state.Status == "starting"
 	r.expectClose = false
 	r.client = nil
 	r.state.Status = "stopped"
 	r.state.UpdatedAt = time.Now().UTC()
-	if err != nil && !expectClose && !errors.Is(err, context.Canceled) {
+	r.activeTurns = make(map[string]string)
+	r.interruptingTurns = make(map[string]string)
+	r.lastTerminalTurns = make(map[string]string)
+	if !expectClose && !errors.Is(err, context.Canceled) && wasRunning {
 		r.state.Status = "error"
-		r.state.LastError = err.Error()
+		if err == nil {
+			err = errors.New("app-server closed unexpectedly")
+		}
+		r.applyRuntimeFailureLocked(err)
 	} else if expectClose {
-		r.state.LastError = ""
+		r.clearRuntimeErrorStateLocked()
+		if r.stderrBuffer != nil {
+			r.stderrBuffer.Reset()
+		}
 	}
 	r.mu.Unlock()
 	diagnostics.LogWorkspaceTrace(
@@ -683,10 +816,20 @@ func (r *instance) trackTurn(method string, threadID string, turnID string) {
 	case "turn/started":
 		if turnID != "" {
 			r.activeTurns[threadID] = turnID
+			delete(r.interruptingTurns, threadID)
+			delete(r.lastTerminalTurns, threadID)
 		}
-	case "turn/completed":
-		if currentTurnID, ok := r.activeTurns[threadID]; ok && (turnID == "" || currentTurnID == turnID) {
+	case "turn/completed", "turn/failed", "turn/interrupted", "turn/canceled", "turn/cancelled":
+		currentTurnID := strings.TrimSpace(r.activeTurns[threadID])
+		interruptingTurnID := strings.TrimSpace(r.interruptingTurns[threadID])
+		if currentTurnID != "" && (turnID == "" || currentTurnID == turnID) {
 			delete(r.activeTurns, threadID)
+		}
+		if interruptingTurnID != "" && (turnID == "" || interruptingTurnID == turnID) {
+			delete(r.interruptingTurns, threadID)
+		}
+		if terminalTurnID := firstNonEmptyString(turnID, interruptingTurnID, currentTurnID); terminalTurnID != "" {
+			r.lastTerminalTurns[threadID] = terminalTurnID
 		}
 	}
 }
@@ -742,6 +885,16 @@ func stringValue(value any) string {
 	default:
 		return ""
 	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (r *instance) queueCommandOutputDelta(params json.RawMessage) bool {
@@ -904,17 +1057,7 @@ func splitCommandOutputDelta(delta []byte, maxChunkBytes int) [][]byte {
 }
 
 func (m *Manager) expireRequestsForWorkspace(workspaceID string, reason string) {
-	m.mu.Lock()
-	expired := make([]PendingServerRequest, 0)
-	for requestID, request := range m.requests {
-		if request.WorkspaceID != workspaceID {
-			continue
-		}
-
-		expired = append(expired, *request)
-		delete(m.requests, requestID)
-	}
-	m.mu.Unlock()
+	expired := m.requests.ExpireWorkspace(workspaceID)
 
 	for _, request := range expired {
 		if m.events == nil {
@@ -938,4 +1081,155 @@ func (m *Manager) publish(event store.EventEnvelope) {
 		return
 	}
 	m.events.Publish(event)
+}
+
+func (r *instance) stderrSnapshotLocked() []string {
+	if r.stderrBuffer == nil {
+		return nil
+	}
+	return r.stderrBuffer.Snapshot()
+}
+
+func (r *instance) clearRuntimeErrorStateLocked() {
+	r.state.LastError = ""
+	r.state.LastErrorCategory = ""
+	r.state.LastErrorRecoveryAction = ""
+	r.state.LastErrorRetryable = false
+	r.state.LastErrorRequiresRuntimeRecycle = false
+	r.state.RecentStderr = nil
+}
+
+func (r *instance) applyRuntimeFailureLocked(err error) {
+	r.state.RecentStderr = r.stderrSnapshotLocked()
+	r.state.LastError = summarizeRuntimeFailure(err, r.state.RecentStderr)
+	classification := classifyRuntimeFailure(err, r.state.RecentStderr)
+	r.state.LastErrorCategory = classification.Category
+	r.state.LastErrorRecoveryAction = classification.RecoveryAction
+	r.state.LastErrorRetryable = classification.Retryable
+	r.state.LastErrorRequiresRuntimeRecycle = classification.RequiresRuntimeRecycle
+}
+
+type runtimeErrorClassification struct {
+	Category               string
+	RecoveryAction         string
+	Retryable              bool
+	RequiresRuntimeRecycle bool
+}
+
+func classifyRuntimeFailure(err error, stderrLines []string) runtimeErrorClassification {
+	if err == nil {
+		return runtimeErrorClassification{}
+	}
+	if errors.Is(err, context.Canceled) {
+		return runtimeErrorClassification{
+			Category:       "canceled",
+			RecoveryAction: "none",
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return runtimeErrorClassification{
+			Category:       "timeout",
+			RecoveryAction: "retry",
+			Retryable:      true,
+		}
+	}
+
+	text := strings.ToLower(strings.TrimSpace(summarizeRuntimeFailure(err, stderrLines)))
+	switch {
+	case containsAnyRuntimeFailureText(text,
+		"not recognized as an internal or external command",
+		"executable file not found",
+		"command not found",
+		"no such file or directory",
+		"the system cannot find the file specified",
+		"cannot find the file specified",
+		"failed to resolve runtime command",
+	):
+		return runtimeErrorClassification{
+			Category:       "configuration",
+			RecoveryAction: "fix-launch-config",
+		}
+	case containsAnyRuntimeFailureText(text,
+		"read app-server stdout",
+		"read app-server stderr",
+		"broken pipe",
+		"connection reset",
+		"app-server bridge closed",
+	):
+		return runtimeErrorClassification{
+			Category:               "transport",
+			RecoveryAction:         "retry-after-restart",
+			Retryable:              true,
+			RequiresRuntimeRecycle: true,
+		}
+	case isRuntimeExitError(err),
+		containsAnyRuntimeFailureText(text,
+			"exit status",
+			"runtime exited unexpectedly",
+			"process exited",
+		):
+		return runtimeErrorClassification{
+			Category:               "process_exit",
+			RecoveryAction:         "retry-after-restart",
+			Retryable:              true,
+			RequiresRuntimeRecycle: true,
+		}
+	default:
+		return runtimeErrorClassification{
+			Category:               "runtime",
+			RecoveryAction:         "retry-after-restart",
+			Retryable:              true,
+			RequiresRuntimeRecycle: true,
+		}
+	}
+}
+
+func containsAnyRuntimeFailureText(text string, patterns ...string) bool {
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(strings.TrimSpace(pattern))
+		if pattern == "" {
+			continue
+		}
+		if strings.Contains(text, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRuntimeExitError(err error) bool {
+	type exitCodeProvider interface {
+		ExitCode() int
+	}
+
+	var exitErr exitCodeProvider
+	return errors.As(err, &exitErr)
+}
+
+func summarizeRuntimeFailure(err error, stderrLines []string) string {
+	parts := make([]string, 0, 2)
+	if err != nil {
+		errText := strings.TrimSpace(err.Error())
+		if errText != "" {
+			parts = append(parts, errText)
+		}
+	}
+
+	stderrSummary := summarizeRuntimeStderr(stderrLines)
+	if stderrSummary != "" {
+		if len(parts) == 0 {
+			parts = append(parts, stderrSummary)
+		} else if parts[0] != stderrSummary {
+			parts = append(parts, "stderr: "+stderrSummary)
+		}
+	}
+
+	return strings.Join(parts, " | ")
+}
+
+func cloneRuntimeState(state State) State {
+	if len(state.RecentStderr) > 0 {
+		state.RecentStderr = append([]string(nil), state.RecentStderr...)
+	}
+	return state
 }

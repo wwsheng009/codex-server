@@ -340,7 +340,7 @@ func (s *Service) Write(input WriteInput) (ReadResult, error) {
 	}
 
 	s.store.SetRuntimePreferences(candidateConfigured)
-	s.runtimes.ApplyCommand(resolved.Command)
+	s.runtimes.ApplyLaunchConfig(resolved.LaunchConfig)
 	effectiveTrace := s.resolveThreadTraceConfig(candidateConfigured)
 	diagnostics.ConfigureThreadTrace(
 		effectiveTrace.Enabled,
@@ -422,7 +422,7 @@ func (s *Service) ImportModelCatalogTemplate() (ReadResult, error) {
 	}
 
 	s.store.SetRuntimePreferences(candidateConfigured)
-	s.runtimes.ApplyCommand(resolved.Command)
+	s.runtimes.ApplyLaunchConfig(resolved.LaunchConfig)
 	effectiveTrace := s.resolveThreadTraceConfig(candidateConfigured)
 	diagnostics.ConfigureThreadTrace(
 		effectiveTrace.Enabled,

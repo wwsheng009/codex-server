@@ -1,5 +1,6 @@
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
 import { getErrorMessage } from '../../lib/error-utils'
+import { buildWorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 
 export function buildThreadPageControllerRailStateLayoutInput({
   controllerState,
@@ -62,6 +63,9 @@ export function buildThreadPageControllerRailStateLayoutInput({
     liveThreadCwd: dataState.liveThreadDetail?.cwd,
     pendingApprovalsCount: dataState.approvalsQuery.data?.length ?? 0,
     rootPath: dataState.workspaceQuery.data?.rootPath,
+    runtimeRecoverySummary: buildWorkspaceRuntimeRecoverySummary(
+      dataState.workspaceRuntimeStateQuery.data,
+    ),
     runtimeConfigChangedAt:
       dataState.workspaceRuntimeStateQuery.data?.runtimeConfigChangedAt ?? undefined,
     runtimeConfigLoadStatus:
@@ -78,6 +82,7 @@ export function buildThreadPageControllerRailStateLayoutInput({
       dataState.workspaceRuntimeStateQuery.data?.updatedAt ??
       dataState.workspaceQuery.data?.updatedAt ??
       '',
+    restartRuntimePending: mutationState.restartRuntimeMutation.isPending,
     selectedThread: dataState.selectedThread,
     shellEnvironmentInfo: dataState.shellEnvironmentDiagnosis.info,
     shellEnvironmentSummary: dataState.shellEnvironmentDiagnosis.summary,
@@ -86,7 +91,9 @@ export function buildThreadPageControllerRailStateLayoutInput({
       controllerState.commandRunMode === 'thread-shell' && !activeSelectedThreadId,
     startCommandPending:
       mutationState.startCommandMutation.isPending ||
-      mutationState.threadShellCommandMutation.isPending,
+      mutationState.threadShellCommandMutation.isPending ||
+      (controllerState.isRestartAndRetryPending &&
+        Boolean(controllerState.recoverableCommandOperation)),
     streamState: controllerState.streamState,
     hookRuns: dataState.hookRunsQuery.data ?? [],
     hookRunsError: dataState.hookRunsQuery.error

@@ -35,6 +35,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
         selectedThread: undefined,
         threadDetailQuery: { error: null, isLoading: false },
         threadsQuery: { data: [], isLoading: false, isSuccess: true },
+        workspaceRuntimeStateQuery: { data: null },
         workspaceQuery: { data: { name: 'workspace', rootPath: 'E:/workspace' } },
       },
       displayState: {
@@ -45,6 +46,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       mutationState: {
         createThreadMutation: { error: null, isPending: false },
         respondApprovalMutation: { isPending: false },
+        restartRuntimeMutation: { isPending: false },
         startCommandMutation: { isPending: false },
         terminateCommandMutation: { isPending: false },
       },
@@ -94,6 +96,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
         selectedThread: undefined,
         threadDetailQuery: { error: null, isLoading: false },
         threadsQuery: { data: [], isLoading: false, isSuccess: true },
+        workspaceRuntimeStateQuery: { data: null },
         workspaceQuery: { data: { name: 'workspace', rootPath: 'E:/workspace' } },
       },
       displayState: {
@@ -104,6 +107,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       mutationState: {
         createThreadMutation: { error: null, isPending: false },
         respondApprovalMutation: { isPending: false },
+        restartRuntimeMutation: { isPending: false },
         startCommandMutation: { isPending: false },
         terminateCommandMutation: { isPending: false },
       },
@@ -158,6 +162,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
         selectedThread: undefined,
         threadDetailQuery: { error: null, isLoading: false },
         threadsQuery: { data: [], isLoading: false, isSuccess: true },
+        workspaceRuntimeStateQuery: { data: null },
         workspaceQuery: { data: { name: 'workspace', rootPath: 'E:/workspace' } },
       },
       displayState: {
@@ -168,6 +173,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       mutationState: {
         createThreadMutation: { error: null, isPending: false },
         respondApprovalMutation: { isPending: false },
+        restartRuntimeMutation: { isPending: false },
         startCommandMutation: { isPending: false },
         terminateCommandMutation: { isPending: true },
       },

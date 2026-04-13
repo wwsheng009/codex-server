@@ -230,7 +230,10 @@ func (s *Service) Start(ctx context.Context) {
 		return
 	}
 
-	eventsCh, cancel := s.events.SubscribeAll()
+	eventsCh, cancel := s.events.SubscribeAllWithSource(
+		"hooks.service",
+		"hook-service",
+	)
 	go func() {
 		defer cancel()
 		for {

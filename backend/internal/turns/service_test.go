@@ -296,6 +296,29 @@ func TestInterruptSendsTurnInterruptThroughRuntime(t *testing.T) {
 	}
 }
 
+func TestInterruptIsIdempotentWhenInterruptAlreadyInProgress(t *testing.T) {
+	t.Parallel()
+
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", nil)
+	runtimeManager.Configure("ws-1", t.TempDir())
+	runtimeManager.RememberActiveTurn("ws-1", "thread-1", "turn-9")
+	if begun := runtimeManager.BeginInterrupt("ws-1", "thread-1"); begun != "turn-9" {
+		t.Fatalf("expected begin interrupt to capture turn-9, got %q", begun)
+	}
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	result, err := service.Interrupt(context.Background(), "ws-1", "thread-1")
+	if err != nil {
+		t.Fatalf("Interrupt() error = %v", err)
+	}
+	if result.Status != "interrupted" {
+		t.Fatalf("expected interrupted status, got %#v", result.Status)
+	}
+	if result.TurnID != "" {
+		t.Fatalf("expected idempotent interrupt-in-progress to return empty turn id, got %#v", result.TurnID)
+	}
+}
+
 func TestReviewStartsThroughRuntime(t *testing.T) {
 	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
 		Behaviors: map[string]codexfake.MethodBehavior{

@@ -12,6 +12,7 @@ import type {
   WorkspaceHookConfigurationResult,
 } from '../../types/api'
 import type { ShellEnvironmentDiagnosisSummary } from '../../features/settings/shell-environment-diagnostics'
+import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 import type { CommandRunMode } from './threadPageActionTypes'
 
 export type ThreadWorkbenchRailProps = {
@@ -44,11 +45,13 @@ export type ThreadWorkbenchRailProps = {
   loadedUserMessageCount: number
   pendingApprovalsCount: number
   rootPath?: string
+  runtimeRecoverySummary?: WorkspaceRuntimeRecoverySummary | null
   runtimeStartedAt?: string
   runtimeUpdatedAt?: string
   runtimeConfigChangedAt?: string
   runtimeConfigLoadStatus: string
   runtimeRestartRequired: boolean
+  restartRuntimePending?: boolean
   hookConfiguration?: WorkspaceHookConfigurationResult | null
   hookConfigurationError?: string | null
   hookConfigurationLoading: boolean
@@ -97,6 +100,7 @@ export type ThreadWorkbenchRailProps = {
   onInspectorResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onOpenInspector: () => void
   onOpenSurfacePanel: (view: SurfacePanelView) => void
+  onRestartRuntime?: () => void
   onResetInspectorWidth: () => void
   onSendBotMessage: (event: FormEvent<HTMLFormElement>) => void
   onSubmitRenameThread: (event: FormEvent<HTMLFormElement>) => void
@@ -207,11 +211,14 @@ export type ThreadWorkbenchRailWorkspaceContextSectionProps = {
   liveThreadCwd?: string
   onHideSurfacePanel: () => void
   onOpenSurfacePanel: (view: SurfacePanelView) => void
+  onRestartRuntime?: () => void
   pendingApprovalsCount: number
   rootPath?: string
+  runtimeRecoverySummary?: WorkspaceRuntimeRecoverySummary | null
   runtimeConfigChangedAt?: string
   runtimeConfigLoadStatus: string
   runtimeRestartRequired: boolean
+  restartRuntimePending?: boolean
   runtimeStartedAt?: string
   runtimeUpdatedAt?: string
   selectedThread?: Thread

@@ -316,6 +316,9 @@ export function useThreadPageControllerData(
     activeCommandCount: dataState.activeCommandCount,
     commandSessionCount: dataState.commandSessionCount,
     displayedTurnsLength: displayState.displayedTurns.length,
+    hasRecoverableRuntimeOperation:
+      Boolean(controllerState.recoverableSendInput?.trim()) ||
+      Boolean(controllerState.recoverableCommandOperation),
     hasUnreadThreadUpdates: viewportState.hasUnreadThreadUpdates,
     isDocumentVisible: controllerState.isDocumentVisible,
     interruptPending: mutationState.interruptTurnMutation.isPending,
@@ -332,6 +335,7 @@ export function useThreadPageControllerData(
     isThreadPinnedToLatest: viewportState.isThreadPinnedToLatest,
     latestDisplayedTurn: displayState.latestDisplayedTurn,
     liveThreadStatus: dataState.liveThreadDetail?.status,
+    restartAndRetryPending: controllerState.isRestartAndRetryPending,
     selectedThread: dataState.selectedThread,
     selectedThreadEvents: dataState.selectedThreadEvents,
     selectedThreadId: activeSelectedThreadId,

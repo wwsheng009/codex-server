@@ -325,6 +325,29 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Compared websocket events with rendered entries.')
   })
 
+  it('renders an empty reasoning item as a lightweight placeholder instead of suppressing it', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-reasoning-empty',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'reasoning-empty-1',
+            type: 'reasoning',
+            summary: [],
+            content: [],
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Reasoning')
+    expect(html).toContain('Awaiting reasoning content')
+    expect(html).toContain('Thinking…')
+  })
+
   it('renders a live cursor for streaming agent messages', () => {
     const turns: ThreadTurn[] = [
       {
@@ -388,7 +411,7 @@ describe('TurnTimeline', () => {
     )
   })
 
-  it('does not leave the live cursor on the previous reply when the newest streaming message is still empty', () => {
+  it('moves the live cursor onto the newest streaming placeholder when the latest reply is still empty', () => {
     const turns: ThreadTurn[] = [
       {
         id: 'turn-3e-old',
@@ -419,7 +442,11 @@ describe('TurnTimeline', () => {
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
     expect(html).toContain('Previous reply')
-    expect(html).not.toContain('conversation-bubble__cursor')
+    expect(html).toContain('Thinking…')
+    expect((html.match(/conversation-bubble__cursor/g) ?? []).length).toBe(1)
+    expect(html.lastIndexOf('conversation-bubble__cursor')).toBeGreaterThan(
+      html.indexOf('Thinking…'),
+    )
   })
 
   it('uses the typewriter renderer for completed-only assistant messages flagged by the client', () => {
@@ -445,7 +472,7 @@ describe('TurnTimeline', () => {
     expect(html).not.toContain('conversation-bubble__cursor')
   })
 
-  it('does not render an empty assistant bubble before the first text chunk arrives', () => {
+  it('renders a lightweight streaming assistant placeholder before the first text chunk arrives', () => {
     const turns: ThreadTurn[] = [
       {
         id: 'turn-3c',
@@ -463,8 +490,30 @@ describe('TurnTimeline', () => {
 
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
+    expect(html).toContain('conversation-row--assistant')
+    expect(html).toContain('conversation-bubble--streaming')
+    expect(html).toContain('Thinking…')
+  })
+
+  it('still suppresses completed assistant items that never received any text', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-3c-empty-completed',
+        status: 'completed',
+        items: [
+          {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: '',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
     expect(html).not.toContain('conversation-row--assistant')
-    expect(html).not.toContain('conversation-bubble--streaming')
+    expect(html).not.toContain('Thinking…')
   })
 
   it('reveals streaming agent text progressively when a large delta arrives', () => {

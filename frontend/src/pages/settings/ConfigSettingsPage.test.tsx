@@ -2,12 +2,7 @@
 
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -118,6 +113,8 @@ function createWorkspaceRuntimeState(
     status: "running",
     command: "codex-server",
     rootPath: "E:/projects/ai/codex-server",
+    lastErrorRetryable: false,
+    lastErrorRequiresRuntimeRecycle: false,
     updatedAt: "2026-04-10T00:00:00.000Z",
     configLoadStatus: "loaded",
     restartRequired: false,
@@ -408,4 +405,32 @@ describe("ConfigSettingsPage hook runtime preferences", () => {
     expect(screen.queryByText("Hook Input And Tool Guards")).toBeNull();
     expect(screen.queryByText("Turn Policy Execution Controls")).toBeNull();
   }, 15000);
+
+  it("surfaces runtime recovery guidance when the workspace runtime reports a classified failure", async () => {
+    localStorage.setItem("settings-config-runtime-side-tabs", "runtime-state");
+    workspaceApiState.getWorkspaceRuntimeState.mockResolvedValue(
+      createWorkspaceRuntimeState({
+        status: "error",
+        lastError: "runtime exited unexpectedly",
+        lastErrorCategory: "process_exit",
+        lastErrorRecoveryAction: "retry-after-restart",
+        lastErrorRetryable: true,
+        lastErrorRequiresRuntimeRecycle: true,
+        recentStderr: ["runtime exited unexpectedly", "exit status 23"],
+      }),
+    );
+
+    renderWithProviders(<ConfigSettingsPageComponent />);
+
+    await waitFor(() => {
+      expect(settingsApiState.readRuntimePreferences).toHaveBeenCalledTimes(1);
+    });
+
+    expect(await screen.findByText("Runtime Recovery Guidance")).toBeTruthy();
+    expect(
+      screen.getByText(/Last error: runtime exited unexpectedly/i),
+    ).toBeTruthy();
+    expect(screen.getAllByText("Runtime process exit").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Restart runtime, then retry").length).toBeGreaterThan(0);
+  });
 });

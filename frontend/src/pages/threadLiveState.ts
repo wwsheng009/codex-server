@@ -4,6 +4,7 @@ import {
   summarizeServerEventForDebug,
   summarizeThreadDetailForDebug,
 } from '../lib/frontend-runtime-mode'
+import { recordConversationLiveDiagnosticEvent } from '../components/workspace/threadConversationProfiler'
 import { formatHookRunFeedbackEntries, formatHookRunMessage } from '../lib/hook-run-display'
 import { buildTurnPlanItem, turnPlanItemId } from '../lib/turn-plan'
 import type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
@@ -50,20 +51,54 @@ export function applyLiveThreadEvents(
       continue
     }
 
-    if (
-      nextDetail &&
-      shouldReplayFilteredBaselineEvent(
-        nextDetail,
-        event,
-        replayState,
-      )
-    ) {
+    const replayDecision =
+      nextDetail ?
+        shouldReplayFilteredBaselineEvent(
+          nextDetail,
+          event,
+          replayState,
+        )
+      : null
+
+    if (nextDetail && replayDecision) {
       recoveredEvents.push(event)
+      recordConversationLiveDiagnosticEvent({
+        itemId: replayDecision.itemId ?? null,
+        itemType: replayDecision.itemType ?? null,
+        kind: 'baseline-replayed',
+        metadata: {
+          baselineUpdatedAt: detail.updatedAt,
+          eventTs: event.ts,
+          ...(replayDecision.metadata ?? {}),
+        },
+        method: event.method,
+        reason: replayDecision.reason,
+        serverRequestId: event.serverRequestId ?? null,
+        source: 'thread-live',
+        threadId: detail.id,
+        turnId: replayDecision.turnId ?? event.turnId ?? null,
+      })
       nextDetail = applyThreadEventToDetailPreservingUpdatedAt(nextDetail, event)
       continue
     }
 
     filteredEvents.push(event)
+    const filteredTarget = summarizeLiveDiagnosticTarget(event)
+    recordConversationLiveDiagnosticEvent({
+      itemId: filteredTarget.itemId,
+      itemType: filteredTarget.itemType,
+      kind: 'baseline-filtered',
+      metadata: {
+        baselineUpdatedAt: detail.updatedAt,
+        eventTs: event.ts,
+      },
+      method: event.method,
+      reason: 'filtered: stale event already represented',
+      serverRequestId: event.serverRequestId ?? null,
+      source: 'thread-live',
+      threadId: detail.id,
+      turnId: filteredTarget.turnId ?? event.turnId ?? null,
+    })
   }
 
   if (filteredEvents.length > 0) {
@@ -744,6 +779,14 @@ type FilteredEventReplayState = {
   reasoningItemKeys: Set<string>
 }
 
+type FilteredBaselineReplayDecision = {
+  itemId?: string | null
+  itemType?: string | null
+  metadata?: Record<string, boolean | number | string | null>
+  reason: string
+  turnId?: string | null
+}
+
 function createFilteredEventReplayState(): FilteredEventReplayState {
   return {
     agentMessageItemKeys: new Set<string>(),
@@ -757,7 +800,7 @@ function shouldReplayFilteredBaselineEvent(
   detail: ThreadDetail,
   event: ServerEvent,
   replayState: FilteredEventReplayState,
-) {
+): FilteredBaselineReplayDecision | null {
   const payload = asObject(event.payload)
 
   switch (event.method) {
@@ -766,12 +809,46 @@ function shouldReplayFilteredBaselineEvent(
       const turn = asObject(payload.turn)
       const turnId = stringField(turn.id) || event.turnId
       if (!turnId) {
-        return false
+        return null
       }
 
       const currentTurn = detail.turns.find((entry) => entry.id === turnId)
       const incomingItems = readTurnItems(turn.items, [])
-      return !currentTurn || (currentTurn.items.length === 0 && incomingItems.length > 0)
+      if (!currentTurn) {
+        return {
+          metadata: {
+            currentItemCount: 0,
+            incomingItemCount: incomingItems.length,
+          },
+          reason: 'older event replayed: missing turn',
+          turnId,
+        }
+      }
+
+      if (currentTurn.items.length === 0 && incomingItems.length > 0) {
+        return {
+          metadata: {
+            currentItemCount: currentTurn.items.length,
+            incomingItemCount: incomingItems.length,
+          },
+          reason: 'older event replayed: turn missing items',
+          turnId,
+        }
+      }
+
+      for (const incomingItem of incomingItems) {
+        const decision = shouldReplayIncomingTurnItem(
+          turnId,
+          currentTurn.items,
+          incomingItem,
+          replayState,
+        )
+        if (decision) {
+          return decision
+        }
+      }
+
+      return null
     }
     case 'item/started':
     case 'item/completed': {
@@ -779,7 +856,7 @@ function shouldReplayFilteredBaselineEvent(
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(item.id)
       if (!turnId || !itemId) {
-        return false
+        return null
       }
 
       const currentItem = findTurnItem(detail, turnId, itemId)
@@ -817,14 +894,21 @@ function shouldReplayFilteredBaselineEvent(
             replayState,
           )
         default:
-          return !currentItem
+          return currentItem
+            ? null
+            : {
+                itemId,
+                itemType: stringField(item.type) || null,
+                reason: 'older event replayed: missing item',
+                turnId,
+              }
       }
     }
     case 'item/agentMessage/delta': {
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(payload.itemId)
       if (!turnId || !itemId) {
-        return false
+        return null
       }
 
       return shouldReplayAgentMessageItem(
@@ -839,7 +923,7 @@ function shouldReplayFilteredBaselineEvent(
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(payload.itemId)
       if (!turnId || !itemId) {
-        return false
+        return null
       }
 
       return shouldReplayCommandExecutionItem(
@@ -854,7 +938,7 @@ function shouldReplayFilteredBaselineEvent(
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(payload.itemId)
       if (!turnId || !itemId) {
-        return false
+        return null
       }
 
       return shouldReplayPlanItem(
@@ -870,7 +954,7 @@ function shouldReplayFilteredBaselineEvent(
       const turnId = stringField(payload.turnId) || event.turnId
       const itemId = stringField(payload.itemId)
       if (!turnId || !itemId) {
-        return false
+        return null
       }
 
       return shouldReplayReasoningItem(
@@ -882,7 +966,64 @@ function shouldReplayFilteredBaselineEvent(
       )
     }
     default:
-      return false
+      return null
+  }
+}
+
+function shouldReplayIncomingTurnItem(
+  turnId: string,
+  currentItems: Record<string, unknown>[],
+  incomingItem: Record<string, unknown>,
+  replayState: FilteredEventReplayState,
+): FilteredBaselineReplayDecision | null {
+  const itemId = stringField(incomingItem.id)
+  if (!itemId) {
+    return null
+  }
+
+  const currentItem = currentItems.find((item) => stringField(item.id) === itemId)
+  switch (stringField(incomingItem.type)) {
+    case 'agentMessage':
+      return shouldReplayAgentMessageItem(
+        turnId,
+        itemId,
+        currentItem,
+        incomingItem,
+        replayState,
+      )
+    case 'commandExecution':
+      return shouldReplayCommandExecutionItem(
+        turnId,
+        itemId,
+        currentItem,
+        incomingItem,
+        replayState,
+      )
+    case 'plan':
+      return shouldReplayPlanItem(
+        turnId,
+        itemId,
+        currentItem,
+        incomingItem,
+        replayState,
+      )
+    case 'reasoning':
+      return shouldReplayReasoningItem(
+        turnId,
+        itemId,
+        currentItem,
+        incomingItem,
+        replayState,
+      )
+    default:
+      return currentItem
+        ? null
+        : {
+            itemId,
+            itemType: stringField(incomingItem.type) || null,
+            reason: 'older event replayed: missing item',
+            turnId,
+          }
   }
 }
 
@@ -892,20 +1033,45 @@ function shouldReplayAgentMessageItem(
   currentItem: Record<string, unknown> | undefined,
   incomingItem: Record<string, unknown> | undefined,
   replayState: FilteredEventReplayState,
-) {
+): FilteredBaselineReplayDecision | null {
   const itemKey = buildLiveItemLookupKey(turnId, itemId)
   if (replayState.agentMessageItemKeys.has(itemKey)) {
-    return true
+    return {
+      itemId,
+      itemType: 'agentMessage',
+      reason: 'older event replayed: continuing recovered agent item',
+      turnId,
+    }
   }
 
   const currentText = stringField(currentItem?.text)
   const incomingText = stringField(incomingItem?.text)
-  if (!currentItem || (!currentText && Boolean(incomingText || currentItem?.phase === 'streaming'))) {
-    replayState.agentMessageItemKeys.add(itemKey)
-    return true
+  let reason: string | null = null
+  if (!currentItem) {
+    reason = 'older event replayed: missing agent item'
+  } else if (incomingText.length > currentText.length) {
+    reason = 'older event replayed: longer agent text'
+  } else if (!currentText && Boolean(incomingText)) {
+    reason = 'older event replayed: missing agent text'
+  } else if (!currentText && stringField(currentItem.phase) === 'streaming') {
+    reason = 'older event replayed: streaming agent placeholder'
   }
 
-  return false
+  if (reason) {
+    replayState.agentMessageItemKeys.add(itemKey)
+    return {
+      itemId,
+      itemType: 'agentMessage',
+      metadata: {
+        currentLength: currentText.length,
+        incomingLength: incomingText.length,
+      },
+      reason,
+      turnId,
+    }
+  }
+
+  return null
 }
 
 function shouldReplayCommandExecutionItem(
@@ -914,20 +1080,51 @@ function shouldReplayCommandExecutionItem(
   currentItem: Record<string, unknown> | undefined,
   incomingItem: Record<string, unknown> | undefined,
   replayState: FilteredEventReplayState,
-) {
+): FilteredBaselineReplayDecision | null {
   const itemKey = buildLiveItemLookupKey(turnId, itemId)
   if (replayState.commandExecutionItemKeys.has(itemKey)) {
-    return true
+    return {
+      itemId,
+      itemType: 'commandExecution',
+      reason: 'older event replayed: continuing recovered command output',
+      turnId,
+    }
   }
 
   const currentOutput = stringField(currentItem?.aggregatedOutput)
   const incomingOutput = stringField(incomingItem?.aggregatedOutput)
-  if (!currentItem || (!currentOutput && Boolean(incomingOutput))) {
-    replayState.commandExecutionItemKeys.add(itemKey)
-    return true
+  const currentCommand = stringField(currentItem?.command)
+  const incomingCommand = stringField(incomingItem?.command)
+  const currentStatus = stringField(currentItem?.status)
+  const incomingStatus = stringField(incomingItem?.status)
+  let reason: string | null = null
+  if (!currentItem) {
+    reason = 'older event replayed: missing command execution item'
+  } else if (incomingOutput.length > currentOutput.length) {
+    reason = 'older event replayed: longer command output'
+  } else if (!currentOutput && Boolean(incomingOutput)) {
+    reason = 'older event replayed: missing command output'
+  } else if (!currentCommand && Boolean(incomingCommand)) {
+    reason = 'older event replayed: missing command metadata'
+  } else if (!currentStatus && Boolean(incomingStatus)) {
+    reason = 'older event replayed: missing command status'
   }
 
-  return false
+  if (reason) {
+    replayState.commandExecutionItemKeys.add(itemKey)
+    return {
+      itemId,
+      itemType: 'commandExecution',
+      metadata: {
+        currentLength: currentOutput.length,
+        incomingLength: incomingOutput.length,
+      },
+      reason,
+      turnId,
+    }
+  }
+
+  return null
 }
 
 function shouldReplayPlanItem(
@@ -936,20 +1133,43 @@ function shouldReplayPlanItem(
   currentItem: Record<string, unknown> | undefined,
   incomingItem: Record<string, unknown> | undefined,
   replayState: FilteredEventReplayState,
-) {
+): FilteredBaselineReplayDecision | null {
   const itemKey = buildLiveItemLookupKey(turnId, itemId)
   if (replayState.planItemKeys.has(itemKey)) {
-    return true
+    return {
+      itemId,
+      itemType: 'plan',
+      reason: 'older event replayed: continuing recovered plan item',
+      turnId,
+    }
   }
 
   const currentText = stringField(currentItem?.text)
   const incomingText = stringField(incomingItem?.text)
-  if (!currentItem || (!currentText && Boolean(incomingText))) {
-    replayState.planItemKeys.add(itemKey)
-    return true
+  let reason: string | null = null
+  if (!currentItem) {
+    reason = 'older event replayed: missing plan item'
+  } else if (incomingText.length > currentText.length) {
+    reason = 'older event replayed: longer plan text'
+  } else if (!currentText && Boolean(incomingText)) {
+    reason = 'older event replayed: missing plan text'
   }
 
-  return false
+  if (reason) {
+    replayState.planItemKeys.add(itemKey)
+    return {
+      itemId,
+      itemType: 'plan',
+      metadata: {
+        currentLength: currentText.length,
+        incomingLength: incomingText.length,
+      },
+      reason,
+      turnId,
+    }
+  }
+
+  return null
 }
 
 function shouldReplayReasoningItem(
@@ -958,26 +1178,53 @@ function shouldReplayReasoningItem(
   currentItem: Record<string, unknown> | undefined,
   incomingItem: Record<string, unknown> | undefined,
   replayState: FilteredEventReplayState,
-) {
+): FilteredBaselineReplayDecision | null {
   const itemKey = buildLiveItemLookupKey(turnId, itemId)
   if (replayState.reasoningItemKeys.has(itemKey)) {
-    return true
+    return {
+      itemId,
+      itemType: 'reasoning',
+      reason: 'older event replayed: continuing recovered reasoning item',
+      turnId,
+    }
   }
 
   const currentSummary = stringList(currentItem?.summary)
   const currentContent = stringList(currentItem?.content)
   const incomingSummary = stringList(incomingItem?.summary)
   const incomingContent = stringList(incomingItem?.content)
-  if (
-    !currentItem ||
-    (!currentSummary.length && incomingSummary.length > 0) ||
-    (!currentContent.length && incomingContent.length > 0)
-  ) {
-    replayState.reasoningItemKeys.add(itemKey)
-    return true
+  const currentSummaryTextLength = currentSummary.join('\n').length
+  const currentContentTextLength = currentContent.join('\n').length
+  const incomingSummaryTextLength = incomingSummary.join('\n').length
+  const incomingContentTextLength = incomingContent.join('\n').length
+  let reason: string | null = null
+  if (!currentItem) {
+    reason = 'older event replayed: missing reasoning item'
+  } else if (incomingSummaryTextLength > currentSummaryTextLength) {
+    reason = 'older event replayed: longer reasoning summary'
+  } else if (incomingContentTextLength > currentContentTextLength) {
+    reason = 'older event replayed: longer reasoning content'
+  } else if (!currentSummary.length && incomingSummary.length > 0) {
+    reason = 'older event replayed: missing reasoning summary'
+  } else if (!currentContent.length && incomingContent.length > 0) {
+    reason = 'older event replayed: missing reasoning content'
   }
 
-  return false
+  if (reason) {
+    replayState.reasoningItemKeys.add(itemKey)
+    return {
+      itemId,
+      itemType: 'reasoning',
+      metadata: {
+        currentLength: currentSummaryTextLength + currentContentTextLength,
+        incomingLength: incomingSummaryTextLength + incomingContentTextLength,
+      },
+      reason,
+      turnId,
+    }
+  }
+
+  return null
 }
 
 function findTurnItem(
@@ -991,6 +1238,52 @@ function findTurnItem(
 
 function buildLiveItemLookupKey(turnId: string, itemId: string) {
   return `${turnId}:${itemId}`
+}
+
+function summarizeLiveDiagnosticTarget(event: ServerEvent) {
+  const payload = asObject(event.payload)
+  switch (event.method) {
+    case 'item/started':
+    case 'item/completed': {
+      const item = asObject(payload.item)
+      return {
+        itemId: stringField(item.id) || null,
+        itemType: stringField(item.type) || null,
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
+    }
+    case 'item/agentMessage/delta':
+      return {
+        itemId: stringField(payload.itemId) || null,
+        itemType: 'agentMessage',
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
+    case 'item/commandExecution/outputDelta':
+      return {
+        itemId: stringField(payload.itemId) || null,
+        itemType: 'commandExecution',
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
+    case 'item/plan/delta':
+      return {
+        itemId: stringField(payload.itemId) || null,
+        itemType: 'plan',
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
+    case 'item/reasoning/summaryTextDelta':
+    case 'item/reasoning/textDelta':
+      return {
+        itemId: stringField(payload.itemId) || null,
+        itemType: 'reasoning',
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
+    default:
+      return {
+        itemId: null,
+        itemType: null,
+        turnId: event.turnId ?? null,
+      }
+  }
 }
 
 function readTurnItems(value: unknown, fallback: Record<string, unknown>[]) {
@@ -1146,13 +1439,32 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
       }
 
       turnChanged = true
-      frontendDebugLog('thread-live', 'reconciled snapshot agent item with live state', {
-        currentItem: summarizeLiveItemForDebug(currentItem),
-        reason: {
+      const reconcileReason = {
+        preserveClientRenderMode: shouldPreserveClientRenderMode,
+        preserveLongerCurrentText: shouldPreserveLongerCurrentText,
+        preserveStreamingPhase: shouldPreserveStreamingPhase,
+      }
+      recordConversationLiveDiagnosticEvent({
+        itemId: snapshotItemId,
+        itemType: stringField(snapshotItem.type) || null,
+        kind: 'snapshot-reconciled',
+        metadata: {
+          currentLength: currentText.length,
+          currentUpdatedAt: currentLiveDetail.updatedAt,
+          incomingLength: snapshotText.length,
           preserveClientRenderMode: shouldPreserveClientRenderMode,
           preserveLongerCurrentText: shouldPreserveLongerCurrentText,
           preserveStreamingPhase: shouldPreserveStreamingPhase,
+          snapshotUpdatedAt: threadDetail.updatedAt,
         },
+        reason: summarizeSnapshotReconcileReason(reconcileReason),
+        source: 'thread-live',
+        threadId: threadDetail.id,
+        turnId: snapshotTurn.id,
+      })
+      frontendDebugLog('thread-live', 'reconciled snapshot agent item with live state', {
+        currentItem: summarizeLiveItemForDebug(currentItem),
+        reason: reconcileReason,
         snapshotItem: summarizeLiveItemForDebug(snapshotItem),
         threadId: threadDetail.id,
         turnId: snapshotTurn.id,
@@ -1193,6 +1505,22 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
 
     if (trailingLiveItems.length > 0) {
       turnChanged = true
+      for (const trailingItem of trailingLiveItems) {
+        recordConversationLiveDiagnosticEvent({
+          itemId: stringField(trailingItem.id) || null,
+          itemType: stringField(trailingItem.type) || null,
+          kind: 'snapshot-trailing-item-preserved',
+          metadata: {
+            currentLength: stringField(trailingItem.text).length,
+            currentUpdatedAt: currentLiveDetail.updatedAt,
+            snapshotUpdatedAt: threadDetail.updatedAt,
+          },
+          reason: 'preserved trailing live item missing from snapshot',
+          source: 'thread-live',
+          threadId: threadDetail.id,
+          turnId: snapshotTurn.id,
+        })
+      }
       frontendDebugLog('thread-live', 'preserved trailing live items missing from snapshot', {
         items: trailingLiveItems.map(summarizeLiveItemForDebug),
         snapshotTurnId: snapshotTurn.id,
@@ -1232,6 +1560,25 @@ function shouldPreserveMissingTrailingLiveItem(item: Record<string, unknown>) {
     stringsEqualFold(stringField(item.phase), 'streaming') ||
     stringField(item.clientRenderMode) === 'animate-once'
   )
+}
+
+function summarizeSnapshotReconcileReason(flags: {
+  preserveClientRenderMode: boolean
+  preserveLongerCurrentText: boolean
+  preserveStreamingPhase: boolean
+}) {
+  const parts: string[] = []
+  if (flags.preserveLongerCurrentText) {
+    parts.push('preserved longer current text')
+  }
+  if (flags.preserveStreamingPhase) {
+    parts.push('preserved streaming phase')
+  }
+  if (flags.preserveClientRenderMode) {
+    parts.push('preserved animate-once mode')
+  }
+
+  return parts.join('; ') || 'snapshot reconciled with live state'
 }
 
 function isServerRequestMethod(method: string) {

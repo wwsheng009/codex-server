@@ -18,6 +18,7 @@ export type ThreadPageStatusStateInput = {
   approvalsIsFetching: boolean
   commandSessionCount: number
   displayedTurnsLength: number
+  hasRecoverableRuntimeOperation: boolean
   hasUnreadThreadUpdates: boolean
   isDocumentVisible: boolean
   interruptPending: boolean
@@ -34,6 +35,7 @@ export type ThreadPageStatusStateInput = {
   isThreadPinnedToLatest: boolean
   latestDisplayedTurn?: ThreadTurn
   liveThreadStatus?: string
+  restartAndRetryPending: boolean
   selectedThread?: Thread
   selectedThreadEvents: ThreadPageStatusEventTimestamp[]
   selectedThreadId?: string
@@ -56,10 +58,12 @@ export type ThreadPageInteractionStatusInput = {
   activeComposerApproval: PendingApproval | null
   activeContextCompactionFeedback: ContextCompactionFeedback | null
   activePendingTurn: PendingThreadTurn | null
+  hasRecoverableRuntimeOperation: boolean
   hasUnreadThreadUpdates: boolean
   interruptPending: boolean
   isThreadPinnedToLatest: boolean
   latestDisplayedTurn?: ThreadTurn
+  restartAndRetryPending: boolean
   selectedThread?: Thread
   selectedThreadId?: string
   sendError: string | null

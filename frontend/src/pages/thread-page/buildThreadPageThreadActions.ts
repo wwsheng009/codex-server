@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react'
 
 import { accountQueryKey } from '../../features/account/api'
+import { getWorkspaceRuntimeState } from '../../features/workspaces/api'
 import {
   getThread,
   getThreadTurn,
@@ -10,7 +11,13 @@ import {
 } from '../../features/threads/api'
 import { updateThreadPage } from '../../features/threads/cache'
 import { getErrorMessage, isAuthenticationError } from '../../lib/error-utils'
-import type { Thread, ThreadListPage, ThreadTurn, TurnResult } from '../../types/api'
+import type {
+  Thread,
+  ThreadListPage,
+  ThreadTurn,
+  TurnResult,
+  WorkspaceRuntimeState,
+} from '../../types/api'
 import {
   createPendingTurn,
   shouldRetryTurnAfterResume,
@@ -51,6 +58,8 @@ export function buildThreadPageThreadActions({
   queryClient,
   renameThreadMutation,
   requestDeleteSelectedThread,
+  recoverableSendInput,
+  restartRuntimeMutation,
   respondApprovalMutation,
   scrollThreadToLatest,
   selectedThread,
@@ -69,13 +78,16 @@ export function buildThreadPageThreadActions({
   setHasMoreHistoricalTurnsBefore,
   setHistoricalTurns,
   setIsLoadingOlderTurns,
+  setIsRestartAndRetryPending,
   setMessage,
+  setRecoverableSendInput,
   setSendError,
   startTurnMutation,
   threadShellCommandMutation,
   threadDetail,
   unarchiveThreadMutation,
   updatePendingTurn,
+  workspaceRuntimeState,
   workspaceId,
 }: ThreadPageActionsInput) {
   function handleDeleteSelectedThread() {
@@ -129,14 +141,47 @@ export function buildThreadPageThreadActions({
     deleteThreadMutation.mutate(confirmingThreadDelete.id)
   }
 
-  async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!selectedThreadId || !selectedThread || !message.trim()) {
+  async function fetchLatestWorkspaceRuntimeState() {
+    if (!workspaceId) {
+      return workspaceRuntimeState ?? null
+    }
+
+    try {
+      return await queryClient.fetchQuery({
+        queryKey: ['workspace-runtime-state', workspaceId],
+        queryFn: () => getWorkspaceRuntimeState(workspaceId),
+        staleTime: 0,
+      })
+    } catch {
+      return (
+        queryClient.getQueryData<WorkspaceRuntimeState | null>([
+          'workspace-runtime-state',
+          workspaceId,
+        ]) ??
+        workspaceRuntimeState ??
+        null
+      )
+    }
+  }
+
+  async function captureRecoverableSendInputIfNeeded(input: string) {
+    const latestRuntimeState = await fetchLatestWorkspaceRuntimeState()
+    if (shouldOfferRestartAndRetry(latestRuntimeState)) {
+      setRecoverableSendInput(input)
       return
     }
 
-    const input = message.trim()
-    const shellCommand = parseBangShellCommandShortcut(input)
+    setRecoverableSendInput(null)
+  }
+
+  async function submitThreadInput(input: string) {
+    if (!selectedThreadId || !selectedThread || !input.trim()) {
+      return
+    }
+
+    const trimmedInput = input.trim()
+    const shellCommand = parseBangShellCommandShortcut(trimmedInput)
+    setRecoverableSendInput(null)
 
     if (shellCommand) {
       setSendError(null)
@@ -160,20 +205,24 @@ export function buildThreadPageThreadActions({
           queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
         ])
       } catch (error) {
-        setMessage(input)
-        setComposerCaret(input.length)
+        setMessage(trimmedInput)
+        setComposerCaret(trimmedInput.length)
+        await captureRecoverableSendInputIfNeeded(trimmedInput)
         setSendError(getErrorMessage(error, 'Failed to run shell command.'))
-        void invalidateThreadQueries()
+        void Promise.all([
+          invalidateThreadQueries(),
+          queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] }),
+        ])
       }
 
       return
     }
 
-    const optimisticTurn = createPendingTurn(selectedThreadId, input)
+    const optimisticTurn = createPendingTurn(selectedThreadId, trimmedInput)
     const optimisticStatusUpdatedAt = new Date().toISOString()
     const startTurnInput = {
       threadId: selectedThreadId,
-      input,
+      input: trimmedInput,
       model: composerPreferences.model || undefined,
       reasoningEffort: composerPreferences.reasoningEffort,
       permissionPreset: composerPreferences.permissionPreset,
@@ -257,10 +306,45 @@ export function buildThreadPageThreadActions({
       if (isAuthenticationError(error)) {
         setAuthRecoveryRequestedAt(null)
       }
-      setMessage(input)
-      setComposerCaret(input.length)
+      setMessage(trimmedInput)
+      setComposerCaret(trimmedInput.length)
+      await captureRecoverableSendInputIfNeeded(trimmedInput)
       setSendError(getErrorMessage(error, 'Failed to send message.'))
-      void invalidateThreadQueries()
+      void Promise.all([
+        invalidateThreadQueries(),
+        queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] }),
+      ])
+    }
+  }
+
+  async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    await submitThreadInput(message)
+  }
+
+  async function handleRestartAndRetrySend() {
+    const inputToRetry = recoverableSendInput?.trim()
+    if (
+      !inputToRetry ||
+      !selectedThreadId ||
+      !selectedThread ||
+      restartRuntimeMutation.isPending
+    ) {
+      return
+    }
+
+    setIsRestartAndRetryPending(true)
+    setSendError(null)
+
+    try {
+      await restartRuntimeMutation.mutateAsync()
+      await submitThreadInput(inputToRetry)
+    } catch (error) {
+      setMessage(inputToRetry)
+      setComposerCaret(inputToRetry.length)
+      setSendError(getErrorMessage(error, 'Failed to restart runtime and retry the operation.'))
+    } finally {
+      setIsRestartAndRetryPending(false)
     }
   }
 
@@ -548,6 +632,7 @@ export function buildThreadPageThreadActions({
     handleRetainFullTurn,
     handlePrimaryComposerAction,
     handleRespondApproval,
+    handleRestartAndRetrySend,
     handleSendMessage,
     handleSubmitRenameSelectedThread,
     handleToggleArchiveSelectedThread,
@@ -557,6 +642,17 @@ export function buildThreadPageThreadActions({
 
 function threadDetailPageSize() {
   return THREAD_TURN_WINDOW_INCREMENT
+}
+
+function shouldOfferRestartAndRetry(state: WorkspaceRuntimeState | null | undefined) {
+  if (!state) {
+    return false
+  }
+
+  return (
+    Boolean(state.lastErrorRequiresRuntimeRecycle) ||
+    (state.lastErrorRecoveryAction ?? '').trim() === 'retry-after-restart'
+  )
 }
 
 function mergeHistoricalTurns(nextTurns: ThreadTurn[], currentTurns: ThreadTurn[]) {

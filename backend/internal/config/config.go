@@ -34,6 +34,7 @@ type Config struct {
 	TraceThreadID         string
 	BaseCodexCommand      string
 	CodexCommand          string
+	CodexLaunchConfig     RuntimeLaunchConfig
 	CodexModelCatalogJSON string
 	CodexLocalShellModels []string
 	StorePath             string
@@ -50,7 +51,14 @@ type RuntimePreferences struct {
 	DefaultCommandSandboxPolicy map[string]any
 }
 
+type RuntimeLaunchConfig struct {
+	BaseCommand               string
+	Command                   string
+	EffectiveModelCatalogPath string
+}
+
 type ResolvedRuntime struct {
+	LaunchConfig              RuntimeLaunchConfig
 	Command                   string
 	EffectiveModelCatalogPath string
 	Preferences               RuntimePreferences
@@ -89,6 +97,7 @@ func FromEnv() (Config, error) {
 		TraceThreadID:         strings.TrimSpace(getEnv("CODEX_TRACE_THREAD_ID", "")),
 		BaseCodexCommand:      codexCommand,
 		CodexCommand:          resolved.Command,
+		CodexLaunchConfig:     resolved.LaunchConfig,
 		CodexModelCatalogJSON: resolved.Preferences.ModelCatalogPath,
 		CodexLocalShellModels: resolved.Preferences.LocalShellModels,
 		StorePath:             storePath,
@@ -113,6 +122,7 @@ func resolveServerLogPath(explicitPath string, storePath string) string {
 }
 
 func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (ResolvedRuntime, error) {
+	baseCommand = strings.TrimSpace(baseCommand)
 	modelCatalogPath := strings.TrimSpace(prefs.ModelCatalogPath)
 	localShellModels := normalizeModelTargets(prefs.LocalShellModels)
 	defaultShellType, err := normalizeShellType(prefs.DefaultShellType)
@@ -164,10 +174,16 @@ func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (Resolved
 	}
 
 	command := applyModelCatalogOverride(baseCommand, effectiveCatalogPath)
-
-	return ResolvedRuntime{
+	launchConfig := NormalizeRuntimeLaunchConfig(RuntimeLaunchConfig{
+		BaseCommand:               baseCommand,
 		Command:                   command,
 		EffectiveModelCatalogPath: effectiveCatalogPath,
+	})
+
+	return ResolvedRuntime{
+		LaunchConfig:              launchConfig,
+		Command:                   launchConfig.Command,
+		EffectiveModelCatalogPath: launchConfig.EffectiveModelCatalogPath,
 		Preferences: RuntimePreferences{
 			ModelCatalogPath:            modelCatalogPath,
 			LocalShellModels:            localShellModels,
@@ -179,6 +195,21 @@ func ResolveCodexRuntime(baseCommand string, prefs RuntimePreferences) (Resolved
 			DefaultCommandSandboxPolicy: defaultCommandSandboxPolicy,
 		},
 	}, nil
+}
+
+func NormalizeRuntimeLaunchConfig(config RuntimeLaunchConfig) RuntimeLaunchConfig {
+	config.BaseCommand = strings.TrimSpace(config.BaseCommand)
+	config.Command = strings.TrimSpace(config.Command)
+	config.EffectiveModelCatalogPath = strings.TrimSpace(config.EffectiveModelCatalogPath)
+
+	if config.Command == "" {
+		config.Command = config.BaseCommand
+	}
+	if config.BaseCommand == "" {
+		config.BaseCommand = config.Command
+	}
+
+	return config
 }
 
 func getEnv(key string, fallback string) string {

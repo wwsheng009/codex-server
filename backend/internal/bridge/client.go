@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 
 	"codex-server/backend/internal/appserver"
+	appconfig "codex-server/backend/internal/config"
 )
 
 const scannerMaxTokenSize = 10 * 1024 * 1024
@@ -27,6 +28,7 @@ type Handler interface {
 
 type Config struct {
 	Command                   string
+	LaunchConfig              appconfig.RuntimeLaunchConfig
 	Cwd                       string
 	ClientName                string
 	ClientVersion             string
@@ -91,11 +93,12 @@ func (e *RPCError) Error() string {
 }
 
 func Start(ctx context.Context, cfg Config, handler Handler) (*Client, error) {
-	if strings.TrimSpace(cfg.Command) == "" {
+	launchConfig := resolveLaunchConfig(cfg)
+	if launchConfig.Command == "" {
 		return nil, errors.New("bridge command is required")
 	}
 
-	cmd := shellCommand(context.Background(), cfg.Command)
+	cmd := shellCommand(context.Background(), launchConfig.Command)
 	cmd.Dir = cfg.Cwd
 
 	stdin, err := cmd.StdinPipe()
@@ -161,6 +164,17 @@ func buildInitializeRequest(cfg Config) appserver.InitializeRequest {
 	}
 
 	return request
+}
+
+func resolveLaunchConfig(cfg Config) appconfig.RuntimeLaunchConfig {
+	launchConfig := appconfig.NormalizeRuntimeLaunchConfig(cfg.LaunchConfig)
+	if launchConfig.BaseCommand == "" {
+		launchConfig.BaseCommand = strings.TrimSpace(cfg.Command)
+	}
+	if launchConfig.Command == "" {
+		launchConfig.Command = strings.TrimSpace(cfg.Command)
+	}
+	return appconfig.NormalizeRuntimeLaunchConfig(launchConfig)
 }
 
 func (c *Client) Call(ctx context.Context, method string, params any, result any) error {

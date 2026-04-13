@@ -54,7 +54,10 @@ import type {
   TurnTimelineProps,
   TurnTimelineVirtualizationInput,
 } from './renderersTypes'
-import { ConversationRenderProfilerBoundary } from './threadConversationProfiler'
+import {
+  ConversationRenderProfilerBoundary,
+  recordConversationLiveDiagnosticEvent,
+} from './threadConversationProfiler'
 import { useVirtualizedConversationEntries } from './useVirtualizedConversationEntries'
 import { frontendDebugLog } from '../../lib/frontend-runtime-mode'
 import type { PendingApproval, ThreadTurn } from '../../types/api'
@@ -68,6 +71,7 @@ const VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD = 80
 const conversationEntriesCache = new WeakMap<ThreadTurn[], ConversationEntry[]>()
 const turnConversationEntriesCache = new WeakMap<ThreadTurn, ConversationEntry[]>()
 const itemRenderSuppressionDebugCache = new WeakMap<Record<string, unknown>, string>()
+const itemRenderPlaceholderDebugCache = new WeakMap<Record<string, unknown>, string>()
 
 const selectionChangeSubscribers = new Set<() => void>()
 
@@ -1432,8 +1436,27 @@ function TimelineItem({
       const hasStreamingPresentation = isStreaming || shouldAnimateCompletedMessage
 
       if (!text) {
-        logSuppressedTimelineItem(item, turnId, 'agentMessage without text')
-        return null
+        if (!isStreaming) {
+          logSuppressedTimelineItem(item, turnId, 'agentMessage without text')
+          return null
+        }
+
+        logTimelinePlaceholderItem(item, turnId, 'agentMessage streaming placeholder')
+
+        return (
+          <article className="conversation-row conversation-row--assistant">
+            <div className="conversation-bubble conversation-bubble--assistant conversation-bubble--streaming">
+              <div className="conversation-bubble__content">
+                <span className="conversation-card__placeholder">
+                  {i18n._({ id: 'Thinking…', message: 'Thinking…' })}
+                </span>
+                {showStreamingCursor ? (
+                  <span aria-hidden="true" className="conversation-bubble__cursor" />
+                ) : null}
+              </div>
+            </div>
+          </article>
+        )
       }
 
       return (
@@ -1700,8 +1723,21 @@ function TimelineItem({
       const contentText = reasoningContentText(item)
 
       if (!summaryText && !contentText) {
-        logSuppressedTimelineItem(item, turnId, 'reasoning without content')
-        return null
+        logTimelinePlaceholderItem(item, turnId, 'reasoning placeholder')
+        return (
+          <SystemTimelineCard
+            className="conversation-card--reasoning"
+            summary={i18n._({
+              id: 'Awaiting reasoning content',
+              message: 'Awaiting reasoning content',
+            })}
+            title={i18n._({ id: 'Reasoning', message: 'Reasoning' })}
+          >
+            <div className="conversation-card__placeholder">
+              {i18n._({ id: 'Thinking…', message: 'Thinking…' })}
+            </div>
+          </SystemTimelineCard>
+        )
       }
 
       return (
@@ -3496,7 +3532,9 @@ function conversationEntryOmissionReason(item: Record<string, unknown>) {
     case 'userMessage':
       return userMessageText(item) ? null : 'userMessage without text'
     case 'agentMessage':
-      return stringField(item.text) ? null : 'agentMessage without text'
+      return stringField(item.text) || stringField(item.phase) === 'streaming'
+        ? null
+        : 'agentMessage without text'
     case 'commandExecution': {
       const command = stringField(item.command)
       const output = stringField(item.aggregatedOutput)
@@ -3517,7 +3555,7 @@ function conversationEntryOmissionReason(item: Record<string, unknown>) {
     case 'fileChange':
       return fileChanges(item).length ? null : 'fileChange without changes'
     case 'reasoning':
-      return reasoningDisplayText(item) ? null : 'reasoning without content'
+      return null
     case 'webSearch':
       return webSearchCardSummary(item) ? null : 'webSearch without details'
     case 'mcpToolCall':
@@ -3596,7 +3634,55 @@ function logSuppressedTimelineItem(
   }
 
   itemRenderSuppressionDebugCache.set(item, summary)
+  recordConversationLiveDiagnosticEvent({
+    itemId: stringField(item.id) || null,
+    itemType: stringField(item.type) || null,
+    kind: 'timeline-suppressed',
+    metadata: {
+      contentLength: Array.isArray(item.content) ? item.content.length : 0,
+      summaryLength: Array.isArray(item.summary) ? item.summary.length : 0,
+      textLength: (stringField(item.text) || stringField(item.message)).length,
+    },
+    reason,
+    source: 'thread-render',
+    turnId,
+  })
   frontendDebugLog('thread-render', 'timeline item suppressed', {
+    reason,
+    turnId,
+    item: summarizeTimelineItemForDebug(item),
+  })
+}
+
+function logTimelinePlaceholderItem(
+  item: Record<string, unknown>,
+  turnId: string,
+  reason: string,
+) {
+  const summary = JSON.stringify({
+    reason,
+    turnId,
+    summary: summarizeTimelineItemForDebug(item),
+  })
+  if (itemRenderPlaceholderDebugCache.get(item) === summary) {
+    return
+  }
+
+  itemRenderPlaceholderDebugCache.set(item, summary)
+  recordConversationLiveDiagnosticEvent({
+    itemId: stringField(item.id) || null,
+    itemType: stringField(item.type) || null,
+    kind: 'timeline-placeholder',
+    metadata: {
+      contentLength: Array.isArray(item.content) ? item.content.length : 0,
+      summaryLength: Array.isArray(item.summary) ? item.summary.length : 0,
+      textLength: (stringField(item.text) || stringField(item.message)).length,
+    },
+    reason,
+    source: 'thread-render',
+    turnId,
+  })
+  frontendDebugLog('thread-render', 'timeline placeholder rendered', {
     reason,
     turnId,
     item: summarizeTimelineItemForDebug(item),

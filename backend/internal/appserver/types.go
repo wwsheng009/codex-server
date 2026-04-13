@@ -39,6 +39,48 @@ type ThreadStartResponse struct {
 	Thread ThreadRef `json:"thread"`
 }
 
+type ThreadListRequest struct {
+	Archived bool   `json:"archived"`
+	Limit    int    `json:"limit"`
+	Cursor   string `json:"cursor,omitempty"`
+	SortKey  string `json:"sortKey,omitempty"`
+}
+
+type ThreadListResponse struct {
+	Data       []map[string]any `json:"data"`
+	NextCursor *string          `json:"nextCursor"`
+}
+
+type ThreadReadRequest struct {
+	IncludeTurns bool   `json:"includeTurns"`
+	ThreadID     string `json:"threadId"`
+}
+
+type ThreadReadResponse struct {
+	Thread map[string]any `json:"thread"`
+}
+
+type ThreadLoadedListRequest struct {
+	Limit int `json:"limit"`
+}
+
+type ThreadLoadedListResponse struct {
+	Data []string `json:"data"`
+}
+
+type ThreadMetadataUpdateRequest struct {
+	ThreadID string         `json:"threadId"`
+	GitInfo  map[string]any `json:"gitInfo,omitempty"`
+}
+
+type ThreadMetadataUpdateResponse struct {
+	Thread map[string]any `json:"thread"`
+}
+
+type ThreadCompactStartRequest struct {
+	ThreadID string `json:"threadId"`
+}
+
 type ThreadResumeRequest struct {
 	Cwd      string `json:"cwd"`
 	ThreadID string `json:"threadId"`
@@ -46,6 +88,46 @@ type ThreadResumeRequest struct {
 
 type ThreadResumeResponse struct {
 	Thread map[string]any `json:"thread"`
+}
+
+type ThreadForkRequest struct {
+	Cwd      string `json:"cwd"`
+	ThreadID string `json:"threadId"`
+}
+
+type ThreadForkResponse struct {
+	Thread map[string]any `json:"thread"`
+}
+
+type ThreadArchiveRequest struct {
+	ThreadID string `json:"threadId"`
+}
+
+type ThreadUnarchiveRequest struct {
+	ThreadID string `json:"threadId"`
+}
+
+type ThreadSetNameRequest struct {
+	Name     string `json:"name"`
+	ThreadID string `json:"threadId"`
+}
+
+type ThreadRollbackRequest struct {
+	NumTurns int    `json:"numTurns"`
+	ThreadID string `json:"threadId"`
+}
+
+type ThreadUnsubscribeRequest struct {
+	ThreadID string `json:"threadId"`
+}
+
+type ThreadUnsubscribeResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type ThreadShellCommandRequest struct {
+	ThreadID string `json:"threadId"`
+	Command  string `json:"command"`
 }
 
 type ReviewTarget struct {
@@ -83,7 +165,30 @@ type TurnStartResponse struct {
 	Turn TurnRef `json:"turn"`
 }
 
+type TurnSteerRequest struct {
+	ExpectedTurnID string      `json:"expectedTurnId"`
+	Input          []UserInput `json:"input"`
+	ThreadID       string      `json:"threadId"`
+}
+
+type TurnSteerResponse struct {
+	TurnID string `json:"turnId"`
+}
+
 type TurnInterruptRequest struct {
 	ThreadID string `json:"threadId"`
 	TurnID   string `json:"turnId"`
+}
+
+type CollaborationModeListRequest struct{}
+
+type CollaborationModeListEntry struct {
+	Name            string  `json:"name"`
+	Mode            *string `json:"mode"`
+	Model           *string `json:"model"`
+	ReasoningEffort *string `json:"reasoning_effort"`
+}
+
+type CollaborationModeListResponse struct {
+	Data []CollaborationModeListEntry `json:"data"`
 }

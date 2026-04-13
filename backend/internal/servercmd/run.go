@@ -54,6 +54,11 @@ func runServer(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := dataStore.Close(); err != nil {
+			logger.Error("persistent store close failed", "error", err)
+		}
+	}()
 	eventHub := events.NewHub()
 	eventHub.AttachStore(dataStore)
 	runtimePrefsStore := dataStore.GetRuntimePreferences()
@@ -70,7 +75,7 @@ func runServer(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	runtimeManager := runtime.NewManager(resolvedRuntime.Command, eventHub)
+	runtimeManager := runtime.NewManagerWithLaunchConfig(resolvedRuntime.LaunchConfig, eventHub)
 	runtimePrefsService := runtimeprefs.NewService(
 		dataStore,
 		runtimeManager,

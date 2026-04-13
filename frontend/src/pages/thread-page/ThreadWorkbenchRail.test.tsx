@@ -7,8 +7,12 @@ import { MemoryRouter } from 'react-router-dom'
 
 import { i18n } from '../../i18n/runtime'
 import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
+import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 
-function renderRail() {
+function renderRail(options?: {
+  runtimeRecoverySummary?: WorkspaceRuntimeRecoverySummary | null
+  onRestartRuntime?: () => void
+}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       mutations: {
@@ -78,6 +82,7 @@ function renderRail() {
           onInspectorResizeStart={() => undefined}
           onOpenInspector={() => undefined}
           onOpenSurfacePanel={() => undefined}
+          onRestartRuntime={options?.onRestartRuntime}
           onResetInspectorWidth={() => undefined}
           onSendBotMessage={(event) => {
             event.preventDefault()
@@ -92,6 +97,7 @@ function renderRail() {
           onToggleWorkbenchToolsExpanded={() => undefined}
           pendingApprovalsCount={1}
           rootPath="E:/projects/ai/codex-server"
+          runtimeRecoverySummary={options?.runtimeRecoverySummary}
           runtimeConfigChangedAt="2026-04-12T05:00:00.000Z"
           runtimeConfigLoadStatus="loaded"
           runtimeRestartRequired={false}
@@ -166,5 +172,29 @@ describe('ThreadWorkbenchRail', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
     expect(screen.getByText('Persistent context')).toBeTruthy()
+  })
+
+  it('shows runtime recovery guidance in the overview rail and exposes restart action', () => {
+    const onRestartRuntime = () => undefined
+
+    renderRail({
+      onRestartRuntime,
+      runtimeRecoverySummary: {
+        title: 'Runtime Recovery Guidance',
+        tone: 'error',
+        categoryLabel: 'Runtime process exit',
+        recoveryActionLabel: 'Restart runtime, then retry',
+        retryable: true,
+        retryableLabel: 'Yes',
+        requiresRecycle: true,
+        recycleLabel: 'Yes',
+        description: 'Last error: runtime exited unexpectedly. Category: Runtime process exit.',
+        details: 'Recent stderr:\n- runtime exited unexpectedly',
+      },
+    })
+
+    expect(screen.getByText('Runtime Recovery Guidance')).toBeTruthy()
+    expect(screen.getByText(/runtime exited unexpectedly/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Restart Runtime' })).toBeTruthy()
   })
 })

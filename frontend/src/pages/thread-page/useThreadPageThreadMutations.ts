@@ -17,6 +17,7 @@ import {
   runThreadShellCommand,
   unarchiveThread,
 } from '../../features/threads/api'
+import { restartWorkspace } from '../../features/workspaces/api'
 import { interruptTurn, startTurn } from '../../features/turns/api'
 import type { PendingApproval, Thread, ThreadDetail, ThreadListPage, TurnResult } from '../../types/api'
 import {
@@ -253,6 +254,30 @@ export function useThreadPageThreadMutations({
     },
   })
 
+  const restartRuntimeMutation = useMutation({
+    mutationFn: () => restartWorkspace(workspaceId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['settings-shell-workspaces'] }),
+        queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['environment-runtime-state', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['command-sessions', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['workspace-hook-configuration', workspaceId] }),
+        selectedThreadId
+          ? queryClient.invalidateQueries({
+              queryKey: ['thread-detail', workspaceId, selectedThreadId],
+            })
+          : Promise.resolve(),
+      ])
+    },
+  })
+
   const threadShellCommandMutation = useMutation({
     mutationFn: ({ threadId, command }: ThreadPageThreadShellCommandMutationInput) =>
       runThreadShellCommand(workspaceId, threadId, { command }),
@@ -275,6 +300,7 @@ export function useThreadPageThreadMutations({
     interruptTurnMutation,
     invalidateThreadQueries,
     renameThreadMutation,
+    restartRuntimeMutation,
     respondApprovalMutation,
     startTurnMutation,
     threadShellCommandMutation,

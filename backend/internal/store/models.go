@@ -588,12 +588,14 @@ type CommandSessionSnapshot struct {
 }
 
 type EventEnvelope struct {
+	Seq             uint64    `json:"seq,omitempty"`
 	WorkspaceID     string    `json:"workspaceId"`
 	ThreadID        string    `json:"threadId,omitempty"`
 	TurnID          string    `json:"turnId,omitempty"`
 	Method          string    `json:"method"`
 	Payload         any       `json:"payload"`
 	ServerRequestID *string   `json:"serverRequestId"`
+	Replay          bool      `json:"replay,omitempty"`
 	TS              time.Time `json:"ts"`
 }
 

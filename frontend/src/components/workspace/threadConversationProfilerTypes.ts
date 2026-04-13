@@ -15,6 +15,26 @@ export type ConversationScrollDiagnosticMetadata = Record<
   boolean | number | string | null
 >
 
+export type ConversationLiveDiagnosticKind =
+  | 'stream-received'
+  | 'stream-batch-flush'
+  | 'stream-deferred-flush'
+  | 'baseline-filtered'
+  | 'baseline-replayed'
+  | 'snapshot-reconciled'
+  | 'snapshot-trailing-item-preserved'
+  | 'thread-detail-refresh-requested'
+  | 'unread-marked'
+  | 'jump-to-latest'
+  | 'viewport-detached'
+  | 'timeline-placeholder'
+  | 'timeline-suppressed'
+
+export type ConversationLiveDiagnosticMetadata = Record<
+  string,
+  boolean | number | string | null
+>
+
 export type ConversationScrollDiagnosticEventInput = {
   behavior?: string
   clientHeight?: number
@@ -25,6 +45,19 @@ export type ConversationScrollDiagnosticEventInput = {
   scrollTop?: number
   source: string
   targetTop?: number
+}
+
+export type ConversationLiveDiagnosticEventInput = {
+  itemId?: string | null
+  itemType?: string | null
+  kind: ConversationLiveDiagnosticKind
+  metadata?: ConversationLiveDiagnosticMetadata
+  method?: string
+  reason?: string
+  serverRequestId?: string | null
+  source: string
+  threadId?: string | null
+  turnId?: string | null
 }
 
 export type ConversationRenderProfilerSample = {
@@ -74,6 +107,90 @@ export type ConversationScrollDiagnosticsSnapshot = {
   }>
   userIntentCount: number
   viewportScrollCount: number
+}
+
+export type ConversationLiveDiagnosticEvent = {
+  id: number
+  itemId?: string | null
+  itemType?: string | null
+  kind: ConversationLiveDiagnosticKind
+  metadata?: ConversationLiveDiagnosticMetadata
+  method?: string
+  reason?: string
+  serverRequestId?: string | null
+  source: string
+  threadId?: string | null
+  ts: number
+  turnId?: string | null
+}
+
+export type ConversationLiveItemLifecycleEntry = {
+  completedAt: number | null
+  deltaCount: number
+  filteredCount: number
+  finalTextLength: number
+  itemId: string
+  itemType: string | null
+  key: string
+  lastDeltaAt: number | null
+  lastEventKind: ConversationLiveDiagnosticKind
+  lastEventTs: number
+  placeholderRendered: boolean
+  replayedCount: number
+  startedAt: number | null
+  suppressedReason: string | null
+  turnId: string
+}
+
+export type ConversationLiveProblemItem = {
+  evidence: string[]
+  itemId: string
+  itemType: string | null
+  key: string
+  score: number
+  summary: string
+  turnId: string
+}
+
+export type ConversationLiveDiagnosticsStatus = {
+  followMode: 'detached' | 'follow' | 'unknown'
+  hasUnreadThreadUpdates: boolean
+  lastLiveEventAgeMs: number | null
+  isThreadPinnedToLatest: boolean | null
+  lastLiveEventAt: number | null
+  lastThreadDetailRefreshAgeMs: number | null
+  lastThreadDetailRefreshAt: number | null
+  selectedThreadId: string | null
+}
+
+export type ConversationLiveDiagnosticsSnapshot = {
+  batchFlushCount: number
+  deferredFlushCount: number
+  enabled: boolean
+  eventCount: number
+  filteredCount: number
+  jumpToLatestCount: number
+  lastEvent: ConversationLiveDiagnosticEvent | null
+  lastEventAgeMs: number | null
+  latestItemLifecycle: ConversationLiveItemLifecycleEntry[]
+  placeholderCount: number
+  recentEvents: ConversationLiveDiagnosticEvent[]
+  refreshRequestCount: number
+  replayedCount: number
+  snapshotReconciledCount: number
+  suspectedRootCauses: string[]
+  streamReceivedCount: number
+  suggestions: string[]
+  suppressedCount: number
+  topProblemItems: ConversationLiveProblemItem[]
+  trailingItemPreservedCount: number
+  unreadMarkedCount: number
+  viewportDetachedCount: number
+  status: ConversationLiveDiagnosticsStatus
+  topSources: Array<{
+    count: number
+    source: string
+  }>
 }
 
 export type ConversationScrollDiagnosticsSuggestionsInput = {
@@ -132,6 +249,8 @@ export type ConversationRenderProfilerRecord = {
 
 export type ConversationRenderProfilerSnapshot = {
   enabled: boolean
+  liveDiagnostics: ConversationLiveDiagnosticsSnapshot
+  liveDiagnosticsEnabled: boolean
   knownScrollMutators: ConversationScrollMutatorDescriptor[]
   lastCommitTime: number | null
   panelVisible: boolean

@@ -40,6 +40,7 @@ export const useSessionStore = create<SessionState>()(
       selectedWorkspaceId: undefined,
       selectedThreadId: undefined,
       selectedThreadIdByWorkspace: {},
+      lastEventSeqByWorkspace: {},
       eventsByThread: {},
       threadActivityByThread: {},
       workspaceEventsByWorkspace: {},
@@ -153,6 +154,9 @@ export const useSessionStore = create<SessionState>()(
           const nextCommandSessionsByWorkspace = { ...current.commandSessionsByWorkspace }
           delete nextCommandSessionsByWorkspace[workspaceId]
 
+          const nextLastEventSeqByWorkspace = { ...current.lastEventSeqByWorkspace }
+          delete nextLastEventSeqByWorkspace[workspaceId]
+
           const nextThreadActivityByThread = { ...current.threadActivityByThread }
           const nextEventsByThread = { ...current.eventsByThread }
           const nextTokenUsageByThread = { ...current.tokenUsageByThread }
@@ -182,6 +186,7 @@ export const useSessionStore = create<SessionState>()(
             activityEventsByWorkspace: nextActivityEvents,
             connectionByWorkspace: nextConnectionByWorkspace,
             commandSessionsByWorkspace: nextCommandSessionsByWorkspace,
+            lastEventSeqByWorkspace: nextLastEventSeqByWorkspace,
             eventsByThread: nextEventsByThread,
             threadActivityByThread: nextThreadActivityByThread,
             tokenUsageByThread: nextTokenUsageByThread,
@@ -227,6 +232,7 @@ export const useSessionStore = create<SessionState>()(
         selectedWorkspaceId: state.selectedWorkspaceId,
         selectedThreadId: state.selectedThreadId,
         selectedThreadIdByWorkspace: state.selectedThreadIdByWorkspace,
+        lastEventSeqByWorkspace: state.lastEventSeqByWorkspace,
         tokenUsageByThread: state.tokenUsageByThread,
       }),
     },
@@ -247,9 +253,11 @@ export function applySessionEvents(
   let nextActivityEvents = current.activityEventsByWorkspace
   let nextWorkspaceEvents = current.workspaceEventsByWorkspace
   let nextEventsByThread = current.eventsByThread
+  let nextLastEventSeqByWorkspace = current.lastEventSeqByWorkspace
   let activityEventsCloned = false
   let workspaceEventsCloned = false
   let threadEventsCloned = false
+  let lastEventSeqCloned = false
   let pendingCommandOutputEvents: ServerEvent[] = []
 
   function flushPendingCommandOutputEvents() {
@@ -265,6 +273,19 @@ export function applySessionEvents(
   }
 
   for (const event of events) {
+    if (typeof event.seq === 'number' && Number.isFinite(event.seq)) {
+      const currentLastSeq = nextLastEventSeqByWorkspace[event.workspaceId] ?? 0
+      if (event.seq <= currentLastSeq) {
+        continue
+      }
+
+      if (!lastEventSeqCloned) {
+        nextLastEventSeqByWorkspace = { ...nextLastEventSeqByWorkspace }
+        lastEventSeqCloned = true
+      }
+      nextLastEventSeqByWorkspace[event.workspaceId] = event.seq
+    }
+
     if (event.method === 'command/exec/outputDelta') {
       pendingCommandOutputEvents.push(event)
     } else {
@@ -320,6 +341,7 @@ export function applySessionEvents(
     activityEventsByWorkspace: nextActivityEvents,
     commandSessionsByWorkspace: nextCommandSessions,
     eventsByThread: nextEventsByThread,
+    lastEventSeqByWorkspace: nextLastEventSeqByWorkspace,
     threadActivityByThread: nextThreadActivity,
     tokenUsageByThread: nextTokenUsage,
     workspaceEventsByWorkspace: nextWorkspaceEvents,

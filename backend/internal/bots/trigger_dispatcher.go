@@ -17,7 +17,10 @@ func (s *Service) startTriggerDispatcher(ctx context.Context) {
 	s.triggerDispatcherStarted = true
 	s.mu.Unlock()
 
-	eventsCh, cancel := s.events.SubscribeAll()
+	eventsCh, cancel := s.events.SubscribeAllWithSource(
+		"bots.trigger_dispatcher",
+		"bot-trigger-dispatcher",
+	)
 	go func() {
 		defer cancel()
 		for {

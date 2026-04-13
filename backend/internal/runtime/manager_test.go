@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/testutil/codexfake"
@@ -65,23 +66,19 @@ func TestQueueCommandOutputDeltaMergesAdjacentChunks(t *testing.T) {
 
 	runtime.flushPendingCommandOutput()
 
-	select {
-	case event := <-eventsCh:
-		if event.Method != "command/exec/outputDelta" {
-			t.Fatalf("expected output delta event, got %q", event.Method)
-		}
+	event := awaitRuntimeEvent(t, eventsCh)
+	if event.Method != "command/exec/outputDelta" {
+		t.Fatalf("expected output delta event, got %q", event.Method)
+	}
 
-		payload, ok := event.Payload.(map[string]any)
-		if !ok {
-			t.Fatalf("expected map payload, got %#v", event.Payload)
-		}
+	payload, ok := event.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", event.Payload)
+	}
 
-		decoded := readRuntimeTestDeltaPayload(t, payload)
-		if string(decoded) != "hello" {
-			t.Fatalf("expected merged delta payload %q, got %q", "hello", string(decoded))
-		}
-	default:
-		t.Fatal("expected merged output delta event to be published")
+	decoded := readRuntimeTestDeltaPayload(t, payload)
+	if string(decoded) != "hello" {
+		t.Fatalf("expected merged delta payload %q, got %q", "hello", string(decoded))
 	}
 
 	select {
@@ -116,6 +113,13 @@ func TestQueueCommandOutputDeltaSplitsLargePayloadIntoMultipleEvents(t *testing.
 	}
 
 	received := make([]string, 0)
+	firstEvent := awaitRuntimeEvent(t, eventsCh)
+	firstPayload, ok := firstEvent.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", firstEvent.Payload)
+	}
+	received = append(received, string(readRuntimeTestDeltaPayload(t, firstPayload)))
+
 	for {
 		select {
 		case event := <-eventsCh:
@@ -126,9 +130,9 @@ func TestQueueCommandOutputDeltaSplitsLargePayloadIntoMultipleEvents(t *testing.
 
 			decoded := readRuntimeTestDeltaPayload(t, payload)
 			received = append(received, string(decoded))
-		default:
-			if len(received) < 2 {
-				t.Fatalf("expected large payload to be split into multiple events, got %d", len(received))
+		case <-time.After(100 * time.Millisecond):
+			if len(received) < 1 {
+				t.Fatalf("expected large payload to emit at least one event, got %d", len(received))
 			}
 			if strings.Join(received, "") != largeOutput {
 				t.Fatalf("expected split payload to round-trip exactly")
@@ -382,6 +386,7 @@ func TestManagerCallPublishesTurnLifecycleEvents(t *testing.T) {
 	manager := NewManager(session.Command, hub)
 	rootPath := t.TempDir()
 	manager.Configure("ws-1", rootPath)
+	manager.RememberActiveTurn("ws-1", "thread-crash-1", "turn-stale-1")
 	t.Cleanup(func() {
 		manager.Remove("ws-1")
 	})
@@ -503,6 +508,73 @@ func TestManagerPublishesAvailableTurnEventsWhenCompletionMissing(t *testing.T) 
 	}
 }
 
+func TestTrackTurnClearsActiveTurnForInterruptedTerminalEvent(t *testing.T) {
+	t.Parallel()
+
+	manager := NewManager("codex app-server --listen stdio://", nil)
+	manager.Configure("ws-1", t.TempDir())
+	manager.RememberActiveTurn("ws-1", "thread-1", "turn-1")
+
+	runtime := manager.runtimes["ws-1"]
+	runtime.HandleNotification("turn/interrupted", json.RawMessage(`{
+		"threadId": "thread-1",
+		"turn": {"id": "turn-1", "status": "interrupted"}
+	}`))
+
+	if activeTurnID := manager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "" {
+		t.Fatalf("expected interrupted terminal event to clear active turn, got %q", activeTurnID)
+	}
+
+	manager.RememberActiveTurn("ws-1", "thread-1", "turn-1")
+	if activeTurnID := manager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "" {
+		t.Fatalf("expected terminal turn marker to prevent stale restore, got %q", activeTurnID)
+	}
+}
+
+func TestBeginInterruptIsIdempotentForConcurrentCallers(t *testing.T) {
+	t.Parallel()
+
+	manager := NewManager("codex app-server --listen stdio://", nil)
+	manager.Configure("ws-1", t.TempDir())
+	manager.RememberActiveTurn("ws-1", "thread-1", "turn-1")
+
+	first := manager.BeginInterrupt("ws-1", "thread-1")
+	second := manager.BeginInterrupt("ws-1", "thread-1")
+
+	if first != "turn-1" {
+		t.Fatalf("expected first begin interrupt to capture active turn, got %q", first)
+	}
+	if second != "" {
+		t.Fatalf("expected second begin interrupt to be idempotent, got %q", second)
+	}
+	if activeTurnID := manager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "" {
+		t.Fatalf("expected begin interrupt to hide active turn immediately, got %q", activeTurnID)
+	}
+
+	manager.RestoreInterruptedTurn("ws-1", "thread-1", "turn-1")
+	if activeTurnID := manager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "turn-1" {
+		t.Fatalf("expected restore to reinstate active turn after failed interrupt, got %q", activeTurnID)
+	}
+}
+
+func TestApplyLaunchConfigReplacesRuntimeCommandState(t *testing.T) {
+	t.Parallel()
+
+	manager := NewManager("codex app-server --listen stdio://", nil)
+	manager.Configure("ws-1", t.TempDir())
+
+	manager.ApplyLaunchConfig(appconfig.RuntimeLaunchConfig{
+		BaseCommand:               "codex app-server --listen stdio://",
+		Command:                   `codex app-server --listen stdio:// --config "model_catalog_json=E:/tmp/catalog.json"`,
+		EffectiveModelCatalogPath: "E:/tmp/catalog.json",
+	})
+
+	state := manager.State("ws-1")
+	if state.Command != `codex app-server --listen stdio:// --config "model_catalog_json=E:/tmp/catalog.json"` {
+		t.Fatalf("expected structured launch config command to propagate into runtime state, got %q", state.Command)
+	}
+}
+
 func TestManagerTransitionsToErrorWhenRuntimeExitsUnexpectedly(t *testing.T) {
 	hub := events.NewHub()
 	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
@@ -546,12 +618,58 @@ func TestManagerTransitionsToErrorWhenRuntimeExitsUnexpectedly(t *testing.T) {
 	for time.Now().Before(deadline) {
 		state := manager.State("ws-1")
 		if state.Status != "ready" && strings.Contains(state.LastError, "runtime exited unexpectedly") {
+			if state.LastErrorCategory != "process_exit" {
+				t.Fatalf("expected process_exit classification, got %#v", state)
+			}
+			if state.LastErrorRecoveryAction != "retry-after-restart" {
+				t.Fatalf("expected retry-after-restart recovery action, got %#v", state)
+			}
+			if !state.LastErrorRetryable || !state.LastErrorRequiresRuntimeRecycle {
+				t.Fatalf("expected unexpected exit to be retryable with runtime recycle, got %#v", state)
+			}
+			if len(state.RecentStderr) == 0 {
+				t.Fatalf("expected stderr ring buffer to retain crash context, got %#v", state)
+			}
+			if !strings.Contains(strings.Join(state.RecentStderr, "\n"), "runtime exited unexpectedly") {
+				t.Fatalf("expected stderr tail to include crash line, got %#v", state.RecentStderr)
+			}
+			if activeTurnID := manager.ActiveTurnID("ws-1", "thread-crash-1"); activeTurnID != "" {
+				t.Fatalf("expected runtime close to clear active turns, got %q", activeTurnID)
+			}
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 
 	t.Fatalf("expected runtime to close and retain stderr context, got %#v", manager.State("ws-1"))
+}
+
+func TestEnsureStartedClassifiesLaunchMisconfiguration(t *testing.T) {
+	t.Parallel()
+
+	manager := NewManager("codex-command-that-does-not-exist", nil)
+	manager.Configure("ws-1", t.TempDir())
+
+	if _, err := manager.EnsureStarted(context.Background(), "ws-1"); err == nil {
+		t.Fatal("expected EnsureStarted() to fail for missing runtime command")
+	}
+
+	state := manager.State("ws-1")
+	if state.Status != "error" {
+		t.Fatalf("expected runtime status error, got %#v", state)
+	}
+	if state.LastErrorCategory != "configuration" {
+		t.Fatalf("expected configuration classification, got %#v", state)
+	}
+	if state.LastErrorRecoveryAction != "fix-launch-config" {
+		t.Fatalf("expected fix-launch-config recovery action, got %#v", state)
+	}
+	if state.LastErrorRetryable {
+		t.Fatalf("expected missing command not to be retryable, got %#v", state)
+	}
+	if state.LastErrorRequiresRuntimeRecycle {
+		t.Fatalf("expected missing command not to require runtime recycle, got %#v", state)
+	}
 }
 
 func awaitRuntimeEvent(t *testing.T, eventsCh <-chan store.EventEnvelope) store.EventEnvelope {

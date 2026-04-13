@@ -1,5 +1,6 @@
 import { getErrorMessage } from '../../lib/error-utils'
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
+import { buildWorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 
 export function buildThreadPageControllerSurfaceStateLayoutInput({
   controllerState,
@@ -58,12 +59,23 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     queryClient: controllerState.queryClient,
     respondingToApproval: mutationState.respondApprovalMutation.isPending,
     rootPath: dataState.workspaceQuery.data?.rootPath,
+    hasRecoverableRuntimeOperation:
+      Boolean(controllerState.recoverableSendInput?.trim()) ||
+      Boolean(controllerState.recoverableCommandOperation),
+    runtimeRecoveryNotice: buildWorkspaceRuntimeRecoverySummary(
+      dataState.workspaceRuntimeStateQuery.data,
+    ),
+    restartAndRetryPending: controllerState.isRestartAndRetryPending,
     selectedCommandSession: displayState.selectedCommandSession,
     selectedThread: dataState.selectedThread,
     selectedThreadId: activeSelectedThreadId,
     setIsTerminalDockExpanded: controllerState.setIsTerminalDockExpanded,
     setSurfacePanelSides: controllerState.setSurfacePanelSides,
-    startTerminalCommandPending: mutationState.startCommandMutation.isPending,
+    startTerminalCommandPending:
+      mutationState.startCommandMutation.isPending ||
+      (controllerState.isRestartAndRetryPending &&
+        Boolean(controllerState.recoverableCommandOperation)),
+    restartRuntimePending: mutationState.restartRuntimeMutation.isPending,
     surfacePanelView: controllerState.surfacePanelView,
     terminalDockClassName: statusState.terminalDockClassName,
     terminalWindowBounds: controllerState.terminalWindowBounds,

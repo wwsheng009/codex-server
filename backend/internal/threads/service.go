@@ -141,24 +141,13 @@ func (s *Service) ListPage(
 
 	items := make([]store.Thread, 0, pageLimit)
 	for page := 0; page < 20 && len(items) < pageLimit; page++ {
-		var response struct {
-			Data       []map[string]any `json:"data"`
-			NextCursor *string          `json:"nextCursor"`
-		}
-
-		params := map[string]any{
-			"archived": archived,
-			"limit":    pageLimit - len(items),
-		}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		if sortKey != "" {
-			params["sortKey"] = sortKey
-		}
-
 		callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeListTimeout)
-		err := s.runtimes.Call(callCtx, workspaceID, "thread/list", params, &response)
+		response, err := s.runtimes.ThreadList(callCtx, workspaceID, appserver.ThreadListRequest{
+			Archived: archived,
+			Limit:    pageLimit - len(items),
+			Cursor:   cursor,
+			SortKey:  sortKey,
+		})
 		cancel()
 		if err != nil {
 			if runtimeCallTimedOut(err, timeoutApplied) {
@@ -240,14 +229,13 @@ func (s *Service) Create(ctx context.Context, workspaceID string, input CreateIn
 		sessionStartSource = ThreadStartSourceStartup
 	}
 
-	var response appserver.ThreadStartResponse
-
 	defaults, err := s.runtimeDefaults()
 	if err != nil {
 		return store.Thread{}, err
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/start", buildThreadStartRequest(s.runtimes.RootPath(workspaceID), input, defaults), &response); err != nil {
+	response, err := s.runtimes.ThreadStart(ctx, workspaceID, buildThreadStartRequest(s.runtimes.RootPath(workspaceID), input, defaults))
+	if err != nil {
 		return store.Thread{}, err
 	}
 
@@ -1440,17 +1428,14 @@ func cloneTurnItemLocal(item map[string]any) map[string]any {
 }
 
 func (s *Service) readThread(ctx context.Context, workspaceID string, threadID string, includeTurns bool) (map[string]any, error) {
-	var response struct {
-		Thread map[string]any `json:"thread"`
-	}
-
 	callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeReadTimeout)
 	defer cancel()
 
-	if err := s.runtimes.Call(callCtx, workspaceID, "thread/read", map[string]any{
-		"includeTurns": includeTurns,
-		"threadId":     threadID,
-	}, &response); err != nil {
+	response, err := s.runtimes.ThreadRead(callCtx, workspaceID, appserver.ThreadReadRequest{
+		IncludeTurns: includeTurns,
+		ThreadID:     threadID,
+	})
+	if err != nil {
 		if runtimeCallTimedOut(err, timeoutApplied) {
 			s.runtimes.Recycle(workspaceID)
 		}
@@ -1468,16 +1453,13 @@ func (s *Service) ListLoaded(ctx context.Context, workspaceID string) ([]string,
 		}
 	}
 
-	var response struct {
-		Data []string `json:"data"`
-	}
-
 	callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeListTimeout)
 	defer cancel()
 
-	if err := s.runtimes.Call(callCtx, workspaceID, "thread/loaded/list", map[string]any{
-		"limit": 200,
-	}, &response); err != nil {
+	response, err := s.runtimes.ThreadLoadedList(callCtx, workspaceID, appserver.ThreadLoadedListRequest{
+		Limit: 200,
+	})
+	if err != nil {
 		if runtimeCallTimedOut(err, timeoutApplied) {
 			s.runtimes.Recycle(workspaceID)
 			return fallbackStoredLoadedThreadIDs(workspaceID, s.store), nil
@@ -1493,18 +1475,11 @@ func (s *Service) UpdateMetadata(ctx context.Context, workspaceID string, thread
 		return store.Thread{}, err
 	}
 
-	var response struct {
-		Thread map[string]any `json:"thread"`
-	}
-
-	params := map[string]any{
-		"threadId": threadID,
-	}
-	if len(gitInfo) > 0 {
-		params["gitInfo"] = gitInfo
-	}
-
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/metadata/update", params, &response); err != nil {
+	response, err := s.runtimes.ThreadMetadataUpdate(ctx, workspaceID, appserver.ThreadMetadataUpdateRequest{
+		ThreadID: threadID,
+		GitInfo:  gitInfo,
+	})
+	if err != nil {
 		return store.Thread{}, err
 	}
 
@@ -1518,9 +1493,9 @@ func (s *Service) Compact(ctx context.Context, workspaceID string, threadID stri
 		return err
 	}
 
-	return s.runtimes.Call(ctx, workspaceID, "thread/compact/start", map[string]any{
-		"threadId": threadID,
-	}, nil)
+	return s.runtimes.ThreadCompactStart(ctx, workspaceID, appserver.ThreadCompactStartRequest{
+		ThreadID: threadID,
+	})
 }
 
 func (s *Service) Resume(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {
@@ -1528,14 +1503,11 @@ func (s *Service) Resume(ctx context.Context, workspaceID string, threadID strin
 		return store.Thread{}, err
 	}
 
-	var response struct {
-		Thread map[string]any `json:"thread"`
-	}
-
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/resume", map[string]any{
-		"cwd":      s.runtimes.RootPath(workspaceID),
-		"threadId": threadID,
-	}, &response); err != nil {
+	response, err := s.runtimes.ThreadResume(ctx, workspaceID, appserver.ThreadResumeRequest{
+		Cwd:      s.runtimes.RootPath(workspaceID),
+		ThreadID: threadID,
+	})
+	if err != nil {
 		return store.Thread{}, err
 	}
 
@@ -1551,14 +1523,11 @@ func (s *Service) Fork(ctx context.Context, workspaceID string, threadID string)
 		return store.Thread{}, err
 	}
 
-	var response struct {
-		Thread map[string]any `json:"thread"`
-	}
-
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/fork", map[string]any{
-		"cwd":      s.runtimes.RootPath(workspaceID),
-		"threadId": threadID,
-	}, &response); err != nil {
+	response, err := s.runtimes.ThreadFork(ctx, workspaceID, appserver.ThreadForkRequest{
+		Cwd:      s.runtimes.RootPath(workspaceID),
+		ThreadID: threadID,
+	})
+	if err != nil {
 		return store.Thread{}, err
 	}
 
@@ -1572,9 +1541,9 @@ func (s *Service) Archive(ctx context.Context, workspaceID string, threadID stri
 		return store.Thread{}, err
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/archive", map[string]any{
-		"threadId": threadID,
-	}, nil); err != nil {
+	if err := s.runtimes.ThreadArchive(ctx, workspaceID, appserver.ThreadArchiveRequest{
+		ThreadID: threadID,
+	}); err != nil {
 		return store.Thread{}, err
 	}
 
@@ -1593,9 +1562,9 @@ func (s *Service) Unarchive(ctx context.Context, workspaceID string, threadID st
 		return store.Thread{}, err
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/unarchive", map[string]any{
-		"threadId": threadID,
-	}, nil); err != nil {
+	if err := s.runtimes.ThreadUnarchive(ctx, workspaceID, appserver.ThreadUnarchiveRequest{
+		ThreadID: threadID,
+	}); err != nil {
 		return store.Thread{}, err
 	}
 
@@ -1618,10 +1587,10 @@ func (s *Service) Rename(ctx context.Context, workspaceID string, threadID strin
 		return store.Thread{}, errors.New("thread name is required")
 	}
 
-	if err := s.runtimes.Call(ctx, workspaceID, "thread/name/set", map[string]any{
-		"name":     name,
-		"threadId": threadID,
-	}, nil); err != nil {
+	if err := s.runtimes.ThreadSetName(ctx, workspaceID, appserver.ThreadSetNameRequest{
+		Name:     name,
+		ThreadID: threadID,
+	}); err != nil {
 		return store.Thread{}, err
 	}
 
@@ -1638,10 +1607,10 @@ func (s *Service) Rollback(ctx context.Context, workspaceID string, threadID str
 		return err
 	}
 
-	return s.runtimes.Call(ctx, workspaceID, "thread/rollback", map[string]any{
-		"numTurns": 1,
-		"threadId": threadID,
-	}, nil)
+	return s.runtimes.ThreadRollback(ctx, workspaceID, appserver.ThreadRollbackRequest{
+		NumTurns: 1,
+		ThreadID: threadID,
+	})
 }
 
 func (s *Service) Delete(ctx context.Context, workspaceID string, threadID string) error {
@@ -1661,12 +1630,9 @@ func (s *Service) Delete(ctx context.Context, workspaceID string, threadID strin
 
 	state := s.runtimes.State(workspaceID).Status
 	if state == "ready" || state == "active" || state == "connected" {
-		var response struct {
-			Status string `json:"status"`
-		}
-		_ = s.runtimes.Call(ctx, workspaceID, "thread/unsubscribe", map[string]any{
-			"threadId": threadID,
-		}, &response)
+		_, _ = s.runtimes.ThreadUnsubscribe(ctx, workspaceID, appserver.ThreadUnsubscribeRequest{
+			ThreadID: threadID,
+		})
 	}
 
 	return s.store.DeleteThread(workspaceID, threadID)
@@ -1694,10 +1660,10 @@ func (s *Service) ShellCommand(ctx context.Context, workspaceID string, threadID
 }
 
 func (s *Service) runThreadShellCommand(ctx context.Context, workspaceID string, threadID string, command string) error {
-	return s.runtimes.Call(ctx, workspaceID, "thread/shellCommand", map[string]any{
-		"threadId": threadID,
-		"command":  command,
-	}, nil)
+	return s.runtimes.ThreadShellCommand(ctx, workspaceID, appserver.ThreadShellCommandRequest{
+		ThreadID: threadID,
+		Command:  command,
+	})
 }
 
 func (s *Service) listByArchived(ctx context.Context, workspaceID string, archived bool) ([]store.Thread, error) {
@@ -1713,21 +1679,12 @@ func (s *Service) listByArchived(ctx context.Context, workspaceID string, archiv
 	items := make([]store.Thread, 0)
 
 	for page := 0; page < 20; page++ {
-		var response struct {
-			Data       []map[string]any `json:"data"`
-			NextCursor *string          `json:"nextCursor"`
-		}
-
-		params := map[string]any{
-			"archived": archived,
-			"limit":    200,
-		}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-
 		callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, threadRuntimeListTimeout)
-		err := s.runtimes.Call(callCtx, workspaceID, "thread/list", params, &response)
+		response, err := s.runtimes.ThreadList(callCtx, workspaceID, appserver.ThreadListRequest{
+			Archived: archived,
+			Limit:    200,
+			Cursor:   cursor,
+		})
 		cancel()
 		if err != nil {
 			if runtimeCallTimedOut(err, timeoutApplied) {

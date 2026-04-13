@@ -2,6 +2,7 @@ import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageCont
 
 export function buildThreadPageControllerRailActionLayoutInput({
   controllerState,
+  mutationState,
   pageActions,
   railState,
 }: BuildThreadPageControllerLayoutPropsInput) {
@@ -34,6 +35,7 @@ export function buildThreadPageControllerRailActionLayoutInput({
     onInspectorResizeStart: controllerState.handleInspectorResizeStart,
     onOpenInspector: railState.handleOpenInspector,
     onOpenSurfacePanel: railState.handleOpenSurfacePanel,
+    onRestartRuntime: () => mutationState.restartRuntimeMutation.mutate(),
     onResetInspectorWidth: controllerState.handleResetInspectorWidth,
     onSendBotMessage: pageActions.handleSendBotMessage,
     onStartCommand: pageActions.handleStartCommand,

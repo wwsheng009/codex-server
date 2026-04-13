@@ -330,6 +330,12 @@ func TestResolveCodexRuntimeDoesNotInjectRealtimeConversationFeature(t *testing.
 	if resolved.Command != command {
 		t.Fatalf("expected command to remain unchanged, got %q", resolved.Command)
 	}
+	if resolved.LaunchConfig.Command != command {
+		t.Fatalf("expected launch config command to remain unchanged, got %q", resolved.LaunchConfig.Command)
+	}
+	if resolved.LaunchConfig.BaseCommand != command {
+		t.Fatalf("expected launch config base command to remain unchanged, got %q", resolved.LaunchConfig.BaseCommand)
+	}
 }
 
 func TestNormalizeOutboundProxyURL(t *testing.T) {
@@ -370,6 +376,39 @@ func TestResolveCodexRuntimeCarriesOutboundProxyURL(t *testing.T) {
 
 	if resolved.Preferences.OutboundProxyURL != "http://127.0.0.1:7890" {
 		t.Fatalf("expected normalized outbound proxy url, got %q", resolved.Preferences.OutboundProxyURL)
+	}
+}
+
+func TestResolveCodexRuntimeBuildsStructuredLaunchConfig(t *testing.T) {
+	catalogPath := writeTestCatalog(t, map[string]any{
+		"models": []map[string]any{
+			{
+				"slug":       "gpt-test",
+				"shell_type": "shell_command",
+			},
+		},
+	})
+
+	baseCommand := "codex app-server --listen stdio://"
+	resolved, err := ResolveCodexRuntime(baseCommand, RuntimePreferences{
+		ModelCatalogPath: catalogPath,
+	})
+	if err != nil {
+		t.Fatalf("ResolveCodexRuntime() error = %v", err)
+	}
+
+	if resolved.LaunchConfig.BaseCommand != baseCommand {
+		t.Fatalf("LaunchConfig.BaseCommand = %q, want %q", resolved.LaunchConfig.BaseCommand, baseCommand)
+	}
+	if resolved.LaunchConfig.Command != resolved.Command {
+		t.Fatalf("LaunchConfig.Command = %q, want %q", resolved.LaunchConfig.Command, resolved.Command)
+	}
+	if resolved.LaunchConfig.EffectiveModelCatalogPath != catalogPath {
+		t.Fatalf(
+			"LaunchConfig.EffectiveModelCatalogPath = %q, want %q",
+			resolved.LaunchConfig.EffectiveModelCatalogPath,
+			catalogPath,
+		)
 	}
 }
 

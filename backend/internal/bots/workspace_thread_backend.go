@@ -106,7 +106,11 @@ func (b *workspaceThreadAIBackend) processMessage(
 	var eventCh <-chan store.EventEnvelope
 	cancelEvents := func() {}
 	if b.events != nil {
-		eventCh, cancelEvents = b.events.Subscribe(connection.WorkspaceID)
+		eventCh, cancelEvents = b.events.SubscribeWithSource(
+			connection.WorkspaceID,
+			"bots.workspace_thread_backend",
+			"bot-workspace-thread-backend",
+		)
 	}
 	defer cancelEvents()
 

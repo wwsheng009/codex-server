@@ -154,7 +154,10 @@ func (s *Service) Start(ctx context.Context) {
 	s.mu.Unlock()
 
 	if s.events != nil {
-		eventsCh, cancel := s.events.SubscribeAll()
+		eventsCh, cancel := s.events.SubscribeAllWithSource(
+			"automations.service",
+			"automation-service",
+		)
 		go func() {
 			defer cancel()
 			for {

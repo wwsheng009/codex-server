@@ -101,6 +101,7 @@ import {
   getWorkspaceRuntimeState,
   restartWorkspace,
 } from "../../features/workspaces/api";
+import { buildWorkspaceRuntimeRecoverySummary } from "../../features/workspaces/runtimeRecovery";
 import type { RuntimePreferencesResult } from "../../types/api";
 
 type AccessTokenDraft = {
@@ -345,6 +346,10 @@ export function ConfigSettingsPage() {
     enabled: Boolean(workspaceId),
     queryFn: () => getWorkspaceRuntimeState(workspaceId!),
   });
+  const runtimeRecoverySummary = useMemo(
+    () => buildWorkspaceRuntimeRecoverySummary(workspaceRuntimeStateQuery.data),
+    [workspaceRuntimeStateQuery.data],
+  );
   const directWriteRuntimeSensitiveItem =
     getRuntimeSensitiveConfigItem(configKeyPath);
   const suggestedConfigTemplate = getSuggestedConfigTemplate(configKeyPath);
@@ -3171,6 +3176,82 @@ export function ConfigSettingsPage() {
                                 </strong>
                               </div>
                             </div>
+                            {runtimeRecoverySummary ? (
+                              <InlineNotice
+                                action={
+                                  workspaceRuntimeStateQuery.data
+                                    .lastErrorRequiresRuntimeRecycle ? (
+                                    <button
+                                      className="ide-button ide-button--secondary ide-button--sm"
+                                      disabled={
+                                        !workspaceId ||
+                                        restartRuntimeMutation.isPending
+                                      }
+                                      onClick={() =>
+                                        restartRuntimeMutation.mutate()
+                                      }
+                                      type="button"
+                                    >
+                                      {restartRuntimeMutation.isPending
+                                        ? i18n._({
+                                            id: "Restarting…",
+                                            message: "Restarting…",
+                                          })
+                                        : i18n._({
+                                            id: "Restart Runtime",
+                                            message: "Restart Runtime",
+                                          })}
+                                    </button>
+                                  ) : null
+                                }
+                                details={runtimeRecoverySummary.details}
+                                noticeKey={`runtime-recovery-${workspaceId}-${workspaceRuntimeStateQuery.data.updatedAt}-${workspaceRuntimeStateQuery.data.lastErrorCategory ?? ""}-${workspaceRuntimeStateQuery.data.lastErrorRecoveryAction ?? ""}-${workspaceRuntimeStateQuery.data.lastError ?? ""}`}
+                                title={runtimeRecoverySummary.title}
+                                tone={runtimeRecoverySummary.tone}
+                              >
+                                {runtimeRecoverySummary.description}
+                              </InlineNotice>
+                            ) : null}
+                            {runtimeRecoverySummary ? (
+                              <div className="config-helper-grid config-helper-grid--compact">
+                                <ConfigHelperCard
+                                  description={
+                                    runtimeRecoverySummary.categoryLabel
+                                  }
+                                  title={i18n._({
+                                    id: "Error Category",
+                                    message: "Error Category",
+                                  })}
+                                />
+                                <ConfigHelperCard
+                                  description={
+                                    runtimeRecoverySummary.recoveryActionLabel
+                                  }
+                                  title={i18n._({
+                                    id: "Recovery Action",
+                                    message: "Recovery Action",
+                                  })}
+                                />
+                                <ConfigHelperCard
+                                  description={
+                                    runtimeRecoverySummary.retryableLabel
+                                  }
+                                  title={i18n._({
+                                    id: "Retryable",
+                                    message: "Retryable",
+                                  })}
+                                />
+                                <ConfigHelperCard
+                                  description={
+                                    runtimeRecoverySummary.recycleLabel
+                                  }
+                                  title={i18n._({
+                                    id: "Needs Recycle",
+                                    message: "Needs Recycle",
+                                  })}
+                                />
+                              </div>
+                            ) : null}
                             <div className="config-helper-grid config-helper-grid--compact">
                               <ConfigHelperCard
                                 description={

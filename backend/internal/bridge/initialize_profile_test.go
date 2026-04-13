@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	appconfig "codex-server/backend/internal/config"
 )
 
 func TestBuildInitializeRequestOmitsOptOutNotificationsByDefault(t *testing.T) {
@@ -56,5 +58,28 @@ func TestBuildInitializeRequestIncludesOptOutNotificationsWhenConfigured(t *test
 	}
 	if !strings.Contains(string(payload), `"optOutNotificationMethods":["item/agentMessage/delta","item/reasoning/textDelta"]`) {
 		t.Fatalf("expected initialize payload to include optOutNotificationMethods, got %s", string(payload))
+	}
+}
+
+func TestResolveLaunchConfigPrefersStructuredLaunchConfig(t *testing.T) {
+	t.Parallel()
+
+	launchConfig := resolveLaunchConfig(Config{
+		Command: "ignored fallback command",
+		LaunchConfig: appconfig.RuntimeLaunchConfig{
+			BaseCommand:               "codex app-server --listen stdio://",
+			Command:                   `codex app-server --listen stdio:// --config "model_catalog_json=E:/tmp/catalog.json"`,
+			EffectiveModelCatalogPath: "E:/tmp/catalog.json",
+		},
+	})
+
+	if launchConfig.Command != `codex app-server --listen stdio:// --config "model_catalog_json=E:/tmp/catalog.json"` {
+		t.Fatalf("expected structured launch command to win, got %q", launchConfig.Command)
+	}
+	if launchConfig.BaseCommand != "codex app-server --listen stdio://" {
+		t.Fatalf("expected structured base command to be preserved, got %q", launchConfig.BaseCommand)
+	}
+	if launchConfig.EffectiveModelCatalogPath != "E:/tmp/catalog.json" {
+		t.Fatalf("expected effective model catalog path to be preserved, got %q", launchConfig.EffectiveModelCatalogPath)
 	}
 }

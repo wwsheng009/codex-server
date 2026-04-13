@@ -106,7 +106,10 @@ func NewService(runtimeManager *appRuntime.Manager, eventHub *events.Hub, dataSt
 	service.hydrateCommandSessions()
 
 	if eventHub != nil {
-		eventsCh, _ := eventHub.SubscribeAll()
+		eventsCh, _ := eventHub.SubscribeAllWithSource(
+			"execfs.service",
+			"command-session-tracker",
+		)
 		go service.consumeEvents(eventsCh)
 	}
 

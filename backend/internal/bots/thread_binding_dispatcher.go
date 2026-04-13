@@ -28,7 +28,10 @@ func (s *Service) startThreadBindingDispatcher(ctx context.Context) {
 	s.threadBindingDispatcherStarted = true
 	s.mu.Unlock()
 
-	eventsCh, cancel := s.events.SubscribeAll()
+	eventsCh, cancel := s.events.SubscribeAllWithSource(
+		"bots.thread_binding_dispatcher",
+		"bot-thread-binding-dispatcher",
+	)
 	go func() {
 		defer cancel()
 		for {

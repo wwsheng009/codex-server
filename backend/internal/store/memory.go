@@ -48,6 +48,8 @@ const (
 	commandSessionPinnedArchivedLimit = 24
 	commandSessionCompletedTTL        = 24 * time.Hour
 	botConnectionLogRetentionLimit    = 400
+	workspaceEventRetentionLimit      = 2000
+	persistentStoreFlushDebounce      = 250 * time.Millisecond
 	threadProjectionCompressionMin    = 1024
 	threadProjectionExternalizeMin    = 32 * 1024
 	threadProjectionSidecarChunkSize  = 8
@@ -55,36 +57,56 @@ const (
 )
 
 type MemoryStore struct {
-	mu                   sync.RWMutex
-	path                 string
-	inspectionCache      MemoryInspection
-	inspectionCacheValid bool
-	runtimePrefs         RuntimePreferences
-	workspaces           map[string]Workspace
-	commandSessions      map[string]map[string]CommandSessionSnapshot
-	automations          map[string]Automation
-	templates            map[string]AutomationTemplate
-	runs                 map[string]AutomationRun
-	notifications        map[string]Notification
-	turnPolicyDecisions  map[string]TurnPolicyDecision
-	hookRuns             map[string]HookRun
-	bots                 map[string]Bot
-	botBindings          map[string]BotBinding
-	threadBotBindings    map[string]ThreadBotBinding
-	botTriggers          map[string]BotTrigger
-	botConnections       map[string]BotConnection
-	botConnectionLogs    map[string][]BotConnectionLogEntry
-	wechatAccounts       map[string]WeChatAccount
-	botConversations     map[string]BotConversation
-	botDeliveryTargets   map[string]BotDeliveryTarget
-	botInbound           map[string]BotInboundDelivery
-	botInboundIndex      map[string]string
-	botOutbound          map[string]BotOutboundDelivery
-	threads              map[string]Thread
-	pendingSessionStarts map[string]string
-	projections          map[string]threadProjectionRecord
-	deleted              map[string]DeletedThread
-	approvals            map[string]PendingApproval
+	mu                            sync.RWMutex
+	path                          string
+	flushCh                       chan struct{}
+	flushStopCh                   chan struct{}
+	flushCond                     *sync.Cond
+	flushDirty                    bool
+	flushQueued                   bool
+	flushInProgress               bool
+	flushClosed                   bool
+	flushVersion                  uint64
+	flushCompleted                uint64
+	flushLastErr                  error
+	flushWG                       sync.WaitGroup
+	inspectionCache               MemoryInspection
+	inspectionCacheValid          bool
+	runtimePrefs                  RuntimePreferences
+	workspaces                    map[string]Workspace
+	commandSessions               map[string]map[string]CommandSessionSnapshot
+	automations                   map[string]Automation
+	templates                     map[string]AutomationTemplate
+	runs                          map[string]AutomationRun
+	notifications                 map[string]Notification
+	turnPolicyDecisions           map[string]TurnPolicyDecision
+	hookRuns                      map[string]HookRun
+	bots                          map[string]Bot
+	botBindings                   map[string]BotBinding
+	threadBotBindings             map[string]ThreadBotBinding
+	botTriggers                   map[string]BotTrigger
+	botConnections                map[string]BotConnection
+	botConnectionLogs             map[string][]BotConnectionLogEntry
+	transientBotConnectionRuntime map[string]struct{}
+	transientBotConnectionLogIDs  map[string]map[string]struct{}
+	wechatAccounts                map[string]WeChatAccount
+	botConversations              map[string]BotConversation
+	botDeliveryTargets            map[string]BotDeliveryTarget
+	botInbound                    map[string]BotInboundDelivery
+	botInboundIndex               map[string]string
+	botOutbound                   map[string]BotOutboundDelivery
+	threads                       map[string]Thread
+	pendingSessionStarts          map[string]string
+	workspaceEventSeq             map[string]uint64
+	workspaceEvents               map[string][]EventEnvelope
+	projections                   map[string]threadProjectionRecord
+	deleted                       map[string]DeletedThread
+	approvals                     map[string]PendingApproval
+}
+
+var persistentStoreRegistry struct {
+	mu     sync.Mutex
+	stores map[string]*MemoryStore
 }
 
 type threadProjectionRecord struct {
@@ -108,29 +130,36 @@ type threadProjectionTurnsManifest struct {
 }
 
 type storeSnapshot struct {
-	RuntimePreferences  *RuntimePreferences      `json:"runtimePreferences,omitempty"`
-	Workspaces          []Workspace              `json:"workspaces"`
-	CommandSessions     []CommandSessionSnapshot `json:"commandSessions,omitempty"`
-	Automations         []Automation             `json:"automations,omitempty"`
-	AutomationTemplates []AutomationTemplate     `json:"automationTemplates,omitempty"`
-	AutomationRuns      []AutomationRun          `json:"automationRuns,omitempty"`
-	Notifications       []Notification           `json:"notifications,omitempty"`
-	TurnPolicyDecisions []TurnPolicyDecision     `json:"turnPolicyDecisions,omitempty"`
-	HookRuns            []HookRun                `json:"hookRuns,omitempty"`
-	Bots                []Bot                    `json:"bots,omitempty"`
-	BotBindings         []BotBinding             `json:"botBindings,omitempty"`
-	ThreadBotBindings   []ThreadBotBinding       `json:"threadBotBindings,omitempty"`
-	BotTriggers         []BotTrigger             `json:"botTriggers,omitempty"`
-	BotConnections      []BotConnection          `json:"botConnections,omitempty"`
-	BotConnectionLogs   []BotConnectionLogEntry  `json:"botConnectionLogs,omitempty"`
-	WeChatAccounts      []WeChatAccount          `json:"wechatAccounts,omitempty"`
-	BotConversations    []BotConversation        `json:"botConversations,omitempty"`
-	BotDeliveryTargets  []BotDeliveryTarget      `json:"botDeliveryTargets,omitempty"`
-	BotInbound          []BotInboundDelivery     `json:"botInbound,omitempty"`
-	BotOutbound         []BotOutboundDelivery    `json:"botOutbound,omitempty"`
-	Threads             []Thread                 `json:"threads"`
-	ThreadProjections   []storedThreadProjection `json:"threadProjections,omitempty"`
-	DeletedThreads      []DeletedThread          `json:"deletedThreads,omitempty"`
+	RuntimePreferences  *RuntimePreferences       `json:"runtimePreferences,omitempty"`
+	Workspaces          []Workspace               `json:"workspaces"`
+	CommandSessions     []CommandSessionSnapshot  `json:"commandSessions,omitempty"`
+	WorkspaceEvents     []storedWorkspaceEventLog `json:"workspaceEvents,omitempty"`
+	Automations         []Automation              `json:"automations,omitempty"`
+	AutomationTemplates []AutomationTemplate      `json:"automationTemplates,omitempty"`
+	AutomationRuns      []AutomationRun           `json:"automationRuns,omitempty"`
+	Notifications       []Notification            `json:"notifications,omitempty"`
+	TurnPolicyDecisions []TurnPolicyDecision      `json:"turnPolicyDecisions,omitempty"`
+	HookRuns            []HookRun                 `json:"hookRuns,omitempty"`
+	Bots                []Bot                     `json:"bots,omitempty"`
+	BotBindings         []BotBinding              `json:"botBindings,omitempty"`
+	ThreadBotBindings   []ThreadBotBinding        `json:"threadBotBindings,omitempty"`
+	BotTriggers         []BotTrigger              `json:"botTriggers,omitempty"`
+	BotConnections      []BotConnection           `json:"botConnections,omitempty"`
+	BotConnectionLogs   []BotConnectionLogEntry   `json:"botConnectionLogs,omitempty"`
+	WeChatAccounts      []WeChatAccount           `json:"wechatAccounts,omitempty"`
+	BotConversations    []BotConversation         `json:"botConversations,omitempty"`
+	BotDeliveryTargets  []BotDeliveryTarget       `json:"botDeliveryTargets,omitempty"`
+	BotInbound          []BotInboundDelivery      `json:"botInbound,omitempty"`
+	BotOutbound         []BotOutboundDelivery     `json:"botOutbound,omitempty"`
+	Threads             []Thread                  `json:"threads"`
+	ThreadProjections   []storedThreadProjection  `json:"threadProjections,omitempty"`
+	DeletedThreads      []DeletedThread           `json:"deletedThreads,omitempty"`
+}
+
+type storedWorkspaceEventLog struct {
+	WorkspaceID string          `json:"workspaceId"`
+	NextSeq     uint64          `json:"nextSeq"`
+	Events      []EventEnvelope `json:"events,omitempty"`
 }
 
 type storedThreadProjection struct {
@@ -152,33 +181,97 @@ type storedThreadProjection struct {
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{
-		workspaces:           make(map[string]Workspace),
-		commandSessions:      make(map[string]map[string]CommandSessionSnapshot),
-		automations:          make(map[string]Automation),
-		templates:            make(map[string]AutomationTemplate),
-		runs:                 make(map[string]AutomationRun),
-		notifications:        make(map[string]Notification),
-		turnPolicyDecisions:  make(map[string]TurnPolicyDecision),
-		hookRuns:             make(map[string]HookRun),
-		bots:                 make(map[string]Bot),
-		botBindings:          make(map[string]BotBinding),
-		threadBotBindings:    make(map[string]ThreadBotBinding),
-		botTriggers:          make(map[string]BotTrigger),
-		botConnections:       make(map[string]BotConnection),
-		botConnectionLogs:    make(map[string][]BotConnectionLogEntry),
-		wechatAccounts:       make(map[string]WeChatAccount),
-		botConversations:     make(map[string]BotConversation),
-		botDeliveryTargets:   make(map[string]BotDeliveryTarget),
-		botInbound:           make(map[string]BotInboundDelivery),
-		botInboundIndex:      make(map[string]string),
-		botOutbound:          make(map[string]BotOutboundDelivery),
-		threads:              make(map[string]Thread),
-		pendingSessionStarts: make(map[string]string),
-		projections:          make(map[string]threadProjectionRecord),
-		deleted:              make(map[string]DeletedThread),
-		approvals:            make(map[string]PendingApproval),
+	store := &MemoryStore{
+		workspaces:                    make(map[string]Workspace),
+		commandSessions:               make(map[string]map[string]CommandSessionSnapshot),
+		automations:                   make(map[string]Automation),
+		templates:                     make(map[string]AutomationTemplate),
+		runs:                          make(map[string]AutomationRun),
+		notifications:                 make(map[string]Notification),
+		turnPolicyDecisions:           make(map[string]TurnPolicyDecision),
+		hookRuns:                      make(map[string]HookRun),
+		bots:                          make(map[string]Bot),
+		botBindings:                   make(map[string]BotBinding),
+		threadBotBindings:             make(map[string]ThreadBotBinding),
+		botTriggers:                   make(map[string]BotTrigger),
+		botConnections:                make(map[string]BotConnection),
+		botConnectionLogs:             make(map[string][]BotConnectionLogEntry),
+		transientBotConnectionRuntime: make(map[string]struct{}),
+		transientBotConnectionLogIDs:  make(map[string]map[string]struct{}),
+		wechatAccounts:                make(map[string]WeChatAccount),
+		botConversations:              make(map[string]BotConversation),
+		botDeliveryTargets:            make(map[string]BotDeliveryTarget),
+		botInbound:                    make(map[string]BotInboundDelivery),
+		botInboundIndex:               make(map[string]string),
+		botOutbound:                   make(map[string]BotOutboundDelivery),
+		threads:                       make(map[string]Thread),
+		pendingSessionStarts:          make(map[string]string),
+		workspaceEventSeq:             make(map[string]uint64),
+		workspaceEvents:               make(map[string][]EventEnvelope),
+		projections:                   make(map[string]threadProjectionRecord),
+		deleted:                       make(map[string]DeletedThread),
+		approvals:                     make(map[string]PendingApproval),
 	}
+
+	store.flushCond = sync.NewCond(&store.mu)
+	return store
+}
+
+func (s *MemoryStore) AppendWorkspaceEvent(event EventEnvelope) EventEnvelope {
+	workspaceID := strings.TrimSpace(event.WorkspaceID)
+	if workspaceID == "" {
+		return event
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	nextSeq := s.workspaceEventSeq[workspaceID] + 1
+	event.Seq = nextSeq
+	event.Replay = false
+
+	events := append(cloneEventEnvelopes(s.workspaceEvents[workspaceID]), event)
+	if len(events) > workspaceEventRetentionLimit {
+		events = append([]EventEnvelope(nil), events[len(events)-workspaceEventRetentionLimit:]...)
+	}
+	s.workspaceEvents[workspaceID] = events
+	s.workspaceEventSeq[workspaceID] = nextSeq
+	s.persistLocked()
+
+	return event
+}
+
+func (s *MemoryStore) ListWorkspaceEventsAfter(workspaceID string, afterSeq uint64, limit int) []EventEnvelope {
+	if limit <= 0 {
+		limit = workspaceEventRetentionLimit
+	}
+
+	s.mu.RLock()
+	events := cloneEventEnvelopes(s.workspaceEvents[workspaceID])
+	s.mu.RUnlock()
+
+	result := make([]EventEnvelope, 0, min(limit, len(events)))
+	for _, event := range events {
+		if event.Seq <= afterSeq {
+			continue
+		}
+
+		cloned := event
+		cloned.Replay = true
+		result = append(result, cloned)
+		if len(result) >= limit {
+			break
+		}
+	}
+
+	return result
+}
+
+func (s *MemoryStore) GetWorkspaceEventHeadSeq(workspaceID string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.workspaceEventSeq[workspaceID]
 }
 
 func (s *MemoryStore) ListCommandSessions(workspaceID string) []CommandSessionSnapshot {
@@ -532,14 +625,93 @@ func cloneOptionalInt64(value *int64) *int64 {
 	return &cloned
 }
 
+func normalizePersistentStorePath(rawPath string) string {
+	if strings.TrimSpace(rawPath) == "" {
+		return ""
+	}
+
+	if absolutePath, err := filepath.Abs(rawPath); err == nil {
+		return filepath.Clean(absolutePath)
+	}
+	return filepath.Clean(rawPath)
+}
+
+func registerPersistentStore(path string, store *MemoryStore) {
+	if path == "" || store == nil {
+		return
+	}
+
+	persistentStoreRegistry.mu.Lock()
+	defer persistentStoreRegistry.mu.Unlock()
+
+	if persistentStoreRegistry.stores == nil {
+		persistentStoreRegistry.stores = make(map[string]*MemoryStore)
+	}
+	persistentStoreRegistry.stores[path] = store
+}
+
+func unregisterPersistentStore(path string, store *MemoryStore) {
+	if path == "" || store == nil {
+		return
+	}
+
+	persistentStoreRegistry.mu.Lock()
+	defer persistentStoreRegistry.mu.Unlock()
+
+	if persistentStoreRegistry.stores[path] == store {
+		delete(persistentStoreRegistry.stores, path)
+	}
+}
+
+func findPersistentStore(path string) *MemoryStore {
+	if path == "" {
+		return nil
+	}
+
+	persistentStoreRegistry.mu.Lock()
+	defer persistentStoreRegistry.mu.Unlock()
+
+	return persistentStoreRegistry.stores[path]
+}
+
+func (s *MemoryStore) startFlushWorker() {
+	if s == nil || s.path == "" {
+		return
+	}
+
+	s.mu.Lock()
+	if s.flushCh != nil || s.flushClosed {
+		s.mu.Unlock()
+		return
+	}
+	s.flushCh = make(chan struct{}, 1)
+	s.flushStopCh = make(chan struct{})
+	s.flushWG.Add(1)
+	if s.flushDirty {
+		s.requestFlushLocked()
+	}
+	s.mu.Unlock()
+
+	go s.flushWorker()
+}
+
 func NewPersistentStore(path string) (*MemoryStore, error) {
+	normalizedPath := normalizePersistentStorePath(path)
+	if existing := findPersistentStore(normalizedPath); existing != nil {
+		if err := existing.Flush(); err != nil {
+			return nil, err
+		}
+	}
+
 	store := NewMemoryStore()
-	store.path = path
+	store.path = normalizedPath
 
 	if err := store.load(); err != nil {
 		return nil, err
 	}
 	store.releaseTransientLoadMemory()
+	store.startFlushWorker()
+	registerPersistentStore(normalizedPath, store)
 
 	return store, nil
 }
@@ -1810,6 +1982,11 @@ func (s *MemoryStore) updateBotConnectionRuntimeState(
 	if !ok || connection.WorkspaceID != workspaceID {
 		return BotConnection{}, ErrBotConnectionNotFound
 	}
+	if !persist {
+		if err := s.flushPendingPersistenceLocked(); err != nil {
+			return BotConnection{}, err
+		}
+	}
 
 	next := updater(cloneBotConnection(connection))
 	next.ID = connection.ID
@@ -1829,8 +2006,10 @@ func (s *MemoryStore) updateBotConnectionRuntimeState(
 
 	s.botConnections[connectionID] = next
 	if persist {
+		delete(s.transientBotConnectionRuntime, connectionID)
 		s.persistLocked()
 	} else {
+		s.transientBotConnectionRuntime[connectionID] = struct{}{}
 		s.invalidateMemoryInspectionLocked()
 	}
 
@@ -1848,6 +2027,8 @@ func (s *MemoryStore) DeleteBotConnection(workspaceID string, connectionID strin
 
 	delete(s.botConnections, connectionID)
 	delete(s.botConnectionLogs, connectionID)
+	delete(s.transientBotConnectionRuntime, connectionID)
+	delete(s.transientBotConnectionLogIDs, connectionID)
 	targetIDs := make(map[string]struct{})
 	for conversationID, conversation := range s.botConversations {
 		if conversation.ConnectionID == connectionID && conversation.WorkspaceID == workspaceID {
@@ -1905,6 +2086,11 @@ func (s *MemoryStore) appendBotConnectionLog(
 	if !ok || connection.WorkspaceID != workspaceID {
 		return BotConnectionLogEntry{}, ErrBotConnectionNotFound
 	}
+	if !persist {
+		if err := s.flushPendingPersistenceLocked(); err != nil {
+			return BotConnectionLogEntry{}, err
+		}
+	}
 
 	if entry.ID == "" {
 		entry.ID = NewID("blog")
@@ -1924,8 +2110,20 @@ func (s *MemoryStore) appendBotConnectionLog(
 	}
 	s.botConnectionLogs[connectionID] = logs
 	if persist {
+		if transientIDs, ok := s.transientBotConnectionLogIDs[connectionID]; ok {
+			delete(transientIDs, entry.ID)
+			if len(transientIDs) == 0 {
+				delete(s.transientBotConnectionLogIDs, connectionID)
+			}
+		}
 		s.persistLocked()
 	} else {
+		transientIDs := s.transientBotConnectionLogIDs[connectionID]
+		if transientIDs == nil {
+			transientIDs = make(map[string]struct{})
+			s.transientBotConnectionLogIDs[connectionID] = transientIDs
+		}
+		transientIDs[entry.ID] = struct{}{}
 		s.invalidateMemoryInspectionLocked()
 	}
 
@@ -3289,6 +3487,8 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 		}
 	}
 	delete(s.commandSessions, workspaceID)
+	delete(s.workspaceEventSeq, workspaceID)
+	delete(s.workspaceEvents, workspaceID)
 
 	for threadID, thread := range s.threads {
 		if thread.WorkspaceID == workspaceID {
@@ -3376,6 +3576,163 @@ func (s *MemoryStore) SetApprovalStatus(requestID string, status string) (Pendin
 	return approval, nil
 }
 
+func (s *MemoryStore) requestFlushLocked() {
+	if s.path == "" || s.flushClosed || s.flushCh == nil || s.flushQueued {
+		return
+	}
+
+	s.flushQueued = true
+	select {
+	case s.flushCh <- struct{}{}:
+	default:
+	}
+}
+
+func (s *MemoryStore) flushWorker() {
+	defer s.flushWG.Done()
+
+	for {
+		select {
+		case <-s.flushStopCh:
+			return
+		case <-s.flushCh:
+		}
+
+		timer := time.NewTimer(persistentStoreFlushDebounce)
+	debounceLoop:
+		for {
+			select {
+			case <-s.flushStopCh:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				return
+			case <-s.flushCh:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(persistentStoreFlushDebounce)
+			case <-timer.C:
+				break debounceLoop
+			}
+		}
+
+		s.mu.Lock()
+		if s.flushClosed {
+			s.flushQueued = false
+			s.flushCond.Broadcast()
+			s.mu.Unlock()
+			return
+		}
+		if !s.flushDirty {
+			s.flushQueued = false
+			s.flushCond.Broadcast()
+			s.mu.Unlock()
+			continue
+		}
+
+		s.flushInProgress = true
+		err := s.persistNowLocked()
+		s.flushInProgress = false
+		s.flushLastErr = err
+		if err == nil {
+			s.flushDirty = false
+			s.flushCompleted = s.flushVersion
+		}
+		s.flushQueued = false
+		s.flushCond.Broadcast()
+		s.mu.Unlock()
+	}
+}
+
+func (s *MemoryStore) Flush() error {
+	if s == nil || s.path == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	targetVersion := s.flushVersion
+	if !s.flushDirty && !s.flushInProgress && s.flushCompleted >= targetVersion {
+		err := s.flushLastErr
+		s.mu.Unlock()
+		return err
+	}
+
+	s.requestFlushLocked()
+	for {
+		if !s.flushDirty && !s.flushInProgress && s.flushCompleted >= targetVersion {
+			err := s.flushLastErr
+			s.mu.Unlock()
+			return err
+		}
+		if s.flushLastErr != nil && !s.flushQueued && !s.flushInProgress && s.flushCompleted < targetVersion {
+			err := s.flushLastErr
+			s.mu.Unlock()
+			return err
+		}
+		if s.flushDirty && !s.flushQueued && !s.flushInProgress {
+			s.requestFlushLocked()
+		}
+		s.flushCond.Wait()
+	}
+}
+
+func (s *MemoryStore) flushPendingPersistenceLocked() error {
+	if s == nil || s.path == "" {
+		return nil
+	}
+
+	for s.flushInProgress {
+		s.flushCond.Wait()
+	}
+
+	if !s.flushDirty {
+		return s.flushLastErr
+	}
+
+	s.flushInProgress = true
+	err := s.persistNowLocked()
+	s.flushInProgress = false
+	s.flushLastErr = err
+	if err == nil {
+		s.flushDirty = false
+		s.flushCompleted = s.flushVersion
+	}
+	s.flushCond.Broadcast()
+	return err
+}
+
+func (s *MemoryStore) Close() error {
+	if s == nil {
+		return nil
+	}
+
+	if err := s.Flush(); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	if s.path == "" || s.flushClosed {
+		s.mu.Unlock()
+		unregisterPersistentStore(s.path, s)
+		return nil
+	}
+	s.flushClosed = true
+	close(s.flushStopCh)
+	s.flushCond.Broadcast()
+	s.mu.Unlock()
+
+	s.flushWG.Wait()
+	unregisterPersistentStore(s.path, s)
+	return nil
+}
+
 func (s *MemoryStore) load() error {
 	if s.path == "" {
 		return nil
@@ -3459,6 +3816,43 @@ func (s *MemoryStore) load() error {
 				}
 				workspaceSessions[session.ID] = session
 				updateLoadedMaxID(&maxID, session.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "workspaceEvents":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var log storedWorkspaceEventLog
+				if err := decoder.Decode(&log); err != nil {
+					return err
+				}
+
+				workspaceID := strings.TrimSpace(log.WorkspaceID)
+				if workspaceID == "" {
+					return nil
+				}
+
+				events := cloneEventEnvelopes(log.Events)
+				var maxSeq uint64
+				for index := range events {
+					events[index].Replay = false
+					if events[index].Seq > maxSeq {
+						maxSeq = events[index].Seq
+					}
+				}
+				sort.Slice(events, func(i int, j int) bool {
+					return events[i].Seq < events[j].Seq
+				})
+				if len(events) > workspaceEventRetentionLimit {
+					events = append([]EventEnvelope(nil), events[len(events)-workspaceEventRetentionLimit:]...)
+				}
+
+				s.workspaceEvents[workspaceID] = events
+				headSeq := maxSeq
+				if log.NextSeq > 0 && log.NextSeq-1 > headSeq {
+					headSeq = log.NextSeq - 1
+				}
+				s.workspaceEventSeq[workspaceID] = headSeq
 				return nil
 			}); err != nil {
 				return err
@@ -3884,10 +4278,20 @@ func (s *MemoryStore) persistLocked() {
 	if s.path == "" {
 		return
 	}
+	s.flushDirty = true
+	s.flushVersion++
+	s.requestFlushLocked()
+}
+
+func (s *MemoryStore) persistNowLocked() error {
+	if s.path == "" {
+		return nil
+	}
 
 	snapshot := storeSnapshot{
 		Workspaces:          make([]Workspace, 0, len(s.workspaces)),
 		CommandSessions:     make([]CommandSessionSnapshot, 0),
+		WorkspaceEvents:     make([]storedWorkspaceEventLog, 0, len(s.workspaceEvents)),
 		Automations:         make([]Automation, 0, len(s.automations)),
 		AutomationTemplates: make([]AutomationTemplate, 0, len(s.templates)),
 		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
@@ -3950,6 +4354,13 @@ func (s *MemoryStore) persistLocked() {
 			snapshot.CommandSessions = append(snapshot.CommandSessions, session)
 		}
 	}
+	for workspaceID, events := range s.workspaceEvents {
+		snapshot.WorkspaceEvents = append(snapshot.WorkspaceEvents, storedWorkspaceEventLog{
+			WorkspaceID: workspaceID,
+			NextSeq:     s.workspaceEventSeq[workspaceID] + 1,
+			Events:      cloneEventEnvelopes(events),
+		})
+	}
 	for _, automation := range s.automations {
 		snapshot.Automations = append(snapshot.Automations, automation)
 	}
@@ -3980,11 +4391,18 @@ func (s *MemoryStore) persistLocked() {
 	for _, trigger := range s.botTriggers {
 		snapshot.BotTriggers = append(snapshot.BotTriggers, cloneBotTrigger(trigger))
 	}
-	for _, connection := range s.botConnections {
-		snapshot.BotConnections = append(snapshot.BotConnections, cloneBotConnection(connection))
+	for connectionID, connection := range s.botConnections {
+		_, stripRuntime := s.transientBotConnectionRuntime[connectionID]
+		snapshot.BotConnections = append(snapshot.BotConnections, clonePersistedBotConnection(connection, stripRuntime))
 	}
-	for _, logs := range s.botConnectionLogs {
-		snapshot.BotConnectionLogs = append(snapshot.BotConnectionLogs, logs...)
+	for connectionID, logs := range s.botConnectionLogs {
+		transientIDs := s.transientBotConnectionLogIDs[connectionID]
+		for _, entry := range logs {
+			if _, transient := transientIDs[entry.ID]; transient {
+				continue
+			}
+			snapshot.BotConnectionLogs = append(snapshot.BotConnectionLogs, entry)
+		}
 	}
 	for _, account := range s.wechatAccounts {
 		snapshot.WeChatAccounts = append(snapshot.WeChatAccounts, cloneWeChatAccount(account))
@@ -4029,6 +4447,9 @@ func (s *MemoryStore) persistLocked() {
 			return snapshot.CommandSessions[i].ID < snapshot.CommandSessions[j].ID
 		}
 		return snapshot.CommandSessions[i].WorkspaceID < snapshot.CommandSessions[j].WorkspaceID
+	})
+	sort.Slice(snapshot.WorkspaceEvents, func(i int, j int) bool {
+		return snapshot.WorkspaceEvents[i].WorkspaceID < snapshot.WorkspaceEvents[j].WorkspaceID
 	})
 	sort.Slice(snapshot.Automations, func(i int, j int) bool {
 		return snapshot.Automations[i].ID < snapshot.Automations[j].ID
@@ -4108,22 +4529,23 @@ func (s *MemoryStore) persistLocked() {
 	})
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return
+		return err
 	}
 
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
 
 	if err := os.WriteFile(s.path, data, 0o644); err != nil {
-		return
+		return err
 	}
 
 	for key, record := range projectionUpdates {
 		s.projections[key] = record
 	}
 	s.cleanupThreadProjectionSidecars(activeProjectionSidecars)
+	return nil
 }
 
 func deletedThreadKey(workspaceID string, threadID string) string {
@@ -4153,6 +4575,16 @@ func cloneThreadProjectionMetadata(projection ThreadProjection) ThreadProjection
 		MessageCount:     projection.MessageCount,
 		SnapshotComplete: projection.SnapshotComplete,
 	}
+}
+
+func cloneEventEnvelopes(events []EventEnvelope) []EventEnvelope {
+	if len(events) == 0 {
+		return nil
+	}
+
+	cloned := make([]EventEnvelope, len(events))
+	copy(cloned, events)
+	return cloned
 }
 
 func materializeThreadProjectionRecord(record threadProjectionRecord) ThreadProjection {
@@ -5151,6 +5583,17 @@ func cloneBotConnection(connection BotConnection) BotConnection {
 		next.Secrets = nil
 	}
 	next.LastPollAt = cloneOptionalTime(connection.LastPollAt)
+	return next
+}
+
+func clonePersistedBotConnection(connection BotConnection, stripRuntime bool) BotConnection {
+	next := cloneBotConnection(connection)
+	if stripRuntime {
+		next.LastError = ""
+		next.LastPollAt = nil
+		next.LastPollStatus = ""
+		next.LastPollMessage = ""
+	}
 	return next
 }
 

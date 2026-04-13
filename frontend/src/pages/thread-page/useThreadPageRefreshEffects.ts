@@ -1,5 +1,9 @@
 import { useEffect, useRef } from 'react'
 
+import {
+  recordConversationLiveDiagnosticEvent,
+  updateConversationLiveDiagnosticsStatus,
+} from '../../components/workspace/threadConversationProfiler'
 import { syncAccountQueriesFromEvent } from '../../features/account/realtime'
 import { i18n } from '../../i18n/runtime'
 import {
@@ -23,7 +27,6 @@ export function useThreadPageRefreshEffects({
   activePendingTurn,
   contextCompactionFeedback,
   isDocumentVisible,
-  isThreadPinnedToLatest,
   isThreadViewportInteracting,
   queryClient,
   selectedThreadEvents,
@@ -48,6 +51,10 @@ export function useThreadPageRefreshEffects({
   useEffect(() => {
     lastProcessedThreadEventKeyRef.current = ''
     lastLiveThreadEventAtRef.current = null
+    updateConversationLiveDiagnosticsStatus({
+      lastThreadDetailRefreshAt: null,
+      selectedThreadId: selectedThreadId ?? null,
+    })
   }, [selectedThreadId])
 
   useEffect(() => {
@@ -83,9 +90,26 @@ export function useThreadPageRefreshEffects({
   }
 
   function scheduleThreadDetailRefresh(delayMs = 120) {
-    if (!isThreadPinnedToLatest || isThreadViewportInteracting) {
+    if (isThreadViewportInteracting) {
       return
     }
+
+    recordConversationLiveDiagnosticEvent({
+      kind: 'thread-detail-refresh-requested',
+      metadata: {
+        delayMs,
+        isDocumentVisible,
+        streamState,
+        viewportInteracting: isThreadViewportInteracting,
+      },
+      reason: 'scheduled thread detail refresh',
+      source: 'thread-page-refresh',
+      threadId: selectedThreadId ?? null,
+    })
+    updateConversationLiveDiagnosticsStatus({
+      lastThreadDetailRefreshAt: Date.now(),
+      selectedThreadId: selectedThreadId ?? null,
+    })
 
     if (threadDetailRefreshTimerRef.current) {
       window.clearTimeout(threadDetailRefreshTimerRef.current)
@@ -150,7 +174,6 @@ export function useThreadPageRefreshEffects({
       !selectedThreadId ||
       !activePendingTurn ||
       !isDocumentVisible ||
-      !isThreadPinnedToLatest ||
       isThreadViewportInteracting
     ) {
       return
@@ -168,6 +191,25 @@ export function useThreadPageRefreshEffects({
         return
       }
 
+      recordConversationLiveDiagnosticEvent({
+        kind: 'thread-detail-refresh-requested',
+        metadata: {
+          intervalMs,
+          isDocumentVisible,
+          streamState,
+          viewportInteracting: isThreadViewportInteracting,
+        },
+        reason:
+          streamState === 'open'
+            ? 'interval fallback thread detail refresh during open stream'
+            : 'interval thread detail refresh',
+        source: 'thread-page-refresh',
+        threadId: selectedThreadId ?? null,
+      })
+      updateConversationLiveDiagnosticsStatus({
+        lastThreadDetailRefreshAt: Date.now(),
+        selectedThreadId: selectedThreadId ?? null,
+      })
       void queryClient.invalidateQueries({
         queryKey: ['thread-detail', workspaceId, selectedThreadId],
       })
@@ -179,7 +221,6 @@ export function useThreadPageRefreshEffects({
   }, [
     activePendingTurn,
     isDocumentVisible,
-    isThreadPinnedToLatest,
     isThreadViewportInteracting,
     queryClient,
     selectedThreadId,
@@ -197,6 +238,24 @@ export function useThreadPageRefreshEffects({
 
     if (streamState === 'open') {
       return
+    }
+
+    if (selectedThreadId) {
+      recordConversationLiveDiagnosticEvent({
+        kind: 'thread-detail-refresh-requested',
+        metadata: {
+          isDocumentVisible,
+          streamState,
+          triggeredByVisibility: true,
+        },
+        reason: 'document became visible; refreshing thread detail',
+        source: 'thread-page-refresh',
+        threadId: selectedThreadId,
+      })
+      updateConversationLiveDiagnosticsStatus({
+        lastThreadDetailRefreshAt: Date.now(),
+        selectedThreadId,
+      })
     }
 
     void Promise.all([
@@ -291,7 +350,7 @@ export function useThreadPageRefreshEffects({
       return
     }
 
-    if (!isThreadPinnedToLatest || isThreadViewportInteracting) {
+    if (isThreadViewportInteracting) {
       return
     }
 
@@ -314,7 +373,6 @@ export function useThreadPageRefreshEffects({
   }, [
     activePendingTurn,
     queryClient,
-    isThreadPinnedToLatest,
     isThreadViewportInteracting,
     selectedThreadEvents,
     selectedThreadId,

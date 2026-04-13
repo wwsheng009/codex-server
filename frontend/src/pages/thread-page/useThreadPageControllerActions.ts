@@ -31,6 +31,8 @@ export function useThreadPageControllerActions({
     isMentionAutocompleteOpen: controllerState.isMentionAutocompleteOpen,
     isSkillAutocompleteOpen: controllerState.isSkillAutocompleteOpen,
     message: controllerState.message,
+    recoverableCommandOperation: controllerState.recoverableCommandOperation,
+    recoverableSendInput: controllerState.recoverableSendInput,
     sendError: controllerState.sendError,
     setActiveComposerPanel: controllerState.setActiveComposerPanel,
     setComposerAutocompleteIndex: controllerState.setComposerAutocompleteIndex,
@@ -38,7 +40,9 @@ export function useThreadPageControllerActions({
     setComposerCommandMenu: controllerState.setComposerCommandMenu,
     setComposerPreferences: controllerState.setComposerPreferences,
     setDismissedComposerAutocompleteKey: controllerState.setDismissedComposerAutocompleteKey,
+    setRecoverableCommandOperation: controllerState.setRecoverableCommandOperation,
     setMessage: controllerState.setMessage,
+    setRecoverableSendInput: controllerState.setRecoverableSendInput,
     setSendError: controllerState.setSendError,
     supportsPlanMode: controllerState.supportsPlanMode,
   })
@@ -75,10 +79,13 @@ export function useThreadPageControllerActions({
     message: controllerState.message,
     oldestDisplayedTurnId: displayState.oldestDisplayedTurnId,
     queryClient: controllerState.queryClient,
+    recoverableCommandOperation: controllerState.recoverableCommandOperation,
     removeCommandSession: controllerState.removeCommandSession,
     updateCommandSession: controllerState.updateCommandSession,
     renameThreadMutation: mutationState.renameThreadMutation,
     requestDeleteSelectedThread: railState.handleDeleteSelectedThread,
+    recoverableSendInput: controllerState.recoverableSendInput,
+    restartRuntimeMutation: mutationState.restartRuntimeMutation,
     respondApprovalMutation: mutationState.respondApprovalMutation,
     scrollThreadToLatest: viewportState.scrollThreadToLatest,
     selectedCommandSession: displayState.selectedCommandSession,
@@ -104,7 +111,10 @@ export function useThreadPageControllerActions({
     setCommandRunMode: controllerState.setCommandRunMode,
     setIsTerminalDockExpanded: controllerState.setIsTerminalDockExpanded,
     setIsLoadingOlderTurns: controllerState.setIsLoadingOlderTurns,
+    setIsRestartAndRetryPending: controllerState.setIsRestartAndRetryPending,
     setMessage: controllerState.setMessage,
+    setRecoverableCommandOperation: controllerState.setRecoverableCommandOperation,
+    setRecoverableSendInput: controllerState.setRecoverableSendInput,
     setSelectedProcessId: controllerState.setSelectedProcessId,
     setSendError: controllerState.setSendError,
     setThreadTurnWindowSize: controllerState.setThreadTurnWindowSize,
@@ -116,12 +126,22 @@ export function useThreadPageControllerActions({
     threadShellCommandMutation: mutationState.threadShellCommandMutation,
     unarchiveThreadMutation: mutationState.unarchiveThreadMutation,
     updatePendingTurn: controllerState.updatePendingTurn,
+    workspaceRuntimeState: dataState.workspaceRuntimeStateQuery.data,
     workspaceId: controllerState.workspaceId,
     writeCommandMutation: mutationState.writeCommandMutation,
   })
 
   const composerCallbacks = useThreadPageComposerCallbacks({
+    handleRestartAndRetryCommandOperation:
+      pageActions.handleRestartAndRetryCommandOperation,
+    handleRestartAndRetryRuntimeOperation:
+      pageActions.handleRestartAndRetryRuntimeOperation,
     hasAccountError: Boolean(dataState.accountQuery.error),
+    hasRecoverableCommandOperation: Boolean(controllerState.recoverableCommandOperation),
+    hasRecoverableRuntimeOperation:
+      Boolean(controllerState.recoverableSendInput?.trim()) ||
+      Boolean(controllerState.recoverableCommandOperation),
+    isRestartAndRetryPending: controllerState.isRestartAndRetryPending,
     queryClient: controllerState.queryClient,
     requiresOpenAIAuth: statusState.requiresOpenAIAuth,
     sendError: controllerState.sendError,

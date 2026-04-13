@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 
+import { getWorkspaceRuntimeState } from '../../features/workspaces/api'
 import {
   archiveCommandSession,
   clearCompletedCommandSessions as clearCompletedCommandSessionsRequest,
@@ -11,6 +12,7 @@ import {
   writeCommand,
 } from '../../features/commands/api'
 import { getErrorMessage } from '../../lib/error-utils'
+import type { WorkspaceRuntimeState } from '../../types/api'
 import type { ThreadPageCommandActionsInput } from './threadPageActionTypes'
 
 export function buildThreadPageCommandActions({
@@ -18,11 +20,16 @@ export function buildThreadPageCommandActions({
   command,
   commandRunMode,
   commandSessions,
+  queryClient,
+  recoverableCommandOperation,
   removeCommandSession,
+  restartRuntimeMutation,
   selectedCommandSession,
   selectedThreadId,
+  setIsRestartAndRetryPending,
   setSendError,
   setCommandRunMode,
+  setRecoverableCommandOperation,
   selectedProcessId,
   setIsTerminalDockExpanded,
   setSelectedProcessId,
@@ -31,6 +38,7 @@ export function buildThreadPageCommandActions({
   stdinValue,
   terminateCommandMutation,
   updateCommandSession,
+  workspaceRuntimeState,
   workspaceId,
   writeCommandMutation,
 }: ThreadPageCommandActionsInput) {
@@ -45,18 +53,98 @@ export function buildThreadPageCommandActions({
     }
   }
 
-  function startExecCommand() {
-    if (!command.trim()) {
+  async function fetchLatestWorkspaceRuntimeState() {
+    if (!workspaceId) {
+      return workspaceRuntimeState ?? null
+    }
+
+    try {
+      return await queryClient.fetchQuery({
+        queryKey: ['workspace-runtime-state', workspaceId],
+        queryFn: () => getWorkspaceRuntimeState(workspaceId),
+        staleTime: 0,
+      })
+    } catch {
+      return (
+        queryClient.getQueryData<WorkspaceRuntimeState | null>([
+          'workspace-runtime-state',
+          workspaceId,
+        ]) ??
+        workspaceRuntimeState ??
+        null
+      )
+    }
+  }
+
+  async function captureRecoverableCommandOperationIfNeeded(
+    nextOperation: ThreadPageCommandActionsInput['recoverableCommandOperation'],
+  ) {
+    const latestRuntimeState = await fetchLatestWorkspaceRuntimeState()
+    if (shouldOfferRestartAndRetry(latestRuntimeState)) {
+      setRecoverableCommandOperation(nextOperation)
       return
     }
 
-    startCommandMutation.mutate({
-      command: command.trim(),
-      mode: 'command',
-    })
+    setRecoverableCommandOperation(null)
   }
 
-  function handleStartCommand(event: FormEvent<HTMLFormElement>) {
+  async function startExecCommand(commandLine: string) {
+    const nextCommand = commandLine.trim()
+    if (!nextCommand) {
+      return
+    }
+
+    setRecoverableCommandOperation(null)
+
+    try {
+      await startCommandMutation.mutateAsync({
+        command: nextCommand,
+        mode: 'command',
+      })
+    } catch (error) {
+      await captureRecoverableCommandOperationIfNeeded({
+        kind: 'start-command',
+        input: {
+          command: nextCommand,
+          mode: 'command',
+        },
+      })
+      setSendError(getErrorMessage(error, 'Failed to start command session.'))
+      void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
+    }
+  }
+
+  async function runThreadShellCommand(commandLine: string) {
+    if (!selectedThreadId) {
+      return
+    }
+
+    const nextCommand = commandLine.trim()
+    if (!nextCommand) {
+      return
+    }
+
+    setRecoverableCommandOperation(null)
+
+    try {
+      await threadShellCommandMutation.mutateAsync({
+        threadId: selectedThreadId,
+        command: nextCommand,
+      })
+    } catch (error) {
+      await captureRecoverableCommandOperationIfNeeded({
+        kind: 'thread-shell-command',
+        input: {
+          threadId: selectedThreadId,
+          command: nextCommand,
+        },
+      })
+      setSendError(getErrorMessage(error, 'Failed to run shell command.'))
+      void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
+    }
+  }
+
+  async function handleStartCommand(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!command.trim()) {
       return
@@ -67,33 +155,67 @@ export function buildThreadPageCommandActions({
         return
       }
 
-      threadShellCommandMutation.mutate({
-        threadId: selectedThreadId,
-        command: command.trim(),
-      })
+      await runThreadShellCommand(command)
       return
     }
 
-    startExecCommand()
+    await startExecCommand(command)
   }
 
   function handleStartTerminalCommandLine(commandLine: string) {
-    const nextCommand = commandLine.trim()
-    if (!nextCommand) {
-      return
-    }
-
-    startCommandMutation.mutate({
-      command: nextCommand,
-      mode: 'command',
-    })
+    void startExecCommand(commandLine)
   }
 
   function handleStartTerminalShellSession(shell?: string) {
-    startCommandMutation.mutate({
-      mode: 'shell',
-      ...(shell ? { shell } : {}),
-    })
+    void (async () => {
+      setRecoverableCommandOperation(null)
+
+      try {
+        await startCommandMutation.mutateAsync({
+          mode: 'shell',
+          ...(shell ? { shell } : {}),
+        })
+      } catch (error) {
+        await captureRecoverableCommandOperationIfNeeded({
+          kind: 'start-command',
+          input: {
+            mode: 'shell',
+            ...(shell ? { shell } : {}),
+          },
+        })
+        setSendError(getErrorMessage(error, 'Failed to start shell session.'))
+        void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
+      }
+    })()
+  }
+
+  async function handleRestartAndRetryCommandOperation() {
+    if (!recoverableCommandOperation || restartRuntimeMutation.isPending) {
+      return
+    }
+
+    setIsRestartAndRetryPending(true)
+    setSendError(null)
+
+    try {
+      await restartRuntimeMutation.mutateAsync()
+
+      if (recoverableCommandOperation.kind === 'thread-shell-command') {
+        await runThreadShellCommand(recoverableCommandOperation.input.command)
+        return
+      }
+
+      if (recoverableCommandOperation.input.mode === 'shell') {
+        await startCommandMutation.mutateAsync(recoverableCommandOperation.input)
+        return
+      }
+
+      await startExecCommand(recoverableCommandOperation.input.command ?? '')
+    } catch (error) {
+      setSendError(getErrorMessage(error, 'Failed to restart runtime and retry the terminal action.'))
+    } finally {
+      setIsRestartAndRetryPending(false)
+    }
   }
 
   function handleSendStdin(event: FormEvent<HTMLFormElement>) {
@@ -232,9 +354,21 @@ export function buildThreadPageCommandActions({
     handleStartTerminalCommandLine,
     handleStartTerminalShellSession,
     handleResizeTerminal,
+    handleRestartAndRetryCommandOperation,
     handleToggleArchivedCommandSession,
     handleTogglePinnedCommandSession,
     handleTerminateSelectedCommandSession,
     handleWriteTerminalData,
   }
+}
+
+function shouldOfferRestartAndRetry(state: WorkspaceRuntimeState | null | undefined) {
+  if (!state) {
+    return false
+  }
+
+  return (
+    Boolean(state.lastErrorRequiresRuntimeRecycle) ||
+    (state.lastErrorRecoveryAction ?? '').trim() === 'retry-after-restart'
+  )
 }

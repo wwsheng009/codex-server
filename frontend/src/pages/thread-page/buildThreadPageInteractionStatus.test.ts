@@ -20,10 +20,12 @@ describe('buildThreadPageInteractionStatus', () => {
       activeComposerApproval: null,
       activeContextCompactionFeedback: null,
       activePendingTurn: null,
+      hasRecoverableRuntimeOperation: false,
       hasUnreadThreadUpdates: false,
       interruptPending: false,
       isThreadPinnedToLatest: true,
       latestDisplayedTurn: undefined,
+      restartAndRetryPending: false,
       selectedThread: undefined,
       selectedThreadId: 'thread-1',
       sendError: null,
@@ -41,10 +43,12 @@ describe('buildThreadPageInteractionStatus', () => {
       activeComposerApproval: null,
       activeContextCompactionFeedback: null,
       activePendingTurn: null,
+      hasRecoverableRuntimeOperation: false,
       hasUnreadThreadUpdates: false,
       interruptPending: false,
       isThreadPinnedToLatest: true,
       latestDisplayedTurn: undefined,
+      restartAndRetryPending: false,
       selectedThread: undefined,
       selectedThreadId: 'thread-1',
       sendError: 'OpenAI authentication is required.',
@@ -53,5 +57,29 @@ describe('buildThreadPageInteractionStatus', () => {
     })
 
     expect(result.requiresOpenAIAuth).toBe(true)
+  })
+
+  it('uses restart-and-retry labeling when a recoverable runtime restart flow is available', () => {
+    const result = buildThreadPageInteractionStatus({
+      account: undefined,
+      accountError: null,
+      activeComposerApproval: null,
+      activeContextCompactionFeedback: null,
+      activePendingTurn: null,
+      hasRecoverableRuntimeOperation: true,
+      hasUnreadThreadUpdates: false,
+      interruptPending: false,
+      isThreadPinnedToLatest: true,
+      latestDisplayedTurn: undefined,
+      restartAndRetryPending: false,
+      selectedThread: undefined,
+      selectedThreadId: 'thread-1',
+      sendError: 'Runtime exited unexpectedly.',
+      streamState: 'open',
+      suppressAuthenticationError: false,
+    })
+
+    expect(result.composerStatusRetryLabel).toBe('Restart and Retry')
+    expect(result.isSendBusy).toBe(false)
   })
 })

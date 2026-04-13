@@ -2,12 +2,20 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ServerEvent } from '../types/api'
 import type { WorkspaceStream } from './useWorkspaceStreamTypes'
-import { handleWorkspaceStreamEvent } from './useWorkspaceStream'
+import {
+  getWorkspaceStreamManagerDiagnosticsSnapshot,
+  handleWorkspaceStreamEvent,
+} from './useWorkspaceStream'
 
 function makeStream(): WorkspaceStream {
   return {
+    channel: null,
     deferredEvents: [],
     eventQueue: [],
+    instanceId: 'tab-test',
+    lastKnownConnectionState: 'idle',
+    lifecycleEvents: [],
+    peerSeenAt: {},
     reconnectAttempt: 0,
     socket: null,
     subscribers: 0,
@@ -26,6 +34,15 @@ function makeEvent(method: string, payload: Record<string, unknown>): ServerEven
 }
 
 describe('handleWorkspaceStreamEvent', () => {
+  it('returns a stable diagnostics snapshot reference when no local stream state changes', () => {
+    const firstSnapshot = getWorkspaceStreamManagerDiagnosticsSnapshot()
+    const secondSnapshot = getWorkspaceStreamManagerDiagnosticsSnapshot()
+
+    expect(secondSnapshot).toBe(firstSnapshot)
+    expect(firstSnapshot.tabInstanceId).toMatch(/^tab-/)
+    expect(firstSnapshot.streams).toEqual([])
+  })
+
   it('flushes queued deltas before deferring completion to the next frame', () => {
     const stream = makeStream()
     const flushQueuedEvents = vi.fn(() => {

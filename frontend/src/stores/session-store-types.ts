@@ -26,6 +26,7 @@ export type SessionState = {
   selectedWorkspaceId?: string
   selectedThreadId?: string
   selectedThreadIdByWorkspace: Record<string, string>
+  lastEventSeqByWorkspace: Record<string, number>
   eventsByThread: Record<string, ServerEvent[]>
   threadActivityByThread: Record<string, ThreadActivitySummary>
   workspaceEventsByWorkspace: Record<string, ServerEvent[]>
@@ -56,6 +57,7 @@ export type ApplySessionEventsState = {
   activityEventsByWorkspace: Record<string, ServerEvent[]>
   commandSessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>
   eventsByThread: Record<string, ServerEvent[]>
+  lastEventSeqByWorkspace: Record<string, number>
   selectedThreadIdByWorkspace: Record<string, string>
   threadActivityByThread: Record<string, ThreadActivitySummary>
   tokenUsageByThread: Record<string, ThreadTokenUsage>

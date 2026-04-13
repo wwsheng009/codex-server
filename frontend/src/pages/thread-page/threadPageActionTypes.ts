@@ -5,7 +5,15 @@ import type { RespondServerRequestWithDetailsInput } from '../../features/approv
 import type { StartCommandInput, WriteCommandInput } from '../../features/commands/api'
 import type { RunThreadShellCommandInput, RenameThreadInput } from '../../features/threads/api'
 import type { StartTurnInput } from '../../features/turns/api'
-import type { Bot, BotOutboundDelivery, Thread, ThreadDetail, ThreadTurn, TurnResult } from '../../types/api'
+import type {
+  Bot,
+  BotOutboundDelivery,
+  Thread,
+  ThreadDetail,
+  ThreadTurn,
+  TurnResult,
+  WorkspaceRuntimeState,
+} from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type {
   ComposerAssistPanel,
@@ -59,6 +67,16 @@ export type ThreadPageWriteCommandMutationInput = {
   processId: string
 }
 
+export type ThreadPageRecoverableCommandOperation =
+  | {
+      kind: 'start-command'
+      input: ThreadPageStartCommandMutationInput
+    }
+  | {
+      kind: 'thread-shell-command'
+      input: ThreadPageThreadShellCommandMutationInput
+    }
+
 export type ThreadPageThreadActionsInput = {
   archiveThreadMutation: {
     mutate: (threadId: string) => void
@@ -97,12 +115,18 @@ export type ThreadPageThreadActionsInput = {
     mutate: (input: ThreadPageRenameThreadMutationInput) => void
   }
   requestDeleteSelectedThread: () => void
+  recoverableSendInput: string | null
   respondApprovalMutation: {
     mutate: (input: ThreadPageRespondApprovalInput) => void
   }
   scrollThreadToLatest: (behavior?: ScrollBehavior) => void
   selectedThread?: ThreadPageSelectedThreadSummary
   selectedThreadId?: string
+  restartRuntimeMutation: {
+    isPending: boolean
+    mutate: () => void
+    mutateAsync: () => Promise<unknown>
+  }
   setActiveComposerPanel: Dispatch<SetStateAction<ComposerAssistPanel | null>>
   setApprovalAnswers: Dispatch<SetStateAction<Record<string, Record<string, string>>>>
   setAuthRecoveryRequestedAt: (value: number | null) => void
@@ -121,7 +145,9 @@ export type ThreadPageThreadActionsInput = {
   setHasMoreHistoricalTurnsBefore: Dispatch<SetStateAction<boolean | null>>
   setHistoricalTurns: Dispatch<SetStateAction<ThreadTurn[]>>
   setIsLoadingOlderTurns: Dispatch<SetStateAction<boolean>>
+  setIsRestartAndRetryPending: (value: boolean) => void
   setMessage: (value: string) => void
+  setRecoverableSendInput: (value: string | null) => void
   setSendError: (value: string | null) => void
   setThreadTurnWindowSize: Dispatch<SetStateAction<number>>
   startTurnMutation: {
@@ -131,6 +157,7 @@ export type ThreadPageThreadActionsInput = {
   unarchiveThreadMutation: {
     mutate: (threadId: string) => void
   }
+  workspaceRuntimeState?: WorkspaceRuntimeState | null
   updatePendingTurn: (
     threadId: string,
     updater: (current: PendingThreadTurn | null) => PendingThreadTurn | null,
@@ -143,15 +170,27 @@ export type ThreadPageCommandActionsInput = {
   command: string
   commandRunMode: CommandRunMode
   commandSessions: ThreadPageCommandSessionSummary[]
+  queryClient: QueryClient
+  recoverableCommandOperation: ThreadPageRecoverableCommandOperation | null
   removeCommandSession: (workspaceId: string, processId: string) => void
+  restartRuntimeMutation: {
+    isPending: boolean
+    mutate: () => void
+    mutateAsync: () => Promise<unknown>
+  }
   selectedCommandSession?: ThreadPageSelectedCommandSession
   selectedProcessId?: string
   selectedThreadId?: string
+  setIsRestartAndRetryPending: (value: boolean) => void
   setCommandRunMode: Dispatch<SetStateAction<CommandRunMode>>
+  setRecoverableCommandOperation: (
+    value: ThreadPageRecoverableCommandOperation | null,
+  ) => void
   setIsTerminalDockExpanded: (value: boolean) => void
   setSelectedProcessId: (value: string | undefined) => void
   setSendError: (value: string | null) => void
   startCommandMutation: {
+    mutateAsync: (input: ThreadPageStartCommandMutationInput) => Promise<unknown>
     mutate: (input: ThreadPageStartCommandMutationInput) => void
   }
   stdinValue: string
@@ -170,6 +209,7 @@ export type ThreadPageCommandActionsInput = {
     processId: string,
     patch: Partial<{ archived?: boolean; pinned?: boolean; updatedAt?: string }>,
   ) => void
+  workspaceRuntimeState?: WorkspaceRuntimeState | null
   workspaceId: string
   writeCommandMutation: {
     mutate: (input: ThreadPageWriteCommandMutationInput) => void

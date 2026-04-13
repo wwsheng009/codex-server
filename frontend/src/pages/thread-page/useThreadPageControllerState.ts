@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import {
@@ -14,7 +14,7 @@ export function useThreadPageControllerState() {
   const localState = useThreadPageControllerLocalState()
   const storeState = useThreadPageControllerStoreState(workspaceId, threadId)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     localState.setBotSendError(null)
     localState.setBotSendText('')
     localState.setFullTurnItemContentOverridesById({})

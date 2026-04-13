@@ -15,6 +15,7 @@ import {
   type ComposerCommandMenu,
   type ComposerPreferences,
 } from './threadPageComposerShared'
+import type { ThreadPageRecoverableCommandOperation } from './threadPageActionTypes'
 import type { InsertComposerTextInput } from './threadComposerActionTypes'
 
 export type UseThreadComposerStateInput = {
@@ -40,6 +41,10 @@ export function useThreadComposerState({
     DEFAULT_COMPOSER_PREFERENCES,
   )
   const [sendError, setSendError] = useState<string | null>(null)
+  const [recoverableSendInput, setRecoverableSendInput] = useState<string | null>(null)
+  const [recoverableCommandOperation, setRecoverableCommandOperation] =
+    useState<ThreadPageRecoverableCommandOperation | null>(null)
+  const [isRestartAndRetryPending, setIsRestartAndRetryPending] = useState(false)
   const [authRecoveryRequestedAt, setAuthRecoveryRequestedAt] = useState<number | null>(null)
 
   const activeComposerMatch = useMemo(
@@ -86,6 +91,9 @@ export function useThreadComposerState({
     setComposerCommandMenu('root')
     setComposerAutocompleteIndex(0)
     setDismissedComposerAutocompleteKey(null)
+    setRecoverableSendInput(null)
+    setRecoverableCommandOperation(null)
+    setIsRestartAndRetryPending(false)
     setAuthRecoveryRequestedAt(null)
   }, [selectedThreadId, workspaceId])
 
@@ -154,8 +162,11 @@ export function useThreadComposerState({
     isSkillAutocompleteOpen,
     message,
     normalizedDeferredComposerQuery,
+    recoverableCommandOperation,
+    recoverableSendInput,
     sendError,
     focusComposerAt,
+    isRestartAndRetryPending,
     setActiveComposerPanel,
     setAuthRecoveryRequestedAt,
     setComposerAutocompleteIndex,
@@ -163,7 +174,10 @@ export function useThreadComposerState({
     setComposerCommandMenu,
     setComposerPreferences,
     setDismissedComposerAutocompleteKey,
+    setRecoverableCommandOperation,
+    setIsRestartAndRetryPending,
     setMessage,
+    setRecoverableSendInput,
     setSendError,
   }
 }

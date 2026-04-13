@@ -74,6 +74,146 @@ func TestPersistentStoreSeedsWorkspaceIDs(t *testing.T) {
 	}
 }
 
+func TestPersistentStoreFlushPersistsForReload(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = firstStore.Close()
+	})
+
+	workspace := firstStore.CreateWorkspace("Workspace Flush", "E:/projects/flush")
+	firstStore.UpsertThread(Thread{
+		ID:          "thread-flush",
+		WorkspaceID: workspace.ID,
+		Name:        "Flush Thread",
+		Status:      "idle",
+	})
+
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = secondStore.Close()
+	})
+
+	threads := secondStore.ListThreads(workspace.ID)
+	if len(threads) != 1 {
+		t.Fatalf("expected 1 thread after flush+reload, got %d", len(threads))
+	}
+	if threads[0].Name != "Flush Thread" {
+		t.Fatalf("expected flushed thread name, got %q", threads[0].Name)
+	}
+}
+
+func TestPersistentStoreDebounceDoesNotLoseFinalState(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = firstStore.Close()
+	})
+
+	workspace := firstStore.CreateWorkspace("Workspace Debounce", "E:/projects/debounce")
+	time.Sleep(persistentStoreFlushDebounce / 5)
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("expected debounce worker to avoid immediate persist, stat err = %v", err)
+	}
+
+	if _, err := firstStore.SetWorkspaceName(workspace.ID, "Workspace Debounce 1"); err != nil {
+		t.Fatalf("SetWorkspaceName(1) error = %v", err)
+	}
+	if _, err := firstStore.SetWorkspaceName(workspace.ID, "Workspace Debounce Final"); err != nil {
+		t.Fatalf("SetWorkspaceName(2) error = %v", err)
+	}
+
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = secondStore.Close()
+	})
+
+	workspaces := secondStore.ListWorkspaces()
+	if len(workspaces) != 1 {
+		t.Fatalf("expected 1 workspace after debounce flush, got %d", len(workspaces))
+	}
+	if workspaces[0].Name != "Workspace Debounce Final" {
+		t.Fatalf("expected final debounced name to persist, got %q", workspaces[0].Name)
+	}
+}
+
+func TestPersistentStoreFlushAndCloseAreIdempotent(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace Close", "E:/projects/close")
+	firstStore.UpsertThread(Thread{
+		ID:          "thread-close",
+		WorkspaceID: workspace.ID,
+		Name:        "Close Thread",
+		Status:      "idle",
+	})
+
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("first Flush() error = %v", err)
+	}
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("second Flush() error = %v", err)
+	}
+	if err := firstStore.Close(); err != nil {
+		t.Fatalf("first Close() error = %v", err)
+	}
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("Flush() after Close() error = %v", err)
+	}
+	if err := firstStore.Close(); err != nil {
+		t.Fatalf("second Close() error = %v", err)
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = secondStore.Close()
+	})
+
+	threads := secondStore.ListThreads(workspace.ID)
+	if len(threads) != 1 {
+		t.Fatalf("expected persisted thread after Close(), got %d", len(threads))
+	}
+	if threads[0].Name != "Close Thread" {
+		t.Fatalf("expected closed store to persist thread name, got %q", threads[0].Name)
+	}
+}
+
 func TestPersistentStorePersistsThreadProjections(t *testing.T) {
 	t.Parallel()
 
@@ -251,6 +391,61 @@ func TestPersistentStoreKeepsReloadedThreadProjectionTurnsCold(t *testing.T) {
 	secondStore.mu.RUnlock()
 	if record.Projection.Turns != nil {
 		t.Fatal("expected GetThreadProjection to avoid rehydrating turns into resident store state")
+	}
+}
+
+func TestMemoryStoreWorkspaceEventReplayAndPersistence(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	firstStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := firstStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	first := firstStore.AppendWorkspaceEvent(EventEnvelope{
+		WorkspaceID: workspace.ID,
+		Method:      "turn/started",
+		Payload:     map[string]any{"status": "started"},
+		Replay:      true,
+	})
+	second := firstStore.AppendWorkspaceEvent(EventEnvelope{
+		WorkspaceID: workspace.ID,
+		Method:      "turn/completed",
+		Payload:     map[string]any{"status": "completed"},
+	})
+
+	if first.Seq != 1 || second.Seq != 2 {
+		t.Fatalf("expected appended seq values [1,2], got [%d,%d]", first.Seq, second.Seq)
+	}
+	if first.Replay || second.Replay {
+		t.Fatalf("expected stored events to clear replay flag, got first=%v second=%v", first.Replay, second.Replay)
+	}
+
+	replayed := firstStore.ListWorkspaceEventsAfter(workspace.ID, 1, 10)
+	if len(replayed) != 1 {
+		t.Fatalf("expected 1 replay event after seq 1, got %d", len(replayed))
+	}
+	if !replayed[0].Replay || replayed[0].Seq != 2 {
+		t.Fatalf("expected replayed event with seq=2 replay=true, got %#v", replayed[0])
+	}
+
+	secondStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+
+	if head := secondStore.GetWorkspaceEventHeadSeq(workspace.ID); head != 2 {
+		t.Fatalf("expected persisted workspace head seq 2, got %d", head)
+	}
+
+	reloadedReplay := secondStore.ListWorkspaceEventsAfter(workspace.ID, 0, 10)
+	if len(reloadedReplay) != 2 {
+		t.Fatalf("expected 2 replay events after reload, got %d", len(reloadedReplay))
+	}
+	if !reloadedReplay[0].Replay || !reloadedReplay[1].Replay {
+		t.Fatalf("expected replay flag on listed events after reload, got %#v", reloadedReplay)
 	}
 }
 
@@ -557,6 +752,9 @@ func TestPersistentStoreExternalizesLargeThreadProjectionTurnsToSidecar(t *testi
 		Thread: thread,
 		Turns:  turns,
 	})
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
 
 	key := threadProjectionKey(workspace.ID, thread.ID)
 	firstStore.mu.RLock()
@@ -669,6 +867,9 @@ func TestPersistentStoreRemovesThreadProjectionSidecarWhenThreadDeleted(t *testi
 		Thread: thread,
 		Turns:  turns,
 	})
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
 
 	key := threadProjectionKey(workspace.ID, thread.ID)
 	firstStore.mu.RLock()
@@ -681,6 +882,9 @@ func TestPersistentStoreRemovesThreadProjectionSidecarWhenThreadDeleted(t *testi
 
 	if err := firstStore.DeleteThread(workspace.ID, thread.ID); err != nil {
 		t.Fatalf("DeleteThread() error = %v", err)
+	}
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("Flush() after DeleteThread() error = %v", err)
 	}
 	if _, err := os.Stat(sidecarPath); !os.IsNotExist(err) {
 		t.Fatalf("expected sidecar file to be removed after thread deletion, stat err=%v", err)
@@ -814,6 +1018,9 @@ func TestPersistentStoreReloadBackfillsMissingThreadProjectionStats(t *testing.T
 		Thread: thread,
 		Turns:  turns,
 	})
+	if err := firstStore.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
 
 	storeData, err := os.ReadFile(storePath)
 	if err != nil {
@@ -857,6 +1064,9 @@ func TestPersistentStoreReloadBackfillsMissingThreadProjectionStats(t *testing.T
 	}
 	if record.Projection.Turns != nil {
 		t.Fatal("expected stats backfill to keep projection cold")
+	}
+	if err := reloadedStore.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
 	}
 
 	rewrittenStoreData, err := os.ReadFile(storePath)

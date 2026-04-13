@@ -48,3 +48,37 @@ func TestRestartRuntimeReturnsWorkspaceNotFound(t *testing.T) {
 		t.Fatalf("expected ErrWorkspaceNotFound, got %v", err)
 	}
 }
+
+func TestRuntimeStateIncludesRecoveryMarkers(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	runtimeManager := runtime.NewManager("codex-command-that-does-not-exist", nil)
+	service := NewService(dataStore, runtimeManager)
+
+	workspace, err := service.Create("Workspace A", "E:/projects/ai/codex-server")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if _, err := runtimeManager.EnsureStarted(context.Background(), workspace.ID); err == nil {
+		t.Fatal("expected EnsureStarted() to fail when runtime command is unavailable")
+	}
+
+	state, err := service.RuntimeState(workspace.ID)
+	if err != nil {
+		t.Fatalf("RuntimeState() error = %v", err)
+	}
+	if state.LastErrorCategory != "configuration" {
+		t.Fatalf("expected configuration error category, got %#v", state)
+	}
+	if state.LastErrorRecoveryAction != "fix-launch-config" {
+		t.Fatalf("expected fix-launch-config recovery action, got %#v", state)
+	}
+	if state.LastErrorRetryable {
+		t.Fatalf("expected missing command not to be retryable, got %#v", state)
+	}
+	if state.LastErrorRequiresRuntimeRecycle {
+		t.Fatalf("expected missing command not to require runtime recycle, got %#v", state)
+	}
+}

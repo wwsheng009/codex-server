@@ -168,6 +168,7 @@ function createState(
       },
     },
     eventsByThread: {},
+    lastEventSeqByWorkspace: {},
     selectedThreadIdByWorkspace: {},
     threadActivityByThread: {},
     tokenUsageByThread: {},
@@ -209,3 +210,53 @@ function makeEvent(
     workspaceId: 'ws-1',
   }
 }
+
+describe('applySessionEvents seq replay dedupe', () => {
+  it('ignores replayed or duplicate seq events that are already applied', () => {
+    const nextState = sessionStoreModule.applySessionEvents(
+      {
+        ...createState(),
+        lastEventSeqByWorkspace: {
+          'ws-1': 5,
+        },
+      },
+      [
+        {
+          ...makeEvent(
+            'command/exec/completed',
+            {
+              processId: 'proc_001',
+              status: 'completed',
+            },
+            '2026-03-27T01:00:05.000Z',
+          ),
+          seq: 4,
+          replay: true,
+        },
+        {
+          ...makeEvent(
+            'command/exec/completed',
+            {
+              processId: 'proc_001',
+              status: 'completed',
+            },
+            '2026-03-27T01:00:06.000Z',
+          ),
+          seq: 6,
+        },
+      ],
+    )
+
+    expect(nextState.lastEventSeqByWorkspace['ws-1']).toBe(6)
+    expect(nextState.commandSessionsByWorkspace['ws-1'].proc_001.status).toBe('completed')
+    expect(nextState.commandSessionsByWorkspace['ws-1'].proc_001.updatedAt).toBe(
+      '2026-03-27T01:00:06.000Z',
+    )
+    expect(nextState.workspaceEventsByWorkspace['ws-1']).toEqual([
+      expect.objectContaining({
+        method: 'command/exec/completed',
+        seq: 6,
+      }),
+    ])
+  })
+})

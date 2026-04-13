@@ -13,6 +13,7 @@ import type { LiveTimelineEntry } from '../../components/workspace/timelineUtils
 import { i18n } from '../../i18n/runtime'
 import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config-types'
 import type { PendingApproval, Thread, ThreadTurn } from '../../types/api'
+import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 import type { ThreadPageRespondApprovalInput } from './threadPageActionTypes'
 import type { ThreadViewportScrollInput } from './threadViewportTypes'
 
@@ -33,6 +34,7 @@ export type ThreadWorkbenchSurfaceProps = {
   createThreadErrorMessage?: string
   displayedTurns: ThreadTurn[]
   hasMoreTurnsBefore: boolean
+  hasRecoverableRuntimeOperation?: boolean
   hasThreads: boolean
   hiddenTurnsCount: number
   isCreateThreadPending: boolean
@@ -55,6 +57,8 @@ export type ThreadWorkbenchSurfaceProps = {
   onRetainFullTurn: (turnId: string, itemId?: string) => void
   onRequestFullTurn: (turnId: string, itemId?: string) => void
   onRespondApproval: (input: ThreadPageRespondApprovalInput) => void
+  onRestartAndRetry?: () => void
+  onRestartRuntime?: () => void
   onRetryServerRequest: (item: Record<string, unknown>) => void
   onRetryThreadLoad: () => void
   onRestoreOlderTurnsViewport: () => void
@@ -69,6 +73,9 @@ export type ThreadWorkbenchSurfaceProps = {
   threadDetailIsLoading: boolean
   threadLoadErrorMessage?: string
   threadLogStyle: CSSProperties
+  runtimeRecoveryNotice?: WorkspaceRuntimeRecoverySummary | null
+  restartAndRetryPending?: boolean
+  restartRuntimePending?: boolean
   threadRuntimeNotice?: ThreadRuntimeNotice
   threadViewportRef: RefObject<HTMLDivElement | null>
   workspaceName?: string
@@ -165,6 +172,7 @@ export function ThreadWorkbenchSurface({
   createThreadErrorMessage,
   displayedTurns,
   hasMoreTurnsBefore,
+  hasRecoverableRuntimeOperation,
   hasThreads,
   hiddenTurnsCount,
   isCreateThreadPending,
@@ -187,6 +195,8 @@ export function ThreadWorkbenchSurface({
   onRetainFullTurn,
   onRequestFullTurn,
   onRespondApproval,
+  onRestartAndRetry,
+  onRestartRuntime,
   onRetryServerRequest,
   onRetryThreadLoad,
   onRestoreOlderTurnsViewport,
@@ -201,6 +211,9 @@ export function ThreadWorkbenchSurface({
   threadDetailIsLoading,
   threadLoadErrorMessage,
   threadLogStyle,
+  runtimeRecoveryNotice,
+  restartAndRetryPending,
+  restartRuntimePending,
   threadRuntimeNotice,
   threadViewportRef,
   workspaceName,
@@ -382,6 +395,54 @@ export function ThreadWorkbenchSurface({
                 </InlineNotice>
               ) : displayedTurns.length ? (
                 <div className="workbench-log__thread">
+                  {runtimeRecoveryNotice ? (
+                    <InlineNotice
+                      action={
+                        hasRecoverableRuntimeOperation && onRestartAndRetry ? (
+                          <button
+                            className="ide-button ide-button--secondary ide-button--sm"
+                            disabled={Boolean(restartAndRetryPending || restartRuntimePending)}
+                            onClick={onRestartAndRetry}
+                            type="button"
+                          >
+                            {restartAndRetryPending
+                              ? i18n._({
+                                  id: 'Restarting…',
+                                  message: 'Restarting…',
+                                })
+                              : i18n._({
+                                  id: 'Restart and Retry',
+                                  message: 'Restart and Retry',
+                                })}
+                          </button>
+                        ) : runtimeRecoveryNotice.requiresRecycle && onRestartRuntime ? (
+                          <button
+                            className="ide-button ide-button--secondary ide-button--sm"
+                            disabled={Boolean(restartAndRetryPending || restartRuntimePending)}
+                            onClick={onRestartRuntime}
+                            type="button"
+                          >
+                            {restartRuntimePending
+                              ? i18n._({
+                                  id: 'Restarting…',
+                                  message: 'Restarting…',
+                                })
+                              : i18n._({
+                                  id: 'Restart Runtime',
+                                  message: 'Restart Runtime',
+                                })}
+                          </button>
+                        ) : null
+                      }
+                      details={runtimeRecoveryNotice.details}
+                      dismissible
+                      noticeKey={`thread-runtime-recovery-${timelineIdentity}-${runtimeRecoveryNotice.categoryLabel}-${runtimeRecoveryNotice.recoveryActionLabel}`}
+                      title={runtimeRecoveryNotice.title}
+                      tone={runtimeRecoveryNotice.tone}
+                    >
+                      {runtimeRecoveryNotice.description}
+                    </InlineNotice>
+                  ) : null}
                   {threadRuntimeNotice ? (
                     <InlineNotice
                       details={threadRuntimeNotice.summary}

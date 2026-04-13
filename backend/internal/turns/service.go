@@ -90,8 +90,6 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 }
 
 func (s *Service) startTurn(ctx context.Context, workspaceID string, threadID string, input string, options StartOptions) (turnStartResponse, error) {
-	var response turnStartResponse
-
 	request, payload, err := s.buildRuntimeTurnStartPayload(ctx, workspaceID, threadID, input, options)
 	if err != nil {
 		return turnStartResponse{}, err
@@ -103,7 +101,8 @@ func (s *Service) startTurn(ctx context.Context, workspaceID string, threadID st
 		diagnostics.TurnStartTraceAttrs(payload)...,
 	)
 
-	if err := s.runtimes.Call(ctx, workspaceID, "turn/start", request, &response); err != nil {
+	response, err := s.runtimes.TurnStart(ctx, workspaceID, request)
+	if err != nil {
 		diagnostics.LogThreadTrace(
 			workspaceID,
 			threadID,
@@ -325,16 +324,8 @@ func (s *Service) listCollaborationModePresets(
 	ctx context.Context,
 	workspaceID string,
 ) ([]collaborationModePreset, error) {
-	var response struct {
-		Data []struct {
-			Name            string  `json:"name"`
-			Mode            *string `json:"mode"`
-			Model           *string `json:"model"`
-			ReasoningEffort *string `json:"reasoning_effort"`
-		} `json:"data"`
-	}
-
-	if err := s.runtimes.Call(ctx, workspaceID, "collaborationMode/list", map[string]any{}, &response); err != nil {
+	response, err := s.runtimes.CollaborationModeList(ctx, workspaceID, appserver.CollaborationModeListRequest{})
+	if err != nil {
 		return nil, err
 	}
 
@@ -448,20 +439,17 @@ func (s *Service) Steer(ctx context.Context, workspaceID string, threadID string
 		return Result{}, runtime.ErrNoActiveTurn
 	}
 
-	var response struct {
-		TurnID string `json:"turnId"`
-	}
-
-	if err := s.runtimes.Call(ctx, workspaceID, "turn/steer", map[string]any{
-		"expectedTurnId": turnID,
-		"input": []map[string]any{
+	response, err := s.runtimes.TurnSteer(ctx, workspaceID, appserver.TurnSteerRequest{
+		ExpectedTurnID: turnID,
+		Input: []appserver.UserInput{
 			{
-				"text": input,
-				"type": "text",
+				Text: input,
+				Type: "text",
 			},
 		},
-		"threadId": threadID,
-	}, &response); err != nil {
+		ThreadID: threadID,
+	})
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -472,7 +460,7 @@ func (s *Service) Steer(ctx context.Context, workspaceID string, threadID string
 }
 
 func (s *Service) Interrupt(ctx context.Context, workspaceID string, threadID string) (Result, error) {
-	turnID := s.runtimes.ActiveTurnID(workspaceID, threadID)
+	turnID := s.runtimes.BeginInterrupt(workspaceID, threadID)
 	if turnID == "" {
 		return Result{
 			TurnID: "",
@@ -483,28 +471,30 @@ func (s *Service) Interrupt(ctx context.Context, workspaceID string, threadID st
 	callCtx, cancel, timeoutApplied := runtimeCallContext(ctx, interruptRuntimeCallTimeout)
 	defer cancel()
 
-	if err := s.runtimes.Call(callCtx, workspaceID, "turn/interrupt", appserver.TurnInterruptRequest{
+	if err := s.runtimes.TurnInterrupt(callCtx, workspaceID, appserver.TurnInterruptRequest{
 		ThreadID: threadID,
 		TurnID:   turnID,
-	}, nil); err != nil {
+	}); err != nil {
 		if errors.Is(err, runtime.ErrNoActiveTurn) {
-			s.runtimes.RememberActiveTurn(workspaceID, threadID, "")
+			s.runtimes.FinishInterrupt(workspaceID, threadID, turnID)
 			return Result{
 				TurnID: "",
 				Status: "interrupted",
 			}, nil
 		}
 		if runtimeCallTimedOut(err, timeoutApplied) {
+			s.runtimes.FinishInterrupt(workspaceID, threadID, turnID)
 			s.runtimes.Recycle(workspaceID)
 			return Result{
 				TurnID: turnID,
 				Status: "interrupted",
 			}, nil
 		}
+		s.runtimes.RestoreInterruptedTurn(workspaceID, threadID, turnID)
 		return Result{}, err
 	}
 
-	s.runtimes.RememberActiveTurn(workspaceID, threadID, "")
+	s.runtimes.FinishInterrupt(workspaceID, threadID, turnID)
 
 	return Result{
 		TurnID: turnID,
@@ -560,29 +550,28 @@ func (s *Service) Review(ctx context.Context, workspaceID string, threadID strin
 }
 
 func (s *Service) startReview(ctx context.Context, workspaceID string, threadID string) (turnStartResponse, error) {
-	var response turnStartResponse
-
-	if err := s.runtimes.Call(ctx, workspaceID, "review/start", appserver.ReviewStartRequest{
+	response, err := s.runtimes.ReviewStart(ctx, workspaceID, appserver.ReviewStartRequest{
 		Delivery: "inline",
 		Target: appserver.ReviewTarget{
 			Type: "uncommittedChanges",
 		},
 		ThreadID: threadID,
-	}, &response); err != nil {
+	})
+	if err != nil {
 		return turnStartResponse{}, err
 	}
 
-	return response, nil
+	return turnStartResponse{
+		Turn: response.Turn,
+	}, nil
 }
 
 func (s *Service) resumeThread(ctx context.Context, workspaceID string, threadID string) error {
-	var response appserver.ThreadResumeResponse
-
 	diagnostics.LogThreadTrace(workspaceID, threadID, "thread/resume requested")
-	err := s.runtimes.Call(ctx, workspaceID, "thread/resume", appserver.ThreadResumeRequest{
+	response, err := s.runtimes.ThreadResume(ctx, workspaceID, appserver.ThreadResumeRequest{
 		Cwd:      s.runtimes.RootPath(workspaceID),
 		ThreadID: threadID,
-	}, &response)
+	})
 	if err != nil {
 		return err
 	}

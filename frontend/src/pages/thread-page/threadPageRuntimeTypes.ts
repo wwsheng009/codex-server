@@ -86,7 +86,12 @@ export type UseThreadPageDataInput = {
 }
 
 export type UseThreadPageComposerCallbacksInput = {
+  handleRestartAndRetryCommandOperation: () => Promise<void>
+  handleRestartAndRetryRuntimeOperation: () => Promise<void>
   hasAccountError: boolean
+  hasRecoverableCommandOperation: boolean
+  hasRecoverableRuntimeOperation: boolean
+  isRestartAndRetryPending: boolean
   queryClient: QueryClient
   requiresOpenAIAuth: boolean
   sendError: string | null

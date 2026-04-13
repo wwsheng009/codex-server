@@ -147,6 +147,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Post("/runtime/preferences/import-model-catalog", server.handleImportRuntimeModelCatalog)
 			r.Get("/runtime/memory", server.handleGetRuntimeMemory)
 			r.Get("/runtime/memory/heap", server.handleGetRuntimeMemoryHeapProfile)
+			r.Get("/runtime/event-hub", server.handleGetRuntimeEventHub)
 
 			r.Route("/automations", func(r chi.Router) {
 				r.Get("/", server.handleListAutomations)
@@ -405,6 +406,15 @@ func (s *Server) handleGetRuntimeMemory(w http.ResponseWriter, r *http.Request) 
 		TopN:    topN,
 		ForceGC: forceGC,
 	}))
+}
+
+func (s *Server) handleGetRuntimeEventHub(w http.ResponseWriter, _ *http.Request) {
+	if s.events == nil {
+		writeError(w, http.StatusServiceUnavailable, "event_hub_unavailable", "event hub diagnostics are unavailable")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.events.Snapshot())
 }
 
 func (s *Server) handleGetRuntimeMemoryHeapProfile(w http.ResponseWriter, r *http.Request) {
@@ -3310,6 +3320,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	afterSeq := parseAfterSeq(r.URL.Query().Get("afterSeq"))
 	commandResumeCursors := parseCommandSessionResumeCursors(
 		r.URL.Query().Get("commandResumeState"),
 	)
@@ -3333,7 +3344,12 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		r.RemoteAddr,
 	)
 
-	eventsCh, cancel := s.events.Subscribe(workspaceID)
+	streamSource, streamRole := buildWorkspaceStreamSubscriberIdentity(r)
+	eventsCh, cancel := s.events.SubscribeWithSource(
+		workspaceID,
+		streamSource,
+		streamRole,
+	)
 	defer cancel()
 
 	if err := conn.WriteJSON(store.EventEnvelope{
@@ -3382,6 +3398,43 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	const workspaceReplayLimit = 2000
+	if afterSeq > 0 {
+		for _, event := range s.events.Replay(workspaceID, afterSeq, workspaceReplayLimit) {
+			if diagnostics.ShouldLogEventTrace("workspace stream replaying event", event.Method) {
+				diagnostics.LogTrace(
+					workspaceID,
+					event.ThreadID,
+					"workspace stream replaying event",
+					append(
+						diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+						"seq",
+						event.Seq,
+						"afterSeq",
+						afterSeq,
+					)...,
+				)
+			}
+			if err := conn.WriteJSON(event); err != nil {
+				diagnostics.LogTrace(
+					workspaceID,
+					event.ThreadID,
+					"workspace stream replay write failed",
+					append(
+						diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload),
+						"seq",
+						event.Seq,
+						"afterSeq",
+						afterSeq,
+						"error",
+						err,
+					)...,
+				)
+				return
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -3416,6 +3469,66 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func parseAfterSeq(raw string) uint64 {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0
+	}
+
+	value, err := strconv.ParseUint(trimmed, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func buildWorkspaceStreamSubscriberIdentity(r *http.Request) (string, string) {
+	source := "api.workspace_stream"
+	role := "workspace-stream"
+	if r == nil {
+		return source, role
+	}
+
+	instanceID := sanitizeWorkspaceStreamIdentityPart(r.URL.Query().Get("streamInstanceId"), 64)
+	clientRole := sanitizeWorkspaceStreamIdentityPart(r.URL.Query().Get("streamClientRole"), 24)
+	if clientRole != "" {
+		role = "workspace-stream-" + clientRole
+	}
+	if instanceID != "" {
+		source = source + ":" + instanceID
+	}
+	return source, role
+}
+
+func sanitizeWorkspaceStreamIdentityPart(raw string, maxLen int) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || maxLen <= 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.Grow(min(maxLen, len(trimmed)))
+	for _, char := range trimmed {
+		if builder.Len() >= maxLen {
+			break
+		}
+		if (char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '-' || char == '_' || char == '.' {
+			builder.WriteRune(char)
+		}
+	}
+	return builder.String()
+}
+
+func min(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func parseCommandSessionResumeCursors(raw string) []execfs.CommandSessionResumeCursor {

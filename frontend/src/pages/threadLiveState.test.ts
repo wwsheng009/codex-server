@@ -732,6 +732,151 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('replays older completed agent items when a newer snapshot only has a shorter partial message', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Hello',
+            },
+          ],
+        },
+      ],
+    }
+
+    const nextDetail = applyLiveThreadEvents(detail, [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/completed',
+        payload: {
+          item: {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: 'Hello world',
+          },
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:02.000Z',
+      },
+    ])
+
+    expect(nextDetail?.updatedAt).toBe('2026-03-20T00:00:03.000Z')
+    expect(nextDetail?.turns[0]?.items[0]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Hello world',
+    })
+  })
+
+  it('replays older turn completion payloads when a newer snapshot has shorter completed item text', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'assistant-1',
+              type: 'agentMessage',
+              text: 'Finished',
+            },
+          ],
+        },
+      ],
+    }
+
+    const nextDetail = applyLiveThreadEvents(detail, [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'turn/completed',
+        payload: {
+          turn: {
+            id: 'turn-1',
+            status: 'completed',
+            items: [
+              {
+                id: 'assistant-1',
+                type: 'agentMessage',
+                text: 'Finished with full details',
+              },
+            ],
+          },
+        },
+        ts: '2026-03-20T00:00:02.000Z',
+      },
+    ])
+
+    expect(nextDetail?.updatedAt).toBe('2026-03-20T00:00:03.000Z')
+    expect(nextDetail?.turns[0]?.items[0]).toMatchObject({
+      id: 'assistant-1',
+      type: 'agentMessage',
+      text: 'Finished with full details',
+    })
+  })
+
+  it('replays older reasoning items when a newer snapshot has shorter reasoning content', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['Checked snapshot'],
+              content: ['Compared'],
+            },
+          ],
+        },
+      ],
+    }
+
+    const nextDetail = applyLiveThreadEvents(detail, [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/completed',
+        payload: {
+          item: {
+            id: 'reasoning-1',
+            type: 'reasoning',
+            summary: ['Checked snapshot and live event order'],
+            content: ['Compared websocket events with rendered entries'],
+          },
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:02.000Z',
+      },
+    ])
+
+    expect(nextDetail?.updatedAt).toBe('2026-03-20T00:00:03.000Z')
+    expect(nextDetail?.turns[0]?.items[0]).toMatchObject({
+      id: 'reasoning-1',
+      type: 'reasoning',
+      summary: ['Checked snapshot and live event order'],
+      content: ['Compared websocket events with rendered entries'],
+    })
+  })
+
   it('keeps accumulated streaming text when a refreshed snapshot lags behind the live state', () => {
     const chunks = Array.from({ length: 240 }, (_, index) => `chunk-${index.toString().padStart(3, '0')} `)
     const allEvents = chunks.map((chunk, index) => makeAgentDeltaEvent(index + 1, chunk))

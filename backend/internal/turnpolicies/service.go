@@ -252,7 +252,10 @@ func (s *Service) Start(ctx context.Context) {
 		return
 	}
 
-	eventsCh, cancel := s.events.SubscribeAll()
+	eventsCh, cancel := s.events.SubscribeAllWithSource(
+		"turnpolicies.service",
+		"turn-policy-service",
+	)
 	go func() {
 		defer cancel()
 		for {

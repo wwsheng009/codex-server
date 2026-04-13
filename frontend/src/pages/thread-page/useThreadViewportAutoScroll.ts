@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { recordConversationScrollDiagnosticEvent } from '../../components/workspace/threadConversationProfiler'
+import {
+  recordConversationLiveDiagnosticEvent,
+  recordConversationScrollDiagnosticEvent,
+  updateConversationLiveDiagnosticsStatus,
+} from '../../components/workspace/threadConversationProfiler'
 import { frontendDebugLog } from '../../lib/frontend-runtime-mode'
 import {
   createThreadViewportCoordinatorState,
@@ -96,6 +100,22 @@ export function useThreadViewportAutoScroll({
     })
   }
 
+  function recordThreadViewportLiveDiagnostic(
+    kind: 'jump-to-latest' | 'unread-marked' | 'viewport-detached',
+    options?: {
+      metadata?: Record<string, boolean | number | string | null>
+      reason?: string
+    },
+  ) {
+    recordConversationLiveDiagnosticEvent({
+      kind,
+      metadata: options?.metadata,
+      reason: options?.reason,
+      source: 'thread-viewport',
+      threadId: selectedThreadId ?? null,
+    })
+  }
+
   function getCoordinatorState() {
     return coordinatorStateRef.current
   }
@@ -104,6 +124,12 @@ export function useThreadViewportAutoScroll({
     coordinatorStateRef.current = nextState
     setHasUnreadThreadUpdates(nextState.hasUnreadThreadUpdates)
     setIsThreadPinnedToLatest(nextState.isPinnedToLatest)
+    updateConversationLiveDiagnosticsStatus({
+      followMode: nextState.followMode,
+      hasUnreadThreadUpdates: nextState.hasUnreadThreadUpdates,
+      isThreadPinnedToLatest: nextState.isPinnedToLatest,
+      selectedThreadId: selectedThreadId ?? null,
+    })
   }
 
   function buildThreadViewportScrollTaskFromCommand(
@@ -577,6 +603,14 @@ export function useThreadViewportAutoScroll({
     })
 
     if (releaseFollow) {
+      recordThreadViewportLiveDiagnostic('viewport-detached', {
+        metadata: {
+          hadUnreadThreadUpdates: getCoordinatorState().hasUnreadThreadUpdates,
+          inputSource: source,
+          isPinnedToLatest: getCoordinatorState().isPinnedToLatest,
+        },
+        reason: 'user scroll intent detached viewport from latest',
+      })
       setCoordinatorState(reduceThreadViewportDetach(getCoordinatorState()))
     }
   }
@@ -708,6 +742,9 @@ export function useThreadViewportAutoScroll({
   }
 
   useEffect(() => {
+    updateConversationLiveDiagnosticsStatus({
+      selectedThreadId: selectedThreadId ?? null,
+    })
     clearPendingFollowScrollTask()
     cancelPendingAutoScrollFrame()
     cancelPendingViewportSyncFrame()
@@ -792,6 +829,20 @@ export function useThreadViewportAutoScroll({
         shouldMarkUnread: change.shouldMarkUnread,
       }),
     )
+    if (
+      change.shouldMarkUnread &&
+      !coordinatorState.hasUnreadThreadUpdates
+    ) {
+      recordThreadViewportLiveDiagnostic('unread-marked', {
+        metadata: {
+          contentChanged: change.contentChanged,
+          followMode: coordinatorState.followMode,
+          isPinnedToLatest: pinnedToLatest,
+          unreadKeyChanged: change.unreadKeyChanged,
+        },
+        reason: 'new thread updates arrived while viewport was not following latest',
+      })
+    }
   }, [
     displayedTurnsLength,
     selectedThreadId,
@@ -1145,16 +1196,39 @@ export function useThreadViewportAutoScroll({
       source: 'sync-thread-viewport',
     })
 
-    setCoordinatorState(
-      reduceThreadViewportPinnedState(coordinatorState, pinnedState),
-    )
+    const nextCoordinatorState = reduceThreadViewportPinnedState(coordinatorState, pinnedState)
+    if (
+      coordinatorState.followMode !== 'detached' &&
+      nextCoordinatorState.followMode === 'detached'
+    ) {
+      recordThreadViewportLiveDiagnostic('viewport-detached', {
+        metadata: {
+          currentScrollTop,
+          isPinnedToLatest: pinnedState.isPinnedToLatest,
+          previousScrollTop,
+          scrollHeight: viewport.scrollHeight,
+        },
+        reason: 'viewport scroll state moved away from latest',
+      })
+    }
+
+    setCoordinatorState(nextCoordinatorState)
     return pinnedState.isPinnedToLatest
   }
 
   function scrollThreadToLatest(behavior: ScrollBehavior = 'smooth') {
     cancelPendingThreadOpenSettleFrame()
+    const coordinatorState = getCoordinatorState()
+    recordThreadViewportLiveDiagnostic('jump-to-latest', {
+      metadata: {
+        behavior,
+        followMode: coordinatorState.followMode,
+        hadUnreadThreadUpdates: coordinatorState.hasUnreadThreadUpdates,
+      },
+      reason: 'user requested jump to latest',
+    })
     applyCoordinatorResult(
-      reduceThreadViewportJumpToLatest(getCoordinatorState(), behavior),
+      reduceThreadViewportJumpToLatest(coordinatorState, behavior),
     )
   }
 

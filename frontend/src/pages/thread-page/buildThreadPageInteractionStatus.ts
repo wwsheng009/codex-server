@@ -9,10 +9,12 @@ export function buildThreadPageInteractionStatus({
   activeComposerApproval,
   activeContextCompactionFeedback,
   activePendingTurn,
+  hasRecoverableRuntimeOperation,
   hasUnreadThreadUpdates,
   interruptPending,
   isThreadPinnedToLatest,
   latestDisplayedTurn,
+  restartAndRetryPending,
   selectedThread,
   selectedThreadId,
   sendError,
@@ -35,9 +37,12 @@ export function buildThreadPageInteractionStatus({
         statusIsInterruptible(latestDisplayedTurn?.status)),
   )
 
-  const isSendBusy = isWaitingForThreadData
+  const isSendBusy = isWaitingForThreadData || restartAndRetryPending
   const isThreadProcessing =
-    isWaitingForThreadData || interruptPending || isThreadInterruptible
+    isWaitingForThreadData ||
+    interruptPending ||
+    isThreadInterruptible ||
+    restartAndRetryPending
   const compactDisabledReason = !selectedThreadId
     ? i18n._({
         id: 'Select a thread to compact its context.',
@@ -65,10 +70,16 @@ export function buildThreadPageInteractionStatus({
   const isComposerLocked =
     isApprovalDialogOpen ||
     isWaitingForThreadData ||
+    restartAndRetryPending ||
     interruptPending ||
     isThreadInterruptible
 
-  const sendButtonLabel = interruptPending
+  const sendButtonLabel = restartAndRetryPending
+    ? i18n._({
+        id: 'Restarting…',
+        message: 'Restarting…',
+      })
+    : interruptPending
     ? i18n._({
         id: 'Stopping…',
         message: 'Stopping…',
@@ -89,9 +100,17 @@ export function buildThreadPageInteractionStatus({
           })
 
   const shouldShowComposerSpinner =
-    isSendingSelectedThread || interruptPending || isInterruptMode
+    restartAndRetryPending ||
+    isSendingSelectedThread ||
+    interruptPending ||
+    isInterruptMode
 
-  const composerActivityTitle = interruptPending
+  const composerActivityTitle = restartAndRetryPending
+    ? i18n._({
+        id: 'Restarting runtime and retrying…',
+        message: 'Restarting runtime and retrying…',
+      })
+    : interruptPending
     ? i18n._({
         id: 'Stopping current reply…',
         message: 'Stopping current reply…',
@@ -108,7 +127,13 @@ export function buildThreadPageInteractionStatus({
           })
         : null
 
-  const composerActivityDetail = interruptPending
+  const composerActivityDetail = restartAndRetryPending
+    ? i18n._({
+        id: 'The workspace runtime is restarting before the failed operation is submitted again.',
+        message:
+          'The workspace runtime is restarting before the failed operation is submitted again.',
+      })
+    : interruptPending
     ? i18n._({
         id: 'The runtime is stopping the active turn. The thread will settle in place when it completes.',
         message: 'The runtime is stopping the active turn. The thread will settle in place when it completes.',
@@ -142,6 +167,16 @@ export function buildThreadPageInteractionStatus({
         id: 'Refresh status',
         message: 'Refresh status',
       })
+    : hasRecoverableRuntimeOperation
+      ? restartAndRetryPending
+        ? i18n._({
+            id: 'Restarting…',
+            message: 'Restarting…',
+          })
+        : i18n._({
+            id: 'Restart and Retry',
+            message: 'Restart and Retry',
+          })
     : i18n._({
         id: 'Dismiss error',
         message: 'Dismiss error',

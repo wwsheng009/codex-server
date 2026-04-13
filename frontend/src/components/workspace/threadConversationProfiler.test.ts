@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  buildConversationLiveDiagnosticsSnapshot,
+  buildConversationRenderProfilerExportPayload,
+  buildConversationRenderProfilerDiagnosticOverview,
   appendConversationRenderProfilerSample,
   buildConversationRenderProfilerSnapshot,
   buildConversationRenderProfilerSuggestions,
@@ -220,5 +223,388 @@ describe('threadConversationProfiler', () => {
     expect(snapshot.suggestions).toContain(
       'Layout-changing virtualization events overlapped with programmatic scroll writes; measured heights are a likely contributor to visible jitter.',
     )
+  })
+
+  it('summarizes live diagnostics for stream, flush, snapshot, refresh, viewport, and renderer fallbacks', () => {
+    const snapshot = buildConversationLiveDiagnosticsSnapshot(
+      [
+        {
+          id: 1,
+          itemId: 'item-1',
+          itemType: 'agentMessage',
+          kind: 'stream-received',
+          metadata: {
+            deltaLength: 4,
+          },
+          method: 'item/agentMessage/delta',
+          source: 'workspace-stream',
+          threadId: 'thread-1',
+          ts: 100,
+          turnId: 'turn-1',
+        },
+        {
+          id: 2,
+          kind: 'stream-batch-flush',
+          metadata: {
+            count: 3,
+          },
+          method: 'item/agentMessage/delta',
+          source: 'workspace-stream',
+          threadId: 'thread-1',
+          ts: 110,
+          turnId: 'turn-1',
+        },
+        {
+          id: 3,
+          itemId: 'item-1',
+          itemType: 'agentMessage',
+          kind: 'baseline-filtered',
+          method: 'item/completed',
+          reason: 'filtered: stale event already represented',
+          source: 'thread-live',
+          threadId: 'thread-1',
+          ts: 120,
+          turnId: 'turn-1',
+        },
+        {
+          id: 4,
+          itemId: 'item-1',
+          itemType: 'agentMessage',
+          kind: 'baseline-replayed',
+          metadata: {
+            currentLength: 4,
+            incomingLength: 12,
+          },
+          method: 'item/completed',
+          reason: 'older event replayed: longer agent text',
+          source: 'thread-live',
+          threadId: 'thread-1',
+          ts: 130,
+          turnId: 'turn-1',
+        },
+        {
+          id: 5,
+          itemId: 'item-1',
+          itemType: 'agentMessage',
+          kind: 'snapshot-reconciled',
+          metadata: {
+            currentLength: 12,
+            incomingLength: 8,
+            preserveLongerCurrentText: true,
+          },
+          reason: 'preserved longer current text',
+          source: 'thread-live',
+          threadId: 'thread-1',
+          ts: 140,
+          turnId: 'turn-1',
+        },
+        {
+          id: 6,
+          itemId: 'item-2',
+          itemType: 'reasoning',
+          kind: 'timeline-placeholder',
+          reason: 'reasoning placeholder',
+          source: 'thread-render',
+          threadId: 'thread-1',
+          ts: 145,
+          turnId: 'turn-1',
+        },
+        {
+          id: 7,
+          itemId: 'item-2',
+          itemType: 'reasoning',
+          kind: 'timeline-suppressed',
+          reason: 'reasoning without content',
+          source: 'thread-render',
+          threadId: 'thread-1',
+          ts: 150,
+          turnId: 'turn-1',
+        },
+        {
+          id: 8,
+          kind: 'thread-detail-refresh-requested',
+          metadata: {
+            delayMs: 120,
+          },
+          reason: 'scheduled thread detail refresh',
+          source: 'thread-page-refresh',
+          threadId: 'thread-1',
+          ts: 160,
+        },
+        {
+          id: 9,
+          kind: 'viewport-detached',
+          metadata: {
+            inputSource: 'wheel-up',
+          },
+          reason: 'user scroll intent detached viewport from latest',
+          source: 'thread-viewport',
+          threadId: 'thread-1',
+          ts: 170,
+        },
+        {
+          id: 10,
+          kind: 'unread-marked',
+          reason: 'new thread updates arrived while viewport was not following latest',
+          source: 'thread-viewport',
+          threadId: 'thread-1',
+          ts: 175,
+        },
+        {
+          id: 11,
+          kind: 'jump-to-latest',
+          reason: 'user requested jump to latest',
+          source: 'thread-viewport',
+          threadId: 'thread-1',
+          ts: 180,
+        },
+      ],
+      {
+        enabled: true,
+        maxRecentEvents: 3,
+        now: 190,
+        status: {
+          followMode: 'detached',
+          hasUnreadThreadUpdates: true,
+          isThreadPinnedToLatest: false,
+          lastLiveEventAgeMs: null,
+          lastLiveEventAt: 180,
+          lastThreadDetailRefreshAgeMs: null,
+          lastThreadDetailRefreshAt: 160,
+          selectedThreadId: 'thread-1',
+        },
+      },
+    )
+
+    expect(snapshot).toMatchObject({
+      batchFlushCount: 1,
+      enabled: true,
+      eventCount: 11,
+      filteredCount: 1,
+      jumpToLatestCount: 1,
+      lastEventAgeMs: 10,
+      placeholderCount: 1,
+      refreshRequestCount: 1,
+      replayedCount: 1,
+      snapshotReconciledCount: 1,
+      streamReceivedCount: 1,
+      suppressedCount: 1,
+      trailingItemPreservedCount: 0,
+      unreadMarkedCount: 1,
+      viewportDetachedCount: 1,
+    })
+    expect(snapshot.topSources).toEqual([
+      { count: 3, source: 'thread-live' },
+      { count: 3, source: 'thread-viewport' },
+      { count: 2, source: 'thread-render' },
+      { count: 2, source: 'workspace-stream' },
+      { count: 1, source: 'thread-page-refresh' },
+    ])
+    expect(snapshot.recentEvents.map((event) => event.id)).toEqual([9, 10, 11])
+    expect(snapshot.latestItemLifecycle).toHaveLength(2)
+    expect(snapshot.latestItemLifecycle[0]).toMatchObject({
+      deltaCount: 0,
+      filteredCount: 0,
+      itemId: 'item-2',
+      itemType: 'reasoning',
+      placeholderRendered: true,
+      replayedCount: 0,
+      suppressedReason: 'reasoning without content',
+      turnId: 'turn-1',
+    })
+    expect(snapshot.latestItemLifecycle[1]).toMatchObject({
+      deltaCount: 1,
+      filteredCount: 1,
+      finalTextLength: 12,
+      itemId: 'item-1',
+      itemType: 'agentMessage',
+      lastDeltaAt: 100,
+      placeholderRendered: false,
+      replayedCount: 1,
+      suppressedReason: null,
+      turnId: 'turn-1',
+    })
+    expect(snapshot.status).toMatchObject({
+      followMode: 'detached',
+      hasUnreadThreadUpdates: true,
+      isThreadPinnedToLatest: false,
+      lastLiveEventAgeMs: 10,
+      lastThreadDetailRefreshAgeMs: 30,
+      selectedThreadId: 'thread-1',
+    })
+    expect(snapshot.topProblemItems).toEqual([
+      {
+        evidence: [
+          'suppressed: reasoning without content',
+          'placeholder rendered',
+        ],
+        itemId: 'item-2',
+        itemType: 'reasoning',
+        key: 'turn-1:item-2',
+        score: 6,
+        summary: 'Renderer suppressed the item',
+        turnId: 'turn-1',
+      },
+      {
+        evidence: [
+          'replayed 1 time(s)',
+          'delta count 1',
+          'final text length 12',
+        ],
+        itemId: 'item-1',
+        itemType: 'agentMessage',
+        key: 'turn-1:item-1',
+        score: 3,
+        summary: 'Older item state had to be replayed',
+        turnId: 'turn-1',
+      },
+    ])
+    expect(snapshot.suspectedRootCauses).toContain(
+      'Visibility likely contributed: the viewport detached from latest updates and unread markers were raised.',
+    )
+    expect(snapshot.suspectedRootCauses).toContain(
+      'Snapshot refresh/reconcile likely affected timing: fetched detail appears to have caught up with or overridden live state.',
+    )
+    expect(snapshot.suspectedRootCauses).toContain(
+      'Renderer fallback is implicated: placeholders or suppression happened after live data reached the frontend.',
+    )
+    expect(snapshot.suggestions).toContain(
+      'Older events were replayed back into live state; compare recovered item length and placeholder state before assuming the backend stream dropped content.',
+    )
+    expect(snapshot.suggestions).toContain(
+      'Stream flush activity was captured; compare receive-to-flush timing when messages feel delayed even though transport stayed healthy.',
+    )
+    expect(snapshot.suggestions).toContain(
+      'Viewport detachment or unread markers were recorded; the message may have arrived correctly but stayed below the user’s current reading position.',
+    )
+
+    const profilerSnapshot = buildConversationRenderProfilerSnapshot([], {
+      enabled: true,
+      liveDiagnosticsEnabled: true,
+      liveDiagnosticsStatus: snapshot.status,
+      liveEvents: [
+        {
+          id: 1,
+          itemId: 'item-1',
+          itemType: 'agentMessage',
+          kind: 'stream-received',
+          metadata: { deltaLength: 4 },
+          method: 'item/agentMessage/delta',
+          source: 'workspace-stream',
+          threadId: 'thread-1',
+          ts: 100,
+          turnId: 'turn-1',
+        },
+        {
+          id: 2,
+          itemId: 'item-2',
+          itemType: 'reasoning',
+          kind: 'timeline-suppressed',
+          reason: 'reasoning without content',
+          source: 'thread-render',
+          threadId: 'thread-1',
+          ts: 150,
+          turnId: 'turn-1',
+        },
+      ],
+      now: 190,
+      scrollDiagnosticsEnabled: true,
+      scrollEvents: [
+        {
+          clientHeight: 500,
+          deltaScrollTop: -24,
+          deltaTargetTop: null,
+          id: 4,
+          kind: 'viewport-scroll',
+          scrollHeight: 1_064,
+          scrollTop: 462,
+          source: 'sync-thread-viewport',
+          timeSincePreviousEventMs: 50,
+          ts: 250,
+        },
+      ],
+      windowMs: 5_000,
+    })
+    const overview = buildConversationRenderProfilerDiagnosticOverview(profilerSnapshot)
+    expect(overview.currentStatus).toMatchObject({
+      followMode: 'detached',
+      hasUnreadThreadUpdates: true,
+      selectedThreadId: 'thread-1',
+    })
+    expect(overview.likelyRootCauses).toContain(
+      'Renderer fallback is implicated: placeholders or suppression happened after live data reached the frontend.',
+    )
+    expect(overview.topProblemItems[0]).toMatchObject({
+      itemId: 'item-2',
+      itemType: 'reasoning',
+      summary: 'Renderer suppressed the item',
+    })
+    expect(overview.topSuggestions.live).toContain(
+      'Renderer fallback events were recorded; inspect empty agent or reasoning items before tracing scroll or viewport behavior.',
+    )
+    expect(overview.topSuggestions.scroll).toContain(
+      'The busiest scroll source in this capture is sync-thread-viewport; start the trace review there.',
+    )
+
+    const exportPayload = buildConversationRenderProfilerExportPayload(profilerSnapshot, {
+      exportedAt: '2026-04-13T12:00:00.000Z',
+      liveEvents: [
+        {
+          id: 1,
+          itemId: 'item-2',
+          itemType: 'reasoning',
+          kind: 'timeline-suppressed',
+          reason: 'reasoning without content',
+          source: 'thread-render',
+          threadId: 'thread-1',
+          ts: 150,
+          turnId: 'turn-1',
+        },
+      ],
+      scrollEvents: [
+        {
+          clientHeight: 500,
+          deltaScrollTop: -24,
+          deltaTargetTop: null,
+          id: 4,
+          kind: 'viewport-scroll',
+          scrollHeight: 1_064,
+          scrollTop: 462,
+          source: 'sync-thread-viewport',
+          timeSincePreviousEventMs: 50,
+          ts: 250,
+        },
+      ],
+    })
+    expect(exportPayload).toMatchObject({
+      diagnosticOverview: {
+        currentStatus: {
+          followMode: 'detached',
+          selectedThreadId: 'thread-1',
+        },
+        likelyRootCauses: [
+          'Renderer fallback is implicated: placeholders or suppression happened after live data reached the frontend.',
+        ],
+      },
+      exportedAt: '2026-04-13T12:00:00.000Z',
+      liveDiagnostics: {
+        enabled: true,
+        events: [
+          {
+            itemId: 'item-2',
+            kind: 'timeline-suppressed',
+          },
+        ],
+      },
+      scrollDiagnostics: {
+        enabled: true,
+        events: [
+          {
+            kind: 'viewport-scroll',
+            source: 'sync-thread-viewport',
+          },
+        ],
+      },
+    })
   })
 })
