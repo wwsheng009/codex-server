@@ -7,11 +7,13 @@ import {
 import type { UseThreadPageComposerCallbacksInput } from './threadPageRuntimeTypes'
 
 export function useThreadPageComposerCallbacks({
+  handleRetryRuntimeOperation,
   handleRestartAndRetryCommandOperation,
   handleRestartAndRetryRuntimeOperation,
   hasAccountError,
   hasRecoverableCommandOperation,
   hasRecoverableRuntimeOperation,
+  recoverableRuntimeActionKind,
   isRestartAndRetryPending,
   queryClient,
   requiresOpenAIAuth,
@@ -58,7 +60,9 @@ export function useThreadPageComposerCallbacks({
     : hasRecoverableRuntimeOperation && !isRestartAndRetryPending
       ? () =>
           void (
-            hasRecoverableCommandOperation
+            recoverableRuntimeActionKind === 'retry'
+              ? handleRetryRuntimeOperation()
+              : hasRecoverableCommandOperation
               ? handleRestartAndRetryCommandOperation()
               : handleRestartAndRetryRuntimeOperation()
           )

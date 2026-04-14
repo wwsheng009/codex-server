@@ -10,6 +10,7 @@ import {
   resumeThread,
 } from '../../features/threads/api'
 import { updateThreadPage } from '../../features/threads/cache'
+import { i18n } from '../../i18n/runtime'
 import { getErrorMessage, isAuthenticationError } from '../../lib/error-utils'
 import type {
   Thread,
@@ -23,8 +24,10 @@ import {
   shouldRetryTurnAfterResume,
   updateThreadStatusInList,
 } from '../threadPageTurnHelpers'
+import { createThreadPageRuntimeRecoveryExecutionNotice } from './threadPageRecoveryExecution'
 import { threadTurnItemOverrideKey } from './threadPageContentOverrideUtils'
 import { parseBangShellCommandShortcut } from './threadShellShortcut'
+import { getRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 import type { FindThreadItemInput } from './buildThreadPageThreadActionsTypes'
 import type {
   ThreadPageRespondApprovalInput,
@@ -80,7 +83,9 @@ export function buildThreadPageThreadActions({
   setIsLoadingOlderTurns,
   setIsRestartAndRetryPending,
   setMessage,
+  setRecoverableCommandOperation,
   setRecoverableSendInput,
+  setRuntimeRecoveryExecutionNotice,
   setSendError,
   startTurnMutation,
   threadShellCommandMutation,
@@ -166,7 +171,8 @@ export function buildThreadPageThreadActions({
 
   async function captureRecoverableSendInputIfNeeded(input: string) {
     const latestRuntimeState = await fetchLatestWorkspaceRuntimeState()
-    if (shouldOfferRestartAndRetry(latestRuntimeState)) {
+    if (getRecoverableRuntimeActionKind(latestRuntimeState)) {
+      setRecoverableCommandOperation(null)
       setRecoverableSendInput(input)
       return
     }
@@ -176,11 +182,12 @@ export function buildThreadPageThreadActions({
 
   async function submitThreadInput(input: string) {
     if (!selectedThreadId || !selectedThread || !input.trim()) {
-      return
+      return false
     }
 
     const trimmedInput = input.trim()
     const shellCommand = parseBangShellCommandShortcut(trimmedInput)
+    setRecoverableCommandOperation(null)
     setRecoverableSendInput(null)
 
     if (shellCommand) {
@@ -204,6 +211,7 @@ export function buildThreadPageThreadActions({
           queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
           queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
         ])
+        return true
       } catch (error) {
         setMessage(trimmedInput)
         setComposerCaret(trimmedInput.length)
@@ -213,9 +221,8 @@ export function buildThreadPageThreadActions({
           invalidateThreadQueries(),
           queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] }),
         ])
+        return false
       }
-
-      return
     }
 
     const optimisticTurn = createPendingTurn(selectedThreadId, trimmedInput)
@@ -299,6 +306,7 @@ export function buildThreadPageThreadActions({
         queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
       ])
+      return true
     } catch (error) {
       updatePendingTurn(selectedThreadId, (current) =>
         current?.localId === optimisticTurn.localId ? null : current,
@@ -314,6 +322,7 @@ export function buildThreadPageThreadActions({
         invalidateThreadQueries(),
         queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] }),
       ])
+      return false
     }
   }
 
@@ -338,14 +347,75 @@ export function buildThreadPageThreadActions({
 
     try {
       await restartRuntimeMutation.mutateAsync()
-      await submitThreadInput(inputToRetry)
+      const didRetrySucceed = await submitThreadInput(inputToRetry)
+      setRuntimeRecoveryExecutionNotice((current) =>
+        createThreadPageRuntimeRecoveryExecutionNotice({
+          actionKind: 'restart-and-retry',
+          previous: current,
+          status: didRetrySucceed ? 'success' : 'error',
+          summary: didRetrySucceed
+            ? i18n._({
+                id: 'Runtime restarted and the failed thread input was submitted again.',
+                message:
+                  'Runtime restarted and the failed thread input was submitted again.',
+              })
+            : i18n._({
+                id: 'Runtime restarted, but the failed thread input still could not be submitted.',
+                message:
+                  'Runtime restarted, but the failed thread input still could not be submitted.',
+              }),
+        }),
+      )
     } catch (error) {
       setMessage(inputToRetry)
       setComposerCaret(inputToRetry.length)
-      setSendError(getErrorMessage(error, 'Failed to restart runtime and retry the operation.'))
+      const errorMessage = getErrorMessage(
+        error,
+        'Failed to restart runtime and retry the operation.',
+      )
+      setSendError(errorMessage)
+      setRuntimeRecoveryExecutionNotice((current) =>
+        createThreadPageRuntimeRecoveryExecutionNotice({
+          actionKind: 'restart-and-retry',
+          details: errorMessage,
+          previous: current,
+          status: 'error',
+          summary: i18n._({
+            id: 'The runtime could not be restarted for the recovery replay.',
+            message: 'The runtime could not be restarted for the recovery replay.',
+          }),
+        }),
+      )
     } finally {
       setIsRestartAndRetryPending(false)
     }
+  }
+
+  async function handleRetrySend() {
+    const inputToRetry = recoverableSendInput?.trim()
+    if (!inputToRetry || !selectedThreadId || !selectedThread) {
+      return
+    }
+
+    setSendError(null)
+    const didRetrySucceed = await submitThreadInput(inputToRetry)
+    setRuntimeRecoveryExecutionNotice((current) =>
+      createThreadPageRuntimeRecoveryExecutionNotice({
+        actionKind: 'retry',
+        previous: current,
+        status: didRetrySucceed ? 'success' : 'error',
+        summary: didRetrySucceed
+          ? i18n._({
+              id: 'The failed thread input was submitted again without restarting the runtime.',
+              message:
+                'The failed thread input was submitted again without restarting the runtime.',
+            })
+          : i18n._({
+              id: 'Retry could not resubmit the failed thread input.',
+              message: 'Retry could not resubmit the failed thread input.',
+            }),
+      }),
+    )
   }
 
   function handleApprovalAnswerChange(requestId: string, questionId: string, value: string) {
@@ -631,6 +701,7 @@ export function buildThreadPageThreadActions({
     handleReleaseFullTurn,
     handleRetainFullTurn,
     handlePrimaryComposerAction,
+    handleRetrySend,
     handleRespondApproval,
     handleRestartAndRetrySend,
     handleSendMessage,
@@ -642,17 +713,6 @@ export function buildThreadPageThreadActions({
 
 function threadDetailPageSize() {
   return THREAD_TURN_WINDOW_INCREMENT
-}
-
-function shouldOfferRestartAndRetry(state: WorkspaceRuntimeState | null | undefined) {
-  if (!state) {
-    return false
-  }
-
-  return (
-    Boolean(state.lastErrorRequiresRuntimeRecycle) ||
-    (state.lastErrorRecoveryAction ?? '').trim() === 'retry-after-restart'
-  )
 }
 
 function mergeHistoricalTurns(nextTurns: ThreadTurn[], currentTurns: ThreadTurn[]) {

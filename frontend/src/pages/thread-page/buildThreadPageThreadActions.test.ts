@@ -69,7 +69,9 @@ describe('buildThreadPageThreadActions', () => {
       setIsLoadingOlderTurns: vi.fn(),
       setIsRestartAndRetryPending: vi.fn(),
       setMessage: vi.fn(),
+      setRecoverableCommandOperation: vi.fn(),
       setRecoverableSendInput: vi.fn(),
+      setRuntimeRecoveryExecutionNotice: vi.fn(),
       setSendError: vi.fn(),
       setThreadTurnWindowSize: vi.fn(),
       startTurnMutation: {
@@ -108,6 +110,28 @@ describe('buildThreadPageThreadActions', () => {
     })
     expect(input.setIsRestartAndRetryPending).toHaveBeenNthCalledWith(1, true)
     expect(input.setIsRestartAndRetryPending).toHaveBeenLastCalledWith(false)
+    expect(input.setRuntimeRecoveryExecutionNotice).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries the recoverable input without restarting when runtime marks it retryable', async () => {
+    const input = createInput({
+      recoverableSendInput: 'hello runtime',
+    })
+    const actions = buildThreadPageThreadActions(input)
+
+    await actions.handleRetrySend()
+
+    expect(input.restartRuntimeMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(input.startTurnMutation.mutateAsync).toHaveBeenCalledWith({
+      threadId: 'thread-1',
+      input: 'hello runtime',
+      model: undefined,
+      reasoningEffort: 'medium',
+      permissionPreset: 'default',
+      collaborationMode: undefined,
+    })
+    expect(input.setSendError).toHaveBeenCalledWith(null)
+    expect(input.setRuntimeRecoveryExecutionNotice).toHaveBeenCalledTimes(1)
   })
 
   it('captures a restart-and-retry recovery marker after send failure', async () => {
@@ -147,6 +171,46 @@ describe('buildThreadPageThreadActions', () => {
 
     expect(input.setRecoverableSendInput).toHaveBeenCalledWith('hello runtime')
     expect(input.setSendError).toHaveBeenLastCalledWith('runtime exited unexpectedly')
+    expect(queryClient.fetchQuery).toHaveBeenCalledTimes(1)
+  })
+
+  it('captures a plain retry recovery marker after send failure when runtime says retry', async () => {
+    const runtimeState = {
+      workspaceId: 'ws-1',
+      status: 'error',
+      command: 'codex',
+      rootPath: 'E:/workspace',
+      lastError: 'temporary transport interruption',
+      lastErrorCategory: 'transport',
+      lastErrorRecoveryAction: 'retry',
+      lastErrorRetryable: true,
+      lastErrorRequiresRuntimeRecycle: false,
+      recentStderr: ['connection reset by peer'],
+      updatedAt: '2026-04-13T00:00:00.000Z',
+      configLoadStatus: 'loaded',
+      restartRequired: false,
+    }
+    const queryClient = {
+      fetchQuery: vi.fn().mockResolvedValue(runtimeState),
+      getQueryData: vi.fn().mockReturnValue(runtimeState),
+      invalidateQueries: vi.fn().mockResolvedValue(undefined),
+      setQueryData: vi.fn(),
+      setQueriesData: vi.fn(),
+    }
+    const input = createInput({
+      queryClient,
+      startTurnMutation: {
+        mutateAsync: vi.fn().mockRejectedValue(new Error('temporary transport interruption')),
+      },
+    })
+    const actions = buildThreadPageThreadActions(input)
+
+    await actions.handleSendMessage({
+      preventDefault: vi.fn(),
+    } as any)
+
+    expect(input.setRecoverableSendInput).toHaveBeenCalledWith('hello runtime')
+    expect(input.setSendError).toHaveBeenLastCalledWith('temporary transport interruption')
     expect(queryClient.fetchQuery).toHaveBeenCalledTimes(1)
   })
 })

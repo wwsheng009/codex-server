@@ -8,6 +8,7 @@ import { useThreadPageRailState } from './useThreadPageRailState'
 import { useThreadPageStatusState } from './useThreadPageStatusState'
 import { useThreadViewportState } from './useThreadViewportState'
 import { shouldSuppressAuthenticationErrorAfterRecovery } from './threadPageAuthRecovery'
+import { getRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 import type {
   ControllerState,
   ThreadPageControllerData,
@@ -319,6 +320,9 @@ export function useThreadPageControllerData(
     hasRecoverableRuntimeOperation:
       Boolean(controllerState.recoverableSendInput?.trim()) ||
       Boolean(controllerState.recoverableCommandOperation),
+    recoverableRuntimeActionKind: getRecoverableRuntimeActionKind(
+      dataState.workspaceRuntimeStateQuery.data,
+    ),
     hasUnreadThreadUpdates: viewportState.hasUnreadThreadUpdates,
     isDocumentVisible: controllerState.isDocumentVisible,
     interruptPending: mutationState.interruptTurnMutation.isPending,

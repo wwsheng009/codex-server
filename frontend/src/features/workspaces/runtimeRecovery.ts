@@ -1,9 +1,18 @@
 import { i18n } from '../../i18n/runtime'
 import type { WorkspaceRuntimeState } from '../../types/api'
 
+export type WorkspaceRuntimeRecoveryActionKind =
+  | 'fix-config'
+  | 'restart-and-retry'
+  | 'retry'
+  | 'inspect'
+
 export type WorkspaceRuntimeRecoverySummary = {
   title: string
   tone: 'info' | 'error'
+  actionKind: WorkspaceRuntimeRecoveryActionKind
+  actionTitle: string
+  actionSummary: string
   categoryLabel: string
   recoveryActionLabel: string
   retryable: boolean
@@ -94,6 +103,63 @@ export function formatRuntimeRecoveryActionLabel(action?: string | null) {
   }
 }
 
+function buildRuntimeRecoveryActionPresentation(state: WorkspaceRuntimeState) {
+  switch ((state.lastErrorRecoveryAction ?? '').trim()) {
+    case 'fix-launch-config':
+      return {
+        actionKind: 'fix-config' as const,
+        actionTitle: i18n._({
+          id: 'Review launch configuration before restarting',
+          message: 'Review launch configuration before restarting',
+        }),
+        actionSummary: i18n._({
+          id: 'Fix the workspace launch settings first, then restart the runtime so the next boot uses the corrected config.',
+          message:
+            'Fix the workspace launch settings first, then restart the runtime so the next boot uses the corrected config.',
+        }),
+      }
+    case 'retry-after-restart':
+      return {
+        actionKind: 'restart-and-retry' as const,
+        actionTitle: i18n._({
+          id: 'Restart runtime before retrying',
+          message: 'Restart runtime before retrying',
+        }),
+        actionSummary: i18n._({
+          id: 'Recycle the workspace runtime, then rerun the failed operation after the runtime is back.',
+          message:
+            'Recycle the workspace runtime, then rerun the failed operation after the runtime is back.',
+        }),
+      }
+    case 'retry':
+      return {
+        actionKind: 'retry' as const,
+        actionTitle: i18n._({
+          id: 'Retry the failed operation',
+          message: 'Retry the failed operation',
+        }),
+        actionSummary: i18n._({
+          id: 'The runtime looks recoverable enough to retry without forcing a full recycle first.',
+          message:
+            'The runtime looks recoverable enough to retry without forcing a full recycle first.',
+        }),
+      }
+    default:
+      return {
+        actionKind: 'inspect' as const,
+        actionTitle: i18n._({
+          id: 'Inspect diagnostics before retrying',
+          message: 'Inspect diagnostics before retrying',
+        }),
+        actionSummary: i18n._({
+          id: 'Use the recorded error classification and stderr details to decide the safest next step.',
+          message:
+            'Use the recorded error classification and stderr details to decide the safest next step.',
+        }),
+      }
+  }
+}
+
 export function buildWorkspaceRuntimeRecoverySummary(
   state: WorkspaceRuntimeState | null | undefined,
 ): WorkspaceRuntimeRecoverySummary | null {
@@ -116,6 +182,7 @@ export function buildWorkspaceRuntimeRecoverySummary(
   const recoveryActionLabel = formatRuntimeRecoveryActionLabel(
     state.lastErrorRecoveryAction,
   )
+  const actionPresentation = buildRuntimeRecoveryActionPresentation(state)
   const retryableLabel = formatBooleanLabel(Boolean(state.lastErrorRetryable))
   const recycleLabel = formatBooleanLabel(
     Boolean(state.lastErrorRequiresRuntimeRecycle),
@@ -192,6 +259,9 @@ export function buildWorkspaceRuntimeRecoverySummary(
       Boolean(state.lastError?.trim())
         ? 'error'
         : 'info',
+    actionKind: actionPresentation.actionKind,
+    actionTitle: actionPresentation.actionTitle,
+    actionSummary: actionPresentation.actionSummary,
     categoryLabel,
     recoveryActionLabel,
     retryable: Boolean(state.lastErrorRetryable),

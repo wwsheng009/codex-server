@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { i18n } from '../../i18n/runtime'
@@ -499,6 +500,10 @@ describe('ThreadWorkbenchSurface', () => {
         runtimeRecoveryNotice={{
           title: 'Runtime Recovery Guidance',
           tone: 'error',
+          actionKind: 'restart-and-retry',
+          actionTitle: 'Restart runtime before retrying',
+          actionSummary:
+            'Recycle the workspace runtime, then rerun the failed operation after the runtime is back.',
           categoryLabel: 'Runtime process exit',
           recoveryActionLabel: 'Restart runtime, then retry',
           retryable: true,
@@ -531,8 +536,293 @@ describe('ThreadWorkbenchSurface', () => {
     )
 
     expect(html).toContain('Runtime Recovery Guidance')
+    expect(html).toContain('Restart runtime before retrying')
     expect(html).toContain('runtime exited unexpectedly')
     expect(html).toContain('Restart Runtime')
+  })
+
+  it('surfaces a direct config settings entry when recovery says to fix launch config', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ThreadWorkbenchSurface
+          activeSurfacePanelSide="right"
+          approvalAnswers={{}}
+          approvalErrors={{}}
+          approvals={[]}
+          createThreadErrorMessage={undefined}
+          displayedTurns={[
+            {
+              id: 'turn-1',
+              status: 'completed',
+              items: [
+                {
+                  id: 'msg-1',
+                  type: 'agentMessage',
+                  text: 'done',
+                },
+              ],
+            },
+          ]}
+          hasMoreTurnsBefore={false}
+          hasThreads={true}
+          hiddenTurnsCount={0}
+          isCreateThreadPending={false}
+          isLoadingOlderTurns={false}
+          isThreadsLoaded={true}
+          isThreadSelectionLoading={false}
+          isMobileViewport={false}
+          isSurfacePanelResizing={false}
+          isThreadPinnedToLatest={true}
+          isThreadProcessing={false}
+          isThreadViewportInteracting={false}
+          isWaitingForThreadData={false}
+          liveTimelineEntries={[]}
+          onChangeApprovalAnswer={() => undefined}
+          onCloseWorkbenchOverlay={() => undefined}
+          onCaptureOlderTurnsAnchor={() => undefined}
+          onCreateThread={() => undefined}
+          onLoadOlderTurns={() => undefined}
+          onReleaseFullTurn={() => undefined}
+          onRestartRuntime={() => undefined}
+          onRetainFullTurn={() => undefined}
+          onRequestFullTurn={() => undefined}
+          onRespondApproval={() => undefined}
+          onRetryServerRequest={() => undefined}
+          onRetryThreadLoad={() => undefined}
+          onRestoreOlderTurnsViewport={() => undefined}
+          onSurfacePanelResizeStart={() => undefined}
+          onThreadViewportScroll={() => undefined}
+          onToggleSurfacePanelSide={() => undefined}
+          respondingToApproval={false}
+          runtimeRecoveryNotice={{
+            title: 'Runtime Recovery Guidance',
+            tone: 'error',
+            actionKind: 'fix-config',
+            actionTitle: 'Review launch configuration before restarting',
+            actionSummary:
+              'Fix the workspace launch settings first, then restart the runtime so the next boot uses the corrected config.',
+            categoryLabel: 'Launch configuration',
+            recoveryActionLabel: 'Fix launch config',
+            retryable: false,
+            retryableLabel: 'No',
+            requiresRecycle: false,
+            recycleLabel: 'No',
+            description:
+              'Last error: invalid runtime launch config. Category: Launch configuration.',
+            details: 'Recent stderr:\n- invalid runtime launch config',
+          }}
+          selectedThread={{
+            id: 'thread-1',
+            workspaceId: 'ws-1',
+            name: 'Thread 1',
+            status: 'completed',
+            archived: false,
+            createdAt: '2026-03-20T00:00:00.000Z',
+            updatedAt: '2026-03-20T00:00:00.000Z',
+          }}
+          surfacePanelView={null}
+          threadDetailError={null}
+          threadDetailIsLoading={false}
+          threadLogStyle={{}}
+          threadViewportRef={{ current: null }}
+          timelineIdentity="thread-1"
+          workspaceName="workspace"
+        >
+          <div>composer-probe</div>
+        </ThreadWorkbenchSurface>
+      </MemoryRouter>,
+    )
+
+    expect(html).toContain('Review launch configuration before restarting')
+    expect(html).toContain('Open Config Settings')
+    expect(html).not.toContain('Restart Runtime')
+  })
+
+  it('shows a direct retry action when recovery says the operation can be retried in place', () => {
+    const html = renderToStaticMarkup(
+      <ThreadWorkbenchSurface
+        activeSurfacePanelSide="right"
+        approvalAnswers={{}}
+        approvalErrors={{}}
+        approvals={[]}
+        createThreadErrorMessage={undefined}
+        displayedTurns={[
+          {
+            id: 'turn-1',
+            status: 'completed',
+            items: [
+              {
+                id: 'msg-1',
+                type: 'agentMessage',
+                text: 'done',
+              },
+            ],
+          },
+        ]}
+        hasMoreTurnsBefore={false}
+        hasRecoverableRuntimeOperation
+        hasThreads={true}
+        hiddenTurnsCount={0}
+        isCreateThreadPending={false}
+        isLoadingOlderTurns={false}
+        isThreadsLoaded={true}
+        isThreadSelectionLoading={false}
+        isMobileViewport={false}
+        isSurfacePanelResizing={false}
+        isThreadPinnedToLatest={true}
+        isThreadProcessing={false}
+        isThreadViewportInteracting={false}
+        isWaitingForThreadData={false}
+        liveTimelineEntries={[]}
+        onChangeApprovalAnswer={() => undefined}
+        onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
+        onCreateThread={() => undefined}
+        onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRestartRuntime={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
+        onRespondApproval={() => undefined}
+        onRetryRuntimeOperation={() => undefined}
+        onRetryServerRequest={() => undefined}
+        onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
+        onSurfacePanelResizeStart={() => undefined}
+        onThreadViewportScroll={() => undefined}
+        onToggleSurfacePanelSide={() => undefined}
+        respondingToApproval={false}
+        runtimeRecoveryNotice={{
+          title: 'Runtime Recovery Guidance',
+          tone: 'error',
+          actionKind: 'retry',
+          actionTitle: 'Retry the failed operation',
+          actionSummary:
+            'The runtime looks recoverable enough to retry without forcing a full recycle first.',
+          categoryLabel: 'Bridge / transport',
+          recoveryActionLabel: 'Retry request',
+          retryable: true,
+          retryableLabel: 'Yes',
+          requiresRecycle: false,
+          recycleLabel: 'No',
+          description:
+            'Last error: temporary transport interruption. Category: Bridge / transport.',
+          details: 'Recent stderr:\n- temporary transport interruption',
+        }}
+        selectedThread={{
+          id: 'thread-1',
+          workspaceId: 'ws-1',
+          name: 'Thread 1',
+          status: 'completed',
+          archived: false,
+          createdAt: '2026-03-20T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:00.000Z',
+        }}
+        surfacePanelView={null}
+        threadDetailError={null}
+        threadDetailIsLoading={false}
+        threadLogStyle={{}}
+        threadViewportRef={{ current: null }}
+        timelineIdentity="thread-1"
+        workspaceName="workspace"
+      >
+        <div>composer-probe</div>
+      </ThreadWorkbenchSurface>,
+    )
+
+    expect(html).toContain('Retry the failed operation')
+    expect(html).toContain('Retry')
+    expect(html).not.toContain('Restart and Retry')
+  })
+
+  it('renders the latest recovery execution notice when a retry attempt was recorded', () => {
+    const html = renderToStaticMarkup(
+      <ThreadWorkbenchSurface
+        activeSurfacePanelSide="right"
+        approvalAnswers={{}}
+        approvalErrors={{}}
+        approvals={[]}
+        createThreadErrorMessage={undefined}
+        displayedTurns={[
+          {
+            id: 'turn-1',
+            status: 'completed',
+            items: [
+              {
+                id: 'msg-1',
+                type: 'agentMessage',
+                text: 'done',
+              },
+            ],
+          },
+        ]}
+        hasMoreTurnsBefore={false}
+        hasThreads={true}
+        hiddenTurnsCount={0}
+        isCreateThreadPending={false}
+        isLoadingOlderTurns={false}
+        isThreadsLoaded={true}
+        isThreadSelectionLoading={false}
+        isMobileViewport={false}
+        isSurfacePanelResizing={false}
+        isThreadPinnedToLatest={true}
+        isThreadProcessing={false}
+        isThreadViewportInteracting={false}
+        isWaitingForThreadData={false}
+        liveTimelineEntries={[]}
+        onChangeApprovalAnswer={() => undefined}
+        onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
+        onCreateThread={() => undefined}
+        onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
+        onRespondApproval={() => undefined}
+        onRetryServerRequest={() => undefined}
+        onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
+        onSurfacePanelResizeStart={() => undefined}
+        onThreadViewportScroll={() => undefined}
+        onToggleSurfacePanelSide={() => undefined}
+        respondingToApproval={false}
+        runtimeRecoveryExecutionNotice={{
+          actionKind: 'retry',
+          attemptCount: 2,
+          attemptedAt: '2026-04-14T01:23:45.000Z',
+          details:
+            'Action: Retry\n\nStatus: Succeeded\n\nAttempt Count: 2\n\nSummary: The failed thread input was submitted again without restarting the runtime.',
+          noticeKey: 'runtime-recovery-attempt-retry-success-2',
+          summary:
+            'The failed thread input was submitted again without restarting the runtime. Action: Retry. Attempt 2 at Apr 14, 2026, 9:23 AM.',
+          title: 'Latest Recovery Attempt Succeeded',
+          tone: 'info',
+        }}
+        selectedThread={{
+          id: 'thread-1',
+          workspaceId: 'ws-1',
+          name: 'Thread 1',
+          status: 'completed',
+          archived: false,
+          createdAt: '2026-03-20T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:00.000Z',
+        }}
+        surfacePanelView={null}
+        threadDetailError={null}
+        threadDetailIsLoading={false}
+        threadLogStyle={{}}
+        threadViewportRef={{ current: null }}
+        timelineIdentity="thread-1"
+        workspaceName="workspace"
+      >
+        <div>composer-probe</div>
+      </ThreadWorkbenchSurface>,
+    )
+
+    expect(html).toContain('Latest Recovery Attempt Succeeded')
+    expect(html).toContain(
+      'The failed thread input was submitted again without restarting the runtime.',
+    )
   })
 
   it('prefers restart-and-retry guidance when a recoverable send operation is available', () => {
@@ -592,6 +882,10 @@ describe('ThreadWorkbenchSurface', () => {
         runtimeRecoveryNotice={{
           title: 'Runtime Recovery Guidance',
           tone: 'error',
+          actionKind: 'restart-and-retry',
+          actionTitle: 'Restart runtime before retrying',
+          actionSummary:
+            'Recycle the workspace runtime, then rerun the failed operation after the runtime is back.',
           categoryLabel: 'Runtime process exit',
           recoveryActionLabel: 'Restart runtime, then retry',
           retryable: true,

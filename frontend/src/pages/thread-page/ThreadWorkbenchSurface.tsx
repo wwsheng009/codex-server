@@ -13,8 +13,11 @@ import type { LiveTimelineEntry } from '../../components/workspace/timelineUtils
 import { i18n } from '../../i18n/runtime'
 import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config-types'
 import type { PendingApproval, Thread, ThreadTurn } from '../../types/api'
+import { RuntimeRecoveryActionGroup } from '../../features/workspaces/RuntimeRecoveryActionGroup'
 import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
+import { RuntimeRecoveryNoticeContent } from '../../features/workspaces/RuntimeRecoveryNoticeContent'
 import type { ThreadPageRespondApprovalInput } from './threadPageActionTypes'
+import type { ThreadPageRuntimeRecoveryExecutionNotice } from './threadPageRecoveryExecution'
 import type { ThreadViewportScrollInput } from './threadViewportTypes'
 
 export type ThreadRuntimeNotice = {
@@ -57,6 +60,7 @@ export type ThreadWorkbenchSurfaceProps = {
   onRetainFullTurn: (turnId: string, itemId?: string) => void
   onRequestFullTurn: (turnId: string, itemId?: string) => void
   onRespondApproval: (input: ThreadPageRespondApprovalInput) => void
+  onRetryRuntimeOperation?: () => void
   onRestartAndRetry?: () => void
   onRestartRuntime?: () => void
   onRetryServerRequest: (item: Record<string, unknown>) => void
@@ -76,6 +80,7 @@ export type ThreadWorkbenchSurfaceProps = {
   runtimeRecoveryNotice?: WorkspaceRuntimeRecoverySummary | null
   restartAndRetryPending?: boolean
   restartRuntimePending?: boolean
+  runtimeRecoveryExecutionNotice?: ThreadPageRuntimeRecoveryExecutionNotice | null
   threadRuntimeNotice?: ThreadRuntimeNotice
   threadViewportRef: RefObject<HTMLDivElement | null>
   workspaceName?: string
@@ -195,6 +200,7 @@ export function ThreadWorkbenchSurface({
   onRetainFullTurn,
   onRequestFullTurn,
   onRespondApproval,
+  onRetryRuntimeOperation,
   onRestartAndRetry,
   onRestartRuntime,
   onRetryServerRequest,
@@ -214,6 +220,7 @@ export function ThreadWorkbenchSurface({
   runtimeRecoveryNotice,
   restartAndRetryPending,
   restartRuntimePending,
+  runtimeRecoveryExecutionNotice,
   threadRuntimeNotice,
   threadViewportRef,
   workspaceName,
@@ -397,50 +404,38 @@ export function ThreadWorkbenchSurface({
                 <div className="workbench-log__thread">
                   {runtimeRecoveryNotice ? (
                     <InlineNotice
-                      action={
-                        hasRecoverableRuntimeOperation && onRestartAndRetry ? (
-                          <button
-                            className="ide-button ide-button--secondary ide-button--sm"
-                            disabled={Boolean(restartAndRetryPending || restartRuntimePending)}
-                            onClick={onRestartAndRetry}
-                            type="button"
-                          >
-                            {restartAndRetryPending
-                              ? i18n._({
-                                  id: 'Restarting…',
-                                  message: 'Restarting…',
-                                })
-                              : i18n._({
-                                  id: 'Restart and Retry',
-                                  message: 'Restart and Retry',
-                                })}
-                          </button>
-                        ) : runtimeRecoveryNotice.requiresRecycle && onRestartRuntime ? (
-                          <button
-                            className="ide-button ide-button--secondary ide-button--sm"
-                            disabled={Boolean(restartAndRetryPending || restartRuntimePending)}
-                            onClick={onRestartRuntime}
-                            type="button"
-                          >
-                            {restartRuntimePending
-                              ? i18n._({
-                                  id: 'Restarting…',
-                                  message: 'Restarting…',
-                                })
-                              : i18n._({
-                                  id: 'Restart Runtime',
-                                  message: 'Restart Runtime',
-                                })}
-                          </button>
-                        ) : null
-                      }
+                      action={RuntimeRecoveryActionGroup({
+                        configSettingsPath: '/settings/config',
+                        environmentSettingsPath: '/settings/environment',
+                        onRetry: hasRecoverableRuntimeOperation
+                          ? onRetryRuntimeOperation
+                          : undefined,
+                        onRestartAndRetry: hasRecoverableRuntimeOperation
+                          ? onRestartAndRetry
+                          : undefined,
+                        onRestartRuntime,
+                        restartAndRetryPending,
+                        restartRuntimePending,
+                        summary: runtimeRecoveryNotice,
+                      })}
                       details={runtimeRecoveryNotice.details}
                       dismissible
                       noticeKey={`thread-runtime-recovery-${timelineIdentity}-${runtimeRecoveryNotice.categoryLabel}-${runtimeRecoveryNotice.recoveryActionLabel}`}
                       title={runtimeRecoveryNotice.title}
                       tone={runtimeRecoveryNotice.tone}
                     >
-                      {runtimeRecoveryNotice.description}
+                      <RuntimeRecoveryNoticeContent summary={runtimeRecoveryNotice} />
+                    </InlineNotice>
+                  ) : null}
+                  {runtimeRecoveryExecutionNotice ? (
+                    <InlineNotice
+                      details={runtimeRecoveryExecutionNotice.details}
+                      dismissible
+                      noticeKey={runtimeRecoveryExecutionNotice.noticeKey}
+                      title={runtimeRecoveryExecutionNotice.title}
+                      tone={runtimeRecoveryExecutionNotice.tone}
+                    >
+                      {runtimeRecoveryExecutionNotice.summary}
                     </InlineNotice>
                   ) : null}
                   {threadRuntimeNotice ? (

@@ -14,6 +14,7 @@ import type {
 import type { ShellEnvironmentDiagnosisSummary } from '../../features/settings/shell-environment-diagnostics'
 import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 import type { CommandRunMode } from './threadPageActionTypes'
+import type { ThreadPageRuntimeRecoveryExecutionNotice } from './threadPageRecoveryExecution'
 
 export type ThreadWorkbenchRailProps = {
   botSendBots: Bot[]
@@ -46,6 +47,7 @@ export type ThreadWorkbenchRailProps = {
   pendingApprovalsCount: number
   rootPath?: string
   runtimeRecoverySummary?: WorkspaceRuntimeRecoverySummary | null
+  runtimeRecoveryExecutionNotice?: ThreadPageRuntimeRecoveryExecutionNotice | null
   runtimeStartedAt?: string
   runtimeUpdatedAt?: string
   runtimeConfigChangedAt?: string
@@ -100,6 +102,7 @@ export type ThreadWorkbenchRailProps = {
   onInspectorResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onOpenInspector: () => void
   onOpenSurfacePanel: (view: SurfacePanelView) => void
+  onRetryRuntimeOperation?: () => void | Promise<void>
   onRestartRuntime?: () => void
   onResetInspectorWidth: () => void
   onSendBotMessage: (event: FormEvent<HTMLFormElement>) => void
@@ -211,10 +214,12 @@ export type ThreadWorkbenchRailWorkspaceContextSectionProps = {
   liveThreadCwd?: string
   onHideSurfacePanel: () => void
   onOpenSurfacePanel: (view: SurfacePanelView) => void
+  onRetryRuntimeOperation?: () => void | Promise<void>
   onRestartRuntime?: () => void
   pendingApprovalsCount: number
   rootPath?: string
   runtimeRecoverySummary?: WorkspaceRuntimeRecoverySummary | null
+  runtimeRecoveryExecutionNotice?: ThreadPageRuntimeRecoveryExecutionNotice | null
   runtimeConfigChangedAt?: string
   runtimeConfigLoadStatus: string
   runtimeRestartRequired: boolean

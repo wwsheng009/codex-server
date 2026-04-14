@@ -35,6 +35,7 @@ export function buildThreadPageControllerRailActionLayoutInput({
     onInspectorResizeStart: controllerState.handleInspectorResizeStart,
     onOpenInspector: railState.handleOpenInspector,
     onOpenSurfacePanel: railState.handleOpenSurfacePanel,
+    onRetryRuntimeOperation: pageActions.handleRetryRuntimeOperation,
     onRestartRuntime: () => mutationState.restartRuntimeMutation.mutate(),
     onResetInspectorWidth: controllerState.handleResetInspectorWidth,
     onSendBotMessage: pageActions.handleSendBotMessage,

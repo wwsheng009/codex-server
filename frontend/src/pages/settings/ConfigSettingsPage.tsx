@@ -101,6 +101,8 @@ import {
   getWorkspaceRuntimeState,
   restartWorkspace,
 } from "../../features/workspaces/api";
+import { RuntimeRecoveryNoticeContent } from "../../features/workspaces/RuntimeRecoveryNoticeContent";
+import { RuntimeRecoveryActionGroup } from "../../features/workspaces/RuntimeRecoveryActionGroup";
 import { buildWorkspaceRuntimeRecoverySummary } from "../../features/workspaces/runtimeRecovery";
 import type { RuntimePreferencesResult } from "../../types/api";
 
@@ -3178,42 +3180,34 @@ export function ConfigSettingsPage() {
                             </div>
                             {runtimeRecoverySummary ? (
                               <InlineNotice
-                                action={
-                                  workspaceRuntimeStateQuery.data
-                                    .lastErrorRequiresRuntimeRecycle ? (
-                                    <button
-                                      className="ide-button ide-button--secondary ide-button--sm"
-                                      disabled={
-                                        !workspaceId ||
-                                        restartRuntimeMutation.isPending
-                                      }
-                                      onClick={() =>
-                                        restartRuntimeMutation.mutate()
-                                      }
-                                      type="button"
-                                    >
-                                      {restartRuntimeMutation.isPending
-                                        ? i18n._({
-                                            id: "Restarting…",
-                                            message: "Restarting…",
-                                          })
-                                        : i18n._({
-                                            id: "Restart Runtime",
-                                            message: "Restart Runtime",
-                                          })}
-                                    </button>
-                                  ) : null
-                                }
+                                action={RuntimeRecoveryActionGroup({
+                                  configSettingsPath: "/settings/config",
+                                  environmentSettingsPath:
+                                    "/settings/environment",
+                                  onRestartRuntime: workspaceId
+                                    ? () => restartRuntimeMutation.mutate()
+                                    : undefined,
+                                  restartRuntimePending:
+                                    restartRuntimeMutation.isPending,
+                                  summary: runtimeRecoverySummary,
+                                })}
                                 details={runtimeRecoverySummary.details}
                                 noticeKey={`runtime-recovery-${workspaceId}-${workspaceRuntimeStateQuery.data.updatedAt}-${workspaceRuntimeStateQuery.data.lastErrorCategory ?? ""}-${workspaceRuntimeStateQuery.data.lastErrorRecoveryAction ?? ""}-${workspaceRuntimeStateQuery.data.lastError ?? ""}`}
                                 title={runtimeRecoverySummary.title}
                                 tone={runtimeRecoverySummary.tone}
                               >
-                                {runtimeRecoverySummary.description}
+                                <RuntimeRecoveryNoticeContent summary={runtimeRecoverySummary} />
                               </InlineNotice>
                             ) : null}
                             {runtimeRecoverySummary ? (
                               <div className="config-helper-grid config-helper-grid--compact">
+                                <ConfigHelperCard
+                                  description={runtimeRecoverySummary.actionSummary}
+                                  title={i18n._({
+                                    id: "Next Step",
+                                    message: "Next Step",
+                                  })}
+                                />
                                 <ConfigHelperCard
                                   description={
                                     runtimeRecoverySummary.categoryLabel

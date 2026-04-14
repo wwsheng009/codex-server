@@ -1,3 +1,4 @@
+import { getRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 import { buildThreadPageBotActions } from './buildThreadPageBotActions'
 import { buildThreadPageCommandActions } from './buildThreadPageCommandActions'
 import { buildThreadPageThreadActions } from './buildThreadPageThreadActions'
@@ -12,7 +13,33 @@ export function useThreadPageActions(input: ThreadPageActionsInput) {
     ...botActions,
     ...threadActions,
     ...commandActions,
+    handleRetryRuntimeOperation: async () => {
+      if (input.recoverableSendInput?.trim()) {
+        await threadActions.handleRetrySend()
+        return
+      }
+
+      if (input.recoverableCommandOperation) {
+        await commandActions.handleRetryCommandOperation()
+      }
+    },
     handleRestartAndRetryRuntimeOperation: async () => {
+      const recoverableRuntimeActionKind = getRecoverableRuntimeActionKind(
+        input.workspaceRuntimeState,
+      )
+      if (recoverableRuntimeActionKind === 'retry') {
+        if (input.recoverableSendInput?.trim()) {
+          await threadActions.handleRetrySend()
+          return
+        }
+
+        if (input.recoverableCommandOperation) {
+          await commandActions.handleRetryCommandOperation()
+        }
+
+        return
+      }
+
       if (input.recoverableSendInput?.trim()) {
         await threadActions.handleRestartAndRetrySend()
         return

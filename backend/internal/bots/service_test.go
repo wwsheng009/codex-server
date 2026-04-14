@@ -2113,6 +2113,108 @@ func TestHandleWebhookWeChatDebugModeAppendsTimingToAIReply(t *testing.T) {
 	t.Fatalf("expected debug AI reply preview to include timing summary, got %q", conversations[0].LastOutboundText)
 }
 
+func TestHandleWebhookWeChatDebugModeAppendsStandaloneTimingWhenReplyHasMedia(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			ThreadID: "thr_chat-wechat-debug-media-1",
+			Messages: []OutboundMessage{
+				{
+					Text: "reply: hello debug media",
+					Media: []store.BotMessageMedia{
+						{
+							Kind:     botMediaKindFile,
+							Path:     "E:/tmp/debug-report.txt",
+							FileName: "debug-report.txt",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "scripted_ai",
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-debug-media-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	createdAtMS := time.Now().Add(-1800 * time.Millisecond).UnixMilli()
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+		"conversationId":"chat-wechat-debug-media-1",
+		"messageId":"msg-wechat-debug-media-1",
+		"userId":"wechat-user-debug-media-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello debug timing media",
+		"providerData":{"wechat_created_at_ms":"%d"}
+	}`, createdAtMS)))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 2 {
+			t.Fatalf("expected media reply plus standalone timing message, got %#v", sent.Messages)
+		}
+		if got := sent.Messages[0]; !strings.Contains(got.Text, "reply: hello debug media") ||
+			strings.Contains(got.Text, "Channel timing") ||
+			len(got.Media) != 1 {
+			t.Fatalf("expected first message to preserve media reply without timing footer, got %#v", got)
+		}
+		if got := sent.Messages[1]; len(got.Media) != 0 ||
+			!strings.Contains(got.Text, "Channel timing") ||
+			!strings.Contains(got.Text, "Platform->backend:") ||
+			!strings.Contains(got.Text, "Backend processing:") {
+			t.Fatalf("expected second message to be standalone timing text, got %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat debug media AI reply")
+	}
+
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			strings.Contains(conversations[0].LastOutboundText, "reply: hello debug media") &&
+			strings.Contains(conversations[0].LastOutboundText, "Channel timing") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
+	}
+	t.Fatalf("expected debug media reply preview to include reply summary and timing, got %q", conversations[0].LastOutboundText)
+}
+
 func TestHandleWebhookWeChatChannelTimingSettingDisablesTimingInDebugMode(t *testing.T) {
 	t.Parallel()
 
@@ -5908,6 +6010,108 @@ func TestServiceAppendsTimingToWeChatStreamingReplyInDebugMode(t *testing.T) {
 	}
 }
 
+func TestServiceAppendsStandaloneTimingToWeChatStreamingReplyWhenFinalMessageHasMedia(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatStreamingProvider()
+
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeStreamingMediaAIBackend{}},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "stream_media_ai",
+		Settings: map[string]string{
+			botRuntimeModeSetting: botRuntimeModeDebug,
+		},
+		Secrets: map[string]string{
+			"bot_token": "wechat-stream-debug-media-token-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	createdAtMS := time.Now().Add(-2 * time.Second).UnixMilli()
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(fmt.Sprintf(`{
+		"conversationId":"chat-wechat-stream-debug-media-1",
+		"messageId":"msg-wechat-stream-debug-media-1",
+		"userId":"wechat-user-stream-debug-media-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"hello streaming debug media",
+		"providerData":{"wechat_created_at_ms":"%d"}
+	}`, createdAtMS)))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.completedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for WeChat streaming media completion")
+	}
+
+	provider.mu.Lock()
+	updates := append([][]OutboundMessage(nil), provider.updates...)
+	completedMessages := append([]OutboundMessage(nil), provider.completedMessages...)
+	sendMessagesCalls := provider.sendMessagesCalls
+	provider.mu.Unlock()
+
+	if sendMessagesCalls != 0 {
+		t.Fatalf("expected WeChat streaming media reply to avoid SendMessages fallback, got %d calls", sendMessagesCalls)
+	}
+	if len(updates) != 3 {
+		t.Fatalf("expected 3 streaming updates including pending state, got %#v", updates)
+	}
+	if len(updates[2]) != 1 ||
+		!strings.Contains(updates[2][0].Text, "reply: hello streaming debug media") ||
+		strings.Contains(updates[2][0].Text, "Channel timing") {
+		t.Fatalf("expected incremental updates to stay unchanged for media reply, got %#v", updates)
+	}
+	if len(completedMessages) != 2 {
+		t.Fatalf("expected media reply plus standalone timing on completion, got %#v", completedMessages)
+	}
+	if got := completedMessages[0]; !strings.Contains(got.Text, "final: hello streaming debug media") ||
+		strings.Contains(got.Text, "Channel timing") ||
+		len(got.Media) != 1 {
+		t.Fatalf("expected first completed message to preserve media reply without timing footer, got %#v", got)
+	}
+	if got := completedMessages[1]; len(got.Media) != 0 ||
+		!strings.Contains(got.Text, "Channel timing") ||
+		!strings.Contains(got.Text, "Platform->backend:") ||
+		!strings.Contains(got.Text, "Backend processing:") {
+		t.Fatalf("expected second completed message to be standalone timing text, got %#v", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == "thr_chat-wechat-stream-debug-media-1" &&
+			strings.Contains(conversations[0].LastOutboundText, "final: hello streaming debug media") &&
+			strings.Contains(conversations[0].LastOutboundText, "Channel timing") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected WeChat streaming media debug conversation state to settle, got %#v", conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestServiceDoesNotRetryStoredStreamingReplyWhenWebhookRedeliversSameMessage(t *testing.T) {
 	t.Parallel()
 
@@ -7052,7 +7256,18 @@ func TestServiceReplaysFailedWeChatReplyAfterRetryIntentWithoutRerunningAI(t *te
 		t.Fatalf("expected ai backend to keep the original inbound message, got %#v", backend.lastInboundMessage())
 	}
 
-	conversations := service.ListConversationViews(workspace.ID, connection.ID)
+	deadline = time.Now().Add(2 * time.Second)
+	var conversations []ConversationView
+	for time.Now().Before(deadline) {
+		conversations = service.ListConversationViews(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].LastInboundMessageID == "msg-wechat-retry-2" &&
+			conversations[0].LastOutboundDeliveryStatus == botReplyDeliveryStatusDelivered &&
+			conversations[0].LastOutboundText == "这是上一次已经生成好的回复" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if len(conversations) != 1 {
 		t.Fatalf("expected 1 bot conversation, got %d", len(conversations))
 	}
@@ -9570,6 +9785,66 @@ func (fakeStreamingAIBackend) ProcessMessageStream(
 		ThreadID: "thr_" + inbound.ConversationID,
 		Messages: []OutboundMessage{
 			{Text: "final: " + inbound.Text},
+		},
+	}, nil
+}
+
+type fakeStreamingMediaAIBackend struct{}
+
+func (fakeStreamingMediaAIBackend) Name() string {
+	return "stream_media_ai"
+}
+
+func (fakeStreamingMediaAIBackend) ProcessMessage(
+	_ context.Context,
+	_ store.BotConnection,
+	_ store.BotConversation,
+	inbound InboundMessage,
+) (AIResult, error) {
+	return AIResult{
+		ThreadID: "thr_" + inbound.ConversationID,
+		Messages: []OutboundMessage{
+			{
+				Text: "final: " + inbound.Text,
+				Media: []store.BotMessageMedia{
+					{
+						Kind:     botMediaKindFile,
+						Path:     "E:/tmp/stream-debug-report.txt",
+						FileName: "stream-debug-report.txt",
+					},
+				},
+			},
+		},
+	}, nil
+}
+
+func (fakeStreamingMediaAIBackend) ProcessMessageStream(
+	ctx context.Context,
+	_ store.BotConnection,
+	_ store.BotConversation,
+	inbound InboundMessage,
+	handle StreamingUpdateHandler,
+) (AIResult, error) {
+	if err := handle(ctx, StreamingUpdate{Messages: []OutboundMessage{{Text: "thinking..."}}}); err != nil {
+		return AIResult{}, err
+	}
+	if err := handle(ctx, StreamingUpdate{Messages: []OutboundMessage{{Text: "reply: " + inbound.Text}}}); err != nil {
+		return AIResult{}, err
+	}
+
+	return AIResult{
+		ThreadID: "thr_" + inbound.ConversationID,
+		Messages: []OutboundMessage{
+			{
+				Text: "final: " + inbound.Text,
+				Media: []store.BotMessageMedia{
+					{
+						Kind:     botMediaKindFile,
+						Path:     "E:/tmp/stream-debug-report.txt",
+						FileName: "stream-debug-report.txt",
+					},
+				},
+			},
 		},
 	}, nil
 }

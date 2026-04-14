@@ -430,7 +430,45 @@ describe("ConfigSettingsPage hook runtime preferences", () => {
     expect(
       screen.getByText(/Last error: runtime exited unexpectedly/i),
     ).toBeTruthy();
+    expect(
+      screen.getAllByText("Restart runtime before retrying").length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText("Runtime process exit").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Restart runtime, then retry").length).toBeGreaterThan(0);
+  });
+
+  it("shows a direct config action and richer next-step copy for fix-launch-config recovery", async () => {
+    localStorage.setItem("settings-config-runtime-side-tabs", "runtime-state");
+    workspaceApiState.getWorkspaceRuntimeState.mockResolvedValue(
+      createWorkspaceRuntimeState({
+        status: "error",
+        lastError: "invalid runtime launch config",
+        lastErrorCategory: "configuration",
+        lastErrorRecoveryAction: "fix-launch-config",
+        lastErrorRetryable: false,
+        lastErrorRequiresRuntimeRecycle: false,
+        recentStderr: ["invalid shell_environment_policy"],
+      }),
+    );
+
+    renderWithProviders(<ConfigSettingsPageComponent />);
+
+    await waitFor(() => {
+      expect(settingsApiState.readRuntimePreferences).toHaveBeenCalledTimes(1);
+    });
+
+    expect(
+      await screen.findByText("Review launch configuration before restarting"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Open Config Settings" }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByText(
+        /Fix the workspace launch settings first, then restart the runtime/i,
+      ),
+    ).toHaveLength(2);
+    expect(screen.getAllByText("Launch configuration").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fix launch config").length).toBeGreaterThan(0);
   });
 });

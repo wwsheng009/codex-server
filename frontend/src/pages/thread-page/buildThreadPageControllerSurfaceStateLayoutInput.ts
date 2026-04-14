@@ -65,6 +65,7 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     runtimeRecoveryNotice: buildWorkspaceRuntimeRecoverySummary(
       dataState.workspaceRuntimeStateQuery.data,
     ),
+    runtimeRecoveryExecutionNotice: controllerState.runtimeRecoveryExecutionNotice,
     restartAndRetryPending: controllerState.isRestartAndRetryPending,
     selectedCommandSession: displayState.selectedCommandSession,
     selectedThread: dataState.selectedThread,

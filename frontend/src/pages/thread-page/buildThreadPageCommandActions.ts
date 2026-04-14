@@ -11,8 +11,11 @@ import {
   unpinCommandSession,
   writeCommand,
 } from '../../features/commands/api'
+import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import type { WorkspaceRuntimeState } from '../../types/api'
+import { createThreadPageRuntimeRecoveryExecutionNotice } from './threadPageRecoveryExecution'
+import { getRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 import type { ThreadPageCommandActionsInput } from './threadPageActionTypes'
 
 export function buildThreadPageCommandActions({
@@ -30,6 +33,8 @@ export function buildThreadPageCommandActions({
   setSendError,
   setCommandRunMode,
   setRecoverableCommandOperation,
+  setRecoverableSendInput,
+  setRuntimeRecoveryExecutionNotice,
   selectedProcessId,
   setIsTerminalDockExpanded,
   setSelectedProcessId,
@@ -80,7 +85,8 @@ export function buildThreadPageCommandActions({
     nextOperation: ThreadPageCommandActionsInput['recoverableCommandOperation'],
   ) {
     const latestRuntimeState = await fetchLatestWorkspaceRuntimeState()
-    if (shouldOfferRestartAndRetry(latestRuntimeState)) {
+    if (getRecoverableRuntimeActionKind(latestRuntimeState)) {
+      setRecoverableSendInput(null)
       setRecoverableCommandOperation(nextOperation)
       return
     }
@@ -91,9 +97,10 @@ export function buildThreadPageCommandActions({
   async function startExecCommand(commandLine: string) {
     const nextCommand = commandLine.trim()
     if (!nextCommand) {
-      return
+      return false
     }
 
+    setRecoverableSendInput(null)
     setRecoverableCommandOperation(null)
 
     try {
@@ -101,6 +108,7 @@ export function buildThreadPageCommandActions({
         command: nextCommand,
         mode: 'command',
       })
+      return true
     } catch (error) {
       await captureRecoverableCommandOperationIfNeeded({
         kind: 'start-command',
@@ -111,36 +119,40 @@ export function buildThreadPageCommandActions({
       })
       setSendError(getErrorMessage(error, 'Failed to start command session.'))
       void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
+      return false
     }
   }
 
-  async function runThreadShellCommand(commandLine: string) {
-    if (!selectedThreadId) {
-      return
+  async function runThreadShellCommand(commandLine: string, threadId = selectedThreadId) {
+    if (!threadId) {
+      return false
     }
 
     const nextCommand = commandLine.trim()
     if (!nextCommand) {
-      return
+      return false
     }
 
+    setRecoverableSendInput(null)
     setRecoverableCommandOperation(null)
 
     try {
       await threadShellCommandMutation.mutateAsync({
-        threadId: selectedThreadId,
+        threadId,
         command: nextCommand,
       })
+      return true
     } catch (error) {
       await captureRecoverableCommandOperationIfNeeded({
         kind: 'thread-shell-command',
         input: {
-          threadId: selectedThreadId,
+          threadId,
           command: nextCommand,
         },
       })
       setSendError(getErrorMessage(error, 'Failed to run shell command.'))
       void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
+      return false
     }
   }
 
@@ -166,27 +178,31 @@ export function buildThreadPageCommandActions({
     void startExecCommand(commandLine)
   }
 
-  function handleStartTerminalShellSession(shell?: string) {
-    void (async () => {
-      setRecoverableCommandOperation(null)
+  async function startShellSession(shell?: string) {
+    const nextInput = {
+      mode: 'shell' as const,
+      ...(shell ? { shell } : {}),
+    }
 
-      try {
-        await startCommandMutation.mutateAsync({
-          mode: 'shell',
-          ...(shell ? { shell } : {}),
-        })
-      } catch (error) {
-        await captureRecoverableCommandOperationIfNeeded({
-          kind: 'start-command',
-          input: {
-            mode: 'shell',
-            ...(shell ? { shell } : {}),
-          },
-        })
-        setSendError(getErrorMessage(error, 'Failed to start shell session.'))
-        void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
-      }
-    })()
+    setRecoverableSendInput(null)
+    setRecoverableCommandOperation(null)
+
+    try {
+      await startCommandMutation.mutateAsync(nextInput)
+      return true
+    } catch (error) {
+      await captureRecoverableCommandOperationIfNeeded({
+        kind: 'start-command',
+        input: nextInput,
+      })
+      setSendError(getErrorMessage(error, 'Failed to start shell session.'))
+      void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
+      return false
+    }
+  }
+
+  function handleStartTerminalShellSession(shell?: string) {
+    void startShellSession(shell)
   }
 
   async function handleRestartAndRetryCommandOperation() {
@@ -200,22 +216,100 @@ export function buildThreadPageCommandActions({
     try {
       await restartRuntimeMutation.mutateAsync()
 
+      let didRetrySucceed = false
       if (recoverableCommandOperation.kind === 'thread-shell-command') {
-        await runThreadShellCommand(recoverableCommandOperation.input.command)
-        return
+        didRetrySucceed = await runThreadShellCommand(
+          recoverableCommandOperation.input.command,
+          recoverableCommandOperation.input.threadId,
+        )
+      } else if (recoverableCommandOperation.input.mode === 'shell') {
+        didRetrySucceed = await startShellSession(recoverableCommandOperation.input.shell)
+      } else {
+        didRetrySucceed = await startExecCommand(
+          recoverableCommandOperation.input.command ?? '',
+        )
       }
 
-      if (recoverableCommandOperation.input.mode === 'shell') {
-        await startCommandMutation.mutateAsync(recoverableCommandOperation.input)
-        return
-      }
-
-      await startExecCommand(recoverableCommandOperation.input.command ?? '')
+      setRuntimeRecoveryExecutionNotice((current) =>
+        createThreadPageRuntimeRecoveryExecutionNotice({
+          actionKind: 'restart-and-retry',
+          previous: current,
+          status: didRetrySucceed ? 'success' : 'error',
+          summary: didRetrySucceed
+            ? i18n._({
+                id: 'Runtime restarted and the failed terminal operation was started again.',
+                message:
+                  'Runtime restarted and the failed terminal operation was started again.',
+              })
+            : i18n._({
+                id: 'Runtime restarted, but the failed terminal operation still could not be started.',
+                message:
+                  'Runtime restarted, but the failed terminal operation still could not be started.',
+              }),
+        }),
+      )
     } catch (error) {
-      setSendError(getErrorMessage(error, 'Failed to restart runtime and retry the terminal action.'))
+      const errorMessage = getErrorMessage(
+        error,
+        'Failed to restart runtime and retry the terminal action.',
+      )
+      setSendError(errorMessage)
+      setRuntimeRecoveryExecutionNotice((current) =>
+        createThreadPageRuntimeRecoveryExecutionNotice({
+          actionKind: 'restart-and-retry',
+          details: errorMessage,
+          previous: current,
+          status: 'error',
+          summary: i18n._({
+            id: 'The runtime could not be restarted for the terminal recovery replay.',
+            message:
+              'The runtime could not be restarted for the terminal recovery replay.',
+          }),
+        }),
+      )
     } finally {
       setIsRestartAndRetryPending(false)
     }
+  }
+
+  async function handleRetryCommandOperation() {
+    if (!recoverableCommandOperation) {
+      return
+    }
+
+    setSendError(null)
+
+    let didRetrySucceed = false
+    if (recoverableCommandOperation.kind === 'thread-shell-command') {
+      didRetrySucceed = await runThreadShellCommand(
+        recoverableCommandOperation.input.command,
+        recoverableCommandOperation.input.threadId,
+      )
+    } else if (recoverableCommandOperation.input.mode === 'shell') {
+      didRetrySucceed = await startShellSession(recoverableCommandOperation.input.shell)
+    } else {
+      didRetrySucceed = await startExecCommand(
+        recoverableCommandOperation.input.command ?? '',
+      )
+    }
+
+    setRuntimeRecoveryExecutionNotice((current) =>
+      createThreadPageRuntimeRecoveryExecutionNotice({
+        actionKind: 'retry',
+        previous: current,
+        status: didRetrySucceed ? 'success' : 'error',
+        summary: didRetrySucceed
+          ? i18n._({
+              id: 'The failed terminal operation was started again without restarting the runtime.',
+              message:
+                'The failed terminal operation was started again without restarting the runtime.',
+            })
+          : i18n._({
+              id: 'Retry could not restart the failed terminal operation.',
+              message: 'Retry could not restart the failed terminal operation.',
+            }),
+      }),
+    )
   }
 
   function handleSendStdin(event: FormEvent<HTMLFormElement>) {
@@ -354,21 +448,11 @@ export function buildThreadPageCommandActions({
     handleStartTerminalCommandLine,
     handleStartTerminalShellSession,
     handleResizeTerminal,
+    handleRetryCommandOperation,
     handleRestartAndRetryCommandOperation,
     handleToggleArchivedCommandSession,
     handleTogglePinnedCommandSession,
     handleTerminateSelectedCommandSession,
     handleWriteTerminalData,
   }
-}
-
-function shouldOfferRestartAndRetry(state: WorkspaceRuntimeState | null | undefined) {
-  if (!state) {
-    return false
-  }
-
-  return (
-    Boolean(state.lastErrorRequiresRuntimeRecycle) ||
-    (state.lastErrorRecoveryAction ?? '').trim() === 'retry-after-restart'
-  )
 }

@@ -2,7 +2,8 @@
 
 import { beforeAll, describe, expect, it } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { i18n } from '../../i18n/runtime'
@@ -10,8 +11,19 @@ import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
 import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 
 function renderRail(options?: {
+  runtimeRecoveryExecutionNotice?: {
+    actionKind: 'retry' | 'restart-and-retry'
+    attemptCount: number
+    attemptedAt: string
+    details: string
+    noticeKey: string
+    summary: string
+    title: string
+    tone: 'info' | 'error'
+  } | null
   runtimeRecoverySummary?: WorkspaceRuntimeRecoverySummary | null
   onRestartRuntime?: () => void
+  onRetryRuntimeOperation?: () => void
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -82,6 +94,7 @@ function renderRail(options?: {
           onInspectorResizeStart={() => undefined}
           onOpenInspector={() => undefined}
           onOpenSurfacePanel={() => undefined}
+          onRetryRuntimeOperation={options?.onRetryRuntimeOperation}
           onRestartRuntime={options?.onRestartRuntime}
           onResetInspectorWidth={() => undefined}
           onSendBotMessage={(event) => {
@@ -97,6 +110,7 @@ function renderRail(options?: {
           onToggleWorkbenchToolsExpanded={() => undefined}
           pendingApprovalsCount={1}
           rootPath="E:/projects/ai/codex-server"
+          runtimeRecoveryExecutionNotice={options?.runtimeRecoveryExecutionNotice}
           runtimeRecoverySummary={options?.runtimeRecoverySummary}
           runtimeConfigChangedAt="2026-04-12T05:00:00.000Z"
           runtimeConfigLoadStatus="loaded"
@@ -152,6 +166,10 @@ describe('ThreadWorkbenchRail', () => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
   })
 
+  afterEach(() => {
+    cleanup()
+  })
+
   it('switches between overview, governance, thread, and tools panels', async () => {
     renderRail()
 
@@ -182,6 +200,9 @@ describe('ThreadWorkbenchRail', () => {
       runtimeRecoverySummary: {
         title: 'Runtime Recovery Guidance',
         tone: 'error',
+        actionKind: 'restart-and-retry',
+        actionTitle: 'Restart runtime before retrying',
+        actionSummary: 'Recycle the workspace runtime, then rerun the failed operation after the runtime is back.',
         categoryLabel: 'Runtime process exit',
         recoveryActionLabel: 'Restart runtime, then retry',
         retryable: true,
@@ -194,7 +215,83 @@ describe('ThreadWorkbenchRail', () => {
     })
 
     expect(screen.getByText('Runtime Recovery Guidance')).toBeTruthy()
+    expect(screen.getByText('Restart runtime before retrying')).toBeTruthy()
     expect(screen.getByText(/runtime exited unexpectedly/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Restart Runtime' })).toBeTruthy()
+  })
+
+  it('shows a config settings shortcut when recovery says launch config must be fixed', () => {
+    renderRail({
+      runtimeRecoverySummary: {
+        title: 'Runtime Recovery Guidance',
+        tone: 'error',
+        actionKind: 'fix-config',
+        actionTitle: 'Review launch configuration before restarting',
+        actionSummary:
+          'Fix the workspace launch settings first, then restart the runtime so the next boot uses the corrected config.',
+        categoryLabel: 'Launch configuration',
+        recoveryActionLabel: 'Fix launch config',
+        retryable: false,
+        retryableLabel: 'No',
+        requiresRecycle: false,
+        recycleLabel: 'No',
+        description: 'Last error: invalid runtime launch config. Category: Launch configuration.',
+        details: 'Recent stderr:\n- invalid runtime launch config',
+      },
+    })
+
+    expect(screen.getByText('Review launch configuration before restarting')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open Config Settings' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Restart Runtime' })).toBeNull()
+  })
+
+  it('shows a retry shortcut when recovery says the failed operation can be retried directly', () => {
+    renderRail({
+      onRetryRuntimeOperation: () => undefined,
+      runtimeRecoverySummary: {
+        title: 'Runtime Recovery Guidance',
+        tone: 'error',
+        actionKind: 'retry',
+        actionTitle: 'Retry the failed operation',
+        actionSummary:
+          'The runtime looks recoverable enough to retry without forcing a full recycle first.',
+        categoryLabel: 'Bridge / transport',
+        recoveryActionLabel: 'Retry request',
+        retryable: true,
+        retryableLabel: 'Yes',
+        requiresRecycle: false,
+        recycleLabel: 'No',
+        description: 'Last error: temporary transport interruption. Category: Bridge / transport.',
+        details: 'Recent stderr:\n- temporary transport interruption',
+      },
+    })
+
+    expect(screen.getByText('Retry the failed operation')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Restart Runtime' })).toBeNull()
+  })
+
+  it('shows the latest recovery execution summary in the overview rail', () => {
+    renderRail({
+      runtimeRecoveryExecutionNotice: {
+        actionKind: 'retry',
+        attemptCount: 2,
+        attemptedAt: '2026-04-14T01:23:45.000Z',
+        details:
+          'Action: Retry\n\nStatus: Succeeded\n\nAttempt Count: 2\n\nSummary: The failed terminal operation was started again without restarting the runtime.',
+        noticeKey: 'runtime-recovery-attempt-retry-success-2',
+        summary:
+          'The failed terminal operation was started again without restarting the runtime. Action: Retry. Attempt 2 at Apr 14, 2026, 9:23 AM.',
+        title: 'Latest Recovery Attempt Succeeded',
+        tone: 'info',
+      },
+    })
+
+    expect(screen.getByText('Latest Recovery Attempt Succeeded')).toBeTruthy()
+    expect(
+      screen.getByText(
+        /The failed terminal operation was started again without restarting the runtime\./i,
+      ),
+    ).toBeTruthy()
   })
 })

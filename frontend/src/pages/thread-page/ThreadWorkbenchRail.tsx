@@ -63,6 +63,7 @@ export function ThreadWorkbenchRail({
   pendingApprovalsCount,
   rootPath,
   runtimeRecoverySummary,
+  runtimeRecoveryExecutionNotice,
   runtimeConfigChangedAt,
   runtimeConfigLoadStatus,
   hookConfiguration,
@@ -113,6 +114,7 @@ export function ThreadWorkbenchRail({
   onInspectorResizeStart,
   onOpenInspector,
   onOpenSurfacePanel,
+  onRetryRuntimeOperation,
   onRestartRuntime,
   onResetInspectorWidth,
   onSendBotMessage,
@@ -228,9 +230,11 @@ export function ThreadWorkbenchRail({
           loadedUserMessageCount={loadedUserMessageCount}
           onHideSurfacePanel={onHideSurfacePanel}
           onOpenSurfacePanel={onOpenSurfacePanel}
+          onRetryRuntimeOperation={onRetryRuntimeOperation}
           pendingApprovalsCount={pendingApprovalsCount}
           rootPath={rootPath}
           runtimeRecoverySummary={runtimeRecoverySummary}
+          runtimeRecoveryExecutionNotice={runtimeRecoveryExecutionNotice}
           runtimeConfigChangedAt={runtimeConfigChangedAt}
           runtimeConfigLoadStatus={runtimeConfigLoadStatus}
           runtimeRestartRequired={runtimeRestartRequired}

@@ -12,6 +12,7 @@ import type {
   ComposerPreferences,
 } from './threadPageComposerShared'
 import type { SurfacePanelSides, SurfacePanelWidths } from './workbenchLayoutTypes'
+import type { ThreadPageRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 
 export type UsePendingThreadTurnsInput = {
   selectedThreadId?: string
@@ -86,11 +87,13 @@ export type UseThreadPageDataInput = {
 }
 
 export type UseThreadPageComposerCallbacksInput = {
+  handleRetryRuntimeOperation: () => Promise<void>
   handleRestartAndRetryCommandOperation: () => Promise<void>
   handleRestartAndRetryRuntimeOperation: () => Promise<void>
   hasAccountError: boolean
   hasRecoverableCommandOperation: boolean
   hasRecoverableRuntimeOperation: boolean
+  recoverableRuntimeActionKind: ThreadPageRecoverableRuntimeActionKind | null
   isRestartAndRetryPending: boolean
   queryClient: QueryClient
   requiresOpenAIAuth: boolean

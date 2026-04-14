@@ -1,6 +1,7 @@
 import { useThreadComposerActions } from './useThreadComposerActions'
 import { useThreadPageActions } from './useThreadPageActions'
 import { useThreadPageComposerCallbacks } from './useThreadPageComposerCallbacks'
+import { getRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 import type {
   ThreadPageControllerActions,
   UseThreadPageControllerActionsInput,
@@ -115,6 +116,7 @@ export function useThreadPageControllerActions({
     setMessage: controllerState.setMessage,
     setRecoverableCommandOperation: controllerState.setRecoverableCommandOperation,
     setRecoverableSendInput: controllerState.setRecoverableSendInput,
+    setRuntimeRecoveryExecutionNotice: controllerState.setRuntimeRecoveryExecutionNotice,
     setSelectedProcessId: controllerState.setSelectedProcessId,
     setSendError: controllerState.setSendError,
     setThreadTurnWindowSize: controllerState.setThreadTurnWindowSize,
@@ -132,6 +134,7 @@ export function useThreadPageControllerActions({
   })
 
   const composerCallbacks = useThreadPageComposerCallbacks({
+    handleRetryRuntimeOperation: pageActions.handleRetryRuntimeOperation,
     handleRestartAndRetryCommandOperation:
       pageActions.handleRestartAndRetryCommandOperation,
     handleRestartAndRetryRuntimeOperation:
@@ -141,6 +144,9 @@ export function useThreadPageControllerActions({
     hasRecoverableRuntimeOperation:
       Boolean(controllerState.recoverableSendInput?.trim()) ||
       Boolean(controllerState.recoverableCommandOperation),
+    recoverableRuntimeActionKind: getRecoverableRuntimeActionKind(
+      dataState.workspaceRuntimeStateQuery.data,
+    ),
     isRestartAndRetryPending: controllerState.isRestartAndRetryPending,
     queryClient: controllerState.queryClient,
     requiresOpenAIAuth: statusState.requiresOpenAIAuth,

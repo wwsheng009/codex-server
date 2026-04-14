@@ -4,6 +4,8 @@ import { DetailGroup } from '../../components/ui/DetailGroup'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { Tooltip } from '../../components/ui/Tooltip'
 import { formatRelativeTimeShort } from '../../components/workspace/timeline-utils'
+import { RuntimeRecoveryActionGroup } from '../../features/workspaces/RuntimeRecoveryActionGroup'
+import { RuntimeRecoveryNoticeContent } from '../../features/workspaces/RuntimeRecoveryNoticeContent'
 import {
   formatLocalizedStatusLabel,
   formatShellEnvironmentInheritLabel,
@@ -265,9 +267,11 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   loadedUserMessageCount,
   onHideSurfacePanel,
   onOpenSurfacePanel,
+  onRetryRuntimeOperation,
   onRestartRuntime,
   pendingApprovalsCount,
   rootPath,
+  runtimeRecoveryExecutionNotice,
   runtimeRecoverySummary,
   runtimeConfigChangedAt,
   runtimeConfigLoadStatus,
@@ -478,39 +482,57 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
       >
         <div className="pane-section-content">
           {runtimeRecoverySummary ? (
-            <InlineNotice
-              action={
-                runtimeRecoverySummary?.requiresRecycle && onRestartRuntime ? (
-                  <button
-                    className="ide-button ide-button--secondary ide-button--sm"
-                    disabled={Boolean(restartRuntimePending)}
-                    onClick={onRestartRuntime}
-                    type="button"
-                  >
-                    {restartRuntimePending
-                      ? i18n._({ id: 'Restarting…', message: 'Restarting…' })
-                      : i18n._({ id: 'Restart Runtime', message: 'Restart Runtime' })}
-                  </button>
-                ) : null
-              }
-              details={runtimeRecoverySummary.details}
-              noticeKey={`thread-runtime-recovery-${runtimeRecoverySummary.categoryLabel}-${runtimeRecoverySummary.recoveryActionLabel}`}
-              title={runtimeRecoverySummary.title}
-              tone={runtimeRecoverySummary.tone}
-            >
-              {runtimeRecoverySummary.description}
-            </InlineNotice>
+            <div className="form-stack">
+              <InlineNotice
+                action={RuntimeRecoveryActionGroup({
+                  configSettingsPath: '/settings/config',
+                  environmentSettingsPath: '/settings/environment',
+                  onRetry: onRetryRuntimeOperation,
+                  onRestartRuntime,
+                  restartRuntimePending,
+                  summary: runtimeRecoverySummary,
+                })}
+                details={runtimeRecoverySummary.details}
+                noticeKey={`thread-runtime-recovery-${runtimeRecoverySummary.categoryLabel}-${runtimeRecoverySummary.recoveryActionLabel}`}
+                title={runtimeRecoverySummary.title}
+                tone={runtimeRecoverySummary.tone}
+              >
+                <RuntimeRecoveryNoticeContent summary={runtimeRecoverySummary} />
+              </InlineNotice>
+              {runtimeRecoveryExecutionNotice ? (
+                <InlineNotice
+                  details={runtimeRecoveryExecutionNotice.details}
+                  noticeKey={runtimeRecoveryExecutionNotice.noticeKey}
+                  title={runtimeRecoveryExecutionNotice.title}
+                  tone={runtimeRecoveryExecutionNotice.tone}
+                >
+                  {runtimeRecoveryExecutionNotice.summary}
+                </InlineNotice>
+              ) : null}
+            </div>
           ) : (
-            <InlineNotice
-              noticeKey="thread-runtime-recovery-none"
-              title={i18n._({ id: 'Runtime Recovery', message: 'Runtime Recovery' })}
-            >
-              {i18n._({
-                id: 'No recent classified runtime failure is currently recorded for this workspace.',
-                message:
-                  'No recent classified runtime failure is currently recorded for this workspace.',
-              })}
-            </InlineNotice>
+            <div className="form-stack">
+              {runtimeRecoveryExecutionNotice ? (
+                <InlineNotice
+                  details={runtimeRecoveryExecutionNotice.details}
+                  noticeKey={runtimeRecoveryExecutionNotice.noticeKey}
+                  title={runtimeRecoveryExecutionNotice.title}
+                  tone={runtimeRecoveryExecutionNotice.tone}
+                >
+                  {runtimeRecoveryExecutionNotice.summary}
+                </InlineNotice>
+              ) : null}
+              <InlineNotice
+                noticeKey="thread-runtime-recovery-none"
+                title={i18n._({ id: 'Runtime Recovery', message: 'Runtime Recovery' })}
+              >
+                {i18n._({
+                  id: 'No recent classified runtime failure is currently recorded for this workspace.',
+                  message:
+                    'No recent classified runtime failure is currently recorded for this workspace.',
+                })}
+              </InlineNotice>
+            </div>
           )}
         </div>
       </DetailGroup>

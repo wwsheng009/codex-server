@@ -66,6 +66,7 @@ export function buildThreadPageControllerRailStateLayoutInput({
     runtimeRecoverySummary: buildWorkspaceRuntimeRecoverySummary(
       dataState.workspaceRuntimeStateQuery.data,
     ),
+    runtimeRecoveryExecutionNotice: controllerState.runtimeRecoveryExecutionNotice,
     runtimeConfigChangedAt:
       dataState.workspaceRuntimeStateQuery.data?.runtimeConfigChangedAt ?? undefined,
     runtimeConfigLoadStatus:

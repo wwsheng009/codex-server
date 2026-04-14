@@ -21,6 +21,7 @@ describe('buildThreadPageInteractionStatus', () => {
       activeContextCompactionFeedback: null,
       activePendingTurn: null,
       hasRecoverableRuntimeOperation: false,
+      recoverableRuntimeActionKind: null,
       hasUnreadThreadUpdates: false,
       interruptPending: false,
       isThreadPinnedToLatest: true,
@@ -44,6 +45,7 @@ describe('buildThreadPageInteractionStatus', () => {
       activeContextCompactionFeedback: null,
       activePendingTurn: null,
       hasRecoverableRuntimeOperation: false,
+      recoverableRuntimeActionKind: null,
       hasUnreadThreadUpdates: false,
       interruptPending: false,
       isThreadPinnedToLatest: true,
@@ -67,6 +69,7 @@ describe('buildThreadPageInteractionStatus', () => {
       activeContextCompactionFeedback: null,
       activePendingTurn: null,
       hasRecoverableRuntimeOperation: true,
+      recoverableRuntimeActionKind: 'restart-and-retry',
       hasUnreadThreadUpdates: false,
       interruptPending: false,
       isThreadPinnedToLatest: true,
@@ -80,6 +83,31 @@ describe('buildThreadPageInteractionStatus', () => {
     })
 
     expect(result.composerStatusRetryLabel).toBe('Restart and Retry')
+    expect(result.isSendBusy).toBe(false)
+  })
+
+  it('uses plain retry labeling when the runtime suggests retry without recycle', () => {
+    const result = buildThreadPageInteractionStatus({
+      account: undefined,
+      accountError: null,
+      activeComposerApproval: null,
+      activeContextCompactionFeedback: null,
+      activePendingTurn: null,
+      hasRecoverableRuntimeOperation: true,
+      recoverableRuntimeActionKind: 'retry',
+      hasUnreadThreadUpdates: false,
+      interruptPending: false,
+      isThreadPinnedToLatest: true,
+      latestDisplayedTurn: undefined,
+      restartAndRetryPending: false,
+      selectedThread: undefined,
+      selectedThreadId: 'thread-1',
+      sendError: 'Temporary transport interruption.',
+      streamState: 'open',
+      suppressAuthenticationError: false,
+    })
+
+    expect(result.composerStatusRetryLabel).toBe('Retry')
     expect(result.isSendBusy).toBe(false)
   })
 })

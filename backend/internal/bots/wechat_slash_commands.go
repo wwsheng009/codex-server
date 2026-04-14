@@ -146,6 +146,9 @@ func appendWeChatTimingMessage(
 	next := cloneOutboundMessages(messages)
 	lastIndex := len(next) - 1
 	timingText := renderWeChatSlashTiming(inbound, startedAt, completedAt)
+	if len(next[lastIndex].Media) > 0 {
+		return append(next, OutboundMessage{Text: timingText})
+	}
 	if strings.TrimSpace(next[lastIndex].Text) == "" {
 		next[lastIndex].Text = timingText
 		return next
@@ -153,6 +156,55 @@ func appendWeChatTimingMessage(
 
 	next[lastIndex].Text = strings.TrimSpace(next[lastIndex].Text) + "\n\n" + timingText
 	return next
+}
+
+func summarizeProviderReplyMessages(connection store.BotConnection, messages []OutboundMessage) string {
+	if len(messages) == 0 {
+		return ""
+	}
+
+	lastMessage := messages[len(messages)-1]
+	lastSummary := messageSummaryText(lastMessage.Text, lastMessage.Media)
+	if !isStandaloneWeChatTimingMessage(connection, lastMessage) {
+		return lastSummary
+	}
+
+	for index := len(messages) - 2; index >= 0; index -= 1 {
+		message := messages[index]
+		if isStandaloneWeChatTimingMessage(connection, message) {
+			continue
+		}
+
+		summary := messageSummaryText(message.Text, message.Media)
+		switch {
+		case summary == "":
+			continue
+		case lastSummary == "":
+			return summary
+		default:
+			return summary + "\n\n" + lastSummary
+		}
+	}
+
+	return lastSummary
+}
+
+func summarizeStoredProviderReplyMessages(connection store.BotConnection, messages []store.BotReplyMessage) string {
+	return summarizeProviderReplyMessages(connection, outboundMessagesFromReplyMessages(messages))
+}
+
+func isStandaloneWeChatTimingMessage(connection store.BotConnection, message OutboundMessage) bool {
+	if normalizeProviderName(connection.Provider) != wechatProviderName || len(message.Media) > 0 {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(message.Text)
+	if trimmed == "" {
+		return false
+	}
+
+	lines := strings.Split(trimmed, "\n")
+	return strings.TrimSpace(lines[0]) == "Channel timing"
 }
 
 func wechatInboundCreatedAt(inbound InboundMessage) (time.Time, bool) {

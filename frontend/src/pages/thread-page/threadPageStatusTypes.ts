@@ -2,6 +2,7 @@ import type { Account, PendingApproval, Thread, ThreadTurn } from '../../types/a
 import type { SurfacePanelView, TerminalDockPlacement } from '../../lib/layout-config-types'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ComposerStatusInfo, ContextCompactionFeedback } from './threadPageComposerShared'
+import type { ThreadPageRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 
 export type ThreadPageStatusEventTimestamp = {
   ts: string
@@ -19,6 +20,7 @@ export type ThreadPageStatusStateInput = {
   commandSessionCount: number
   displayedTurnsLength: number
   hasRecoverableRuntimeOperation: boolean
+  recoverableRuntimeActionKind: ThreadPageRecoverableRuntimeActionKind | null
   hasUnreadThreadUpdates: boolean
   isDocumentVisible: boolean
   interruptPending: boolean
@@ -59,6 +61,7 @@ export type ThreadPageInteractionStatusInput = {
   activeContextCompactionFeedback: ContextCompactionFeedback | null
   activePendingTurn: PendingThreadTurn | null
   hasRecoverableRuntimeOperation: boolean
+  recoverableRuntimeActionKind: ThreadPageRecoverableRuntimeActionKind | null
   hasUnreadThreadUpdates: boolean
   interruptPending: boolean
   isThreadPinnedToLatest: boolean

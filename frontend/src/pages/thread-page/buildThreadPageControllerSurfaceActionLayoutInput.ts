@@ -27,6 +27,7 @@ export function buildThreadPageControllerSurfaceActionLayoutInput({
     onRemoveSession: pageActions.handleRemoveCommandSession,
     onResizeTerminal: pageActions.handleResizeTerminal,
     onRespondApproval: pageActions.handleRespondApproval,
+    onRetryRuntimeOperation: pageActions.handleRetryRuntimeOperation,
     onRestartAndRetry: pageActions.handleRestartAndRetryRuntimeOperation,
     onRestartRuntime: () => mutationState.restartRuntimeMutation.mutate(),
     onRestoreOlderTurnsViewport: viewportState.restoreOlderTurnsViewport,

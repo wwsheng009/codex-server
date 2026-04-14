@@ -2517,8 +2517,7 @@ func (s *Service) recordConversationOutboundDeliveryState(
 ) store.BotConversation {
 	lastOutboundText := ""
 	if len(messages) > 0 {
-		lastMessage := messages[len(messages)-1]
-		lastOutboundText = messageSummaryText(lastMessage.Text, lastMessage.Media)
+		lastOutboundText = summarizeStoredProviderReplyMessages(connection, messages)
 	}
 
 	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
@@ -8172,8 +8171,7 @@ func (s *Service) recordConversationReplyOutcome(
 ) store.BotConversation {
 	lastOutboundText := strings.TrimSpace(fallbackOutboundText)
 	if len(reply.Messages) > 0 {
-		lastMessage := reply.Messages[len(reply.Messages)-1]
-		lastOutboundText = messageSummaryText(lastMessage.Text, lastMessage.Media)
+		lastOutboundText = summarizeProviderReplyMessages(connection, reply.Messages)
 	}
 	expectedContextVersion := conversationContextVersion(conversation)
 	lastInboundText := messageSummaryText(inbound.Text, inbound.Media)

@@ -28,6 +28,8 @@ import {
 } from '../../features/settings/api'
 import { useSettingsShellContext } from '../../features/settings/shell-context'
 import { getWorkspaceRuntimeState, restartWorkspace } from '../../features/workspaces/api'
+import { RuntimeRecoveryActionGroup } from '../../features/workspaces/RuntimeRecoveryActionGroup'
+import { RuntimeRecoveryNoticeContent } from '../../features/workspaces/RuntimeRecoveryNoticeContent'
 import { buildWorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 import { formatLocalizedStatusLabel } from '../../i18n/display'
 import { formatLocaleDateTime } from '../../i18n/format'
@@ -1721,26 +1723,21 @@ export function EnvironmentSettingsPage() {
               ) : null}
               {runtimeRecoverySummary && workspaceRuntimeStateQuery.data ? (
                 <InlineNotice
-                  action={
-                    workspaceRuntimeStateQuery.data.lastErrorRequiresRuntimeRecycle ? (
-                      <button
-                        className="ide-button ide-button--secondary ide-button--sm"
-                        disabled={!workspaceId || restartWorkspaceMutation.isPending}
-                        onClick={() => workspaceId && restartWorkspaceMutation.mutate(workspaceId)}
-                        type="button"
-                      >
-                        {restartWorkspaceMutation.isPending
-                          ? i18n._({ id: 'Restarting…', message: 'Restarting…' })
-                          : i18n._({ id: 'Restart Runtime', message: 'Restart Runtime' })}
-                      </button>
-                    ) : null
-                  }
+                  action={RuntimeRecoveryActionGroup({
+                    configSettingsPath: '/settings/config',
+                    environmentSettingsPath: '/settings/environment',
+                    onRestartRuntime: workspaceId
+                      ? () => restartWorkspaceMutation.mutate(workspaceId)
+                      : undefined,
+                    restartRuntimePending: restartWorkspaceMutation.isPending,
+                    summary: runtimeRecoverySummary,
+                  })}
                   details={runtimeRecoverySummary.details}
                   noticeKey={`environment-runtime-recovery-${workspaceId}-${workspaceRuntimeStateQuery.data.updatedAt}-${workspaceRuntimeStateQuery.data.lastErrorCategory ?? ''}-${workspaceRuntimeStateQuery.data.lastErrorRecoveryAction ?? ''}-${workspaceRuntimeStateQuery.data.lastError ?? ''}`}
                   title={runtimeRecoverySummary.title}
                   tone={runtimeRecoverySummary.tone}
                 >
-                  {runtimeRecoverySummary.description}
+                  <RuntimeRecoveryNoticeContent summary={runtimeRecoverySummary} />
                 </InlineNotice>
               ) : null}
               {workspaceRuntimeStateQuery.data ? (
@@ -2505,7 +2502,6 @@ export function EnvironmentSettingsPage() {
                                   ? i18n._({ id: 'Critical', message: 'Critical' })
                                   : i18n._({ id: 'Warning', message: 'Warning' })}
                               </span>
-                              {frontendCorrelationAlertDelta.newAlerts.some(
                               {filteredFrontendCorrelationAlertDelta.newAlerts.some(
                                 (candidate) => candidate.key === alert.key,
                               ) ? (

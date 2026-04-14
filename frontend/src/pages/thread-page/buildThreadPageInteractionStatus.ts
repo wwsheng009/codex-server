@@ -10,6 +10,7 @@ export function buildThreadPageInteractionStatus({
   activeContextCompactionFeedback,
   activePendingTurn,
   hasRecoverableRuntimeOperation,
+  recoverableRuntimeActionKind,
   hasUnreadThreadUpdates,
   interruptPending,
   isThreadPinnedToLatest,
@@ -168,7 +169,12 @@ export function buildThreadPageInteractionStatus({
         message: 'Refresh status',
       })
     : hasRecoverableRuntimeOperation
-      ? restartAndRetryPending
+      ? recoverableRuntimeActionKind === 'retry'
+        ? i18n._({
+            id: 'Retry',
+            message: 'Retry',
+          })
+        : restartAndRetryPending
         ? i18n._({
             id: 'Restarting…',
             message: 'Restarting…',

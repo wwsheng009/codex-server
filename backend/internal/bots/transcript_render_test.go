@@ -148,7 +148,7 @@ func TestRenderBotHookRunItemBuildsReadableMessageWithoutPrecomputedSummary(t *t
 
 	expected := strings.Join([]string{
 		"Event: Post-Tool Use",
-		"Handler: builtin.turnpolicy.post-tool-use",
+		"Handler: Builtin / Turnpolicy / Post Tool Use",
 		"Status: Completed",
 		"Decision: Continue Turn",
 		"Reason: Validation command failed",

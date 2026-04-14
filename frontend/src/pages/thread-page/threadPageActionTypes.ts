@@ -15,6 +15,7 @@ import type {
   WorkspaceRuntimeState,
 } from '../../types/api'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
+import type { ThreadPageRuntimeRecoveryExecutionNotice } from './threadPageRecoveryExecution'
 import type {
   ComposerAssistPanel,
   ComposerCommandMenu,
@@ -147,7 +148,13 @@ export type ThreadPageThreadActionsInput = {
   setIsLoadingOlderTurns: Dispatch<SetStateAction<boolean>>
   setIsRestartAndRetryPending: (value: boolean) => void
   setMessage: (value: string) => void
+  setRecoverableCommandOperation: (
+    value: ThreadPageRecoverableCommandOperation | null,
+  ) => void
   setRecoverableSendInput: (value: string | null) => void
+  setRuntimeRecoveryExecutionNotice: Dispatch<
+    SetStateAction<ThreadPageRuntimeRecoveryExecutionNotice | null>
+  >
   setSendError: (value: string | null) => void
   setThreadTurnWindowSize: Dispatch<SetStateAction<number>>
   startTurnMutation: {
@@ -187,6 +194,10 @@ export type ThreadPageCommandActionsInput = {
     value: ThreadPageRecoverableCommandOperation | null,
   ) => void
   setIsTerminalDockExpanded: (value: boolean) => void
+  setRecoverableSendInput: (value: string | null) => void
+  setRuntimeRecoveryExecutionNotice: Dispatch<
+    SetStateAction<ThreadPageRuntimeRecoveryExecutionNotice | null>
+  >
   setSelectedProcessId: (value: string | undefined) => void
   setSendError: (value: string | null) => void
   startCommandMutation: {
