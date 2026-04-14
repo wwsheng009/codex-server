@@ -552,6 +552,77 @@ describe('TurnTimeline', () => {
     expect(html).toContain('target="_blank"')
   })
 
+  it('suppresses empty wechat attachment fenced blocks in chat bubbles', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-wechat-empty-attachment-block',
+        status: 'completed',
+        items: [
+          {
+            type: 'agentMessage',
+            text: '正文内容。\n\n```wechat-attachments\n```',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('正文内容。')
+    expect(html).not.toContain('language-wechat-attachments')
+    expect(html).not.toContain('<pre><code')
+  })
+
+  it('replaces attachment protocol blocks with readable attachment summaries', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-wechat-attachment-summary',
+        status: 'completed',
+        items: [
+          {
+            type: 'agentMessage',
+            text: '已收到。\n\n```wechat-attachments\nimage E:\\\\tmp\\\\wechat-photo.png\nfile https://example.com/report.pdf\n```',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('已收到。')
+    expect(html).toContain('<li>image: wechat-photo.png</li>')
+    expect(html).toContain('<li>file: report.pdf</li>')
+    expect(html).not.toContain('language-wechat-attachments')
+    expect(html).not.toContain('https://example.com/report.pdf')
+  })
+
+  it('hides channel notes that are injected for bot transport instructions', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-wechat-channel-note',
+        status: 'completed',
+        items: [
+          {
+            type: 'userMessage',
+            content: [
+              {
+                type: 'inputText',
+                text:
+                  '天气预报\n\n[Channel note: this conversation is on WeChat. To send media back to the user, append a final `wechat-attachments` fenced block with lines like `image <absolute-path-or-https-url>`, `video <absolute-path-or-https-url>`, or `file <absolute-path-or-https-url>`. Use absolute local paths only.]',
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('天气预报')
+    expect(html).not.toContain('Channel note:')
+    expect(html).not.toContain('wechat-attachments')
+  })
+
   it('renders ANSI command output with terminal styling', () => {
     const turns: ThreadTurn[] = [
       {

@@ -14,6 +14,7 @@ import {
   ThreadMarkdown,
   ThreadPlainText,
   ThreadTerminalBlock,
+  sanitizeThreadMarkdownContent,
 } from '../thread/ThreadContent'
 import { formatLocalizedStatusLabel, formatLocalizedTime } from '../../i18n/display'
 import { i18n } from '../../i18n/runtime'
@@ -1396,7 +1397,7 @@ function TimelineItem({
 
   switch (type) {
     case 'userMessage': {
-      const text = userMessageText(item)
+      const text = sanitizeThreadMarkdownContent(userMessageText(item))
 
       if (!text) {
         logSuppressedTimelineItem(item, turnId, 'userMessage without text')
@@ -1431,11 +1432,12 @@ function TimelineItem({
       const phase = stringField(item.phase)
       const clientRenderMode = stringField(item.clientRenderMode)
       const isStreaming = phase === 'streaming'
+      const sanitizedText = isStreaming ? text : sanitizeThreadMarkdownContent(text)
       const shouldAnimateCompletedMessage =
-        clientRenderMode === 'animate-once' && text !== ''
+        clientRenderMode === 'animate-once' && sanitizedText !== ''
       const hasStreamingPresentation = isStreaming || shouldAnimateCompletedMessage
 
-      if (!text) {
+      if (!sanitizedText) {
         if (!isStreaming) {
           logSuppressedTimelineItem(item, turnId, 'agentMessage without text')
           return null
@@ -1468,17 +1470,17 @@ function TimelineItem({
                 : 'conversation-bubble conversation-bubble--assistant'
             }
           >
-            <CopyableMessageBody className="conversation-bubble__content" source={text} tone="assistant">
-              {text ? (
+            <CopyableMessageBody className="conversation-bubble__content" source={sanitizedText} tone="assistant">
+              {sanitizedText ? (
                 shouldAnimateCompletedMessage ? (
-                  <StreamingAgentMessage content={text} />
+                  <StreamingAgentMessage content={sanitizedText} />
                 ) : isStreaming ? (
                   // True streaming content is already chunked by the backend.
                   // Rendering it immediately avoids a second local typewriter lag.
-                  <ThreadPlainText content={text} />
+                  <ThreadPlainText content={sanitizedText} />
                 ) : (
                   <ExpandableThreadMessage
-                    content={text}
+                    content={sanitizedText}
                     onReleaseFullContent={
                       summaryTruncated ? () => onReleaseFullTurn?.(turnId, itemId) : undefined
                     }
@@ -1772,7 +1774,7 @@ function TimelineItem({
       )
     }
     default: {
-      const text = stringField(item.text) || stringField(item.message)
+      const text = sanitizeThreadMarkdownContent(stringField(item.text) || stringField(item.message))
 
       if (!text) {
         logSuppressedTimelineItem(item, turnId, `${type || 'unknown'} without text`)
