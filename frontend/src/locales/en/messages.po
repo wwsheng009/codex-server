@@ -5705,6 +5705,31 @@ msgid "Hook run ID label"
 msgstr "Hook Run"
 
 #. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:418
+msgid "Hook run table header run"
+msgstr "Hook Run"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:424
+msgid "Hook run table header summary"
+msgstr "Summary"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:430
+msgid "Hook run table header outcome"
+msgstr "Outcome"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:436
+msgid "Hook run table header details"
+msgstr "Details"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:442
+msgid "Hook run table header actions"
+msgstr "Actions"
+
+#. js-lingui-explicit-id
 #: src/pages/workspaces/WorkspaceHookRunsSection.tsx:225
 msgid "Hook run ID filter"
 msgstr "Hook Run ID"

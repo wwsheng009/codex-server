@@ -3,6 +3,8 @@ import {
   ContextIcon,
   FolderOpenIcon,
   ResizeHandle,
+  RailIconButton,
+  TerminalIcon,
   ToolsIcon,
 } from "../../components/ui/RailControls";
 import { Tabs } from "../../components/ui/Tabs";
@@ -54,6 +56,7 @@ export function ThreadWorkbenchRail({
   isExpanded,
   isMobileViewport,
   isResizing,
+  isTerminalDockVisible,
   isThreadToolsExpanded,
   isWorkbenchToolsExpanded,
   latestTurnStatus,
@@ -123,6 +126,7 @@ export function ThreadWorkbenchRail({
   onRestartRuntime,
   onResetInspectorWidth,
   onSendBotMessage,
+  onShowTerminalDock,
   onSubmitRenameThread,
   onStartCommand,
   onToggleThreadToolsExpanded,
@@ -212,8 +216,10 @@ export function ThreadWorkbenchRail({
 
     return (
       <ThreadWorkbenchRailCollapsed
+        isTerminalDockVisible={isTerminalDockVisible}
         onOpenInspector={onOpenInspector}
         onOpenSurfacePanel={onOpenSurfacePanel}
+        onShowTerminalDock={onShowTerminalDock}
       />
     );
   }
@@ -414,6 +420,22 @@ export function ThreadWorkbenchRail({
               })}
         </span>
         <div className="workbench-pane__topbar-actions">
+          {!isMobileViewport && !isTerminalDockVisible ? (
+            <RailIconButton
+              aria-label={i18n._({
+                id: "Show terminal",
+                message: "Show terminal",
+              })}
+              className="workbench-pane__topbar-icon-button"
+              onClick={onShowTerminalDock}
+              title={i18n._({
+                id: "Show terminal",
+                message: "Show terminal",
+              })}
+            >
+              <TerminalIcon />
+            </RailIconButton>
+          ) : null}
           {!isMobileViewport ? (
             <button
               className="pane-section__toggle"

@@ -37,20 +37,26 @@ const SCROLL_DIAGNOSTIC_JITTER_WINDOW_MS = 220
 const KNOWN_CONVERSATION_SCROLL_MUTATORS: ConversationScrollMutatorDescriptor[] = [
   {
     file: 'frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts',
-    reason:
-      'Follows new content, thread-open settle, jump-to-latest, and bottom-clearance changes by calling scrollTo(bottom).',
+    reason: i18n._({
+      id: 'threadConversationProfiler.autoScrollReason',
+      message: 'Follows new content, thread-open settle, jump-to-latest, and bottom-clearance changes by calling scrollTo(bottom).',
+    }),
     source: 'auto-scroll',
   },
   {
     file: 'frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts',
-    reason:
-      'Restores viewport position after loading older turns through the shared viewport scroll coordinator.',
+    reason: i18n._({
+      id: 'threadConversationProfiler.olderTurnRestoreReason',
+      message: 'Restores viewport position after loading older turns through the shared viewport scroll coordinator.',
+    }),
     source: 'older-turn-restore',
   },
   {
     file: 'frontend/src/components/workspace/useVirtualizedConversationEntries.ts',
-    reason:
-      'Does not write scrollTop directly, but measured height and padding updates can change scrollHeight while follow mode is active.',
+    reason: i18n._({
+      id: 'threadConversationProfiler.virtualizationLayoutReason',
+      message: 'Does not write scrollTop directly, but measured height and padding updates can change scrollHeight while follow mode is active.',
+    }),
     source: 'virtualization-layout',
   },
 ]
@@ -320,7 +326,10 @@ export function buildConversationRenderProfilerSuggestions(
 ): string[] {
   if (!records.length) {
     return [
-      'Scroll the thread or wait for live output to collect a fresh five second window.',
+      i18n._({
+        id: 'threadConversationProfiler.scrollToCollectWindow',
+        message: 'Scroll the thread or wait for live output to collect a fresh five second window.',
+      }),
     ]
   }
 
@@ -334,7 +343,10 @@ export function buildConversationRenderProfilerSuggestions(
 
   if (topRecord.id === 'ThreadWorkbenchSurface' || topRecord.id === 'TurnTimeline') {
     suggestions.push(
-      'Parent commits dominate this window; verify surface props and turns or entries identity during scroll.',
+      i18n._({
+        id: 'threadConversationProfiler.parentCommitsDominate',
+        message: 'Parent commits dominate this window; verify surface props and turns or entries identity during scroll.',
+      }),
     )
   }
 
@@ -344,19 +356,29 @@ export function buildConversationRenderProfilerSuggestions(
     rowRecord.recentCommitCount > itemCommitCount
   ) {
     suggestions.push(
-      'Row wrappers are committing more often than memoized items; stable windows may still be rebuilding entry shells.',
+      i18n._({
+        id: 'threadConversationProfiler.rowWrappersCommitting',
+        message: 'Row wrappers are committing more often than memoized items; stable windows may still be rebuilding entry shells.',
+      }),
     )
   }
 
   if (hottestTimelineItem && hottestTimelineItem.recentActualDuration >= 8) {
     suggestions.push(
-      `Visible item subtree work is concentrated in ${hottestTimelineItem.id}; inspect that renderer path next.`,
+      i18n._({
+        id: 'threadConversationProfiler.visibleItemSubtreeWork',
+        message: 'Visible item subtree work is concentrated in {id}; inspect that renderer path next.',
+        values: { id: hottestTimelineItem.id },
+      }),
     )
   }
 
   if (!suggestions.length) {
     suggestions.push(
-      'This window looks fairly balanced. Capture one run while scrolling and another while live output streams, then compare the hottest records.',
+      i18n._({
+        id: 'threadConversationProfiler.windowBalanced',
+        message: 'This window looks fairly balanced. Capture one run while scrolling and another while live output streams, then compare the hottest records.',
+      }),
     )
   }
 
@@ -368,7 +390,10 @@ export function buildConversationScrollDiagnosticsSuggestions(
 ): string[] {
   if (!snapshot.eventCount) {
     return [
-      'Enable scroll capture, then reproduce the jump or jitter to collect viewport and programmatic scroll events.',
+      i18n._({
+        id: 'threadConversationProfiler.enableScrollCapture',
+        message: 'Enable scroll capture, then reproduce the jump or jitter to collect viewport and programmatic scroll events.',
+      }),
     ]
   }
 
@@ -377,31 +402,47 @@ export function buildConversationScrollDiagnosticsSuggestions(
 
   if (snapshot.candidateJitterCount > 0) {
     suggestions.push(
-      'Rapid direction changes were detected inside the viewport event stream; inspect the export around those timestamps first.',
+      i18n._({
+        id: 'threadConversationProfiler.rapidDirectionChanges',
+        message: 'Rapid direction changes were detected inside the viewport event stream; inspect the export around those timestamps first.',
+      }),
     )
   }
 
   if (snapshot.rapidProgrammaticWriteCount > 1) {
     suggestions.push(
-      'Multiple programmatic scroll writes landed inside a short window; auto-follow and layout correction may be competing.',
+      i18n._({
+        id: 'threadConversationProfiler.multipleProgrammaticWrites',
+        message: 'Multiple programmatic scroll writes landed inside a short window; auto-follow and layout correction may be competing.',
+      }),
     )
   }
 
   if (snapshot.layoutChangeCount > 0 && snapshot.programmaticScrollCount > 0) {
     suggestions.push(
-      'Layout-changing virtualization events overlapped with programmatic scroll writes; measured heights are a likely contributor to visible jitter.',
+      i18n._({
+        id: 'threadConversationProfiler.layoutChangeOverlap',
+        message: 'Layout-changing virtualization events overlapped with programmatic scroll writes; measured heights are a likely contributor to visible jitter.',
+      }),
     )
   }
 
   if (!suggestions.length && topSource) {
     suggestions.push(
-      `The busiest scroll source in this capture is ${topSource}; start the trace review there.`,
+      i18n._({
+        id: 'threadConversationProfiler.busiestScrollSource',
+        message: 'The busiest scroll source in this capture is {source}; start the trace review there.',
+        values: { source: topSource },
+      }),
     )
   }
 
   if (!suggestions.length && snapshot.viewportScrollCount > 0) {
     suggestions.push(
-      'Only viewport scroll observations were captured. Re-run with the jitter reproduced while follow mode is active to catch competing writes.',
+      i18n._({
+        id: 'threadConversationProfiler.onlyViewportScroll',
+        message: 'Only viewport scroll observations were captured. Re-run with the jitter reproduced while follow mode is active to catch competing writes.',
+      }),
     )
   }
 
@@ -569,7 +610,10 @@ export function buildConversationLiveDiagnosticsSuggestions(
 ): string[] {
   if (!snapshot.eventCount) {
     return [
-      'Enable live capture, reproduce the missing or delayed message, then inspect stream receipt, baseline filtering, and renderer suppression in one timeline.',
+      i18n._({
+        id: 'threadConversationProfiler.enableLiveCapture',
+        message: 'Enable live capture, reproduce the missing or delayed message, then inspect stream receipt, baseline filtering, and renderer suppression in one timeline.',
+      }),
     ]
   }
 
@@ -582,13 +626,19 @@ export function buildConversationLiveDiagnosticsSuggestions(
     snapshot.filteredCount >= snapshot.suppressedCount
   ) {
     suggestions.push(
-      'Baseline-filtered events dominate this capture; inspect updatedAt drift and whether the snapshot already represented the incoming item.',
+      i18n._({
+        id: 'threadConversationProfiler.baselineFilteredDominate',
+        message: 'Baseline-filtered events dominate this capture; inspect updatedAt drift and whether the snapshot already represented the incoming item.',
+      }),
     )
   }
 
   if (snapshot.replayedCount > 0) {
     suggestions.push(
-      'Older events were replayed back into live state; compare recovered item length and placeholder state before assuming the backend stream dropped content.',
+      i18n._({
+        id: 'threadConversationProfiler.olderEventsReplayed',
+        message: 'Older events were replayed back into live state; compare recovered item length and placeholder state before assuming the backend stream dropped content.',
+      }),
     )
   }
 
@@ -600,13 +650,19 @@ export function buildConversationLiveDiagnosticsSuggestions(
 
   if (snapshot.batchFlushCount > 0 || snapshot.deferredFlushCount > 0) {
     suggestions.push(
-      'Stream flush activity was captured; compare receive-to-flush timing when messages feel delayed even though transport stayed healthy.',
+      i18n._({
+        id: 'threadConversationProfiler.streamFlushActivity',
+        message: 'Stream flush activity was captured; compare receive-to-flush timing when messages feel delayed even though transport stayed healthy.',
+      }),
     )
   }
 
   if (snapshot.snapshotReconciledCount > 0) {
     suggestions.push(
-      'Snapshot reconciliation preserved live state over fetched detail; inspect whether longer text or streaming markers were intentionally kept.',
+      i18n._({
+        id: 'threadConversationProfiler.snapshotReconciliation',
+        message: 'Snapshot reconciliation preserved live state over fetched detail; inspect whether longer text or streaming markers were intentionally kept.',
+      }),
     )
   }
 
@@ -618,24 +674,39 @@ export function buildConversationLiveDiagnosticsSuggestions(
 
   if (snapshot.suppressedCount > 0 || snapshot.placeholderCount > 0) {
     suggestions.push(
-      'Renderer fallback events were recorded; inspect empty agent or reasoning items before tracing scroll or viewport behavior.',
+      i18n._({
+        id: 'threadConversationProfiler.rendererFallbackEvents',
+        message: 'Renderer fallback events were recorded; inspect empty agent or reasoning items before tracing scroll or viewport behavior.',
+      }),
     )
   }
 
   if (!suggestions.length && snapshot.jumpToLatestCount > 0) {
     suggestions.push(
-      'Jump-to-latest was used in this capture; compare unread markers and detach events to confirm whether the UI was behaving as expected.',
+      i18n._({
+        id: 'threadConversationProfiler.jumpToLatestUsed',
+        message: 'Jump-to-latest was used in this capture; compare unread markers and detach events to confirm whether the UI was behaving as expected.',
+      }),
     )
   }
 
   if (!suggestions.length && snapshot.streamReceivedCount > 0) {
     suggestions.push(
-      'The frontend did receive live stream events in this capture; if the UI still looked stale, inspect downstream state application rather than transport first.',
+      i18n._({
+        id: 'threadConversationProfiler.frontendReceivedEvents',
+        message: 'The frontend did receive live stream events in this capture; if the UI still looked stale, inspect downstream state application rather than transport first.',
+      }),
     )
   }
 
   if (!suggestions.length && topSource) {
-    suggestions.push(`The busiest live diagnostic source in this capture is ${topSource}; start there.`)
+    suggestions.push(
+      i18n._({
+        id: 'threadConversationProfiler.busiestLiveSource',
+        message: 'The busiest live diagnostic source in this capture is {source}; start there.',
+        values: { source: topSource },
+      }),
+    )
   }
 
   return suggestions.slice(0, 3)
@@ -756,7 +827,7 @@ export function buildConversationLiveProblemItems(
   return lifecycleEntries
     .map((entry) => {
       const evidence: string[] = []
-      let summary = 'Observed live item activity'
+      let summary = i18n._({ id: 'Observed live item activity', message: 'Observed live item activity' })
       let score = 0
 
       if (entry.suppressedReason) {
@@ -1624,7 +1695,7 @@ export function ConversationRenderProfilerPanel() {
                   onClick={() => setConversationRenderProfilerEnabled(!snapshot.enabled)}
                   type="button"
                 >
-                  {snapshot.enabled ? 'Pause Render' : 'Record Render'}
+                  {snapshot.enabled ? i18n._({ id: 'threadConversationProfiler.pauseRender', message: 'Pause Render' }) : i18n._({ id: 'threadConversationProfiler.recordRender', message: 'Record Render' })}
                 </button>
                 <button
                   aria-pressed={snapshot.scrollDiagnosticsEnabled}
@@ -1638,7 +1709,7 @@ export function ConversationRenderProfilerPanel() {
                   }
                   type="button"
                 >
-                  {snapshot.scrollDiagnosticsEnabled ? 'Pause Scroll' : 'Record Scroll'}
+                  {snapshot.scrollDiagnosticsEnabled ? i18n._({ id: 'threadConversationProfiler.pauseScroll', message: 'Pause Scroll' }) : i18n._({ id: 'threadConversationProfiler.recordScroll', message: 'Record Scroll' })}
                 </button>
                 <button
                   aria-pressed={snapshot.liveDiagnosticsEnabled}
@@ -1652,7 +1723,7 @@ export function ConversationRenderProfilerPanel() {
                   }
                   type="button"
                 >
-                  {snapshot.liveDiagnosticsEnabled ? 'Pause Live' : 'Record Live'}
+                  {snapshot.liveDiagnosticsEnabled ? i18n._({ id: 'threadConversationProfiler.pauseLive', message: 'Pause Live' }) : i18n._({ id: 'threadConversationProfiler.recordLive', message: 'Record Live' })}
                 </button>
               </div>
               <div className="conversation-profiler__action-row conversation-profiler__action-row--secondary">

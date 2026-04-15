@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { i18n } from '../../i18n/runtime'
 import { createPortal } from 'react-dom'
 import type { TooltipProps } from './tooltipTypes'
 
@@ -7,7 +8,7 @@ export function Tooltip({
   children,
   position = 'top',
   className = '',
-  triggerLabel = 'Show help',
+  triggerLabel = i18n._({ id: 'Show help', message: 'Show help' }),
 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false)
   const [coords, setCoords] = useState({ top: 0, left: 0 })

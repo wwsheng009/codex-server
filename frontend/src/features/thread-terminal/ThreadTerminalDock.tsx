@@ -1,7 +1,6 @@
 import { createPortal } from 'react-dom'
 
 import { ThreadTerminalDockBar } from './ThreadTerminalDockBar'
-import { ThreadTerminalDockReveal } from './ThreadTerminalDockReveal'
 import { ThreadTerminalDockWorkspaceContainer } from './ThreadTerminalDockWorkspaceContainer'
 import { buildThreadTerminalDockState } from './threadTerminalDockState'
 import type { ThreadTerminalDockProps } from './threadTerminalDockTypes'
@@ -9,14 +8,9 @@ import type { ThreadTerminalDockProps } from './threadTerminalDockTypes'
 export function ThreadTerminalDock(props: ThreadTerminalDockProps) {
   const { className } = props
   const dock = buildThreadTerminalDockState(props)
-  const reveal = <ThreadTerminalDockReveal {...dock.reveal} />
 
   if (!dock.isVisible) {
-    if (!dock.isFloating || typeof document === 'undefined') {
-      return reveal
-    }
-
-    return createPortal(reveal, document.body)
+    return null
   }
 
   const dockView = (

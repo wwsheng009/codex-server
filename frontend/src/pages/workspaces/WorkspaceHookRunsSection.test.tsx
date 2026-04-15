@@ -118,6 +118,12 @@ describe("WorkspaceHookRunsSection", () => {
         "Showing recent governance hook runs across all threads in this workspace.",
       ),
     ).toBeTruthy();
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Hook Run" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Outcome" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Details" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeTruthy();
     expect(screen.getByText("hook-1")).toBeTruthy();
     expect(screen.getByText("Pre-Tool Use")).toBeTruthy();
     expect(screen.getByText("Dangerous Command Guard")).toBeTruthy();

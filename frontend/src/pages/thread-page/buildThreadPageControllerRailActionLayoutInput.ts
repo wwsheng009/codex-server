@@ -39,6 +39,7 @@ export function buildThreadPageControllerRailActionLayoutInput({
     onRestartRuntime: () => mutationState.restartRuntimeMutation.mutate(),
     onResetInspectorWidth: controllerState.handleResetInspectorWidth,
     onSendBotMessage: pageActions.handleSendBotMessage,
+    onShowTerminalDock: controllerState.handleShowTerminalDock,
     onStartCommand: pageActions.handleStartCommand,
     onSubmitRenameThread: pageActions.handleSubmitRenameSelectedThread,
     onToggleThreadToolsExpanded: railState.handleToggleThreadToolsExpanded,

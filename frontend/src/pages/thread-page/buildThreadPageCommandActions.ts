@@ -117,7 +117,7 @@ export function buildThreadPageCommandActions({
           mode: 'command',
         },
       })
-      setSendError(getErrorMessage(error, 'Failed to start command session.'))
+      setSendError(getErrorMessage(error, i18n._({ id: 'Failed to start command session.', message: 'Failed to start command session.' })))
       void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
       return false
     }
@@ -150,7 +150,7 @@ export function buildThreadPageCommandActions({
           command: nextCommand,
         },
       })
-      setSendError(getErrorMessage(error, 'Failed to run shell command.'))
+      setSendError(getErrorMessage(error, i18n._({ id: 'buildThreadPageCommandActions.failedToRunShellCommand', message: 'Failed to run shell command.' })))
       void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
       return false
     }
@@ -195,7 +195,7 @@ export function buildThreadPageCommandActions({
         kind: 'start-command',
         input: nextInput,
       })
-      setSendError(getErrorMessage(error, 'Failed to start shell session.'))
+      setSendError(getErrorMessage(error, i18n._({ id: 'Failed to start shell session.', message: 'Failed to start shell session.' })))
       void queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] })
       return false
     }
@@ -251,7 +251,7 @@ export function buildThreadPageCommandActions({
     } catch (error) {
       const errorMessage = getErrorMessage(
         error,
-        'Failed to restart runtime and retry the terminal action.',
+        i18n._({ id: 'Failed to restart runtime and retry the terminal action.', message: 'Failed to restart runtime and retry the terminal action.' }),
       )
       setSendError(errorMessage)
       setRuntimeRecoveryExecutionNotice((current) =>
@@ -330,7 +330,7 @@ export function buildThreadPageCommandActions({
     }
 
     void writeCommand(workspaceId, selectedCommandSession.id, { input }).catch((error) => {
-      setSendError(getErrorMessage(error, 'Failed to send terminal input.'))
+      setSendError(getErrorMessage(error, i18n._({ id: 'Failed to send terminal input.', message: 'Failed to send terminal input.' })))
     })
   }
 
@@ -365,7 +365,7 @@ export function buildThreadPageCommandActions({
         }
       })
       .catch((error) => {
-        setSendError(getErrorMessage(error, 'Failed to close terminal session.'))
+        setSendError(getErrorMessage(error, i18n._({ id: 'Failed to close terminal session.', message: 'Failed to close terminal session.' })))
       })
   }
 
@@ -389,7 +389,7 @@ export function buildThreadPageCommandActions({
         }
       })
       .catch((error) => {
-        setSendError(getErrorMessage(error, 'Failed to clear finished terminal sessions.'))
+        setSendError(getErrorMessage(error, i18n._({ id: 'Failed to clear finished terminal sessions.', message: 'Failed to clear finished terminal sessions.' })))
       })
   }
 
@@ -416,7 +416,7 @@ export function buildThreadPageCommandActions({
         })
       })
       .catch((error) => {
-        setSendError(getErrorMessage(error, 'Failed to update terminal pin state.'))
+        setSendError(getErrorMessage(error, i18n._({ id: 'Failed to update terminal pin state.', message: 'Failed to update terminal pin state.' })))
       })
   }
 
@@ -435,7 +435,7 @@ export function buildThreadPageCommandActions({
         })
       })
       .catch((error) => {
-        setSendError(getErrorMessage(error, 'Failed to update terminal archive state.'))
+        setSendError(getErrorMessage(error, i18n._({ id: 'Failed to update terminal archive state.', message: 'Failed to update terminal archive state.' })))
       })
   }
 

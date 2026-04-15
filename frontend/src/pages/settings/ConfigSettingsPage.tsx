@@ -952,7 +952,7 @@ export function ConfigSettingsPage() {
         (item) => item.id === scenarioId,
       );
       if (!scenario || !workspaceId) {
-        throw new Error("Scenario or workspace is unavailable.");
+        throw new Error(i18n._({ id: 'Scenario or workspace is unavailable.', message: 'Scenario or workspace is unavailable.' }));
       }
 
       await batchWriteConfig(workspaceId, {

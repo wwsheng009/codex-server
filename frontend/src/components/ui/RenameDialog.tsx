@@ -10,9 +10,9 @@ export function RenameDialog({
   title,
   description,
   value,
-  fieldLabel = 'New Name',
+  fieldLabel = i18n._({ id: 'New Name', message: 'New Name' }),
   placeholder,
-  submitLabel = 'Save',
+  submitLabel = i18n._({ id: 'Save', message: 'Save' }),
   isSubmitDisabled = false,
   error,
   isPending = false,
@@ -37,7 +37,7 @@ export function RenameDialog({
         {i18n._({ id: 'Cancel', message: 'Cancel' })}
       </button>
       <button className="ide-button" disabled={isSubmitDisabled} type="submit">
-        {isPending ? 'Saving…' : submitLabel}
+        {isPending ? i18n._({ id: 'Saving…', message: 'Saving…' }) : submitLabel}
       </button>
     </>
   )

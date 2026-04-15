@@ -8489,16 +8489,17 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                 ) : (
                   <>
                     <Input
-                      hint={i18n._({
-                        id:
-                          selectedProvider === 'wechat'
-                            ? 'WeChat external user ID for proactive delivery. If this contact has not messaged the bot yet, the target will wait until a reply context becomes available.'
-                            : 'Telegram chat ID, for example -1001234567890.',
-                        message:
-                          selectedProvider === 'wechat'
-                            ? 'WeChat external user ID for proactive delivery. If this contact has not messaged the bot yet, the target will wait until a reply context becomes available.'
-                            : 'Telegram chat ID, for example -1001234567890.',
-                      })}
+                      hint={
+                        selectedProvider === 'wechat'
+                          ? i18n._({
+                              id: 'WeChat external user ID for proactive delivery. If this contact has not messaged the bot yet, the target will wait until a reply context becomes available.',
+                              message: 'WeChat external user ID for proactive delivery. If this contact has not messaged the bot yet, the target will wait until a reply context becomes available.',
+                            })
+                          : i18n._({
+                              id: 'Telegram chat ID, for example -1001234567890.',
+                              message: 'Telegram chat ID, for example -1001234567890.',
+                            })
+                      }
                       label={
                         selectedProvider === 'wechat'
                           ? i18n._({ id: 'WeChat User ID', message: 'WeChat User ID' })

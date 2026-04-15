@@ -599,8 +599,8 @@ export function ApprovalDialog({
           <span className="composer-approval-dialog__eyebrow">{i18n._({ id: "Approval Required", message: "Approval Required" })}</span>
           <p>
             {questions.length
-              ? 'Answer the prompt below directly from the composer without opening the side panel.'
-              : 'Review the request and choose how to continue before sending the next message.'}
+              ? i18n._({ id: 'renderers.answerPromptDirectly', message: 'Answer the prompt below directly from the composer without opening the side panel.' })
+              : i18n._({ id: 'renderers.reviewRequestContinue', message: 'Review the request and choose how to continue before sending the next message.' })}
           </p>
         </div>
         {summaryMeta.length ? (
@@ -636,7 +636,7 @@ export function ApprovalDialog({
                   type="button"
                 >
                   <span>{index + 1}</span>
-                  <strong>{stringField(question.header) || `Question ${index + 1}`}</strong>
+                  <strong>{stringField(question.header) || i18n._({ id: 'renderers.questionNumber', message: 'Question {number}', values: { number: index + 1 } })}</strong>
                 </button>
               )
             })}
@@ -682,7 +682,7 @@ export function ApprovalDialog({
                 onClick={() => onRespond({ requestId: approval.id, action })}
                 type="button"
               >
-                {responding ? 'Submitting…' : formatApprovalActionLabel(action)}
+                {responding ? i18n._({ id: 'renderers.submitting', message: 'Submitting…' }) : formatApprovalActionLabel(action)}
               </button>
             ))}
           </div>
@@ -715,7 +715,7 @@ export function ApprovalDialog({
                   onClick={() => submitPrimaryAction(action)}
                   type="button"
                 >
-                  {responding ? 'Submitting…' : formatApprovalActionLabel(action)}
+                  {responding ? i18n._({ id: 'renderers.submitting', message: 'Submitting…' }) : formatApprovalActionLabel(action)}
                 </button>
               ))
             ) : null}
@@ -913,7 +913,7 @@ function ApprovalCard({
             }
             type="button"
           >
-            {responding ? 'Submitting…' : formatApprovalActionLabel(action)}
+            {responding ? i18n._({ id: 'renderers.submitting', message: 'Submitting…' }) : formatApprovalActionLabel(action)}
           </button>
         ))}
       </div>
@@ -1034,10 +1034,10 @@ function CopyableMessageBody({
 
   const copyLabel =
     copyState === 'copied'
-      ? 'Copied source message'
+      ? i18n._({ id: 'renderers.copiedSourceMessage', message: 'Copied source message' })
       : copyState === 'error'
-        ? 'Copy failed'
-        : 'Copy source message'
+        ? i18n._({ id: 'renderers.copyFailed', message: 'Copy failed' })
+        : i18n._({ id: 'renderers.copySourceMessage', message: 'Copy source message' })
   const buttonClassName =
     copyState === 'copied'
       ? 'conversation-copy-button conversation-copy-button--copied'
@@ -1188,10 +1188,10 @@ function ExpandableThreadMessage({
         type="button"
       >
         {isExpanded
-          ? 'Show less'
+          ? i18n._({ id: 'renderers.showLess', message: 'Show less' })
           : isRequestingFullContent
-            ? 'Loading full message…'
-            : 'Show full message'}
+            ? i18n._({ id: 'renderers.loadingFullMessage', message: 'Loading full message…' })
+            : i18n._({ id: 'renderers.showFullMessage', message: 'Show full message' })}
       </button>
     </div>
   )
@@ -1554,7 +1554,7 @@ function TimelineItem({
           }
           statusTone={statusToneFromValue(status)}
           summaryTruncated={summaryTruncated}
-          summary={truncateMiddle(command || 'Command execution', 88)}
+          summary={truncateMiddle(command || i18n._({ id: 'renderers.commandExecution', message: 'Command execution' }), 88)}
           title={i18n._({ id: "Command", message: "Command" })}
         >
           {command ? <code className="conversation-card__command-line">{command}</code> : null}
@@ -1586,10 +1586,10 @@ function TimelineItem({
             <>
               <div className="conversation-card__placeholder">
                 {remainingOutputLines > 0
-                  ? `Showing ${formatApproximateCount(loadedOutputLines)} recent lines. Load earlier output to reveal ${formatApproximateCount(remainingOutputLines)} more lines.`
+                  ? i18n._({ id: 'renderers.showingRecentLinesLoadEarlier', message: 'Showing {loadedLines} recent lines. Load earlier output to reveal {remainingLines} more lines.', values: { loadedLines: formatApproximateCount(loadedOutputLines), remainingLines: formatApproximateCount(remainingOutputLines) } })
                   : outputTotalLength && output.length < outputTotalLength
-                    ? 'Showing the latest output window. Load earlier output to reveal more command history.'
-                    : 'Showing the latest output window.'}
+                    ? i18n._({ id: 'renderers.showingLatestLoadEarlier', message: 'Showing the latest output window. Load earlier output to reveal more command history.' })
+                    : i18n._({ id: 'renderers.showingLatestOutputWindow', message: 'Showing the latest output window.' })}
               </div>
               <div className="conversation-tool-call__actions">
                 <button
@@ -1658,7 +1658,7 @@ function TimelineItem({
       return (
         <SystemTimelineCard
           className="conversation-card--plan"
-          meta={`${steps.length} step${steps.length === 1 ? '' : 's'}`}
+          meta={i18n._({ id: 'renderers.stepCount', message: '{count, plural, one {# step} other {# steps}}', values: { count: steps.length } })}
           summary={planCardSummary(steps)}
           title={i18n._({ id: "Plan", message: "Plan" })}
         >
@@ -2040,10 +2040,10 @@ function ToolCallTimelineCard({
   const success = booleanField(item.success)
   const title =
     type === 'mcpToolCall'
-      ? 'MCP Tool Call'
+      ? i18n._({ id: 'renderers.mcpToolCall', message: 'MCP Tool Call' })
       : type === 'collabAgentToolCall'
-        ? 'Agent Tool Call'
-      : 'Tool Call'
+        ? i18n._({ id: 'renderers.agentToolCall', message: 'Agent Tool Call' })
+      : i18n._({ id: 'renderers.toolCall', message: 'Tool Call' })
   const statusTone =
     success === true ? 'success' : success === false ? 'error' : statusToneFromValue(status)
   const meta = compactMetaLabel(
@@ -2349,16 +2349,16 @@ function readToolCallCommandOutput(value: unknown) {
     consumed.add(key)
   }
 
-  collect('command', 'Command')
-  collect('stdout', 'Stdout', true)
-  collect('stderr', 'Stderr', true)
-  collect('combinedOutput', 'Output', true)
-  collect('aggregatedOutput', 'Output', true)
+  collect('command', i18n._({ id: 'renderers.commandLabel', message: 'Command' }))
+  collect('stdout', i18n._({ id: 'renderers.stdout', message: 'Stdout' }), true)
+  collect('stderr', i18n._({ id: 'renderers.stderr', message: 'Stderr' }), true)
+  collect('combinedOutput', i18n._({ id: 'renderers.output', message: 'Output' }), true)
+  collect('aggregatedOutput', i18n._({ id: 'renderers.output', message: 'Output' }), true)
   if (!consumed.has('output')) {
-    collect('output', 'Output', true)
+    collect('output', i18n._({ id: 'renderers.output', message: 'Output' }), true)
   }
   if (!consumed.has('error')) {
-    collect('error', 'Error', containsAnsiEscapeCode(stringField(object.error)))
+    collect('error', i18n._({ id: 'renderers.errorLabel', message: 'Error' }), containsAnsiEscapeCode(stringField(object.error)))
   }
 
   if (!fields.length) {
@@ -2488,13 +2488,13 @@ function buildApprovalAnswersPayload(
 function formatApprovalActionLabel(action: string) {
   switch (action) {
     case 'accept':
-      return 'Approve'
+      return i18n._({ id: 'renderers.approve', message: 'Approve' })
     case 'accept_for_session':
-      return 'Approve Session'
+      return i18n._({ id: 'renderers.approveSession', message: 'Approve Session' })
     case 'decline':
-      return 'Decline'
+      return i18n._({ id: 'renderers.decline', message: 'Decline' })
     case 'cancel':
-      return 'Cancel'
+      return i18n._({ id: 'renderers.cancel', message: 'Cancel' })
     default:
       return action
   }
@@ -2505,7 +2505,7 @@ function approvalDialogMeta(approval: PendingApproval, details: Record<string, u
     case 'item/commandExecution/requestApproval':
     case 'execCommandApproval': {
       const command = stringField(details.command)
-      return command ? [truncateMiddle(command, 72)] : ['Command approval']
+      return command ? [truncateMiddle(command, 72)] : [i18n._({ id: 'renderers.commandApproval', message: 'Command approval' })]
     }
     case 'item/fileChange/requestApproval':
     case 'applyPatchApproval': {
@@ -2515,22 +2515,22 @@ function approvalDialogMeta(approval: PendingApproval, details: Record<string, u
       }
 
       if (Array.isArray(details.changes)) {
-        return [`${details.changes.length} file change${details.changes.length === 1 ? '' : 's'}`]
+        return [i18n._({ id: 'renderers.fileChangeCount', message: '{count, plural, one {# file change} other {# file changes}}', values: { count: details.changes.length } })]
       }
 
-      return ['File changes']
+      return [i18n._({ id: 'renderers.fileChanges', message: 'File changes' })]
     }
     case 'item/tool/requestUserInput':
-      return [`${approvalDialogQuestionCount(details)} question${approvalDialogQuestionCount(details) === 1 ? '' : 's'}`]
+      return [i18n._({ id: 'renderers.questionCount', message: '{count, plural, one {# question} other {# questions}}', values: { count: approvalDialogQuestionCount(details) } })]
     case 'item/permissions/requestApproval':
-      return ['Permissions escalation', 'Scope: turn']
+      return [i18n._({ id: 'renderers.permissionsEscalation', message: 'Permissions escalation' }), i18n._({ id: 'renderers.scopeTurn', message: 'Scope: turn' })]
     case 'mcpServer/elicitation/request': {
       const serverName = stringField(details.serverName)
-      return serverName ? [`Server: ${serverName}`] : ['MCP input']
+      return serverName ? [i18n._({ id: 'renderers.serverName', message: 'Server: {serverName}', values: { serverName } })] : [i18n._({ id: 'renderers.mcpInput', message: 'MCP input' })]
     }
     case 'item/tool/call': {
       const tool = stringField(details.tool)
-      return tool ? [`Tool: ${tool}`] : ['Dynamic tool call']
+      return tool ? [i18n._({ id: 'renderers.toolName', message: 'Tool: {tool}', values: { tool } })] : [i18n._({ id: 'renderers.dynamicToolCall', message: 'Dynamic tool call' })]
     }
     default:
       return []
@@ -2930,7 +2930,7 @@ function collectTurnPlanStackEntries(turns: ThreadTurn[]): PlanStatusStackEntry[
 
 function turnPlanProgressMeta(steps: TurnPlanStep[]) {
   if (!steps.length) {
-    return '0 steps'
+    return i18n._({ id: 'renderers.zeroSteps', message: '0 steps' })
   }
 
   let completed = 0
@@ -2951,22 +2951,22 @@ function turnPlanProgressMeta(steps: TurnPlanStep[]) {
     }
   }
 
-  const parts = [`${steps.length} step${steps.length === 1 ? '' : 's'}`]
+  const parts = [i18n._({ id: 'renderers.stepCount', message: '{count, plural, one {# step} other {# steps}}', values: { count: steps.length } })]
   if (active) {
-    parts.push(`${active} active`)
+    parts.push(i18n._({ id: 'renderers.activeCount', message: '{count} active', values: { count: active } }))
   }
   if (completed) {
-    parts.push(`${completed} done`)
+    parts.push(i18n._({ id: 'renderers.doneCount', message: '{count} done', values: { count: completed } }))
   }
   if (pending) {
-    parts.push(`${pending} pending`)
+    parts.push(i18n._({ id: 'renderers.pendingCount', message: '{count} pending', values: { count: pending } }))
   }
   return parts.join(' · ')
 }
 
 function turnPlanCompactProgressMeta(steps: TurnPlanStep[]) {
   if (!steps.length) {
-    return '0/0'
+    return i18n._({ id: 'renderers.zeroOfZeroDone', message: '0/0' })
   }
 
   let completed = 0
@@ -2977,7 +2977,7 @@ function turnPlanCompactProgressMeta(steps: TurnPlanStep[]) {
     }
   }
 
-  return `${completed}/${steps.length} done`
+  return i18n._({ id: 'renderers.completedOfTotal', message: '{completed}/{total} done', values: { completed, total: steps.length } })
 }
 
 function isTurnPlanCollapsedByDefault(turnPlan: TurnPlanItem | null) {

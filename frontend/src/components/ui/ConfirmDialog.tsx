@@ -11,7 +11,7 @@ export function ConfirmDialog({
   description,
   subject,
   confirmLabel,
-  cancelLabel = 'Cancel',
+  cancelLabel = i18n._({ id: 'Cancel', message: 'Cancel' }),
   error,
   isPending = false,
   onClose,
@@ -37,7 +37,7 @@ export function ConfirmDialog({
         {cancelLabel}
       </button>
       <button className="ide-button ide-button--danger" onClick={onConfirm} type="button">
-        {isPending ? 'Working…' : confirmLabel}
+        {isPending ? i18n._({ id: 'Working…', message: 'Working…' }) : confirmLabel}
       </button>
     </>
   )

@@ -216,7 +216,7 @@ export function buildThreadPageThreadActions({
         setMessage(trimmedInput)
         setComposerCaret(trimmedInput.length)
         await captureRecoverableSendInputIfNeeded(trimmedInput)
-        setSendError(getErrorMessage(error, 'Failed to run shell command.'))
+        setSendError(getErrorMessage(error, i18n._({ id: 'buildThreadPageThreadActions.failedToRunShellCommand', message: 'Failed to run shell command.' })))
         void Promise.all([
           invalidateThreadQueries(),
           queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] }),
@@ -317,7 +317,7 @@ export function buildThreadPageThreadActions({
       setMessage(trimmedInput)
       setComposerCaret(trimmedInput.length)
       await captureRecoverableSendInputIfNeeded(trimmedInput)
-      setSendError(getErrorMessage(error, 'Failed to send message.'))
+      setSendError(getErrorMessage(error, i18n._({ id: 'Failed to send message.', message: 'Failed to send message.' })))
       void Promise.all([
         invalidateThreadQueries(),
         queryClient.invalidateQueries({ queryKey: ['workspace-runtime-state', workspaceId] }),
@@ -371,7 +371,7 @@ export function buildThreadPageThreadActions({
       setComposerCaret(inputToRetry.length)
       const errorMessage = getErrorMessage(
         error,
-        'Failed to restart runtime and retry the operation.',
+        i18n._({ id: 'Failed to restart runtime and retry the operation.', message: 'Failed to restart runtime and retry the operation.' }),
       )
       setSendError(errorMessage)
       setRuntimeRecoveryExecutionNotice((current) =>
@@ -523,7 +523,7 @@ export function buildThreadPageThreadActions({
               },
         )
       } catch (error) {
-        setSendError(getErrorMessage(error, 'Failed to load the full item.'))
+        setSendError(getErrorMessage(error, i18n._({ id: 'Failed to load the full item.', message: 'Failed to load the full item.' })))
       }
 
       return
@@ -547,7 +547,7 @@ export function buildThreadPageThreadActions({
             },
       )
     } catch (error) {
-      setSendError(getErrorMessage(error, 'Failed to load the full turn.'))
+      setSendError(getErrorMessage(error, i18n._({ id: 'Failed to load the full turn.', message: 'Failed to load the full turn.' })))
     }
   }
 
@@ -685,7 +685,7 @@ export function buildThreadPageThreadActions({
       setHistoricalTurns((current) => mergeHistoricalTurns(page.turns, current))
       setHasMoreHistoricalTurnsBefore(Boolean(page.hasMoreTurns))
     } catch (error) {
-      setSendError(getErrorMessage(error, 'Failed to load older turns.'))
+      setSendError(getErrorMessage(error, i18n._({ id: 'Failed to load older turns.', message: 'Failed to load older turns.' })))
     } finally {
       setIsLoadingOlderTurns(false)
     }

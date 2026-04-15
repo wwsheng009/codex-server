@@ -1,6 +1,7 @@
 import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 
 import type { SurfacePanelView } from '../../lib/layout-config-types'
+import type { ThreadTerminalShowHandler } from '../../features/thread-terminal/threadTerminalDockTypes'
 import type {
   Bot,
   BotDeliveryTarget,
@@ -89,6 +90,7 @@ export type ThreadWorkbenchRailProps = {
   threadCount: number
   timelineItemCount: number
   turnCount: number
+  isTerminalDockVisible: boolean
   workspaceName?: string
   onArchiveToggle: () => void
   onBeginRenameThread: () => void
@@ -113,13 +115,16 @@ export type ThreadWorkbenchRailProps = {
   onSendBotMessage: (event: FormEvent<HTMLFormElement>) => void
   onSubmitRenameThread: (event: FormEvent<HTMLFormElement>) => void
   onStartCommand: (event: FormEvent<HTMLFormElement>) => void
+  onShowTerminalDock: ThreadTerminalShowHandler
   onToggleThreadToolsExpanded: () => void
   onToggleWorkbenchToolsExpanded: () => void
 }
 
 export type ThreadWorkbenchRailCollapsedProps = {
+  isTerminalDockVisible: boolean
   onOpenInspector: () => void
   onOpenSurfacePanel: (view: SurfacePanelView) => void
+  onShowTerminalDock: ThreadTerminalShowHandler
 }
 
 export type ThreadWorkbenchRailMobileQuickActionsProps = {

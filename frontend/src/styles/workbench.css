@@ -159,6 +159,10 @@
   flex: 0 0 auto;
 }
 
+.workbench-pane__topbar-icon-button {
+  flex: 0 0 auto;
+}
+
 .workbench-pane__mini-button--primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   color: var(--text-on-accent);

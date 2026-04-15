@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 
+import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import type { Bot } from '../../types/api'
 
@@ -100,7 +101,7 @@ export function buildThreadPageBotActions({
       },
       {
         onError: (error) => {
-          setBotSendError(getErrorMessage(error, 'Failed to send message to bot.'))
+          setBotSendError(getErrorMessage(error, i18n._({ id: 'Failed to send message to bot.', message: 'Failed to send message to bot.' })))
         },
       },
     )
@@ -127,7 +128,7 @@ export function buildThreadPageBotActions({
       },
       {
         onError: (error) => {
-          setBotSendError(getErrorMessage(error, 'Failed to bind bot channel to thread.'))
+          setBotSendError(getErrorMessage(error, i18n._({ id: 'Failed to bind bot channel to thread.', message: 'Failed to bind bot channel to thread.' })))
         },
       },
     )
@@ -145,7 +146,7 @@ export function buildThreadPageBotActions({
       },
       {
         onError: (error) => {
-          setBotSendError(getErrorMessage(error, 'Failed to remove bot channel binding.'))
+          setBotSendError(getErrorMessage(error, i18n._({ id: 'Failed to remove bot channel binding.', message: 'Failed to remove bot channel binding.' })))
         },
       },
     )

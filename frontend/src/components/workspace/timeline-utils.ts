@@ -1,5 +1,6 @@
 import { decodeBase64 } from '../thread/threadRender'
 import { formatRelativeTimeShort } from '../../i18n/format'
+import { i18n } from '../../i18n/runtime'
 import { readTurnPlanExplanation, readTurnPlanSteps } from '../../lib/turn-plan'
 import type { ServerEvent } from '../../types/api'
 
@@ -52,21 +53,21 @@ function toDeltaAggregate(event: ServerEvent) {
     case 'item/agentMessage/delta':
       return {
         groupKey: `agent:${stringField(payload.itemId) || 'unknown'}`,
-        title: 'Agent Message Stream',
+        title: i18n._({ id: 'Agent Message Stream', message: 'Agent Message Stream' }),
         subtitle: stringField(payload.itemId) || undefined,
         text: stringField(payload.delta),
       }
     case 'item/plan/delta':
       return {
         groupKey: `plan-text:${stringField(payload.itemId) || 'unknown'}`,
-        title: 'Plan Draft',
+        title: i18n._({ id: 'Plan Draft', message: 'Plan Draft' }),
         subtitle: stringField(payload.itemId) || undefined,
         text: stringField(payload.delta),
       }
     case 'turn/plan/updated':
       return {
         groupKey: `turn-plan:${stringField(payload.turnId) || event.turnId || 'unknown'}`,
-        title: 'Plan Status',
+        title: i18n._({ id: 'Plan Status', message: 'Plan Status' }),
         subtitle: stringField(payload.turnId) || event.turnId || undefined,
         text: formatTurnPlanUpdate(payload),
       }
@@ -74,14 +75,14 @@ function toDeltaAggregate(event: ServerEvent) {
     case 'item/reasoning/textDelta':
       return {
         groupKey: `reasoning:${stringField(payload.itemId) || event.method}`,
-        title: 'Reasoning Stream',
+        title: i18n._({ id: 'Reasoning Stream', message: 'Reasoning Stream' }),
         subtitle: stringField(payload.itemId) || undefined,
         text: stringField(payload.delta),
       }
     case 'command/exec/outputDelta':
       return {
         groupKey: `command:${stringField(payload.processId)}:${stringField(payload.stream)}`,
-        title: 'Command Output',
+        title: i18n._({ id: 'Command Output', message: 'Command Output' }),
         subtitle: stringField(payload.processId) || undefined,
         text:
           stringField(payload.deltaText) ||
@@ -106,7 +107,7 @@ function formatTurnPlanUpdate(payload: Record<string, unknown>) {
   }
 
   if (!lines.length) {
-    return 'Plan updated\n\n'
+    return i18n._({ id: 'Plan updated', message: 'Plan updated\n\n' })
   }
 
   return `${lines.join('\n')}\n\n`

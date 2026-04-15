@@ -2,6 +2,7 @@ import type {
   AccessTokenDescriptor,
   RuntimePreferencesResult,
 } from "../../types/api";
+import { i18n } from "../../i18n/runtime";
 import { normalizeSessionStartTemplate } from "../../lib/session-start-template";
 import type {
   AccessTokenWriteInput,
@@ -341,11 +342,11 @@ export function normalizeTurnPolicyPrimaryAction(
 export function formatTurnPolicyPrimaryActionLabel(value?: string | null) {
   switch (normalizeTurnPolicyPrimaryAction(value)) {
     case "steer":
-      return "Steer";
+      return i18n._({ id: "Steer", message: "Steer" });
     case "followUp":
       return "Follow-up";
     case "interrupt":
-      return "Interrupt";
+      return i18n._({ id: "Interrupt", message: "Interrupt" });
     default:
       return "\u2014";
   }
@@ -369,7 +370,7 @@ export function formatTurnPolicyInterruptNoActiveTurnBehaviorLabel(
 ) {
   switch (normalizeTurnPolicyInterruptNoActiveTurnBehavior(value)) {
     case "skip":
-      return "Skip";
+      return i18n._({ id: "Skip", message: "Skip" });
     case "followUp":
       return "Follow-up";
     default:

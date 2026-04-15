@@ -111,6 +111,7 @@ export function buildThreadPageControllerRailStateLayoutInput({
       ? getErrorMessage(dataState.hookRunsQuery.error)
       : null,
     hookRunsLoading: dataState.hookRunsQuery.isLoading,
+    isTerminalDockVisible: controllerState.isTerminalDockVisible,
     turnPolicyDecisions: dataState.turnPolicyDecisionsQuery.data ?? [],
     turnPolicyDecisionsError: dataState.turnPolicyDecisionsQuery.error
       ? getErrorMessage(dataState.turnPolicyDecisionsQuery.error)

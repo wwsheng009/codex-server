@@ -723,7 +723,7 @@ export function EnvironmentSettingsPage() {
   const applyShellEnvironmentPolicyPresetMutation = useMutation({
     mutationFn: async (preset: 'inherit-all' | 'core-windows') => {
       if (!workspaceId) {
-        throw new Error('A workspace must be selected before applying a shell environment preset.')
+        throw new Error(i18n._({ id: 'A workspace must be selected before applying a shell environment preset.', message: 'A workspace must be selected before applying a shell environment preset.' }))
       }
 
       const value =
@@ -3108,11 +3108,17 @@ export function EnvironmentSettingsPage() {
                         }
                         title={
                           subscriber.lastMethod
-                            ? i18n._({
-                                id: kind === 'global' ? 'Global subscriber · {method}' : 'Last method: {method}',
-                                message: kind === 'global' ? 'Global subscriber · {method}' : 'Last method: {method}',
-                                values: { method: subscriber.lastMethod },
-                              })
+                            ? kind === 'global'
+                              ? i18n._({
+                                  id: 'Global subscriber · {method}',
+                                  message: 'Global subscriber · {method}',
+                                  values: { method: subscriber.lastMethod },
+                                })
+                              : i18n._({
+                                  id: 'Last method: {method}',
+                                  message: 'Last method: {method}',
+                                  values: { method: subscriber.lastMethod },
+                                })
                             : subscriberIdentity
                         }
                       />

@@ -234,15 +234,15 @@ function SourceHistoryCard({
       <span className="detail-stat__label">{label}</span>
       <strong className="detail-stat__value">
         {history.length
-          ? `${formatLocalizedNumber(totals.alertsCount, "0")} alerts`
+          ? `${formatLocalizedNumber(totals.alertsCount, "0")} ${i18n._({ id: "alerts", message: "alerts" })}`
           : "—"}
       </strong>
       <span className="detail-stat__meta">
         {history.length
-          ? `${formatLocalizedNumber(totals.total, "0")} decisions, ${formatRate(
+          ? `${formatLocalizedNumber(totals.total, "0")} ${i18n._({ id: "decisions", message: "decisions" })}, ${formatRate(
               totals.actionSucceeded / Math.max(totals.actionAttempts, 1),
               totals.actionAttempts,
-            )} success`
+            )} ${i18n._({ id: "success", message: "success" })}`
           : i18n._({
               id: "No history available yet",
               message: "No history available yet",

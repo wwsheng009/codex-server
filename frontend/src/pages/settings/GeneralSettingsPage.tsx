@@ -103,7 +103,7 @@ function formatAccountAuthMode(value?: string | null) {
         message: 'API Key',
       })
     case 'chatgpt':
-      return 'ChatGPT'
+      return i18n._({ id: 'ChatGPT', message: 'ChatGPT' })
     default:
       return i18n._({
         id: 'Not connected',

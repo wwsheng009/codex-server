@@ -7,11 +7,14 @@ import { afterEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { i18n } from '../../i18n/runtime'
-import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
 import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
+
+let ThreadWorkbenchRail: (typeof import('./ThreadWorkbenchRail'))['ThreadWorkbenchRail']
 
 function renderRail(options?: {
   currentThreadStatus?: string
+  isTerminalDockVisible?: boolean
+  onShowTerminalDock?: () => void
   runtimeRecoveryExecutionNotice?: {
     actionKind: 'retry' | 'restart-and-retry'
     attemptCount: number
@@ -54,8 +57,12 @@ function renderRail(options?: {
           command="pnpm test"
           commandCount={2}
           commandRunMode="command-exec"
+          cumulativeTokens={2048}
           contextUsagePercent={42}
           contextWindow={128000}
+          currentInputTokens={256}
+          currentOutputTokens={512}
+          currentReasoningTokens={128}
           currentThreadStatus={options?.currentThreadStatus ?? 'idle'}
           deletePending={false}
           deletingThreadId={undefined}
@@ -70,6 +77,7 @@ function renderRail(options?: {
           isExpanded
           isMobileViewport={false}
           isResizing={false}
+          isTerminalDockVisible={options?.isTerminalDockVisible ?? true}
           isThreadToolsExpanded
           isWorkbenchToolsExpanded
           lastTimelineEventTs="2026-04-12T06:00:00.000Z"
@@ -102,6 +110,7 @@ function renderRail(options?: {
           onSendBotMessage={(event) => {
             event.preventDefault()
           }}
+          onShowTerminalDock={options?.onShowTerminalDock ?? (() => undefined)}
           onStartCommand={(event) => {
             event.preventDefault()
           }}
@@ -166,6 +175,10 @@ function renderRail(options?: {
 describe('ThreadWorkbenchRail', () => {
   beforeAll(() => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
+  })
+
+  beforeAll(async () => {
+    ;({ ThreadWorkbenchRail } = await import('./ThreadWorkbenchRail'))
   })
 
   afterEach(() => {
@@ -303,5 +316,20 @@ describe('ThreadWorkbenchRail', () => {
     })
 
     expect(screen.getAllByText('Completed').length).toBeGreaterThan(0)
+  })
+
+  it('shows a terminal icon button in the rail when the terminal dock is hidden', () => {
+    let called = 0
+
+    renderRail({
+      isTerminalDockVisible: false,
+      onShowTerminalDock: () => {
+        called += 1
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show terminal' }))
+
+    expect(called).toBe(1)
   })
 })

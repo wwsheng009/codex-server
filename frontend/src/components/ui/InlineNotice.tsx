@@ -13,7 +13,7 @@ export function InlineNotice({
   noticeKey,
   details,
   onRetry,
-  retryLabel = 'Retry',
+  retryLabel = i18n._({ id: 'Retry', message: 'Retry' }),
 }: InlineNoticeProps) {
   const [dismissed, setDismissed] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -68,7 +68,7 @@ export function InlineNotice({
             ) : null}
             {details ? (
               <button className="notice__tool" onClick={() => void handleCopyDetails()} type="button">
-                {copied ? 'Copied' : 'Copy details'}
+                {copied ? i18n._({ id: 'Copied', message: 'Copied' }) : i18n._({ id: 'Copy details', message: 'Copy details' })}
               </button>
             ) : null}
           </div>

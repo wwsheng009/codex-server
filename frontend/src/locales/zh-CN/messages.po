@@ -5699,6 +5699,31 @@ msgid "Hook run ID label"
 msgstr ""
 
 #. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:418
+msgid "Hook run table header run"
+msgstr "Hook Run"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:424
+msgid "Hook run table header summary"
+msgstr "摘要"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:430
+msgid "Hook run table header outcome"
+msgstr "结果"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:436
+msgid "Hook run table header details"
+msgstr "详情"
+
+#. js-lingui-explicit-id
+#: src/pages/workspaces/WorkspaceHookRunsSection.tsx:442
+msgid "Hook run table header actions"
+msgstr "操作"
+
+#. js-lingui-explicit-id
 #: src/pages/workspaces/WorkspaceHookRunsSection.tsx:225
 msgid "Hook run ID filter"
 msgstr ""

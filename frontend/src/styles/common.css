@@ -5251,4 +5251,76 @@ details.config-details-box[open] .config-details-box__summary-chevron {
   to { transform: rotate(360deg); }
 }
 
+.workspace-hook-runs-table__viewport {
+  overflow-x: auto;
+}
+
+.workspace-hook-runs-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+}
+
+.workspace-hook-runs-table__header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-overlay) 88%, var(--bg-panel));
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  vertical-align: bottom;
+}
+
+.workspace-hook-runs-table__row + .workspace-hook-runs-table__row .workspace-hook-runs-table__cell {
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+}
+
+.workspace-hook-runs-table__cell {
+  padding: 12px;
+  vertical-align: top;
+}
+
+.workspace-hook-runs-table__cell--actions {
+  width: 112px;
+}
+
+.workspace-hook-runs-table__run-id {
+  color: var(--text-primary);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.workspace-hook-runs-table__status {
+  margin-bottom: 8px;
+}
+
+.workspace-hook-runs-table__cell-line {
+  display: grid;
+  gap: 4px;
+}
+
+.workspace-hook-runs-table__cell-line + .workspace-hook-runs-table__cell-line {
+  margin-top: 8px;
+}
+
+.workspace-hook-runs-table__cell-label {
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workspace-hook-runs-table__cell-value {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 

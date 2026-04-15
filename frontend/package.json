@@ -17,7 +17,8 @@
     "test:e2e:install": "playwright install",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "i18n:check": "node ./scripts/check-missing-i18n.mjs"
+    "i18n:check": "node ./scripts/check-missing-i18n.mjs",
+    "i18n:coverage": "node ./scripts/check-po-coverage.mjs"
   },
   "devDependencies": {
     "@lingui/cli": "^5.9.3",

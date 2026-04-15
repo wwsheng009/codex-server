@@ -5,6 +5,7 @@ import {
   PanelOpenIcon,
   PlanIcon,
   RailIconButton,
+  TerminalIcon,
   ToolsIcon,
 } from '../../components/ui/RailControls'
 import { i18n } from '../../i18n/runtime'
@@ -15,8 +16,10 @@ import {
 import type { ThreadWorkbenchRailCollapsedProps } from './threadWorkbenchRailTypes'
 
 export function ThreadWorkbenchRailCollapsed({
+  isTerminalDockVisible,
   onOpenInspector,
   onOpenSurfacePanel,
+  onShowTerminalDock,
 }: ThreadWorkbenchRailCollapsedProps) {
   function handleOpenPanel(panelId: keyof typeof THREAD_WORKBENCH_RAIL_PANEL_IDS) {
     activateThreadWorkbenchRailPanel(THREAD_WORKBENCH_RAIL_PANEL_IDS[panelId])
@@ -111,6 +114,22 @@ export function ThreadWorkbenchRailCollapsed({
         >
           <ToolsIcon />
         </RailIconButton>
+        {!isTerminalDockVisible ? (
+          <RailIconButton
+            aria-label={i18n._({
+              id: 'Show terminal',
+              message: 'Show terminal',
+            })}
+            className="workbench-pane__mini-button"
+            onClick={onShowTerminalDock}
+            title={i18n._({
+              id: 'Show terminal',
+              message: 'Show terminal',
+            })}
+          >
+            <TerminalIcon />
+          </RailIconButton>
+        ) : null}
       </div>
     </aside>
   )

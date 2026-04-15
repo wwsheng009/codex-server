@@ -4,6 +4,8 @@ import type {
   ComposerCommandActionHandler,
 } from './threadComposerActionTypes'
 
+import { i18n } from '../../i18n/runtime'
+
 export function buildComposerAutocompleteSelectionHandlers({
   activeComposerMatchMode,
   applyComposerMessage,
@@ -47,7 +49,7 @@ export function buildComposerAutocompleteSelectionHandlers({
       }
       case 'toggle-plan': {
         if (!supportsPlanMode) {
-          setSendError('Plan mode is not available for this workspace.')
+          setSendError(i18n._({ id: 'Plan mode is not available for this workspace.', message: 'Plan mode is not available for this workspace.' }))
           dismissComposerAutocomplete()
           return
         }

@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
+import { i18n } from '../../i18n/runtime'
+
 import {
   cloneWorkbenchThemeColors,
   copyThemeColorCustomizationPalette,
@@ -55,7 +57,7 @@ function buildCustomThemeName(customThemes: CustomThemeDefinition[]) {
     index += 1
   }
 
-  return `Custom Theme ${index}`
+  return i18n._({ id: 'localStore.customThemeName', message: 'Custom Theme {index}', values: { index } })
 }
 
 function applyActiveCustomThemeToWorkingCopy(

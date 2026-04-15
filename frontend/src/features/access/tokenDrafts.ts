@@ -6,6 +6,8 @@ export type AccessTokenDraftSeed = {
   revealToken: boolean
 }
 
+import { i18n } from '../../i18n/runtime'
+
 const accessTokenPrefix = 'cxs_'
 const accessTokenRandomByteLength = 24
 
@@ -42,7 +44,7 @@ export function formatGeneratedAccessTokenValue(randomBytes: Uint8Array) {
 
 function createSecureRandomBytes(length: number) {
   if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
-    throw new Error('Secure token generation requires Web Crypto support in the browser.')
+    throw new Error(i18n._({ id: 'Secure token generation requires Web Crypto support in the browser.', message: 'Secure token generation requires Web Crypto support in the browser.' }))
   }
 
   return crypto.getRandomValues(new Uint8Array(length))
