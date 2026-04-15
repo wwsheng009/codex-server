@@ -66,6 +66,7 @@ export type ThreadPageInteractionStatusInput = {
   interruptPending: boolean
   isThreadPinnedToLatest: boolean
   latestDisplayedTurn?: ThreadTurn
+  liveThreadStatus?: string
   restartAndRetryPending: boolean
   selectedThread?: Thread
   selectedThreadId?: string

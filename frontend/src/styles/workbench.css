@@ -1981,6 +1981,28 @@
   font-weight: 600;
 }
 
+.conversation-plan__step--failed .conversation-plan__index {
+  background: var(--surface-danger-soft);
+  color: var(--danger);
+}
+
+.conversation-plan__step--failed .conversation-plan__text {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.conversation-plan__step--interrupted .conversation-plan__index,
+.conversation-plan__step--cancelled .conversation-plan__index {
+  background: var(--surface-warning-soft);
+  color: var(--warning);
+}
+
+.conversation-plan__step--interrupted .conversation-plan__text,
+.conversation-plan__step--cancelled .conversation-plan__text {
+  color: var(--warning);
+  font-weight: 600;
+}
+
 .conversation-file-list {
   display: flex;
   flex-direction: column;
@@ -3884,6 +3906,14 @@
   font-size: 0.82rem;
 }
 
+.plan-status-panel[open] {
+  gap: 9px;
+}
+
+.plan-status-panel:not([open]) {
+  gap: 0;
+}
+
 .composer-approval-dialog__card.approval-panel {
   border-left: 0;
   padding: var(--space-4);
@@ -3907,6 +3937,12 @@
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.plan-status-panel__header::-webkit-details-marker {
+  display: none;
 }
 
 .approval-panel__header-copy {
@@ -3947,6 +3983,26 @@
   flex-wrap: nowrap;
   gap: 4px;
   flex: 0 0 auto;
+}
+
+.plan-status-panel__toggle-icon {
+  width: 8px;
+  height: 8px;
+  border-right: 1.4px solid var(--text-faint);
+  border-bottom: 1.4px solid var(--text-faint);
+  transform: rotate(45deg);
+  transition: transform 180ms ease;
+  flex: 0 0 auto;
+}
+
+.plan-status-panel[open] .plan-status-panel__toggle-icon {
+  transform: rotate(225deg);
+}
+
+.plan-status-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
 }
 
 .plan-status-panel__meta .detail-badge {

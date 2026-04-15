@@ -15,6 +15,7 @@ export function buildThreadPageInteractionStatus({
   interruptPending,
   isThreadPinnedToLatest,
   latestDisplayedTurn,
+  liveThreadStatus,
   restartAndRetryPending,
   selectedThread,
   selectedThreadId,
@@ -34,7 +35,7 @@ export function buildThreadPageInteractionStatus({
   const isThreadInterruptible = Boolean(
     selectedThreadId &&
       (isWaitingForThreadData ||
-        statusIsInterruptible(selectedThread?.status) ||
+        statusIsInterruptible(liveThreadStatus ?? selectedThread?.status) ||
         statusIsInterruptible(latestDisplayedTurn?.status)),
   )
 
@@ -161,7 +162,8 @@ export function buildThreadPageInteractionStatus({
               })
         : null
 
-  const mobileStatus = isWaitingForThreadData ? 'running' : selectedThread?.status ?? streamState
+  const mobileStatus =
+    isWaitingForThreadData ? 'running' : liveThreadStatus ?? selectedThread?.status ?? streamState
   const composerStatusMessage = sendError
   const composerStatusRetryLabel = accountError
     ? i18n._({

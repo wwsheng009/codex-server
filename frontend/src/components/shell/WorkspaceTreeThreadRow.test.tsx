@@ -249,4 +249,38 @@ describe('WorkspaceTreeThreadRow', () => {
     expect(container.querySelector('.workspace-tree__thread-status-icon--processing')).toBeTruthy()
     expect(screen.getByText('Processing')).toBeTruthy()
   })
+
+  it('prefers completed activity status over a stale running thread list status', () => {
+    useSessionStore.setState((state) => ({
+      ...state,
+      threadActivityByThread: {
+        ...state.threadActivityByThread,
+        'thread-1': {
+          latestEventMethod: 'turn/completed',
+          latestEventTs: '2026-04-12T10:01:00.000Z',
+          latestStatus: 'completed',
+          threadId: 'thread-1',
+          workspaceId: 'ws-1',
+        },
+      },
+    }))
+
+    const { container } = render(
+      <WorkspaceTreeThreadRow
+        activeThreadId="thread-2"
+        deleteInProgress={false}
+        isMenuOpen={false}
+        isRenameOrDeletePending={false}
+        isSelectedWorkspaceRoute={false}
+        onDeleteThread={() => {}}
+        onOpenThread={() => {}}
+        onRenameThread={() => {}}
+        onToggleMenu={() => {}}
+        thread={makeThread({ status: 'running' })}
+      />,
+    )
+
+    expect(container.querySelector('.workspace-tree__thread-status-icon--success')).toBeTruthy()
+    expect(screen.getByText('Completed')).toBeTruthy()
+  })
 })

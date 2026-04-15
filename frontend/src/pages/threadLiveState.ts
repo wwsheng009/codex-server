@@ -6,7 +6,13 @@ import {
 } from '../lib/frontend-runtime-mode'
 import { recordConversationLiveDiagnosticEvent } from '../components/workspace/threadConversationProfiler'
 import { formatHookRunFeedbackEntries, formatHookRunMessage } from '../lib/hook-run-display'
-import { buildTurnPlanItem, turnPlanItemId } from '../lib/turn-plan'
+import {
+  buildTurnPlanItem,
+  normalizeTurnPlanStatus,
+  readTurnPlanItem,
+  turnPlanItemId,
+} from '../lib/turn-plan'
+import { readThreadTokenUsageFromEvent } from '../lib/thread-token-usage'
 import type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
 export type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
 
@@ -222,6 +228,20 @@ export function applyThreadEventToDetail(
   let nextDetail: ThreadDetail | undefined = detail
 
   switch (event.method) {
+    case 'thread/tokenUsage/updated': {
+      const parsed = readThreadTokenUsageFromEvent(event)
+      if (!parsed || parsed.threadId !== detail.id) {
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
+      }
+
+      nextDetail = {
+        ...detail,
+        tokenUsage: parsed.usage,
+        updatedAt: event.ts,
+      }
+      break
+    }
     case 'thread/status/changed': {
       const status = stringField(asObject(payload.status).type)
       if (!status || status === detail.status) {
@@ -255,9 +275,12 @@ export function applyThreadEventToDetail(
         turns: upsertTurn(detail.turns, turnId, (current) => ({
           id: turnId,
           status: turnStatus || current?.status || 'inProgress',
-          items: incomingItems.length
-            ? mergeLiveTurnItemsPreservingCurrentOrder(current?.items ?? [], incomingItems)
-            : current?.items ?? [],
+          items: reconcileTurnPlanItemsForTerminalTurnStatus(
+            incomingItems.length
+              ? mergeLiveTurnItemsPreservingCurrentOrder(current?.items ?? [], incomingItems)
+              : current?.items ?? [],
+            turnStatus,
+          ),
           error: hasOwn(turn, 'error') ? turn.error ?? undefined : current?.error,
         })),
       }
@@ -277,6 +300,12 @@ export function applyThreadEventToDetail(
         const merged = mergeThreadItem(current, item)
         const previousText = stringField(current?.text)
         const nextText = stringField(merged.text)
+        if (
+          merged.type === 'commandExecution' &&
+          !stringField(merged.status)
+        ) {
+          merged.status = event.method === 'item/completed' ? 'completed' : 'inProgress'
+        }
         if (
           event.method === 'item/started' &&
           merged.type === 'agentMessage' &&
@@ -612,6 +641,12 @@ function mergeThreadItem(
     stringField(current.aggregatedOutput)
   ) {
     merged.aggregatedOutput = current.aggregatedOutput
+  }
+  if (incoming.type === 'commandExecution' && !stringField(incoming.command) && stringField(current.command)) {
+    merged.command = current.command
+  }
+  if (incoming.type === 'commandExecution' && !stringField(incoming.status) && stringField(current.status)) {
+    merged.status = current.status
   }
 
   if (incoming.type === 'reasoning') {
@@ -1100,6 +1135,10 @@ function shouldReplayCommandExecutionItem(
   let reason: string | null = null
   if (!currentItem) {
     reason = 'older event replayed: missing command execution item'
+  } else if (isCommandExecutionRenderEmpty(currentItem) && incomingItem) {
+    reason = 'older event replayed: empty command execution placeholder'
+  } else if (incomingItem === undefined && !currentOutput) {
+    reason = 'older event replayed: missing command output delta target'
   } else if (incomingOutput.length > currentOutput.length) {
     reason = 'older event replayed: longer command output'
   } else if (!currentOutput && Boolean(incomingOutput)) {
@@ -1376,13 +1415,17 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
   currentLiveDetail: ThreadDetail,
 ) {
   let detailChanged = false
+  let lastMatchedCurrentTurnIndex = -1
 
   const turns = threadDetail.turns.map((snapshotTurn) => {
-    const currentTurn = currentLiveDetail.turns.find(
-      (turn) => turn.id === snapshotTurn.id,
-    )
+    const currentTurnIndex = currentLiveDetail.turns.findIndex((turn) => turn.id === snapshotTurn.id)
+    const currentTurn =
+      currentTurnIndex >= 0 ? currentLiveDetail.turns[currentTurnIndex] : undefined
     if (!currentTurn) {
       return snapshotTurn
+    }
+    if (currentTurnIndex > lastMatchedCurrentTurnIndex) {
+      lastMatchedCurrentTurnIndex = currentTurnIndex
     }
 
     let turnChanged = false
@@ -1396,7 +1439,7 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
       const currentItem = currentTurn.items.find(
         (item) => stringField(item.id) === snapshotItemId,
       )
-      if (!currentItem || stringField(snapshotItem.type) !== 'agentMessage') {
+      if (!currentItem) {
         const currentItemIndex = currentTurn.items.findIndex(
           (item) => stringField(item.id) === snapshotItemId,
         )
@@ -1413,70 +1456,46 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
         lastMatchedCurrentItemIndex = currentItemIndex
       }
 
-      const currentText = stringField(currentItem.text)
-      const snapshotText = stringField(snapshotItem.text)
-      if (snapshotText.length > currentText.length) {
-        return snapshotItem
-      }
-
-      const shouldPreserveLongerCurrentText =
-        currentText.length > snapshotText.length
-
-      const shouldPreserveStreamingPhase =
-        stringField(currentItem.type) === 'agentMessage' &&
-        turnStatusLooksInterruptible(snapshotTurn.status) &&
-        stringsEqualFold(stringField(currentItem.phase), 'streaming')
-      const shouldPreserveClientRenderMode =
-        stringField(currentItem.type) === 'agentMessage' &&
-        stringField(currentItem.clientRenderMode) === 'animate-once'
-
-      if (
-        !shouldPreserveLongerCurrentText &&
-        !shouldPreserveStreamingPhase &&
-        !shouldPreserveClientRenderMode
-      ) {
+      const reconcileState = buildSnapshotPreservationState(
+        snapshotTurn.status,
+        currentItem,
+        snapshotItem,
+      )
+      if (!reconcileState.shouldPreserve) {
         return snapshotItem
       }
 
       turnChanged = true
-      const reconcileReason = {
-        preserveClientRenderMode: shouldPreserveClientRenderMode,
-        preserveLongerCurrentText: shouldPreserveLongerCurrentText,
-        preserveStreamingPhase: shouldPreserveStreamingPhase,
-      }
       recordConversationLiveDiagnosticEvent({
         itemId: snapshotItemId,
         itemType: stringField(snapshotItem.type) || null,
         kind: 'snapshot-reconciled',
         metadata: {
-          currentLength: currentText.length,
+          currentLength: reconcileState.currentLength,
           currentUpdatedAt: currentLiveDetail.updatedAt,
-          incomingLength: snapshotText.length,
-          preserveClientRenderMode: shouldPreserveClientRenderMode,
-          preserveLongerCurrentText: shouldPreserveLongerCurrentText,
-          preserveStreamingPhase: shouldPreserveStreamingPhase,
+          incomingLength: reconcileState.snapshotLength,
+          preserveClientRenderMode: reconcileState.preserveClientRenderMode,
+          preserveLongerCurrentText: reconcileState.preserveLongerCurrentText,
+          preserveStreamingPhase: reconcileState.preserveStreamingPhase,
           snapshotUpdatedAt: threadDetail.updatedAt,
         },
-        reason: summarizeSnapshotReconcileReason(reconcileReason),
+        reason: summarizeSnapshotReconcileReason(reconcileState),
         source: 'thread-live',
         threadId: threadDetail.id,
         turnId: snapshotTurn.id,
       })
       frontendDebugLog('thread-live', 'reconciled snapshot agent item with live state', {
         currentItem: summarizeLiveItemForDebug(currentItem),
-        reason: reconcileReason,
+        reason: reconcileState,
         snapshotItem: summarizeLiveItemForDebug(snapshotItem),
         threadId: threadDetail.id,
         turnId: snapshotTurn.id,
       })
-      const reconciledItem: Record<string, unknown> = {
-        ...snapshotItem,
-        text: currentText || snapshotText,
-      }
-      if (shouldPreserveStreamingPhase) {
+      const reconciledItem = mergeThreadItem(currentItem, snapshotItem)
+      if (reconcileState.preserveStreamingPhase) {
         reconciledItem.phase = 'streaming'
       }
-      if (shouldPreserveClientRenderMode) {
+      if (reconcileState.preserveClientRenderMode) {
         reconciledItem.clientRenderMode = 'animate-once'
       }
 
@@ -1540,36 +1559,174 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
     }
   })
 
+  const trailingLiveTurns = currentLiveDetail.turns.filter((currentTurn, currentTurnIndex) => {
+    if (currentTurnIndex <= lastMatchedCurrentTurnIndex) {
+      return false
+    }
+
+    const currentTurnId = stringField(currentTurn.id)
+    if (!currentTurnId) {
+      return false
+    }
+
+    const alreadyPresent = threadDetail.turns.some((snapshotTurn) => snapshotTurn.id === currentTurnId)
+    if (alreadyPresent) {
+      return false
+    }
+
+    return shouldPreserveMissingTrailingLiveTurn(currentTurn)
+  })
+
+  if (trailingLiveTurns.length > 0) {
+    detailChanged = true
+    for (const trailingTurn of trailingLiveTurns) {
+      for (const trailingItem of trailingTurn.items.filter(shouldPreserveMissingTrailingLiveItem)) {
+        recordConversationLiveDiagnosticEvent({
+          itemId: stringField(trailingItem.id) || null,
+          itemType: stringField(trailingItem.type) || null,
+          kind: 'snapshot-trailing-item-preserved',
+          metadata: {
+            currentLength: preservedLiveItemLength(trailingItem),
+            currentUpdatedAt: currentLiveDetail.updatedAt,
+            snapshotUpdatedAt: threadDetail.updatedAt,
+          },
+          reason: 'preserved trailing live turn missing from snapshot',
+          source: 'thread-live',
+          threadId: threadDetail.id,
+          turnId: trailingTurn.id,
+        })
+      }
+    }
+    frontendDebugLog('thread-live', 'preserved trailing live turns missing from snapshot', {
+      threadId: threadDetail.id,
+      turns: trailingLiveTurns.map((turn) => ({
+        id: turn.id,
+        itemCount: turn.items.length,
+        items: turn.items.map(summarizeLiveItemForDebug),
+      })),
+    })
+  }
+
   if (!detailChanged) {
     return threadDetail
   }
 
   return {
     ...threadDetail,
-    turns,
+    turns: [...turns, ...trailingLiveTurns],
   }
 }
 
 function shouldPreserveMissingTrailingLiveItem(item: Record<string, unknown>) {
-  if (stringField(item.type) !== 'agentMessage') {
-    return false
+  switch (stringField(item.type)) {
+    case 'agentMessage':
+      return (
+        stringField(item.text).length > 0 ||
+        stringsEqualFold(stringField(item.phase), 'streaming') ||
+        stringField(item.clientRenderMode) === 'animate-once'
+      )
+    case 'commandExecution':
+      return !isCommandExecutionRenderEmpty(item)
+    case 'plan':
+      return stringField(item.text).length > 0
+    case 'reasoning':
+      return stringList(item.summary).length > 0 || stringList(item.content).length > 0
+    default:
+      return false
   }
+}
 
+function shouldPreserveMissingTrailingLiveTurn(turn: ThreadTurn) {
   return (
-    stringField(item.text).length > 0 ||
-    stringsEqualFold(stringField(item.phase), 'streaming') ||
-    stringField(item.clientRenderMode) === 'animate-once'
+    turn.items.some(shouldPreserveMissingTrailingLiveItem) ||
+    Boolean(turn.error) ||
+    turnStatusLooksInterruptible(turn.status)
   )
 }
 
+function preservedLiveItemLength(item: Record<string, unknown>) {
+  switch (stringField(item.type)) {
+    case 'commandExecution':
+      return Math.max(
+        stringField(item.command).length,
+        stringField(item.aggregatedOutput).length,
+      )
+    case 'reasoning':
+      return stringList(item.summary).join('\n').length + stringList(item.content).join('\n').length
+    default:
+      return stringField(item.text).length
+  }
+}
+
+function reconcileTurnPlanItemsForTerminalTurnStatus(
+  items: Record<string, unknown>[],
+  turnStatus: string,
+) {
+  if (!items.length || !isTerminalTurnStatus(turnStatus)) {
+    return items
+  }
+
+  let changed = false
+  const nextItems = items.map((item) => {
+    const turnPlan = readTurnPlanItem(item)
+    if (!turnPlan) {
+      return item
+    }
+
+    const normalizedPlanStatus = normalizeTurnPlanStatus(turnPlan.status)
+    if (normalizedPlanStatus === '' || normalizedPlanStatus === 'inprogress' || normalizedPlanStatus === 'pending') {
+      changed = true
+      return {
+        ...item,
+        status: turnStatus,
+      }
+    }
+
+    return item
+  })
+
+  return changed ? nextItems : items
+}
+
+function isTerminalTurnStatus(value: string) {
+  switch (normalizeTurnPlanStatus(value)) {
+    case 'completed':
+    case 'interrupted':
+    case 'failed':
+    case 'error':
+    case 'cancelled':
+    case 'canceled':
+    case 'stopped':
+      return true
+    default:
+      return false
+  }
+}
+
 function summarizeSnapshotReconcileReason(flags: {
+  itemType: string
+  preserveCommandMetadata: boolean
   preserveClientRenderMode: boolean
   preserveLongerCurrentText: boolean
+  preserveReasoningContent: boolean
   preserveStreamingPhase: boolean
+  preserveStatusMetadata: boolean
+  currentLength: number
+  shouldPreserve: boolean
+  snapshotLength: number
 }) {
   const parts: string[] = []
   if (flags.preserveLongerCurrentText) {
     parts.push('preserved longer current text')
+  }
+  if (flags.preserveCommandMetadata) {
+    parts.push('preserved command metadata')
+  }
+  if (flags.preserveStatusMetadata) {
+    parts.push('preserved status metadata')
+  }
+  if (flags.preserveReasoningContent) {
+    parts.push('preserved reasoning content')
   }
   if (flags.preserveStreamingPhase) {
     parts.push('preserved streaming phase')
@@ -1579,6 +1736,80 @@ function summarizeSnapshotReconcileReason(flags: {
   }
 
   return parts.join('; ') || 'snapshot reconciled with live state'
+}
+
+function buildSnapshotPreservationState(
+  snapshotTurnStatus: string,
+  currentItem: Record<string, unknown>,
+  snapshotItem: Record<string, unknown>,
+) {
+  const itemType = stringField(snapshotItem.type)
+  const currentText = stringField(currentItem.text)
+  const snapshotText = stringField(snapshotItem.text)
+  const currentSummaryLength = stringList(currentItem.summary).join('\n').length
+  const snapshotSummaryLength = stringList(snapshotItem.summary).join('\n').length
+  const currentContentLength = stringList(currentItem.content).join('\n').length
+  const snapshotContentLength = stringList(snapshotItem.content).join('\n').length
+  const currentOutputLength = stringField(currentItem.aggregatedOutput).length
+  const snapshotOutputLength = stringField(snapshotItem.aggregatedOutput).length
+
+  const preserveLongerCurrentText =
+    currentText.length > snapshotText.length ||
+    currentOutputLength > snapshotOutputLength
+  const preserveCommandMetadata =
+    itemType === 'commandExecution' &&
+    !stringField(snapshotItem.command) &&
+    Boolean(stringField(currentItem.command))
+  const preserveStatusMetadata =
+    itemType === 'commandExecution' &&
+    !stringField(snapshotItem.status) &&
+    Boolean(stringField(currentItem.status))
+  const preserveReasoningContent =
+    itemType === 'reasoning' &&
+    (currentSummaryLength > snapshotSummaryLength ||
+      currentContentLength > snapshotContentLength)
+  const preserveStreamingPhase =
+    itemType === 'agentMessage' &&
+    turnStatusLooksInterruptible(snapshotTurnStatus) &&
+    stringsEqualFold(stringField(currentItem.phase), 'streaming')
+  const preserveClientRenderMode =
+    itemType === 'agentMessage' &&
+    stringField(currentItem.clientRenderMode) === 'animate-once'
+
+  return {
+    currentLength: Math.max(
+      currentText.length,
+      currentOutputLength,
+      currentSummaryLength + currentContentLength,
+    ),
+    itemType,
+    preserveCommandMetadata,
+    preserveClientRenderMode,
+    preserveLongerCurrentText,
+    preserveReasoningContent,
+    preserveStatusMetadata,
+    preserveStreamingPhase,
+    shouldPreserve:
+      preserveLongerCurrentText ||
+      preserveCommandMetadata ||
+      preserveStatusMetadata ||
+      preserveReasoningContent ||
+      preserveStreamingPhase ||
+      preserveClientRenderMode,
+    snapshotLength: Math.max(
+      snapshotText.length,
+      snapshotOutputLength,
+      snapshotSummaryLength + snapshotContentLength,
+    ),
+  }
+}
+
+function isCommandExecutionRenderEmpty(item: Record<string, unknown>) {
+  return (
+    !stringField(item.command) &&
+    !stringField(item.aggregatedOutput) &&
+    !stringField(item.status)
+  )
 }
 
 function isServerRequestMethod(method: string) {

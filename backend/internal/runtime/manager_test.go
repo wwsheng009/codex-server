@@ -644,6 +644,83 @@ func TestManagerTransitionsToErrorWhenRuntimeExitsUnexpectedly(t *testing.T) {
 	t.Fatalf("expected runtime to close and retain stderr context, got %#v", manager.State("ws-1"))
 }
 
+func TestManagerPublishesSyntheticTerminalEventsWhenRuntimeClosesMidTurn(t *testing.T) {
+	hub := events.NewHub()
+	eventsCh, cancel := hub.Subscribe("ws-1")
+	defer cancel()
+
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"turn/start": {
+				Result: map[string]any{
+					"turn": map[string]any{
+						"id":     "turn-crash-midstream-1",
+						"status": "inProgress",
+					},
+				},
+				Notifications: []codexfake.Notification{
+					{
+						Method: "turn/started",
+						Params: map[string]any{
+							"threadId": "thread-crash-midstream-1",
+							"turn": map[string]any{
+								"id":     "turn-crash-midstream-1",
+								"status": "inProgress",
+							},
+						},
+					},
+				},
+				Exit: &codexfake.ExitBehavior{
+					Code:   19,
+					Stderr: "runtime crashed before terminal event",
+				},
+			},
+		},
+	})
+
+	manager := NewManager(session.Command, hub)
+	rootPath := t.TempDir()
+	manager.Configure("ws-1", rootPath)
+	t.Cleanup(func() {
+		manager.Remove("ws-1")
+	})
+
+	var response struct {
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	if err := manager.Call(context.Background(), "ws-1", "turn/start", map[string]any{
+		"threadId": "thread-crash-midstream-1",
+	}, &response); err != nil {
+		t.Fatalf("Call(turn/start) error = %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var methods []string
+	for time.Now().Before(deadline) {
+		select {
+		case event := <-eventsCh:
+			methods = append(methods, event.Method)
+			if len(methods) >= 3 {
+				if methods[0] != "turn/started" {
+					t.Fatalf("expected first event to be turn/started, got %#v", methods)
+				}
+				if methods[1] != "turn/interrupted" {
+					t.Fatalf("expected synthetic turn/interrupted after crash, got %#v", methods)
+				}
+				if methods[2] != "thread/status/changed" {
+					t.Fatalf("expected synthetic thread/status/changed after crash, got %#v", methods)
+				}
+				return
+			}
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	t.Fatalf("expected synthetic terminal events after runtime crash, got %#v", methods)
+}
+
 func TestEnsureStartedClassifiesLaunchMisconfiguration(t *testing.T) {
 	t.Parallel()
 

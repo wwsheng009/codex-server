@@ -218,6 +218,24 @@ describe('threadPageUtils', () => {
     ).toBe('turn-4:command-1:command:inProgress:8:18:1200')
   })
 
+  it('treats status-only command placeholders as renderable timeline items', () => {
+    expect(
+      latestRenderableThreadItemKey([
+        {
+          id: 'turn-4b',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'command-1',
+              type: 'commandExecution',
+              status: 'inProgress',
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-4b:command-1:command:inProgress:0:0:0')
+  })
+
   it('treats populated reasoning items as renderable timeline entries', () => {
     expect(
       latestRenderableThreadItemKey([

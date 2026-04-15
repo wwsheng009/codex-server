@@ -42,6 +42,11 @@ export function ThreadWorkbenchRail({
   command,
   commandRunMode,
   commandCount,
+  cumulativeTokens,
+  currentThreadStatus,
+  currentInputTokens,
+  currentOutputTokens,
+  currentReasoningTokens,
   deletePending,
   deletingThreadId,
   editingThreadId,
@@ -220,6 +225,11 @@ export function ThreadWorkbenchRail({
           commandCount={commandCount}
           contextUsagePercent={contextUsagePercent}
           contextWindow={contextWindow}
+          cumulativeTokens={cumulativeTokens}
+          currentThreadStatus={currentThreadStatus}
+          currentInputTokens={currentInputTokens}
+          currentOutputTokens={currentOutputTokens}
+          currentReasoningTokens={currentReasoningTokens}
           isMobileViewport={isMobileViewport}
           lastTimelineEventTs={lastTimelineEventTs}
           latestTurnStatus={latestTurnStatus}

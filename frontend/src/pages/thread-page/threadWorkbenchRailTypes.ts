@@ -30,6 +30,7 @@ export type ThreadWorkbenchRailProps = {
   command: string
   commandRunMode: CommandRunMode
   commandCount: number
+  currentThreadStatus?: string
   deletePending: boolean
   deletingThreadId?: string
   editingThreadId?: string
@@ -76,6 +77,10 @@ export type ThreadWorkbenchRailProps = {
   turnPolicyMetricsLoading: boolean
   contextUsagePercent: number | null
   contextWindow: number
+  cumulativeTokens: number
+  currentInputTokens: number
+  currentOutputTokens: number
+  currentReasoningTokens: number
   loadedMessageCount: number
   loadedTurnCount: number
   totalTokens: number
@@ -204,6 +209,11 @@ export type ThreadWorkbenchRailWorkspaceContextSectionProps = {
   commandCount: number
   contextUsagePercent: number | null
   contextWindow: number
+  cumulativeTokens: number
+  currentThreadStatus?: string
+  currentInputTokens: number
+  currentOutputTokens: number
+  currentReasoningTokens: number
   isMobileViewport: boolean
   lastTimelineEventTs?: string
   latestTurnStatus?: string

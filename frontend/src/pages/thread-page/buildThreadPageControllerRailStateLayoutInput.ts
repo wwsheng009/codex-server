@@ -22,6 +22,8 @@ export function buildThreadPageControllerRailStateLayoutInput({
     dataState.threadDetailQuery.data?.messageCount ??
     dataState.selectedThread?.messageCount ??
     displayState.loadedMessageCount
+  const currentBreakdown = displayState.resolvedThreadTokenUsage?.last
+  const cumulativeBreakdown = displayState.resolvedThreadTokenUsage?.total
 
   return {
     botSendBinding: dataState.threadBotBindingQuery.data ?? null,
@@ -42,6 +44,10 @@ export function buildThreadPageControllerRailStateLayoutInput({
     command: controllerState.command,
     commandRunMode: controllerState.commandRunMode,
     commandCount: dataState.commandSessions.length,
+    currentThreadStatus: dataState.liveThreadDetail?.status ?? dataState.selectedThread?.status,
+    currentInputTokens: currentBreakdown?.inputTokens ?? 0,
+    currentOutputTokens: currentBreakdown?.outputTokens ?? 0,
+    currentReasoningTokens: currentBreakdown?.reasoningOutputTokens ?? 0,
     confirmDialogError: mutationState.deleteThreadMutation.error,
     confirmingThreadDelete: railState.confirmingThreadDelete,
     deletePending: mutationState.deleteThreadMutation.isPending,
@@ -52,11 +58,15 @@ export function buildThreadPageControllerRailStateLayoutInput({
     isResizing: controllerState.isInspectorResizing,
     isThreadToolsExpanded: railState.isThreadToolsExpanded,
     isWorkbenchToolsExpanded: railState.isWorkbenchToolsExpanded,
-    latestTurnStatus: displayState.latestDisplayedTurn?.status ?? dataState.selectedThread?.status,
+    latestTurnStatus:
+      displayState.latestDisplayedTurn?.status ??
+      dataState.liveThreadDetail?.status ??
+      dataState.selectedThread?.status,
     lastTimelineEventTs: statusState.lastTimelineEventTs,
     loadedAssistantMessageCount: displayState.loadedAssistantMessageCount,
     contextUsagePercent: displayState.contextUsage.percent,
     contextWindow: displayState.contextUsage.contextWindow,
+    cumulativeTokens: cumulativeBreakdown?.totalTokens ?? 0,
     loadedMessageCount: displayState.loadedMessageCount,
     loadedTurnCount: displayState.turnCount,
     loadedUserMessageCount: displayState.loadedUserMessageCount,

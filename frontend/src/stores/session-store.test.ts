@@ -260,3 +260,46 @@ describe('applySessionEvents seq replay dedupe', () => {
     ])
   })
 })
+
+describe('applySessionEvents thread activity status', () => {
+  it('updates thread activity to completed when turn completion arrives without a thread status refresh', () => {
+    const nextState = sessionStoreModule.applySessionEvents(
+      {
+        ...createState(),
+        threadActivityByThread: {
+          'thread-1': {
+            latestEventMethod: 'turn/started',
+            latestEventTs: '2026-03-27T01:00:00.000Z',
+            latestStatus: 'running',
+            threadId: 'thread-1',
+            workspaceId: 'ws-1',
+          },
+        },
+      },
+      [
+        {
+          ...makeEvent(
+            'turn/completed',
+            {
+              turn: {
+                id: 'turn-1',
+                status: 'completed',
+              },
+            },
+            '2026-03-27T01:00:07.000Z',
+          ),
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+      ],
+    )
+
+    expect(nextState.threadActivityByThread['thread-1']).toEqual({
+      latestEventMethod: 'turn/completed',
+      latestEventTs: '2026-03-27T01:00:07.000Z',
+      latestStatus: 'completed',
+      threadId: 'thread-1',
+      workspaceId: 'ws-1',
+    })
+  })
+})

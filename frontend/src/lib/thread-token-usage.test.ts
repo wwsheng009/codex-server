@@ -64,7 +64,7 @@ describe('thread-token-usage', () => {
         inputTokens: 0,
         outputTokens: 0,
         reasoningOutputTokens: 0,
-        totalTokens: 0,
+        totalTokens: 145,
       },
       total: {
         cachedInputTokens: 0,
@@ -78,8 +78,8 @@ describe('thread-token-usage', () => {
 
     expect(computeContextUsage(usage)).toEqual({
       contextWindow: 8000,
-      percent: 25,
-      totalTokens: 2000,
+      percent: 2,
+      totalTokens: 145,
     })
   })
 })

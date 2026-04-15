@@ -26,6 +26,7 @@ describe('buildThreadPageInteractionStatus', () => {
       interruptPending: false,
       isThreadPinnedToLatest: true,
       latestDisplayedTurn: undefined,
+      liveThreadStatus: undefined,
       restartAndRetryPending: false,
       selectedThread: undefined,
       selectedThreadId: 'thread-1',
@@ -50,6 +51,7 @@ describe('buildThreadPageInteractionStatus', () => {
       interruptPending: false,
       isThreadPinnedToLatest: true,
       latestDisplayedTurn: undefined,
+      liveThreadStatus: undefined,
       restartAndRetryPending: false,
       selectedThread: undefined,
       selectedThreadId: 'thread-1',
@@ -74,6 +76,7 @@ describe('buildThreadPageInteractionStatus', () => {
       interruptPending: false,
       isThreadPinnedToLatest: true,
       latestDisplayedTurn: undefined,
+      liveThreadStatus: undefined,
       restartAndRetryPending: false,
       selectedThread: undefined,
       selectedThreadId: 'thread-1',
@@ -99,6 +102,7 @@ describe('buildThreadPageInteractionStatus', () => {
       interruptPending: false,
       isThreadPinnedToLatest: true,
       latestDisplayedTurn: undefined,
+      liveThreadStatus: undefined,
       restartAndRetryPending: false,
       selectedThread: undefined,
       selectedThreadId: 'thread-1',
@@ -109,5 +113,42 @@ describe('buildThreadPageInteractionStatus', () => {
 
     expect(result.composerStatusRetryLabel).toBe('Retry')
     expect(result.isSendBusy).toBe(false)
+  })
+
+  it('uses live thread status to clear stale replying state after completion', () => {
+    const result = buildThreadPageInteractionStatus({
+      account: undefined,
+      accountError: null,
+      activeComposerApproval: null,
+      activeContextCompactionFeedback: null,
+      activePendingTurn: null,
+      hasRecoverableRuntimeOperation: false,
+      recoverableRuntimeActionKind: null,
+      hasUnreadThreadUpdates: false,
+      interruptPending: false,
+      isThreadPinnedToLatest: true,
+      latestDisplayedTurn: {
+        id: 'turn-1',
+        items: [],
+        status: 'completed',
+      },
+      liveThreadStatus: 'completed',
+      restartAndRetryPending: false,
+      selectedThread: {
+        id: 'thread-1',
+        name: 'Example',
+        status: 'running',
+        updatedAt: new Date().toISOString(),
+        workspaceId: 'workspace-1',
+      },
+      selectedThreadId: 'thread-1',
+      sendError: null,
+      streamState: 'open',
+      suppressAuthenticationError: false,
+    })
+
+    expect(result.isThreadInterruptible).toBe(false)
+    expect(result.composerActivityTitle).toBeNull()
+    expect(result.mobileStatus).toBe('completed')
   })
 })

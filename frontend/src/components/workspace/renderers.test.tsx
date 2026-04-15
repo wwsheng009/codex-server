@@ -249,9 +249,56 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Prepare the migration.')
     expect(html).not.toContain('Turn turn-newer')
     expect(html).not.toContain('Turn turn-older')
+    expect(html).toContain('plan-status-panel__toggle-icon')
+    expect(html).toContain('<details class="plan-status-panel" open="">')
+    expect(html).toContain('<details class="plan-status-panel">')
     expect(html.indexOf('Ship the new plans panel.')).toBeLessThan(
       html.indexOf('Prepare the migration.'),
     )
+  })
+
+  it('renders terminal plan states with explicit labels and tones', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-system-error',
+        status: 'interrupted',
+        items: [
+          {
+            id: 'turn-plan-system-error',
+            type: 'turnPlan',
+            explanation: 'Recover from runtime termination.',
+            status: 'systemError',
+            steps: [
+              {
+                step: 'Reconnect runtime transport',
+                status: 'interrupted',
+              },
+              {
+                step: 'Replay missing terminal events',
+                status: 'systemError',
+              },
+              {
+                step: 'Clear stale in-progress plan state',
+                status: 'cancelled',
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const stackHtml = renderToStaticMarkup(<PlanStatusStack turns={turns} />)
+    const timelineHtml = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(stackHtml).toContain('Recover from runtime termination.')
+    expect(stackHtml).toContain('detail-badge--danger')
+    expect(stackHtml).toContain('Error')
+    expect(stackHtml).toContain('Stopped')
+    expect(stackHtml).toContain('Cancelled')
+    expect(timelineHtml).toContain('conversation-card__status--error')
+    expect(timelineHtml).toContain('conversation-plan__step--interrupted')
+    expect(timelineHtml).toContain('conversation-plan__step--failed')
+    expect(timelineHtml).toContain('conversation-plan__step--cancelled')
   })
 
   it('renders web search actions as compact system cards', () => {

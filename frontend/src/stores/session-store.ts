@@ -1178,21 +1178,46 @@ function sanitizeCommandStateSnapshot(
 }
 
 function readThreadActivityStatus(event: ServerEvent) {
-  if (event.method !== 'thread/status/changed') {
+  switch (event.method) {
+    case 'thread/status/changed':
+      return readThreadStatusChangedType(event.payload)
+    case 'turn/started':
+      return readTurnLifecycleStatus(event.payload) || 'running'
+    case 'turn/completed':
+      return readTurnLifecycleStatus(event.payload) || 'completed'
+    default:
+      return ''
+  }
+}
+
+function readThreadStatusChangedType(payload: unknown) {
+  if (typeof payload !== 'object' || payload === null) {
     return ''
   }
 
-  if (typeof event.payload !== 'object' || event.payload === null) {
-    return ''
-  }
-
-  const payload = event.payload as Record<string, unknown>
-  const status = payload.status
+  const payloadRecord = payload as Record<string, unknown>
+  const status = payloadRecord.status
   if (typeof status !== 'object' || status === null) {
     return ''
   }
 
   return typeof (status as Record<string, unknown>).type === 'string'
     ? String((status as Record<string, unknown>).type)
+    : ''
+}
+
+function readTurnLifecycleStatus(payload: unknown) {
+  if (typeof payload !== 'object' || payload === null) {
+    return ''
+  }
+
+  const payloadRecord = payload as Record<string, unknown>
+  const turn = payloadRecord.turn
+  if (typeof turn !== 'object' || turn === null) {
+    return ''
+  }
+
+  return typeof (turn as Record<string, unknown>).status === 'string'
+    ? String((turn as Record<string, unknown>).status)
     : ''
 }

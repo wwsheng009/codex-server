@@ -735,6 +735,60 @@ describe('buildThreadPageTurnDisplayState', () => {
     })
   })
 
+  it('normalizes stale turn plan status to completed in display state when the turn is completed', () => {
+    const liveThreadDetail: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'completed',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:02.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'turn-plan-turn-1',
+              type: 'turnPlan',
+              explanation: 'Stabilize the event flow',
+              status: 'inProgress',
+              steps: [
+                {
+                  step: 'Inspect runtime events',
+                  status: 'completed',
+                },
+                {
+                  step: 'Render step states',
+                  status: 'inProgress',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {},
+      historicalTurns: [],
+      liveThreadDetail,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(state.displayedTurns[0].items[0]).toMatchObject({
+      id: 'turn-plan-turn-1',
+      type: 'turnPlan',
+      status: 'completed',
+    })
+  })
+
   it('excludes the synthetic governance turn from display turn counts and latest-turn selection', () => {
     const liveThreadDetail: ThreadDetail = {
       id: 'thread-1',

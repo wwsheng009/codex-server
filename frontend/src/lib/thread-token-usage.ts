@@ -65,7 +65,7 @@ export function computeContextUsage(usage: ThreadTokenUsage | null | undefined) 
     }
   }
 
-  const totalTokens = numberValue(usage.total.totalTokens)
+  const totalTokens = numberValue(usage.last.totalTokens)
   const contextWindow = numberValue(usage.modelContextWindow)
 
   return {

@@ -3,6 +3,9 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { i18n } from '../../i18n/runtime'
+import type { ThreadDetail } from '../../types/api'
+import { resolveLiveThreadDetail } from '../threadLiveState'
+import { buildThreadPageTurnDisplayState } from './buildThreadPageTurnDisplayState'
 import {
   shouldScheduleOlderTurnsAutoload,
   shouldFreezeThreadTimelineVirtualization,
@@ -919,5 +922,243 @@ describe('ThreadWorkbenchSurface', () => {
 
     expect(html).toContain('Restart and Retry')
     expect(html).not.toContain('Restart Runtime')
+  })
+
+  it('renders the newest live turn without requiring a refresh when a newer snapshot temporarily omits it', () => {
+    const currentLiveDetail: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'completed',
+      archived: false,
+      createdAt: '2026-03-20T00:00:00.000Z',
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: 'Earlier reply',
+            },
+          ],
+        },
+        {
+          id: 'turn-2',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-2',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'working tree clean',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const threadDetail: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'completed',
+      archived: false,
+      createdAt: '2026-03-20T00:00:00.000Z',
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: 'Earlier reply',
+            },
+          ],
+        },
+      ],
+    }
+
+    const liveThreadDetail = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail,
+    })
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {},
+      historicalTurns: [],
+      liveThreadDetail,
+      selectedThreadId: 'thread-1',
+    })
+
+    const html = renderToStaticMarkup(
+      <ThreadWorkbenchSurface
+        activeSurfacePanelSide="right"
+        approvalAnswers={{}}
+        approvalErrors={{}}
+        approvals={[]}
+        createThreadErrorMessage={undefined}
+        displayedTurns={state.displayedTurns}
+        hasMoreTurnsBefore={false}
+        hasThreads={true}
+        hiddenTurnsCount={0}
+        isCreateThreadPending={false}
+        isLoadingOlderTurns={false}
+        isThreadsLoaded={true}
+        isThreadSelectionLoading={false}
+        isMobileViewport={false}
+        isSurfacePanelResizing={false}
+        isThreadPinnedToLatest={true}
+        isThreadProcessing={false}
+        isThreadViewportInteracting={false}
+        isWaitingForThreadData={false}
+        liveTimelineEntries={[]}
+        onChangeApprovalAnswer={() => undefined}
+        onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
+        onCreateThread={() => undefined}
+        onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
+        onRespondApproval={() => undefined}
+        onRetryServerRequest={() => undefined}
+        onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
+        onSurfacePanelResizeStart={() => undefined}
+        onThreadViewportScroll={() => undefined}
+        onToggleSurfacePanelSide={() => undefined}
+        respondingToApproval={false}
+        selectedThread={{
+          id: 'thread-1',
+          workspaceId: 'ws-1',
+          name: 'Thread 1',
+          status: 'completed',
+          archived: false,
+          createdAt: '2026-03-20T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:03.000Z',
+        }}
+        surfacePanelView={null}
+        threadDetailError={null}
+        threadDetailIsLoading={false}
+        threadLogStyle={{}}
+        threadViewportRef={{ current: null }}
+        timelineIdentity="thread-1"
+        workspaceName="workspace"
+      >
+        <div>composer-probe</div>
+      </ThreadWorkbenchSurface>,
+    )
+
+    expect(html).toContain('Earlier reply')
+    expect(html).toContain('git status')
+    expect(html).toContain('conversation-card--command')
+    expect(html).toContain('conversation-card__status--success')
+  })
+
+  it('renders a status-only live command placeholder during realtime completion recovery', () => {
+    const liveThreadDetail: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'inProgress',
+      archived: false,
+      createdAt: '2026-03-20T00:00:00.000Z',
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {},
+      historicalTurns: [],
+      liveThreadDetail,
+      selectedThreadId: 'thread-1',
+    })
+
+    const html = renderToStaticMarkup(
+      <ThreadWorkbenchSurface
+        activeSurfacePanelSide="right"
+        approvalAnswers={{}}
+        approvalErrors={{}}
+        approvals={[]}
+        createThreadErrorMessage={undefined}
+        displayedTurns={state.displayedTurns}
+        hasMoreTurnsBefore={false}
+        hasThreads={true}
+        hiddenTurnsCount={0}
+        isCreateThreadPending={false}
+        isLoadingOlderTurns={false}
+        isThreadsLoaded={true}
+        isThreadSelectionLoading={false}
+        isMobileViewport={false}
+        isSurfacePanelResizing={false}
+        isThreadPinnedToLatest={true}
+        isThreadProcessing={true}
+        isThreadViewportInteracting={false}
+        isWaitingForThreadData={false}
+        liveTimelineEntries={[]}
+        onChangeApprovalAnswer={() => undefined}
+        onCloseWorkbenchOverlay={() => undefined}
+        onCaptureOlderTurnsAnchor={() => undefined}
+        onCreateThread={() => undefined}
+        onLoadOlderTurns={() => undefined}
+        onReleaseFullTurn={() => undefined}
+        onRetainFullTurn={() => undefined}
+        onRequestFullTurn={() => undefined}
+        onRespondApproval={() => undefined}
+        onRetryServerRequest={() => undefined}
+        onRetryThreadLoad={() => undefined}
+        onRestoreOlderTurnsViewport={() => undefined}
+        onSurfacePanelResizeStart={() => undefined}
+        onThreadViewportScroll={() => undefined}
+        onToggleSurfacePanelSide={() => undefined}
+        respondingToApproval={false}
+        selectedThread={{
+          id: 'thread-1',
+          workspaceId: 'ws-1',
+          name: 'Thread 1',
+          status: 'inProgress',
+          archived: false,
+          createdAt: '2026-03-20T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:05.000Z',
+        }}
+        surfacePanelView={null}
+        threadDetailError={null}
+        threadDetailIsLoading={false}
+        threadLogStyle={{}}
+        threadViewportRef={{ current: null }}
+        timelineIdentity="thread-1"
+        workspaceName="workspace"
+      >
+        <div>composer-probe</div>
+      </ThreadWorkbenchSurface>,
+    )
+
+    expect(html).toContain('Command execution')
+    expect(html).toContain('conversation-card--command')
+    expect(html).toContain('conversation-card__status--success')
   })
 })

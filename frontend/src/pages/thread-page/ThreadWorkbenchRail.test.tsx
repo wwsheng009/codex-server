@@ -11,6 +11,7 @@ import { ThreadWorkbenchRail } from './ThreadWorkbenchRail'
 import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/runtimeRecovery'
 
 function renderRail(options?: {
+  currentThreadStatus?: string
   runtimeRecoveryExecutionNotice?: {
     actionKind: 'retry' | 'restart-and-retry'
     attemptCount: number
@@ -55,6 +56,7 @@ function renderRail(options?: {
           commandRunMode="command-exec"
           contextUsagePercent={42}
           contextWindow={128000}
+          currentThreadStatus={options?.currentThreadStatus ?? 'idle'}
           deletePending={false}
           deletingThreadId={undefined}
           editingThreadId={undefined}
@@ -293,5 +295,13 @@ describe('ThreadWorkbenchRail', () => {
         /The failed terminal operation was started again without restarting the runtime\./i,
       ),
     ).toBeTruthy()
+  })
+
+  it('shows live current thread status instead of a stale thread list status', () => {
+    renderRail({
+      currentThreadStatus: 'completed',
+    })
+
+    expect(screen.getAllByText('Completed').length).toBeGreaterThan(0)
   })
 })

@@ -4,6 +4,7 @@ import {
   primeThreadDisplayMetrics,
   primeThreadDisplayMetricsForTurnReplacements,
 } from '../threadPageUtils'
+import { normalizeTurnPlanStatus, readTurnPlanItem } from '../../lib/turn-plan'
 import { buildPendingThreadTurn } from '../threadPageTurnHelpers'
 import type { ThreadPageTurnDisplayStateInput } from './threadPageDisplayTypes'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
@@ -60,7 +61,9 @@ export function buildThreadPageTurnDisplayState({
     fullTurnItemOverridesById,
     fullTurnItemContentOverridesById,
   )
-  const displayedTurns = applyPendingTurnDisplay(turnsWithOverrides, activePendingTurn)
+  const displayedTurns = reconcileDisplayTurnPlanStatuses(
+    applyPendingTurnDisplay(turnsWithOverrides, activePendingTurn),
+  )
 
   const selectedThreadCacheKey = selectedThreadId ?? ''
   const cachedResult = getCachedTurnDisplayStateResult(
@@ -127,6 +130,76 @@ function findLatestDisplayTurn(turns: ThreadTurn[]) {
 
 function isSyntheticGovernanceTurn(turn: ThreadTurn | undefined) {
   return turn?.id === THREAD_GOVERNANCE_TURN_ID
+}
+
+function reconcileDisplayTurnPlanStatuses(turns: ThreadTurn[]) {
+  let nextTurns: ThreadTurn[] | null = null
+
+  for (let turnIndex = 0; turnIndex < turns.length; turnIndex += 1) {
+    const turn = turns[turnIndex]
+    const terminalStatus = normalizeDisplayTerminalTurnStatus(turn.status)
+    if (!terminalStatus) {
+      continue
+    }
+
+    let nextItems: ThreadTurn['items'] | null = null
+    for (let itemIndex = 0; itemIndex < turn.items.length; itemIndex += 1) {
+      const item = turn.items[itemIndex]
+      const turnPlan = readTurnPlanItem(item)
+      if (!turnPlan) {
+        continue
+      }
+
+      const normalizedPlanStatus = normalizeTurnPlanStatus(turnPlan.status)
+      if (normalizedPlanStatus && normalizedPlanStatus !== 'inprogress' && normalizedPlanStatus !== 'pending') {
+        continue
+      }
+
+      if (!nextTurns) {
+        nextTurns = [...turns]
+      }
+      if (!nextItems) {
+        nextItems = [...turn.items]
+        nextTurns[turnIndex] = {
+          ...turn,
+          items: nextItems,
+        }
+      }
+
+      nextItems[itemIndex] = {
+        ...item,
+        status: terminalStatus,
+      }
+    }
+
+    if (nextItems) {
+      primeTurnMetadata(nextTurns![turnIndex])
+    }
+  }
+
+  if (!nextTurns) {
+    return turns
+  }
+
+  return nextTurns
+}
+
+function normalizeDisplayTerminalTurnStatus(value: string | undefined) {
+  switch (normalizeTurnPlanStatus(value)) {
+    case 'completed':
+      return 'completed'
+    case 'interrupted':
+    case 'stopped':
+      return 'interrupted'
+    case 'failed':
+    case 'error':
+      return 'failed'
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled'
+    default:
+      return ''
+  }
 }
 
 function getCachedTurnDisplayStateResult(

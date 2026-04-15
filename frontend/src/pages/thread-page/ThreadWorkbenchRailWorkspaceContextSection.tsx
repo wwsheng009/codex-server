@@ -11,6 +11,7 @@ import {
   formatShellEnvironmentInheritLabel,
   formatWindowsCommandResolutionLabel,
 } from '../../i18n/display'
+import { formatLocaleNumber } from '../../i18n/format'
 import { formatSessionStartSource } from '../../lib/hook-run-display'
 import { ConversationRenderProfilerRailToggle } from '../../components/workspace/threadConversationProfiler'
 import { i18n } from '../../i18n/runtime'
@@ -257,6 +258,11 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   commandCount,
   contextUsagePercent,
   contextWindow,
+  cumulativeTokens,
+  currentThreadStatus,
+  currentInputTokens,
+  currentOutputTokens,
+  currentReasoningTokens,
   isMobileViewport,
   lastTimelineEventTs,
   latestTurnStatus,
@@ -328,10 +334,18 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
   const contextUsageValue = contextUsagePercent === null ? '—' : `${contextUsagePercent}%`
   const contextUsageMeta =
     contextWindow > 0
-      ? `${totalTokens} / ${contextWindow}`
+      ? `${formatLocaleNumber(totalTokens)} / ${formatLocaleNumber(contextWindow)}`
       : totalTokens > 0
-        ? String(totalTokens)
+        ? formatLocaleNumber(totalTokens)
         : undefined
+  const currentInputMeta =
+    totalTokens > 0 ? `${formatLocaleNumber(currentInputTokens)} / ${formatLocaleNumber(totalTokens)}` : undefined
+  const currentOutputMeta =
+    totalTokens > 0 ? `${formatLocaleNumber(currentOutputTokens)} / ${formatLocaleNumber(totalTokens)}` : undefined
+  const currentReasoningMeta =
+    totalTokens > 0
+      ? `${formatLocaleNumber(currentReasoningTokens)} / ${formatLocaleNumber(totalTokens)}`
+      : undefined
   const turnsHelp = i18n._({
     id: 'Total thread turns currently known for the selected thread. Loaded coverage shows how much of that history is present in the active viewport window.',
     message:
@@ -343,9 +357,34 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
       'Messages count only user and assistant messages. Tool calls, approvals, and other system items are excluded.',
   })
   const contextHelp = i18n._({
-    id: 'Context shows total tokens currently tracked for the thread against the model context window when available.',
+    id: 'Context shows the current context token total for this thread against the model context window when available. This is the active context size, not the lifetime cumulative total.',
     message:
-      'Context shows total tokens currently tracked for the thread against the model context window when available.',
+      'Context shows the current context token total for this thread against the model context window when available. This is the active context size, not the lifetime cumulative total.',
+  })
+  const inputHelp = i18n._({
+    id: 'Input is the current context input token count included in the latest runtime token usage snapshot.',
+    message:
+      'Input is the current context input token count included in the latest runtime token usage snapshot.',
+  })
+  const outputHelp = i18n._({
+    id: 'Output is the current context output token count included in the latest runtime token usage snapshot.',
+    message:
+      'Output is the current context output token count included in the latest runtime token usage snapshot.',
+  })
+  const reasoningHelp = i18n._({
+    id: 'Reasoning is the current context reasoning token count included in the latest runtime token usage snapshot.',
+    message:
+      'Reasoning is the current context reasoning token count included in the latest runtime token usage snapshot.',
+  })
+  const currentThreadContextHelp = i18n._({
+    id: 'These token stats describe the current thread context snapshot reported by the runtime. They are current-context values, not workspace totals.',
+    message:
+      'These token stats describe the current thread context snapshot reported by the runtime. They are current-context values, not workspace totals.',
+  })
+  const cumulativeHelp = i18n._({
+    id: 'Cumulative is the lifetime token total for this single thread. It accumulates across the thread history and is not limited to the current context window.',
+    message:
+      'Cumulative is the lifetime token total for this single thread. It accumulates across the thread history and is not limited to the current context window.',
   })
   const latestTurnHelp = i18n._({
     id: 'Latest turn is the status of the newest loaded turn in the selected thread window.',
@@ -620,7 +659,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           label={
             <InfoLabel
               help={contextHelp}
-              label={i18n._({ id: 'Context', message: 'Context' })}
+              label={i18n._({ id: 'Current context', message: 'Current context' })}
             />
           }
           footer={
@@ -635,6 +674,33 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           }
           meta={contextUsageMeta}
           value={contextUsageValue}
+        />
+        <SummaryStat
+          label={<InfoLabel help={inputHelp} label={i18n._({ id: 'Input', message: 'Input' })} />}
+          meta={currentInputMeta}
+          value={formatLocaleNumber(currentInputTokens)}
+        />
+        <SummaryStat
+          label={<InfoLabel help={outputHelp} label={i18n._({ id: 'Output', message: 'Output' })} />}
+          meta={currentOutputMeta}
+          value={formatLocaleNumber(currentOutputTokens)}
+        />
+        <SummaryStat
+          label={
+            <InfoLabel help={reasoningHelp} label={i18n._({ id: 'Reasoning', message: 'Reasoning' })} />
+          }
+          meta={currentReasoningMeta}
+          value={formatLocaleNumber(currentReasoningTokens)}
+        />
+        <SummaryStat
+          label={
+            <InfoLabel
+              help={cumulativeHelp}
+              label={i18n._({ id: 'Thread lifetime total', message: 'Thread lifetime total' })}
+            />
+          }
+          meta={i18n._({ id: 'Thread total', message: 'Thread total' })}
+          value={formatLocaleNumber(cumulativeTokens)}
         />
         <SummaryStat
           label={<InfoLabel label={i18n._({ id: 'Approvals', message: 'Approvals' })} />}
@@ -704,7 +770,7 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         <DetailRow
           emphasis
           label={<InfoLabel label={i18n._({ id: 'Status', message: 'Status' })} />}
-          value={<StatusBadge value={selectedThread?.status} />}
+          value={<StatusBadge value={currentThreadStatus ?? selectedThread?.status} />}
         />
         <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Thread ID', message: 'Thread ID' })} />}
@@ -739,6 +805,15 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
           value={liveThreadCwd ?? '—'}
         />
         <DetailRow
+          label={
+            <InfoLabel
+              help={currentThreadContextHelp}
+              label={i18n._({ id: 'Context tokens', message: 'Context tokens' })}
+            />
+          }
+          value={formatLocaleNumber(totalTokens)}
+        />
+        <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Loaded turns', message: 'Loaded turns' })} />}
           value={effectiveLoadedTurnCount}
         />
@@ -769,6 +844,27 @@ export function ThreadWorkbenchRailWorkspaceContextSection({
         <DetailRow
           label={<InfoLabel label={i18n._({ id: 'Total messages', message: 'Total messages' })} />}
           value={effectiveTotalMessageCount}
+        />
+        <DetailRow
+          label={<InfoLabel help={inputHelp} label={i18n._({ id: 'Input', message: 'Input' })} />}
+          value={formatLocaleNumber(currentInputTokens)}
+        />
+        <DetailRow
+          label={<InfoLabel help={outputHelp} label={i18n._({ id: 'Output', message: 'Output' })} />}
+          value={formatLocaleNumber(currentOutputTokens)}
+        />
+        <DetailRow
+          label={<InfoLabel help={reasoningHelp} label={i18n._({ id: 'Reasoning', message: 'Reasoning' })} />}
+          value={formatLocaleNumber(currentReasoningTokens)}
+        />
+        <DetailRow
+          label={
+            <InfoLabel
+              help={cumulativeHelp}
+              label={i18n._({ id: 'Thread lifetime total', message: 'Thread lifetime total' })}
+            />
+          }
+          value={formatLocaleNumber(cumulativeTokens)}
         />
         <DetailRow
           label={

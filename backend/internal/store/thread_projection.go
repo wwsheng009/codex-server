@@ -36,7 +36,7 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 			projection.Status = status
 			changed = true
 		}
-	case "turn/started", "turn/completed":
+	case "turn/started", "turn/completed", "turn/failed", "turn/interrupted", "turn/canceled", "turn/cancelled":
 		turn := asObject(payload["turn"])
 		turnID := stringValue(turn["id"])
 		if turnID == "" {
@@ -50,6 +50,12 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 		if status == "" {
 			if event.Method == "turn/completed" {
 				status = "completed"
+			} else if event.Method == "turn/failed" {
+				status = "failed"
+			} else if event.Method == "turn/interrupted" {
+				status = "interrupted"
+			} else if event.Method == "turn/canceled" || event.Method == "turn/cancelled" {
+				status = "cancelled"
 			} else {
 				status = "inProgress"
 			}
@@ -71,6 +77,7 @@ func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvel
 			if items := readTurnItems(turn["items"]); len(items) > 0 {
 				next.Items = mergeProjectedTurnItemsPreserveCurrentOrder(next.Items, items)
 			}
+			next.Items = reconcileProjectedTurnPlanItemsForTerminalTurnStatus(next.Items, status)
 			if hasOwn(turn, "error") {
 				next.Error = turn["error"]
 			}
@@ -507,6 +514,43 @@ func turnPlanStatus(steps []map[string]any) string {
 		return "completed"
 	}
 	return "pending"
+}
+
+func reconcileProjectedTurnPlanItemsForTerminalTurnStatus(items []map[string]any, turnStatus string) []map[string]any {
+	if len(items) == 0 || !isProjectedTerminalTurnStatus(turnStatus) {
+		return items
+	}
+
+	changed := false
+	nextItems := make([]map[string]any, len(items))
+	for index, item := range items {
+		nextItems[index] = cloneItem(item)
+		if stringValue(nextItems[index]["type"]) != "turnPlan" {
+			continue
+		}
+
+		currentStatus := strings.TrimSpace(stringValue(nextItems[index]["status"]))
+		switch currentStatus {
+		case "", "inProgress", "pending":
+			nextItems[index]["status"] = turnStatus
+			changed = true
+		}
+	}
+
+	if !changed {
+		return items
+	}
+
+	return nextItems
+}
+
+func isProjectedTerminalTurnStatus(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "completed", "failed", "interrupted", "cancelled", "canceled":
+		return true
+	default:
+		return false
+	}
 }
 
 func projectedHookRunItem(run map[string]any) map[string]any {

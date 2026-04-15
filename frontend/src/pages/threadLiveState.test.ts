@@ -75,6 +75,50 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('updates thread token usage from realtime token usage events', () => {
+    const detail = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('thread/tokenUsage/updated', {
+        threadId: 'thread-1',
+        tokenUsage: {
+          last: {
+            cachedInputTokens: 5,
+            inputTokens: 100,
+            outputTokens: 20,
+            reasoningOutputTokens: 3,
+            totalTokens: 123,
+          },
+          total: {
+            cachedInputTokens: 10,
+            inputTokens: 1000,
+            outputTokens: 200,
+            reasoningOutputTokens: 30,
+            totalTokens: 1240,
+          },
+          modelContextWindow: 128000,
+        },
+      }),
+    )
+
+    expect(detail?.tokenUsage).toEqual({
+      last: {
+        cachedInputTokens: 5,
+        inputTokens: 100,
+        outputTokens: 20,
+        reasoningOutputTokens: 3,
+        totalTokens: 123,
+      },
+      total: {
+        cachedInputTokens: 10,
+        inputTokens: 1000,
+        outputTokens: 200,
+        reasoningOutputTokens: 30,
+        totalTokens: 1240,
+      },
+      modelContextWindow: 128000,
+    })
+  })
+
   it('merges completed items with streamed content instead of wiping it', () => {
     const streamed = applyThreadEventToDetail(
       makeDetail(),
@@ -198,6 +242,26 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('materializes a visible command execution placeholder from started events', () => {
+    const detail = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('item/started', {
+        item: {
+          id: 'cmd-1',
+          type: 'commandExecution',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      status: 'inProgress',
+    })
+  })
+
   it('projects turn plan updates into a dedicated status item', () => {
     const started = applyThreadEventToDetail(
       makeDetail(),
@@ -253,6 +317,44 @@ describe('threadLiveState', () => {
           status: 'completed',
         },
       ],
+    })
+  })
+
+  it('finalizes stale turn plan status when the turn completes without another plan update', () => {
+    const withPlan = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('turn/plan/updated', {
+        explanation: 'Stabilize the thread plan pipeline',
+        plan: [
+          {
+            step: 'Inspect runtime events',
+            status: 'completed',
+          },
+          {
+            step: 'Render step states',
+            status: 'inProgress',
+          },
+        ],
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    const completed = applyThreadEventToDetail(
+      withPlan,
+      makeEvent('turn/completed', {
+        turn: {
+          id: 'turn-1',
+          status: 'completed',
+          items: [],
+        },
+      }),
+    )
+
+    expect(completed?.turns[0]?.items[0]).toMatchObject({
+      id: 'turn-plan-turn-1',
+      type: 'turnPlan',
+      status: 'completed',
     })
   })
 
@@ -1094,6 +1196,240 @@ describe('threadLiveState', () => {
       id: 'item-1',
       type: 'agentMessage',
       text: 'Newest reply',
+    })
+  })
+
+  it('preserves a trailing live command execution item when a newer snapshot temporarily omits it', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['Checking order'],
+              content: [],
+            },
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'working tree clean',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['Checking order'],
+              content: [],
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items).toHaveLength(2)
+    expect(resolved?.turns[0]?.items[1]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      command: 'git status',
+      aggregatedOutput: 'working tree clean',
+      status: 'completed',
+    })
+  })
+
+  it('preserves an entire trailing live turn when a newer snapshot temporarily omits the newest turn', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Earlier reply',
+            },
+          ],
+        },
+        {
+          id: 'turn-2',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-2',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'working tree clean',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Earlier reply',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns).toHaveLength(2)
+    expect(resolved?.turns[1]).toMatchObject({
+      id: 'turn-2',
+      status: 'completed',
+    })
+    expect(resolved?.turns[1]?.items[0]).toMatchObject({
+      id: 'cmd-2',
+      type: 'commandExecution',
+      command: 'git status',
+      aggregatedOutput: 'working tree clean',
+      status: 'completed',
+    })
+  })
+
+  it('does not let a newer snapshot with blank command execution fields wipe live output', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'working tree clean',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: '',
+              aggregatedOutput: '',
+              status: '',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      command: 'git status',
+      aggregatedOutput: 'working tree clean',
+      status: 'completed',
+    })
+  })
+
+  it('replays stale command execution completion events when the snapshot only has an empty placeholder', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: '',
+              aggregatedOutput: '',
+              status: '',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = applyLiveThreadEvents(detail, [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/completed',
+        payload: {
+          item: {
+            id: 'cmd-1',
+            type: 'commandExecution',
+          },
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:04.000Z',
+      },
+    ])
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      status: 'completed',
     })
   })
 

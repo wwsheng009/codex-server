@@ -401,8 +401,8 @@ func TestApplyThreadEventToProjectionProjectsTurnPlanUpdates(t *testing.T) {
 	if got := stringValue(item["type"]); got != "turnPlan" {
 		t.Fatalf("expected turnPlan item type, got %#v", item)
 	}
-	if got := stringValue(item["status"]); got != "inProgress" {
-		t.Fatalf("expected overall plan status to reflect active work, got %#v", item)
+	if got := stringValue(item["status"]); got != "completed" {
+		t.Fatalf("expected overall plan status to settle with terminal turn status, got %#v", item)
 	}
 	if got := stringValue(item["explanation"]); got != "Investigate and patch the runtime flow" {
 		t.Fatalf("expected explanation to be projected, got %#v", item)
@@ -420,6 +420,55 @@ func TestApplyThreadEventToProjectionProjectsTurnPlanUpdates(t *testing.T) {
 	}
 	if projection.Turns[0].Status != "completed" {
 		t.Fatalf("expected turn completion to remain intact, got %#v", projection.Turns[0])
+	}
+}
+
+func TestApplyThreadEventToProjectionSettlesTurnPlanOnInterruptedTurn(t *testing.T) {
+	t.Parallel()
+
+	projection := &ThreadProjection{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+	}
+
+	applyThreadEventToProjection(projection, EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "turn/plan/updated",
+		Payload: map[string]any{
+			"turnId":      "turn-1",
+			"explanation": "Inspect interrupt handling",
+			"plan": []any{
+				map[string]any{
+					"step":   "Inspect logs",
+					"status": "completed",
+				},
+				map[string]any{
+					"step":   "Interrupt current turn",
+					"status": "inProgress",
+				},
+			},
+		},
+	})
+
+	applyThreadEventToProjection(projection, EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "turn/interrupted",
+		Payload: map[string]any{
+			"turn": map[string]any{
+				"id":     "turn-1",
+				"status": "interrupted",
+				"items":  []any{},
+			},
+		},
+	})
+
+	item := projection.Turns[0].Items[0]
+	if got := stringValue(item["status"]); got != "interrupted" {
+		t.Fatalf("expected interrupted plan status after interrupted turn, got %#v", item)
 	}
 }
 

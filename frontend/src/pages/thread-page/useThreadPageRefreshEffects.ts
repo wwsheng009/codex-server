@@ -293,20 +293,53 @@ export function useThreadPageRefreshEffects({
     const previousStreamState = previousStreamStateRef.current
     previousStreamStateRef.current = streamState
 
-    if (
-      streamState !== 'open' ||
-      previousStreamState === 'open' ||
-      !workspaceId ||
-      !isDocumentVisible
-    ) {
+    if (!workspaceId || !isDocumentVisible) {
       return
     }
 
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
-      queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
-    ])
-  }, [isDocumentVisible, queryClient, selectedThreadId, streamState, workspaceId])
+    if (streamState === 'open' && previousStreamState !== 'open') {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+      ])
+      return
+    }
+
+    if (
+      previousStreamState === 'open' &&
+      streamState !== 'open' &&
+      selectedThreadId &&
+      !isThreadViewportInteracting
+    ) {
+      recordConversationLiveDiagnosticEvent({
+        kind: 'thread-detail-refresh-requested',
+        metadata: {
+          previousStreamState,
+          streamState,
+          triggeredByStreamClose: true,
+          viewportInteracting: isThreadViewportInteracting,
+        },
+        reason: 'stream closed after realtime updates; refreshing thread detail to settle terminal state',
+        source: 'thread-page-refresh',
+        threadId: selectedThreadId,
+      })
+      updateConversationLiveDiagnosticsStatus({
+        lastThreadDetailRefreshAt: Date.now(),
+        selectedThreadId,
+      })
+
+      void queryClient.invalidateQueries({
+        queryKey: ['thread-detail', workspaceId, selectedThreadId],
+      })
+    }
+  }, [
+    isDocumentVisible,
+    isThreadViewportInteracting,
+    queryClient,
+    selectedThreadId,
+    streamState,
+    workspaceId,
+  ])
 
   useEffect(() => {
     if (!selectedThreadId || !selectedThreadEvents.length) {

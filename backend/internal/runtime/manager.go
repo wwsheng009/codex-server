@@ -774,6 +774,8 @@ func (r *instance) HandleClosed(err error) {
 	r.mu.Lock()
 	expectClose := r.expectClose
 	wasRunning := r.client != nil || r.state.Status == "ready" || r.state.Status == "starting"
+	activeTurns := mapsCloneStringString(r.activeTurns)
+	interruptingTurns := mapsCloneStringString(r.interruptingTurns)
 	r.expectClose = false
 	r.client = nil
 	r.state.Status = "stopped"
@@ -794,6 +796,10 @@ func (r *instance) HandleClosed(err error) {
 		}
 	}
 	r.mu.Unlock()
+
+	if !expectClose && !errors.Is(err, context.Canceled) && wasRunning {
+		r.publishSyntheticTerminalEventsOnUnexpectedClose(activeTurns, interruptingTurns)
+	}
 	diagnostics.LogWorkspaceTrace(
 		r.workspaceID,
 		"runtime closed",
@@ -802,6 +808,69 @@ func (r *instance) HandleClosed(err error) {
 		"error",
 		err,
 	)
+}
+
+func (r *instance) publishSyntheticTerminalEventsOnUnexpectedClose(
+	activeTurns map[string]string,
+	interruptingTurns map[string]string,
+) {
+	now := time.Now().UTC()
+	threadIDs := make(map[string]struct{})
+	for threadID := range activeTurns {
+		if strings.TrimSpace(threadID) != "" {
+			threadIDs[threadID] = struct{}{}
+		}
+	}
+	for threadID := range interruptingTurns {
+		if strings.TrimSpace(threadID) != "" {
+			threadIDs[threadID] = struct{}{}
+		}
+	}
+
+	for threadID := range threadIDs {
+		turnID := firstNonEmptyString(activeTurns[threadID], interruptingTurns[threadID])
+		if turnID != "" {
+			r.manager.publish(store.EventEnvelope{
+				WorkspaceID: r.workspaceID,
+				ThreadID:    threadID,
+				TurnID:      turnID,
+				Method:      "turn/interrupted",
+				Payload: map[string]any{
+					"threadId": threadID,
+					"turn": map[string]any{
+						"id":     turnID,
+						"status": "interrupted",
+					},
+				},
+				TS: now,
+			})
+		}
+
+		r.manager.publish(store.EventEnvelope{
+			WorkspaceID: r.workspaceID,
+			ThreadID:    threadID,
+			Method:      "thread/status/changed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"status": map[string]any{
+					"type": "systemError",
+				},
+			},
+			TS: now,
+		})
+	}
+}
+
+func mapsCloneStringString(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return map[string]string{}
+	}
+
+	result := make(map[string]string, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
 }
 
 func (r *instance) trackTurn(method string, threadID string, turnID string) {

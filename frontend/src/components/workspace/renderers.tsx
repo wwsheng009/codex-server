@@ -435,10 +435,11 @@ export function PlanStatusStack({ turns }: PlanStatusStackProps) {
       {entries.map(({ key, turnId, turnPlan }) => {
         const steps = turnPlan.steps ?? []
         const explanation = turnPlan.explanation ?? ''
+        const isCollapsedByDefault = isTurnPlanCollapsedByDefault(turnPlan)
 
         return (
-          <article className="plan-status-panel" key={key}>
-            <div className="plan-status-panel__header">
+          <details className="plan-status-panel" key={key} open={!isCollapsedByDefault}>
+            <summary className="plan-status-panel__header">
               <div className="plan-status-panel__header-copy">
                 <strong>
                   {i18n._({
@@ -446,7 +447,9 @@ export function PlanStatusStack({ turns }: PlanStatusStackProps) {
                     message: 'Plan',
                   })}
                 </strong>
-                <span className="plan-status-panel__summary">{turnPlanCompactProgressMeta(steps)}</span>
+                <span className="plan-status-panel__summary">
+                  {turnPlanCompactProgressMeta(steps)}
+                </span>
               </div>
               <div className="plan-status-panel__meta">
                 <span
@@ -454,29 +457,32 @@ export function PlanStatusStack({ turns }: PlanStatusStackProps) {
                 >
                   {turnPlanOverallStatusLabel(turnPlan)}
                 </span>
+                <span aria-hidden="true" className="plan-status-panel__toggle-icon" />
               </div>
+            </summary>
+            <div className="plan-status-panel__body">
+              {explanation ? (
+                <p className="plan-status-panel__explanation">{explanation}</p>
+              ) : null}
+              {steps.length ? (
+                <ol className="plan-status-panel__steps">
+                  {steps.map((entry, index) => (
+                    <li className="plan-status-panel__step" key={`${turnId}-${entry.step}-${index}`}>
+                      <span className="plan-status-panel__step-index">{index + 1}</span>
+                      <div className="plan-status-panel__step-copy">
+                        <span className="plan-status-panel__step-text">{entry.step}</span>
+                      </div>
+                      <span
+                        className={`detail-badge detail-badge--${turnPlanStepBadgeTone(entry.status)}`}
+                      >
+                        {turnPlanStepStatusLabel(entry.status)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
             </div>
-            {explanation ? (
-              <p className="plan-status-panel__explanation">{explanation}</p>
-            ) : null}
-            {steps.length ? (
-              <ol className="plan-status-panel__steps">
-                {steps.map((entry, index) => (
-                  <li className="plan-status-panel__step" key={`${turnId}-${entry.step}-${index}`}>
-                    <span className="plan-status-panel__step-index">{index + 1}</span>
-                    <div className="plan-status-panel__step-copy">
-                      <span className="plan-status-panel__step-text">{entry.step}</span>
-                    </div>
-                    <span
-                      className={`detail-badge detail-badge--${turnPlanStepBadgeTone(entry.status)}`}
-                    >
-                      {turnPlanStepStatusLabel(entry.status)}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-          </article>
+          </details>
         )
       })}
     </div>
@@ -2974,6 +2980,10 @@ function turnPlanCompactProgressMeta(steps: TurnPlanStep[]) {
   return `${completed}/${steps.length} done`
 }
 
+function isTurnPlanCollapsedByDefault(turnPlan: TurnPlanItem | null) {
+  return turnPlanNormalizedStatus(turnPlan?.status ?? '') === 'completed'
+}
+
 function fileChangeCardSummary(changes: Array<{ kind: string; path: string }>) {
   if (!changes.length) {
     return i18n._({ id: 'No files', message: 'No files' })
@@ -3020,7 +3030,20 @@ function statusToneFromValue(value: string): CompactSystemStatusTone | undefined
     return 'success'
   }
 
-  if (['failed', 'error', 'errored', 'expired', 'cancelled', 'canceled', 'denied', 'rejected'].includes(normalized)) {
+  if (
+    [
+      'failed',
+      'error',
+      'errored',
+      'systemerror',
+      'expired',
+      'cancelled',
+      'canceled',
+      'interrupted',
+      'denied',
+      'rejected',
+    ].includes(normalized)
+  ) {
     return 'error'
   }
 
@@ -3058,6 +3081,16 @@ function turnPlanOverallBadgeTone(turnPlan: TurnPlanItem | null) {
       return 'success'
     case 'inprogress':
       return 'info'
+    case 'failed':
+    case 'error':
+    case 'errored':
+    case 'systemerror':
+      return 'danger'
+    case 'interrupted':
+    case 'cancelled':
+    case 'canceled':
+    case 'pending':
+      return 'warning'
     default:
       return 'warning'
   }
@@ -3069,6 +3102,16 @@ function turnPlanStepClassName(value: string) {
       return 'completed'
     case 'inprogress':
       return 'in-progress'
+    case 'failed':
+    case 'error':
+    case 'errored':
+    case 'systemerror':
+      return 'failed'
+    case 'interrupted':
+      return 'interrupted'
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled'
     default:
       return 'pending'
   }
@@ -3080,6 +3123,15 @@ function turnPlanStepBadgeTone(value: string) {
       return 'success'
     case 'inprogress':
       return 'info'
+    case 'failed':
+    case 'error':
+    case 'errored':
+    case 'systemerror':
+      return 'danger'
+    case 'interrupted':
+    case 'cancelled':
+    case 'canceled':
+      return 'warning'
     default:
       return 'warning'
   }
@@ -3093,6 +3145,8 @@ function turnPlanOverallStatusLabel(turnPlan: TurnPlanItem | null) {
       return humanizeToolStatus('inProgress')
     case 'pending':
       return humanizeToolStatus('pending')
+    case 'systemerror':
+      return humanizeToolStatus('error')
     default:
       return humanizeToolStatus(turnPlan?.status ?? 'pending')
   }
@@ -3106,6 +3160,8 @@ function turnPlanStepStatusLabel(value: string) {
       return humanizeToolStatus('inProgress')
     case 'pending':
       return humanizeToolStatus('pending')
+    case 'systemerror':
+      return humanizeToolStatus('error')
     default:
       return humanizeToolStatus(value || 'pending')
   }

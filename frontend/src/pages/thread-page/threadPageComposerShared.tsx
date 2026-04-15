@@ -927,6 +927,13 @@ export function compactStatusLabel(value?: string) {
         id: 'Processing',
         message: 'Processing',
       })
+    case 'completed':
+    case 'success':
+    case 'resolved':
+      return i18n._({
+        id: 'Completed',
+        message: 'Completed',
+      })
     case 'connected':
     case 'ready':
     case 'open':
@@ -1391,8 +1398,7 @@ export function ContextUsageIndicator({
             contextWindow: formatLocaleNumber(contextWindow),
           },
         })
-  const totalBreakdown = usage?.total
-  const lastBreakdown = usage?.last
+  const currentBreakdown = usage?.last
   const compactButtonLabel = compactPending
     ? i18n._({
         id: 'Starting',
@@ -1509,7 +1515,7 @@ export function ContextUsageIndicator({
                     message: 'Input',
                   })}
                 </span>
-                <strong>{formatLocaleNumber(totalBreakdown?.inputTokens ?? 0)}</strong>
+                <strong>{formatLocaleNumber(currentBreakdown?.inputTokens ?? 0)}</strong>
               </div>
               <div className="composer-context-usage__metric">
                 <span>
@@ -1518,7 +1524,7 @@ export function ContextUsageIndicator({
                     message: 'Output',
                   })}
                 </span>
-                <strong>{formatLocaleNumber(totalBreakdown?.outputTokens ?? 0)}</strong>
+                <strong>{formatLocaleNumber(currentBreakdown?.outputTokens ?? 0)}</strong>
               </div>
               <div className="composer-context-usage__metric">
                 <span>
@@ -1527,16 +1533,7 @@ export function ContextUsageIndicator({
                     message: 'Reasoning',
                   })}
                 </span>
-                <strong>{formatLocaleNumber(totalBreakdown?.reasoningOutputTokens ?? 0)}</strong>
-              </div>
-              <div className="composer-context-usage__metric">
-                <span>
-                  {i18n._({
-                    id: 'Last Turn',
-                    message: 'Last Turn',
-                  })}
-                </span>
-                <strong>{formatLocaleNumber(lastBreakdown?.totalTokens ?? 0)}</strong>
+                <strong>{formatLocaleNumber(currentBreakdown?.reasoningOutputTokens ?? 0)}</strong>
               </div>
             </div>
           )}
