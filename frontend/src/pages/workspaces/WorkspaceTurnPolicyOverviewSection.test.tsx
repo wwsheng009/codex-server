@@ -311,15 +311,17 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
     expect(screen.getByText("Missing Verify")).toBeTruthy();
     expect(screen.getByText("40%")).toBeTruthy();
     expect(screen.getByText("Execution Controls")).toBeTruthy();
-    expect(screen.getByText("Post-tool-use policy")).toBeTruthy();
-    expect(screen.getByText("Missing verify policy")).toBeTruthy();
-    expect(screen.getByText("Follow-up cooldown")).toBeTruthy();
-    expect(screen.getByText("Post-tool-use follow-up cooldown")).toBeTruthy();
-    expect(screen.getByText("Post-tool-use action")).toBeTruthy();
-    expect(screen.getByText("Missing verify follow-up cooldown")).toBeTruthy();
-    expect(screen.getByText("Missing verify action")).toBeTruthy();
-    expect(screen.getByText("Post-tool-use interrupt fallback")).toBeTruthy();
-    expect(screen.getByText("Missing verify interrupt fallback")).toBeTruthy();
+    expect(screen.getByText("Default follow-up cooldown")).toBeTruthy();
+    expect(
+      screen.getByText("Used when a policy does not set its own cooldown."),
+    ).toBeTruthy();
+    expect(screen.getByText("Setting")).toBeTruthy();
+    expect(screen.getByText("Post-tool-use")).toBeTruthy();
+    expect(screen.getByText("Missing verify")).toBeTruthy();
+    expect(screen.getByText("Policy state")).toBeTruthy();
+    expect(screen.getByText("Primary action")).toBeTruthy();
+    expect(screen.getByText("Interrupt fallback")).toBeTruthy();
+    expect(screen.getAllByText("Follow-up cooldown").length).toBeGreaterThan(0);
     expect(screen.getByText("Enabled")).toBeTruthy();
     expect(screen.getByText("Disabled")).toBeTruthy();
     expect(screen.getAllByText("Interrupt").length).toBeGreaterThan(0);

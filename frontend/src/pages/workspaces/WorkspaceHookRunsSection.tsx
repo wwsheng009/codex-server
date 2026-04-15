@@ -4,6 +4,7 @@ import { Input } from "../../components/ui/Input";
 import { DetailGroup } from "../../components/ui/DetailGroup";
 import { InlineNotice } from "../../components/ui/InlineNotice";
 import { LoadingState } from "../../components/ui/LoadingState";
+import { Tooltip } from "../../components/ui/Tooltip";
 import {
   formatLocalizedDateTime,
   formatLocalizedStatusLabel,
@@ -153,6 +154,41 @@ function HookRunCellLine({
       </span>
     </div>
   );
+}
+
+function HookRunTooltip({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
+  return (
+    <Tooltip
+      content={
+        <div className="workspace-hook-runs-table__tooltip">
+          <strong>{title}</strong>
+          <span>{value}</span>
+        </div>
+      }
+      position="left"
+      triggerLabel={title}
+    >
+      <span aria-hidden="true" className="workspace-hook-runs-table__tooltip-trigger">
+        •••
+      </span>
+    </Tooltip>
+  );
+}
+
+function formatHookRunNotePreview(value: string) {
+  const normalized = value.trim();
+
+  if (!normalized || normalized === "—") {
+    return "—";
+  }
+
+  return normalized.length > 36 ? `${normalized.slice(0, 36)}…` : normalized;
 }
 
 export function WorkspaceHookRunsSection({
@@ -422,8 +458,14 @@ export function WorkspaceHookRunsSection({
                       </th>
                       <th className="workspace-hook-runs-table__header" scope="col">
                         {i18n._({
-                          id: "Hook run table header summary",
-                          message: "Summary",
+                          id: "Hook run table header event",
+                          message: "Event",
+                        })}
+                      </th>
+                      <th className="workspace-hook-runs-table__header" scope="col">
+                        {i18n._({
+                          id: "Hook run table header thread",
+                          message: "Thread",
                         })}
                       </th>
                       <th className="workspace-hook-runs-table__header" scope="col">
@@ -434,14 +476,32 @@ export function WorkspaceHookRunsSection({
                       </th>
                       <th className="workspace-hook-runs-table__header" scope="col">
                         {i18n._({
-                          id: "Hook run table header details",
-                          message: "Details",
+                          id: "Hook run table header trigger",
+                          message: "Trigger",
                         })}
                       </th>
                       <th className="workspace-hook-runs-table__header" scope="col">
                         {i18n._({
-                          id: "Hook run table header actions",
-                          message: "Actions",
+                          id: "Hook run table header tool",
+                          message: "Tool",
+                        })}
+                      </th>
+                      <th className="workspace-hook-runs-table__header" scope="col">
+                        {i18n._({
+                          id: "Hook run table header duration",
+                          message: "Duration",
+                        })}
+                      </th>
+                      <th className="workspace-hook-runs-table__header" scope="col">
+                        {i18n._({
+                          id: "Hook run table header notes",
+                          message: "Notes",
+                        })}
+                      </th>
+                      <th className="workspace-hook-runs-table__header" scope="col">
+                        {i18n._({
+                          id: "Hook run table header error",
+                          message: "Error",
                         })}
                       </th>
                     </tr>
@@ -469,7 +529,52 @@ export function WorkspaceHookRunsSection({
                       const formattedSessionStartSource = run.sessionStartSource?.trim()
                         ? formatSessionStartSource(run.sessionStartSource)
                         : "—";
-
+                      const formattedTool = toolLabel || "—";
+                      const notes = [
+                        {
+                          label: i18n._({
+                            id: "Hook run handler label",
+                            message: "Handler",
+                          }),
+                          value: formattedHandler,
+                        },
+                        {
+                          label: i18n._({
+                            id: "Hook run reason label",
+                            message: "Reason",
+                          }),
+                          value: formattedReason,
+                        },
+                        {
+                          label: i18n._({
+                            id: "Hook run feedback label",
+                            message: "Feedback",
+                          }),
+                          value: feedback || "—",
+                        },
+                        {
+                          label: i18n._({
+                            id: "Hook run context label",
+                            message: "Context",
+                          }),
+                          value: formattedContext,
+                        },
+                        {
+                          label: i18n._({
+                            id: "Hook run session start source label",
+                            message: "Session Start Source",
+                          }),
+                          value: formattedSessionStartSource,
+                        },
+                      ].filter((entry) => entry.value !== "—");
+                      const notePreview = notes.length
+                        ? notes
+                            .slice(0, 2)
+                            .map((entry) =>
+                              `${entry.label}: ${formatHookRunNotePreview(entry.value)}`,
+                            )
+                            .join(" · ")
+                        : "—";
                       return (
                         <tr className="workspace-hook-runs-table__row" key={run.id}>
                           <td className="workspace-hook-runs-table__cell">
@@ -485,45 +590,38 @@ export function WorkspaceHookRunsSection({
                             />
                             <HookRunCellLine
                               label={i18n._({
-                                id: "Hook run duration label",
-                                message: "Duration",
-                              })}
-                              value={formatDuration(run.durationMs)}
-                            />
-                          </td>
-                          <td className="workspace-hook-runs-table__cell">
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run event label",
-                                message: "Event",
-                              })}
-                              title={run.eventName}
-                              value={formattedEvent}
-                            />
-                            <HookRunCellLine
-                              label={i18n._({
                                 id: "Hook run handler label",
                                 message: "Handler",
                               })}
-                              title={run.handlerKey}
                               value={formattedHandler}
+                              title={run.handlerKey}
                             />
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run thread label",
-                                message: "Thread",
-                              })}
-                              title={run.threadId}
-                              value={formattedThread}
-                            />
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run tool label",
-                                message: "Tool",
-                              })}
-                              title={run.toolName?.trim() || run.toolKind?.trim() || toolLabel}
-                              value={toolLabel || "—"}
-                            />
+                          </td>
+                          <td className="workspace-hook-runs-table__cell">
+                            <div
+                              className="workspace-hook-runs-table__primary-value"
+                              title={run.eventName}
+                            >
+                              {formattedEvent}
+                            </div>
+                          </td>
+                          <td className="workspace-hook-runs-table__cell">
+                            {run.threadId?.trim() ? (
+                              <Link
+                                className="workspace-hook-runs-table__thread-link"
+                                title={run.threadId}
+                                to={buildWorkspaceThreadRoute(
+                                  run.workspaceId || selectedWorkspace.id,
+                                  run.threadId,
+                                )}
+                              >
+                                {formattedThread}
+                              </Link>
+                            ) : (
+                              <div className="workspace-hook-runs-table__primary-value">
+                                {formattedThread}
+                              </div>
+                            )}
                           </td>
                           <td className="workspace-hook-runs-table__cell">
                             <div className="workspace-hook-runs-table__status">
@@ -536,70 +634,81 @@ export function WorkspaceHookRunsSection({
                               })}
                               value={formattedDecision}
                             />
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run trigger label",
-                                message: "Trigger",
-                              })}
-                              title={run.triggerMethod}
-                              value={formattedTrigger}
-                            />
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run session start source label",
-                                message: "Session Start Source",
-                              })}
-                              value={formattedSessionStartSource}
-                            />
                           </td>
                           <td className="workspace-hook-runs-table__cell">
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run reason label",
-                                message: "Reason",
-                              })}
-                              title={run.reason}
-                              value={formattedReason}
-                            />
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run feedback label",
-                                message: "Feedback",
-                              })}
-                              title={feedback}
-                              value={feedback || "—"}
-                            />
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run context label",
-                                message: "Context",
-                              })}
-                              title={run.additionalContext}
-                              value={formattedContext}
-                            />
-                            <HookRunCellLine
-                              label={i18n._({
-                                id: "Hook run error label",
-                                message: "Error",
-                              })}
-                              title={run.error}
-                              value={formattedError}
-                            />
+                            <div
+                              className="workspace-hook-runs-table__primary-value"
+                              title={run.triggerMethod}
+                            >
+                              {formattedTrigger}
+                            </div>
                           </td>
-                          <td className="workspace-hook-runs-table__cell workspace-hook-runs-table__cell--actions">
-                            {run.threadId?.trim() ? (
-                              <Link
-                                className="ide-button ide-button--secondary ide-button--sm"
-                                to={buildWorkspaceThreadRoute(
-                                  run.workspaceId || selectedWorkspace.id,
-                                  run.threadId,
-                                )}
-                              >
-                                {i18n._({
-                                  id: "Open hook run thread",
-                                  message: "Open thread",
-                                })}
-                              </Link>
+                          <td className="workspace-hook-runs-table__cell">
+                            {formattedTool !== "—" ? (
+                              <div className="workspace-hook-runs-table__note">
+                                <span
+                                  className="workspace-hook-runs-table__note-preview"
+                                  title={formattedTool}
+                                >
+                                  {formatHookRunNotePreview(formattedTool)}
+                                </span>
+                                <HookRunTooltip
+                                  title={i18n._({
+                                    id: "Hook run table header tool",
+                                    message: "Tool",
+                                  })}
+                                  value={formattedTool}
+                                />
+                              </div>
+                            ) : (
+                              <span className="config-inline-note">—</span>
+                            )}
+                          </td>
+                          <td className="workspace-hook-runs-table__cell">
+                            <div className="workspace-hook-runs-table__primary-value">
+                              {formatDuration(run.durationMs)}
+                            </div>
+                          </td>
+                          <td className="workspace-hook-runs-table__cell">
+                            {notes.length ? (
+                              <div className="workspace-hook-runs-table__note">
+                                <span
+                                  className="workspace-hook-runs-table__note-preview"
+                                  title={notePreview}
+                                >
+                                  {notePreview}
+                                </span>
+                                <HookRunTooltip
+                                  title={i18n._({
+                                    id: "Hook run table header notes",
+                                    message: "Notes",
+                                  })}
+                                  value={notes
+                                    .map((entry) => `${entry.label}: ${entry.value}`)
+                                    .join("\n\n")}
+                                />
+                              </div>
+                            ) : (
+                              <span className="config-inline-note">—</span>
+                            )}
+                          </td>
+                          <td className="workspace-hook-runs-table__cell">
+                            {formattedError !== "—" ? (
+                              <div className="workspace-hook-runs-table__note workspace-hook-runs-table__note--error">
+                                <span
+                                  className="workspace-hook-runs-table__note-preview workspace-hook-runs-table__note-preview--error"
+                                  title={formattedError}
+                                >
+                                  {formatHookRunNotePreview(formattedError)}
+                                </span>
+                                <HookRunTooltip
+                                  title={i18n._({
+                                    id: "Hook run error label",
+                                    message: "Error",
+                                  })}
+                                  value={formattedError}
+                                />
+                              </div>
                             ) : (
                               <span className="config-inline-note">—</span>
                             )}

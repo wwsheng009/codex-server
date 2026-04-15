@@ -560,6 +560,185 @@ function DetailRow({
   );
 }
 
+function ExecutionControlStatus({
+  enabled,
+}: {
+  enabled: boolean | undefined;
+}) {
+  const label = formatPolicyToggleLabel(enabled);
+  const toneClassName =
+    typeof enabled !== "boolean"
+      ? ""
+      : enabled
+        ? " workspace-execution-controls__pill--enabled"
+        : " workspace-execution-controls__pill--disabled";
+
+  return (
+    <span
+      className={`workspace-execution-controls__pill${toneClassName}`}
+      title={label}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ExecutionControlsPanel({
+  runtimeConfig,
+}: {
+  runtimeConfig: TurnPolicyRuntimeConfig;
+}) {
+  const sharedSettings = [
+    {
+      label: i18n._({
+        id: "Default follow-up cooldown",
+        message: "Default follow-up cooldown",
+      }),
+      value: formatCooldownValue(runtimeConfig.followUpCooldownMs),
+      meta: i18n._({
+        id: "Used when a policy does not set its own cooldown.",
+        message: "Used when a policy does not set its own cooldown.",
+      }),
+    },
+  ];
+
+  const policyRows = [
+    {
+      label: i18n._({
+        id: "Policy state",
+        message: "Policy state",
+      }),
+      postToolUse: (
+        <ExecutionControlStatus enabled={runtimeConfig.postToolUseEnabled} />
+      ),
+      missingVerify: (
+        <ExecutionControlStatus
+          enabled={runtimeConfig.stopMissingVerificationEnabled}
+        />
+      ),
+    },
+    {
+      label: i18n._({
+        id: "Primary action",
+        message: "Primary action",
+      }),
+      postToolUse: formatTurnPolicyDecisionAction(
+        runtimeConfig.postToolUsePrimaryAction,
+      ),
+      missingVerify: formatTurnPolicyDecisionAction(
+        runtimeConfig.stopMissingVerificationPrimaryAction,
+      ),
+    },
+    {
+      label: i18n._({
+        id: "Follow-up cooldown",
+        message: "Follow-up cooldown",
+      }),
+      postToolUse: formatCooldownValue(
+        runtimeConfig.postToolUseFollowUpCooldownMs,
+      ),
+      missingVerify: formatCooldownValue(
+        runtimeConfig.stopMissingSuccessfulVerificationFollowUpCooldownMs,
+      ),
+    },
+    {
+      label: i18n._({
+        id: "Interrupt fallback",
+        message: "Interrupt fallback",
+      }),
+      postToolUse: formatTurnPolicyInterruptNoActiveTurnBehavior(
+        runtimeConfig.postToolUseInterruptNoActiveTurnBehavior,
+      ),
+      missingVerify: formatTurnPolicyInterruptNoActiveTurnBehavior(
+        runtimeConfig.stopMissingVerificationInterruptNoActiveTurnBehavior,
+      ),
+    },
+  ];
+
+  return (
+    <section
+      aria-label={i18n._({
+        id: "Execution Controls",
+        message: "Execution Controls",
+      })}
+      className="workspace-execution-controls"
+    >
+      <div className="workspace-execution-controls__summary">
+        {sharedSettings.map((item) => (
+          <article
+            className="workspace-execution-controls__setting-card"
+            key={item.label}
+          >
+            <span className="workspace-execution-controls__setting-label">
+              {item.label}
+            </span>
+            <strong className="workspace-execution-controls__setting-value">
+              {item.value}
+            </strong>
+            <span className="workspace-execution-controls__setting-meta">
+              {item.meta}
+            </span>
+          </article>
+        ))}
+      </div>
+
+      <div className="workspace-execution-controls__table-viewport">
+        <table className="workspace-execution-controls__table">
+          <thead>
+            <tr>
+              <th
+                className="workspace-execution-controls__header"
+                scope="col"
+              >
+                {i18n._({
+                  id: "Setting",
+                  message: "Setting",
+                })}
+              </th>
+              <th
+                className="workspace-execution-controls__header"
+                scope="col"
+              >
+                {i18n._({
+                  id: "Post-tool-use",
+                  message: "Post-tool-use",
+                })}
+              </th>
+              <th
+                className="workspace-execution-controls__header"
+                scope="col"
+              >
+                {i18n._({
+                  id: "Missing verify",
+                  message: "Missing verify",
+                })}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {policyRows.map((row) => (
+              <tr className="workspace-execution-controls__row" key={row.label}>
+                <th
+                  className="workspace-execution-controls__cell workspace-execution-controls__cell--label"
+                  scope="row"
+                >
+                  {row.label}
+                </th>
+                <td className="workspace-execution-controls__cell">
+                  {row.postToolUse}
+                </td>
+                <td className="workspace-execution-controls__cell">
+                  {row.missingVerify}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export function WorkspaceTurnPolicyOverviewSection({
   metricsSourceScope,
   onDrillDown,
@@ -986,85 +1165,7 @@ export function WorkspaceTurnPolicyOverviewSection({
                   message: "Execution Controls",
                 })}
               </p>
-              <DetailRow
-                label={i18n._({
-                  id: "Post-tool-use policy",
-                  message: "Post-tool-use policy",
-                })}
-                value={formatPolicyToggleLabel(
-                  runtimeConfig.postToolUseEnabled,
-                )}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Missing verify policy",
-                  message: "Missing verify policy",
-                })}
-                value={formatPolicyToggleLabel(
-                  runtimeConfig.stopMissingVerificationEnabled,
-                )}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Follow-up cooldown",
-                  message: "Follow-up cooldown",
-                })}
-                value={formatCooldownValue(runtimeConfig.followUpCooldownMs)}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Post-tool-use follow-up cooldown",
-                  message: "Post-tool-use follow-up cooldown",
-                })}
-                value={formatCooldownValue(
-                  runtimeConfig.postToolUseFollowUpCooldownMs,
-                )}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Missing verify follow-up cooldown",
-                  message: "Missing verify follow-up cooldown",
-                })}
-                value={formatCooldownValue(
-                  runtimeConfig.stopMissingSuccessfulVerificationFollowUpCooldownMs,
-                )}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Post-tool-use action",
-                  message: "Post-tool-use action",
-                })}
-                value={formatTurnPolicyDecisionAction(
-                  runtimeConfig.postToolUsePrimaryAction,
-                )}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Missing verify action",
-                  message: "Missing verify action",
-                })}
-                value={formatTurnPolicyDecisionAction(
-                  runtimeConfig.stopMissingVerificationPrimaryAction,
-                )}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Post-tool-use interrupt fallback",
-                  message: "Post-tool-use interrupt fallback",
-                })}
-                value={formatTurnPolicyInterruptNoActiveTurnBehavior(
-                  runtimeConfig.postToolUseInterruptNoActiveTurnBehavior,
-                )}
-              />
-              <DetailRow
-                label={i18n._({
-                  id: "Missing verify interrupt fallback",
-                  message: "Missing verify interrupt fallback",
-                })}
-                value={formatTurnPolicyInterruptNoActiveTurnBehavior(
-                  runtimeConfig.stopMissingVerificationInterruptNoActiveTurnBehavior,
-                )}
-              />
+              <ExecutionControlsPanel runtimeConfig={runtimeConfig} />
             </>
           ) : null}
 

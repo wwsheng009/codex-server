@@ -7,6 +7,11 @@ import { MemoryRouter } from "react-router-dom";
 import { i18n } from "../../i18n/runtime";
 import { WorkspaceHookRunsSection } from "./WorkspaceHookRunsSection";
 
+function getLatestTooltipText() {
+  const tooltips = screen.getAllByRole("tooltip");
+  return tooltips[tooltips.length - 1]?.textContent ?? "";
+}
+
 describe("WorkspaceHookRunsSection", () => {
   beforeAll(() => {
     i18n.loadAndActivate({ locale: "en", messages: {} });
@@ -120,26 +125,34 @@ describe("WorkspaceHookRunsSection", () => {
     ).toBeTruthy();
     expect(screen.getByRole("table")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Hook Run" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Event" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Thread" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Outcome" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Details" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Trigger" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Tool" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Duration" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Notes" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Error" })).toBeTruthy();
     expect(screen.getByText("hook-1")).toBeTruthy();
     expect(screen.getByText("Pre-Tool Use")).toBeTruthy();
-    expect(screen.getByText("Dangerous Command Guard")).toBeTruthy();
     expect(screen.getByText("Completed")).toBeTruthy();
-    expect(screen.getAllByTitle("command/exec").map((node) => node.textContent)).toEqual([
-      "Command Execution",
-      "Command Execution",
-    ]);
-    expect(screen.getByText("thread-1")).toBeTruthy();
+    const threadLink = screen.getByRole("link", { name: "thread-1" });
+    expect(threadLink.getAttribute("href")).toBe("/workspaces/ws-1/threads/thread-1");
+    expect(screen.getByText("Dangerous Command Guard")).toBeTruthy();
     expect(screen.getAllByText("Command Execution")).toHaveLength(2);
-    expect(screen.getByText("Dangerous command blocked")).toBeTruthy();
-    expect(screen.getByText("Matched Policy: broad-recursive-delete")).toBeTruthy();
-    expect(screen.getByText("rm -rf /")).toBeTruthy();
+    expect(screen.getByText("100 ms")).toBeTruthy();
+    expect(
+      screen.getByText(/Handler: Dangerous Command Guard · Reason: Dangerous command blocked/),
+    ).toBeTruthy();
 
-    const threadCta = screen.getByRole("link", { name: "Open thread" });
-    expect(threadCta.getAttribute("href")).toBe("/workspaces/ws-1/threads/thread-1");
+    fireEvent.click(screen.getByRole("button", { name: "Tool" }));
+    expect(getLatestTooltipText()).toContain("Command Execution");
+
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    expect(getLatestTooltipText()).toContain("Dangerous Command Guard");
+    expect(getLatestTooltipText()).toContain("Dangerous command blocked");
+    expect(getLatestTooltipText()).toContain("Matched Policy: broad-recursive-delete");
+    expect(getLatestTooltipText()).toContain("rm -rf /");
 
     const workspaceCta = screen.getByRole("link", { name: "Open workspace" });
     expect(workspaceCta.getAttribute("href")).toBe("/workspaces/ws-1");
@@ -198,12 +211,13 @@ describe("WorkspaceHookRunsSection", () => {
     );
 
     expect(screen.getByTitle("TurnStart").textContent).toBe("Turn Start");
-    expect(screen.getAllByTitle("turn/start").map((node) => node.textContent)).toEqual([
-      "Turn Start",
-      "Turn Start",
-    ]);
     expect(screen.getByText("Thread Turn Start Audit")).toBeTruthy();
-    expect(screen.getByText("Turn start audited")).toBeTruthy();
+    expect(screen.getAllByText("Turn Start").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("30 ms")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    expect(getLatestTooltipText()).toContain("Thread Turn Start Audit");
+    expect(getLatestTooltipText()).toContain("Turn start audited");
   });
 
   it("renders session start source when the hook run records it", () => {
@@ -254,8 +268,10 @@ describe("WorkspaceHookRunsSection", () => {
 
     expect(screen.getByText("Session Start")).toBeTruthy();
     expect(screen.getByText("Project Context Injection")).toBeTruthy();
-    expect(screen.getByText("Session Start Source")).toBeTruthy();
-    expect(screen.getByText("Resume")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    expect(getLatestTooltipText()).toContain("Project Context Injection");
+    expect(getLatestTooltipText()).toContain("Resume");
   });
 
   it("renders a filtered empty state when no hook runs match the current filters", () => {

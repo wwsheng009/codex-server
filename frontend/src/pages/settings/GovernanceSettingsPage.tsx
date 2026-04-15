@@ -36,13 +36,8 @@ import type {
 } from "../../types/api";
 import { ThreadWorkbenchRailHookConfigurationSection } from "../thread-page/ThreadWorkbenchRailHookConfigurationSection";
 import { WorkspaceHookConfigurationEditorSection } from "../workspaces/WorkspaceHookConfigurationEditorSection";
-import { WorkspaceHookRunsSection } from "../workspaces/WorkspaceHookRunsSection";
 import { WorkspaceTurnPolicyOverviewSection } from "../workspaces/WorkspaceTurnPolicyOverviewSection";
 import { WorkspaceTurnPolicyRecentDecisionsSection } from "../workspaces/WorkspaceTurnPolicyRecentDecisionsSection";
-import {
-  useWorkspaceHookRuns,
-  type WorkspaceHookRunFilters,
-} from "../workspaces/useWorkspaceHookRuns";
 import {
   useWorkspaceTurnPolicyRecentDecisions,
   type WorkspaceTurnPolicyDecisionFilters,
@@ -438,21 +433,14 @@ export function GovernanceSettingsPage() {
 
   const [decisionFilters, setDecisionFilters] =
     useState<WorkspaceTurnPolicyDecisionFilters>({});
-  const [hookRunFilters, setHookRunFilters] = useState<WorkspaceHookRunFilters>({});
   const workspaceDecisions = useWorkspaceTurnPolicyRecentDecisions({
     selectedWorkspaceId: workspaceId ?? "",
     filters: decisionFilters,
     limit: 10,
   });
-  const workspaceHookRuns = useWorkspaceHookRuns({
-    selectedWorkspaceId: workspaceId ?? "",
-    filters: hookRunFilters,
-    limit: 12,
-  });
 
   useEffect(() => {
     setDecisionFilters({});
-    setHookRunFilters({});
   }, [workspaceId]);
 
   const [hookSessionStartEnabled, setHookSessionStartEnabled] =
@@ -1274,21 +1262,17 @@ export function GovernanceSettingsPage() {
                   </button>
                 }
                 description={i18n._({
-                  id: "Policy decisions and hook runs remain queryable from the same page, with filters and drill-down kept below in dedicated panels.",
+                  id: "Policy decisions remain queryable from the same page, with filters and drill-down kept below in a dedicated panel.",
                   message:
-                    "Policy decisions and hook runs remain queryable from the same page, with filters and drill-down kept below in dedicated panels.",
+                    "Policy decisions remain queryable from the same page, with filters and drill-down kept below in a dedicated panel.",
                 })}
                 marker="A"
                 meta={i18n._({
-                  id: "{decisions} decisions · {runs} hook runs",
-                  message: "{decisions} decisions · {runs} hook runs",
+                  id: "{decisions} decisions",
+                  message: "{decisions} decisions",
                   values: {
                     decisions: formatLocalizedNumber(
                       turnPolicyMetrics?.decisions.total ?? 0,
-                      "0",
-                    ),
-                    runs: formatLocalizedNumber(
-                      workspaceHookRuns.hookRuns.length,
                       "0",
                     ),
                   },
@@ -2522,13 +2506,9 @@ export function GovernanceSettingsPage() {
     {
       id: "activity",
       label: i18n._({ id: "Activity", message: "Activity" }),
-      badge:
-        turnPolicyMetrics?.decisions.total || workspaceHookRuns.hookRuns.length
-          ? String(
-              (turnPolicyMetrics?.decisions.total ?? 0) +
-                workspaceHookRuns.hookRuns.length,
-            )
-          : undefined,
+      badge: turnPolicyMetrics?.decisions.total
+        ? String(turnPolicyMetrics.decisions.total)
+        : undefined,
       content: (
         <div className="governance-tab-stack">
           <CollapsiblePanel
@@ -2576,30 +2556,6 @@ export function GovernanceSettingsPage() {
               turnPolicyDecisionsLoading={
                 workspaceDecisions.turnPolicyDecisionsLoading
               }
-            />
-          </CollapsiblePanel>
-
-          <CollapsiblePanel
-            defaultExpanded
-            description={i18n._({
-              id: "Hook runs remain visible with their own filters, status, and linked thread navigation.",
-              message:
-                "Hook runs remain visible with their own filters, status, and linked thread navigation.",
-            })}
-            title={i18n._({
-              id: "Hook Runs",
-              message: "Hook Runs",
-            })}
-          >
-            <WorkspaceHookRunsSection
-              filters={hookRunFilters}
-              hasAnyHookRuns={workspaceHookRuns.hasAnyHookRuns}
-              hookRuns={workspaceHookRuns.hookRuns}
-              hookRunsError={workspaceHookRuns.hookRunsError}
-              hookRunsLoading={workspaceHookRuns.hookRunsLoading}
-              onChangeFilters={setHookRunFilters}
-              onResetFilters={() => setHookRunFilters({})}
-              selectedWorkspace={selectedWorkspace}
             />
           </CollapsiblePanel>
         </div>
@@ -2776,8 +2732,8 @@ export function GovernanceSettingsPage() {
                 </strong>
                 <span>
                   {i18n._({
-                    id: "Review policy decisions and hook runs together.",
-                    message: "Review policy decisions and hook runs together.",
+                    id: "Review policy decisions and execution controls together.",
+                    message: "Review policy decisions and execution controls together.",
                   })}
                 </span>
               </button>
