@@ -42,46 +42,46 @@ export type WorkspaceTurnPolicyRecentDecisionsSectionProps = {
 };
 
 const policyOptions = [
-  { value: "", label: "All policies" },
+  { value: "", label: i18n._({ id: "All policies", message: "All policies" }) },
   {
     value: "posttooluse/failed-validation-command",
-    label: "Failed validation command",
+    label: i18n._({ id: "Failed validation command", message: "Failed validation command" }),
   },
   {
     value: "stop/missing-successful-verification",
-    label: "Missing successful verification",
+    label: i18n._({ id: "Missing successful verification", message: "Missing successful verification" }),
   },
 ];
 
 const actionOptions = [
-  { value: "", label: "All actions" },
-  { value: "steer", label: "Steer" },
-  { value: "followUp", label: "Follow-up" },
-  { value: "interrupt", label: "Interrupt" },
-  { value: "none", label: "None" },
+  { value: "", label: i18n._({ id: "All actions", message: "All actions" }) },
+  { value: "steer", label: i18n._({ id: "Steer", message: "Steer" }) },
+  { value: "followUp", label: i18n._({ id: "Follow-up", message: "Follow-up" }) },
+  { value: "interrupt", label: i18n._({ id: "Interrupt", message: "Interrupt" }) },
+  { value: "none", label: i18n._({ id: "None", message: "None" }) },
 ];
 
 const actionStatusOptions = [
-  { value: "", label: "All statuses" },
-  { value: "succeeded", label: "Succeeded" },
-  { value: "failed", label: "Failed" },
-  { value: "skipped", label: "Skipped" },
+  { value: "", label: i18n._({ id: "All statuses", message: "All statuses" }) },
+  { value: "succeeded", label: i18n._({ id: "Succeeded", message: "Succeeded" }) },
+  { value: "failed", label: i18n._({ id: "Failed", message: "Failed" }) },
+  { value: "skipped", label: i18n._({ id: "Skipped", message: "Skipped" }) },
 ];
 
 const sourceOptions = [
-  { value: "", label: "All sources" },
-  { value: "interactive", label: "Interactive" },
-  { value: "automation", label: "Automation" },
-  { value: "bot", label: "Bot" },
+  { value: "", label: i18n._({ id: "All sources", message: "All sources" }) },
+  { value: "interactive", label: i18n._({ id: "Interactive", message: "Interactive" }) },
+  { value: "automation", label: i18n._({ id: "Automation", message: "Automation" }) },
+  { value: "bot", label: i18n._({ id: "Bot", message: "Bot" }) },
 ];
 
 const reasonOptions = [
-  { value: "", label: "All reasons" },
-  { value: "duplicate_fingerprint", label: "Duplicate fingerprint" },
-  { value: "follow_up_cooldown_active", label: "Follow-up cooldown active" },
+  { value: "", label: i18n._({ id: "All reasons", message: "All reasons" }) },
+  { value: "duplicate_fingerprint", label: i18n._({ id: "Duplicate fingerprint", message: "Duplicate fingerprint" }) },
+  { value: "follow_up_cooldown_active", label: i18n._({ id: "Follow-up cooldown active", message: "Follow-up cooldown active" }) },
   {
     value: "interrupt_no_active_turn",
-    label: "Interrupt found no active turn",
+    label: i18n._({ id: "Interrupt found no active turn", message: "Interrupt found no active turn" }),
   },
 ];
 

@@ -3,6 +3,7 @@ import { useEffect, useId, useRef } from 'react'
 import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
 import { Input } from './Input'
+import { i18n } from '../../i18n/runtime'
 import type { RenameDialogProps } from './renameDialogTypes'
 
 export function RenameDialog({
@@ -33,7 +34,7 @@ export function RenameDialog({
   const footer = (
     <>
       <button className="ide-button ide-button--secondary" onClick={onClose} type="button">
-        Cancel
+        {i18n._({ id: 'Cancel', message: 'Cancel' })}
       </button>
       <button className="ide-button" disabled={isSubmitDisabled} type="submit">
         {isPending ? 'Saving…' : submitLabel}
@@ -70,7 +71,7 @@ export function RenameDialog({
           <InlineNotice
             dismissible
             noticeKey={`rename-dialog-${title}-${error}`}
-            title="Rename Failed"
+            title={i18n._({ id: 'Rename Failed', message: 'Rename Failed' })}
             tone="error"
           >
             {error}

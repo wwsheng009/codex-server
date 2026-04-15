@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import type { ComponentType, LazyExoticComponent } from "react";
 import { Navigate, createBrowserRouter } from "react-router-dom";
+import { i18n } from "../i18n/runtime";
 
 import {
   AppContentRouteErrorPage,
@@ -113,7 +114,7 @@ const WorktreesSettingsPage = lazy(async () => {
 function RouteLoadingState() {
   return (
     <section className="screen screen--centered">
-      <div className="notice">Loading…</div>
+      <div className="notice">{i18n._({ id: 'Loading…', message: 'Loading…' })}</div>
     </section>
   );
 }

@@ -3,6 +3,7 @@ import {
   useSyncExternalStore,
   type ProfilerOnRenderCallback,
 } from 'react'
+import { i18n } from '../../i18n/runtime'
 
 import type {
   ConversationLiveDiagnosticEvent,
@@ -1580,7 +1581,7 @@ export function ConversationRenderProfilerRailToggle({
       onClick={toggleConversationRenderProfilerPanelVisible}
       type="button"
     >
-      Profile
+      {i18n._({ id: "Profile", message: "Profile" })}
     </button>
   )
 }
@@ -1610,8 +1611,8 @@ export function ConversationRenderProfilerPanel() {
         <div className="conversation-profiler__header">
           <div className="conversation-profiler__toolbar">
             <div className="conversation-profiler__heading">
-              <span className="conversation-profiler__eyebrow">Diagnostics</span>
-              <span className="conversation-profiler__title">Thread Profile</span>
+              <span className="conversation-profiler__eyebrow">{i18n._({ id: "Diagnostics", message: "Diagnostics" })}</span>
+              <span className="conversation-profiler__title">{i18n._({ id: "Thread Profile", message: "Thread Profile" })}</span>
             </div>
             <div className="conversation-profiler__actions">
               <div className="conversation-profiler__action-row">
@@ -1665,7 +1666,7 @@ export function ConversationRenderProfilerPanel() {
                   onClick={resetConversationRenderProfiler}
                   type="button"
                 >
-                  Reset
+                  {i18n._({ id: "Reset", message: "Reset" })}
                 </button>
                 <button
                   className="pane-section__toggle conversation-profiler__action"
@@ -1673,20 +1674,20 @@ export function ConversationRenderProfilerPanel() {
                   onClick={exportConversationRenderProfilerAnalysis}
                   type="button"
                 >
-                  Export
+                  {i18n._({ id: "Export", message: "Export" })}
                 </button>
                 <button
                   className="pane-section__toggle conversation-profiler__action conversation-profiler__action--dismiss"
                   onClick={() => setConversationRenderProfilerPanelVisible(false)}
                   type="button"
                 >
-                  Close
+                  {i18n._({ id: "Close", message: "Close" })}
                 </button>
               </div>
             </div>
           </div>
           <p className="conversation-profiler__description">
-            Capture render cost, scroll writes, and live-stream delivery decisions for the active thread.
+            {i18n._({ id: "Capture render cost, scroll writes, and live-stream delivery decisions for the active thread.", message: "Capture render cost, scroll writes, and live-stream delivery decisions for the active thread." })}
           </p>
           <div className="conversation-profiler__summary">
             <span
@@ -1717,7 +1718,7 @@ export function ConversationRenderProfilerPanel() {
         </div>
         <div className="conversation-profiler__body">
           <div className="conversation-profiler__section">
-            <strong className="conversation-profiler__section-title">Render</strong>
+            <strong className="conversation-profiler__section-title">{i18n._({ id: "Render", message: "Render" })}</strong>
             {snapshot.enabled ? (
               <>
                 <div className="conversation-profiler__chips">
@@ -1765,7 +1766,7 @@ export function ConversationRenderProfilerPanel() {
                   </div>
                 ) : (
                   <div className="conversation-profiler__empty">
-                    Scroll the thread or let live output stream to collect render samples.
+                    {i18n._({ id: "Scroll the thread or let live output stream to collect render samples.", message: "Scroll the thread or let live output stream to collect render samples." })}
                   </div>
                 )}
                 <div className="conversation-profiler__suggestions">
@@ -1778,12 +1779,12 @@ export function ConversationRenderProfilerPanel() {
               </>
             ) : (
               <div className="conversation-profiler__empty">
-                Start render profiling to capture React commit cost inside the thread surface.
+                {i18n._({ id: "Start render profiling to capture React commit cost inside the thread surface.", message: "Start render profiling to capture React commit cost inside the thread surface." })}
               </div>
             )}
           </div>
           <div className="conversation-profiler__section">
-            <strong className="conversation-profiler__section-title">Scroll</strong>
+            <strong className="conversation-profiler__section-title">{i18n._({ id: "Scroll", message: "Scroll" })}</strong>
             {snapshot.scrollDiagnosticsEnabled ? (
               <>
                 <div className="conversation-profiler__chips">
@@ -1843,7 +1844,7 @@ export function ConversationRenderProfilerPanel() {
                   </div>
                 ) : (
                   <div className="conversation-profiler__empty">
-                    Reproduce the viewport jump while capture is active to collect scroll diagnostics.
+                    {i18n._({ id: "Reproduce the viewport jump while capture is active to collect scroll diagnostics.", message: "Reproduce the viewport jump while capture is active to collect scroll diagnostics." })}
                   </div>
                 )}
                 <div className="conversation-profiler__suggestions">
@@ -1856,12 +1857,12 @@ export function ConversationRenderProfilerPanel() {
               </>
             ) : (
               <div className="conversation-profiler__empty">
-                Enable scroll capture to record programmatic writes, viewport scroll updates, and virtualization layout shifts.
+                {i18n._({ id: "Enable scroll capture to record programmatic writes, viewport scroll updates, and virtualization layout shifts.", message: "Enable scroll capture to record programmatic writes, viewport scroll updates, and virtualization layout shifts." })}
               </div>
             )}
           </div>
           <div className="conversation-profiler__section">
-            <strong className="conversation-profiler__section-title">Live</strong>
+            <strong className="conversation-profiler__section-title">{i18n._({ id: "Live", message: "Live" })}</strong>
             {snapshot.liveDiagnosticsEnabled ? (
               <>
                 <div className="conversation-profiler__chips">
@@ -1950,13 +1951,13 @@ export function ConversationRenderProfilerPanel() {
                 </div>
                 <div className="conversation-profiler__records">
                   <div className="conversation-profiler__record">
-                    <strong>selected thread</strong>
+                    <strong>{i18n._({ id: "selected thread", message: "selected thread" })}</strong>
                     <span>{snapshot.liveDiagnostics.status.selectedThreadId ?? 'none'}</span>
                     <span>{`follow ${snapshot.liveDiagnostics.status.followMode}`}</span>
                     <span>{`pinned ${formatConversationLiveStatusBoolean(snapshot.liveDiagnostics.status.isThreadPinnedToLatest)}`}</span>
                   </div>
                   <div className="conversation-profiler__record">
-                    <strong>viewport state</strong>
+                    <strong>{i18n._({ id: "viewport state", message: "viewport state" })}</strong>
                     <span>{`unread ${snapshot.liveDiagnostics.status.hasUnreadThreadUpdates ? 'yes' : 'no'}`}</span>
                     <span>{`last live ${formatConversationDiagnosticAge(snapshot.liveDiagnostics.status.lastLiveEventAgeMs)}`}</span>
                     <span>{`last refresh ${formatConversationDiagnosticAge(snapshot.liveDiagnostics.status.lastThreadDetailRefreshAgeMs)}`}</span>
@@ -1975,7 +1976,7 @@ export function ConversationRenderProfilerPanel() {
                   </div>
                 ) : (
                   <div className="conversation-profiler__empty">
-                    Reproduce the missing or delayed live message while capture is active to collect stream, baseline, and suppression diagnostics.
+                    {i18n._({ id: "Reproduce the missing or delayed live message while capture is active to collect stream, baseline, and suppression diagnostics.", message: "Reproduce the missing or delayed live message while capture is active to collect stream, baseline, and suppression diagnostics." })}
                   </div>
                 )}
                 <div className="conversation-profiler__suggestions">
@@ -1988,7 +1989,7 @@ export function ConversationRenderProfilerPanel() {
                 {snapshot.liveDiagnostics.suspectedRootCauses.length ? (
                   <>
                     <strong className="conversation-profiler__section-title">
-                      Suspected root causes
+                      {i18n._({ id: "Suspected root causes", message: "Suspected root causes" })}
                     </strong>
                     <div className="conversation-profiler__suggestions">
                       {snapshot.liveDiagnostics.suspectedRootCauses.map((cause) => (
@@ -2002,7 +2003,7 @@ export function ConversationRenderProfilerPanel() {
                 {latestItemLifecycle.length ? (
                   <>
                     <strong className="conversation-profiler__section-title">
-                      Latest item lifecycle
+                      {i18n._({ id: "Latest item lifecycle", message: "Latest item lifecycle" })}
                     </strong>
                     <div className="conversation-profiler__records">
                       {latestItemLifecycle.map((entry) => (
@@ -2019,7 +2020,7 @@ export function ConversationRenderProfilerPanel() {
                 {topProblemItems.length ? (
                   <>
                     <strong className="conversation-profiler__section-title">
-                      Top problem items
+                      {i18n._({ id: "Top problem items", message: "Top problem items" })}
                     </strong>
                     <div className="conversation-profiler__records">
                       {topProblemItems.map((item) => (
@@ -2036,7 +2037,7 @@ export function ConversationRenderProfilerPanel() {
               </>
             ) : (
               <div className="conversation-profiler__empty">
-                Enable live capture to record whether realtime events arrived, were baseline-filtered, replayed, or suppressed by the renderer.
+                {i18n._({ id: "Enable live capture to record whether realtime events arrived, were baseline-filtered, replayed, or suppressed by the renderer.", message: "Enable live capture to record whether realtime events arrived, were baseline-filtered, replayed, or suppressed by the renderer." })}
               </div>
             )}
           </div>

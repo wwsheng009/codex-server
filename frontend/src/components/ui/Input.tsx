@@ -1,5 +1,6 @@
 import { forwardRef, useId } from 'react'
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
+import { i18n } from '../../i18n/runtime'
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: ReactNode
@@ -50,7 +51,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               className="field-stepper field-stepper--left"
               onClick={handleDecrement}
               tabIndex={-1}
-              aria-label="Decrease value"
+              aria-label={i18n._({ id: 'Decrease value', message: 'Decrease value' })}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
@@ -68,7 +69,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               className="field-stepper field-stepper--right"
               onClick={handleIncrement}
               tabIndex={-1}
-              aria-label="Increase value"
+              aria-label={i18n._({ id: 'Increase value', message: 'Increase value' })}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>

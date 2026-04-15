@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { i18n } from '../../i18n/runtime'
 
 import { Modal } from './Modal'
 import { InlineNotice } from './InlineNotice'
@@ -51,7 +52,7 @@ export function ConfirmDialog({
       title={title}
     >
       <div className="confirm-dialog__header">
-        <span className="confirm-dialog__eyebrow">Confirm</span>
+        <span className="confirm-dialog__eyebrow">{i18n._({ id: 'Confirm', message: 'Confirm' })}</span>
         {subject ? <div className="confirm-dialog__subject">{subject}</div> : null}
       </div>
 
@@ -59,7 +60,7 @@ export function ConfirmDialog({
         <InlineNotice
           dismissible
           noticeKey={`confirm-dialog-${title}-${subject ?? 'default'}-${error}`}
-          title="Action Failed"
+          title={i18n._({ id: 'Action Failed', message: 'Action Failed' })}
           tone="error"
         >
           {error}

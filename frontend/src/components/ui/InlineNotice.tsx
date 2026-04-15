@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { i18n } from '../../i18n/runtime'
 
 import type { InlineNoticeProps } from './inlineNoticeTypes'
 
@@ -75,7 +76,7 @@ export function InlineNotice({
         {action ? <div className="notice__action">{action}</div> : null}
         {dismissible ? (
           <button
-            aria-label="Dismiss notice"
+            aria-label={i18n._({ id: 'Dismiss notice', message: 'Dismiss notice' })}
             className="notice__close"
             onClick={() => setDismissed(true)}
             type="button"

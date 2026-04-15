@@ -164,7 +164,7 @@ export const TurnTimeline = memo(function TurnTimeline({
           className="conversation-card--error"
           statusTone="error"
           summary={summarizeCompactError(entry.error)}
-          title="Error"
+          title={i18n._({ id: "Error", message: "Error" })}
         >
           <ThreadCodeBlock className="conversation-card__output" content={safeJson(entry.error)} />
         </SystemTimelineCard>
@@ -592,11 +592,11 @@ export function ApprovalDialog({
             <span>{approval.kind}</span>
           </div>
           {hasMultipleApprovals ? (
-            <span className="composer-approval-dialog__count">{approvalQueueCount} pending</span>
+            <span className="composer-approval-dialog__count">{approvalQueueCount} {i18n._({ id: "pending", message: "pending" })}</span>
           ) : null}
         </div>
         <div className="composer-approval-dialog__intro" id={`approval-dialog-${approval.id}-description`}>
-          <span className="composer-approval-dialog__eyebrow">Approval Required</span>
+          <span className="composer-approval-dialog__eyebrow">{i18n._({ id: "Approval Required", message: "Approval Required" })}</span>
           <p>
             {questions.length
               ? 'Answer the prompt below directly from the composer without opening the side panel.'
@@ -614,7 +614,7 @@ export function ApprovalDialog({
         ) : null}
         {typeof details.message === 'string' ? <p>{details.message}</p> : null}
         {showStepper ? (
-          <div className="composer-approval-dialog__progress" role="tablist" aria-label="Approval steps">
+          <div className="composer-approval-dialog__progress" role="tablist" aria-label={i18n._({ id: "Approval steps", message: "Approval steps" })}>
             {questions.map((question, index) => {
               const questionId = stringField(question.id)
               const answered = isApprovalQuestionAnswered(approval.id, question, approvalAnswers)
@@ -658,7 +658,7 @@ export function ApprovalDialog({
           <InlineNotice
             dismissible
             noticeKey={`approval-dialog-${approval.id}-${approvalErrors[approval.id]}`}
-            title="Approval Response Failed"
+            title={i18n._({ id: "Approval Response Failed", message: "Approval Response Failed" })}
             tone="error"
           >
             {approvalErrors[approval.id]}
@@ -667,10 +667,10 @@ export function ApprovalDialog({
         <div className="composer-approval-dialog__footer">
           <div className="composer-approval-dialog__shortcuts">
             {activeQuestion && approvalQuestionOptions(activeQuestion).length ? (
-              <span className="composer-approval-dialog__shortcut">Arrows to move</span>
+              <span className="composer-approval-dialog__shortcut">{i18n._({ id: "Arrows to move", message: "Arrows to move" })}</span>
             ) : null}
             {primaryActions.length ? (
-              <span className="composer-approval-dialog__shortcut">Ctrl/Cmd+Enter to approve</span>
+              <span className="composer-approval-dialog__shortcut">{i18n._({ id: "Ctrl/Cmd+Enter to approve", message: "Ctrl/Cmd+Enter to approve" })}</span>
             ) : null}
           </div>
           <div className="header-actions">
@@ -694,7 +694,7 @@ export function ApprovalDialog({
                 onClick={() => setCurrentQuestionIndex((current) => Math.max(current - 1, 0))}
                 type="button"
               >
-                Back
+                {i18n._({ id: "Back", message: "Back" })}
               </button>
             ) : null}
             {questions.length && currentQuestionIndex < questions.length - 1 ? (
@@ -704,7 +704,7 @@ export function ApprovalDialog({
                 onClick={() => setCurrentQuestionIndex((current) => Math.min(current + 1, questions.length - 1))}
                 type="button"
               >
-                Next
+                {i18n._({ id: "Next", message: "Next" })}
               </button>
             ) : primaryActions.length ? (
               primaryActions.map((action) => (
@@ -892,7 +892,7 @@ function ApprovalCard({
         <InlineNotice
           dismissible
           noticeKey={`approval-stack-${approval.id}-${approvalErrors[approval.id]}`}
-          title="Approval Response Failed"
+          title={i18n._({ id: "Approval Response Failed", message: "Approval Response Failed" })}
           tone="error"
         >
           {approvalErrors[approval.id]}
@@ -1555,7 +1555,7 @@ function TimelineItem({
           statusTone={statusToneFromValue(status)}
           summaryTruncated={summaryTruncated}
           summary={truncateMiddle(command || 'Command execution', 88)}
-          title="Command"
+          title={i18n._({ id: "Command", message: "Command" })}
         >
           {command ? <code className="conversation-card__command-line">{command}</code> : null}
           {output ? (
@@ -1564,12 +1564,12 @@ function TimelineItem({
               content={output}
             />
           ) : (
-            <div className="conversation-card__placeholder">Waiting for output.</div>
+            <div className="conversation-card__placeholder">{i18n._({ id: "Waiting for output.", message: "Waiting for output." })}</div>
           )}
           {showLoadLatestOutput ? (
             <>
               <div className="conversation-card__placeholder">
-                Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result.
+                {i18n._({ id: "Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result.", message: "Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result." })}
               </div>
               <div className="conversation-tool-call__actions">
                 <button
@@ -1577,7 +1577,7 @@ function TimelineItem({
                   onClick={() => onRequestFullTurn?.(turnId, itemId)}
                   type="button"
                 >
-                  Load latest output
+                  {i18n._({ id: "Load latest output", message: "Load latest output" })}
                 </button>
               </div>
             </>
@@ -1597,7 +1597,7 @@ function TimelineItem({
                   onClick={() => onRequestFullTurn?.(turnId, itemId)}
                   type="button"
                 >
-                  Load earlier output
+                  {i18n._({ id: "Load earlier output", message: "Load earlier output" })}
                 </button>
               </div>
             </>
@@ -1621,7 +1621,7 @@ function TimelineItem({
           meta={turnPlanProgressMeta(steps)}
           statusTone={turnPlanStatusTone(turnPlan)}
           summary={turnPlanCardSummary(explanation, steps)}
-          title="Plan"
+          title={i18n._({ id: "Plan", message: "Plan" })}
         >
           {explanation ? <p className="conversation-plan__explanation">{explanation}</p> : null}
           {steps.length ? (
@@ -1660,7 +1660,7 @@ function TimelineItem({
           className="conversation-card--plan"
           meta={`${steps.length} step${steps.length === 1 ? '' : 's'}`}
           summary={planCardSummary(steps)}
-          title="Plan"
+          title={i18n._({ id: "Plan", message: "Plan" })}
         >
           <ol className="conversation-plan">
             {steps.map((step, index) => (
@@ -2055,21 +2055,21 @@ function ToolCallTimelineCard({
 
   const detailSections: ToolCallSection[] = [
     {
-      label: 'Arguments',
+      label: i18n._({ id: "Arguments", message: "Arguments" }),
       value: item.arguments,
     },
   ]
 
   if (type === 'mcpToolCall' && hasMeaningfulValue(item.result)) {
     detailSections.push({
-      label: 'Result',
+      label: i18n._({ id: "Result", message: "Result" }),
       value: item.result,
     })
   }
 
   if (type === 'dynamicToolCall' && hasMeaningfulValue(item.contentItems)) {
     detailSections.push({
-      label: 'Output',
+      label: i18n._({ id: "Output", message: "Output" }),
       value: item.contentItems,
     })
   }
@@ -2077,21 +2077,21 @@ function ToolCallTimelineCard({
   if (type === 'collabAgentToolCall' && prompt) {
     detailSections.push({
       kind: 'text',
-      label: 'Prompt',
+      label: i18n._({ id: "Prompt", message: "Prompt" }),
       value: prompt,
     })
   }
 
   if (type === 'collabAgentToolCall' && hasMeaningfulValue(item.agentsStates)) {
     detailSections.push({
-      label: 'Agent States',
+      label: i18n._({ id: "Agent States", message: "Agent States" }),
       value: item.agentsStates,
     })
   }
 
   if (hasMeaningfulValue(item.error)) {
     detailSections.push({
-      label: 'Error',
+      label: i18n._({ id: "Error", message: "Error" }),
       value: item.error,
       tone: 'danger',
     })
@@ -2120,13 +2120,13 @@ function ToolCallTimelineCard({
         <div className="conversation-tool-call__meta-grid">
           {senderThreadId ? (
             <div className="conversation-tool-call__meta-row">
-              <span>Sender</span>
+              <span>{i18n._({ id: "Sender", message: "Sender" })}</span>
               <strong>{senderThreadId}</strong>
             </div>
           ) : null}
           {receiverThreadIds.length ? (
             <div className="conversation-tool-call__meta-row">
-              <span>Receivers</span>
+              <span>{i18n._({ id: "Receivers", message: "Receivers" })}</span>
               <strong>{receiverThreadIds.join(', ')}</strong>
             </div>
           ) : null}
@@ -2204,7 +2204,7 @@ function ServerRequestTimelineCard({
       {requestId ? (
         <div className="conversation-tool-call__meta-grid">
           <div className="conversation-tool-call__meta-row">
-            <span>Request</span>
+            <span>{i18n._({ id: "Request", message: "Request" })}</span>
             <strong>{requestId}</strong>
           </div>
         </div>
@@ -2212,7 +2212,7 @@ function ServerRequestTimelineCard({
       {status === 'expired' ? (
         <div className="conversation-tool-call__section">
           <div className="conversation-tool-call__section-header">
-            <strong>Status</strong>
+            <strong>{i18n._({ id: "Status", message: "Status" })}</strong>
           </div>
           <div className="conversation-card__content conversation-tool-call__text conversation-tool-call__text--danger">
             {serverRequestExpiredMessage(expireReason)}
@@ -2224,7 +2224,7 @@ function ServerRequestTimelineCard({
                 onClick={() => onRetry(item)}
                 type="button"
               >
-                Retry In Composer
+                {i18n._({ id: "Retry In Composer", message: "Retry In Composer" })}
               </button>
             </div>
           ) : null}
@@ -2233,7 +2233,7 @@ function ServerRequestTimelineCard({
       {details.message ? (
         <div className="conversation-tool-call__section">
           <div className="conversation-tool-call__section-header">
-            <strong>Message</strong>
+            <strong>{i18n._({ id: "Message", message: "Message" })}</strong>
           </div>
           <ThreadMarkdown
             className="conversation-card__content conversation-tool-call__text"
@@ -2243,7 +2243,7 @@ function ServerRequestTimelineCard({
       ) : null}
       <div className="conversation-tool-call__section">
         <div className="conversation-tool-call__section-header">
-          <strong>Payload</strong>
+          <strong>{i18n._({ id: "Payload", message: "Payload" })}</strong>
         </div>
         <ThreadCodeBlock
           className="conversation-card__output conversation-tool-call__output"
