@@ -33,6 +33,22 @@ function formatTurnPolicyCodeFallback(value?: string | null, fallback = "—") {
   return humanizeDisplayValue(raw.replaceAll("/", " / "), fallback);
 }
 
+export function formatTurnPolicyCoverageDefinition(
+  key?: string | null,
+  fallback?: string | null,
+) {
+  switch (trimTurnPolicyValue(key).toLowerCase()) {
+    case "turn-policy.metrics.coverage-definition":
+      return i18n._({
+        id: "Coverage is measured only for turns that currently match implemented policy predicates: a failed validation command or a completed turn with file changes but no later successful validation command. A turn is covered when at least one persisted turn policy decision exists for that turn.",
+        message:
+          "Coverage is measured only for turns that currently match implemented policy predicates: a failed validation command or a completed turn with file changes but no later successful validation command. A turn is covered when at least one persisted turn policy decision exists for that turn.",
+      });
+    default:
+      return trimTurnPolicyValue(fallback);
+  }
+}
+
 export function formatTurnPolicyDecisionPolicyName(
   value?: string | null,
   fallback = "—",

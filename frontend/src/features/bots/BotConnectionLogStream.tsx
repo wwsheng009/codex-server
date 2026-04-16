@@ -6,6 +6,7 @@ import { i18n } from '../../i18n/runtime'
 import type { BotConnectionLogEntry } from '../../types/api'
 import {
   describeBotConnectionLogEntry,
+  formatBotRuntimeMessage,
   normalizeBotConnectionLogLevel,
 } from './logStreamUtils'
 
@@ -55,7 +56,16 @@ export function BotConnectionLogStream({ logs }: BotConnectionLogStreamProps) {
             </div>
             <span
               className="automation-run-log__message"
-              dangerouslySetInnerHTML={{ __html: ansiUp.ansi_to_html(entry.message) }}
+              dangerouslySetInnerHTML={{
+                __html: ansiUp.ansi_to_html(
+                  formatBotRuntimeMessage(
+                    entry.message,
+                    entry.messageKey,
+                    entry.messageParams,
+                    entry.eventType,
+                  ),
+                ),
+              }}
             />
           </div>
         )
