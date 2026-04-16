@@ -5,6 +5,7 @@ import ts from 'typescript'
 
 const DEFAULTS = {
   root: 'src',
+  localesRoot: 'src/locales',
   extensions: ['.tsx', '.jsx', '.ts', '.js'],
   exclude: ['node_modules', 'dist', 'coverage', '.git', 'build', '.next', 'tmp'],
   ignore: ['**/*.test.*', '**/*.spec.*', '**/*.d.ts'],
@@ -13,6 +14,7 @@ const DEFAULTS = {
   output: '',
   minLength: 1,
   includeObjectProps: true,
+  checkEmptyMsgstr: true,
   failOnIssues: false,
 }
 
@@ -125,6 +127,10 @@ function parseArgs(argv) {
         options.extensions = splitCsv(inlineValue ?? nextValue).map(normalizeExt)
         if (inlineValue == null) index += 1
         break
+      case 'locales-root':
+        options.localesRoot = inlineValue ?? nextValue
+        if (inlineValue == null) index += 1
+        break
       case 'exclude':
         options.exclude = splitCsv(inlineValue ?? nextValue)
         if (inlineValue == null) index += 1
@@ -152,6 +158,10 @@ function parseArgs(argv) {
       case 'include-object-props':
         options.includeObjectProps = parseBoolean(inlineValue ?? nextValue)
         if (inlineValue == null) index += 1
+        break
+      case 'check-empty-msgstr':
+        options.checkEmptyMsgstr = inlineValue == null ? true : parseBoolean(inlineValue)
+        if (inlineValue == null) break
         break
       case 'fail-on-issues':
         options.failOnIssues = inlineValue == null ? true : parseBoolean(inlineValue)
@@ -193,7 +203,7 @@ function parseBoolean(value) {
 }
 
 function printHelp() {
-  console.log(`Missing i18n scanner\n\nUsage:\n  node ./scripts/check-missing-i18n.mjs [options]\n\nOptions:\n  --root <path>                  Scan root directory, default: src\n  --extensions <csv>             File extensions, default: .tsx,.jsx,.ts,.js\n  --exclude <csv>                Directory names to skip\n  --ignore <csv>                 Glob-like path patterns to skip\n  --config <file>                Whitelist config file, default: i18n-check.config.mjs\n  --report <console|json|md>     Report format, default: console\n  --output <file>                Write report to file\n  --min-length <n>               Minimum visible text length, default: 1\n  --include-object-props <bool>  Scan object literal UI props, default: true\n  --fail-on-issues               Exit with code 1 when issues exist\n  --help                         Show this help\n`)
+  console.log(`Missing i18n scanner\n\nUsage:\n  node ./scripts/check-missing-i18n.mjs [options]\n\nOptions:\n  --root <path>                  Scan root directory, default: src\n  --extensions <csv>             File extensions, default: .tsx,.jsx,.ts,.js\n  --locales-root <path>          Locale root for .po checks, default: src/locales\n  --exclude <csv>                Directory names to skip\n  --ignore <csv>                 Glob-like path patterns to skip\n  --config <file>                Whitelist config file, default: i18n-check.config.mjs\n  --report <console|json|md>     Report format, default: console\n  --output <file>                Write report to file\n  --min-length <n>               Minimum visible text length, default: 1\n  --include-object-props <bool>  Scan object literal UI props, default: true\n  --check-empty-msgstr <bool>    Warn when msgstr is empty, default: true\n  --fail-on-issues               Exit with code 1 when issues exist\n  --help                         Show this help\n`)
 }
 
 function listFiles(rootDir, options) {
@@ -218,6 +228,32 @@ function listFiles(rootDir, options) {
       if (!options.extensions.includes(path.extname(entry.name))) continue
       if (matchesIgnore(relativePath, options.ignore)) continue
       collected.push(fullPath)
+    }
+  }
+
+  return collected.sort((a, b) => a.localeCompare(b))
+}
+
+function listPoFiles(localesRoot) {
+  if (!fs.existsSync(localesRoot)) return []
+
+  const collected = []
+  const stack = [localesRoot]
+
+  while (stack.length > 0) {
+    const current = stack.pop()
+    const entries = fs.readdirSync(current, { withFileTypes: true })
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(fullPath)
+        continue
+      }
+
+      if (path.extname(entry.name) === '.po') {
+        collected.push(fullPath)
+      }
     }
   }
 
@@ -382,12 +418,120 @@ function scanFile(filePath, options, whitelistConfig) {
   return findings
 }
 
+function scanPoFile(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8')
+  const relativeFile = normalizePath(path.relative(process.cwd(), filePath))
+  const locale = path.basename(path.dirname(filePath))
+  const findings = []
+  const lines = content.split(/\r?\n/)
+  let entry = createPoEntry()
+
+  function flushEntry() {
+    const msgidText = entry.msgid.join('')
+    const msgstrText = entry.msgstr.join('').trim()
+
+    if (!msgidText || entry.isObsolete || msgstrText) {
+      entry = createPoEntry()
+      return
+    }
+
+    findings.push({
+      file: relativeFile,
+      line: entry.msgstrLine || entry.msgidLine || 1,
+      column: 1,
+      kind: 'po-empty-msgstr',
+      text: normalizeVisibleText(msgidText),
+      snippet: normalizeVisibleText(entry.lines.join('\n')).slice(0, 160),
+      locale,
+      location: entry.location,
+    })
+
+    entry = createPoEntry()
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index]
+    const line = rawLine.trimEnd()
+    const lineNumber = index + 1
+
+    if (!line) {
+      flushEntry()
+      continue
+    }
+
+    entry.lines.push(rawLine)
+
+    if (line.startsWith('#: ')) {
+      entry.location = entry.location ? `${entry.location}; ${line.slice(3)}` : line.slice(3)
+      continue
+    }
+
+    if (line.startsWith('#~')) {
+      entry.isObsolete = true
+      continue
+    }
+
+    if (line.startsWith('#')) continue
+
+    if (line.startsWith('msgid ')) {
+      entry.inField = 'msgid'
+      entry.msgidLine = lineNumber
+      const value = line.slice(6)
+      if (value !== '""') {
+        entry.msgid.push(unquotePoString(value))
+      }
+      continue
+    }
+
+    if (line.startsWith('msgstr ')) {
+      entry.inField = 'msgstr'
+      entry.msgstrLine = lineNumber
+      const value = line.slice(7)
+      if (value !== '""') {
+        entry.msgstr.push(unquotePoString(value))
+      }
+      continue
+    }
+
+    if (line.startsWith('"') && line.endsWith('"')) {
+      const value = unquotePoString(line)
+      if (entry.inField === 'msgid') entry.msgid.push(value)
+      if (entry.inField === 'msgstr') entry.msgstr.push(value)
+    }
+  }
+
+  flushEntry()
+
+  return findings
+}
+
+function createPoEntry() {
+  return {
+    msgid: [],
+    msgstr: [],
+    location: '',
+    isObsolete: false,
+    inField: null,
+    msgidLine: 0,
+    msgstrLine: 0,
+    lines: [],
+  }
+}
+
 function resolveScriptKind(filePath) {
   const extension = path.extname(filePath)
   if (extension === '.tsx') return ts.ScriptKind.TSX
   if (extension === '.jsx') return ts.ScriptKind.JSX
   if (extension === '.js') return ts.ScriptKind.JS
   return ts.ScriptKind.TS
+}
+
+function unquotePoString(value) {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value.slice(1, -1)
+  }
 }
 
 function getLiteralLikeText(node) {
@@ -654,7 +798,7 @@ function renderConsole(summary, findings) {
   lines.push('')
 
   if (summary.issueCount === 0) {
-    lines.push('未发现疑似未国际化文本。')
+    lines.push('未发现疑似未国际化文本或空翻译条目。')
     return lines.join('\n')
   }
 
@@ -665,7 +809,13 @@ function renderConsole(summary, findings) {
   lines.push('')
   lines.push('问题明细:')
   for (const finding of findings) {
-    const meta = finding.attribute ? ` attribute=${finding.attribute}` : finding.property ? ` property=${finding.property}` : ''
+    const meta = finding.attribute
+      ? ` attribute=${finding.attribute}`
+      : finding.property
+        ? ` property=${finding.property}`
+        : finding.locale
+          ? ` locale=${finding.locale}${finding.location ? ` location=${finding.location}` : ''}`
+          : ''
     lines.push(`- ${finding.file}:${finding.line}:${finding.column} [${finding.kind}${meta}] ${finding.text}`)
   }
   return lines.join('\n')
@@ -694,7 +844,13 @@ function renderMarkdown(summary, findings) {
   lines.push('| 文件 | 行 | 类型 | 文本 | 备注 |')
   lines.push('| --- | ---: | --- | --- | --- |')
   for (const finding of findings) {
-    const note = finding.attribute ? `attribute=${finding.attribute}` : finding.property ? `property=${finding.property}` : ''
+    const note = finding.attribute
+      ? `attribute=${finding.attribute}`
+      : finding.property
+        ? `property=${finding.property}`
+        : finding.locale
+          ? `locale=${finding.locale}${finding.location ? `; location=${finding.location}` : ''}`
+          : ''
     lines.push(`| ${finding.file} | ${finding.line} | ${finding.kind} | ${escapeMd(finding.text)} | ${escapeMd(note)} |`)
   }
   return lines.join('\n')
@@ -717,6 +873,7 @@ function writeReport(outputPath, content) {
 async function main() {
   const options = parseArgs(process.argv.slice(2))
   const rootDir = path.resolve(process.cwd(), options.root)
+  const localesRoot = path.resolve(process.cwd(), options.localesRoot)
   const whitelistConfig = await loadWhitelistConfig(options.config)
 
   if (!fs.existsSync(rootDir)) {
@@ -724,7 +881,11 @@ async function main() {
   }
 
   const files = listFiles(rootDir, options)
-  const findings = files.flatMap((filePath) => scanFile(filePath, options, whitelistConfig))
+  const codeFindings = files.flatMap((filePath) => scanFile(filePath, options, whitelistConfig))
+  const poFindings = options.checkEmptyMsgstr
+    ? listPoFiles(localesRoot).flatMap((filePath) => scanPoFile(filePath))
+    : []
+  const findings = [...codeFindings, ...poFindings]
   const summary = buildSummary(findings, files.length, rootDir, whitelistConfig)
 
   let report = ''

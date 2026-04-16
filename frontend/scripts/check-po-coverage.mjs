@@ -25,79 +25,89 @@ try {
   process.exit(1)
 }
 
-// Split into entry blocks (separated by blank lines)
-const blocks = content.split(/\n\n+/)
 const entries = []
 
-for (const block of blocks) {
-  const lines = block.split('\n')
-  let msgid = []
-  let msgstr = []
-  let location = ''
-  let isObsolete = false
-  let inField = null // 'msgid' | 'msgstr' | null
+function createEntry() {
+  return {
+    msgid: [],
+    msgstr: [],
+    locations: [],
+    isObsolete: false,
+    inField: null,
+  }
+}
 
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd()
-    if (!line) continue
+function unquotePoString(value) {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value.slice(1, -1)
+  }
+}
 
-    // Reference comment
-    if (line.startsWith('#: ')) {
-      location = line.slice(3)
-      continue
-    }
+let current = createEntry()
 
-    // Obsolete marker
-    if (line.startsWith('#~')) {
-      isObsolete = true
-      continue
-    }
+function flushEntry() {
+  const msgidStr = current.msgid.join('')
+  const msgstrStr = current.msgstr.join('').trim()
 
-    // Other comments
-    if (line.startsWith('#')) continue
-
-    // msgid
-    if (line.startsWith('msgid ')) {
-      inField = 'msgid'
-      const val = line.slice(6)
-      if (val === '""') {
-        // multi-line start, nothing to add
-      } else {
-        msgid.push(val.slice(1, -1))
-      }
-      continue
-    }
-
-    // msgstr
-    if (line.startsWith('msgstr ')) {
-      inField = 'msgstr'
-      const val = line.slice(7)
-      if (val === '""') {
-        // multi-line start
-      } else {
-        msgstr.push(val.slice(1, -1))
-      }
-      continue
-    }
-
-    // Continuation line (quoted string)
-    if (line.startsWith('"') && line.endsWith('"')) {
-      const val = line.slice(1, -1)
-      if (inField === 'msgid') msgid.push(val)
-      else if (inField === 'msgstr') msgstr.push(val)
-    }
+  if (msgidStr && !current.isObsolete) {
+    entries.push({
+      msgid: msgidStr,
+      msgstr: msgstrStr,
+      location: current.locations.join('; '),
+    })
   }
 
-  const msgidStr = msgid.join('')
-  const msgstrStr = msgstr.join('')
-
-  // Skip header (empty msgid)
-  if (!msgidStr) continue
-  // Skip obsolete
-  if (isObsolete) continue
-
-  entries.push({ msgid: msgidStr, msgstr: msgstrStr, location })
+  current = createEntry()
 }
+
+for (const rawLine of content.split(/\r?\n/)) {
+  const line = rawLine.trimEnd()
+
+  if (!line) {
+    flushEntry()
+    continue
+  }
+
+  if (line.startsWith('#: ')) {
+    current.locations.push(line.slice(3))
+    continue
+  }
+
+  if (line.startsWith('#~')) {
+    current.isObsolete = true
+    continue
+  }
+
+  if (line.startsWith('#')) continue
+
+  if (line.startsWith('msgid ')) {
+    current.inField = 'msgid'
+    const value = line.slice(6)
+    if (value !== '""') {
+      current.msgid.push(unquotePoString(value))
+    }
+    continue
+  }
+
+  if (line.startsWith('msgstr ')) {
+    current.inField = 'msgstr'
+    const value = line.slice(7)
+    if (value !== '""') {
+      current.msgstr.push(unquotePoString(value))
+    }
+    continue
+  }
+
+  if (line.startsWith('"') && line.endsWith('"')) {
+    const value = unquotePoString(line)
+    if (current.inField === 'msgid') current.msgid.push(value)
+    if (current.inField === 'msgstr') current.msgstr.push(value)
+  }
+}
+
+flushEntry()
 
 const total = entries.length
 const translated = entries.filter((e) => e.msgstr).length

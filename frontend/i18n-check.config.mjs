@@ -427,5 +427,11 @@ export default {
       filePattern: 'src/pages/thread-page/useThreadViewportAutoScroll.ts',
       reason: 'Debug scroll log (not user-facing)',
     },
+    // logStreamUtils.ts - backend raw message matcher for legacy compatibility
+    {
+      filePattern: 'src/features/bots/logStreamUtils.ts',
+      text: 'Poll completed successfully. No new messages.',
+      reason: 'Backend raw runtime message matcher for legacy compatibility',
+    },
   ],
 }
