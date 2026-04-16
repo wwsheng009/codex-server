@@ -10,7 +10,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 
@@ -19,7 +19,6 @@ import {
   buildWorkspaceHookRunsRoute,
   buildWorkspaceTurnPolicyHistoryRoute,
 } from "../lib/thread-routes";
-import { WorkspacesPage } from "./WorkspacesPage";
 
 const workspacesApiState = vi.hoisted(() => ({
   listWorkspaces: vi.fn(),
@@ -56,8 +55,18 @@ vi.mock("./workspaces/useWorkspaceHookRuns", () => ({
 }));
 
 describe("WorkspacesPage", () => {
+  let WorkspacesPageComponent: Awaited<
+    typeof import("./WorkspacesPage")
+  >["WorkspacesPage"];
+
   beforeAll(() => {
     i18n.loadAndActivate({ locale: "en", messages: {} });
+  });
+
+  beforeAll(async () => {
+    ({ WorkspacesPage: WorkspacesPageComponent } = await import(
+      "./WorkspacesPage"
+    ));
   });
 
   beforeEach(() => {
@@ -274,7 +283,7 @@ describe("WorkspacesPage", () => {
       </MemoryRouter>
     );
 
-    render(<WorkspacesPage />, { wrapper });
+    render(<WorkspacesPageComponent />, { wrapper });
 
     await waitFor(() => {
       expect(
@@ -283,14 +292,22 @@ describe("WorkspacesPage", () => {
     });
 
     expect(screen.getByText("Turn Policy Overview")).toBeTruthy();
-    expect(screen.getByText("Workspace Recent Policy Decisions")).toBeTruthy();
-    expect(screen.getByText("Workspace Hook Runs")).toBeTruthy();
+    expect(screen.getByText("Workspace Scope")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Overview/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Configuration/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Activity/ })).toBeTruthy();
     expect(screen.getAllByText("Alpha Workspace").length).toBeGreaterThan(0);
     expect(
       screen.getByText("Coverage only counts eligible workspace turns."),
     ).toBeTruthy();
     expect(screen.getByText("Execution Controls")).toBeTruthy();
     expect(screen.getByText("2 min")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Configuration/ }));
+    expect(screen.getByText("Hook Configuration")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Activity/ }));
+    expect(screen.getByText("Workspace Recent Policy Decisions")).toBeTruthy();
     expect(screen.getByText("Failed validation command")).toBeTruthy();
     expect(screen.getByText("Validation command failed")).toBeTruthy();
     expect(screen.getByText("Scoped to thread thread-1.")).toBeTruthy();
@@ -307,6 +324,9 @@ describe("WorkspacesPage", () => {
         name: "Filter workspace decisions by reason",
       }),
     ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Hook Runs/ }));
+    expect(screen.getByText("Workspace Hook Runs")).toBeTruthy();
     expect(
       screen
         .getByRole("link", { name: "Compare sources" })

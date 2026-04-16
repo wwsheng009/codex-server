@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import type { TabItem } from "../components/ui/tabsTypes";
 
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { InlineNotice } from "../components/ui/InlineNotice";
 import { SelectControl } from "../components/ui/SelectControl";
 import { StatusPill } from "../components/ui/StatusPill";
+import { Tabs } from "../components/ui/Tabs";
 import { CreateWorkspaceDialog } from "../components/workspace/CreateWorkspaceDialog";
 import type { PendingApproval, Workspace } from "../types/api";
 import { formatRelativeTimeShort } from "../components/workspace/timeline-utils";
@@ -510,6 +512,135 @@ export function WorkspacesPage() {
     setHookRunFilters(EMPTY_WORKSPACE_HOOK_RUN_FILTERS);
   }
 
+  const workspaceActivityItems: TabItem[] = [
+    {
+      id: "recent-decisions",
+      label: i18n._({
+        id: "Recent Decisions",
+        message: "Recent Decisions",
+      }),
+      badge: hasAnyDecisions
+        ? String(turnPolicyDecisions.length)
+        : undefined,
+      content: (
+        <WorkspaceTurnPolicyRecentDecisionsSection
+          filters={turnPolicyDecisionFilters}
+          hasAnyDecisions={hasAnyDecisions}
+          onChangeFilters={handleChangeTurnPolicyDecisionFilters}
+          onResetFilters={handleResetTurnPolicyDecisionFilters}
+          selectedWorkspace={selectedWorkspace}
+          threadScopeId={turnPolicyDecisionFilters.threadId}
+          turnPolicyDecisions={turnPolicyDecisions}
+          turnPolicyDecisionsError={turnPolicyDecisionsError}
+          turnPolicyDecisionsLoading={
+            (workspacesQuery.isLoading || isWorkspaceOverviewBootstrapping) &&
+            !selectedWorkspace
+              ? true
+              : turnPolicyDecisionsLoading
+          }
+        />
+      ),
+    },
+    {
+      id: "hook-runs",
+      label: i18n._({
+        id: "Hook Runs",
+        message: "Hook Runs",
+      }),
+      badge: hasAnyHookRuns ? String(hookRuns.length) : undefined,
+      content: (
+        <WorkspaceHookRunsSection
+          filters={hookRunFilters}
+          hasAnyHookRuns={hasAnyHookRuns}
+          hookRuns={hookRuns}
+          hookRunsError={hookRunsError}
+          hookRunsLoading={
+            (workspacesQuery.isLoading || isWorkspaceOverviewBootstrapping) &&
+            !selectedWorkspace
+              ? true
+              : hookRunsLoading
+          }
+          onChangeFilters={handleChangeHookRunFilters}
+          onResetFilters={handleResetHookRunFilters}
+          selectedWorkspace={selectedWorkspace}
+        />
+      ),
+    },
+  ];
+
+  const workspaceOverviewItems: TabItem[] = [
+    {
+      id: "overview",
+      label: i18n._({
+        id: "Overview",
+        message: "Overview",
+      }),
+      content: (
+        <div className="workspace-overview-shell__tab-body">
+          <WorkspaceTurnPolicyOverviewSection
+            metricsSourceScope={turnPolicyMetricsSource}
+            onDrillDown={handleDrillDownTurnPolicyDecisionFilters}
+            selectedWorkspace={selectedWorkspace}
+            turnPolicyMetrics={turnPolicyMetrics}
+            turnPolicyMetricsError={turnPolicyMetricsError}
+            turnPolicyMetricsLoading={
+              (workspacesQuery.isLoading || isWorkspaceOverviewBootstrapping) &&
+              !selectedWorkspace
+                ? true
+                : turnPolicyMetricsLoading
+            }
+            turnPolicySourceHealth={turnPolicySourceHealth}
+          />
+        </div>
+      ),
+    },
+    {
+      id: "configuration",
+      label: i18n._({
+        id: "Configuration",
+        message: "Configuration",
+      }),
+      content: (
+        <div className="workspace-overview-shell__tab-body">
+          <ThreadWorkbenchRailHookConfigurationSection
+            governanceTab="workspace"
+            hookConfiguration={hookConfiguration}
+            hookConfigurationError={hookConfigurationError}
+            hookConfigurationLoading={
+              (workspacesQuery.isLoading || isWorkspaceOverviewBootstrapping) &&
+              !selectedWorkspace
+                ? true
+                : hookConfigurationLoading
+            }
+          />
+        </div>
+      ),
+    },
+    {
+      id: "activity",
+      label: i18n._({
+        id: "Activity",
+        message: "Activity",
+      }),
+      badge:
+        (hasAnyDecisions ? turnPolicyDecisions.length : 0) +
+          (hasAnyHookRuns ? hookRuns.length : 0) || undefined,
+      content: (
+        <div className="workspace-overview-shell__tab-body">
+          <Tabs
+            ariaLabel={i18n._({
+              id: "Workspace audit activity sections",
+              message: "Workspace audit activity sections",
+            })}
+            className="workspace-overview-shell__subtabs"
+            defaultValue="recent-decisions"
+            items={workspaceActivityItems}
+          />
+        </div>
+      ),
+    },
+  ];
+
   return (
     <section className="screen">
       <header className="mode-strip">
@@ -687,7 +818,7 @@ export function WorkspacesPage() {
         </section>
 
         {workspacesQuery.isLoading || workspaces.length ? (
-          <section className="content-section">
+          <section className="content-section workspace-overview-shell">
             <div className="section-header">
               <div>
                 <h2>
@@ -709,133 +840,98 @@ export function WorkspacesPage() {
               </div>
             </div>
 
-            {workspaces.length ? (
-              <>
-                <label className="field">
-                  <span>
-                    {i18n._({ id: "Workspace", message: "Workspace" })}
-                  </span>
-                  <SelectControl
-                    ariaLabel={i18n._({
-                      id: "Select workspace turn policy overview target",
-                      message: "Select workspace turn policy overview target",
-                    })}
-                    fullWidth
-                    onChange={setSelectedWorkspaceId}
-                    options={workspaces.map((workspace) => ({
-                      value: workspace.id,
-                      label: workspace.name,
-                    }))}
-                    value={selectedWorkspaceId}
-                  />
-                </label>
-                {selectedWorkspaceId ? (
-                  <div
-                    className="pane-section-content"
-                    style={{ padding: "0 0 12px" }}
-                  >
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      <Link
-                        className="ide-button ide-button--secondary ide-button--sm"
-                        to={buildWorkspaceTurnPolicyCompareRoute(
-                          selectedWorkspaceId,
-                          {
-                            turnPolicyThreadId:
-                              turnPolicyDecisionFilters.threadId ?? "",
-                          },
-                        )}
-                      >
+            <div className="workspace-overview-shell__stack">
+              {workspaces.length ? (
+                <div className="workspace-overview-shell__scope-card">
+                  <div className="workspace-overview-shell__scope-header">
+                    <div>
+                      <strong>
                         {i18n._({
-                          id: "Compare sources",
-                          message: "Compare sources",
+                          id: "Workspace Scope",
+                          message: "Workspace Scope",
                         })}
-                      </Link>
-                      <Link
-                        className="ide-button ide-button--secondary ide-button--sm"
-                        to={buildWorkspaceTurnPolicyHistoryRoute(
-                          selectedWorkspaceId,
-                          {
-                            turnPolicyThreadId:
-                              turnPolicyDecisionFilters.threadId ?? "",
-                            historyRange: "90d",
-                            historyGranularity: "week",
-                            metricsSource: turnPolicyMetricsSource,
-                          },
-                        )}
-                      >
+                      </strong>
+                      <p>
                         {i18n._({
-                          id: "View alert history",
-                          message: "View alert history",
+                          id: "Choose the active workspace and open deeper reports without mixing navigation with activity content.",
+                          message:
+                            "Choose the active workspace and open deeper reports without mixing navigation with activity content.",
                         })}
-                      </Link>
+                      </p>
                     </div>
                   </div>
-                ) : null}
-              </>
-            ) : null}
+                  <div className="workspace-overview-shell__scope">
+                    <label className="field">
+                      <span>
+                        {i18n._({ id: "Workspace", message: "Workspace" })}
+                      </span>
+                      <SelectControl
+                        ariaLabel={i18n._({
+                          id: "Select workspace turn policy overview target",
+                          message: "Select workspace turn policy overview target",
+                        })}
+                        fullWidth
+                        onChange={setSelectedWorkspaceId}
+                        options={workspaces.map((workspace) => ({
+                          value: workspace.id,
+                          label: workspace.name,
+                        }))}
+                        value={selectedWorkspaceId}
+                      />
+                    </label>
+                    {selectedWorkspaceId ? (
+                      <div className="workspace-overview-shell__action-row">
+                        <Link
+                          className="ide-button ide-button--secondary ide-button--sm"
+                          to={buildWorkspaceTurnPolicyCompareRoute(
+                            selectedWorkspaceId,
+                            {
+                              turnPolicyThreadId:
+                                turnPolicyDecisionFilters.threadId ?? "",
+                            },
+                          )}
+                        >
+                          {i18n._({
+                            id: "Compare sources",
+                            message: "Compare sources",
+                          })}
+                        </Link>
+                        <Link
+                          className="ide-button ide-button--secondary ide-button--sm"
+                          to={buildWorkspaceTurnPolicyHistoryRoute(
+                            selectedWorkspaceId,
+                            {
+                              turnPolicyThreadId:
+                                turnPolicyDecisionFilters.threadId ?? "",
+                              historyRange: "90d",
+                              historyGranularity: "week",
+                              metricsSource: turnPolicyMetricsSource,
+                            },
+                          )}
+                        >
+                          {i18n._({
+                            id: "View alert history",
+                            message: "View alert history",
+                          })}
+                        </Link>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
-            <WorkspaceTurnPolicyOverviewSection
-              metricsSourceScope={turnPolicyMetricsSource}
-              onDrillDown={handleDrillDownTurnPolicyDecisionFilters}
-              selectedWorkspace={selectedWorkspace}
-              turnPolicyMetrics={turnPolicyMetrics}
-              turnPolicyMetricsError={turnPolicyMetricsError}
-              turnPolicyMetricsLoading={
-                (workspacesQuery.isLoading ||
-                  isWorkspaceOverviewBootstrapping) &&
-                !selectedWorkspace
-                  ? true
-                  : turnPolicyMetricsLoading
-              }
-              turnPolicySourceHealth={turnPolicySourceHealth}
-            />
-
-            <ThreadWorkbenchRailHookConfigurationSection
-              governanceTab="workspace"
-              hookConfiguration={hookConfiguration}
-              hookConfigurationError={hookConfigurationError}
-              hookConfigurationLoading={
-                (workspacesQuery.isLoading || isWorkspaceOverviewBootstrapping) &&
-                !selectedWorkspace
-                  ? true
-                  : hookConfigurationLoading
-              }
-            />
-
-            <WorkspaceTurnPolicyRecentDecisionsSection
-              filters={turnPolicyDecisionFilters}
-              hasAnyDecisions={hasAnyDecisions}
-              onChangeFilters={handleChangeTurnPolicyDecisionFilters}
-              onResetFilters={handleResetTurnPolicyDecisionFilters}
-              selectedWorkspace={selectedWorkspace}
-              threadScopeId={turnPolicyDecisionFilters.threadId}
-              turnPolicyDecisions={turnPolicyDecisions}
-              turnPolicyDecisionsError={turnPolicyDecisionsError}
-              turnPolicyDecisionsLoading={
-                (workspacesQuery.isLoading ||
-                  isWorkspaceOverviewBootstrapping) &&
-                !selectedWorkspace
-                  ? true
-                  : turnPolicyDecisionsLoading
-              }
-            />
-
-            <WorkspaceHookRunsSection
-              filters={hookRunFilters}
-              hasAnyHookRuns={hasAnyHookRuns}
-              hookRuns={hookRuns}
-              hookRunsError={hookRunsError}
-              hookRunsLoading={
-                (workspacesQuery.isLoading ||
-                  isWorkspaceOverviewBootstrapping) &&
-                !selectedWorkspace
-                  ? true
-                  : hookRunsLoading
-              }
-              onChangeFilters={handleChangeHookRunFilters}
-              onResetFilters={handleResetHookRunFilters}
-              selectedWorkspace={selectedWorkspace}
-            />
+              <div className="workspace-overview-shell__tabs-card">
+                <Tabs
+                  ariaLabel={i18n._({
+                    id: "Workspace governance sections",
+                    message: "Workspace governance sections",
+                  })}
+                  className="workspace-overview-shell__tabs"
+                  defaultValue="overview"
+                  items={workspaceOverviewItems}
+                />
+              </div>
+            </div>
           </section>
         ) : null}
       </div>

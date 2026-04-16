@@ -11,6 +11,7 @@ import {
   formatTurnPolicyAlertSuppressionNote,
   formatTurnPolicyAlertSnoozeNote,
   formatTurnPolicyAlertTitle,
+  formatTurnPolicyCoverageDefinition,
   formatTurnPolicyDecisionSource,
   formatTurnPolicyMetricActivityMeta,
   formatTurnPolicyMetricLatencyRange,
@@ -832,9 +833,13 @@ export function WorkspaceTurnPolicySourceSummarySection({
               </Link>
             </div>
           ) : null}
-          {turnPolicyMetrics.audit.coverageDefinition ? (
+          {turnPolicyMetrics.audit.coverageDefinitionKey ||
+          turnPolicyMetrics.audit.coverageDefinition ? (
             <p className="config-inline-note" style={{ margin: "12px 0 0" }}>
-              {turnPolicyMetrics.audit.coverageDefinition}
+              {formatTurnPolicyCoverageDefinition(
+                turnPolicyMetrics.audit.coverageDefinitionKey,
+                turnPolicyMetrics.audit.coverageDefinition,
+              )}
             </p>
           ) : null}
         </>

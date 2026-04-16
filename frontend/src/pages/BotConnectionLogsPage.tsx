@@ -12,6 +12,7 @@ import { BotConnectionLogStream } from '../features/bots/BotConnectionLogStream'
 import { getBotConnectionById, listBotConnectionLogsById } from '../features/bots/api'
 import {
   filterBotConnectionLogs,
+  formatBotRuntimeMessage,
   summarizeBotConnectionLogs,
   type BotConnectionLogFilter,
 } from '../features/bots/logStreamUtils'
@@ -256,7 +257,13 @@ export function BotConnectionLogsPage() {
           </div>
           <div className="detail-row">
             <span>{i18n._({ id: 'Last Poll Message', message: 'Last Poll Message' })}</span>
-            <strong>{connection.lastPollMessage?.trim() || '-'}</strong>
+            <strong>
+              {formatBotRuntimeMessage(
+                connection.lastPollMessage,
+                connection.lastPollMessageKey,
+                connection.lastPollMessageParams,
+              ) || '-'}
+            </strong>
           </div>
         </div>
       </section>

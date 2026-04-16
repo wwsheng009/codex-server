@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { DetailGroup } from "../../components/ui/DetailGroup";
@@ -19,6 +20,7 @@ import {
   formatTurnPolicyAlertSnoozeNote,
   formatTurnPolicyAlertSuppressionNote,
   formatTurnPolicyAlertTitle,
+  formatTurnPolicyCoverageDefinition,
   formatTurnPolicyDecisionAction,
   formatTurnPolicyInterruptNoActiveTurnBehavior,
   formatTurnPolicyMetricAlertCount,
@@ -517,46 +519,57 @@ function AlertRow({
   );
 }
 
-function DetailRow({
+function MetricTile({
   drillDownAriaLabel,
   label,
+  meta,
   onDrillDown,
   value,
 }: {
   drillDownAriaLabel?: string;
   label: string;
+  meta?: string;
   onDrillDown?: () => void;
   value: string | number;
 }) {
   const content = (
     <>
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <span className="workspace-overview-metric-tile__label">{label}</span>
+      <strong className="workspace-overview-metric-tile__value">{value}</strong>
+      {meta ? (
+        <span className="workspace-overview-metric-tile__meta">{meta}</span>
+      ) : null}
     </>
   );
 
   if (!onDrillDown) {
-    return <div className="detail-row">{content}</div>;
+    return <article className="workspace-overview-metric-tile">{content}</article>;
   }
 
   return (
     <button
       aria-label={drillDownAriaLabel}
-      className="detail-row"
+      className="workspace-overview-metric-tile"
       onClick={onDrillDown}
-      style={{
-        background: "transparent",
-        border: "none",
-        color: "inherit",
-        cursor: "pointer",
-        padding: 0,
-        textAlign: "left",
-        width: "100%",
-      }}
       type="button"
     >
       {content}
     </button>
+  );
+}
+
+function MetricTileSection({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <section className="workspace-overview-metric-section">
+      <h4 className="workspace-overview-metric-section__title">{title}</h4>
+      <div className="workspace-overview-metric-section__grid">{children}</div>
+    </section>
   );
 }
 
@@ -1169,202 +1182,246 @@ export function WorkspaceTurnPolicyOverviewSection({
             </>
           ) : null}
 
-          <DetailRow
-            drillDownAriaLabel="Inspect Steer actions decisions"
-            label={i18n._({
-              id: "Steer actions",
-              message: "Steer actions",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                action: "steer",
-              })
-            }
-            value={turnPolicyMetrics.decisions.actionCounts.steer}
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Follow-up actions decisions"
-            label={i18n._({
-              id: "Follow-up actions",
-              message: "Follow-up actions",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                action: "followUp",
-              })
-            }
-            value={turnPolicyMetrics.decisions.actionCounts.followUp}
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Interrupt actions decisions"
-            label={i18n._({
-              id: "Interrupt actions",
-              message: "Interrupt actions",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                action: "interrupt",
-              })
-            }
-            value={
-              (
-                turnPolicyMetrics.decisions.actionCounts as {
-                  interrupt?: number;
-                }
-              ).interrupt ?? 0
-            }
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Action success decisions"
-            label={i18n._({
-              id: "Action success",
-              message: "Action success",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                actionStatus: "succeeded",
-              })
-            }
-            value={formatTurnPolicyMetricSuccessValue(
-              turnPolicyMetrics.decisions.actionSuccessRate,
-              turnPolicyMetrics.decisions.actionSucceeded,
-              turnPolicyMetrics.decisions.actionAttempts,
-            )}
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Interactive decisions"
-            label={i18n._({
-              id: "Interactive decisions",
-              message: "Interactive decisions",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                source: "interactive",
-              })
-            }
-            value={formatSourceDecisionSummary(interactiveSourceMetrics)}
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Automation decisions"
-            label={i18n._({
-              id: "Automation decisions",
-              message: "Automation decisions",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                source: "automation",
-              })
-            }
-            value={formatSourceDecisionSummary(automationSourceMetrics)}
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Bot decisions"
-            label={i18n._({
-              id: "Bot decisions",
-              message: "Bot decisions",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                source: "bot",
-              })
-            }
-            value={formatSourceDecisionSummary(botSourceMetrics)}
-          />
-          {otherSourceMetrics.total > 0 ? (
-            <DetailRow
-              label={i18n._({
-                id: "Other-source decisions",
-                message: "Other-source decisions",
+          <div className="workspace-overview-metric-stack">
+            <MetricTileSection
+              title={i18n._({
+                id: "Action Outcomes",
+                message: "Action Outcomes",
               })}
-              value={formatSourceDecisionSummary(otherSourceMetrics)}
-            />
-          ) : null}
-          <DetailRow
-            drillDownAriaLabel="Inspect Skipped decisions"
-            label={i18n._({
-              id: "Skipped decisions",
-              message: "Skipped decisions",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                actionStatus: "skipped",
-              })
-            }
-            value={turnPolicyMetrics.decisions.actionStatusCounts.skipped}
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Duplicate skips decisions"
-            label={i18n._({
-              id: "Duplicate skips",
-              message: "Duplicate skips",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                actionStatus: "skipped",
-                reason: "duplicate_fingerprint",
-              })
-            }
-            value={
-              turnPolicyMetrics.decisions.skipReasonCounts.duplicateFingerprint
-            }
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Cooldown skips decisions"
-            label={i18n._({
-              id: "Cooldown skips",
-              message: "Cooldown skips",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                actionStatus: "skipped",
-                reason: "follow_up_cooldown_active",
-              })
-            }
-            value={
-              turnPolicyMetrics.decisions.skipReasonCounts
-                .followUpCooldownActive
-            }
-          />
-          <DetailRow
-            drillDownAriaLabel="Inspect Interrupt skips decisions"
-            label={i18n._({
-              id: "Interrupt skips",
-              message: "Interrupt skips",
-            })}
-            onDrillDown={() =>
-              handleDrillDown({
-                actionStatus: "skipped",
-                reason: "interrupt_no_active_turn",
-              })
-            }
-            value={
-              (
-                turnPolicyMetrics.decisions.skipReasonCounts as {
-                  interruptNoActiveTurn?: number;
+            >
+              <MetricTile
+                drillDownAriaLabel="Inspect Steer actions decisions"
+                label={i18n._({
+                  id: "Steer actions",
+                  message: "Steer actions",
+                })}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    action: "steer",
+                  })
                 }
-              ).interruptNoActiveTurn ?? 0
-            }
-          />
-          <DetailRow
-            label={i18n._({
-              id: "Post-tool-use latency",
-              message: "Post-tool-use latency",
-            })}
-            value={formatTurnPolicyMetricLatencyRange(
-              turnPolicyMetrics.timings.postToolUseDecisionLatency.p50Ms,
-              turnPolicyMetrics.timings.postToolUseDecisionLatency.p95Ms,
-            )}
-          />
-          <DetailRow
-            label={i18n._({
-              id: "Stop decision latency",
-              message: "Stop decision latency",
-            })}
-            value={formatTurnPolicyMetricLatencyRange(
-              turnPolicyMetrics.timings.stopDecisionLatency.p50Ms,
-              turnPolicyMetrics.timings.stopDecisionLatency.p95Ms,
-            )}
-          />
+                value={turnPolicyMetrics.decisions.actionCounts.steer}
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Follow-up actions decisions"
+                label={i18n._({
+                  id: "Follow-up actions",
+                  message: "Follow-up actions",
+                })}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    action: "followUp",
+                  })
+                }
+                value={turnPolicyMetrics.decisions.actionCounts.followUp}
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Interrupt actions decisions"
+                label={i18n._({
+                  id: "Interrupt actions",
+                  message: "Interrupt actions",
+                })}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    action: "interrupt",
+                  })
+                }
+                value={
+                  (
+                    turnPolicyMetrics.decisions.actionCounts as {
+                      interrupt?: number;
+                    }
+                  ).interrupt ?? 0
+                }
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Action success decisions"
+                label={i18n._({
+                  id: "Action success",
+                  message: "Action success",
+                })}
+                meta={`${formatLocalizedNumber(
+                  turnPolicyMetrics.decisions.actionSucceeded,
+                  "0",
+                )} / ${formatLocalizedNumber(
+                  turnPolicyMetrics.decisions.actionAttempts,
+                  "0",
+                )}`}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    actionStatus: "succeeded",
+                  })
+                }
+                value={formatTurnPolicyMetricRate(
+                  turnPolicyMetrics.decisions.actionSuccessRate,
+                  turnPolicyMetrics.decisions.actionAttempts,
+                )}
+              />
+            </MetricTileSection>
+
+            <MetricTileSection
+              title={i18n._({
+                id: "Decision Sources",
+                message: "Decision Sources",
+              })}
+            >
+              <MetricTile
+                drillDownAriaLabel="Inspect Interactive decisions"
+                label={i18n._({
+                  id: "Interactive decisions",
+                  message: "Interactive decisions",
+                })}
+                meta={formatSourceDecisionSummary(interactiveSourceMetrics)}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    source: "interactive",
+                  })
+                }
+                value={formatSourceFocusDecisionCount(interactiveSourceMetrics)}
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Automation decisions"
+                label={i18n._({
+                  id: "Automation decisions",
+                  message: "Automation decisions",
+                })}
+                meta={formatSourceDecisionSummary(automationSourceMetrics)}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    source: "automation",
+                  })
+                }
+                value={formatSourceFocusDecisionCount(automationSourceMetrics)}
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Bot decisions"
+                label={i18n._({
+                  id: "Bot decisions",
+                  message: "Bot decisions",
+                })}
+                meta={formatSourceDecisionSummary(botSourceMetrics)}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    source: "bot",
+                  })
+                }
+                value={formatSourceFocusDecisionCount(botSourceMetrics)}
+              />
+              {otherSourceMetrics.total > 0 ? (
+                <MetricTile
+                  label={i18n._({
+                    id: "Other-source decisions",
+                    message: "Other-source decisions",
+                  })}
+                  meta={formatSourceDecisionSummary(otherSourceMetrics)}
+                  value={formatSourceFocusDecisionCount(otherSourceMetrics)}
+                />
+              ) : null}
+            </MetricTileSection>
+
+            <MetricTileSection
+              title={i18n._({
+                id: "Skipped Decisions",
+                message: "Skipped Decisions",
+              })}
+            >
+              <MetricTile
+                drillDownAriaLabel="Inspect Skipped decisions"
+                label={i18n._({
+                  id: "Skipped decisions",
+                  message: "Skipped decisions",
+                })}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    actionStatus: "skipped",
+                  })
+                }
+                value={turnPolicyMetrics.decisions.actionStatusCounts.skipped}
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Duplicate skips decisions"
+                label={i18n._({
+                  id: "Duplicate skips",
+                  message: "Duplicate skips",
+                })}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    actionStatus: "skipped",
+                    reason: "duplicate_fingerprint",
+                  })
+                }
+                value={
+                  turnPolicyMetrics.decisions.skipReasonCounts
+                    .duplicateFingerprint
+                }
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Cooldown skips decisions"
+                label={i18n._({
+                  id: "Cooldown skips",
+                  message: "Cooldown skips",
+                })}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    actionStatus: "skipped",
+                    reason: "follow_up_cooldown_active",
+                  })
+                }
+                value={
+                  turnPolicyMetrics.decisions.skipReasonCounts
+                    .followUpCooldownActive
+                }
+              />
+              <MetricTile
+                drillDownAriaLabel="Inspect Interrupt skips decisions"
+                label={i18n._({
+                  id: "Interrupt skips",
+                  message: "Interrupt skips",
+                })}
+                onDrillDown={() =>
+                  handleDrillDown({
+                    actionStatus: "skipped",
+                    reason: "interrupt_no_active_turn",
+                  })
+                }
+                value={
+                  (
+                    turnPolicyMetrics.decisions.skipReasonCounts as {
+                      interruptNoActiveTurn?: number;
+                    }
+                  ).interruptNoActiveTurn ?? 0
+                }
+              />
+            </MetricTileSection>
+
+            <MetricTileSection
+              title={i18n._({
+                id: "Decision Latency",
+                message: "Decision Latency",
+              })}
+            >
+              <MetricTile
+                label={i18n._({
+                  id: "Post-tool-use latency",
+                  message: "Post-tool-use latency",
+                })}
+                value={formatTurnPolicyMetricLatencyRange(
+                  turnPolicyMetrics.timings.postToolUseDecisionLatency.p50Ms,
+                  turnPolicyMetrics.timings.postToolUseDecisionLatency.p95Ms,
+                )}
+              />
+              <MetricTile
+                label={i18n._({
+                  id: "Stop decision latency",
+                  message: "Stop decision latency",
+                })}
+                value={formatTurnPolicyMetricLatencyRange(
+                  turnPolicyMetrics.timings.stopDecisionLatency.p50Ms,
+                  turnPolicyMetrics.timings.stopDecisionLatency.p95Ms,
+                )}
+              />
+            </MetricTileSection>
+          </div>
 
           <div className="pane-section-content" style={{ padding: "12px 0 0" }}>
             <Link
@@ -1393,9 +1450,13 @@ export function WorkspaceTurnPolicyOverviewSection({
             </p>
           ) : null}
 
-          {turnPolicyMetrics.audit.coverageDefinition ? (
+          {turnPolicyMetrics.audit.coverageDefinitionKey ||
+          turnPolicyMetrics.audit.coverageDefinition ? (
             <p className="config-inline-note" style={{ margin: "8px 0 0" }}>
-              {turnPolicyMetrics.audit.coverageDefinition}
+              {formatTurnPolicyCoverageDefinition(
+                turnPolicyMetrics.audit.coverageDefinitionKey,
+                turnPolicyMetrics.audit.coverageDefinition,
+              )}
             </p>
           ) : null}
         </>

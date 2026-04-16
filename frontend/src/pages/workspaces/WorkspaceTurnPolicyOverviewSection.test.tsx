@@ -295,10 +295,10 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
     expect(screen.getByText("Source Focus")).toBeTruthy();
     expect(screen.getByText("Automation focus")).toBeTruthy();
     expect(screen.getByText("Bot focus")).toBeTruthy();
-    expect(screen.getByText("3 decisions")).toBeTruthy();
+    expect(screen.getAllByText("3 decisions").length).toBeGreaterThan(0);
     expect(screen.getByText("100% success (2 / 2)")).toBeTruthy();
     expect(screen.getByText("2 alerts")).toBeTruthy();
-    expect(screen.getByText("1 decision")).toBeTruthy();
+    expect(screen.getAllByText("1 decision").length).toBeGreaterThan(0);
     expect(screen.getAllByText("100% success (1 / 1)").length).toBeGreaterThan(
       0,
     );
@@ -329,13 +329,19 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
     expect(screen.getByText("2 min")).toBeTruthy();
     expect(screen.getByText("30 s")).toBeTruthy();
     expect(screen.getByText("3 min")).toBeTruthy();
+    expect(screen.getByText("Action Outcomes")).toBeTruthy();
     expect(screen.getByText("Interrupt actions")).toBeTruthy();
     expect(
-      screen.getByText("Interrupt actions").closest(".detail-row")?.textContent,
+      screen.getByText("Interrupt actions").closest(
+        ".workspace-overview-metric-tile",
+      )?.textContent,
     ).toContain("1");
     expect(screen.getByText("Action success")).toBeTruthy();
-    expect(screen.getByText("83.3% (5 / 6)")).toBeTruthy();
+    expect(screen.getByText("83.3%")).toBeTruthy();
+    expect(screen.getByText("5 / 6")).toBeTruthy();
+    expect(screen.getByText("Decision Sources")).toBeTruthy();
     expect(screen.getByText("Interactive decisions")).toBeTruthy();
+    expect(screen.getAllByText("3 decisions").length).toBeGreaterThan(0);
     expect(
       screen.getByText("3 decisions, 50% success, 1 skipped"),
     ).toBeTruthy();
@@ -347,7 +353,9 @@ describe("WorkspaceTurnPolicyOverviewSection", () => {
     expect(
       screen.getAllByText("1 decision, 100% success, 0 skipped").length,
     ).toBe(2);
+    expect(screen.getByText("Skipped Decisions")).toBeTruthy();
     expect(screen.getByText("Other-source decisions")).toBeTruthy();
+    expect(screen.getByText("Decision Latency")).toBeTruthy();
     expect(screen.getByText("Post-tool-use latency")).toBeTruthy();
     expect(screen.getByText("P50 510 ms, P95 1,280 ms")).toBeTruthy();
     expect(screen.getByText("Stop decision latency")).toBeTruthy();

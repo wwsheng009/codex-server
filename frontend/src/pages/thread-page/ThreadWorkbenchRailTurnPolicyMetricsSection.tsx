@@ -24,6 +24,7 @@ import {
   formatTurnPolicyAlertSnoozeNote,
   formatTurnPolicyAlertSuppressionNote,
   formatTurnPolicyAlertTitle,
+  formatTurnPolicyCoverageDefinition,
   formatTurnPolicyDecisionAction,
   formatTurnPolicyInterruptNoActiveTurnBehavior,
   formatTurnPolicyMetricDecisionSummary,
@@ -1050,9 +1051,13 @@ export function ThreadWorkbenchRailTurnPolicyMetricsSection({
             </p>
           ) : null}
 
-          {turnPolicyMetrics.audit.coverageDefinition ? (
+          {turnPolicyMetrics.audit.coverageDefinitionKey ||
+          turnPolicyMetrics.audit.coverageDefinition ? (
             <p className="config-inline-note" style={{ margin: "8px 0 0" }}>
-              {turnPolicyMetrics.audit.coverageDefinition}
+              {formatTurnPolicyCoverageDefinition(
+                turnPolicyMetrics.audit.coverageDefinitionKey,
+                turnPolicyMetrics.audit.coverageDefinition,
+              )}
             </p>
           ) : null}
         </>

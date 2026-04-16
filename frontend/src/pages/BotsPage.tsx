@@ -59,7 +59,10 @@ import {
 } from '../features/bots/api'
 import { getThread, listThreadsPage } from '../features/threads/api'
 import { listWorkspaces } from '../features/workspaces/api'
-import { summarizeRecentBotConnectionSuppressions } from '../features/bots/logStreamUtils'
+import {
+  formatBotRuntimeMessage,
+  summarizeRecentBotConnectionSuppressions,
+} from '../features/bots/logStreamUtils'
 import { formatLocalizedNumber, formatLocalizedStatusLabel, humanizeDisplayValue } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
@@ -5909,7 +5912,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                                 <div className="detail-row">
                                   <span>{i18n._({ id: 'Last Poll Message', message: 'Last Poll Message' })}</span>
                                   <strong>
-                                    {selectedConnection.lastPollMessage?.trim() || i18n._({ id: 'none', message: 'none' })}
+                                    {formatBotRuntimeMessage(
+                                      selectedConnection.lastPollMessage,
+                                      selectedConnection.lastPollMessageKey,
+                                      selectedConnection.lastPollMessageParams,
+                                    ) || i18n._({ id: 'none', message: 'none' })}
                                   </strong>
                                 </div>
                               </>
