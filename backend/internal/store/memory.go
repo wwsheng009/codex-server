@@ -5593,6 +5593,8 @@ func clonePersistedBotConnection(connection BotConnection, stripRuntime bool) Bo
 		next.LastPollAt = nil
 		next.LastPollStatus = ""
 		next.LastPollMessage = ""
+		next.LastPollMessageKey = ""
+		next.LastPollMessageParams = nil
 	}
 	return next
 }

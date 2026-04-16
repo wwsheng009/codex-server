@@ -10,6 +10,7 @@ import (
 )
 
 const metricsCoverageDefinition = "Coverage is measured only for turns that currently match implemented policy predicates: a failed validation command or a completed turn with file changes but no later successful validation command. A turn is covered when at least one persisted turn policy decision exists for that turn."
+const metricsCoverageDefinitionKey = "turn-policy.metrics.coverage-definition"
 
 const (
 	DefaultAlertCoverageThresholdPercent                  = 100
@@ -182,10 +183,11 @@ type MetricsTurnSummary struct {
 }
 
 type MetricsAuditSummary struct {
-	CoveredTurns       int     `json:"coveredTurns"`
-	EligibleTurns      int     `json:"eligibleTurns"`
-	CoverageRate       float64 `json:"coverageRate"`
-	CoverageDefinition string  `json:"coverageDefinition"`
+	CoveredTurns          int     `json:"coveredTurns"`
+	EligibleTurns         int     `json:"eligibleTurns"`
+	CoverageRate          float64 `json:"coverageRate"`
+	CoverageDefinition    string  `json:"coverageDefinition"`
+	CoverageDefinitionKey string  `json:"coverageDefinitionKey,omitempty"`
 }
 
 type turnAnalysis struct {
@@ -226,7 +228,8 @@ func (s *Service) Metrics(workspaceID string, threadID string, source string) (M
 			WeeklyLast12Weeks: []MetricsHistoryBucketSummary{},
 		},
 		Audit: MetricsAuditSummary{
-			CoverageDefinition: metricsCoverageDefinition,
+			CoverageDefinition:    metricsCoverageDefinition,
+			CoverageDefinitionKey: metricsCoverageDefinitionKey,
 		},
 	}
 	if s.store == nil {
@@ -283,6 +286,7 @@ func (s *Service) Metrics(workspaceID string, threadID string, source string) (M
 		turns,
 		decisionFactsByTurn,
 		summary.Audit.CoverageDefinition,
+		summary.Audit.CoverageDefinitionKey,
 		runtimeConfig,
 	)
 	summary.Alerts, summary.AlertPolicy.SuppressedCount, summary.AlertPolicy.AcknowledgedCount, summary.AlertPolicy.SnoozedCount = applyMetricsAlertPolicies(
@@ -781,7 +785,8 @@ func aggregateMetricsWindow(
 		Sources:   aggregateSourceBreakdown(windowDecisions),
 		Timings:   timings,
 		Audit: MetricsAuditSummary{
-			CoverageDefinition: metricsCoverageDefinition,
+			CoverageDefinition:    metricsCoverageDefinition,
+			CoverageDefinitionKey: metricsCoverageDefinitionKey,
 		},
 	}
 	filteredAlerts, _, _, _ := applyMetricsAlertPolicies(
@@ -1066,11 +1071,13 @@ func aggregateTurnSummary(
 	turns []turnAnalysis,
 	decisionFactsByTurn map[string]turnDecisionFacts,
 	coverageDefinition string,
+	coverageDefinitionKey string,
 	runtimeConfig RuntimeConfig,
 ) (MetricsTurnSummary, MetricsAuditSummary) {
 	summary := MetricsTurnSummary{}
 	audit := MetricsAuditSummary{
-		CoverageDefinition: coverageDefinition,
+		CoverageDefinition:    coverageDefinition,
+		CoverageDefinitionKey: coverageDefinitionKey,
 	}
 
 	for _, turn := range turns {

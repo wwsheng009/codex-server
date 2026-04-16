@@ -448,8 +448,10 @@ func (p *wechatProvider) RunPolling(
 				return ctx.Err()
 			}
 			if err := emitPollingEvent(ctx, reportEvent, PollingEvent{
-				EventType: "poll_idle",
-				Message:   "Poll completed successfully. No new messages.",
+				EventType:     "poll_idle",
+				Message:       "Poll completed successfully. No new messages.",
+				MessageKey:    "bot.poll-idle.no-new-messages",
+				MessageParams: nil,
 			}); err != nil {
 				return err
 			}

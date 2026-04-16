@@ -271,32 +271,36 @@ type BotTriggerFilter struct {
 }
 
 type BotConnection struct {
-	ID              string            `json:"id"`
-	BotID           string            `json:"botId,omitempty"`
-	WorkspaceID     string            `json:"workspaceId"`
-	Provider        string            `json:"provider"`
-	Name            string            `json:"name"`
-	Status          string            `json:"status"`
-	AIBackend       string            `json:"aiBackend"`
-	AIConfig        map[string]string `json:"aiConfig,omitempty"`
-	Settings        map[string]string `json:"settings,omitempty"`
-	Secrets         map[string]string `json:"secrets,omitempty"`
-	LastError       string            `json:"lastError,omitempty"`
-	LastPollAt      *time.Time        `json:"lastPollAt,omitempty"`
-	LastPollStatus  string            `json:"lastPollStatus,omitempty"`
-	LastPollMessage string            `json:"lastPollMessage,omitempty"`
-	CreatedAt       time.Time         `json:"createdAt"`
-	UpdatedAt       time.Time         `json:"updatedAt"`
+	ID                    string            `json:"id"`
+	BotID                 string            `json:"botId,omitempty"`
+	WorkspaceID           string            `json:"workspaceId"`
+	Provider              string            `json:"provider"`
+	Name                  string            `json:"name"`
+	Status                string            `json:"status"`
+	AIBackend             string            `json:"aiBackend"`
+	AIConfig              map[string]string `json:"aiConfig,omitempty"`
+	Settings              map[string]string `json:"settings,omitempty"`
+	Secrets               map[string]string `json:"secrets,omitempty"`
+	LastError             string            `json:"lastError,omitempty"`
+	LastPollAt            *time.Time        `json:"lastPollAt,omitempty"`
+	LastPollStatus        string            `json:"lastPollStatus,omitempty"`
+	LastPollMessage       string            `json:"lastPollMessage,omitempty"`
+	LastPollMessageKey    string            `json:"lastPollMessageKey,omitempty"`
+	LastPollMessageParams map[string]string `json:"lastPollMessageParams,omitempty"`
+	CreatedAt             time.Time         `json:"createdAt"`
+	UpdatedAt             time.Time         `json:"updatedAt"`
 }
 
 type BotConnectionLogEntry struct {
-	ID           string    `json:"id"`
-	WorkspaceID  string    `json:"workspaceId"`
-	ConnectionID string    `json:"connectionId"`
-	TS           time.Time `json:"ts"`
-	Level        string    `json:"level"`
-	EventType    string    `json:"eventType,omitempty"`
-	Message      string    `json:"message"`
+	ID            string            `json:"id"`
+	WorkspaceID   string            `json:"workspaceId"`
+	ConnectionID  string            `json:"connectionId"`
+	TS            time.Time         `json:"ts"`
+	Level         string            `json:"level"`
+	EventType     string            `json:"eventType,omitempty"`
+	Message       string            `json:"message"`
+	MessageKey    string            `json:"messageKey,omitempty"`
+	MessageParams map[string]string `json:"messageParams,omitempty"`
 }
 
 type WeChatAccount struct {

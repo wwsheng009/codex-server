@@ -3340,6 +3340,8 @@ func (s *Service) PauseConnection(ctx context.Context, workspaceID string, conne
 		current.LastPollAt = &now
 		current.LastPollStatus = "paused"
 		current.LastPollMessage = pausedMessage
+		current.LastPollMessageKey = ""
+		current.LastPollMessageParams = nil
 		return current
 	})
 	if err != nil {
@@ -3389,6 +3391,8 @@ func (s *Service) ResumeConnection(
 		current.LastPollAt = &now
 		current.LastPollStatus = "starting"
 		current.LastPollMessage = resumedMessage
+		current.LastPollMessageKey = ""
+		current.LastPollMessageParams = nil
 		current.Settings = mergeStringMaps(current.Settings, activation.Settings)
 		current.Secrets = mergeStringMaps(current.Secrets, activation.Secrets)
 		return current
@@ -4707,6 +4711,8 @@ func (s *Service) updateConnectionPollState(
 	connectionID string,
 	status string,
 	message string,
+	messageKey string,
+	messageParams map[string]string,
 	lastError string,
 ) {
 	now := time.Now().UTC()
@@ -4714,34 +4720,64 @@ func (s *Service) updateConnectionPollState(
 		current.LastPollAt = &now
 		current.LastPollStatus = strings.TrimSpace(status)
 		current.LastPollMessage = strings.TrimSpace(message)
+		current.LastPollMessageKey = strings.TrimSpace(messageKey)
+		current.LastPollMessageParams = cloneStringMapLocal(messageParams)
 		current.LastError = strings.TrimSpace(lastError)
 		return current
 	})
 }
 
 func (s *Service) appendConnectionLog(workspaceID string, connectionID string, level string, eventType string, message string) {
+	s.appendConnectionLogWithI18n(workspaceID, connectionID, level, eventType, message, "", nil)
+}
+
+func (s *Service) appendConnectionLogWithI18n(
+	workspaceID string,
+	connectionID string,
+	level string,
+	eventType string,
+	message string,
+	messageKey string,
+	messageParams map[string]string,
+) {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return
 	}
 
 	_, _ = s.store.AppendBotConnectionLog(workspaceID, connectionID, store.BotConnectionLogEntry{
-		Level:     strings.TrimSpace(level),
-		EventType: strings.TrimSpace(eventType),
-		Message:   message,
+		Level:         strings.TrimSpace(level),
+		EventType:     strings.TrimSpace(eventType),
+		Message:       message,
+		MessageKey:    strings.TrimSpace(messageKey),
+		MessageParams: cloneStringMapLocal(messageParams),
 	})
 }
 
 func (s *Service) appendConnectionLogTransient(workspaceID string, connectionID string, level string, eventType string, message string) {
+	s.appendConnectionLogTransientWithI18n(workspaceID, connectionID, level, eventType, message, "", nil)
+}
+
+func (s *Service) appendConnectionLogTransientWithI18n(
+	workspaceID string,
+	connectionID string,
+	level string,
+	eventType string,
+	message string,
+	messageKey string,
+	messageParams map[string]string,
+) {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return
 	}
 
 	_, _ = s.store.AppendBotConnectionLogTransient(workspaceID, connectionID, store.BotConnectionLogEntry{
-		Level:     strings.TrimSpace(level),
-		EventType: strings.TrimSpace(eventType),
-		Message:   message,
+		Level:         strings.TrimSpace(level),
+		EventType:     strings.TrimSpace(eventType),
+		Message:       message,
+		MessageKey:    strings.TrimSpace(messageKey),
+		MessageParams: cloneStringMapLocal(messageParams),
 	})
 }
 
@@ -4756,8 +4792,24 @@ func (s *Service) recordPollingEvent(workspaceID string, connectionID string, ev
 		eventType = "poll_success"
 	}
 
-	s.updateConnectionPollState(workspaceID, connectionID, "success", message, "")
-	s.appendConnectionLogTransient(workspaceID, connectionID, "success", eventType, message)
+	s.updateConnectionPollState(
+		workspaceID,
+		connectionID,
+		"success",
+		message,
+		event.MessageKey,
+		event.MessageParams,
+		"",
+	)
+	s.appendConnectionLogTransientWithI18n(
+		workspaceID,
+		connectionID,
+		"success",
+		eventType,
+		message,
+		event.MessageKey,
+		event.MessageParams,
+	)
 }
 
 func (s *Service) syncPollingConnections() {
@@ -4939,7 +4991,7 @@ func (s *Service) recordPollingError(connection store.BotConnection, err error) 
 		return
 	}
 
-	s.updateConnectionPollState(connection.WorkspaceID, connection.ID, "failed", err.Error(), err.Error())
+	s.updateConnectionPollState(connection.WorkspaceID, connection.ID, "failed", err.Error(), "", nil, err.Error())
 	s.appendConnectionLogTransient(
 		connection.WorkspaceID,
 		connection.ID,
@@ -7933,12 +7985,14 @@ func (s *Service) recoverPendingInboundDeliveries(workspaceID string, connection
 		if !ok {
 			continue
 		}
-		s.appendConnectionLog(
+		s.appendConnectionLogWithI18n(
 			connection.WorkspaceID,
 			connection.ID,
 			"warning",
 			"recovery_replay_suppressed",
 			recoverySavedReplySuppressionMessage(delivery),
+			"bot.recovery-replay-suppressed.saved-reply-snapshot",
+			recoverySavedReplySuppressionParams(delivery),
 		)
 		s.notifyRecoveryReplaySuppressed(connection, delivery)
 	}
@@ -7997,6 +8051,17 @@ func recoverySavedReplySuppressionMessage(delivery store.BotInboundDelivery) str
 		replyCount,
 		pluralizeLabel(replyCount, "message", "messages"),
 	)
+}
+
+func recoverySavedReplySuppressionParams(delivery store.BotInboundDelivery) map[string]string {
+	messageID := firstNonEmpty(strings.TrimSpace(delivery.MessageID), "unknown")
+	replyCount := savedReplySnapshotMessageCount(delivery)
+	return map[string]string{
+		"deliveryId": delivery.ID,
+		"messageId":  messageID,
+		"replyCount": intToString(replyCount),
+		"replyLabel": pluralizeLabel(replyCount, "message", "messages"),
+	}
 }
 
 func pluralizeLabel(count int, singular string, plural string) string {
@@ -8338,23 +8403,25 @@ func connectionViewFromStore(connection store.BotConnection) ConnectionView {
 	sort.Strings(secretKeys)
 
 	return ConnectionView{
-		ID:              connection.ID,
-		BotID:           strings.TrimSpace(connection.BotID),
-		WorkspaceID:     connection.WorkspaceID,
-		Provider:        connection.Provider,
-		Name:            connection.Name,
-		Status:          connection.Status,
-		AIBackend:       connection.AIBackend,
-		AIConfig:        cloneStringMapLocal(connection.AIConfig),
-		Settings:        cloneStringMapLocal(connection.Settings),
-		Capabilities:    cloneStringSliceLocal(connectionCapabilitiesForConnection(connection)),
-		SecretKeys:      secretKeys,
-		LastError:       connection.LastError,
-		LastPollAt:      cloneOptionalTimeLocal(connection.LastPollAt),
-		LastPollStatus:  connection.LastPollStatus,
-		LastPollMessage: connection.LastPollMessage,
-		CreatedAt:       connection.CreatedAt,
-		UpdatedAt:       connection.UpdatedAt,
+		ID:                    connection.ID,
+		BotID:                 strings.TrimSpace(connection.BotID),
+		WorkspaceID:           connection.WorkspaceID,
+		Provider:              connection.Provider,
+		Name:                  connection.Name,
+		Status:                connection.Status,
+		AIBackend:             connection.AIBackend,
+		AIConfig:              cloneStringMapLocal(connection.AIConfig),
+		Settings:              cloneStringMapLocal(connection.Settings),
+		Capabilities:          cloneStringSliceLocal(connectionCapabilitiesForConnection(connection)),
+		SecretKeys:            secretKeys,
+		LastError:             connection.LastError,
+		LastPollAt:            cloneOptionalTimeLocal(connection.LastPollAt),
+		LastPollStatus:        connection.LastPollStatus,
+		LastPollMessage:       connection.LastPollMessage,
+		LastPollMessageKey:    connection.LastPollMessageKey,
+		LastPollMessageParams: cloneStringMapLocal(connection.LastPollMessageParams),
+		CreatedAt:             connection.CreatedAt,
+		UpdatedAt:             connection.UpdatedAt,
 	}
 }
 
