@@ -124,6 +124,8 @@ export type BotConnection = {
   lastPollAt?: string | null;
   lastPollStatus?: string | null;
   lastPollMessage?: string | null;
+  lastPollMessageKey?: string | null;
+  lastPollMessageParams?: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -180,6 +182,8 @@ export type BotConnectionLogEntry = {
   level: string;
   eventType?: string;
   message: string;
+  messageKey?: string;
+  messageParams?: Record<string, string> | null;
 };
 
 export type BotConversation = {
@@ -534,6 +538,7 @@ export type TurnPolicyMetricsSummary = {
     eligibleTurns: number;
     coverageRate: number;
     coverageDefinition: string;
+    coverageDefinitionKey?: string;
   };
   timings: {
     postToolUseDecisionLatency: {
