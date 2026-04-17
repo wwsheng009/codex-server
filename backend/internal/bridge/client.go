@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"codex-server/backend/internal/appserver"
 	appconfig "codex-server/backend/internal/config"
@@ -52,6 +53,7 @@ type Client struct {
 
 	closeOnce sync.Once
 	closed    chan struct{}
+	exited    chan struct{}
 }
 
 type rpcMessage struct {
@@ -128,6 +130,7 @@ func Start(ctx context.Context, cfg Config, handler Handler) (*Client, error) {
 		stderr:  stderr,
 		waiters: make(map[string]chan rpcMessage),
 		closed:  make(chan struct{}),
+		exited:  make(chan struct{}),
 	}
 
 	go client.readStdout()
@@ -305,6 +308,22 @@ func (c *Client) readStderr() {
 func (c *Client) waitProcess() {
 	err := c.cmd.Wait()
 	c.closeWithError(err)
+	close(c.exited)
+}
+
+// WaitTimeout blocks until the underlying process has exited, or the timeout
+// elapses. Returns true if the process exited before the deadline, false if the
+// timeout was reached. A defensive timeout prevents indefinite blocking if the
+// OS is slow to reap a killed process.
+func (c *Client) WaitTimeout(timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-c.exited:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 func (c *Client) dispatchResponse(message rpcMessage) {

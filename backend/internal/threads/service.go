@@ -23,13 +23,15 @@ type Service struct {
 }
 
 const (
-	threadContentModeFull    = "full"
-	threadContentModeSummary = "summary"
-	threadOutputModeTail     = "tail"
-	threadSortKeyCreatedAt   = "created_at"
-	threadSortKeyUpdatedAt   = "updated_at"
-	threadRuntimeReadTimeout = 5 * time.Second
-	threadRuntimeListTimeout = 5 * time.Second
+	threadContentModeFull         = "full"
+	threadContentModeSummary      = "summary"
+	threadOutputModeTail          = "tail"
+	threadSortKeyCreatedAt        = "created_at"
+	threadSortKeyUpdatedAt        = "updated_at"
+	threadRuntimeReadTimeout      = 5 * time.Second
+	threadRuntimeListTimeout      = 5 * time.Second
+	threadCreateReadRetryInterval = 100 * time.Millisecond
+	threadCreateReadRetryTimeout  = 6 * time.Second
 
 	threadSummaryPreviewLimit                = 400
 	threadSummaryPlanTextLimit               = 1_200
@@ -244,15 +246,22 @@ func (s *Service) Create(ctx context.Context, workspaceID string, input CreateIn
 		return store.Thread{}, errors.New("thread/start returned empty thread id")
 	}
 
-	if trimmedName != "" {
-		if _, err := s.Rename(ctx, workspaceID, threadID, trimmedName); err != nil {
-			return store.Thread{}, err
-		}
-	}
-
-	thread, err := s.Get(ctx, workspaceID, threadID)
+	thread, err := getStartedThreadWithRetry(ctx, func() (store.Thread, error) {
+		return s.Get(ctx, workspaceID, threadID)
+	}, threadCreateReadRetryInterval, threadCreateReadRetryTimeout)
 	if err != nil {
 		return store.Thread{}, err
+	}
+	if trimmedName != "" && strings.TrimSpace(thread.Name) != trimmedName {
+		if err := retryPendingThreadOperation(ctx, func() error {
+			return s.runtimes.ThreadSetName(ctx, workspaceID, appserver.ThreadSetNameRequest{
+				Name:     trimmedName,
+				ThreadID: threadID,
+			})
+		}, threadCreateReadRetryInterval, threadCreateReadRetryTimeout); err != nil {
+			return store.Thread{}, err
+		}
+		thread.Name = trimmedName
 	}
 	thread.SessionStartSource = normalizeThreadSessionStartSource(thread.SessionStartSource)
 	if thread.SessionStartSource == "" {
@@ -262,6 +271,94 @@ func (s *Service) Create(ctx context.Context, workspaceID string, input CreateIn
 	s.store.SetThreadSessionStartSource(workspaceID, thread.ID, thread.SessionStartSource, true)
 
 	return thread, nil
+}
+
+func getStartedThreadWithRetry(
+	ctx context.Context,
+	read func() (store.Thread, error),
+	interval time.Duration,
+	timeout time.Duration,
+) (store.Thread, error) {
+	if interval <= 0 {
+		interval = threadCreateReadRetryInterval
+	}
+	if timeout <= 0 {
+		timeout = threadCreateReadRetryTimeout
+	}
+
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		thread, err := read()
+		if err == nil {
+			return thread, nil
+		}
+		if !isThreadCreatePendingError(err) {
+			return store.Thread{}, err
+		}
+
+		lastErr = err
+		if time.Now().After(deadline) {
+			return store.Thread{}, lastErr
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return store.Thread{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func retryPendingThreadOperation(
+	ctx context.Context,
+	op func() error,
+	interval time.Duration,
+	timeout time.Duration,
+) error {
+	if interval <= 0 {
+		interval = threadCreateReadRetryInterval
+	}
+	if timeout <= 0 {
+		timeout = threadCreateReadRetryTimeout
+	}
+
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		err := op()
+		if err == nil {
+			return nil
+		}
+		if !isThreadCreatePendingError(err) {
+			return err
+		}
+
+		lastErr = err
+		if time.Now().After(deadline) {
+			return lastErr
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func isThreadCreatePendingError(err error) bool {
+	return isThreadRolloutEmptyError(err) ||
+		isThreadResumeRequired(err) ||
+		errors.Is(err, store.ErrThreadNotFound)
 }
 
 type runtimeThreadDefaults struct {
@@ -371,6 +468,19 @@ func normalizeThreadSessionStartSource(value string) string {
 	default:
 		return ""
 	}
+}
+
+func isThreadRolloutEmptyError(err error) bool {
+	var rpcErr *bridge.RPCError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	if rpcErr.Code != -32603 {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(rpcErr.Message))
+	return strings.Contains(message, "rollout") &&
+		strings.Contains(message, "is empty")
 }
 
 func (s *Service) Get(ctx context.Context, workspaceID string, threadID string) (store.Thread, error) {

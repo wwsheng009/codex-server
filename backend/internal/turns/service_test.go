@@ -2,6 +2,7 @@ package turns
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"codex-server/backend/internal/bridge"
@@ -41,6 +42,32 @@ func TestIsThreadResumeRequiredForNotFound(t *testing.T) {
 	}
 }
 
+func TestIsRolloutEmptyErrorDetectsEmptyRollout(t *testing.T) {
+	t.Parallel()
+
+	err := &bridge.RPCError{
+		Code:    -32603,
+		Message: "failed to load rollout `C:\\Users\\vince\\.codex\\sessions\\2026\\04\\17\\rollout-2026-04-17T13-13-25-019d99db-b2f6-7083-a9b4-cad4fbeb49cb.jsonl` for thread 019d99db-b2f6-7083-a9b4-cad4fbeb49cb: rollout at C:\\Users\\vince\\.codex\\sessions\\2026\\04\\17\\rollout-2026-04-17T13-13-25-019d99db-b2f6-7083-a9b4-cad4fbeb49cb.jsonl is empty",
+	}
+
+	if !isRolloutEmptyError(err) {
+		t.Fatal("expected rollout-is-empty error to be detected by isRolloutEmptyError")
+	}
+}
+
+func TestIsThreadResumeRequiredRejectsEmptyRollout(t *testing.T) {
+	t.Parallel()
+
+	err := &bridge.RPCError{
+		Code:    -32603,
+		Message: "failed to load rollout `C:\\Users\\vince\\.codex\\sessions\\2026\\04\\17\\rollout-2026-04-17T13-13-25-019d99db-b2f6-7083-a9b4-cad4fbeb49cb.jsonl` for thread 019d99db-b2f6-7083-a9b4-cad4fbeb49cb: rollout at C:\\Users\\vince\\.codex\\sessions\\2026\\04\\17\\rollout-2026-04-17T13-13-25-019d99db-b2f6-7083-a9b4-cad4fbeb49cb.jsonl is empty",
+	}
+
+	if isThreadResumeRequired(err) {
+		t.Fatal("expected rollout-is-empty error to NOT be treated as thread-resume-required (it needs runtime recycle instead)")
+	}
+}
+
 func TestIsThreadResumeRequiredRejectsOtherErrors(t *testing.T) {
 	t.Parallel()
 
@@ -51,6 +78,19 @@ func TestIsThreadResumeRequiredRejectsOtherErrors(t *testing.T) {
 
 	if isThreadResumeRequired(err) {
 		t.Fatal("expected unrelated RPC error to be ignored")
+	}
+}
+
+func TestIsRolloutEmptyErrorRejectsUnrelatedInternalError(t *testing.T) {
+	t.Parallel()
+
+	err := &bridge.RPCError{
+		Code:    -32603,
+		Message: "something else went wrong",
+	}
+
+	if isRolloutEmptyError(err) {
+		t.Fatal("expected unrelated -32603 error to not be detected as rollout-empty")
 	}
 }
 
@@ -415,6 +455,107 @@ func TestStartReturnsRunningWhenCompletionNotificationIsMissing(t *testing.T) {
 	}
 	if activeTurnID := runtimeManager.ActiveTurnID("ws-1", "thread-1"); activeTurnID != "turn-missing-complete-1" {
 		t.Fatalf("expected active turn to be remembered, got %q", activeTurnID)
+	}
+}
+
+func TestStartReturnsErrThreadRolloutEmptyWhenResumeFailsWithEmptyRollout(t *testing.T) {
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"turn/start": {
+				Error: &codexfake.RPCError{
+					Code:    -32600,
+					Message: "thread not loaded: thread-1",
+				},
+			},
+			"thread/resume": {
+				Error: &codexfake.RPCError{
+					Code:    -32603,
+					Message: "failed to load rollout for thread thread-1: rollout at /tmp/rollout.jsonl is empty",
+				},
+			},
+		},
+	})
+
+	runtimeManager := runtime.NewManager(session.Command, events.NewHub())
+	workspaceRoot := t.TempDir()
+	runtimeManager.Configure("ws-1", workspaceRoot)
+	defer runtimeManager.Remove("ws-1")
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	_, err := service.Start(context.Background(), "ws-1", "thread-1", "Inspect the repo", StartOptions{})
+	if !errors.Is(err, ErrThreadRolloutEmpty) {
+		t.Fatalf("expected ErrThreadRolloutEmpty, got %v", err)
+	}
+
+	state := codexfake.ReadState(t, session.StateFile)
+	// Verify that thread/resume was actually called (the critical recovery path)
+	if state.LastResume == nil || state.LastResume["threadId"] != "thread-1" {
+		t.Fatalf("expected thread/resume to be called with threadId=thread-1, got lastResume=%#v", state.LastResume)
+	}
+}
+
+func TestStartReturnsErrThreadRolloutEmptyWhenTurnStartDirectlyFails(t *testing.T) {
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"turn/start": {
+				Error: &codexfake.RPCError{
+					Code:    -32603,
+					Message: "failed to load rollout for thread thread-1: rollout at /tmp/rollout.jsonl is empty",
+				},
+			},
+		},
+	})
+
+	runtimeManager := runtime.NewManager(session.Command, events.NewHub())
+	workspaceRoot := t.TempDir()
+	runtimeManager.Configure("ws-1", workspaceRoot)
+	defer runtimeManager.Remove("ws-1")
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	_, err := service.Start(context.Background(), "ws-1", "thread-1", "Inspect the repo", StartOptions{})
+	if !errors.Is(err, ErrThreadRolloutEmpty) {
+		t.Fatalf("expected ErrThreadRolloutEmpty, got %v", err)
+	}
+
+	// Verify thread/resume was NOT called (direct rollout-empty, no resume path)
+	state := codexfake.ReadState(t, session.StateFile)
+	if state.LastResume != nil {
+		t.Fatalf("expected thread/resume to NOT be called for direct rollout-empty, got lastResume=%#v", state.LastResume)
+	}
+}
+
+func TestReviewReturnsErrThreadRolloutEmptyWhenResumeFailsWithEmptyRollout(t *testing.T) {
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"review/start": {
+				Error: &codexfake.RPCError{
+					Code:    -32600,
+					Message: "thread not loaded: thread-1",
+				},
+			},
+			"thread/resume": {
+				Error: &codexfake.RPCError{
+					Code:    -32603,
+					Message: "failed to load rollout for thread thread-1: rollout at /tmp/rollout.jsonl is empty",
+				},
+			},
+		},
+	})
+
+	runtimeManager := runtime.NewManager(session.Command, events.NewHub())
+	workspaceRoot := t.TempDir()
+	runtimeManager.Configure("ws-1", workspaceRoot)
+	defer runtimeManager.Remove("ws-1")
+
+	service := NewService(runtimeManager, store.NewMemoryStore())
+	_, err := service.Review(context.Background(), "ws-1", "thread-1")
+	if !errors.Is(err, ErrThreadRolloutEmpty) {
+		t.Fatalf("expected ErrThreadRolloutEmpty, got %v", err)
+	}
+
+	state := codexfake.ReadState(t, session.StateFile)
+	if state.LastResume == nil || state.LastResume["threadId"] != "thread-1" {
+		t.Fatalf("expected thread/resume to be called with threadId=thread-1, got lastResume=%#v", state.LastResume)
 	}
 }
 

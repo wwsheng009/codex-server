@@ -18,6 +18,7 @@ type State struct {
 	Received       []MessageRecord `json:"received"`
 	Initialize     map[string]any  `json:"initialize,omitempty"`
 	LastThread     map[string]any  `json:"lastThread,omitempty"`
+	LastResume     map[string]any  `json:"lastResume,omitempty"`
 	LastReview     map[string]any  `json:"lastReview,omitempty"`
 	LastTurn       map[string]any  `json:"lastTurn,omitempty"`
 	LastInterrupt  map[string]any  `json:"lastInterrupt,omitempty"`
@@ -35,8 +36,14 @@ type ExitBehavior struct {
 	BeforeResponse bool   `json:"beforeResponse,omitempty"`
 }
 
+type RPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 type MethodBehavior struct {
 	Result        map[string]any `json:"result,omitempty"`
+	Error         *RPCError      `json:"error,omitempty"`
 	Notifications []Notification `json:"notifications,omitempty"`
 	Exit          *ExitBehavior  `json:"exit,omitempty"`
 }
@@ -179,6 +186,14 @@ function defaultBehavior(method, params) {
           },
         },
       };
+    case "thread/resume":
+      return {
+        result: {
+          thread: {
+            id: params.threadId ?? "thread-test-1",
+          },
+        },
+      };
     case "turn/start":
       return {
         result: {
@@ -230,6 +245,7 @@ function resolveBehavior(method, params) {
 
   return {
     result: hasOwn(override, "result") ? clone(override.result) : clone(base?.result),
+    error: hasOwn(override, "error") ? clone(override.error) : clone(base?.error),
     notifications: hasOwn(override, "notifications") ? clone(override.notifications ?? []) : clone(base?.notifications ?? []),
     exit: hasOwn(override, "exit") ? clone(override.exit) : clone(base?.exit),
   };
@@ -277,6 +293,9 @@ rl.on("line", (line) => {
     case "thread/start":
       state.lastThread = params;
       break;
+    case "thread/resume":
+      state.lastResume = params;
+      break;
     case "review/start":
       state.lastReview = params;
       break;
@@ -309,7 +328,15 @@ rl.on("line", (line) => {
     return;
   }
 
-  if (hasID && behavior.result !== undefined) {
+  if (hasID && behavior.error) {
+    send({
+      id: message.id,
+      error: {
+        code: behavior.error.code,
+        message: behavior.error.message,
+      },
+    });
+  } else if (hasID && behavior.result !== undefined) {
     send({
       id: message.id,
       result: behavior.result,

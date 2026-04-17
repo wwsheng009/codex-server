@@ -27,6 +27,12 @@ var (
 const commandOutputBatchWindow = 16 * time.Millisecond
 const commandOutputMaxChunkBytes = 16 * 1024
 
+// processExitTimeout is the maximum time to wait for a killed runtime process
+// to fully exit and release its file handles. This is critical on Windows where
+// aggressive file locking can cause new runtime processes to produce empty
+// rollout files if the old process hasn't been fully reaped.
+const processExitTimeout = 5 * time.Second
+
 type State struct {
 	WorkspaceID                     string     `json:"workspaceId"`
 	Status                          string     `json:"status"`
@@ -167,6 +173,7 @@ func (m *Manager) ApplyLaunchConfig(launchConfig appconfig.RuntimeLaunchConfig) 
 
 	for _, client := range clients {
 		client.Close()
+		client.WaitTimeout(processExitTimeout)
 	}
 }
 
@@ -479,6 +486,7 @@ func (m *Manager) Remove(workspaceID string) {
 
 	if client != nil {
 		client.Close()
+		client.WaitTimeout(processExitTimeout)
 	}
 }
 

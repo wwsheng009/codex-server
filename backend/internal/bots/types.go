@@ -44,6 +44,11 @@ type Provider interface {
 	SendMessages(ctx context.Context, connection store.BotConnection, conversation store.BotConversation, messages []OutboundMessage) error
 }
 
+type WebhookResultProvider interface {
+	Provider
+	ParseWebhookResult(r *http.Request, connection store.BotConnection) (WebhookResult, []InboundMessage, error)
+}
+
 type ReplyDeliveryRetryDecider interface {
 	ReplyDeliveryRetryDecision(err error, attempt int) (bool, time.Duration)
 }
@@ -147,15 +152,16 @@ type ApprovalResponder interface {
 }
 
 type Config struct {
-	PublicBaseURL    string
-	OutboundProxyURL string
-	HTTPClient       *http.Client
-	MessageTimeout   time.Duration
-	PollInterval     time.Duration
-	TurnTimeout      time.Duration
-	Approvals        ApprovalResponder
-	Providers        []Provider
-	AIBackends       []AIBackend
+	PublicBaseURL                     string
+	OutboundProxyURL                  string
+	HTTPClient                        *http.Client
+	MessageTimeout                    time.Duration
+	PollInterval                      time.Duration
+	TurnTimeout                       time.Duration
+	NotificationCenterManagedTriggers bool
+	Approvals                         ApprovalResponder
+	Providers                         []Provider
+	AIBackends                        []AIBackend
 }
 
 type ActivationResult struct {
@@ -188,8 +194,19 @@ type AIResult struct {
 }
 
 type CreateBotInput struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name               string   `json:"name"`
+	Description        string   `json:"description"`
+	Scope              string   `json:"scope,omitempty"`
+	SharingMode        string   `json:"sharingMode,omitempty"`
+	SharedWorkspaceIDs []string `json:"sharedWorkspaceIds,omitempty"`
+}
+
+type UpdateBotInput struct {
+	Name               string   `json:"name"`
+	Description        string   `json:"description"`
+	Scope              string   `json:"scope,omitempty"`
+	SharingMode        string   `json:"sharingMode,omitempty"`
+	SharedWorkspaceIDs []string `json:"sharedWorkspaceIds,omitempty"`
 }
 
 type UpsertThreadBotBindingInput struct {
@@ -290,6 +307,9 @@ type UpdateWeChatAccountInput struct {
 type BotView struct {
 	ID                     string    `json:"id"`
 	WorkspaceID            string    `json:"workspaceId"`
+	Scope                  string    `json:"scope,omitempty"`
+	SharingMode            string    `json:"sharingMode,omitempty"`
+	SharedWorkspaceIDs     []string  `json:"sharedWorkspaceIds,omitempty"`
 	Name                   string    `json:"name"`
 	Description            string    `json:"description,omitempty"`
 	Status                 string    `json:"status"`
@@ -416,6 +436,7 @@ type ConversationView struct {
 
 type DeliveryTargetView struct {
 	ID                       string            `json:"id"`
+	WorkspaceID              string            `json:"workspaceId"`
 	BotID                    string            `json:"botId"`
 	EndpointID               string            `json:"endpointId"`
 	SessionID                string            `json:"sessionId,omitempty"`
@@ -434,6 +455,24 @@ type DeliveryTargetView struct {
 	LastVerifiedAt           *time.Time        `json:"lastVerifiedAt,omitempty"`
 	CreatedAt                time.Time         `json:"createdAt"`
 	UpdatedAt                time.Time         `json:"updatedAt"`
+}
+
+type RecipientCandidateView struct {
+	ID                       string     `json:"id"`
+	WorkspaceID              string     `json:"workspaceId"`
+	ConnectionID             string     `json:"connectionId"`
+	Provider                 string     `json:"provider"`
+	RouteType                string     `json:"routeType"`
+	RouteKey                 string     `json:"routeKey"`
+	ChatID                   string     `json:"chatId"`
+	ThreadID                 string     `json:"threadId,omitempty"`
+	Title                    string     `json:"title,omitempty"`
+	Source                   string     `json:"source,omitempty"`
+	SourceRefID              string     `json:"sourceRefId,omitempty"`
+	DeliveryReadiness        string     `json:"deliveryReadiness,omitempty"`
+	DeliveryReadinessMessage string     `json:"deliveryReadinessMessage,omitempty"`
+	LastContextSeenAt        *time.Time `json:"lastContextSeenAt,omitempty"`
+	LastSeenAt               *time.Time `json:"lastSeenAt,omitempty"`
 }
 
 type OutboundDeliveryView struct {
@@ -462,5 +501,8 @@ type OutboundDeliveryView struct {
 }
 
 type WebhookResult struct {
-	Accepted int `json:"accepted"`
+	Accepted   int               `json:"accepted"`
+	StatusCode int               `json:"-"`
+	Headers    map[string]string `json:"-"`
+	Body       any               `json:"-"`
 }

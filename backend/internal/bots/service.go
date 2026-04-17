@@ -43,6 +43,11 @@ const (
 	botReplyDeliveryStatusFailed       = "failed"
 	deliveryTargetReadinessReady       = "ready"
 	deliveryTargetReadinessWaiting     = "waiting_for_context"
+	botScopeWorkspace                  = "workspace"
+	botScopeGlobal                     = "global"
+	botSharingModeOwnerOnly            = "owner_only"
+	botSharingModeAllWorkspaces        = "all_workspaces"
+	botSharingModeSelected             = "selected_workspaces"
 )
 
 type Service struct {
@@ -60,20 +65,21 @@ type Service struct {
 
 	started bool
 
-	mu                             sync.Mutex
-	baseCtx                        context.Context
-	workers                        map[string]*inboundWorker
-	pollers                        map[string]*pollerHandle
-	threadBoundTurns               map[string]threadBoundTurnDispatch
-	telegramMediaGroups            map[string]*telegramMediaGroupBuffer
-	telegramMediaGroupSeen         map[string]*telegramMediaGroupSeenState
-	messageTimeout                 time.Duration
-	queueSize                      int
-	workerIdleTimeout              time.Duration
-	telegramMediaGroupQuiet        time.Duration
-	telegramMediaGroupSeenTTL      time.Duration
-	triggerDispatcherStarted       bool
-	threadBindingDispatcherStarted bool
+	mu                                sync.Mutex
+	baseCtx                           context.Context
+	workers                           map[string]*inboundWorker
+	pollers                           map[string]*pollerHandle
+	threadBoundTurns                  map[string]threadBoundTurnDispatch
+	telegramMediaGroups               map[string]*telegramMediaGroupBuffer
+	telegramMediaGroupSeen            map[string]*telegramMediaGroupSeenState
+	messageTimeout                    time.Duration
+	queueSize                         int
+	workerIdleTimeout                 time.Duration
+	telegramMediaGroupQuiet           time.Duration
+	telegramMediaGroupSeenTTL         time.Duration
+	notificationCenterManagedTriggers bool
+	triggerDispatcherStarted          bool
+	threadBindingDispatcherStarted    bool
 }
 
 type inboundJob struct {
@@ -257,27 +263,30 @@ func NewService(
 	}
 
 	service := &Service{
-		store:                  dataStore,
-		threads:                threadService,
-		turns:                  turnService,
-		events:                 eventHub,
-		publicBaseURL:          strings.TrimSpace(cfg.PublicBaseURL),
-		approvals:              cfg.Approvals,
-		providers:              make(map[string]Provider),
-		aiBackends:             make(map[string]AIBackend),
-		wechatAuth:             newWeChatAuthService(clientSource),
-		workers:                make(map[string]*inboundWorker),
-		pollers:                make(map[string]*pollerHandle),
-		threadBoundTurns:       make(map[string]threadBoundTurnDispatch),
-		telegramMediaGroups:    make(map[string]*telegramMediaGroupBuffer),
-		telegramMediaGroupSeen: make(map[string]*telegramMediaGroupSeenState),
-		messageTimeout:         cfg.MessageTimeout,
-		queueSize:              defaultWorkerQueueSize,
-		workerIdleTimeout:      defaultWorkerIdleTimeout,
+		store:                             dataStore,
+		threads:                           threadService,
+		turns:                             turnService,
+		events:                            eventHub,
+		publicBaseURL:                     strings.TrimSpace(cfg.PublicBaseURL),
+		approvals:                         cfg.Approvals,
+		providers:                         make(map[string]Provider),
+		aiBackends:                        make(map[string]AIBackend),
+		wechatAuth:                        newWeChatAuthService(clientSource),
+		workers:                           make(map[string]*inboundWorker),
+		pollers:                           make(map[string]*pollerHandle),
+		threadBoundTurns:                  make(map[string]threadBoundTurnDispatch),
+		telegramMediaGroups:               make(map[string]*telegramMediaGroupBuffer),
+		telegramMediaGroupSeen:            make(map[string]*telegramMediaGroupSeenState),
+		messageTimeout:                    cfg.MessageTimeout,
+		queueSize:                         defaultWorkerQueueSize,
+		workerIdleTimeout:                 defaultWorkerIdleTimeout,
+		notificationCenterManagedTriggers: cfg.NotificationCenterManagedTriggers,
 	}
 
 	service.registerProvider(newTelegramProviderWithClientSource(clientSource))
 	service.registerProvider(newWeChatProviderWithClientSource(clientSource))
+	service.registerProvider(newFeishuProviderWithClientSource(clientSource))
+	service.registerProvider(newQQBotProviderWithClientSource(clientSource))
 	service.registerAIBackend(newWorkspaceThreadAIBackend(threadService, turnService, eventHub, cfg.PollInterval, cfg.TurnTimeout))
 	service.registerAIBackend(newOpenAIResponsesBackendWithClientSource(clientSource))
 	for _, provider := range cfg.Providers {
@@ -299,7 +308,9 @@ func (s *Service) Start(ctx context.Context) {
 	s.started = true
 	s.mu.Unlock()
 
-	s.startTriggerDispatcher(ctx)
+	if !s.notificationCenterManagedTriggers {
+		s.startTriggerDispatcher(ctx)
+	}
 	s.startThreadBindingDispatcher(ctx)
 	s.syncPollingConnections()
 	s.recoverPendingInboundDeliveries("", "")
@@ -355,6 +366,10 @@ func (s *Service) GetConnectionByID(connectionID string) (ConnectionView, error)
 }
 
 func (s *Service) ListBots(workspaceID string) []BotView {
+	return s.listWorkspaceBotViews(workspaceID, nil)
+}
+
+func (s *Service) listWorkspaceBotViews(workspaceID string, predicate func(store.Bot) bool) []BotView {
 	items := s.store.ListBotConnections(workspaceID)
 	for _, item := range items {
 		_, _, _, _ = s.ensureConnectionBotResources(item)
@@ -378,6 +393,9 @@ func (s *Service) ListBots(workspaceID string) []BotView {
 
 	views := make([]BotView, 0, len(botsList))
 	for _, bot := range botsList {
+		if predicate != nil && !predicate(bot) {
+			continue
+		}
 		defaultBinding, _ := s.store.GetBotBinding(bot.WorkspaceID, bot.DefaultBindingID)
 		views = append(views, botViewFromStore(
 			bot,
@@ -392,7 +410,7 @@ func (s *Service) ListBots(workspaceID string) []BotView {
 func (s *Service) ListAllBots() []BotView {
 	views := make([]BotView, 0)
 	for _, workspace := range s.store.ListWorkspaces() {
-		views = append(views, s.ListBots(workspace.ID)...)
+		views = append(views, s.listWorkspaceBotViews(workspace.ID, nil)...)
 	}
 	sort.Slice(views, func(i int, j int) bool {
 		if views[i].UpdatedAt.Equal(views[j].UpdatedAt) {
@@ -401,6 +419,27 @@ func (s *Service) ListAllBots() []BotView {
 		return views[i].UpdatedAt.After(views[j].UpdatedAt)
 	})
 	return views
+}
+
+func (s *Service) ListAvailableBots(workspaceID string) ([]BotView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	views := make([]BotView, 0)
+	for _, workspace := range s.store.ListWorkspaces() {
+		views = append(views, s.listWorkspaceBotViews(workspace.ID, func(bot store.Bot) bool {
+			return s.botAccessibleToWorkspace(bot, resolvedWorkspaceID)
+		})...)
+	}
+	sort.Slice(views, func(i int, j int) bool {
+		if views[i].UpdatedAt.Equal(views[j].UpdatedAt) {
+			return views[i].ID < views[j].ID
+		}
+		return views[i].UpdatedAt.After(views[j].UpdatedAt)
+	})
+	return views, nil
 }
 
 func (s *Service) CreateBot(workspaceID string, input CreateBotInput) (BotView, error) {
@@ -414,25 +453,119 @@ func (s *Service) CreateBot(workspaceID string, input CreateBotInput) (BotView, 
 		name = "Bot"
 	}
 
+	scope, sharingMode, sharedWorkspaceIDs, err := s.normalizeBotAccessPolicy(resolvedWorkspaceID, input.Scope, input.SharingMode, input.SharedWorkspaceIDs)
+	if err != nil {
+		return BotView{}, err
+	}
+
 	created, err := s.store.CreateBot(store.Bot{
-		ID:          store.NewID("botr"),
-		WorkspaceID: resolvedWorkspaceID,
-		Name:        name,
-		Description: strings.TrimSpace(input.Description),
-		Status:      "active",
+		ID:                 store.NewID("botr"),
+		WorkspaceID:        resolvedWorkspaceID,
+		Scope:              scope,
+		SharingMode:        sharingMode,
+		SharedWorkspaceIDs: sharedWorkspaceIDs,
+		Name:               name,
+		Description:        strings.TrimSpace(input.Description),
+		Status:             "active",
 	})
 	if err != nil {
 		return BotView{}, err
 	}
 
 	s.publish(created.WorkspaceID, "", "bot/created", map[string]any{
-		"botId":       created.ID,
-		"name":        created.Name,
-		"description": created.Description,
-		"status":      created.Status,
+		"botId":              created.ID,
+		"name":               created.Name,
+		"description":        created.Description,
+		"status":             created.Status,
+		"scope":              created.Scope,
+		"sharingMode":        created.SharingMode,
+		"sharedWorkspaceIds": cloneStringSliceLocal(created.SharedWorkspaceIDs),
 	})
 
 	return botViewFromStore(created, store.BotBinding{}, 0, 0), nil
+}
+
+func (s *Service) UpdateBot(workspaceID string, botID string, input UpdateBotInput) (BotView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return BotView{}, err
+	}
+
+	resolvedBotID := strings.TrimSpace(botID)
+	if resolvedBotID == "" {
+		return BotView{}, store.ErrBotNotFound
+	}
+
+	existing, ok := s.store.GetBot(resolvedWorkspaceID, resolvedBotID)
+	if !ok {
+		return BotView{}, store.ErrBotNotFound
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = firstNonEmpty(strings.TrimSpace(existing.Name), "Bot")
+	}
+
+	scopeInput := firstNonEmpty(strings.TrimSpace(input.Scope), normalizeBotScopeValue(existing.Scope))
+	sharingModeInput := strings.TrimSpace(input.SharingMode)
+	if sharingModeInput == "" {
+		sharingModeInput = normalizeResolvedBotSharingMode(existing)
+	}
+
+	sharedWorkspaceIDsInput := input.SharedWorkspaceIDs
+	if sharedWorkspaceIDsInput == nil && strings.EqualFold(scopeInput, botScopeGlobal) && strings.EqualFold(sharingModeInput, botSharingModeSelected) {
+		sharedWorkspaceIDsInput = existing.SharedWorkspaceIDs
+	}
+
+	scope, sharingMode, sharedWorkspaceIDs, err := s.normalizeBotAccessPolicy(
+		resolvedWorkspaceID,
+		scopeInput,
+		sharingModeInput,
+		sharedWorkspaceIDsInput,
+	)
+	if err != nil {
+		return BotView{}, err
+	}
+
+	updated, err := s.store.UpdateBot(resolvedWorkspaceID, resolvedBotID, func(current store.Bot) store.Bot {
+		current.Name = name
+		current.Description = strings.TrimSpace(input.Description)
+		current.Scope = scope
+		current.SharingMode = sharingMode
+		current.SharedWorkspaceIDs = sharedWorkspaceIDs
+		return current
+	})
+	if err != nil {
+		return BotView{}, err
+	}
+
+	endpointCount := 0
+	for _, connection := range s.store.ListBotConnections(resolvedWorkspaceID) {
+		if strings.TrimSpace(connection.BotID) == updated.ID {
+			endpointCount++
+		}
+	}
+
+	conversationCount := 0
+	for _, conversation := range s.store.ListBotConversations(resolvedWorkspaceID, "") {
+		if strings.TrimSpace(conversation.BotID) == updated.ID {
+			conversationCount++
+		}
+	}
+
+	defaultBinding, _ := s.store.GetBotBinding(updated.WorkspaceID, updated.DefaultBindingID)
+
+	s.publish(updated.WorkspaceID, "", "bot/updated", map[string]any{
+		"botId":              updated.ID,
+		"name":               updated.Name,
+		"description":        updated.Description,
+		"status":             updated.Status,
+		"scope":              updated.Scope,
+		"sharingMode":        updated.SharingMode,
+		"sharedWorkspaceIds": cloneStringSliceLocal(updated.SharedWorkspaceIDs),
+	})
+
+	return botViewFromStore(updated, defaultBinding, endpointCount, conversationCount), nil
 }
 
 func (s *Service) GetThreadBotBinding(workspaceID string, threadID string) (ThreadBotBindingView, error) {
@@ -473,7 +606,11 @@ func (s *Service) UpsertThreadBotBinding(
 	if resolvedBotID == "" {
 		return ThreadBotBindingView{}, store.ErrBotNotFound
 	}
-	if _, ok := s.store.GetBot(resolvedBotWorkspaceID, resolvedBotID); !ok {
+	bot, ok := s.store.GetBot(resolvedBotWorkspaceID, resolvedBotID)
+	if !ok {
+		return ThreadBotBindingView{}, store.ErrBotNotFound
+	}
+	if !s.botAccessibleToWorkspace(bot, resolvedWorkspaceID) {
 		return ThreadBotBindingView{}, store.ErrBotNotFound
 	}
 
@@ -626,6 +763,43 @@ func (s *Service) ListDeliveryTargets(workspaceID string, botID string) ([]Deliv
 	for _, item := range items {
 		views = append(views, s.deliveryTargetViewFromStore(item))
 	}
+	return views, nil
+}
+
+func (s *Service) ListAvailableDeliveryTargets(workspaceID string, botID string) ([]DeliveryTargetView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	resolvedBotID := strings.TrimSpace(botID)
+	if resolvedBotID != "" {
+		bot, ok := s.findBotByID(resolvedBotID)
+		if !ok || !s.botAccessibleToWorkspace(bot, resolvedWorkspaceID) {
+			return nil, store.ErrBotNotFound
+		}
+		return s.ListDeliveryTargets(bot.WorkspaceID, bot.ID)
+	}
+
+	views := make([]DeliveryTargetView, 0)
+	for _, workspace := range s.store.ListWorkspaces() {
+		for _, bot := range s.store.ListBots(workspace.ID) {
+			if !s.botAccessibleToWorkspace(bot, resolvedWorkspaceID) {
+				continue
+			}
+			items := s.store.ListBotDeliveryTargets(bot.WorkspaceID, bot.ID)
+			for _, item := range items {
+				views = append(views, s.deliveryTargetViewFromStore(item))
+			}
+		}
+	}
+
+	sort.Slice(views, func(i int, j int) bool {
+		if views[i].UpdatedAt.Equal(views[j].UpdatedAt) {
+			return views[i].ID < views[j].ID
+		}
+		return views[i].UpdatedAt.After(views[j].UpdatedAt)
+	})
 	return views, nil
 }
 
@@ -1448,6 +1622,55 @@ func (s *Service) ListConversationViews(workspaceID string, connectionID string)
 	return views
 }
 
+func (s *Service) ListConnectionRecipientCandidates(workspaceID string, connectionID string) ([]RecipientCandidateView, error) {
+	resolvedWorkspaceID, err := s.requireWorkspaceID(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	connection, ok := s.store.GetBotConnection(resolvedWorkspaceID, connectionID)
+	if !ok {
+		return nil, store.ErrBotConnectionNotFound
+	}
+	connection, bot, _, err := s.ensureConnectionBotResources(connection)
+	if err != nil {
+		return nil, err
+	}
+
+	candidatesBySignature := make(map[string]RecipientCandidateView)
+	storeCandidate := func(candidate RecipientCandidateView) {
+		if strings.TrimSpace(candidate.ChatID) == "" {
+			return
+		}
+		signature := recipientCandidateSignature(candidate)
+		if current, exists := candidatesBySignature[signature]; !exists || shouldReplaceRecipientCandidate(current, candidate) {
+			candidatesBySignature[signature] = candidate
+		}
+	}
+
+	for _, conversation := range s.store.ListBotConversations(resolvedWorkspaceID, connection.ID) {
+		storeCandidate(recipientCandidateFromConversation(resolvedWorkspaceID, connection, s.ensureConversationBotIdentity(conversation, connection)))
+	}
+
+	for _, target := range s.store.ListBotDeliveryTargets(resolvedWorkspaceID, bot.ID) {
+		candidate, ok := s.recipientCandidateFromDeliveryTarget(resolvedWorkspaceID, connection, target)
+		if !ok {
+			continue
+		}
+		storeCandidate(candidate)
+	}
+
+	views := make([]RecipientCandidateView, 0, len(candidatesBySignature))
+	for _, candidate := range candidatesBySignature {
+		views = append(views, candidate)
+	}
+	sort.Slice(views, func(i int, j int) bool {
+		return recipientCandidateLess(views[i], views[j])
+	})
+
+	return views, nil
+}
+
 func (s *Service) ReplayLatestFailedReply(
 	ctx context.Context,
 	workspaceID string,
@@ -1695,6 +1918,172 @@ func (s *Service) requireWorkspaceID(workspaceID string) (string, error) {
 	return resolvedWorkspaceID, nil
 }
 
+func (s *Service) normalizeBotAccessPolicy(
+	ownerWorkspaceID string,
+	scopeInput string,
+	sharingModeInput string,
+	sharedWorkspaceIDsInput []string,
+) (string, string, []string, error) {
+	scope := normalizeBotScopeValue(scopeInput)
+	if scope == "" {
+		return "", "", nil, fmt.Errorf("%w: unsupported bot scope %q", ErrInvalidInput, strings.TrimSpace(scopeInput))
+	}
+
+	sharingMode := normalizeBotSharingModeValue(sharingModeInput)
+	if strings.TrimSpace(sharingModeInput) != "" && sharingMode == "" {
+		return "", "", nil, fmt.Errorf("%w: unsupported bot sharing mode %q", ErrInvalidInput, strings.TrimSpace(sharingModeInput))
+	}
+
+	switch scope {
+	case botScopeWorkspace:
+		return botScopeWorkspace, botSharingModeOwnerOnly, nil, nil
+	case botScopeGlobal:
+		if sharingMode == "" {
+			sharingMode = botSharingModeAllWorkspaces
+		}
+	default:
+		return "", "", nil, fmt.Errorf("%w: unsupported bot scope %q", ErrInvalidInput, strings.TrimSpace(scopeInput))
+	}
+
+	sharedWorkspaceIDs := normalizeWorkspaceIDList(sharedWorkspaceIDsInput)
+	filteredSharedWorkspaceIDs := make([]string, 0, len(sharedWorkspaceIDs))
+	for _, workspaceID := range sharedWorkspaceIDs {
+		if workspaceID == ownerWorkspaceID {
+			continue
+		}
+		if _, ok := s.store.GetWorkspace(workspaceID); !ok {
+			return "", "", nil, fmt.Errorf("%w: sharedWorkspaceId %q was not found", ErrInvalidInput, workspaceID)
+		}
+		filteredSharedWorkspaceIDs = append(filteredSharedWorkspaceIDs, workspaceID)
+	}
+
+	if sharingMode != botSharingModeSelected {
+		filteredSharedWorkspaceIDs = nil
+	}
+	if sharingMode == botSharingModeSelected && len(filteredSharedWorkspaceIDs) == 0 {
+		return "", "", nil, fmt.Errorf("%w: sharedWorkspaceIds is required when sharingMode is %q", ErrInvalidInput, botSharingModeSelected)
+	}
+
+	return scope, sharingMode, filteredSharedWorkspaceIDs, nil
+}
+
+func normalizeBotScopeValue(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", botScopeWorkspace:
+		return botScopeWorkspace
+	case botScopeGlobal:
+		return botScopeGlobal
+	default:
+		return ""
+	}
+}
+
+func normalizeBotSharingModeValue(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", botSharingModeOwnerOnly:
+		return strings.ToLower(strings.TrimSpace(value))
+	case botSharingModeAllWorkspaces:
+		return botSharingModeAllWorkspaces
+	case botSharingModeSelected:
+		return botSharingModeSelected
+	default:
+		return ""
+	}
+}
+
+func normalizeWorkspaceIDList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func (s *Service) botAccessibleToWorkspace(bot store.Bot, workspaceID string) bool {
+	resolvedWorkspaceID := strings.TrimSpace(workspaceID)
+	if resolvedWorkspaceID == "" {
+		return false
+	}
+	if strings.TrimSpace(bot.WorkspaceID) == resolvedWorkspaceID {
+		return true
+	}
+
+	scope := normalizeBotScopeValue(bot.Scope)
+	if scope != botScopeGlobal {
+		return false
+	}
+
+	switch normalizeResolvedBotSharingMode(bot) {
+	case botSharingModeAllWorkspaces:
+		return true
+	case botSharingModeSelected:
+		return containsNormalizedWorkspaceID(bot.SharedWorkspaceIDs, resolvedWorkspaceID)
+	default:
+		return false
+	}
+}
+
+func normalizeResolvedBotSharingMode(bot store.Bot) string {
+	scope := normalizeBotScopeValue(bot.Scope)
+	switch scope {
+	case botScopeGlobal:
+		switch normalizeBotSharingModeValue(bot.SharingMode) {
+		case botSharingModeAllWorkspaces:
+			return botSharingModeAllWorkspaces
+		case botSharingModeSelected:
+			return botSharingModeSelected
+		case botSharingModeOwnerOnly:
+			return botSharingModeOwnerOnly
+		default:
+			return botSharingModeAllWorkspaces
+		}
+	default:
+		return botSharingModeOwnerOnly
+	}
+}
+
+func containsNormalizedWorkspaceID(values []string, target string) bool {
+	trimmedTarget := strings.TrimSpace(target)
+	if trimmedTarget == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == trimmedTarget {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) findBotByID(botID string) (store.Bot, bool) {
+	resolvedBotID := strings.TrimSpace(botID)
+	if resolvedBotID == "" {
+		return store.Bot{}, false
+	}
+	for _, workspace := range s.store.ListWorkspaces() {
+		if bot, ok := s.store.GetBot(workspace.ID, resolvedBotID); ok {
+			return bot, true
+		}
+	}
+	return store.Bot{}, false
+}
+
 func normalizeBotBindingMode(value string, aiBackend string) string {
 	switch normalizeAIBackendName(aiBackend) {
 	case openAIResponsesBackendName:
@@ -1907,6 +2296,8 @@ func normalizeRouteTypeForTarget(connection store.BotConnection, routeType strin
 		switch normalizeProviderName(connection.Provider) {
 		case telegramProviderName:
 			return "telegram_topic"
+		case "feishu":
+			return "feishu_thread"
 		default:
 			return "thread"
 		}
@@ -1917,6 +2308,14 @@ func normalizeRouteTypeForTarget(connection store.BotConnection, routeType strin
 		return "telegram_chat"
 	case wechatProviderName:
 		return "wechat_session"
+	case "feishu":
+		return "feishu_chat"
+	case "qqbot":
+		normalizedRouteKey := strings.ToLower(strings.TrimSpace(routeKey))
+		if strings.HasPrefix(normalizedRouteKey, "user:") {
+			return "qqbot_c2c"
+		}
+		return "qqbot_group"
 	default:
 		return "conversation"
 	}
@@ -1928,6 +2327,8 @@ func deliveryTargetCapabilitiesForConnection(connection store.BotConnection) []s
 		return []string{"supportsProactivePush", "supportsSessionlessPush"}
 	case wechatProviderName:
 		return []string{"supportsProactivePush", "requiresRouteState"}
+	case "feishu", "qqbot":
+		return []string{"supportsProactivePush", "supportsSessionlessPush"}
 	default:
 		return []string{"supportsProactivePush"}
 	}
@@ -1960,6 +2361,25 @@ func connectionCapabilitiesForConnection(connection store.BotConnection) []strin
 			"supportsLocalMediaPathSource",
 			"supportsProactivePush",
 			"requiresRouteState",
+		}
+	case feishuProviderName:
+		return []string{
+			"supportsTextOutbound",
+			"supportsProactivePush",
+			"supportsSessionlessPush",
+		}
+	case qqbotProviderName:
+		return []string{
+			"supportsTextOutbound",
+			"supportsMediaOutbound",
+			"supportsImageOutbound",
+			"supportsVideoOutbound",
+			"supportsVoiceOutbound",
+			"supportsFileOutbound",
+			"supportsRemoteMediaURLSource",
+			"supportsLocalMediaPathSource",
+			"supportsProactivePush",
+			"supportsSessionlessPush",
 		}
 	default:
 		return []string{
@@ -2049,6 +2469,17 @@ func deliveryRouteFromConversation(connection store.BotConnection, conversation 
 		return "telegram_chat", "chat:" + chatID
 	case wechatProviderName:
 		return "wechat_session", "user:" + chatID
+	case "feishu":
+		if threadID != "" {
+			return "feishu_thread", "chat:" + chatID + ":thread:" + threadID
+		}
+		return "feishu_chat", "chat:" + chatID
+	case "qqbot":
+		if strings.EqualFold(strings.TrimSpace(conversation.ProviderState["qqbot_message_type"]), "c2c") {
+			userOpenID := firstNonEmpty(strings.TrimSpace(conversation.ExternalUserID), chatID)
+			return "qqbot_c2c", "user:" + userOpenID
+		}
+		return "qqbot_group", "group:" + chatID
 	default:
 		if threadID != "" {
 			return "thread", "conversation:" + conversationID + ":thread:" + threadID
@@ -2070,6 +2501,15 @@ func canonicalRouteForTargetType(routeType string, conversation store.BotConvers
 		return "telegram_topic", "chat:" + chatID + ":thread:" + threadID
 	case "wechat_session":
 		return "wechat_session", "user:" + chatID
+	case "feishu_chat":
+		return "feishu_chat", "chat:" + chatID
+	case "feishu_thread":
+		return "feishu_thread", "chat:" + chatID + ":thread:" + threadID
+	case "qqbot_group":
+		return "qqbot_group", "group:" + chatID
+	case "qqbot_c2c":
+		userOpenID := firstNonEmpty(strings.TrimSpace(conversation.ExternalUserID), chatID)
+		return "qqbot_c2c", "user:" + userOpenID
 	case "thread":
 		return "thread", "conversation:" + conversationID + ":thread:" + threadID
 	case "conversation", "session", "chat":
@@ -2144,6 +2584,48 @@ func buildSyntheticConversationForTarget(connection store.BotConnection, target 
 		conversation.ExternalUserID = toUserID
 		conversation.ExternalConversationID = toUserID
 
+	case "feishu_chat":
+		chatID, _, err := parseFeishuDeliveryRoute(routeKey, target.ProviderState)
+		if err != nil {
+			return store.BotConversation{}, err
+		}
+		conversation.ExternalChatID = chatID
+		conversation.ExternalConversationID = firstNonEmpty(strings.TrimSpace(target.ProviderState["feishu_conversation_id"]), chatID)
+		conversation.ExternalUserID = strings.TrimSpace(target.ProviderState["feishu_user_open_id"])
+		conversation.ExternalTitle = firstNonEmpty(conversation.ExternalTitle, strings.TrimSpace(target.ProviderState["feishu_chat_name"]))
+
+	case "feishu_thread":
+		chatID, threadID, err := parseFeishuDeliveryRoute(routeKey, target.ProviderState)
+		if err != nil {
+			return store.BotConversation{}, err
+		}
+		if strings.TrimSpace(threadID) == "" {
+			return store.BotConversation{}, fmt.Errorf("%w: feishu thread targets require a thread id", ErrInvalidInput)
+		}
+		conversation.ExternalChatID = chatID
+		conversation.ExternalThreadID = threadID
+		conversation.ExternalConversationID = firstNonEmpty(strings.TrimSpace(target.ProviderState["feishu_conversation_id"]), "chat:"+chatID+":thread:"+threadID)
+		conversation.ExternalUserID = strings.TrimSpace(target.ProviderState["feishu_user_open_id"])
+		conversation.ExternalTitle = firstNonEmpty(conversation.ExternalTitle, strings.TrimSpace(target.ProviderState["feishu_chat_name"]))
+
+	case "qqbot_group", "qqbot_c2c":
+		messageType, groupOpenID, userOpenID, err := parseQQBotDeliveryRoute(routeType, routeKey, target.ProviderState)
+		if err != nil {
+			return store.BotConversation{}, err
+		}
+		conversation.ProviderState = mergeProviderState(conversation.ProviderState, map[string]string{
+			"qqbot_message_type": messageType,
+		})
+		conversation.ExternalUserID = userOpenID
+		switch messageType {
+		case "c2c":
+			conversation.ExternalChatID = userOpenID
+			conversation.ExternalConversationID = "user:" + userOpenID
+		default:
+			conversation.ExternalChatID = groupOpenID
+			conversation.ExternalConversationID = firstNonEmpty("group:"+groupOpenID, groupOpenID)
+		}
+
 	case "thread":
 		conversationID, threadID, err := parseGenericThreadRoute(routeKey)
 		if err != nil {
@@ -2214,6 +2696,63 @@ func parseWeChatDeliveryRoute(routeKey string, providerState map[string]string) 
 		return "", fmt.Errorf("%w: wechat route key must include a user id", ErrInvalidInput)
 	}
 	return strings.TrimSpace(toUserID), nil
+}
+
+func parseFeishuDeliveryRoute(routeKey string, providerState map[string]string) (string, string, error) {
+	chatID := strings.TrimSpace(providerState["feishu_chat_id"])
+	threadID := firstNonEmpty(strings.TrimSpace(providerState["feishu_thread_id"]), strings.TrimSpace(providerState["feishu_root_id"]))
+	normalized := strings.TrimSpace(routeKey)
+	lower := strings.ToLower(normalized)
+	switch {
+	case strings.HasPrefix(lower, "chat:"):
+		normalized = normalized[len("chat:"):]
+	case strings.HasPrefix(lower, "conversation:"):
+		normalized = normalized[len("conversation:"):]
+	}
+	if before, after, ok := strings.Cut(normalized, ":thread:"); ok {
+		if chatID == "" {
+			chatID = strings.TrimSpace(before)
+		}
+		if threadID == "" {
+			threadID = strings.TrimSpace(after)
+		}
+	} else if chatID == "" {
+		chatID = strings.TrimSpace(normalized)
+	}
+	if chatID == "" {
+		return "", "", fmt.Errorf("%w: feishu route key must include a chat id", ErrInvalidInput)
+	}
+	return chatID, threadID, nil
+}
+
+func parseQQBotDeliveryRoute(routeType string, routeKey string, providerState map[string]string) (string, string, string, error) {
+	normalizedRouteType := strings.ToLower(strings.TrimSpace(routeType))
+	normalizedRouteKey := strings.TrimSpace(routeKey)
+	groupOpenID := strings.TrimSpace(providerState["qqbot_group_openid"])
+	userOpenID := strings.TrimSpace(providerState["qqbot_user_openid"])
+
+	switch {
+	case normalizedRouteType == "qqbot_c2c":
+		normalizedRouteKey = strings.TrimPrefix(normalizedRouteKey, "user:")
+		if userOpenID == "" {
+			userOpenID = strings.TrimSpace(normalizedRouteKey)
+		}
+		if userOpenID == "" {
+			return "", "", "", fmt.Errorf("%w: qqbot c2c route key must include a user openid", ErrInvalidInput)
+		}
+		return "c2c", "", userOpenID, nil
+	case normalizedRouteType == "qqbot_group":
+		normalizedRouteKey = strings.TrimPrefix(normalizedRouteKey, "group:")
+		if groupOpenID == "" {
+			groupOpenID = strings.TrimSpace(normalizedRouteKey)
+		}
+		if groupOpenID == "" {
+			return "", "", "", fmt.Errorf("%w: qqbot group route key must include a group openid", ErrInvalidInput)
+		}
+		return "group", groupOpenID, userOpenID, nil
+	default:
+		return "", "", "", fmt.Errorf("%w: unsupported qqbot route type %q", ErrInvalidInput, routeType)
+	}
 }
 
 func normalizeRouteBackedTargetProviderState(
@@ -2473,7 +3012,89 @@ func (s *Service) resolveConversationForDeliveryTarget(
 			resolution.ToUserID,
 		)
 	}
+	if shouldReuseLatestRouteBackedConversation(connection.Provider) {
+		sendConversation, storedConversation := s.resolveLatestRouteBackedConversation(
+			workspaceID,
+			connection,
+			target,
+			synthetic,
+		)
+		return sendConversation, storedConversation, nil
+	}
 	return synthetic, nil, nil
+}
+
+func shouldReuseLatestRouteBackedConversation(provider string) bool {
+	switch normalizeProviderName(provider) {
+	case feishuProviderName, qqbotProviderName:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) resolveLatestRouteBackedConversation(
+	workspaceID string,
+	connection store.BotConnection,
+	target store.BotDeliveryTarget,
+	synthetic store.BotConversation,
+) (store.BotConversation, *store.BotConversation) {
+	routeType, routeKey := canonicalRouteForTargetType(
+		normalizeRouteTypeForTarget(connection, target.RouteType, target.RouteKey),
+		synthetic,
+	)
+
+	var latestMatch *store.BotConversation
+	latestUpdatedAt := time.Time{}
+
+	conversations := s.store.ListBotConversations(workspaceID, connection.ID)
+	for _, candidate := range conversations {
+		resolvedConversation := s.ensureConversationBotIdentity(candidate, connection)
+		candidateRouteType, candidateRouteKey := deliveryRouteFromConversation(connection, resolvedConversation)
+		candidateRouteType, candidateRouteKey = canonicalRouteForTargetType(candidateRouteType, resolvedConversation)
+		if strings.TrimSpace(candidateRouteType) != strings.TrimSpace(routeType) ||
+			strings.TrimSpace(candidateRouteKey) != strings.TrimSpace(routeKey) {
+			continue
+		}
+		if latestMatch == nil || resolvedConversation.UpdatedAt.After(latestUpdatedAt) {
+			conversationCopy := resolvedConversation
+			latestMatch = &conversationCopy
+			latestUpdatedAt = resolvedConversation.UpdatedAt
+		}
+	}
+
+	if latestMatch == nil {
+		return synthetic, nil
+	}
+
+	sendConversation := *latestMatch
+	sendConversation.ExternalConversationID = firstNonEmpty(
+		strings.TrimSpace(sendConversation.ExternalConversationID),
+		strings.TrimSpace(synthetic.ExternalConversationID),
+	)
+	sendConversation.ExternalChatID = firstNonEmpty(
+		strings.TrimSpace(sendConversation.ExternalChatID),
+		strings.TrimSpace(synthetic.ExternalChatID),
+	)
+	sendConversation.ExternalThreadID = firstNonEmpty(
+		strings.TrimSpace(sendConversation.ExternalThreadID),
+		strings.TrimSpace(synthetic.ExternalThreadID),
+	)
+	sendConversation.ExternalUserID = firstNonEmpty(
+		strings.TrimSpace(sendConversation.ExternalUserID),
+		strings.TrimSpace(synthetic.ExternalUserID),
+	)
+	sendConversation.ExternalUsername = firstNonEmpty(
+		strings.TrimSpace(sendConversation.ExternalUsername),
+		strings.TrimSpace(synthetic.ExternalUsername),
+	)
+	sendConversation.ExternalTitle = firstNonEmpty(
+		strings.TrimSpace(sendConversation.ExternalTitle),
+		strings.TrimSpace(synthetic.ExternalTitle),
+	)
+	sendConversation.ProviderState = mergeProviderState(target.ProviderState, sendConversation.ProviderState)
+
+	return sendConversation, latestMatch
 }
 
 func (s *Service) findExistingOutboundDeliveryByIdempotency(
@@ -3566,7 +4187,13 @@ func (s *Service) HandleWebhook(r *http.Request, connectionID string) (WebhookRe
 		return WebhookResult{}, nil
 	}
 
-	messages, err := provider.ParseWebhook(r, connection)
+	result := WebhookResult{}
+	var messages []InboundMessage
+	if advancedProvider, ok := provider.(WebhookResultProvider); ok {
+		result, messages, err = advancedProvider.ParseWebhookResult(r, connection)
+	} else {
+		messages, err = provider.ParseWebhook(r, connection)
+	}
 	if err != nil {
 		return WebhookResult{}, err
 	}
@@ -3582,7 +4209,8 @@ func (s *Service) HandleWebhook(r *http.Request, connectionID string) (WebhookRe
 		}
 	}
 
-	return WebhookResult{Accepted: accepted}, nil
+	result.Accepted = accepted
+	return result, nil
 }
 
 func (s *Service) registerProvider(provider Provider) {
@@ -8429,6 +9057,9 @@ func botViewFromStore(bot store.Bot, defaultBinding store.BotBinding, endpointCo
 	return BotView{
 		ID:                     strings.TrimSpace(bot.ID),
 		WorkspaceID:            strings.TrimSpace(bot.WorkspaceID),
+		Scope:                  normalizeBotScopeValue(bot.Scope),
+		SharingMode:            normalizeResolvedBotSharingMode(bot),
+		SharedWorkspaceIDs:     cloneStringSliceLocal(normalizeWorkspaceIDList(bot.SharedWorkspaceIDs)),
 		Name:                   strings.TrimSpace(bot.Name),
 		Description:            strings.TrimSpace(bot.Description),
 		Status:                 strings.TrimSpace(bot.Status),
@@ -8521,10 +9152,249 @@ func (s *Service) deliveryTargetReadinessState(target store.BotDeliveryTarget) d
 	return readiness
 }
 
+func recipientCandidateConversationReadinessState(
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) deliveryTargetReadinessState {
+	lastContextSeenAt := cloneTimeValue(conversation.UpdatedAt)
+	readiness := readyDeliveryTargetReadinessState(lastContextSeenAt)
+	if normalizeProviderName(connection.Provider) == wechatProviderName &&
+		strings.TrimSpace(conversation.ProviderState[wechatContextTokenKey]) == "" {
+		readiness = waitingDeliveryTargetReadinessState(lastContextSeenAt, wechatWaitingForContextMessage())
+	}
+	if !strings.EqualFold(strings.TrimSpace(connection.Status), "active") {
+		readiness.Readiness = deliveryTargetReadinessWaiting
+		readiness.Message = inactiveProviderDeliveryTargetMessage(connection.Status)
+	}
+	return readiness
+}
+
+func recipientCandidateFromConversation(
+	workspaceID string,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) RecipientCandidateView {
+	routeType, routeKey := deliveryRouteFromConversation(connection, conversation)
+	return recipientCandidateView(
+		workspaceID,
+		connection,
+		routeType,
+		routeKey,
+		strings.TrimSpace(conversation.ExternalChatID),
+		strings.TrimSpace(conversation.ExternalThreadID),
+		recipientCandidateTitle(conversation.ExternalTitle, conversation.ExternalUsername, conversation.ExternalUserID, conversation.ExternalChatID),
+		"conversation",
+		strings.TrimSpace(conversation.ID),
+		cloneTimeValue(conversation.UpdatedAt),
+	).withReadiness(recipientCandidateConversationReadinessState(connection, conversation))
+}
+
+func (s *Service) recipientCandidateFromDeliveryTarget(
+	workspaceID string,
+	connection store.BotConnection,
+	target store.BotDeliveryTarget,
+) (RecipientCandidateView, bool) {
+	if strings.TrimSpace(target.ConnectionID) != strings.TrimSpace(connection.ID) {
+		return RecipientCandidateView{}, false
+	}
+
+	source := "saved_target"
+	switch strings.TrimSpace(target.TargetType) {
+	case "session_backed":
+		conversationID := strings.TrimSpace(target.ConversationID)
+		if conversationID == "" {
+			return RecipientCandidateView{}, false
+		}
+		conversation, ok := s.store.GetBotConversation(workspaceID, conversationID)
+		if !ok || strings.TrimSpace(conversation.ConnectionID) != strings.TrimSpace(connection.ID) {
+			return RecipientCandidateView{}, false
+		}
+		conversation = s.ensureConversationBotIdentity(conversation, connection)
+		routeType, routeKey := deliveryRouteFromConversation(connection, conversation)
+		lastSeenAt := cloneTimeValue(conversation.UpdatedAt)
+		if lastSeenAt == nil {
+			lastSeenAt = cloneTimeValue(target.UpdatedAt)
+		}
+		return recipientCandidateView(
+			workspaceID,
+			connection,
+			routeType,
+			routeKey,
+			strings.TrimSpace(conversation.ExternalChatID),
+			strings.TrimSpace(conversation.ExternalThreadID),
+			firstNonEmpty(strings.TrimSpace(target.Title), recipientCandidateTitle(conversation.ExternalTitle, conversation.ExternalUsername, conversation.ExternalUserID, conversation.ExternalChatID)),
+			source,
+			strings.TrimSpace(target.ID),
+			lastSeenAt,
+		).withReadiness(s.deliveryTargetReadinessState(target)), true
+
+	case "route_backed":
+		syntheticConversation, err := buildSyntheticConversationForTarget(connection, target)
+		if err != nil {
+			return RecipientCandidateView{}, false
+		}
+		normalizedRouteType := normalizeRouteTypeForTarget(connection, target.RouteType, target.RouteKey)
+		routeType, routeKey := canonicalRouteForTargetType(normalizedRouteType, syntheticConversation)
+		lastSeenAt := cloneOptionalTimeLocal(target.LastVerifiedAt)
+		if lastSeenAt == nil {
+			lastSeenAt = cloneTimeValue(target.UpdatedAt)
+		}
+		return recipientCandidateView(
+			workspaceID,
+			connection,
+			routeType,
+			routeKey,
+			strings.TrimSpace(syntheticConversation.ExternalChatID),
+			strings.TrimSpace(syntheticConversation.ExternalThreadID),
+			firstNonEmpty(strings.TrimSpace(target.Title), recipientCandidateTitle(syntheticConversation.ExternalTitle, syntheticConversation.ExternalUsername, syntheticConversation.ExternalUserID, syntheticConversation.ExternalChatID)),
+			source,
+			strings.TrimSpace(target.ID),
+			lastSeenAt,
+		).withReadiness(s.deliveryTargetReadinessState(target)), true
+	default:
+		return RecipientCandidateView{}, false
+	}
+}
+
+func recipientCandidateView(
+	workspaceID string,
+	connection store.BotConnection,
+	routeType string,
+	routeKey string,
+	chatID string,
+	threadID string,
+	title string,
+	source string,
+	sourceRefID string,
+	lastSeenAt *time.Time,
+) RecipientCandidateView {
+	return RecipientCandidateView{
+		ID:           recipientCandidateID(connection.ID, source, sourceRefID, routeType, routeKey),
+		WorkspaceID:  strings.TrimSpace(workspaceID),
+		ConnectionID: strings.TrimSpace(connection.ID),
+		Provider:     strings.TrimSpace(connection.Provider),
+		RouteType:    strings.TrimSpace(routeType),
+		RouteKey:     strings.TrimSpace(routeKey),
+		ChatID:       strings.TrimSpace(chatID),
+		ThreadID:     strings.TrimSpace(threadID),
+		Title:        strings.TrimSpace(title),
+		Source:       strings.TrimSpace(source),
+		SourceRefID:  strings.TrimSpace(sourceRefID),
+		LastSeenAt:   cloneOptionalTimeLocal(lastSeenAt),
+	}
+}
+
+func (view RecipientCandidateView) withReadiness(readiness deliveryTargetReadinessState) RecipientCandidateView {
+	view.DeliveryReadiness = strings.TrimSpace(readiness.Readiness)
+	view.DeliveryReadinessMessage = strings.TrimSpace(readiness.Message)
+	view.LastContextSeenAt = cloneOptionalTimeLocal(readiness.LastContextSeenAt)
+	return view
+}
+
+func recipientCandidateID(connectionID string, source string, sourceRefID string, routeType string, routeKey string) string {
+	signature := strings.Join([]string{
+		strings.TrimSpace(connectionID),
+		strings.TrimSpace(source),
+		strings.TrimSpace(sourceRefID),
+		strings.ToLower(strings.TrimSpace(routeType)),
+		strings.TrimSpace(routeKey),
+	}, "|")
+	digest := sha1.Sum([]byte(signature))
+	return "brc_" + hex.EncodeToString(digest[:])[:16]
+}
+
+func recipientCandidateSignature(candidate RecipientCandidateView) string {
+	return strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(candidate.RouteType)),
+		strings.TrimSpace(candidate.ChatID),
+		strings.TrimSpace(candidate.ThreadID),
+	}, "\n")
+}
+
+func recipientCandidateTitle(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func recipientCandidateSourcePriority(source string) int {
+	switch strings.TrimSpace(source) {
+	case "saved_target":
+		return 0
+	case "conversation":
+		return 1
+	case "connection_owner":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func recipientCandidateTime(lastSeenAt *time.Time) time.Time {
+	if lastSeenAt == nil {
+		return time.Time{}
+	}
+	return lastSeenAt.UTC()
+}
+
+func shouldReplaceRecipientCandidate(current RecipientCandidateView, next RecipientCandidateView) bool {
+	currentPriority := recipientCandidateSourcePriority(current.Source)
+	nextPriority := recipientCandidateSourcePriority(next.Source)
+	if nextPriority != currentPriority {
+		return nextPriority < currentPriority
+	}
+
+	currentTime := recipientCandidateTime(current.LastSeenAt)
+	nextTime := recipientCandidateTime(next.LastSeenAt)
+	if !currentTime.Equal(nextTime) {
+		return nextTime.After(currentTime)
+	}
+
+	if strings.TrimSpace(current.Title) == "" && strings.TrimSpace(next.Title) != "" {
+		return true
+	}
+	if strings.TrimSpace(current.SourceRefID) == "" && strings.TrimSpace(next.SourceRefID) != "" {
+		return true
+	}
+	return false
+}
+
+func recipientCandidateLess(left RecipientCandidateView, right RecipientCandidateView) bool {
+	leftPriority := recipientCandidateSourcePriority(left.Source)
+	rightPriority := recipientCandidateSourcePriority(right.Source)
+	if leftPriority != rightPriority {
+		return leftPriority < rightPriority
+	}
+
+	leftTime := recipientCandidateTime(left.LastSeenAt)
+	rightTime := recipientCandidateTime(right.LastSeenAt)
+	if !leftTime.Equal(rightTime) {
+		return leftTime.After(rightTime)
+	}
+
+	leftTitle := strings.ToLower(strings.TrimSpace(left.Title))
+	rightTitle := strings.ToLower(strings.TrimSpace(right.Title))
+	if leftTitle != rightTitle {
+		return leftTitle < rightTitle
+	}
+	if strings.TrimSpace(left.ChatID) != strings.TrimSpace(right.ChatID) {
+		return strings.TrimSpace(left.ChatID) < strings.TrimSpace(right.ChatID)
+	}
+	if strings.TrimSpace(left.ThreadID) != strings.TrimSpace(right.ThreadID) {
+		return strings.TrimSpace(left.ThreadID) < strings.TrimSpace(right.ThreadID)
+	}
+	return strings.TrimSpace(left.ID) < strings.TrimSpace(right.ID)
+}
+
 func (s *Service) deliveryTargetViewFromStore(target store.BotDeliveryTarget) DeliveryTargetView {
 	readiness := s.deliveryTargetReadinessState(target)
 	return DeliveryTargetView{
 		ID:                       strings.TrimSpace(target.ID),
+		WorkspaceID:              strings.TrimSpace(target.WorkspaceID),
 		BotID:                    strings.TrimSpace(target.BotID),
 		EndpointID:               strings.TrimSpace(target.ConnectionID),
 		SessionID:                strings.TrimSpace(target.ConversationID),

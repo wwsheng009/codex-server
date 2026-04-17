@@ -28,6 +28,7 @@ import (
 	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/logging"
 	"codex-server/backend/internal/memorydiag"
+	"codex-server/backend/internal/notificationcenter"
 	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/runtimeprefs"
@@ -99,11 +100,12 @@ func runServer(cfg config.Config) error {
 	turnService := turns.NewService(runtimeManager, dataStore)
 	hookService := hooks.NewService(dataStore, turnService, eventHub)
 	botService := bots.NewService(dataStore, threadService, hooks.NewGovernedTurnStarter(hookService, "bot/webhook", "thread"), eventHub, bots.Config{
-		PublicBaseURL:    cfg.PublicBaseURL,
-		OutboundProxyURL: cfg.OutboundProxyURL,
-		MessageTimeout:   cfg.BotMessageTimeout,
-		PollInterval:     cfg.BotPollInterval,
-		TurnTimeout:      cfg.BotTurnTimeout,
+		PublicBaseURL:                     cfg.PublicBaseURL,
+		OutboundProxyURL:                  cfg.OutboundProxyURL,
+		MessageTimeout:                    cfg.BotMessageTimeout,
+		PollInterval:                      cfg.BotPollInterval,
+		TurnTimeout:                       cfg.BotTurnTimeout,
+		NotificationCenterManagedTriggers: true,
 	})
 	automationService := automations.NewService(
 		dataStore,
@@ -114,6 +116,9 @@ func runServer(cfg config.Config) error {
 	turnPolicyService := turnpolicies.NewService(dataStore, turnService, eventHub)
 	runtimeManager.SetServerRequestInterceptor(hookService)
 	notificationsService := notifications.NewService(dataStore)
+	notificationCenterService := notificationcenter.NewService(dataStore, eventHub, notificationsService, botService, notificationcenter.Config{
+		EmailSender: notificationcenter.NewEmailSender(dataStore, logger),
+	})
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	catalogService := catalog.NewService(runtimeManager, runtimePrefsService)
 	configFSService := configfs.NewService(runtimeManager)
@@ -126,6 +131,7 @@ func runServer(cfg config.Config) error {
 	defer serviceCancel()
 	automationService.Start(serviceCtx)
 	botService.Start(serviceCtx)
+	notificationCenterService.Start(serviceCtx)
 	turnPolicyService.SetHooksPrimary(true)
 	hookService.Start(serviceCtx)
 	turnPolicyService.Start(serviceCtx)
@@ -146,24 +152,25 @@ func runServer(cfg config.Config) error {
 				return false
 			}
 		},
-		Auth:              authService,
-		Workspaces:        workspaceService,
-		Bots:              botService,
-		Automations:       automationService,
-		Notifications:     notificationsService,
-		Hooks:             hookService,
-		TurnPolicies:      turnPolicyService,
-		Threads:           threadService,
-		Turns:             turnService,
-		Approvals:         approvalsService,
-		Catalog:           catalogService,
-		ConfigFS:          configFSService,
-		ExecFS:            execfsService,
-		Feedback:          feedbackService,
-		Events:            eventHub,
-		RuntimePrefs:      runtimePrefsService,
-		MemoryDiagnostics: memoryDiagService,
-		AccessControl:     accessControlService,
+		Auth:               authService,
+		Workspaces:         workspaceService,
+		Bots:               botService,
+		Automations:        automationService,
+		Notifications:      notificationsService,
+		NotificationCenter: notificationCenterService,
+		Hooks:              hookService,
+		TurnPolicies:       turnPolicyService,
+		Threads:            threadService,
+		Turns:              turnService,
+		Approvals:          approvalsService,
+		Catalog:            catalogService,
+		ConfigFS:           configFSService,
+		ExecFS:             execfsService,
+		Feedback:           feedbackService,
+		Events:             eventHub,
+		RuntimePrefs:       runtimePrefsService,
+		MemoryDiagnostics:  memoryDiagService,
+		AccessControl:      accessControlService,
 	})
 
 	server := &http.Server{

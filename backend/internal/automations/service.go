@@ -632,7 +632,6 @@ func (s *Service) completeRun(
 		return current
 	})
 
-	notification := s.createNotificationForRun(updatedRun, automation)
 	s.publishAutomationEvent(updatedRun.WorkspaceID, updatedRun.ThreadID, updatedRun.TurnID, "automation/run/completed", map[string]any{
 		"automationId":    updatedRun.AutomationID,
 		"automationTitle": updatedRun.AutomationTitle,
@@ -640,7 +639,6 @@ func (s *Service) completeRun(
 		"status":          updatedRun.Status,
 		"summary":         updatedRun.Summary,
 		"error":           updatedRun.Error,
-		"notificationId":  notification.ID,
 		"finishedAt":      now.Format(time.RFC3339),
 	})
 }
@@ -661,25 +659,11 @@ func (s *Service) failToSchedule(automation store.Automation, now time.Time, err
 		return current
 	})
 
-	notification, notificationErr := s.store.CreateNotification(store.Notification{
-		WorkspaceID:     automation.WorkspaceID,
-		WorkspaceName:   automation.WorkspaceName,
-		AutomationID:    automation.ID,
-		AutomationTitle: automation.Title,
-		Kind:            "automation_run_failed",
-		Title:           "Automation scheduling failed",
-		Message:         fmt.Sprintf("%s: %s", automation.Title, err.Error()),
-		Level:           "error",
+	s.publishAutomationEvent(automation.WorkspaceID, automation.ThreadID, "", "automation/run/schedule_failed", map[string]any{
+		"automationId":    automation.ID,
+		"automationTitle": automation.Title,
+		"error":           err.Error(),
 	})
-	if notificationErr == nil {
-		s.publishAutomationEvent(automation.WorkspaceID, automation.ThreadID, "", "notification/created", map[string]any{
-			"notificationId": notification.ID,
-			"kind":           notification.Kind,
-			"title":          notification.Title,
-			"message":        notification.Message,
-			"level":          notification.Level,
-		})
-	}
 }
 
 func (s *Service) skipAutomationRun(automation store.Automation, now time.Time) {
@@ -690,25 +674,11 @@ func (s *Service) skipAutomationRun(automation store.Automation, now time.Time) 
 		return current
 	})
 
-	notification, err := s.store.CreateNotification(store.Notification{
-		WorkspaceID:     automation.WorkspaceID,
-		WorkspaceName:   automation.WorkspaceName,
-		AutomationID:    automation.ID,
-		AutomationTitle: automation.Title,
-		Kind:            "automation_run_skipped",
-		Title:           "Automation skipped",
-		Message:         fmt.Sprintf("%s skipped because a previous run is still active.", automation.Title),
-		Level:           "warning",
+	s.publishAutomationEvent(automation.WorkspaceID, automation.ThreadID, "", "automation/run/skipped", map[string]any{
+		"automationId":    automation.ID,
+		"automationTitle": automation.Title,
+		"message":         fmt.Sprintf("%s skipped because a previous run is still active.", automation.Title),
 	})
-	if err == nil {
-		s.publishAutomationEvent(automation.WorkspaceID, automation.ThreadID, "", "notification/created", map[string]any{
-			"notificationId": notification.ID,
-			"kind":           notification.Kind,
-			"title":          notification.Title,
-			"message":        notification.Message,
-			"level":          notification.Level,
-		})
-	}
 }
 
 func (s *Service) ensureThread(ctx context.Context, automation store.Automation) (string, store.Automation, error) {
@@ -735,50 +705,6 @@ func (s *Service) ensureThread(ctx context.Context, automation store.Automation)
 	}
 
 	return thread.ID, s.hydrate(updatedAutomation), nil
-}
-
-func (s *Service) createNotificationForRun(run store.AutomationRun, automation store.Automation) store.Notification {
-	kind := "automation_run_completed"
-	title := "Automation completed"
-	message := fmt.Sprintf("%s completed successfully.", automation.Title)
-	level := "success"
-
-	if run.Status != "completed" {
-		kind = "automation_run_failed"
-		title = "Automation failed"
-		message = fmt.Sprintf("%s failed: %s", automation.Title, firstNonEmpty(run.Error, "Unknown error"))
-		level = "error"
-	} else if strings.TrimSpace(run.Summary) != "" {
-		message = fmt.Sprintf("%s: %s", automation.Title, summarizeNotificationMessage(run.Summary))
-	}
-
-	notification, err := s.store.CreateNotification(store.Notification{
-		WorkspaceID:     run.WorkspaceID,
-		WorkspaceName:   run.WorkspaceName,
-		AutomationID:    run.AutomationID,
-		AutomationTitle: run.AutomationTitle,
-		RunID:           run.ID,
-		Kind:            kind,
-		Title:           title,
-		Message:         message,
-		Level:           level,
-	})
-	if err != nil {
-		return store.Notification{}
-	}
-
-	s.publishAutomationEvent(run.WorkspaceID, run.ThreadID, run.TurnID, "notification/created", map[string]any{
-		"notificationId": notification.ID,
-		"automationId":   notification.AutomationID,
-		"runId":          notification.RunID,
-		"kind":           notification.Kind,
-		"title":          notification.Title,
-		"message":        notification.Message,
-		"level":          notification.Level,
-		"read":           notification.Read,
-	})
-
-	return notification
 }
 
 func (s *Service) handleEvent(ctx context.Context, event store.EventEnvelope) {

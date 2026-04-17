@@ -156,6 +156,92 @@ type Notification struct {
 	ReadAt            *time.Time `json:"readAt,omitempty"`
 }
 
+type NotificationChannelBinding struct {
+	Channel       string            `json:"channel"`
+	TargetRefType string            `json:"targetRefType"`
+	TargetRefID   string            `json:"targetRefId,omitempty"`
+	TitleTemplate string            `json:"titleTemplate,omitempty"`
+	BodyTemplate  string            `json:"bodyTemplate,omitempty"`
+	Settings      map[string]string `json:"settings,omitempty"`
+}
+
+type NotificationSubscription struct {
+	ID          string                       `json:"id"`
+	WorkspaceID string                       `json:"workspaceId"`
+	Topic       string                       `json:"topic"`
+	SourceType  string                       `json:"sourceType,omitempty"`
+	Filter      map[string]string            `json:"filter,omitempty"`
+	Channels    []NotificationChannelBinding `json:"channels,omitempty"`
+	Enabled     bool                         `json:"enabled"`
+	CreatedAt   time.Time                    `json:"createdAt"`
+	UpdatedAt   time.Time                    `json:"updatedAt"`
+}
+
+type NotificationEmailTarget struct {
+	ID              string    `json:"id"`
+	WorkspaceID     string    `json:"workspaceId"`
+	Name            string    `json:"name"`
+	Emails          []string  `json:"emails,omitempty"`
+	SubjectTemplate string    `json:"subjectTemplate,omitempty"`
+	BodyTemplate    string    `json:"bodyTemplate,omitempty"`
+	Enabled         bool      `json:"enabled"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+type NotificationMailServerConfig struct {
+	WorkspaceID string    `json:"workspaceId"`
+	Enabled     bool      `json:"enabled"`
+	Host        string    `json:"host,omitempty"`
+	Port        int       `json:"port,omitempty"`
+	Username    string    `json:"username,omitempty"`
+	Password    string    `json:"password,omitempty"`
+	PasswordSet bool      `json:"passwordSet,omitempty"`
+	From        string    `json:"from,omitempty"`
+	RequireTLS  bool      `json:"requireTls"`
+	SkipVerify  bool      `json:"skipVerify"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type NotificationDispatch struct {
+	ID                    string     `json:"id"`
+	WorkspaceID           string     `json:"workspaceId"`
+	SubscriptionID        string     `json:"subscriptionId,omitempty"`
+	EventKey              string     `json:"eventKey"`
+	DedupKey              string     `json:"dedupKey,omitempty"`
+	Topic                 string     `json:"topic"`
+	SourceType            string     `json:"sourceType,omitempty"`
+	SourceRefType         string     `json:"sourceRefType,omitempty"`
+	SourceRefID           string     `json:"sourceRefId,omitempty"`
+	Channel               string     `json:"channel"`
+	TargetRefType         string     `json:"targetRefType"`
+	TargetRefID           string     `json:"targetRefId,omitempty"`
+	Title                 string     `json:"title,omitempty"`
+	Message               string     `json:"message,omitempty"`
+	Level                 string     `json:"level,omitempty"`
+	Status                string     `json:"status"`
+	Error                 string     `json:"error,omitempty"`
+	AttemptCount          int        `json:"attemptCount,omitempty"`
+	NotificationID        string     `json:"notificationId,omitempty"`
+	BotOutboundDeliveryID string     `json:"botOutboundDeliveryId,omitempty"`
+	CreatedAt             time.Time  `json:"createdAt"`
+	UpdatedAt             time.Time  `json:"updatedAt"`
+	DeliveredAt           *time.Time `json:"deliveredAt,omitempty"`
+}
+
+type NotificationDispatchFilter struct {
+	SubscriptionID string `json:"subscriptionId,omitempty"`
+	Topic          string `json:"topic,omitempty"`
+	Channel        string `json:"channel,omitempty"`
+	Status         string `json:"status,omitempty"`
+	TargetRefType  string `json:"targetRefType,omitempty"`
+	TargetRefID    string `json:"targetRefId,omitempty"`
+	SourceRefType  string `json:"sourceRefType,omitempty"`
+	SourceRefID    string `json:"sourceRefId,omitempty"`
+	EventKey       string `json:"eventKey,omitempty"`
+}
+
 type TurnPolicyDecision struct {
 	ID                  string    `json:"id"`
 	WorkspaceID         string    `json:"workspaceId"`
@@ -216,14 +302,17 @@ type HookRun struct {
 }
 
 type Bot struct {
-	ID               string    `json:"id"`
-	WorkspaceID      string    `json:"workspaceId"`
-	Name             string    `json:"name"`
-	Description      string    `json:"description,omitempty"`
-	Status           string    `json:"status"`
-	DefaultBindingID string    `json:"defaultBindingId,omitempty"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	ID                 string    `json:"id"`
+	WorkspaceID        string    `json:"workspaceId"`
+	Scope              string    `json:"scope,omitempty"`
+	SharingMode        string    `json:"sharingMode,omitempty"`
+	SharedWorkspaceIDs []string  `json:"sharedWorkspaceIds,omitempty"`
+	Name               string    `json:"name"`
+	Description        string    `json:"description,omitempty"`
+	Status             string    `json:"status"`
+	DefaultBindingID   string    `json:"defaultBindingId,omitempty"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 type BotBinding struct {

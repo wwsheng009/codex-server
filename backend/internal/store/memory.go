@@ -24,23 +24,27 @@ import (
 )
 
 var (
-	ErrWorkspaceNotFound           = errors.New("workspace not found")
-	ErrThreadNotFound              = errors.New("thread not found")
-	ErrApprovalNotFound            = errors.New("approval not found")
-	ErrAutomationNotFound          = errors.New("automation not found")
-	ErrAutomationTemplateNotFound  = errors.New("automation template not found")
-	ErrAutomationRunNotFound       = errors.New("automation run not found")
-	ErrNotificationNotFound        = errors.New("notification not found")
-	ErrBotNotFound                 = errors.New("bot not found")
-	ErrBotBindingNotFound          = errors.New("bot binding not found")
-	ErrThreadBotBindingNotFound    = errors.New("thread bot binding not found")
-	ErrBotTriggerNotFound          = errors.New("bot trigger not found")
-	ErrBotConnectionNotFound       = errors.New("bot connection not found")
-	ErrBotDeliveryTargetNotFound   = errors.New("bot delivery target not found")
-	ErrWeChatAccountNotFound       = errors.New("wechat account not found")
-	ErrBotConversationNotFound     = errors.New("bot conversation not found")
-	ErrBotInboundDeliveryNotFound  = errors.New("bot inbound delivery not found")
-	ErrBotOutboundDeliveryNotFound = errors.New("bot outbound delivery not found")
+	ErrWorkspaceNotFound                    = errors.New("workspace not found")
+	ErrThreadNotFound                       = errors.New("thread not found")
+	ErrApprovalNotFound                     = errors.New("approval not found")
+	ErrAutomationNotFound                   = errors.New("automation not found")
+	ErrAutomationTemplateNotFound           = errors.New("automation template not found")
+	ErrAutomationRunNotFound                = errors.New("automation run not found")
+	ErrNotificationNotFound                 = errors.New("notification not found")
+	ErrNotificationSubscriptionNotFound     = errors.New("notification subscription not found")
+	ErrNotificationEmailTargetNotFound      = errors.New("notification email target not found")
+	ErrNotificationMailServerConfigNotFound = errors.New("notification mail server config not found")
+	ErrNotificationDispatchNotFound         = errors.New("notification dispatch not found")
+	ErrBotNotFound                          = errors.New("bot not found")
+	ErrBotBindingNotFound                   = errors.New("bot binding not found")
+	ErrThreadBotBindingNotFound             = errors.New("thread bot binding not found")
+	ErrBotTriggerNotFound                   = errors.New("bot trigger not found")
+	ErrBotConnectionNotFound                = errors.New("bot connection not found")
+	ErrBotDeliveryTargetNotFound            = errors.New("bot delivery target not found")
+	ErrWeChatAccountNotFound                = errors.New("wechat account not found")
+	ErrBotConversationNotFound              = errors.New("bot conversation not found")
+	ErrBotInboundDeliveryNotFound           = errors.New("bot inbound delivery not found")
+	ErrBotOutboundDeliveryNotFound          = errors.New("bot outbound delivery not found")
 )
 
 const (
@@ -79,6 +83,10 @@ type MemoryStore struct {
 	templates                     map[string]AutomationTemplate
 	runs                          map[string]AutomationRun
 	notifications                 map[string]Notification
+	notificationSubscriptions     map[string]NotificationSubscription
+	notificationEmailTargets      map[string]NotificationEmailTarget
+	notificationMailServerConfigs map[string]NotificationMailServerConfig
+	notificationDispatches        map[string]NotificationDispatch
 	turnPolicyDecisions           map[string]TurnPolicyDecision
 	hookRuns                      map[string]HookRun
 	bots                          map[string]Bot
@@ -130,30 +138,34 @@ type threadProjectionTurnsManifest struct {
 }
 
 type storeSnapshot struct {
-	RuntimePreferences  *RuntimePreferences       `json:"runtimePreferences,omitempty"`
-	Workspaces          []Workspace               `json:"workspaces"`
-	CommandSessions     []CommandSessionSnapshot  `json:"commandSessions,omitempty"`
-	WorkspaceEvents     []storedWorkspaceEventLog `json:"workspaceEvents,omitempty"`
-	Automations         []Automation              `json:"automations,omitempty"`
-	AutomationTemplates []AutomationTemplate      `json:"automationTemplates,omitempty"`
-	AutomationRuns      []AutomationRun           `json:"automationRuns,omitempty"`
-	Notifications       []Notification            `json:"notifications,omitempty"`
-	TurnPolicyDecisions []TurnPolicyDecision      `json:"turnPolicyDecisions,omitempty"`
-	HookRuns            []HookRun                 `json:"hookRuns,omitempty"`
-	Bots                []Bot                     `json:"bots,omitempty"`
-	BotBindings         []BotBinding              `json:"botBindings,omitempty"`
-	ThreadBotBindings   []ThreadBotBinding        `json:"threadBotBindings,omitempty"`
-	BotTriggers         []BotTrigger              `json:"botTriggers,omitempty"`
-	BotConnections      []BotConnection           `json:"botConnections,omitempty"`
-	BotConnectionLogs   []BotConnectionLogEntry   `json:"botConnectionLogs,omitempty"`
-	WeChatAccounts      []WeChatAccount           `json:"wechatAccounts,omitempty"`
-	BotConversations    []BotConversation         `json:"botConversations,omitempty"`
-	BotDeliveryTargets  []BotDeliveryTarget       `json:"botDeliveryTargets,omitempty"`
-	BotInbound          []BotInboundDelivery      `json:"botInbound,omitempty"`
-	BotOutbound         []BotOutboundDelivery     `json:"botOutbound,omitempty"`
-	Threads             []Thread                  `json:"threads"`
-	ThreadProjections   []storedThreadProjection  `json:"threadProjections,omitempty"`
-	DeletedThreads      []DeletedThread           `json:"deletedThreads,omitempty"`
+	RuntimePreferences            *RuntimePreferences            `json:"runtimePreferences,omitempty"`
+	Workspaces                    []Workspace                    `json:"workspaces"`
+	CommandSessions               []CommandSessionSnapshot       `json:"commandSessions,omitempty"`
+	WorkspaceEvents               []storedWorkspaceEventLog      `json:"workspaceEvents,omitempty"`
+	Automations                   []Automation                   `json:"automations,omitempty"`
+	AutomationTemplates           []AutomationTemplate           `json:"automationTemplates,omitempty"`
+	AutomationRuns                []AutomationRun                `json:"automationRuns,omitempty"`
+	Notifications                 []Notification                 `json:"notifications,omitempty"`
+	NotificationSubscriptions     []NotificationSubscription     `json:"notificationSubscriptions,omitempty"`
+	NotificationEmailTargets      []NotificationEmailTarget      `json:"notificationEmailTargets,omitempty"`
+	NotificationMailServerConfigs []NotificationMailServerConfig `json:"notificationMailServerConfigs,omitempty"`
+	NotificationDispatches        []NotificationDispatch         `json:"notificationDispatches,omitempty"`
+	TurnPolicyDecisions           []TurnPolicyDecision           `json:"turnPolicyDecisions,omitempty"`
+	HookRuns                      []HookRun                      `json:"hookRuns,omitempty"`
+	Bots                          []Bot                          `json:"bots,omitempty"`
+	BotBindings                   []BotBinding                   `json:"botBindings,omitempty"`
+	ThreadBotBindings             []ThreadBotBinding             `json:"threadBotBindings,omitempty"`
+	BotTriggers                   []BotTrigger                   `json:"botTriggers,omitempty"`
+	BotConnections                []BotConnection                `json:"botConnections,omitempty"`
+	BotConnectionLogs             []BotConnectionLogEntry        `json:"botConnectionLogs,omitempty"`
+	WeChatAccounts                []WeChatAccount                `json:"wechatAccounts,omitempty"`
+	BotConversations              []BotConversation              `json:"botConversations,omitempty"`
+	BotDeliveryTargets            []BotDeliveryTarget            `json:"botDeliveryTargets,omitempty"`
+	BotInbound                    []BotInboundDelivery           `json:"botInbound,omitempty"`
+	BotOutbound                   []BotOutboundDelivery          `json:"botOutbound,omitempty"`
+	Threads                       []Thread                       `json:"threads"`
+	ThreadProjections             []storedThreadProjection       `json:"threadProjections,omitempty"`
+	DeletedThreads                []DeletedThread                `json:"deletedThreads,omitempty"`
 }
 
 type storedWorkspaceEventLog struct {
@@ -188,6 +200,10 @@ func NewMemoryStore() *MemoryStore {
 		templates:                     make(map[string]AutomationTemplate),
 		runs:                          make(map[string]AutomationRun),
 		notifications:                 make(map[string]Notification),
+		notificationSubscriptions:     make(map[string]NotificationSubscription),
+		notificationEmailTargets:      make(map[string]NotificationEmailTarget),
+		notificationMailServerConfigs: make(map[string]NotificationMailServerConfig),
+		notificationDispatches:        make(map[string]NotificationDispatch),
 		turnPolicyDecisions:           make(map[string]TurnPolicyDecision),
 		hookRuns:                      make(map[string]HookRun),
 		bots:                          make(map[string]Bot),
@@ -1116,6 +1132,399 @@ func (s *MemoryStore) DeleteReadNotifications() []Notification {
 	return deleted
 }
 
+func (s *MemoryStore) ListNotificationSubscriptions(workspaceID string) []NotificationSubscription {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]NotificationSubscription, 0)
+	for _, subscription := range s.notificationSubscriptions {
+		if subscription.WorkspaceID != workspaceID {
+			continue
+		}
+		items = append(items, cloneNotificationSubscription(subscription))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetNotificationSubscription(workspaceID string, subscriptionID string) (NotificationSubscription, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	subscription, ok := s.notificationSubscriptions[subscriptionID]
+	if !ok || subscription.WorkspaceID != workspaceID {
+		return NotificationSubscription{}, false
+	}
+
+	return cloneNotificationSubscription(subscription), true
+}
+
+func (s *MemoryStore) CreateNotificationSubscription(subscription NotificationSubscription) (NotificationSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[subscription.WorkspaceID]; !ok {
+		return NotificationSubscription{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(subscription.ID) == "" {
+		subscription.ID = NewID("nsub")
+	}
+	if subscription.CreatedAt.IsZero() {
+		subscription.CreatedAt = now
+	}
+	subscription.UpdatedAt = now
+	subscription.Topic = strings.TrimSpace(subscription.Topic)
+	subscription.SourceType = strings.TrimSpace(subscription.SourceType)
+	subscription.Filter = normalizeStringMap(subscription.Filter)
+	subscription.Channels = cloneNotificationChannelBindings(subscription.Channels)
+	s.notificationSubscriptions[subscription.ID] = cloneNotificationSubscription(subscription)
+	s.persistLocked()
+
+	return cloneNotificationSubscription(subscription), nil
+}
+
+func (s *MemoryStore) UpdateNotificationSubscription(
+	workspaceID string,
+	subscriptionID string,
+	updater func(NotificationSubscription) NotificationSubscription,
+) (NotificationSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	subscription, ok := s.notificationSubscriptions[subscriptionID]
+	if !ok || subscription.WorkspaceID != workspaceID {
+		return NotificationSubscription{}, ErrNotificationSubscriptionNotFound
+	}
+
+	next := updater(cloneNotificationSubscription(subscription))
+	next.ID = subscription.ID
+	next.WorkspaceID = subscription.WorkspaceID
+	next.CreatedAt = subscription.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.Topic = strings.TrimSpace(next.Topic)
+	next.SourceType = strings.TrimSpace(next.SourceType)
+	next.Filter = normalizeStringMap(next.Filter)
+	next.Channels = cloneNotificationChannelBindings(next.Channels)
+	s.notificationSubscriptions[subscriptionID] = cloneNotificationSubscription(next)
+	s.persistLocked()
+
+	return cloneNotificationSubscription(next), nil
+}
+
+func (s *MemoryStore) DeleteNotificationSubscription(workspaceID string, subscriptionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	subscription, ok := s.notificationSubscriptions[subscriptionID]
+	if !ok || subscription.WorkspaceID != workspaceID {
+		return ErrNotificationSubscriptionNotFound
+	}
+
+	delete(s.notificationSubscriptions, subscription.ID)
+	s.persistLocked()
+	return nil
+}
+
+func (s *MemoryStore) ListNotificationEmailTargets(workspaceID string) []NotificationEmailTarget {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]NotificationEmailTarget, 0)
+	for _, target := range s.notificationEmailTargets {
+		if target.WorkspaceID != workspaceID {
+			continue
+		}
+		items = append(items, cloneNotificationEmailTarget(target))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetNotificationEmailTarget(workspaceID string, targetID string) (NotificationEmailTarget, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	target, ok := s.notificationEmailTargets[targetID]
+	if !ok || target.WorkspaceID != workspaceID {
+		return NotificationEmailTarget{}, false
+	}
+
+	return cloneNotificationEmailTarget(target), true
+}
+
+func (s *MemoryStore) CreateNotificationEmailTarget(target NotificationEmailTarget) (NotificationEmailTarget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[target.WorkspaceID]; !ok {
+		return NotificationEmailTarget{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(target.ID) == "" {
+		target.ID = NewID("net")
+	}
+	if target.CreatedAt.IsZero() {
+		target.CreatedAt = now
+	}
+	target.UpdatedAt = now
+	target.Name = strings.TrimSpace(target.Name)
+	target.Emails = normalizeStringSlice(target.Emails)
+	target.SubjectTemplate = strings.TrimSpace(target.SubjectTemplate)
+	target.BodyTemplate = strings.TrimSpace(target.BodyTemplate)
+	s.notificationEmailTargets[target.ID] = cloneNotificationEmailTarget(target)
+	s.persistLocked()
+
+	return cloneNotificationEmailTarget(target), nil
+}
+
+func (s *MemoryStore) UpdateNotificationEmailTarget(
+	workspaceID string,
+	targetID string,
+	updater func(NotificationEmailTarget) NotificationEmailTarget,
+) (NotificationEmailTarget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	target, ok := s.notificationEmailTargets[targetID]
+	if !ok || target.WorkspaceID != workspaceID {
+		return NotificationEmailTarget{}, ErrNotificationEmailTargetNotFound
+	}
+
+	next := updater(cloneNotificationEmailTarget(target))
+	next.ID = target.ID
+	next.WorkspaceID = target.WorkspaceID
+	next.CreatedAt = target.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.Name = strings.TrimSpace(next.Name)
+	next.Emails = normalizeStringSlice(next.Emails)
+	next.SubjectTemplate = strings.TrimSpace(next.SubjectTemplate)
+	next.BodyTemplate = strings.TrimSpace(next.BodyTemplate)
+	s.notificationEmailTargets[targetID] = cloneNotificationEmailTarget(next)
+	s.persistLocked()
+
+	return cloneNotificationEmailTarget(next), nil
+}
+
+func (s *MemoryStore) GetNotificationMailServerConfig(workspaceID string) (NotificationMailServerConfig, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	config, ok := s.notificationMailServerConfigs[workspaceID]
+	if !ok {
+		return NotificationMailServerConfig{}, false
+	}
+
+	return cloneNotificationMailServerConfig(config), true
+}
+
+func (s *MemoryStore) UpsertNotificationMailServerConfig(
+	config NotificationMailServerConfig,
+) (NotificationMailServerConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceID := strings.TrimSpace(config.WorkspaceID)
+	if _, ok := s.workspaces[workspaceID]; !ok {
+		return NotificationMailServerConfig{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	existing, hasExisting := s.notificationMailServerConfigs[workspaceID]
+	if hasExisting {
+		config.CreatedAt = existing.CreatedAt
+	} else if config.CreatedAt.IsZero() {
+		config.CreatedAt = now
+	}
+
+	config.WorkspaceID = workspaceID
+	config.Host = strings.TrimSpace(config.Host)
+	config.Username = strings.TrimSpace(config.Username)
+	config.PasswordSet = config.Password != ""
+	config.From = strings.TrimSpace(config.From)
+	if config.Port < 0 {
+		config.Port = 0
+	}
+	config.UpdatedAt = now
+
+	s.notificationMailServerConfigs[workspaceID] = cloneNotificationMailServerConfig(config)
+	s.persistLocked()
+
+	return cloneNotificationMailServerConfig(config), nil
+}
+
+func (s *MemoryStore) ListNotificationDispatches(workspaceID string, filter NotificationDispatchFilter) []NotificationDispatch {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]NotificationDispatch, 0)
+	for _, dispatch := range s.notificationDispatches {
+		if dispatch.WorkspaceID != workspaceID {
+			continue
+		}
+		if filter.SubscriptionID != "" && strings.TrimSpace(dispatch.SubscriptionID) != strings.TrimSpace(filter.SubscriptionID) {
+			continue
+		}
+		if filter.Topic != "" && strings.TrimSpace(dispatch.Topic) != strings.TrimSpace(filter.Topic) {
+			continue
+		}
+		if filter.Channel != "" && strings.TrimSpace(dispatch.Channel) != strings.TrimSpace(filter.Channel) {
+			continue
+		}
+		if filter.Status != "" && strings.TrimSpace(dispatch.Status) != strings.TrimSpace(filter.Status) {
+			continue
+		}
+		if filter.TargetRefType != "" && strings.TrimSpace(dispatch.TargetRefType) != strings.TrimSpace(filter.TargetRefType) {
+			continue
+		}
+		if filter.TargetRefID != "" && strings.TrimSpace(dispatch.TargetRefID) != strings.TrimSpace(filter.TargetRefID) {
+			continue
+		}
+		if filter.SourceRefType != "" && strings.TrimSpace(dispatch.SourceRefType) != strings.TrimSpace(filter.SourceRefType) {
+			continue
+		}
+		if filter.SourceRefID != "" && strings.TrimSpace(dispatch.SourceRefID) != strings.TrimSpace(filter.SourceRefID) {
+			continue
+		}
+		if filter.EventKey != "" && strings.TrimSpace(dispatch.EventKey) != strings.TrimSpace(filter.EventKey) {
+			continue
+		}
+		items = append(items, cloneNotificationDispatch(dispatch))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetNotificationDispatch(workspaceID string, dispatchID string) (NotificationDispatch, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	dispatch, ok := s.notificationDispatches[dispatchID]
+	if !ok || dispatch.WorkspaceID != workspaceID {
+		return NotificationDispatch{}, false
+	}
+
+	return cloneNotificationDispatch(dispatch), true
+}
+
+func (s *MemoryStore) FindNotificationDispatchByDedupKey(workspaceID string, dedupKey string) (NotificationDispatch, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, dispatch := range s.notificationDispatches {
+		if dispatch.WorkspaceID != workspaceID {
+			continue
+		}
+		if strings.TrimSpace(dispatch.DedupKey) != strings.TrimSpace(dedupKey) {
+			continue
+		}
+		return cloneNotificationDispatch(dispatch), true
+	}
+
+	return NotificationDispatch{}, false
+}
+
+func (s *MemoryStore) CreateNotificationDispatch(dispatch NotificationDispatch) (NotificationDispatch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[dispatch.WorkspaceID]; !ok {
+		return NotificationDispatch{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(dispatch.ID) == "" {
+		dispatch.ID = NewID("ndp")
+	}
+	if dispatch.CreatedAt.IsZero() {
+		dispatch.CreatedAt = now
+	}
+	dispatch.UpdatedAt = now
+	dispatch.EventKey = strings.TrimSpace(dispatch.EventKey)
+	dispatch.DedupKey = strings.TrimSpace(dispatch.DedupKey)
+	dispatch.Topic = strings.TrimSpace(dispatch.Topic)
+	dispatch.SourceType = strings.TrimSpace(dispatch.SourceType)
+	dispatch.SourceRefType = strings.TrimSpace(dispatch.SourceRefType)
+	dispatch.SourceRefID = strings.TrimSpace(dispatch.SourceRefID)
+	dispatch.Channel = strings.TrimSpace(dispatch.Channel)
+	dispatch.TargetRefType = strings.TrimSpace(dispatch.TargetRefType)
+	dispatch.TargetRefID = strings.TrimSpace(dispatch.TargetRefID)
+	dispatch.Title = strings.TrimSpace(dispatch.Title)
+	dispatch.Message = strings.TrimSpace(dispatch.Message)
+	dispatch.Level = strings.TrimSpace(dispatch.Level)
+	dispatch.SubscriptionID = strings.TrimSpace(dispatch.SubscriptionID)
+	dispatch.Error = strings.TrimSpace(dispatch.Error)
+	dispatch.NotificationID = strings.TrimSpace(dispatch.NotificationID)
+	dispatch.BotOutboundDeliveryID = strings.TrimSpace(dispatch.BotOutboundDeliveryID)
+	s.notificationDispatches[dispatch.ID] = cloneNotificationDispatch(dispatch)
+	s.persistLocked()
+
+	return cloneNotificationDispatch(dispatch), nil
+}
+
+func (s *MemoryStore) UpdateNotificationDispatch(
+	workspaceID string,
+	dispatchID string,
+	updater func(NotificationDispatch) NotificationDispatch,
+) (NotificationDispatch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	dispatch, ok := s.notificationDispatches[dispatchID]
+	if !ok || dispatch.WorkspaceID != workspaceID {
+		return NotificationDispatch{}, ErrNotificationDispatchNotFound
+	}
+
+	next := updater(cloneNotificationDispatch(dispatch))
+	next.ID = dispatch.ID
+	next.WorkspaceID = dispatch.WorkspaceID
+	next.CreatedAt = dispatch.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+	next.EventKey = strings.TrimSpace(next.EventKey)
+	next.DedupKey = strings.TrimSpace(next.DedupKey)
+	next.Topic = strings.TrimSpace(next.Topic)
+	next.SourceType = strings.TrimSpace(next.SourceType)
+	next.SourceRefType = strings.TrimSpace(next.SourceRefType)
+	next.SourceRefID = strings.TrimSpace(next.SourceRefID)
+	next.Channel = strings.TrimSpace(next.Channel)
+	next.TargetRefType = strings.TrimSpace(next.TargetRefType)
+	next.TargetRefID = strings.TrimSpace(next.TargetRefID)
+	next.Title = strings.TrimSpace(next.Title)
+	next.Message = strings.TrimSpace(next.Message)
+	next.Level = strings.TrimSpace(next.Level)
+	next.SubscriptionID = strings.TrimSpace(next.SubscriptionID)
+	next.Error = strings.TrimSpace(next.Error)
+	next.NotificationID = strings.TrimSpace(next.NotificationID)
+	next.BotOutboundDeliveryID = strings.TrimSpace(next.BotOutboundDeliveryID)
+	s.notificationDispatches[dispatchID] = cloneNotificationDispatch(next)
+	s.persistLocked()
+
+	return cloneNotificationDispatch(next), nil
+}
+
 func (s *MemoryStore) ListBots(workspaceID string) []Bot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1169,6 +1578,9 @@ func (s *MemoryStore) CreateBot(bot Bot) (Bot, error) {
 		bot.UpdatedAt = now
 	}
 	bot.WorkspaceID = strings.TrimSpace(bot.WorkspaceID)
+	bot.Scope = strings.TrimSpace(bot.Scope)
+	bot.SharingMode = strings.TrimSpace(bot.SharingMode)
+	bot.SharedWorkspaceIDs = normalizeStringSlice(bot.SharedWorkspaceIDs)
 	bot.Name = strings.TrimSpace(bot.Name)
 	bot.Description = strings.TrimSpace(bot.Description)
 	bot.Status = strings.TrimSpace(bot.Status)
@@ -1194,6 +1606,9 @@ func (s *MemoryStore) UpdateBot(workspaceID string, botID string, updater func(B
 	next.WorkspaceID = bot.WorkspaceID
 	next.CreatedAt = bot.CreatedAt
 	next.UpdatedAt = time.Now().UTC()
+	next.Scope = strings.TrimSpace(next.Scope)
+	next.SharingMode = strings.TrimSpace(next.SharingMode)
+	next.SharedWorkspaceIDs = normalizeStringSlice(next.SharedWorkspaceIDs)
 	next.Name = strings.TrimSpace(next.Name)
 	next.Description = strings.TrimSpace(next.Description)
 	next.Status = strings.TrimSpace(next.Status)
@@ -2296,6 +2711,18 @@ func (s *MemoryStore) GetBotDeliveryTarget(workspaceID string, targetID string) 
 
 	target, ok := s.botDeliveryTargets[targetID]
 	if !ok || target.WorkspaceID != workspaceID {
+		return BotDeliveryTarget{}, false
+	}
+
+	return cloneBotDeliveryTarget(target), true
+}
+
+func (s *MemoryStore) GetBotDeliveryTargetByID(targetID string) (BotDeliveryTarget, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	target, ok := s.botDeliveryTargets[targetID]
+	if !ok {
 		return BotDeliveryTarget{}, false
 	}
 
@@ -3435,6 +3862,22 @@ func (s *MemoryStore) DeleteWorkspace(workspaceID string) error {
 			delete(s.notifications, notificationID)
 		}
 	}
+	for subscriptionID, subscription := range s.notificationSubscriptions {
+		if subscription.WorkspaceID == workspaceID {
+			delete(s.notificationSubscriptions, subscriptionID)
+		}
+	}
+	for targetID, target := range s.notificationEmailTargets {
+		if target.WorkspaceID == workspaceID {
+			delete(s.notificationEmailTargets, targetID)
+		}
+	}
+	delete(s.notificationMailServerConfigs, workspaceID)
+	for dispatchID, dispatch := range s.notificationDispatches {
+		if dispatch.WorkspaceID == workspaceID {
+			delete(s.notificationDispatches, dispatchID)
+		}
+	}
 	for botID, bot := range s.bots {
 		if bot.WorkspaceID == workspaceID {
 			delete(s.bots, botID)
@@ -3908,6 +4351,53 @@ func (s *MemoryStore) load() error {
 			}); err != nil {
 				return err
 			}
+		case "notificationSubscriptions":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var subscription NotificationSubscription
+				if err := decoder.Decode(&subscription); err != nil {
+					return err
+				}
+				s.notificationSubscriptions[subscription.ID] = cloneNotificationSubscription(subscription)
+				updateLoadedMaxID(&maxID, subscription.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "notificationEmailTargets":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var target NotificationEmailTarget
+				if err := decoder.Decode(&target); err != nil {
+					return err
+				}
+				s.notificationEmailTargets[target.ID] = cloneNotificationEmailTarget(target)
+				updateLoadedMaxID(&maxID, target.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "notificationMailServerConfigs":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var config NotificationMailServerConfig
+				if err := decoder.Decode(&config); err != nil {
+					return err
+				}
+				s.notificationMailServerConfigs[config.WorkspaceID] = cloneNotificationMailServerConfig(config)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "notificationDispatches":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var dispatch NotificationDispatch
+				if err := decoder.Decode(&dispatch); err != nil {
+					return err
+				}
+				s.notificationDispatches[dispatch.ID] = cloneNotificationDispatch(dispatch)
+				updateLoadedMaxID(&maxID, dispatch.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
 		case "turnPolicyDecisions":
 			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
 				var decision TurnPolicyDecision
@@ -4289,29 +4779,32 @@ func (s *MemoryStore) persistNowLocked() error {
 	}
 
 	snapshot := storeSnapshot{
-		Workspaces:          make([]Workspace, 0, len(s.workspaces)),
-		CommandSessions:     make([]CommandSessionSnapshot, 0),
-		WorkspaceEvents:     make([]storedWorkspaceEventLog, 0, len(s.workspaceEvents)),
-		Automations:         make([]Automation, 0, len(s.automations)),
-		AutomationTemplates: make([]AutomationTemplate, 0, len(s.templates)),
-		AutomationRuns:      make([]AutomationRun, 0, len(s.runs)),
-		Notifications:       make([]Notification, 0, len(s.notifications)),
-		TurnPolicyDecisions: make([]TurnPolicyDecision, 0, len(s.turnPolicyDecisions)),
-		HookRuns:            make([]HookRun, 0, len(s.hookRuns)),
-		Bots:                make([]Bot, 0, len(s.bots)),
-		BotBindings:         make([]BotBinding, 0, len(s.botBindings)),
-		ThreadBotBindings:   make([]ThreadBotBinding, 0, len(s.threadBotBindings)),
-		BotTriggers:         make([]BotTrigger, 0, len(s.botTriggers)),
-		BotConnections:      make([]BotConnection, 0, len(s.botConnections)),
-		BotConnectionLogs:   make([]BotConnectionLogEntry, 0),
-		WeChatAccounts:      make([]WeChatAccount, 0, len(s.wechatAccounts)),
-		BotConversations:    make([]BotConversation, 0, len(s.botConversations)),
-		BotDeliveryTargets:  make([]BotDeliveryTarget, 0, len(s.botDeliveryTargets)),
-		BotInbound:          make([]BotInboundDelivery, 0, len(s.botInbound)),
-		BotOutbound:         make([]BotOutboundDelivery, 0, len(s.botOutbound)),
-		Threads:             make([]Thread, 0, len(s.threads)),
-		ThreadProjections:   make([]storedThreadProjection, 0, len(s.projections)),
-		DeletedThreads:      make([]DeletedThread, 0, len(s.deleted)),
+		Workspaces:                make([]Workspace, 0, len(s.workspaces)),
+		CommandSessions:           make([]CommandSessionSnapshot, 0),
+		WorkspaceEvents:           make([]storedWorkspaceEventLog, 0, len(s.workspaceEvents)),
+		Automations:               make([]Automation, 0, len(s.automations)),
+		AutomationTemplates:       make([]AutomationTemplate, 0, len(s.templates)),
+		AutomationRuns:            make([]AutomationRun, 0, len(s.runs)),
+		Notifications:             make([]Notification, 0, len(s.notifications)),
+		NotificationSubscriptions: make([]NotificationSubscription, 0, len(s.notificationSubscriptions)),
+		NotificationEmailTargets:  make([]NotificationEmailTarget, 0, len(s.notificationEmailTargets)),
+		NotificationDispatches:    make([]NotificationDispatch, 0, len(s.notificationDispatches)),
+		TurnPolicyDecisions:       make([]TurnPolicyDecision, 0, len(s.turnPolicyDecisions)),
+		HookRuns:                  make([]HookRun, 0, len(s.hookRuns)),
+		Bots:                      make([]Bot, 0, len(s.bots)),
+		BotBindings:               make([]BotBinding, 0, len(s.botBindings)),
+		ThreadBotBindings:         make([]ThreadBotBinding, 0, len(s.threadBotBindings)),
+		BotTriggers:               make([]BotTrigger, 0, len(s.botTriggers)),
+		BotConnections:            make([]BotConnection, 0, len(s.botConnections)),
+		BotConnectionLogs:         make([]BotConnectionLogEntry, 0),
+		WeChatAccounts:            make([]WeChatAccount, 0, len(s.wechatAccounts)),
+		BotConversations:          make([]BotConversation, 0, len(s.botConversations)),
+		BotDeliveryTargets:        make([]BotDeliveryTarget, 0, len(s.botDeliveryTargets)),
+		BotInbound:                make([]BotInboundDelivery, 0, len(s.botInbound)),
+		BotOutbound:               make([]BotOutboundDelivery, 0, len(s.botOutbound)),
+		Threads:                   make([]Thread, 0, len(s.threads)),
+		ThreadProjections:         make([]storedThreadProjection, 0, len(s.projections)),
+		DeletedThreads:            make([]DeletedThread, 0, len(s.deleted)),
 	}
 
 	if s.runtimePrefs.ModelCatalogPath != "" ||
@@ -4372,6 +4865,21 @@ func (s *MemoryStore) persistNowLocked() error {
 	}
 	for _, notification := range s.notifications {
 		snapshot.Notifications = append(snapshot.Notifications, notification)
+	}
+	for _, subscription := range s.notificationSubscriptions {
+		snapshot.NotificationSubscriptions = append(snapshot.NotificationSubscriptions, cloneNotificationSubscription(subscription))
+	}
+	for _, target := range s.notificationEmailTargets {
+		snapshot.NotificationEmailTargets = append(snapshot.NotificationEmailTargets, cloneNotificationEmailTarget(target))
+	}
+	for _, config := range s.notificationMailServerConfigs {
+		snapshot.NotificationMailServerConfigs = append(
+			snapshot.NotificationMailServerConfigs,
+			cloneNotificationMailServerConfig(config),
+		)
+	}
+	for _, dispatch := range s.notificationDispatches {
+		snapshot.NotificationDispatches = append(snapshot.NotificationDispatches, cloneNotificationDispatch(dispatch))
 	}
 	for _, decision := range s.turnPolicyDecisions {
 		snapshot.TurnPolicyDecisions = append(snapshot.TurnPolicyDecisions, cloneTurnPolicyDecision(decision))
@@ -4462,6 +4970,15 @@ func (s *MemoryStore) persistNowLocked() error {
 	})
 	sort.Slice(snapshot.Notifications, func(i int, j int) bool {
 		return snapshot.Notifications[i].ID < snapshot.Notifications[j].ID
+	})
+	sort.Slice(snapshot.NotificationSubscriptions, func(i int, j int) bool {
+		return snapshot.NotificationSubscriptions[i].ID < snapshot.NotificationSubscriptions[j].ID
+	})
+	sort.Slice(snapshot.NotificationEmailTargets, func(i int, j int) bool {
+		return snapshot.NotificationEmailTargets[i].ID < snapshot.NotificationEmailTargets[j].ID
+	})
+	sort.Slice(snapshot.NotificationDispatches, func(i int, j int) bool {
+		return snapshot.NotificationDispatches[i].ID < snapshot.NotificationDispatches[j].ID
 	})
 	sort.Slice(snapshot.TurnPolicyDecisions, func(i int, j int) bool {
 		return snapshot.TurnPolicyDecisions[i].ID < snapshot.TurnPolicyDecisions[j].ID
@@ -5536,7 +6053,11 @@ func cloneAutomationRun(run AutomationRun) AutomationRun {
 }
 
 func cloneBot(bot Bot) Bot {
-	return bot
+	next := bot
+	next.Scope = strings.TrimSpace(bot.Scope)
+	next.SharingMode = strings.TrimSpace(bot.SharingMode)
+	next.SharedWorkspaceIDs = cloneStringSlice(bot.SharedWorkspaceIDs)
+	return next
 }
 
 func cloneBotBinding(binding BotBinding) BotBinding {
@@ -5552,6 +6073,98 @@ func cloneBotBinding(binding BotBinding) BotBinding {
 func cloneThreadBotBinding(binding ThreadBotBinding) ThreadBotBinding {
 	next := binding
 	next.BotWorkspaceID = normalizeThreadBotBindingBotWorkspaceID(binding)
+	return next
+}
+
+func cloneNotificationChannelBinding(binding NotificationChannelBinding) NotificationChannelBinding {
+	next := binding
+	next.Channel = strings.TrimSpace(binding.Channel)
+	next.TargetRefType = strings.TrimSpace(binding.TargetRefType)
+	next.TargetRefID = strings.TrimSpace(binding.TargetRefID)
+	next.TitleTemplate = strings.TrimSpace(binding.TitleTemplate)
+	next.BodyTemplate = strings.TrimSpace(binding.BodyTemplate)
+	if len(binding.Settings) > 0 {
+		next.Settings = cloneStringMap(binding.Settings)
+	} else {
+		next.Settings = nil
+	}
+	return next
+}
+
+func cloneNotificationChannelBindings(bindings []NotificationChannelBinding) []NotificationChannelBinding {
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	cloned := make([]NotificationChannelBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if strings.TrimSpace(binding.Channel) == "" || strings.TrimSpace(binding.TargetRefType) == "" {
+			continue
+		}
+		cloned = append(cloned, cloneNotificationChannelBinding(binding))
+	}
+	if len(cloned) == 0 {
+		return nil
+	}
+	return cloned
+}
+
+func cloneNotificationSubscription(subscription NotificationSubscription) NotificationSubscription {
+	next := subscription
+	next.Topic = strings.TrimSpace(subscription.Topic)
+	next.SourceType = strings.TrimSpace(subscription.SourceType)
+	if len(subscription.Filter) > 0 {
+		next.Filter = cloneStringMap(subscription.Filter)
+	} else {
+		next.Filter = nil
+	}
+	next.Channels = cloneNotificationChannelBindings(subscription.Channels)
+	return next
+}
+
+func cloneNotificationEmailTarget(target NotificationEmailTarget) NotificationEmailTarget {
+	next := target
+	next.Name = strings.TrimSpace(target.Name)
+	next.Emails = cloneStringSlice(target.Emails)
+	next.SubjectTemplate = strings.TrimSpace(target.SubjectTemplate)
+	next.BodyTemplate = strings.TrimSpace(target.BodyTemplate)
+	return next
+}
+
+func cloneNotificationMailServerConfig(config NotificationMailServerConfig) NotificationMailServerConfig {
+	next := config
+	next.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
+	next.Host = strings.TrimSpace(config.Host)
+	next.Username = strings.TrimSpace(config.Username)
+	next.Password = config.Password
+	next.PasswordSet = next.Password != ""
+	next.From = strings.TrimSpace(config.From)
+	if next.Port < 0 {
+		next.Port = 0
+	}
+	return next
+}
+
+func cloneNotificationDispatch(dispatch NotificationDispatch) NotificationDispatch {
+	next := dispatch
+	next.SubscriptionID = strings.TrimSpace(dispatch.SubscriptionID)
+	next.EventKey = strings.TrimSpace(dispatch.EventKey)
+	next.DedupKey = strings.TrimSpace(dispatch.DedupKey)
+	next.Topic = strings.TrimSpace(dispatch.Topic)
+	next.SourceType = strings.TrimSpace(dispatch.SourceType)
+	next.SourceRefType = strings.TrimSpace(dispatch.SourceRefType)
+	next.SourceRefID = strings.TrimSpace(dispatch.SourceRefID)
+	next.Channel = strings.TrimSpace(dispatch.Channel)
+	next.TargetRefType = strings.TrimSpace(dispatch.TargetRefType)
+	next.TargetRefID = strings.TrimSpace(dispatch.TargetRefID)
+	next.Title = strings.TrimSpace(dispatch.Title)
+	next.Message = strings.TrimSpace(dispatch.Message)
+	next.Level = strings.TrimSpace(dispatch.Level)
+	next.Status = strings.TrimSpace(dispatch.Status)
+	next.Error = strings.TrimSpace(dispatch.Error)
+	next.NotificationID = strings.TrimSpace(dispatch.NotificationID)
+	next.BotOutboundDeliveryID = strings.TrimSpace(dispatch.BotOutboundDeliveryID)
+	next.DeliveredAt = cloneOptionalTime(dispatch.DeliveredAt)
 	return next
 }
 
@@ -5967,6 +6580,37 @@ func normalizeStringSlice(values []string) []string {
 		return nil
 	}
 	return normalized
+}
+
+func normalizeStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string)
+	keys := make([]string, 0, len(values))
+	for key, value := range values {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" {
+			continue
+		}
+		if _, exists := normalized[trimmedKey]; exists {
+			continue
+		}
+		normalized[trimmedKey] = trimmedValue
+		keys = append(keys, trimmedKey)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	sort.Strings(keys)
+	ordered := make(map[string]string, len(keys))
+	for _, key := range keys {
+		ordered[key] = normalized[key]
+	}
+	return ordered
 }
 
 func cloneAnyMap(values map[string]any) map[string]any {

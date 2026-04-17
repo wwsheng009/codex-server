@@ -2,6 +2,7 @@ package threads
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -128,7 +129,6 @@ func TestMapThreadMapsSessionStartSource(t *testing.T) {
 	}
 }
 
-
 func TestIsThreadTurnsUnavailableBeforeFirstUserMessage(t *testing.T) {
 	t.Parallel()
 
@@ -152,6 +152,161 @@ func TestIsThreadTurnsUnavailableBeforeFirstUserMessageRejectsOtherErrors(t *tes
 
 	if isThreadTurnsUnavailableBeforeFirstUserMessage(err) {
 		t.Fatal("expected unrelated error to be ignored")
+	}
+}
+
+func TestIsThreadResumeRequiredRejectsEmptyRollout(t *testing.T) {
+	t.Parallel()
+
+	err := &bridge.RPCError{
+		Code:    -32603,
+		Message: "failed to load rollout `C:\\Users\\vince\\.codex\\sessions\\2026\\04\\17\\rollout-2026-04-17T13-13-25-019d99db-b2f6-7083-a9b4-cad4fbeb49cb.jsonl` for thread 019d99db-b2f6-7083-a9b4-cad4fbeb49cb: rollout at C:\\Users\\vince\\.codex\\sessions\\2026\\04\\17\\rollout-2026-04-17T13-13-25-019d99db-b2f6-7083-a9b4-cad4fbeb49cb.jsonl is empty",
+	}
+
+	if isThreadResumeRequired(err) {
+		t.Fatal("expected rollout-is-empty error to NOT be treated as thread-resume-required (it needs runtime recycle instead)")
+	}
+}
+
+func TestIsThreadResumeRequiredRejectsUnrelatedInternalError(t *testing.T) {
+	t.Parallel()
+
+	err := &bridge.RPCError{
+		Code:    -32603,
+		Message: "something else went wrong",
+	}
+
+	if isThreadResumeRequired(err) {
+		t.Fatal("expected unrelated -32603 error to be ignored by isThreadResumeRequired")
+	}
+}
+
+func TestGetStartedThreadWithRetryRetriesPendingReadErrors(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	thread, err := getStartedThreadWithRetry(context.Background(), func() (store.Thread, error) {
+		attempts += 1
+		if attempts < 3 {
+			return store.Thread{}, &bridge.RPCError{
+				Code:    -32603,
+				Message: "failed to load rollout for thread thread-1: rollout at /tmp/rollout.jsonl is empty",
+			}
+		}
+		return store.Thread{
+			ID:          "thread-1",
+			WorkspaceID: "ws-1",
+			Name:        "Bot Thread",
+		}, nil
+	}, time.Millisecond, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("expected retry helper to recover after transient pending error, got %v", err)
+	}
+	if thread.ID != "thread-1" {
+		t.Fatalf("expected thread-1 after retries, got %#v", thread)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts before success, got %d", attempts)
+	}
+}
+
+func TestGetStartedThreadWithRetryStopsOnNonPendingError(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	expectedErr := errors.New("boom")
+	_, err := getStartedThreadWithRetry(context.Background(), func() (store.Thread, error) {
+		attempts += 1
+		return store.Thread{}, expectedErr
+	}, time.Millisecond, 50*time.Millisecond)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected non-pending error to be returned immediately, got %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt for non-pending error, got %d", attempts)
+	}
+}
+
+func TestGetStartedThreadWithRetryReturnsLastPendingErrorAfterTimeout(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	_, err := getStartedThreadWithRetry(context.Background(), func() (store.Thread, error) {
+		attempts += 1
+		return store.Thread{}, &bridge.RPCError{
+			Code:    -32603,
+			Message: "failed to load rollout for thread thread-1: rollout at /tmp/rollout.jsonl is empty",
+		}
+	}, time.Millisecond, 3*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected pending error to be returned after timeout")
+	}
+	if !isThreadRolloutEmptyError(err) {
+		t.Fatalf("expected timeout to return the last rollout-empty error, got %v", err)
+	}
+	if attempts < 2 {
+		t.Fatalf("expected retry helper to attempt more than once before timing out, got %d", attempts)
+	}
+}
+
+func TestRetryPendingThreadOperationRetriesPendingErrors(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	err := retryPendingThreadOperation(context.Background(), func() error {
+		attempts += 1
+		if attempts < 3 {
+			return &bridge.RPCError{
+				Code:    -32603,
+				Message: "failed to load rollout for thread thread-1: rollout at /tmp/rollout.jsonl is empty",
+			}
+		}
+		return nil
+	}, time.Millisecond, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("expected retry helper to recover after transient pending error, got %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts before success, got %d", attempts)
+	}
+}
+
+func TestRetryPendingThreadOperationStopsOnNonPendingError(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	expectedErr := errors.New("boom")
+	err := retryPendingThreadOperation(context.Background(), func() error {
+		attempts += 1
+		return expectedErr
+	}, time.Millisecond, 50*time.Millisecond)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected non-pending error to be returned immediately, got %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt for non-pending error, got %d", attempts)
+	}
+}
+
+func TestRetryPendingThreadOperationReturnsLastPendingErrorAfterTimeout(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	err := retryPendingThreadOperation(context.Background(), func() error {
+		attempts += 1
+		return &bridge.RPCError{
+			Code:    -32603,
+			Message: "failed to load rollout for thread thread-1: rollout at /tmp/rollout.jsonl is empty",
+		}
+	}, time.Millisecond, 3*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected pending error to be returned after timeout")
+	}
+	if !isThreadRolloutEmptyError(err) {
+		t.Fatalf("expected timeout to return the last rollout-empty error, got %v", err)
+	}
+	if attempts < 2 {
+		t.Fatalf("expected retry helper to attempt more than once before timing out, got %d", attempts)
 	}
 }
 
@@ -734,10 +889,10 @@ func TestApplyStoredProjectionKeepsSyntheticGovernanceTurnAheadOfRuntimeTurns(t 
 				Status: "completed",
 				Items: []map[string]any{
 					{
-						"id":      "hook-run-hook-1",
-						"type":    "hookRun",
+						"id":        "hook-run-hook-1",
+						"type":      "hookRun",
 						"hookRunId": "hook-1",
-						"message": "governance event",
+						"message":   "governance event",
 					},
 				},
 			},

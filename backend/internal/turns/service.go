@@ -52,6 +52,18 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 
 	response, err := s.startTurn(ctx, workspaceID, threadID, input, options)
 	if err != nil {
+		if isRolloutEmptyError(err) {
+			diagnostics.LogThreadTrace(
+				workspaceID,
+				threadID,
+				"turn/start failed with empty rollout; recycling runtime",
+				"error",
+				err,
+			)
+			s.runtimes.Recycle(workspaceID)
+			return Result{}, ErrThreadRolloutEmpty
+		}
+
 		if !isThreadResumeRequired(err) {
 			return Result{}, err
 		}
@@ -64,6 +76,17 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 		)
 
 		if err := s.resumeThread(ctx, workspaceID, threadID); err != nil {
+			if isRolloutEmptyError(err) {
+				diagnostics.LogThreadTrace(
+					workspaceID,
+					threadID,
+					"thread/resume failed with empty rollout; recycling runtime",
+					"error",
+					err,
+				)
+				s.runtimes.Recycle(workspaceID)
+				return Result{}, ErrThreadRolloutEmpty
+			}
 			diagnostics.LogThreadTrace(
 				workspaceID,
 				threadID,
@@ -77,6 +100,17 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 
 		response, err = s.startTurn(ctx, workspaceID, threadID, input, options)
 		if err != nil {
+			if isRolloutEmptyError(err) {
+				diagnostics.LogThreadTrace(
+					workspaceID,
+					threadID,
+					"turn/start retry failed with empty rollout; recycling runtime",
+					"error",
+					err,
+				)
+				s.runtimes.Recycle(workspaceID)
+				return Result{}, ErrThreadRolloutEmpty
+			}
 			return Result{}, err
 		}
 	}
@@ -529,16 +563,50 @@ func runtimeCallTimedOut(err error, timeoutApplied bool) bool {
 func (s *Service) Review(ctx context.Context, workspaceID string, threadID string) (Result, error) {
 	response, err := s.startReview(ctx, workspaceID, threadID)
 	if err != nil {
+		if isRolloutEmptyError(err) {
+			diagnostics.LogThreadTrace(
+				workspaceID,
+				threadID,
+				"review/start failed with empty rollout; recycling runtime",
+				"error",
+				err,
+			)
+			s.runtimes.Recycle(workspaceID)
+			return Result{}, ErrThreadRolloutEmpty
+		}
+
 		if !isThreadResumeRequired(err) {
 			return Result{}, err
 		}
 
 		if err := s.resumeThread(ctx, workspaceID, threadID); err != nil {
+			if isRolloutEmptyError(err) {
+				diagnostics.LogThreadTrace(
+					workspaceID,
+					threadID,
+					"thread/resume failed with empty rollout during review; recycling runtime",
+					"error",
+					err,
+				)
+				s.runtimes.Recycle(workspaceID)
+				return Result{}, ErrThreadRolloutEmpty
+			}
 			return Result{}, err
 		}
 
 		response, err = s.startReview(ctx, workspaceID, threadID)
 		if err != nil {
+			if isRolloutEmptyError(err) {
+				diagnostics.LogThreadTrace(
+					workspaceID,
+					threadID,
+					"review/start retry failed with empty rollout; recycling runtime",
+					"error",
+					err,
+				)
+				s.runtimes.Recycle(workspaceID)
+				return Result{}, ErrThreadRolloutEmpty
+			}
 			return Result{}, err
 		}
 	}
@@ -586,6 +654,26 @@ func (s *Service) resumeThread(ctx context.Context, workspaceID string, threadID
 		s.store.SetThreadSessionStartSource(workspaceID, threadID, sessionStartSourceResume, true)
 	}
 	return nil
+}
+
+// ErrThreadRolloutEmpty indicates that the codex runtime's rollout file for a
+// thread is empty (0 bytes). This is an unrecoverable state for the current
+// runtime process and the existing thread — thread/resume cannot fix it because
+// the on-disk session log is corrupt. The runtime must be recycled and a new
+// thread created.
+var ErrThreadRolloutEmpty = errors.New("thread rollout is empty")
+
+func isRolloutEmptyError(err error) bool {
+	var rpcErr *bridge.RPCError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	if rpcErr.Code != -32603 {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(rpcErr.Message))
+	return strings.Contains(message, "rollout") &&
+		strings.Contains(message, "is empty")
 }
 
 func isThreadResumeRequired(err error) bool {

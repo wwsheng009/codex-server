@@ -679,7 +679,8 @@ func followUpCooldownForPolicy(config RuntimeConfig, policyName string) time.Dur
 }
 
 func (s *Service) persistDecision(decision store.TurnPolicyDecision) {
-	if _, err := s.store.CreateTurnPolicyDecision(decision); err != nil {
+	created, err := s.store.CreateTurnPolicyDecision(decision)
+	if err != nil {
 		diagnostics.LogThreadTrace(
 			decision.WorkspaceID,
 			decision.ThreadID,
@@ -688,6 +689,28 @@ func (s *Service) persistDecision(decision store.TurnPolicyDecision) {
 			"fingerprint", decision.Fingerprint,
 			"error", err,
 		)
+		return
+	}
+	if s.events != nil {
+		s.events.Publish(store.EventEnvelope{
+			WorkspaceID: created.WorkspaceID,
+			ThreadID:    created.ThreadID,
+			TurnID:      created.TurnID,
+			Method:      "turn-policy/decision_recorded",
+			Payload: map[string]any{
+				"decisionId":    created.ID,
+				"threadId":      created.ThreadID,
+				"turnId":        created.TurnID,
+				"policyName":    created.PolicyName,
+				"action":        created.Action,
+				"actionStatus":  created.ActionStatus,
+				"reason":        created.Reason,
+				"triggerMethod": created.TriggerMethod,
+				"source":        created.Source,
+				"hookRunId":     created.HookRunID,
+			},
+			TS: s.now(),
+		})
 	}
 }
 

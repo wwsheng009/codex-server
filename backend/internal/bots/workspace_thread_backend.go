@@ -128,7 +128,18 @@ func (b *workspaceThreadAIBackend) processMessage(
 		ResponsesAPIClientMetadata: metadata,
 	})
 	if err != nil {
-		return AIResult{}, err
+		if !errors.Is(err, turns.ErrThreadRolloutEmpty) {
+			return AIResult{}, err
+		}
+
+		logBotDebug(ctx, connection, "turn/start failed with empty rollout; creating new thread",
+			slog.String("oldThreadId", threadID),
+		)
+
+		threadID, result, err = b.retryTurnOnNewThread(ctx, connection, conversation, inbound, threadID)
+		if err != nil {
+			return AIResult{}, err
+		}
 	}
 	logBotDebug(ctx, connection, "workspace turn started",
 		slog.String("threadId", threadID),
@@ -187,6 +198,77 @@ func (b *workspaceThreadAIBackend) processMessage(
 		ThreadID: threadID,
 		Messages: messages,
 	}, nil
+}
+
+const maxRolloutEmptyRetries = 2
+
+// retryTurnOnNewThread handles the recovery path when turn/start fails with
+// ErrThreadRolloutEmpty. It creates a fresh thread and retries the turn, up to
+// maxRolloutEmptyRetries times. On Windows, the runtime process may not have
+// fully exited between Recycle and the new thread/start, causing empty rollout
+// files; the retry loop ensures eventual success once the OS releases file locks.
+func (b *workspaceThreadAIBackend) retryTurnOnNewThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	inbound InboundMessage,
+	oldThreadID string,
+) (string, turns.Result, error) {
+	threadID := oldThreadID
+
+	for attempt := 1; attempt <= maxRolloutEmptyRetries; attempt++ {
+		if attempt > 1 {
+			// Give the OS extra time to release file locks from the recycled runtime.
+			select {
+			case <-ctx.Done():
+				return "", turns.Result{}, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+
+		newThread, createErr := b.threads.Create(ctx, connection.WorkspaceID, threads.CreateInput{
+			Name:               buildThreadName(connection, inbound),
+			Model:              strings.TrimSpace(connection.AIConfig["model"]),
+			PermissionPreset:   strings.TrimSpace(connection.AIConfig["permission_preset"]),
+			SessionStartSource: pendingConversationSessionStartSource(conversation.BackendState),
+		})
+		if createErr != nil {
+			return "", turns.Result{}, createErr
+		}
+
+		threadID = newThread.ID
+		metadata := turns.BotStartMetadata(connection.WorkspaceID, threadID, connection.ID, "", "", "")
+		if trace, ok := botDebugTraceFromContext(ctx); ok {
+			metadata.BotDeliveryID = trace.DeliveryID
+			metadata.ServerTraceID = trace.TraceID
+		}
+		logBotDebug(ctx, connection, "retrying turn/start on new thread after empty rollout",
+			slog.String("newThreadId", threadID),
+			slog.Int("attempt", attempt),
+			slog.Int("maxAttempts", maxRolloutEmptyRetries),
+		)
+
+		result, err := b.turns.Start(ctx, connection.WorkspaceID, threadID, inbound.Text, turns.StartOptions{
+			Model:                      strings.TrimSpace(connection.AIConfig["model"]),
+			ReasoningEffort:            strings.TrimSpace(connection.AIConfig["reasoning_effort"]),
+			PermissionPreset:           strings.TrimSpace(connection.AIConfig["permission_preset"]),
+			CollaborationMode:          strings.TrimSpace(connection.AIConfig["collaboration_mode"]),
+			ResponsesAPIClientMetadata: metadata,
+		})
+		if err == nil {
+			return threadID, result, nil
+		}
+		if !errors.Is(err, turns.ErrThreadRolloutEmpty) {
+			return "", turns.Result{}, err
+		}
+
+		logBotDebug(ctx, connection, "retry turn/start also hit empty rollout",
+			slog.String("threadId", threadID),
+			slog.Int("attempt", attempt),
+		)
+	}
+
+	return "", turns.Result{}, fmt.Errorf("turn/start failed after %d retries: %w", maxRolloutEmptyRetries, turns.ErrThreadRolloutEmpty)
 }
 
 func (b *workspaceThreadAIBackend) ensureThread(

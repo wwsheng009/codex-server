@@ -8,6 +8,8 @@ import (
 
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/hooks"
+	"codex-server/backend/internal/notificationcenter"
+	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turns"
@@ -78,6 +80,10 @@ func (f *fakeTurnService) Interrupt(_ context.Context, _ string, _ string) (turn
 	return turns.Result{}, nil
 }
 
+func (f *fakeTurnService) Review(_ context.Context, _ string, _ string) (turns.Result, error) {
+	return turns.Result{}, nil
+}
+
 func TestCreateRequiresWorkspace(t *testing.T) {
 	t.Parallel()
 
@@ -127,11 +133,13 @@ func TestListHydratesCurrentWorkspaceName(t *testing.T) {
 	}
 }
 
-func TestTriggerCompletesRunAndCreatesNotification(t *testing.T) {
+func TestTriggerCompletesRunAndPublishesNotificationCenterEvent(t *testing.T) {
 	t.Parallel()
 
 	dataStore := store.NewMemoryStore()
 	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
 
 	threadService := &fakeThreadService{
 		detail: store.ThreadDetail{
@@ -164,7 +172,26 @@ func TestTriggerCompletesRunAndCreatesNotification(t *testing.T) {
 		},
 	}
 
-	service := NewService(dataStore, threadService, turnService, nil)
+	notificationService := notifications.NewService(dataStore)
+	notificationCenterService := notificationcenter.NewService(
+		dataStore,
+		eventHub,
+		notificationService,
+		nil,
+		notificationcenter.Config{},
+	)
+	notificationCenterService.Start(context.Background())
+	_, err := notificationCenterService.CreateSubscription(workspace.ID, notificationcenter.UpsertSubscriptionInput{
+		Topic: "automation.completed",
+		Channels: []notificationcenter.SubscriptionChannelInput{{
+			Channel: notificationcenter.ChannelInApp,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateSubscription() error = %v", err)
+	}
+
+	service := NewService(dataStore, threadService, turnService, eventHub)
 	now := time.Date(2026, 3, 21, 6, 0, 0, 0, time.UTC)
 	service.now = func() time.Time { return now }
 
@@ -205,12 +232,19 @@ func TestTriggerCompletesRunAndCreatesNotification(t *testing.T) {
 		t.Fatal("expected run logs to be persisted")
 	}
 
+	waitForNotificationCount(t, dataStore, 1)
+
 	notifications := dataStore.ListNotifications()
 	if len(notifications) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(notifications))
 	}
-	if notifications[0].Kind != "automation_run_completed" {
+	if notifications[0].Kind != "notification_center_automation_completed" {
 		t.Fatalf("expected completion notification, got %q", notifications[0].Kind)
+	}
+
+	dispatches := dataStore.ListNotificationDispatches(workspace.ID, store.NotificationDispatchFilter{})
+	if len(dispatches) != 1 || dispatches[0].Topic != "automation.completed" || dispatches[0].NotificationID == "" {
+		t.Fatalf("expected notification center dispatch, got %#v", dispatches)
 	}
 }
 
@@ -453,4 +487,16 @@ func TestTemplateLifecycleAndBuiltInImmutability(t *testing.T) {
 	}); !errors.Is(err, ErrImmutableTemplate) {
 		t.Fatalf("expected ErrImmutableTemplate, got %v", err)
 	}
+}
+
+func waitForNotificationCount(t *testing.T, dataStore *store.MemoryStore, expected int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(dataStore.ListNotifications()) == expected {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d notifications, got %#v", expected, dataStore.ListNotifications())
 }

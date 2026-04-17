@@ -10,6 +10,10 @@ func NewService(dataStore *store.MemoryStore) *Service {
 	return &Service{store: dataStore}
 }
 
+func (s *Service) Create(notification store.Notification) (store.Notification, error) {
+	return s.store.CreateNotification(notification)
+}
+
 func (s *Service) List() []store.Notification {
 	return s.store.ListNotifications()
 }

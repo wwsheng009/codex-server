@@ -27,6 +27,7 @@ import (
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/memorydiag"
+	"codex-server/backend/internal/notificationcenter"
 	"codex-server/backend/internal/notifications"
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/runtimeprefs"
@@ -51,6 +52,7 @@ type Dependencies struct {
 	Bots                 *bots.Service
 	Automations          *automations.Service
 	Notifications        *notifications.Service
+	NotificationCenter   *notificationcenter.Service
 	Hooks                *hooks.Service
 	TurnPolicies         *turnpolicies.Service
 	Threads              *threads.Service
@@ -67,52 +69,54 @@ type Dependencies struct {
 }
 
 type Server struct {
-	originMatcher   *originMatcher
-	requestShutdown func(reason string) bool
-	auth            *auth.Service
-	workspaces      *workspace.Service
-	bots            *bots.Service
-	automations     *automations.Service
-	notifications   *notifications.Service
-	hooks           *hooks.Service
-	turnPolicies    *turnpolicies.Service
-	threads         *threads.Service
-	turns           *turns.Service
-	approvals       *approvals.Service
-	catalog         *catalog.Service
-	configfs        *configfs.Service
-	execfs          *execfs.Service
-	feedback        *feedback.Service
-	events          *events.Hub
-	runtimePrefs    *runtimeprefs.Service
-	memoryDiag      *memorydiag.Service
-	accessControl   *accesscontrol.Service
+	originMatcher      *originMatcher
+	requestShutdown    func(reason string) bool
+	auth               *auth.Service
+	workspaces         *workspace.Service
+	bots               *bots.Service
+	automations        *automations.Service
+	notifications      *notifications.Service
+	notificationCenter *notificationcenter.Service
+	hooks              *hooks.Service
+	turnPolicies       *turnpolicies.Service
+	threads            *threads.Service
+	turns              *turns.Service
+	approvals          *approvals.Service
+	catalog            *catalog.Service
+	configfs           *configfs.Service
+	execfs             *execfs.Service
+	feedback           *feedback.Service
+	events             *events.Hub
+	runtimePrefs       *runtimeprefs.Service
+	memoryDiag         *memorydiag.Service
+	accessControl      *accesscontrol.Service
 }
 
 func NewRouter(deps Dependencies) http.Handler {
 	originMatcher := newOriginMatcher(deps.FrontendOrigin)
 
 	server := &Server{
-		originMatcher:   originMatcher,
-		requestShutdown: deps.RequestShutdown,
-		auth:            deps.Auth,
-		workspaces:      deps.Workspaces,
-		bots:            deps.Bots,
-		automations:     deps.Automations,
-		notifications:   deps.Notifications,
-		hooks:           deps.Hooks,
-		turnPolicies:    deps.TurnPolicies,
-		threads:         deps.Threads,
-		turns:           deps.Turns,
-		approvals:       deps.Approvals,
-		catalog:         deps.Catalog,
-		configfs:        deps.ConfigFS,
-		execfs:          deps.ExecFS,
-		feedback:        deps.Feedback,
-		events:          deps.Events,
-		runtimePrefs:    deps.RuntimePrefs,
-		memoryDiag:      deps.MemoryDiagnostics,
-		accessControl:   deps.AccessControl,
+		originMatcher:      originMatcher,
+		requestShutdown:    deps.RequestShutdown,
+		auth:               deps.Auth,
+		workspaces:         deps.Workspaces,
+		bots:               deps.Bots,
+		automations:        deps.Automations,
+		notifications:      deps.Notifications,
+		notificationCenter: deps.NotificationCenter,
+		hooks:              deps.Hooks,
+		turnPolicies:       deps.TurnPolicies,
+		threads:            deps.Threads,
+		turns:              deps.Turns,
+		approvals:          deps.Approvals,
+		catalog:            deps.Catalog,
+		configfs:           deps.ConfigFS,
+		execfs:             deps.ExecFS,
+		feedback:           deps.Feedback,
+		events:             deps.Events,
+		runtimePrefs:       deps.RuntimePrefs,
+		memoryDiag:         deps.MemoryDiagnostics,
+		accessControl:      deps.AccessControl,
 	}
 
 	router := chi.NewRouter()
@@ -215,17 +219,31 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
 				r.Get("/{workspaceId}/collaboration-modes", server.handleListCollaborationModes)
 				r.Get("/{workspaceId}/turn-policy-decisions", server.handleListTurnPolicyDecisions)
+				r.Get("/{workspaceId}/notification-subscriptions", server.handleListNotificationSubscriptions)
+				r.Post("/{workspaceId}/notification-subscriptions", server.handleCreateNotificationSubscription)
+				r.Post("/{workspaceId}/notification-subscriptions/{subscriptionId}", server.handleUpdateNotificationSubscription)
+				r.Delete("/{workspaceId}/notification-subscriptions/{subscriptionId}", server.handleDeleteNotificationSubscription)
+				r.Get("/{workspaceId}/notification-mail-server", server.handleGetNotificationMailServerConfig)
+				r.Post("/{workspaceId}/notification-mail-server", server.handleUpsertNotificationMailServerConfig)
+				r.Get("/{workspaceId}/notification-email-targets", server.handleListNotificationEmailTargets)
+				r.Post("/{workspaceId}/notification-email-targets", server.handleCreateNotificationEmailTarget)
+				r.Get("/{workspaceId}/notification-dispatches", server.handleListNotificationDispatches)
+				r.Get("/{workspaceId}/notification-dispatches/{dispatchId}", server.handleGetNotificationDispatch)
+				r.Post("/{workspaceId}/notification-dispatches/{dispatchId}/retry", server.handleRetryNotificationDispatch)
 				r.Get("/{workspaceId}/hook-configuration", server.handleGetHookConfiguration)
 				r.Post("/{workspaceId}/hook-configuration", server.handleWriteHookConfiguration)
 				r.Get("/{workspaceId}/hook-runs", server.handleListHookRuns)
 				r.Get("/{workspaceId}/turn-policy-metrics", server.handleGetTurnPolicyMetrics)
 				r.Get("/{workspaceId}/stream", server.handleWorkspaceStream)
+				r.Get("/{workspaceId}/available-bots", server.handleListAvailableBots)
+				r.Get("/{workspaceId}/available-bot-delivery-targets", server.handleListAvailableBotDeliveryTargets)
 				r.Route("/{workspaceId}/bot-connections", func(r chi.Router) {
 					r.Get("/", server.handleListBotConnections)
 					r.Post("/", server.handleCreateBotConnection)
 					r.Get("/{connectionId}", server.handleGetBotConnection)
 					r.Post("/{connectionId}", server.handleUpdateBotConnection)
 					r.Get("/{connectionId}/logs", server.handleListBotConnectionLogs)
+					r.Get("/{connectionId}/recipient-candidates", server.handleListBotConnectionRecipientCandidates)
 					r.Post("/{connectionId}/runtime-mode", server.handleUpdateBotConnectionRuntimeMode)
 					r.Post("/{connectionId}/command-output-mode", server.handleUpdateBotConnectionCommandOutputMode)
 					r.Post("/{connectionId}/wechat-channel-timing", server.handleUpdateBotConnectionWeChatChannelTiming)
@@ -243,6 +261,7 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/", server.handleListBots)
 					r.Post("/", server.handleCreateBot)
 					r.Route("/{botId}", func(r chi.Router) {
+						r.Post("/metadata", server.handleUpdateBot)
 						r.Get("/bindings", server.handleListBotBindings)
 						r.Get("/triggers", server.handleListBotTriggers)
 						r.Get("/delivery-targets", server.handleListBotDeliveryTargets)
@@ -879,6 +898,182 @@ func (s *Server) handleDeleteReadNotifications(w http.ResponseWriter, _ *http.Re
 	writeJSON(w, http.StatusOK, s.notifications.DeleteRead())
 }
 
+func (s *Server) handleListNotificationSubscriptions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.notificationCenter.ListSubscriptions(chi.URLParam(r, "workspaceId")))
+}
+
+func (s *Server) handleCreateNotificationSubscription(w http.ResponseWriter, r *http.Request) {
+	var request notificationcenter.UpsertSubscriptionInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	subscription, err := s.notificationCenter.CreateSubscription(chi.URLParam(r, "workspaceId"), request)
+	if err != nil {
+		if errors.Is(err, notificationcenter.ErrInvalidInput) {
+			writeError(w, http.StatusBadRequest, "notification_subscription_invalid", err.Error())
+			return
+		}
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, subscription)
+}
+
+func (s *Server) handleUpdateNotificationSubscription(w http.ResponseWriter, r *http.Request) {
+	var request notificationcenter.UpsertSubscriptionInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	subscription, err := s.notificationCenter.UpdateSubscription(
+		chi.URLParam(r, "workspaceId"),
+		chi.URLParam(r, "subscriptionId"),
+		request,
+	)
+	if err != nil {
+		if errors.Is(err, notificationcenter.ErrInvalidInput) {
+			writeError(w, http.StatusBadRequest, "notification_subscription_invalid", err.Error())
+			return
+		}
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, subscription)
+}
+
+func (s *Server) handleDeleteNotificationSubscription(w http.ResponseWriter, r *http.Request) {
+	if err := s.notificationCenter.DeleteSubscription(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "subscriptionId")); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+type notificationMailServerConfigResponse struct {
+	WorkspaceID string    `json:"workspaceId"`
+	Enabled     bool      `json:"enabled"`
+	Host        string    `json:"host,omitempty"`
+	Port        int       `json:"port,omitempty"`
+	Username    string    `json:"username,omitempty"`
+	PasswordSet bool      `json:"passwordSet"`
+	From        string    `json:"from,omitempty"`
+	RequireTLS  bool      `json:"requireTls"`
+	SkipVerify  bool      `json:"skipVerify"`
+	CreatedAt   time.Time `json:"createdAt,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
+}
+
+func sanitizeNotificationMailServerConfig(
+	config store.NotificationMailServerConfig,
+) notificationMailServerConfigResponse {
+	return notificationMailServerConfigResponse{
+		WorkspaceID: strings.TrimSpace(config.WorkspaceID),
+		Enabled:     config.Enabled,
+		Host:        strings.TrimSpace(config.Host),
+		Port:        config.Port,
+		Username:    strings.TrimSpace(config.Username),
+		PasswordSet: config.Password != "",
+		From:        strings.TrimSpace(config.From),
+		RequireTLS:  config.RequireTLS,
+		SkipVerify:  config.SkipVerify,
+		CreatedAt:   config.CreatedAt,
+		UpdatedAt:   config.UpdatedAt,
+	}
+}
+
+func (s *Server) handleGetNotificationMailServerConfig(w http.ResponseWriter, r *http.Request) {
+	config := s.notificationCenter.GetMailServerConfig(chi.URLParam(r, "workspaceId"))
+	writeJSON(w, http.StatusOK, sanitizeNotificationMailServerConfig(config))
+}
+
+func (s *Server) handleUpsertNotificationMailServerConfig(w http.ResponseWriter, r *http.Request) {
+	var request notificationcenter.UpsertMailServerConfigInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	config, err := s.notificationCenter.UpsertMailServerConfig(chi.URLParam(r, "workspaceId"), request)
+	if err != nil {
+		if errors.Is(err, notificationcenter.ErrInvalidInput) {
+			writeError(w, http.StatusBadRequest, "notification_mail_server_invalid", err.Error())
+			return
+		}
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, sanitizeNotificationMailServerConfig(config))
+}
+
+func (s *Server) handleListNotificationEmailTargets(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.notificationCenter.ListEmailTargets(chi.URLParam(r, "workspaceId")))
+}
+
+func (s *Server) handleCreateNotificationEmailTarget(w http.ResponseWriter, r *http.Request) {
+	var request notificationcenter.CreateEmailTargetInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	target, err := s.notificationCenter.CreateEmailTarget(chi.URLParam(r, "workspaceId"), request)
+	if err != nil {
+		if errors.Is(err, notificationcenter.ErrInvalidInput) {
+			writeError(w, http.StatusBadRequest, "notification_email_target_invalid", err.Error())
+			return
+		}
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, target)
+}
+
+func (s *Server) handleListNotificationDispatches(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.notificationCenter.ListDispatches(chi.URLParam(r, "workspaceId"), notificationcenter.ListDispatchOptions{
+		SubscriptionID: r.URL.Query().Get("subscriptionId"),
+		Topic:          r.URL.Query().Get("topic"),
+		Channel:        r.URL.Query().Get("channel"),
+		Status:         r.URL.Query().Get("status"),
+		TargetRefType:  r.URL.Query().Get("targetRefType"),
+		TargetRefID:    r.URL.Query().Get("targetRefId"),
+		SourceRefType:  r.URL.Query().Get("sourceRefType"),
+		SourceRefID:    r.URL.Query().Get("sourceRefId"),
+		EventKey:       r.URL.Query().Get("eventKey"),
+	}))
+}
+
+func (s *Server) handleGetNotificationDispatch(w http.ResponseWriter, r *http.Request) {
+	dispatch, err := s.notificationCenter.GetDispatch(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "dispatchId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dispatch)
+}
+
+func (s *Server) handleRetryNotificationDispatch(w http.ResponseWriter, r *http.Request) {
+	dispatch, err := s.notificationCenter.RetryDispatch(r.Context(), chi.URLParam(r, "workspaceId"), chi.URLParam(r, "dispatchId"))
+	if err != nil {
+		if errors.Is(err, notificationcenter.ErrInvalidInput) || errors.Is(err, notificationcenter.ErrEmailDeliveryUnavailable) {
+			writeError(w, http.StatusBadRequest, "notification_dispatch_retry_failed", err.Error())
+			return
+		}
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, dispatch)
+}
+
 func (s *Server) handleListTurnPolicyDecisions(w http.ResponseWriter, r *http.Request) {
 	if s.turnPolicies == nil {
 		writeJSON(w, http.StatusOK, []store.TurnPolicyDecision{})
@@ -1020,6 +1215,16 @@ func (s *Server) handleListBots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.bots.ListBots(chi.URLParam(r, "workspaceId")))
 }
 
+func (s *Server) handleListAvailableBots(w http.ResponseWriter, r *http.Request) {
+	botsList, err := s.bots.ListAvailableBots(chi.URLParam(r, "workspaceId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, botsList)
+}
+
 func (s *Server) handleListAllBots(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.bots.ListAllBots())
 }
@@ -1046,6 +1251,19 @@ func (s *Server) handleListBotTriggers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListBotDeliveryTargets(w http.ResponseWriter, r *http.Request) {
 	targets, err := s.bots.ListDeliveryTargets(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "botId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, targets)
+}
+
+func (s *Server) handleListAvailableBotDeliveryTargets(w http.ResponseWriter, r *http.Request) {
+	targets, err := s.bots.ListAvailableDeliveryTargets(
+		chi.URLParam(r, "workspaceId"),
+		r.URL.Query().Get("botId"),
+	)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -1293,6 +1511,25 @@ func (s *Server) handleCreateBot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, bot)
 }
 
+func (s *Server) handleUpdateBot(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	botID := chi.URLParam(r, "botId")
+
+	var request bots.UpdateBotInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	bot, err := s.bots.UpdateBot(workspaceID, botID, request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, bot)
+}
+
 func (s *Server) handleCreateBotConnectionForBot(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	botID := chi.URLParam(r, "botId")
@@ -1485,6 +1722,16 @@ func (s *Server) handleListBotConnectionConversations(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusOK, s.bots.ListConversationViews(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId")))
 }
 
+func (s *Server) handleListBotConnectionRecipientCandidates(w http.ResponseWriter, r *http.Request) {
+	candidates, err := s.bots.ListConnectionRecipientCandidates(chi.URLParam(r, "workspaceId"), chi.URLParam(r, "connectionId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, candidates)
+}
+
 func (s *Server) handleUpdateBotConversationBinding(w http.ResponseWriter, r *http.Request) {
 	var request bots.UpdateConversationBindingInput
 	if err := decodeJSON(r, &request); err != nil {
@@ -1629,6 +1876,29 @@ func (s *Server) handleBotWebhook(w http.ResponseWriter, r *http.Request) {
 		default:
 			s.writeStoreError(w, err)
 		}
+		return
+	}
+
+	if result.Body != nil || result.StatusCode != 0 || len(result.Headers) > 0 {
+		for key, value := range result.Headers {
+			if strings.TrimSpace(key) == "" {
+				continue
+			}
+			w.Header().Set(key, value)
+		}
+		if strings.TrimSpace(w.Header().Get("Content-Type")) == "" {
+			w.Header().Set("Content-Type", "application/json")
+		}
+		statusCode := result.StatusCode
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+		w.WriteHeader(statusCode)
+		payload := result.Body
+		if payload == nil {
+			payload = result
+		}
+		_ = json.NewEncoder(w).Encode(payload)
 		return
 	}
 
@@ -3613,6 +3883,12 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "automation_run_not_found", err.Error())
 	case errors.Is(err, store.ErrNotificationNotFound):
 		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
+	case errors.Is(err, store.ErrNotificationSubscriptionNotFound):
+		writeError(w, http.StatusNotFound, "notification_subscription_not_found", err.Error())
+	case errors.Is(err, store.ErrNotificationEmailTargetNotFound):
+		writeError(w, http.StatusNotFound, "notification_email_target_not_found", err.Error())
+	case errors.Is(err, store.ErrNotificationDispatchNotFound):
+		writeError(w, http.StatusNotFound, "notification_dispatch_not_found", err.Error())
 	case errors.Is(err, store.ErrBotNotFound):
 		writeError(w, http.StatusNotFound, "bot_not_found", err.Error())
 	case errors.Is(err, store.ErrBotBindingNotFound):

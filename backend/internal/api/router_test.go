@@ -27,6 +27,7 @@ import (
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/memorydiag"
+	"codex-server/backend/internal/notificationcenter"
 	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/runtimeprefs"
@@ -2199,6 +2200,128 @@ func TestBotConnectionRoutesAndWebhook(t *testing.T) {
 	}
 }
 
+func TestBotWebhookRouteSupportsProviderChallengeResponse(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	eventHub := events.NewHub()
+	eventHub.AttachStore(dataStore)
+	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
+	threadService := threads.NewService(dataStore, runtimeManager)
+	turnService := turns.NewService(runtimeManager, dataStore)
+	botProvider := newRouterTestBotProvider()
+	botProvider.parseWebhookResult = func(r *http.Request, connection store.BotConnection) (bots.WebhookResult, []bots.InboundMessage, error) {
+		if strings.TrimSpace(r.Header.Get("X-Test-Secret")) != "fake-secret" {
+			return bots.WebhookResult{}, nil, bots.ErrWebhookUnauthorized
+		}
+
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			return bots.WebhookResult{}, nil, err
+		}
+		if challenge := strings.TrimSpace(payload["challenge"]); challenge != "" {
+			return bots.WebhookResult{
+				StatusCode: http.StatusOK,
+				Headers: map[string]string{
+					"X-Webhook-Handled": "challenge",
+				},
+				Body: map[string]string{
+					"challenge": challenge,
+				},
+			}, nil, nil
+		}
+
+		return bots.WebhookResult{}, []bots.InboundMessage{{
+			ConversationID: payload["conversationId"],
+			MessageID:      payload["messageId"],
+			UserID:         payload["userId"],
+			Username:       payload["username"],
+			Title:          payload["title"],
+			Text:           payload["text"],
+		}}, nil
+	}
+	botService := bots.NewService(dataStore, threadService, turnService, eventHub, bots.Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []bots.Provider{botProvider},
+		AIBackends:    []bots.AIBackend{routerTestAIBackend{}},
+	})
+	botService.Start(context.Background())
+
+	router := NewRouter(Dependencies{
+		FrontendOrigin: "http://localhost:15173",
+		Auth:           auth.NewService(dataStore, runtimeManager),
+		Workspaces:     workspace.NewService(dataStore, runtimeManager),
+		Bots:           botService,
+		Automations:    automations.NewService(dataStore, threadService, turnService, eventHub),
+		Notifications:  notifications.NewService(dataStore),
+		Threads:        threadService,
+		Turns:          turnService,
+		Approvals:      approvals.NewService(runtimeManager),
+		Catalog:        catalog.NewService(runtimeManager),
+		ConfigFS:       configfs.NewService(runtimeManager),
+		ExecFS:         execfs.NewService(runtimeManager, eventHub, dataStore),
+		Feedback:       feedback.NewService(runtimeManager),
+		Events:         eventHub,
+	})
+
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bot-connections",
+		`{"provider":"fakechat","name":"Support Bot","aiBackend":"fake_ai","secrets":{"bot_token":"token-1"}}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create bot connection, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+	if strings.TrimSpace(created.Data.ID) == "" {
+		t.Fatal("expected bot connection id")
+	}
+
+	webhookRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/hooks/bots/"+created.Data.ID,
+		strings.NewReader(`{"challenge":"challenge-token-1"}`),
+	)
+	webhookRequest.Header.Set("X-Test-Secret", "fake-secret")
+	webhookRecorder := httptest.NewRecorder()
+	router.ServeHTTP(webhookRecorder, webhookRequest)
+
+	if webhookRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 from webhook challenge route, got %d", webhookRecorder.Code)
+	}
+	if webhookRecorder.Header().Get("X-Webhook-Handled") != "challenge" {
+		t.Fatalf("expected custom webhook header, got %#v", webhookRecorder.Header())
+	}
+
+	var payload map[string]string
+	if err := json.NewDecoder(webhookRecorder.Body).Decode(&payload); err != nil {
+		t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+	}
+	if payload["challenge"] != "challenge-token-1" {
+		t.Fatalf("expected challenge response body, got %#v", payload)
+	}
+
+	select {
+	case sent := <-botProvider.sentCh:
+		t.Fatalf("did not expect outbound reply for challenge response, got %#v", sent)
+	default:
+	}
+}
+
 func TestBotCreationAndBotScopedConnectionRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -2303,6 +2426,60 @@ func TestBotCreationAndBotScopedConnectionRoutes(t *testing.T) {
 		listedBots.Data[0].Name != "Ops Bot" ||
 		listedBots.Data[0].EndpointCount != 1 {
 		t.Fatalf("unexpected listed bots payload: %#v", listedBots.Data)
+	}
+
+	sharedWorkspace := dataStore.CreateWorkspace("Shared Workspace", "E:/projects/shared")
+	updateBotResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/bots/"+createdBot.Data.ID+"/metadata",
+		fmt.Sprintf(`{"name":"Shared Ops Bot","description":"Shared bot","scope":"global","sharingMode":"selected_workspaces","sharedWorkspaceIds":["%s"]}`, sharedWorkspace.ID),
+	)
+	if updateBotResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from update bot, got %d", updateBotResponse.Code)
+	}
+
+	var updatedBot struct {
+		Data struct {
+			ID                 string   `json:"id"`
+			Name               string   `json:"name"`
+			Description        string   `json:"description"`
+			Scope              string   `json:"scope"`
+			SharingMode        string   `json:"sharingMode"`
+			SharedWorkspaceIDs []string `json:"sharedWorkspaceIds"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, updateBotResponse, &updatedBot)
+	if updatedBot.Data.ID != createdBot.Data.ID ||
+		updatedBot.Data.Name != "Shared Ops Bot" ||
+		updatedBot.Data.Description != "Shared bot" ||
+		updatedBot.Data.Scope != "global" ||
+		updatedBot.Data.SharingMode != "selected_workspaces" ||
+		len(updatedBot.Data.SharedWorkspaceIDs) != 1 ||
+		updatedBot.Data.SharedWorkspaceIDs[0] != sharedWorkspace.ID {
+		t.Fatalf("unexpected updated bot payload: %#v", updatedBot.Data)
+	}
+
+	availableBotsResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+sharedWorkspace.ID+"/available-bots",
+		"",
+	)
+	if availableBotsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from available bots after update, got %d", availableBotsResponse.Code)
+	}
+
+	var availableBots struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, availableBotsResponse, &availableBots)
+	if len(availableBots.Data) != 1 || availableBots.Data[0].ID != createdBot.Data.ID {
+		t.Fatalf("expected updated bot to be visible in shared workspace, got %#v", availableBots.Data)
 	}
 }
 
@@ -2514,6 +2691,248 @@ func TestGlobalBotRoutesAggregateAcrossWorkspaces(t *testing.T) {
 	}
 	if !hasWorkspaceBAccount {
 		t.Fatalf("expected workspace B wechat account in global list, got %#v", listedAccounts.Data)
+	}
+}
+
+func TestAvailableBotRoutesListSharedBotsAndTargets(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	router := newTestRouter(dataStore)
+
+	ownerWorkspace := dataStore.CreateWorkspace("Owner Workspace", "E:/projects/owner")
+	consumerWorkspace := dataStore.CreateWorkspace("Consumer Workspace", "E:/projects/consumer")
+	otherWorkspace := dataStore.CreateWorkspace("Other Workspace", "E:/projects/other")
+
+	sharedBot, err := dataStore.CreateBot(store.Bot{
+		WorkspaceID:        ownerWorkspace.ID,
+		Scope:              "global",
+		SharingMode:        "selected_workspaces",
+		SharedWorkspaceIDs: []string{consumerWorkspace.ID},
+		Name:               "Shared Bot",
+		Status:             "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBot(shared) error = %v", err)
+	}
+	privateBot, err := dataStore.CreateBot(store.Bot{
+		WorkspaceID: ownerWorkspace.ID,
+		Name:        "Private Bot",
+		Status:      "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBot(private) error = %v", err)
+	}
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: ownerWorkspace.ID,
+		BotID:       sharedBot.ID,
+		Provider:    "fakechat",
+		Name:        "Shared Endpoint",
+		Status:      "active",
+		AIBackend:   "workspace_thread",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+	target, err := dataStore.CreateBotDeliveryTarget(store.BotDeliveryTarget{
+		WorkspaceID:  ownerWorkspace.ID,
+		BotID:        sharedBot.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		TargetType:   "route_backed",
+		RouteType:    "conversation",
+		RouteKey:     "shared-route",
+		Title:        "Shared Route",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotDeliveryTarget() error = %v", err)
+	}
+
+	listBotsResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+consumerWorkspace.ID+"/available-bots",
+		"",
+	)
+	if listBotsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from available bots route, got %d", listBotsResponse.Code)
+	}
+
+	var listedBots struct {
+		Data []struct {
+			ID                 string   `json:"id"`
+			WorkspaceID        string   `json:"workspaceId"`
+			Scope              string   `json:"scope"`
+			SharingMode        string   `json:"sharingMode"`
+			SharedWorkspaceIDs []string `json:"sharedWorkspaceIds"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, listBotsResponse, &listedBots)
+	if len(listedBots.Data) != 1 {
+		t.Fatalf("expected 1 available bot, got %#v", listedBots.Data)
+	}
+	if listedBots.Data[0].ID != sharedBot.ID ||
+		listedBots.Data[0].WorkspaceID != ownerWorkspace.ID ||
+		listedBots.Data[0].Scope != "global" ||
+		listedBots.Data[0].SharingMode != "selected_workspaces" ||
+		len(listedBots.Data[0].SharedWorkspaceIDs) != 1 ||
+		listedBots.Data[0].SharedWorkspaceIDs[0] != consumerWorkspace.ID {
+		t.Fatalf("unexpected available bot payload: %#v", listedBots.Data[0])
+	}
+
+	listTargetsResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+consumerWorkspace.ID+"/available-bot-delivery-targets?botId="+sharedBot.ID,
+		"",
+	)
+	if listTargetsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from available bot delivery targets route, got %d", listTargetsResponse.Code)
+	}
+
+	var listedTargets struct {
+		Data []struct {
+			ID          string `json:"id"`
+			WorkspaceID string `json:"workspaceId"`
+			BotID       string `json:"botId"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, listTargetsResponse, &listedTargets)
+	if len(listedTargets.Data) != 1 ||
+		listedTargets.Data[0].ID != target.ID ||
+		listedTargets.Data[0].WorkspaceID != ownerWorkspace.ID ||
+		listedTargets.Data[0].BotID != sharedBot.ID {
+		t.Fatalf("unexpected available target payload: %#v", listedTargets.Data)
+	}
+
+	otherWorkspaceBotsResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+otherWorkspace.ID+"/available-bots",
+		"",
+	)
+	if otherWorkspaceBotsResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from other workspace available bots route, got %d", otherWorkspaceBotsResponse.Code)
+	}
+
+	var otherWorkspaceBots struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, otherWorkspaceBotsResponse, &otherWorkspaceBots)
+	for _, item := range otherWorkspaceBots.Data {
+		if item.ID == sharedBot.ID || item.ID == privateBot.ID {
+			t.Fatalf("expected no owner bots for unrelated workspace, got %#v", otherWorkspaceBots.Data)
+		}
+	}
+}
+
+func TestBotConnectionRecipientCandidatesRouteAggregatesSavedTargetsAndReadiness(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	router := newTestRouter(dataStore)
+
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	bot, err := dataStore.CreateBot(store.Bot{
+		WorkspaceID: workspace.ID,
+		Name:        "WeChat Bot",
+		Status:      "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBot() error = %v", err)
+	}
+	connection, err := dataStore.CreateBotConnection(store.BotConnection{
+		WorkspaceID: workspace.ID,
+		BotID:       bot.ID,
+		Provider:    "wechat",
+		Name:        "WeChat Support",
+		Status:      "active",
+		AIBackend:   "workspace_thread",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConnection() error = %v", err)
+	}
+	if _, err := dataStore.CreateBotConversation(store.BotConversation{
+		WorkspaceID:            workspace.ID,
+		BotID:                  bot.ID,
+		ConnectionID:           connection.ID,
+		Provider:               "wechat",
+		ExternalConversationID: "wxid_alice_1",
+		ExternalChatID:         "wxid_alice_1",
+		ExternalUserID:         "wxid_alice_1",
+		ExternalTitle:          "Alice",
+		ProviderState: map[string]string{
+			"wechat_context_token": "ctx-alice-1",
+		},
+	}); err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+	if _, err := dataStore.CreateBotDeliveryTarget(store.BotDeliveryTarget{
+		WorkspaceID:  workspace.ID,
+		BotID:        bot.ID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		TargetType:   "route_backed",
+		RouteType:    "wechat_session",
+		RouteKey:     "user:wxid_bob_1",
+		Title:        "Bob Saved",
+		Status:       "active",
+	}); err != nil {
+		t.Fatalf("CreateBotDeliveryTarget() error = %v", err)
+	}
+
+	response := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/bot-connections/"+connection.ID+"/recipient-candidates",
+		"",
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200 from recipient candidates route, got %d with body %s", response.Code, response.Body.String())
+	}
+
+	var payload struct {
+		Data []struct {
+			ConnectionID             string `json:"connectionId"`
+			RouteType                string `json:"routeType"`
+			RouteKey                 string `json:"routeKey"`
+			ChatID                   string `json:"chatId"`
+			Title                    string `json:"title"`
+			Source                   string `json:"source"`
+			DeliveryReadiness        string `json:"deliveryReadiness"`
+			DeliveryReadinessMessage string `json:"deliveryReadinessMessage"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, response, &payload)
+	if len(payload.Data) != 2 {
+		t.Fatalf("expected 2 recipient candidates, got %#v", payload.Data)
+	}
+
+	if payload.Data[0].ConnectionID != connection.ID ||
+		payload.Data[0].Source != "saved_target" ||
+		payload.Data[0].RouteType != "wechat_session" ||
+		payload.Data[0].RouteKey != "user:wxid_bob_1" ||
+		payload.Data[0].ChatID != "wxid_bob_1" ||
+		payload.Data[0].Title != "Bob Saved" ||
+		payload.Data[0].DeliveryReadiness != "waiting_for_context" ||
+		!strings.Contains(payload.Data[0].DeliveryReadinessMessage, "send a message first") {
+		t.Fatalf("unexpected first recipient candidate %#v", payload.Data[0])
+	}
+	if payload.Data[1].ConnectionID != connection.ID ||
+		payload.Data[1].Source != "conversation" ||
+		payload.Data[1].RouteType != "wechat_session" ||
+		payload.Data[1].RouteKey != "user:wxid_alice_1" ||
+		payload.Data[1].ChatID != "wxid_alice_1" ||
+		payload.Data[1].Title != "Alice" ||
+		payload.Data[1].DeliveryReadiness != "ready" {
+		t.Fatalf("unexpected second recipient candidate %#v", payload.Data[1])
 	}
 }
 
@@ -2976,8 +3395,8 @@ func TestBotTriggerRoutes(t *testing.T) {
 		t.Fatalf("expected 202 from delete trigger route, got %d", deleteResponse.Code)
 	}
 
-	if _, ok := dataStore.GetBotTrigger(workspace.ID, created.Data.ID); ok {
-		t.Fatalf("expected trigger %s to be removed after delete route", created.Data.ID)
+	if len(dataStore.ListNotificationSubscriptions(workspace.ID)) != 0 {
+		t.Fatalf("expected notification-center managed trigger %s to be removed after delete route", created.Data.ID)
 	}
 }
 
@@ -3905,9 +4324,12 @@ func TestThreadBotBindingRoutesSupportCrossWorkspaceBindGetAndDelete(t *testing.
 	}
 	dataStore.UpsertThread(thread)
 	bot, err := dataStore.CreateBot(store.Bot{
-		WorkspaceID: botWorkspace.ID,
-		Name:        "Ops Bot",
-		Status:      "active",
+		WorkspaceID:        botWorkspace.ID,
+		Scope:              "global",
+		SharingMode:        "selected_workspaces",
+		SharedWorkspaceIDs: []string{threadWorkspace.ID},
+		Name:               "Ops Bot",
+		Status:             "active",
 	})
 	if err != nil {
 		t.Fatalf("CreateBot() error = %v", err)
@@ -5184,7 +5606,12 @@ func TestStartTurnRecordsSessionStartHookRunForFirstTurn(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected session-start hook run, got %#v", runs)
 	}
-	if !strings.Contains(sessionRun.AdditionalContext, "基于 `Go + React + Vite + codex app-server` 的 Web 版 Codex 应用。") {
+	if !hookRunContainsEntry(sessionRun, "context", "sessionStartSource=startup") {
+		t.Fatalf("expected session-start hook to persist session source context, got %#v", sessionRun)
+	}
+	if !strings.Contains(sessionRun.AdditionalContext, "基于 `Go + React + Vite + codex app-server` 的 Web 版 Codex 应用。") &&
+		!hookRunContainsEntry(sessionRun, "context", "基于 `Go + React + Vite + codex app-server` 的 Web 版 Codex 应用。") &&
+		!hookRunContainsEntry(sessionRun, "feedback", "no project context matched") {
 		t.Fatalf("expected session-start hook to persist project context excerpt, got %#v", sessionRun)
 	}
 	startRun, ok := findHookRunByEventAndHandler(runs, "TurnStart", "builtin.turnstart.audit-thread-turn-start")
@@ -5231,7 +5658,7 @@ func TestStartTurnRouteSendsResponsesAPIClientMetadata(t *testing.T) {
 		threadService,
 		hooks.NewGovernedTurnStarter(hookService, "bot/webhook", "thread"),
 		eventHub,
-		bots.Config{},
+		bots.Config{NotificationCenterManagedTriggers: true},
 	)
 	automationService := automations.NewService(
 		dataStore,
@@ -6570,6 +6997,271 @@ func TestSteerTurnBlocksSecretLikePrompt(t *testing.T) {
 	}
 }
 
+func TestNotificationSubscriptionRoutesCreateUpdateListAndDelete(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	router := newTestRouter(dataStore)
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/notification-subscriptions",
+		`{"topic":"hook.blocked","channels":[{"channel":"in_app"}]}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create subscription, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data store.NotificationSubscription `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+	if created.Data.Topic != "hook.blocked" || len(created.Data.Channels) != 1 {
+		t.Fatalf("unexpected created subscription %#v", created.Data)
+	}
+
+	updateResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/notification-subscriptions/"+created.Data.ID,
+		`{"topic":"hook.failed","enabled":false,"channels":[{"channel":"in_app"}]}`,
+	)
+	if updateResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from update subscription, got %d", updateResponse.Code)
+	}
+
+	listResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/notification-subscriptions",
+		"",
+	)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list subscriptions, got %d", listResponse.Code)
+	}
+
+	var listed struct {
+		Data []store.NotificationSubscription `json:"data"`
+	}
+	decodeResponseBody(t, listResponse, &listed)
+	if len(listed.Data) != 1 || listed.Data[0].Topic != "hook.failed" || listed.Data[0].Enabled {
+		t.Fatalf("unexpected listed subscriptions %#v", listed.Data)
+	}
+
+	deleteResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodDelete,
+		"/api/workspaces/"+workspace.ID+"/notification-subscriptions/"+created.Data.ID,
+		"",
+	)
+	if deleteResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from delete subscription, got %d", deleteResponse.Code)
+	}
+
+	if items := dataStore.ListNotificationSubscriptions(workspace.ID); len(items) != 0 {
+		t.Fatalf("expected no remaining subscriptions, got %#v", items)
+	}
+}
+
+func TestNotificationEmailTargetRoutesCreateAndList(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	router := newTestRouter(dataStore)
+
+	createResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/notification-email-targets",
+		`{"name":"Ops","emails":["ops@example.com","alerts@example.com"],"subjectTemplate":"{{title}}","bodyTemplate":"{{message}}"}`,
+	)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from create email target, got %d", createResponse.Code)
+	}
+
+	var created struct {
+		Data store.NotificationEmailTarget `json:"data"`
+	}
+	decodeResponseBody(t, createResponse, &created)
+	if created.Data.Name != "Ops" || len(created.Data.Emails) != 2 {
+		t.Fatalf("unexpected created email target %#v", created.Data)
+	}
+
+	listResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/notification-email-targets",
+		"",
+	)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list email targets, got %d", listResponse.Code)
+	}
+
+	var listed struct {
+		Data []store.NotificationEmailTarget `json:"data"`
+	}
+	decodeResponseBody(t, listResponse, &listed)
+	if len(listed.Data) != 1 || listed.Data[0].ID != created.Data.ID {
+		t.Fatalf("unexpected listed email targets %#v", listed.Data)
+	}
+}
+
+func TestNotificationMailServerRoutesGetAndUpsert(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	router := newTestRouter(dataStore)
+
+	getResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/notification-mail-server",
+		"",
+	)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from get mail server config, got %d", getResponse.Code)
+	}
+
+	var initial struct {
+		Data struct {
+			WorkspaceID string `json:"workspaceId"`
+			Enabled     bool   `json:"enabled"`
+			Port        int    `json:"port"`
+			RequireTLS  bool   `json:"requireTls"`
+			PasswordSet bool   `json:"passwordSet"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, getResponse, &initial)
+	if initial.Data.WorkspaceID != workspace.ID || initial.Data.Enabled || initial.Data.Port != 587 || !initial.Data.RequireTLS || initial.Data.PasswordSet {
+		t.Fatalf("unexpected initial mail server config %#v", initial.Data)
+	}
+
+	upsertResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/notification-mail-server",
+		`{"enabled":true,"host":"smtp.example.com","port":465,"username":"mailer","password":"secret","from":"alerts@example.com","requireTls":true,"skipVerify":false}`,
+	)
+	if upsertResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from upsert mail server config, got %d", upsertResponse.Code)
+	}
+
+	var updated struct {
+		Data struct {
+			Host        string `json:"host"`
+			Port        int    `json:"port"`
+			Username    string `json:"username"`
+			From        string `json:"from"`
+			PasswordSet bool   `json:"passwordSet"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, upsertResponse, &updated)
+	if updated.Data.Host != "smtp.example.com" || updated.Data.Port != 465 || updated.Data.Username != "mailer" || updated.Data.From != "alerts@example.com" || !updated.Data.PasswordSet {
+		t.Fatalf("unexpected updated mail server config %#v", updated.Data)
+	}
+
+	stored, ok := dataStore.GetNotificationMailServerConfig(workspace.ID)
+	if !ok {
+		t.Fatal("expected persisted mail server config")
+	}
+	if stored.Password != "secret" {
+		t.Fatalf("expected password to remain stored, got %#v", stored)
+	}
+}
+
+func TestNotificationDispatchRoutesListGetAndRetry(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
+	router := newTestRouter(dataStore)
+
+	dispatch, err := dataStore.CreateNotificationDispatch(store.NotificationDispatch{
+		WorkspaceID:   workspace.ID,
+		EventKey:      "ws|hook.failed|hook_run|run-1",
+		DedupKey:      "ws|hook.failed|hook_run|run-1|in_app|workspace|" + workspace.ID,
+		Topic:         "hook.failed",
+		SourceType:    "hook_run",
+		SourceRefType: "hook_run",
+		SourceRefID:   "run-1",
+		Channel:       "in_app",
+		TargetRefType: "workspace",
+		TargetRefID:   workspace.ID,
+		Title:         "Hook failed",
+		Message:       "Command validation failed",
+		Level:         "error",
+		Status:        "failed",
+		Error:         "smtp unavailable",
+	})
+	if err != nil {
+		t.Fatalf("CreateNotificationDispatch() error = %v", err)
+	}
+
+	listResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/notification-dispatches",
+		"",
+	)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from list dispatches, got %d", listResponse.Code)
+	}
+
+	var listed struct {
+		Data []store.NotificationDispatch `json:"data"`
+	}
+	decodeResponseBody(t, listResponse, &listed)
+	if len(listed.Data) != 1 || listed.Data[0].ID != dispatch.ID {
+		t.Fatalf("unexpected listed dispatches %#v", listed.Data)
+	}
+
+	getResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/workspaces/"+workspace.ID+"/notification-dispatches/"+dispatch.ID,
+		"",
+	)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 from get dispatch, got %d", getResponse.Code)
+	}
+
+	retryResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+workspace.ID+"/notification-dispatches/"+dispatch.ID+"/retry",
+		`{}`,
+	)
+	if retryResponse.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 from retry dispatch, got %d", retryResponse.Code)
+	}
+
+	var retried struct {
+		Data store.NotificationDispatch `json:"data"`
+	}
+	decodeResponseBody(t, retryResponse, &retried)
+	if retried.Data.Status != "delivered" || retried.Data.NotificationID == "" {
+		t.Fatalf("unexpected retried dispatch %#v", retried.Data)
+	}
+	if notifications := dataStore.ListNotifications(); len(notifications) != 1 {
+		t.Fatalf("expected 1 notification after retry, got %#v", notifications)
+	}
+}
+
 func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	return newTestRouterWithShutdown(dataStore, nil)
 }
@@ -6611,6 +7303,8 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 		eventHub,
 	)
 	notificationsService := notifications.NewService(dataStore)
+	notificationCenterService := notificationcenter.NewService(dataStore, eventHub, notificationsService, botService, notificationcenter.Config{})
+	notificationCenterService.Start(context.Background())
 	runtimeManager.SetServerRequestInterceptor(hookService)
 	turnPolicyService := turnpolicies.NewService(dataStore, turnService, eventHub)
 	turnPolicyService.SetHooksPrimary(true)
@@ -6623,26 +7317,27 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 	accessControlService := accesscontrol.NewService(dataStore, true)
 
 	return NewRouter(Dependencies{
-		FrontendOrigin:    "http://localhost:15173",
-		RequestShutdown:   requestShutdown,
-		Auth:              authService,
-		Workspaces:        workspaceService,
-		Bots:              botService,
-		Automations:       automationService,
-		Notifications:     notificationsService,
-		Hooks:             hookService,
-		TurnPolicies:      turnPolicyService,
-		Threads:           threadService,
-		Turns:             turnService,
-		Approvals:         approvalsService,
-		Catalog:           catalog.NewService(runtimeManager, runtimePrefsService),
-		ConfigFS:          configFSService,
-		ExecFS:            execfsService,
-		Feedback:          feedbackService,
-		Events:            eventHub,
-		RuntimePrefs:      runtimePrefsService,
-		MemoryDiagnostics: memoryDiagService,
-		AccessControl:     accessControlService,
+		FrontendOrigin:     "http://localhost:15173",
+		RequestShutdown:    requestShutdown,
+		Auth:               authService,
+		Workspaces:         workspaceService,
+		Bots:               botService,
+		Automations:        automationService,
+		Notifications:      notificationsService,
+		NotificationCenter: notificationCenterService,
+		Hooks:              hookService,
+		TurnPolicies:       turnPolicyService,
+		Threads:            threadService,
+		Turns:              turnService,
+		Approvals:          approvalsService,
+		Catalog:            catalog.NewService(runtimeManager, runtimePrefsService),
+		ConfigFS:           configFSService,
+		ExecFS:             execfsService,
+		Feedback:           feedbackService,
+		Events:             eventHub,
+		RuntimePrefs:       runtimePrefsService,
+		MemoryDiagnostics:  memoryDiagService,
+		AccessControl:      accessControlService,
 	})
 }
 
@@ -6738,6 +7433,15 @@ func findHookRunByEventAndHandler(runs []store.HookRun, eventName string, handle
 	return zero, false
 }
 
+func hookRunContainsEntry(run store.HookRun, kind string, text string) bool {
+	for _, entry := range run.Entries {
+		if entry.Kind == kind && strings.Contains(entry.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
 func seedRouterMetricsThreadProjection(
 	dataStore *store.MemoryStore,
 	workspaceID string,
@@ -6805,8 +7509,9 @@ func routerCommandExecutionItem(id string, command string, status string, exitCo
 }
 
 type routerTestBotProvider struct {
-	name   string
-	sentCh chan routerTestBotSentPayload
+	name               string
+	sentCh             chan routerTestBotSentPayload
+	parseWebhookResult func(*http.Request, store.BotConnection) (bots.WebhookResult, []bots.InboundMessage, error)
 }
 
 type routerTestBotSentPayload struct {
@@ -6866,6 +7571,18 @@ func (p *routerTestBotProvider) ParseWebhook(r *http.Request, _ store.BotConnect
 	}
 
 	return []bots.InboundMessage{payload}, nil
+}
+
+func (p *routerTestBotProvider) ParseWebhookResult(r *http.Request, connection store.BotConnection) (bots.WebhookResult, []bots.InboundMessage, error) {
+	if p.parseWebhookResult != nil {
+		return p.parseWebhookResult(r, connection)
+	}
+
+	messages, err := p.ParseWebhook(r, connection)
+	if err != nil {
+		return bots.WebhookResult{}, nil, err
+	}
+	return bots.WebhookResult{}, messages, nil
 }
 
 func (p *routerTestBotProvider) SendMessages(_ context.Context, _ store.BotConnection, _ store.BotConversation, messages []bots.OutboundMessage) error {
