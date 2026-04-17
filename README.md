@@ -13,6 +13,9 @@
 当前已完成：
 
 - `docs/system-design.md`：总体架构与实施规划
+- `docs/bots/bot-connection-and-provider-reference.md`：bot 连接原理、现有配置能力与 Feishu / QQ / QQ Bot 扩展参考
+- `docs/bots/feishu/feishu-bot-provider-implementation-plan.md`：Feishu Bot Provider 实施文档
+- `docs/bots/qqbot/qqbot-provider-implementation-plan.md`：QQ Bot Provider 实施文档
 - `backend/`：Go 服务入口、模块目录、REST/WS 骨架、真实 `codex app-server` stdio runtime 桥接
 - workspace 与线程元数据已落盘到 `CODEX_SERVER_STORE_PATH` 指定的 JSON 文件
 - `frontend/`：React + Vite 单页应用骨架、路由、React Query、Zustand、工作区/线程/审批页面
