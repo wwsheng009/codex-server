@@ -1,6 +1,7 @@
 @import './styles/tokens.css';
 @import './styles/app-shell.css';
 @import './styles/settings-shell.css';
+@import '../styles/notification-center.css';
 @import './styles/appearance-settings.css';
 @import './styles/common.css';
 @import './styles/route-error.css';

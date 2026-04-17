@@ -1605,6 +1605,39 @@ function TimelineItem({
         </SystemTimelineCard>
       )
     }
+    case 'contextCompaction': {
+      const status = stringField(item.status)
+      const detailText = sanitizeThreadMarkdownContent(
+        stringField(item.message) || stringField(item.text),
+      )
+
+      return (
+        <SystemTimelineCard
+          className="conversation-card--context"
+          meta={status ? humanizeToolStatus(status) : undefined}
+          statusTone={statusToneFromValue(status || 'inProgress')}
+          summary={contextCompactionCardSummary(status)}
+          title={i18n._({
+            id: 'Context Compaction',
+            message: 'Context Compaction',
+          })}
+        >
+          {detailText ? (
+            <CopyableMessageBody
+              className="conversation-card__content"
+              source={detailText}
+              tone="system"
+            >
+              <ThreadMarkdown content={detailText} />
+            </CopyableMessageBody>
+          ) : (
+            <div className="conversation-card__placeholder">
+              {contextCompactionCardDetail(status)}
+            </div>
+          )}
+        </SystemTimelineCard>
+      )
+    }
     case 'turnPlan': {
       const turnPlan = readTurnPlanItem(item)
       const steps = turnPlan?.steps ?? []
@@ -1677,10 +1710,34 @@ function TimelineItem({
     }
     case 'fileChange': {
       const changes = fileChanges(item)
+      const previewText = stringField(item.text) || stringField(item.message)
+      const status = stringField(item.status)
 
       if (!changes.length) {
-        logSuppressedTimelineItem(item, turnId, 'fileChange without changes')
-        return null
+        logTimelinePlaceholderItem(item, turnId, 'fileChange placeholder')
+        return (
+          <SystemTimelineCard
+            className="conversation-card--file"
+            meta={status ? humanizeToolStatus(status) : undefined}
+            statusTone={statusToneFromValue(status || 'inProgress')}
+            summary={i18n._({
+              id: 'Awaiting file changes',
+              message: 'Awaiting file changes',
+            })}
+            title={i18n._({ id: 'Files', message: 'Files' })}
+          >
+            {previewText ? (
+              <ThreadCodeBlock className="conversation-card__output" content={previewText} />
+            ) : (
+              <div className="conversation-card__placeholder">
+                {i18n._({
+                  id: 'Preparing file changes…',
+                  message: 'Preparing file changes…',
+                })}
+              </div>
+            )}
+          </SystemTimelineCard>
+        )
       }
 
       return (
@@ -3054,6 +3111,76 @@ function statusToneFromValue(value: string): CompactSystemStatusTone | undefined
   return undefined
 }
 
+function normalizeCompactStatusValue(value: string) {
+  return value.toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+function contextCompactionCardSummary(value: string) {
+  switch (normalizeCompactStatusValue(value)) {
+    case 'completed':
+    case 'complete':
+    case 'resolved':
+    case 'success':
+    case 'succeeded':
+    case 'done':
+    case 'finished':
+      return i18n._({
+        id: 'Older thread context compacted',
+        message: 'Older thread context compacted',
+      })
+    case 'failed':
+    case 'error':
+    case 'errored':
+    case 'systemerror':
+    case 'expired':
+    case 'cancelled':
+    case 'canceled':
+    case 'interrupted':
+      return i18n._({
+        id: 'Context compaction failed',
+        message: 'Context compaction failed',
+      })
+    default:
+      return i18n._({
+        id: 'Compacting older thread context',
+        message: 'Compacting older thread context',
+      })
+  }
+}
+
+function contextCompactionCardDetail(value: string) {
+  switch (normalizeCompactStatusValue(value)) {
+    case 'completed':
+    case 'complete':
+    case 'resolved':
+    case 'success':
+    case 'succeeded':
+    case 'done':
+    case 'finished':
+      return i18n._({
+        id: 'Older thread context has been condensed for the active context window.',
+        message: 'Older thread context has been condensed for the active context window.',
+      })
+    case 'failed':
+    case 'error':
+    case 'errored':
+    case 'systemerror':
+    case 'expired':
+    case 'cancelled':
+    case 'canceled':
+    case 'interrupted':
+      return i18n._({
+        id: 'The runtime could not finish compacting this thread context.',
+        message: 'The runtime could not finish compacting this thread context.',
+      })
+    default:
+      return i18n._({
+        id: 'The runtime is condensing older thread context for the current reply.',
+        message: 'The runtime is condensing older thread context for the current reply.',
+      })
+  }
+}
+
 function turnPlanNormalizedStatus(value: string) {
   return normalizeTurnPlanStatus(value)
 }
@@ -3516,6 +3643,8 @@ function estimateConversationEntryHeight(entry: ConversationEntry) {
       const lineCount = integerField(entry.item.outputLineCount) ?? countOutputLines(output)
       return 140 + Math.min(lineCount, 12) * 18
     }
+    case 'contextCompaction':
+      return 116
     case 'turnPlan':
       {
         const turnPlan = readTurnPlanItem(entry.item)
@@ -3601,6 +3730,8 @@ function conversationEntryOmissionReason(item: Record<string, unknown>) {
         ? null
         : 'commandExecution without command/output/status'
     }
+    case 'contextCompaction':
+      return null
     case 'turnPlan':
       return (() => {
         const turnPlan = readTurnPlanItem(item)
@@ -3611,7 +3742,9 @@ function conversationEntryOmissionReason(item: Record<string, unknown>) {
     case 'plan':
       return planSteps(item).length ? null : 'plan without steps'
     case 'fileChange':
-      return fileChanges(item).length ? null : 'fileChange without changes'
+      return fileChanges(item).length || stringField(item.text) || stringField(item.message) || stringField(item.status)
+        ? null
+        : 'fileChange without changes'
     case 'reasoning':
       return null
     case 'webSearch':

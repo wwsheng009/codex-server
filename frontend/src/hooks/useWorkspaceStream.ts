@@ -317,11 +317,27 @@ function extractWorkspaceStreamLiveDiagnosticTarget(event: ServerEvent) {
         metadata: { deltaLength: stringField(payload.delta).length } satisfies ConversationLiveDiagnosticMetadata,
         turnId: stringField(payload.turnId) || event.turnId || null,
       }
+    case 'item/fileChange/outputDelta':
+      return {
+        itemId: stringField(payload.itemId) || null,
+        itemType: 'fileChange',
+        metadata: { deltaLength: stringField(payload.delta).length } satisfies ConversationLiveDiagnosticMetadata,
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
     case 'item/plan/delta':
       return {
         itemId: stringField(payload.itemId) || null,
         itemType: 'plan',
         metadata: { deltaLength: stringField(payload.delta).length } satisfies ConversationLiveDiagnosticMetadata,
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
+    case 'turn/diff/updated':
+      return {
+        itemId: null,
+        itemType: 'turnDiff',
+        metadata: {
+          deltaLength: measureWorkspaceStreamTurnDiffLength(payload),
+        } satisfies ConversationLiveDiagnosticMetadata,
         turnId: stringField(payload.turnId) || event.turnId || null,
       }
     case 'item/reasoning/summaryTextDelta':
@@ -362,6 +378,28 @@ function measureWorkspaceStreamItemTextLength(item: Record<string, unknown>) {
         stringField(item.message).length,
       )
   }
+}
+
+function measureWorkspaceStreamTurnDiffLength(payload: Record<string, unknown>) {
+  const diff = payload.diff
+  if (typeof diff === 'string') {
+    return diff.length
+  }
+
+  const delta = payload.delta
+  if (typeof delta === 'string') {
+    return delta.length
+  }
+
+  if (typeof diff === 'object' && diff !== null) {
+    try {
+      return JSON.stringify(diff).length
+    } catch {
+      return 0
+    }
+  }
+
+  return 0
 }
 
 function asObject(value: unknown): Record<string, unknown> {

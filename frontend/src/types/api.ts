@@ -108,6 +108,79 @@ export type NotificationItem = {
   readAt?: string | null;
 };
 
+export type NotificationChannelBinding = {
+  channel: string;
+  targetRefType: string;
+  targetRefId?: string;
+  titleTemplate?: string;
+  bodyTemplate?: string;
+  settings?: Record<string, string> | null;
+};
+
+export type NotificationSubscription = {
+  id: string;
+  workspaceId: string;
+  topic: string;
+  sourceType?: string;
+  filter?: Record<string, string> | null;
+  channels?: NotificationChannelBinding[] | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NotificationEmailTarget = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  emails?: string[] | null;
+  subjectTemplate?: string;
+  bodyTemplate?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NotificationMailServerConfig = {
+  workspaceId: string;
+  enabled: boolean;
+  host?: string;
+  port: number;
+  username?: string;
+  passwordSet: boolean;
+  from?: string;
+  requireTls: boolean;
+  skipVerify: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type NotificationDispatch = {
+  id: string;
+  workspaceId: string;
+  subscriptionId?: string;
+  eventKey: string;
+  dedupKey?: string;
+  topic: string;
+  sourceType?: string;
+  sourceRefType?: string;
+  sourceRefId?: string;
+  channel: string;
+  targetRefType: string;
+  targetRefId?: string;
+  title?: string;
+  message?: string;
+  level?: string;
+  status: string;
+  error?: string;
+  attemptCount?: number;
+  notificationId?: string;
+  botOutboundDeliveryId?: string;
+  createdAt: string;
+  updatedAt: string;
+  deliveredAt?: string | null;
+};
+
 export type BotConnection = {
   id: string;
   botId?: string;
@@ -133,6 +206,9 @@ export type BotConnection = {
 export type Bot = {
   id: string;
   workspaceId: string;
+  scope?: string | null;
+  sharingMode?: string | null;
+  sharedWorkspaceIds?: string[] | null;
   name: string;
   description?: string | null;
   status: string;
@@ -216,8 +292,27 @@ export type BotConversation = {
   updatedAt: string;
 };
 
+export type BotRecipientCandidate = {
+  id: string;
+  workspaceId: string;
+  connectionId: string;
+  provider: string;
+  routeType: string;
+  routeKey: string;
+  chatId: string;
+  threadId?: string | null;
+  title?: string | null;
+  source?: string | null;
+  sourceRefId?: string | null;
+  deliveryReadiness?: string | null;
+  deliveryReadinessMessage?: string | null;
+  lastContextSeenAt?: string | null;
+  lastSeenAt?: string | null;
+};
+
 export type BotDeliveryTarget = {
   id: string;
+  workspaceId: string;
   botId: string;
   endpointId: string;
   sessionId?: string | null;
@@ -350,6 +445,7 @@ export type ThreadTurn = {
 export type ThreadDetail = Thread & {
   cwd?: string;
   hasMoreTurns?: boolean;
+  clientLiveEventSeq?: number;
   messageCount?: number;
   preview?: string;
   path?: string;

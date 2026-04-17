@@ -4,18 +4,25 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { i18n } from '../../i18n/runtime'
 import type { ThreadDetail } from '../../types/api'
-import { resolveLiveThreadDetail } from '../threadLiveState'
-import { buildThreadPageTurnDisplayState } from './buildThreadPageTurnDisplayState'
-import {
-  shouldScheduleOlderTurnsAutoload,
-  shouldFreezeThreadTimelineVirtualization,
-  ThreadWorkbenchSurface,
-  triggerOlderTurnsLoadWithAnchor,
-} from './ThreadWorkbenchSurface'
+
+let resolveLiveThreadDetail: typeof import('../threadLiveState').resolveLiveThreadDetail
+let buildThreadPageTurnDisplayState: typeof import('./buildThreadPageTurnDisplayState').buildThreadPageTurnDisplayState
+let shouldScheduleOlderTurnsAutoload: typeof import('./ThreadWorkbenchSurface').shouldScheduleOlderTurnsAutoload
+let shouldFreezeThreadTimelineVirtualization: typeof import('./ThreadWorkbenchSurface').shouldFreezeThreadTimelineVirtualization
+let ThreadWorkbenchSurface: typeof import('./ThreadWorkbenchSurface').ThreadWorkbenchSurface
+let triggerOlderTurnsLoadWithAnchor: typeof import('./ThreadWorkbenchSurface').triggerOlderTurnsLoadWithAnchor
 
 describe('ThreadWorkbenchSurface', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
+    ;({ resolveLiveThreadDetail } = await import('../threadLiveState'))
+    ;({ buildThreadPageTurnDisplayState } = await import('./buildThreadPageTurnDisplayState'))
+    ;({
+      shouldScheduleOlderTurnsAutoload,
+      shouldFreezeThreadTimelineVirtualization,
+      ThreadWorkbenchSurface,
+      triggerOlderTurnsLoadWithAnchor,
+    } = await import('./ThreadWorkbenchSurface'))
   })
 
   it('captures a preserve-position anchor before loading older turns', () => {

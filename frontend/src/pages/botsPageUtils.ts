@@ -12,6 +12,10 @@ export const BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE = 'single_line'
 export const BOT_COMMAND_OUTPUT_MODE_BRIEF = 'brief'
 export const BOT_COMMAND_OUTPUT_MODE_DETAILED = 'detailed'
 export const BOT_COMMAND_OUTPUT_MODE_FULL = 'full'
+export const FEISHU_DELIVERY_MODE_WEBSOCKET = 'websocket'
+export const FEISHU_DELIVERY_MODE_WEBHOOK = 'webhook'
+
+export type SupportedBotProvider = 'telegram' | 'wechat' | 'feishu' | 'qqbot'
 
 export type BotOutboundMediaKind = 'image' | 'video' | 'voice' | 'file'
 export type BotOutboundMediaSource = 'url' | 'path'
@@ -60,6 +64,7 @@ export type BotsPageDraft = {
   runtimeMode: string
   commandOutputMode: string
   telegramDeliveryMode: string
+  feishuDeliveryMode: string
   publicBaseUrl: string
   wechatBaseUrl: string
   wechatRouteTag: string
@@ -69,6 +74,19 @@ export type BotsPageDraft = {
   wechatLoginSessionId: string
   wechatLoginStatus: string
   wechatQrCodeContent: string
+  feishuAppId: string
+  feishuAppSecret: string
+  feishuDomain: string
+  feishuEnableCards: boolean
+  feishuGroupReplyAll: boolean
+  feishuThreadIsolation: boolean
+  feishuShareSessionInChannel: boolean
+  qqbotAppId: string
+  qqbotAppSecret: string
+  qqbotSandbox: boolean
+  qqbotShareSessionInChannel: boolean
+  qqbotMarkdownSupport: boolean
+  qqbotIntents: string
   aiBackend: string
   telegramBotToken: string
   wechatBotToken: string
@@ -93,6 +111,7 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   runtimeMode: 'normal',
   commandOutputMode: BOT_COMMAND_OUTPUT_MODE_BRIEF,
   telegramDeliveryMode: 'webhook',
+  feishuDeliveryMode: 'websocket',
   publicBaseUrl: '',
   wechatBaseUrl: '',
   wechatRouteTag: '',
@@ -102,6 +121,19 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   wechatLoginSessionId: '',
   wechatLoginStatus: '',
   wechatQrCodeContent: '',
+  feishuAppId: '',
+  feishuAppSecret: '',
+  feishuDomain: '',
+  feishuEnableCards: false,
+  feishuGroupReplyAll: false,
+  feishuThreadIsolation: false,
+  feishuShareSessionInChannel: false,
+  qqbotAppId: '',
+  qqbotAppSecret: '',
+  qqbotSandbox: false,
+  qqbotShareSessionInChannel: false,
+  qqbotMarkdownSupport: false,
+  qqbotIntents: '',
   aiBackend: 'workspace_thread',
   telegramBotToken: '',
   wechatBotToken: '',
@@ -121,6 +153,40 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
 
 function normalizeCapabilities(capabilities?: string[] | null) {
   return new Set((capabilities ?? []).map((capability) => capability.trim()).filter(Boolean))
+}
+
+export function resolveBotProvider(value?: string | null): SupportedBotProvider | '' {
+  switch (value?.trim().toLowerCase()) {
+    case 'telegram':
+      return 'telegram'
+    case 'wechat':
+      return 'wechat'
+    case 'feishu':
+      return 'feishu'
+    case 'qqbot':
+      return 'qqbot'
+    default:
+      return ''
+  }
+}
+
+export function resolveBotBooleanSetting(value?: string | null | undefined) {
+  switch (value?.trim().toLowerCase()) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'on':
+    case 'enabled':
+      return true
+    default:
+      return false
+  }
+}
+
+export function resolveFeishuDeliveryMode(value?: string | null) {
+  return value?.trim().toLowerCase() === FEISHU_DELIVERY_MODE_WEBHOOK
+    ? FEISHU_DELIVERY_MODE_WEBHOOK
+    : FEISHU_DELIVERY_MODE_WEBSOCKET
 }
 
 function normalizeBotOutboundMediaKind(value?: string | null): BotOutboundMediaKind {
@@ -425,7 +491,7 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   const aiConfig: Record<string, string> = {}
   const settings: Record<string, string> = {}
   const secrets: Record<string, string> = {}
-  const provider = draft.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
+  const provider = resolveBotProvider(draft.provider) || 'telegram'
   const commandOutputMode = resolveBotCommandOutputMode(draft.commandOutputMode)
   const useConfirmedWeChatLoginSession =
     provider === 'wechat' &&
@@ -440,7 +506,7 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
 
   if (provider === 'telegram') {
     settings.telegram_delivery_mode = draft.telegramDeliveryMode.trim() || 'webhook'
-  } else {
+  } else if (provider === 'wechat') {
     settings.wechat_delivery_mode = 'polling'
     if (draft.wechatBaseUrl.trim()) {
       settings.wechat_base_url = draft.wechatBaseUrl.trim()
@@ -462,6 +528,28 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
     }
     if (useInlineWeChatCredentials && draft.wechatUserId.trim()) {
       settings.wechat_owner_user_id = draft.wechatUserId.trim()
+    }
+  } else if (provider === 'feishu') {
+    if (draft.feishuAppId.trim()) {
+      settings.feishu_app_id = draft.feishuAppId.trim()
+    }
+    settings.feishu_delivery_mode = resolveFeishuDeliveryMode(draft.feishuDeliveryMode)
+    if (draft.feishuDomain.trim()) {
+      settings.feishu_domain = draft.feishuDomain.trim()
+    }
+    settings.feishu_enable_cards = String(draft.feishuEnableCards)
+    settings.feishu_group_reply_all = String(draft.feishuGroupReplyAll)
+    settings.feishu_thread_isolation = String(draft.feishuThreadIsolation)
+    settings.feishu_share_session_in_channel = String(draft.feishuShareSessionInChannel)
+  } else if (provider === 'qqbot') {
+    if (draft.qqbotAppId.trim()) {
+      settings.qqbot_app_id = draft.qqbotAppId.trim()
+    }
+    settings.qqbot_sandbox = String(draft.qqbotSandbox)
+    settings.qqbot_share_session_in_channel = String(draft.qqbotShareSessionInChannel)
+    settings.qqbot_markdown_support = String(draft.qqbotMarkdownSupport)
+    if (draft.qqbotIntents.trim()) {
+      settings.qqbot_intents = draft.qqbotIntents.trim()
     }
   }
   settings.runtime_mode = draft.runtimeMode.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
@@ -506,12 +594,19 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
   if (useInlineWeChatCredentials && draft.wechatBotToken.trim()) {
     secrets.bot_token = draft.wechatBotToken.trim()
   }
+  if (provider === 'feishu' && draft.feishuAppSecret.trim()) {
+    secrets.feishu_app_secret = draft.feishuAppSecret.trim()
+  }
+  if (provider === 'qqbot' && draft.qqbotAppSecret.trim()) {
+    secrets.qqbot_app_secret = draft.qqbotAppSecret.trim()
+  }
 
   return {
     provider,
     name: draft.name.trim(),
     publicBaseUrl:
-      provider === 'telegram' && (draft.telegramDeliveryMode.trim() || 'webhook') === 'webhook'
+      ((provider === 'telegram' && (draft.telegramDeliveryMode.trim() || 'webhook') === 'webhook') ||
+        (provider === 'feishu' && resolveFeishuDeliveryMode(draft.feishuDeliveryMode) === FEISHU_DELIVERY_MODE_WEBHOOK))
         ? draft.publicBaseUrl.trim() || undefined
         : undefined,
     aiBackend: draft.aiBackend,
@@ -529,7 +624,7 @@ export function buildBotsPageDraftFromConnection(
   connection: BotConnection,
   savedWeChatAccounts: WeChatAccount[] = [],
 ): BotsPageDraft {
-  const provider = connection.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
+  const provider = resolveBotProvider(connection.provider) || 'telegram'
   const runtimeMode = connection.settings?.runtime_mode?.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
   const aiBackend = connection.aiBackend.trim().toLowerCase() === 'openai_responses' ? 'openai_responses' : 'workspace_thread'
   const linkedWeChatAccount =
@@ -548,6 +643,10 @@ export function buildBotsPageDraftFromConnection(
       provider === 'telegram' && connection.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling'
         ? 'polling'
         : 'webhook',
+    feishuDeliveryMode:
+      provider === 'feishu'
+        ? resolveFeishuDeliveryMode(connection.settings?.feishu_delivery_mode)
+        : FEISHU_DELIVERY_MODE_WEBSOCKET,
     publicBaseUrl: resolveBotConnectionPublicBaseUrl(connection),
     wechatBaseUrl: provider === 'wechat' ? connection.settings?.wechat_base_url?.trim() ?? '' : '',
     wechatRouteTag: provider === 'wechat' ? connection.settings?.wechat_route_tag?.trim() ?? '' : '',
@@ -555,6 +654,27 @@ export function buildBotsPageDraftFromConnection(
       provider === 'wechat' ? resolveWeChatChannelTimingEnabled(connection.settings, runtimeMode) : false,
     wechatCredentialSource: provider === 'wechat' ? (linkedWeChatAccount ? 'saved' : 'manual') : 'manual',
     wechatSavedAccountId: linkedWeChatAccount?.id ?? '',
+    feishuAppId: provider === 'feishu' ? connection.settings?.feishu_app_id?.trim() ?? '' : '',
+    feishuAppSecret: '',
+    feishuDomain: provider === 'feishu' ? connection.settings?.feishu_domain?.trim() ?? '' : '',
+    feishuEnableCards: provider === 'feishu' ? resolveBotBooleanSetting(connection.settings?.feishu_enable_cards) : false,
+    feishuGroupReplyAll: provider === 'feishu' ? resolveBotBooleanSetting(connection.settings?.feishu_group_reply_all) : false,
+    feishuThreadIsolation:
+      provider === 'feishu' ? resolveBotBooleanSetting(connection.settings?.feishu_thread_isolation) : false,
+    feishuShareSessionInChannel:
+      provider === 'feishu'
+        ? resolveBotBooleanSetting(connection.settings?.feishu_share_session_in_channel)
+        : false,
+    qqbotAppId: provider === 'qqbot' ? connection.settings?.qqbot_app_id?.trim() ?? '' : '',
+    qqbotAppSecret: '',
+    qqbotSandbox: provider === 'qqbot' ? resolveBotBooleanSetting(connection.settings?.qqbot_sandbox) : false,
+    qqbotShareSessionInChannel:
+      provider === 'qqbot'
+        ? resolveBotBooleanSetting(connection.settings?.qqbot_share_session_in_channel)
+        : false,
+    qqbotMarkdownSupport:
+      provider === 'qqbot' ? resolveBotBooleanSetting(connection.settings?.qqbot_markdown_support) : false,
+    qqbotIntents: provider === 'qqbot' ? connection.settings?.qqbot_intents?.trim() ?? '' : '',
     aiBackend,
     telegramBotToken: '',
     wechatBotToken: '',
@@ -617,11 +737,16 @@ export function isBotWorkspacePermissionPresetFullAccess(value: string | null | 
 }
 
 export function formatBotProviderLabel(provider: string) {
-  switch (provider.trim().toLowerCase()) {
+  const normalizedProvider = provider.trim().toLowerCase()
+  switch (normalizedProvider) {
     case 'telegram':
       return i18n._({ id: 'Telegram', message: 'Telegram' })
     case 'wechat':
       return i18n._({ id: 'WeChat', message: 'WeChat' })
+    case 'feishu':
+      return i18n._({ id: 'Feishu', message: 'Feishu' })
+    case 'qqbot':
+      return i18n._({ id: 'QQ Bot', message: 'QQ Bot' })
     case 'discord':
       return i18n._({ id: 'Discord', message: 'Discord' })
     default:

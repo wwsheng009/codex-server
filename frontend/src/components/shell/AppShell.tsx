@@ -25,6 +25,7 @@ import {
   AutomationIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ContextIcon,
   FeedIcon,
   FolderClosedIcon,
   FolderOpenIcon,
@@ -83,6 +84,12 @@ function getPrimaryNavItems() {
       to: '/automations',
       label: i18n._({ id: 'Automations', message: 'Automations' }),
       icon: AutomationIcon,
+    },
+    {
+      section: 'notification-center',
+      to: '/notification-center',
+      label: i18n._({ id: 'Notification Center', message: 'Notification Center' }),
+      icon: ContextIcon,
     },
     {
       section: 'bots',

@@ -36,7 +36,8 @@ export function applyLiveThreadEvents(
   }
 
   const baselineMs = parseTimestamp(detail.updatedAt)
-  if (baselineMs === null) {
+  let baselineSeq = readLiveThreadEventSeq(detail)
+  if (baselineMs === null && baselineSeq === null) {
     frontendDebugLog('thread-live', 'applying live events without baseline filter', {
       detail: summarizeThreadDetailForDebug(detail),
       eventCount: events.length,
@@ -50,10 +51,42 @@ export function applyLiveThreadEvents(
   const recoveredEvents: ServerEvent[] = []
   const filteredEvents: ServerEvent[] = []
   for (const event of events) {
+    const eventSeq = readServerEventSeq(event)
+    if (baselineSeq !== null && eventSeq !== null) {
+      if (eventSeq > baselineSeq) {
+        acceptedEvents.push(event)
+        nextDetail = applyThreadEventToDetail(nextDetail, event)
+        baselineSeq = readLiveThreadEventSeq(nextDetail)
+        continue
+      }
+
+      filteredEvents.push(event)
+      const filteredTarget = summarizeLiveDiagnosticTarget(event)
+      recordConversationLiveDiagnosticEvent({
+        itemId: filteredTarget.itemId,
+        itemType: filteredTarget.itemType,
+        kind: 'baseline-filtered',
+        metadata: {
+          baselineEventSeq: baselineSeq,
+          baselineUpdatedAt: detail.updatedAt,
+          eventSeq,
+          eventTs: event.ts,
+        },
+        method: event.method,
+        reason: 'filtered: event seq already applied',
+        serverRequestId: event.serverRequestId ?? null,
+        source: 'thread-live',
+        threadId: detail.id,
+        turnId: filteredTarget.turnId ?? event.turnId ?? null,
+      })
+      continue
+    }
+
     const eventMs = parseTimestamp(event.ts)
-    if (eventMs === null || eventMs > baselineMs) {
+    if (baselineMs === null || eventMs === null || eventMs > baselineMs) {
       acceptedEvents.push(event)
       nextDetail = applyThreadEventToDetail(nextDetail, event)
+      baselineSeq = readLiveThreadEventSeq(nextDetail)
       continue
     }
 
@@ -73,7 +106,9 @@ export function applyLiveThreadEvents(
         itemType: replayDecision.itemType ?? null,
         kind: 'baseline-replayed',
         metadata: {
+          baselineEventSeq: baselineSeq,
           baselineUpdatedAt: detail.updatedAt,
+          eventSeq,
           eventTs: event.ts,
           ...(replayDecision.metadata ?? {}),
         },
@@ -95,7 +130,9 @@ export function applyLiveThreadEvents(
       itemType: filteredTarget.itemType,
       kind: 'baseline-filtered',
       metadata: {
+        baselineEventSeq: baselineSeq,
         baselineUpdatedAt: detail.updatedAt,
+        eventSeq,
         eventTs: event.ts,
       },
       method: event.method,
@@ -109,6 +146,7 @@ export function applyLiveThreadEvents(
 
   if (filteredEvents.length > 0) {
     frontendDebugLog('thread-live', 'baseline filtered live events', {
+      baselineEventSeq: baselineSeq,
       baselineUpdatedAt: detail.updatedAt,
       baselineUpdatedAtMs: baselineMs,
       filteredCount: filteredEvents.length,
@@ -121,6 +159,7 @@ export function applyLiveThreadEvents(
 
   frontendDebugLog('thread-live', 'applying baseline-accepted live events', {
     acceptedCount: acceptedEvents.length,
+    baselineEventSeq: readLiveThreadEventSeq(detail),
     baselineUpdatedAt: detail.updatedAt,
     detail: summarizeThreadDetailForDebug(detail),
     recoveredCount: recoveredEvents.length,
@@ -306,6 +345,12 @@ export function applyThreadEventToDetail(
         ) {
           merged.status = event.method === 'item/completed' ? 'completed' : 'inProgress'
         }
+        if (merged.type === 'contextCompaction') {
+          merged.status = event.method === 'item/completed' ? 'completed' : 'inProgress'
+        }
+        if (merged.type === 'fileChange') {
+          merged.status = event.method === 'item/completed' ? 'completed' : 'inProgress'
+        }
         if (
           event.method === 'item/started' &&
           merged.type === 'agentMessage' &&
@@ -429,6 +474,26 @@ export function applyThreadEventToDetail(
         type: 'commandExecution',
         status: stringField(current?.status) || 'inProgress',
         aggregatedOutput: `${stringField(current?.aggregatedOutput)}${delta}`,
+        clientLiveOutputHydrated: true,
+      }), event.ts)
+      break
+    }
+    case 'item/fileChange/outputDelta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      const delta = stringField(payload.delta)
+      if (!turnId || !itemId || !delta) {
+        nextDetail = withDetailUpdatedAt(detail, event.ts)
+        break
+      }
+
+      nextDetail = updateTurnItem(detail, turnId, itemId, (current) => ({
+        ...current,
+        id: itemId,
+        type: 'fileChange',
+        status: stringField(current?.status) || 'inProgress',
+        text: `${stringField(current?.text)}${delta}`,
+        clientLiveDiffHydrated: true,
       }), event.ts)
       break
     }
@@ -464,7 +529,10 @@ export function applyThreadEventToDetail(
     })
   }
 
-  return nextDetail
+  return withLiveThreadEventSeq(
+    preserveThreadDetailUpdatedAt(detail, nextDetail),
+    event.seq,
+  )
 }
 
 export function upsertPendingUserMessage(
@@ -630,8 +698,20 @@ function mergeThreadItem(
   if (incoming.type === 'agentMessage' && !stringField(incoming.text) && stringField(current.text)) {
     merged.text = current.text
   }
+  if (
+    incoming.type === 'agentMessage' &&
+    stringField(current.text).length > stringField(incoming.text).length
+  ) {
+    merged.text = current.text
+  }
 
   if (incoming.type === 'plan' && !stringField(incoming.text) && stringField(current.text)) {
+    merged.text = current.text
+  }
+  if (
+    incoming.type === 'plan' &&
+    stringField(current.text).length > stringField(incoming.text).length
+  ) {
     merged.text = current.text
   }
 
@@ -642,18 +722,54 @@ function mergeThreadItem(
   ) {
     merged.aggregatedOutput = current.aggregatedOutput
   }
+  if (
+    incoming.type === 'commandExecution' &&
+    stringField(current.aggregatedOutput).length > stringField(incoming.aggregatedOutput).length
+  ) {
+    merged.aggregatedOutput = current.aggregatedOutput
+  }
   if (incoming.type === 'commandExecution' && !stringField(incoming.command) && stringField(current.command)) {
     merged.command = current.command
   }
   if (incoming.type === 'commandExecution' && !stringField(incoming.status) && stringField(current.status)) {
     merged.status = current.status
   }
+  if (incoming.type === 'fileChange' && !stringField(incoming.text) && stringField(current.text)) {
+    merged.text = current.text
+  }
+  if (
+    incoming.type === 'fileChange' &&
+    stringField(current.text).length > stringField(incoming.text).length
+  ) {
+    merged.text = current.text
+  }
+  if (incoming.type === 'fileChange' && !stringField(incoming.status) && stringField(current.status)) {
+    merged.status = current.status
+  }
+  if (
+    incoming.type === 'fileChange' &&
+    fileChangeList(current).length > fileChangeList(incoming).length
+  ) {
+    merged.changes = current.changes
+  }
 
   if (incoming.type === 'reasoning') {
     if (!stringList(incoming.summary).length && stringList(current.summary).length) {
       merged.summary = current.summary
     }
+    if (
+      stringList(current.summary).join('\n').length >
+      stringList(incoming.summary).join('\n').length
+    ) {
+      merged.summary = current.summary
+    }
     if (!stringList(incoming.content).length && stringList(current.content).length) {
+      merged.content = current.content
+    }
+    if (
+      stringList(current.content).join('\n').length >
+      stringList(incoming.content).join('\n').length
+    ) {
       merged.content = current.content
     }
   }
@@ -810,6 +926,7 @@ function isTemporaryLiveTurnItemId(value: string) {
 type FilteredEventReplayState = {
   agentMessageItemKeys: Set<string>
   commandExecutionItemKeys: Set<string>
+  fileChangeItemKeys: Set<string>
   planItemKeys: Set<string>
   reasoningItemKeys: Set<string>
 }
@@ -826,6 +943,7 @@ function createFilteredEventReplayState(): FilteredEventReplayState {
   return {
     agentMessageItemKeys: new Set<string>(),
     commandExecutionItemKeys: new Set<string>(),
+    fileChangeItemKeys: new Set<string>(),
     planItemKeys: new Set<string>(),
     reasoningItemKeys: new Set<string>(),
   }
@@ -895,28 +1013,36 @@ function shouldReplayFilteredBaselineEvent(
       }
 
       const currentItem = findTurnItem(detail, turnId, itemId)
-      switch (stringField(item.type)) {
-        case 'agentMessage':
-          return shouldReplayAgentMessageItem(
-            turnId,
-            itemId,
+        switch (stringField(item.type)) {
+          case 'agentMessage':
+            return shouldReplayAgentMessageItem(
+              turnId,
+              itemId,
             currentItem,
             item,
             replayState,
           )
-        case 'commandExecution':
-          return shouldReplayCommandExecutionItem(
-            turnId,
-            itemId,
-            currentItem,
-            item,
-            replayState,
-          )
-        case 'plan':
-          return shouldReplayPlanItem(
-            turnId,
-            itemId,
-            currentItem,
+          case 'commandExecution':
+            return shouldReplayCommandExecutionItem(
+              turnId,
+              itemId,
+              currentItem,
+              item,
+              replayState,
+            )
+          case 'fileChange':
+            return shouldReplayFileChangeItem(
+              turnId,
+              itemId,
+              currentItem,
+              item,
+              replayState,
+            )
+          case 'plan':
+            return shouldReplayPlanItem(
+              turnId,
+              itemId,
+              currentItem,
             item,
             replayState,
           )
@@ -954,11 +1080,11 @@ function shouldReplayFilteredBaselineEvent(
         replayState,
       )
     }
-    case 'item/commandExecution/outputDelta': {
-      const turnId = stringField(payload.turnId) || event.turnId
-      const itemId = stringField(payload.itemId)
-      if (!turnId || !itemId) {
-        return null
+      case 'item/commandExecution/outputDelta': {
+        const turnId = stringField(payload.turnId) || event.turnId
+        const itemId = stringField(payload.itemId)
+        if (!turnId || !itemId) {
+          return null
       }
 
       return shouldReplayCommandExecutionItem(
@@ -966,14 +1092,29 @@ function shouldReplayFilteredBaselineEvent(
         itemId,
         findTurnItem(detail, turnId, itemId),
         undefined,
-        replayState,
-      )
-    }
-    case 'item/plan/delta': {
-      const turnId = stringField(payload.turnId) || event.turnId
-      const itemId = stringField(payload.itemId)
-      if (!turnId || !itemId) {
-        return null
+          replayState,
+        )
+      }
+      case 'item/fileChange/outputDelta': {
+        const turnId = stringField(payload.turnId) || event.turnId
+        const itemId = stringField(payload.itemId)
+        if (!turnId || !itemId) {
+          return null
+        }
+
+        return shouldReplayFileChangeItem(
+          turnId,
+          itemId,
+          findTurnItem(detail, turnId, itemId),
+          undefined,
+          replayState,
+        )
+      }
+      case 'item/plan/delta': {
+        const turnId = stringField(payload.turnId) || event.turnId
+        const itemId = stringField(payload.itemId)
+        if (!turnId || !itemId) {
+          return null
       }
 
       return shouldReplayPlanItem(
@@ -1017,28 +1158,36 @@ function shouldReplayIncomingTurnItem(
   }
 
   const currentItem = currentItems.find((item) => stringField(item.id) === itemId)
-  switch (stringField(incomingItem.type)) {
-    case 'agentMessage':
-      return shouldReplayAgentMessageItem(
-        turnId,
-        itemId,
+    switch (stringField(incomingItem.type)) {
+      case 'agentMessage':
+        return shouldReplayAgentMessageItem(
+          turnId,
+          itemId,
         currentItem,
         incomingItem,
         replayState,
       )
-    case 'commandExecution':
-      return shouldReplayCommandExecutionItem(
-        turnId,
-        itemId,
-        currentItem,
-        incomingItem,
-        replayState,
-      )
-    case 'plan':
-      return shouldReplayPlanItem(
-        turnId,
-        itemId,
-        currentItem,
+      case 'commandExecution':
+        return shouldReplayCommandExecutionItem(
+          turnId,
+          itemId,
+          currentItem,
+          incomingItem,
+          replayState,
+        )
+      case 'fileChange':
+        return shouldReplayFileChangeItem(
+          turnId,
+          itemId,
+          currentItem,
+          incomingItem,
+          replayState,
+        )
+      case 'plan':
+        return shouldReplayPlanItem(
+          turnId,
+          itemId,
+          currentItem,
         incomingItem,
         replayState,
       )
@@ -1132,6 +1281,13 @@ function shouldReplayCommandExecutionItem(
   const incomingCommand = stringField(incomingItem?.command)
   const currentStatus = stringField(currentItem?.status)
   const incomingStatus = stringField(incomingItem?.status)
+  const currentOutputContentMode = stringField(currentItem?.outputContentMode)
+  const currentOutputEndLine = numberField(currentItem?.outputEndLine)
+  const currentOutputLineCount = numberField(currentItem?.outputLineCount)
+  const currentOutputTotalLength = numberField(currentItem?.outputTotalLength)
+  const currentSummaryTruncated = booleanField(currentItem?.summaryTruncated)
+  const currentOutputTruncated = booleanField(currentItem?.outputTruncated)
+  const clientLiveOutputHydrated = booleanField(currentItem?.clientLiveOutputHydrated)
   let reason: string | null = null
   if (!currentItem) {
     reason = 'older event replayed: missing command execution item'
@@ -1139,6 +1295,26 @@ function shouldReplayCommandExecutionItem(
     reason = 'older event replayed: empty command execution placeholder'
   } else if (incomingItem === undefined && !currentOutput) {
     reason = 'older event replayed: missing command output delta target'
+  } else if (
+    incomingItem === undefined &&
+    !clientLiveOutputHydrated &&
+    (
+      currentSummaryTruncated ||
+      currentOutputTruncated ||
+      currentOutputContentMode === 'summary' ||
+      currentOutputContentMode === 'tail' ||
+      (
+        typeof currentOutputTotalLength === 'number' &&
+        currentOutputTotalLength > currentOutput.length
+      ) ||
+      (
+        typeof currentOutputEndLine === 'number' &&
+        typeof currentOutputLineCount === 'number' &&
+        currentOutputEndLine < currentOutputLineCount
+      )
+    )
+  ) {
+    reason = 'older event replayed: incomplete command output window'
   } else if (incomingOutput.length > currentOutput.length) {
     reason = 'older event replayed: longer command output'
   } else if (!currentOutput && Boolean(incomingOutput)) {
@@ -1157,6 +1333,62 @@ function shouldReplayCommandExecutionItem(
       metadata: {
         currentLength: currentOutput.length,
         incomingLength: incomingOutput.length,
+      },
+      reason,
+      turnId,
+    }
+  }
+
+  return null
+}
+
+function shouldReplayFileChangeItem(
+  turnId: string,
+  itemId: string,
+  currentItem: Record<string, unknown> | undefined,
+  incomingItem: Record<string, unknown> | undefined,
+  replayState: FilteredEventReplayState,
+): FilteredBaselineReplayDecision | null {
+  const itemKey = buildLiveItemLookupKey(turnId, itemId)
+  if (replayState.fileChangeItemKeys.has(itemKey)) {
+    return {
+      itemId,
+      itemType: 'fileChange',
+      reason: 'older event replayed: continuing recovered file change item',
+      turnId,
+    }
+  }
+
+  const currentChanges = fileChangeList(currentItem)
+  const incomingChanges = fileChangeList(incomingItem)
+  const currentText = stringField(currentItem?.text)
+  const incomingText = stringField(incomingItem?.text)
+  const currentStatus = stringField(currentItem?.status)
+  const incomingStatus = stringField(incomingItem?.status)
+  const clientLiveDiffHydrated = booleanField(currentItem?.clientLiveDiffHydrated)
+  let reason: string | null = null
+  if (!currentItem) {
+    reason = 'older event replayed: missing file change item'
+  } else if (!currentChanges.length && incomingChanges.length > 0) {
+    reason = 'older event replayed: missing file changes'
+  } else if (incomingText.length > currentText.length) {
+    reason = 'older event replayed: longer file change preview'
+  } else if (incomingItem === undefined && !currentText && !clientLiveDiffHydrated) {
+    reason = 'older event replayed: missing file change delta target'
+  } else if (!currentText && Boolean(incomingText)) {
+    reason = 'older event replayed: missing file change preview'
+  } else if (!currentStatus && Boolean(incomingStatus)) {
+    reason = 'older event replayed: missing file change status'
+  }
+
+  if (reason) {
+    replayState.fileChangeItemKeys.add(itemKey)
+    return {
+      itemId,
+      itemType: 'fileChange',
+      metadata: {
+        currentLength: currentText.length + currentChanges.length,
+        incomingLength: incomingText.length + incomingChanges.length,
       },
       reason,
       turnId,
@@ -1303,6 +1535,12 @@ function summarizeLiveDiagnosticTarget(event: ServerEvent) {
         itemType: 'commandExecution',
         turnId: stringField(payload.turnId) || event.turnId || null,
       }
+    case 'item/fileChange/outputDelta':
+      return {
+        itemId: stringField(payload.itemId) || null,
+        itemType: 'fileChange',
+        turnId: stringField(payload.turnId) || event.turnId || null,
+      }
     case 'item/plan/delta':
       return {
         itemId: stringField(payload.itemId) || null,
@@ -1351,8 +1589,23 @@ function stringList(value: unknown) {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
 }
 
+function fileChangeList(value: unknown) {
+  if (typeof value !== 'object' || value === null) {
+    return []
+  }
+
+  const changes = (value as Record<string, unknown>).changes
+  return Array.isArray(changes)
+    ? changes.filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+    : []
+}
+
 function numberField(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function booleanField(value: unknown) {
+  return value === true
 }
 
 function stringField(value: unknown) {
@@ -1376,6 +1629,72 @@ function parseTimestamp(value: string | undefined) {
   return Number.isNaN(parsed) ? null : parsed
 }
 
+function preserveThreadDetailUpdatedAt(
+  previousDetail: ThreadDetail | undefined,
+  nextDetail: ThreadDetail | undefined,
+) {
+  if (!previousDetail || !nextDetail || previousDetail === nextDetail) {
+    return nextDetail
+  }
+
+  const previousUpdatedAtMs = parseTimestamp(previousDetail.updatedAt)
+  const nextUpdatedAtMs = parseTimestamp(nextDetail.updatedAt)
+  if (
+    previousUpdatedAtMs !== null &&
+    nextUpdatedAtMs !== null &&
+    nextUpdatedAtMs < previousUpdatedAtMs &&
+    nextDetail.updatedAt !== previousDetail.updatedAt
+  ) {
+    return {
+      ...nextDetail,
+      updatedAt: previousDetail.updatedAt,
+    }
+  }
+
+  return nextDetail
+}
+
+function readServerEventSeq(event: ServerEvent) {
+  return typeof event.seq === 'number' && Number.isFinite(event.seq) ? event.seq : null
+}
+
+function readLiveThreadEventSeq(detail: ThreadDetail | undefined) {
+  if (!detail) {
+    return null
+  }
+
+  return typeof detail.clientLiveEventSeq === 'number' && Number.isFinite(detail.clientLiveEventSeq)
+    ? detail.clientLiveEventSeq
+    : null
+}
+
+function withLiveThreadEventSeq(
+  detail: ThreadDetail | undefined,
+  eventSeq: number | null | undefined,
+) {
+  if (!detail || typeof eventSeq !== 'number' || !Number.isFinite(eventSeq)) {
+    return detail
+  }
+
+  const currentSeq = readLiveThreadEventSeq(detail)
+  if (currentSeq !== null && currentSeq >= eventSeq) {
+    return detail
+  }
+
+  return {
+    ...detail,
+    clientLiveEventSeq: eventSeq,
+  }
+}
+
+function preserveLiveThreadEventSeq(
+  detail: ThreadDetail,
+  currentLiveDetail: ThreadDetail | undefined,
+) {
+  const currentSeq = readLiveThreadEventSeq(currentLiveDetail)
+  return currentSeq === null ? detail : withLiveThreadEventSeq(detail, currentSeq)
+}
+
 function selectLiveThreadDetailBase(
   currentLiveDetail: ThreadDetail | undefined,
   threadDetail: ThreadDetail | undefined,
@@ -1395,19 +1714,22 @@ function selectLiveThreadDetailBase(
   const currentMs = parseTimestamp(currentLiveDetail.updatedAt)
   const snapshotMs = parseTimestamp(threadDetail.updatedAt)
   if (currentMs === null) {
-    return threadDetail
+    return preserveLiveThreadEventSeq(threadDetail, currentLiveDetail)
   }
 
   if (snapshotMs === null) {
-    return currentLiveDetail
+    return preserveLiveThreadEventSeq(currentLiveDetail, threadDetail)
   }
 
   return snapshotMs >= currentMs
-    ? reconcileStreamingSnapshotWithCurrentLiveDetail(
-        threadDetail,
+    ? preserveLiveThreadEventSeq(
+        reconcileStreamingSnapshotWithCurrentLiveDetail(
+          threadDetail,
+          currentLiveDetail,
+        ),
         currentLiveDetail,
       )
-    : currentLiveDetail
+    : preserveLiveThreadEventSeq(currentLiveDetail, threadDetail)
 }
 
 function reconcileStreamingSnapshotWithCurrentLiveDetail(
@@ -1627,6 +1949,13 @@ function shouldPreserveMissingTrailingLiveItem(item: Record<string, unknown>) {
       )
     case 'commandExecution':
       return !isCommandExecutionRenderEmpty(item)
+    case 'contextCompaction':
+      return Boolean(stringField(item.status) || stringField(item.text) || stringField(item.message))
+    case 'fileChange':
+      return (
+        fileChangeList(item).length > 0 ||
+        Boolean(stringField(item.status) || stringField(item.text) || stringField(item.message))
+      )
     case 'plan':
       return stringField(item.text).length > 0
     case 'reasoning':
@@ -1650,6 +1979,19 @@ function preservedLiveItemLength(item: Record<string, unknown>) {
       return Math.max(
         stringField(item.command).length,
         stringField(item.aggregatedOutput).length,
+      )
+    case 'contextCompaction':
+      return Math.max(
+        stringField(item.status).length,
+        stringField(item.text).length,
+        stringField(item.message).length,
+      )
+    case 'fileChange':
+      return Math.max(
+        fileChangeList(item).length,
+        stringField(item.status).length,
+        stringField(item.text).length,
+        stringField(item.message).length,
       )
     case 'reasoning':
       return stringList(item.summary).join('\n').length + stringList(item.content).join('\n').length

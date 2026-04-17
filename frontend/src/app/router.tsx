@@ -30,6 +30,10 @@ const BotsPage = lazy(async () => {
   const module = await import("../pages/BotsPage");
   return { default: module.BotsPage };
 });
+const NotificationCenterPage = lazy(async () => {
+  const module = await import("../pages/NotificationCenterPage");
+  return { default: module.NotificationCenterPage };
+});
 const BotsOutboundPage = lazy(async () => {
   const module = await import("../pages/BotsPage");
   return { default: module.BotsOutboundPage };
@@ -157,6 +161,7 @@ export const router = createBrowserRouter([
           },
           { path: "automations", element: lazyElement(AutomationsPage) },
           { path: "bots", element: lazyElement(BotsPage) },
+          { path: "notification-center", element: lazyElement(NotificationCenterPage) },
           { path: "bots/outbound", element: lazyElement(BotsOutboundPage) },
           {
             path: "bots/:connectionId/logs",

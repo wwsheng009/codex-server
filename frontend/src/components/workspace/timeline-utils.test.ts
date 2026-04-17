@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
+import { i18n } from '../../i18n/runtime'
 import type { ServerEvent } from '../../types/api'
 import { buildLiveTimelineEntries } from './timeline-utils'
 
@@ -15,6 +16,10 @@ function makeEvent(method: string, payload: unknown, ts: string): ServerEvent {
 }
 
 describe('timeline-utils', () => {
+  beforeAll(() => {
+    i18n.loadAndActivate({ locale: 'en', messages: {} })
+  })
+
   it('aggregates plan text deltas into a single live feed card', () => {
     const entries = buildLiveTimelineEntries([
       makeEvent(
@@ -47,6 +52,40 @@ describe('timeline-utils', () => {
     }
     expect(entries[0].text).toContain('1. Inspect logs')
     expect(entries[0].text).toContain('2. Patch retry flow')
+  })
+
+  it('aggregates file change deltas into a single live feed card', () => {
+    const entries = buildLiveTimelineEntries([
+      makeEvent(
+        'item/fileChange/outputDelta',
+        {
+          itemId: 'file-1',
+          delta: 'diff --git a/app.ts b/app.ts\n',
+        },
+        '2026-04-11T01:05:00.000Z',
+      ),
+      makeEvent(
+        'item/fileChange/outputDelta',
+        {
+          itemId: 'file-1',
+          delta: '+console.log("ready")\n',
+        },
+        '2026-04-11T01:05:01.000Z',
+      ),
+    ])
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: 'delta',
+      title: 'File Change Draft',
+      subtitle: 'file-1',
+      count: 2,
+    })
+    if (entries[0].kind !== 'delta') {
+      throw new Error('expected delta entry')
+    }
+    expect(entries[0].text).toContain('diff --git a/app.ts b/app.ts')
+    expect(entries[0].text).toContain('+console.log("ready")')
   })
 
   it('formats turn plan updates as readable status snapshots', () => {
@@ -103,4 +142,30 @@ describe('timeline-utils', () => {
     expect(entries[0].text).toContain('[completed] Inspect runtime events')
     expect(entries[0].text).toContain('[inProgress] Render status badges')
   })
+  it('formats turn diff updates as readable live feed entries', () => {
+    const entries = buildLiveTimelineEntries([
+      makeEvent(
+        'turn/diff/updated',
+        {
+          turnId: 'turn-1',
+          diff: 'diff --git a/app.ts b/app.ts\n+const ready = true\n',
+        },
+        '2026-04-11T01:15:00.000Z',
+      ),
+    ])
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: 'delta',
+      title: 'Turn Diff',
+      subtitle: 'turn-1',
+      count: 1,
+    })
+    if (entries[0].kind !== 'delta') {
+      throw new Error('expected delta entry')
+    }
+    expect(entries[0].text).toContain('diff --git a/app.ts b/app.ts')
+    expect(entries[0].text).toContain('+const ready = true')
+  })
+
 })

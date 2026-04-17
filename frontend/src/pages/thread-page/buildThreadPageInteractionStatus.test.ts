@@ -135,6 +135,8 @@ describe('buildThreadPageInteractionStatus', () => {
       liveThreadStatus: 'completed',
       restartAndRetryPending: false,
       selectedThread: {
+        archived: false,
+        createdAt: new Date().toISOString(),
         id: 'thread-1',
         name: 'Example',
         status: 'running',

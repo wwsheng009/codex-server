@@ -5,6 +5,7 @@ import type {
   BotConnection,
   BotConnectionLogEntry,
   BotConversation,
+  BotRecipientCandidate,
   BotDeliveryTarget,
   BotOutboundDelivery,
   BotReplyMessage,
@@ -17,6 +18,17 @@ import type {
 export type CreateBotInput = {
   name?: string
   description?: string
+  scope?: string
+  sharingMode?: string
+  sharedWorkspaceIds?: string[]
+}
+
+export type UpdateBotInput = {
+  name?: string
+  description?: string
+  scope?: string
+  sharingMode?: string
+  sharedWorkspaceIds?: string[]
 }
 
 export type CreateBotConnectionInput = {
@@ -133,8 +145,19 @@ export function listAllBots() {
   return apiRequest<Bot[]>('/api/bots')
 }
 
+export function listAvailableBots(workspaceId: string) {
+  return apiRequest<Bot[]>(`/api/workspaces/${workspaceId}/available-bots`)
+}
+
 export function createBot(workspaceId: string, input: CreateBotInput) {
   return apiRequest<Bot>(`/api/workspaces/${workspaceId}/bots`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateBot(workspaceId: string, botId: string, input: UpdateBotInput) {
+  return apiRequest<Bot>(`/api/workspaces/${workspaceId}/bots/${botId}/metadata`, {
     method: 'POST',
     body: JSON.stringify(input),
   })
@@ -150,6 +173,22 @@ export function listBotTriggers(workspaceId: string, botId: string) {
 
 export function listBotDeliveryTargets(workspaceId: string, botId: string) {
   return apiRequest<BotDeliveryTarget[]>(`/api/workspaces/${workspaceId}/bots/${botId}/delivery-targets`)
+}
+
+export function listAvailableBotDeliveryTargets(
+  workspaceId: string,
+  input: {
+    botId?: string
+  } = {},
+) {
+  const query = new URLSearchParams()
+  if (input.botId) {
+    query.set('botId', input.botId)
+  }
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return apiRequest<BotDeliveryTarget[]>(
+    `/api/workspaces/${workspaceId}/available-bot-delivery-targets${suffix}`,
+  )
 }
 
 export function createBotTrigger(workspaceId: string, botId: string, input: UpsertBotTriggerInput) {
@@ -313,6 +352,12 @@ export function deleteBotConnection(workspaceId: string, connectionId: string) {
 export function listBotConversations(workspaceId: string, connectionId: string) {
   return apiRequest<BotConversation[]>(
     `/api/workspaces/${workspaceId}/bot-connections/${connectionId}/conversations`,
+  )
+}
+
+export function listBotConnectionRecipientCandidates(workspaceId: string, connectionId: string) {
+  return apiRequest<BotRecipientCandidate[]>(
+    `/api/workspaces/${workspaceId}/bot-connections/${connectionId}/recipient-candidates`,
   )
 }
 

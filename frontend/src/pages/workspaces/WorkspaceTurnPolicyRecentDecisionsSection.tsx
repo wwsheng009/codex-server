@@ -297,7 +297,7 @@ export function WorkspaceTurnPolicyRecentDecisionsSection({
               </label>
               <label className="field">
                 <span>
-                  {i18n._({ id: "Status filter", message: "Status" })}
+                  {i18n._({ id: "Status", message: "Status" })}
                 </span>
                 <SelectControl
                   ariaLabel={i18n._({

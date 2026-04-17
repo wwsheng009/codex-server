@@ -2,16 +2,22 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { i18n } from '../i18n/runtime'
 import type { ServerEvent, ThreadDetail } from '../types/api'
-import {
-  applyLiveThreadEvents,
-  applyThreadEventToDetail,
-  applyThreadEventsToDetail,
-  resolveLiveThreadDetail,
-  upsertPendingUserMessage,
-} from './threadLiveState'
 
-beforeAll(() => {
+let applyLiveThreadEvents: typeof import('./threadLiveState').applyLiveThreadEvents
+let applyThreadEventToDetail: typeof import('./threadLiveState').applyThreadEventToDetail
+let applyThreadEventsToDetail: typeof import('./threadLiveState').applyThreadEventsToDetail
+let resolveLiveThreadDetail: typeof import('./threadLiveState').resolveLiveThreadDetail
+let upsertPendingUserMessage: typeof import('./threadLiveState').upsertPendingUserMessage
+
+beforeAll(async () => {
   i18n.loadAndActivate({ locale: 'en', messages: {} })
+  ;({
+    applyLiveThreadEvents,
+    applyThreadEventToDetail,
+    applyThreadEventsToDetail,
+    resolveLiveThreadDetail,
+    upsertPendingUserMessage,
+  } = await import('./threadLiveState'))
 })
 
 function makeDetail(): ThreadDetail {
@@ -35,6 +41,19 @@ function makeEvent(method: string, payload: unknown): ServerEvent {
     method,
     payload,
     ts: '2026-03-20T00:00:01.000Z',
+  }
+}
+
+function makeSeqEvent(
+  seq: number,
+  method: string,
+  payload: unknown,
+  ts = '2026-03-20T00:00:01.000Z',
+): ServerEvent {
+  return {
+    ...makeEvent(method, payload),
+    seq,
+    ts,
   }
 }
 
@@ -242,6 +261,38 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('appends live file change output chunks into the running file change item', () => {
+    const started = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('item/started', {
+        item: {
+          id: 'file-1',
+          type: 'fileChange',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    const updated = applyThreadEventToDetail(
+      started,
+      makeEvent('item/fileChange/outputDelta', {
+        delta: 'diff --git a/app.ts b/app.ts\n',
+        itemId: 'file-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(updated?.turns[0]?.items[0]).toMatchObject({
+      id: 'file-1',
+      type: 'fileChange',
+      status: 'inProgress',
+      text: 'diff --git a/app.ts b/app.ts\n',
+      clientLiveDiffHydrated: true,
+    })
+  })
+
   it('materializes a visible command execution placeholder from started events', () => {
     const detail = applyThreadEventToDetail(
       makeDetail(),
@@ -259,6 +310,44 @@ describe('threadLiveState', () => {
       id: 'cmd-1',
       type: 'commandExecution',
       status: 'inProgress',
+    })
+  })
+
+  it('materializes context compaction items from lifecycle events', () => {
+    const started = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('item/started', {
+        item: {
+          id: 'compact-1',
+          type: 'contextCompaction',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(started?.turns[0]?.items[0]).toMatchObject({
+      id: 'compact-1',
+      type: 'contextCompaction',
+      status: 'inProgress',
+    })
+
+    const completed = applyThreadEventToDetail(
+      started,
+      makeEvent('item/completed', {
+        item: {
+          id: 'compact-1',
+          type: 'contextCompaction',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(completed?.turns[0]?.items[0]).toMatchObject({
+      id: 'compact-1',
+      type: 'contextCompaction',
+      status: 'completed',
     })
   })
 
@@ -1430,6 +1519,384 @@ describe('threadLiveState', () => {
       id: 'cmd-1',
       type: 'commandExecution',
       status: 'completed',
+    })
+  })
+
+  it('replays stale command output deltas when a summary snapshot only has a partial output window', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n',
+              status: 'inProgress',
+              summaryTruncated: true,
+              outputContentMode: 'summary',
+              outputTotalLength: 32,
+            },
+          ],
+        },
+      ],
+    }
+
+    const events = [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/commandExecution/outputDelta',
+        payload: {
+          delta: 'line 2\n',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:04.000Z',
+      },
+    ] as const
+
+    const resolved = applyLiveThreadEvents(detail, [...events])
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      command: 'npm test',
+      aggregatedOutput: 'line 1\nline 2\n',
+      status: 'inProgress',
+      summaryTruncated: true,
+      outputContentMode: 'summary',
+      clientLiveOutputHydrated: true,
+    })
+  })
+
+  it('does not duplicate replayed command output when recalculating against the same summary snapshot', () => {
+    const threadDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n',
+              status: 'inProgress',
+              summaryTruncated: true,
+              outputContentMode: 'summary',
+              outputTotalLength: 32,
+            },
+          ],
+        },
+      ],
+    }
+
+    const events = [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/commandExecution/outputDelta',
+        payload: {
+          delta: 'line 2\n',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:04.000Z',
+      },
+    ] as const
+
+    const currentLiveDetail = resolveLiveThreadDetail({
+      currentLiveDetail: undefined,
+      events: [...events],
+      threadDetail,
+    })
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [...events],
+      threadDetail,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      aggregatedOutput: 'line 1\nline 2\n',
+      clientLiveOutputHydrated: true,
+    })
+  })
+
+  it('prefers event seq over updatedAt when live command output arrives with an older timestamp', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      clientLiveEventSeq: 40,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n',
+              status: 'inProgress',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = applyLiveThreadEvents(detail, [
+      makeSeqEvent(
+        41,
+        'item/commandExecution/outputDelta',
+        {
+          delta: 'line 2\n',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:04.000Z',
+      ),
+    ])
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      aggregatedOutput: 'line 1\nline 2\n',
+      clientLiveOutputHydrated: true,
+    })
+    expect(resolved?.clientLiveEventSeq).toBe(41)
+  })
+
+  it('keeps thread updatedAt monotonic when a newer seq event carries an older timestamp', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      clientLiveEventSeq: 40,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n',
+              status: 'inProgress',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = applyLiveThreadEvents(detail, [
+      makeSeqEvent(
+        41,
+        'item/commandExecution/outputDelta',
+        {
+          delta: 'line 2\n',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:04.000Z',
+      ),
+    ])
+
+    expect(resolved?.updatedAt).toBe('2026-03-20T00:00:05.000Z')
+    expect(resolved?.clientLiveEventSeq).toBe(41)
+  })
+
+  it('preserves the live seq cursor across newer snapshots so the same command delta is not applied twice', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:06.000Z',
+      clientLiveEventSeq: 41,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\nline 2\n',
+              status: 'inProgress',
+              clientLiveOutputHydrated: true,
+            },
+          ],
+        },
+      ],
+    }
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:07.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n',
+              status: 'inProgress',
+              summaryTruncated: true,
+              outputContentMode: 'summary',
+              outputTotalLength: 32,
+            },
+          ],
+        },
+      ],
+    }
+
+    const events = [
+      makeSeqEvent(
+        41,
+        'item/commandExecution/outputDelta',
+        {
+          delta: 'line 2\n',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:04.000Z',
+      ),
+    ]
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events,
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      aggregatedOutput: 'line 1\nline 2\n',
+      clientLiveOutputHydrated: true,
+    })
+    expect(resolved?.clientLiveEventSeq).toBe(41)
+  })
+
+  it('replays stale file change output deltas when a summary snapshot only has an empty placeholder', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'file-1',
+              type: 'fileChange',
+              status: 'inProgress',
+              changes: [],
+              text: '',
+            },
+          ],
+        },
+      ],
+    }
+
+    const events = [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/fileChange/outputDelta',
+        payload: {
+          delta: 'diff --git a/app.ts b/app.ts\n',
+          itemId: 'file-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:04.000Z',
+      },
+    ] as const
+
+    const resolved = applyLiveThreadEvents(detail, [...events])
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'file-1',
+      type: 'fileChange',
+      status: 'inProgress',
+      text: 'diff --git a/app.ts b/app.ts\n',
+      clientLiveDiffHydrated: true,
+    })
+  })
+
+  it('does not duplicate replayed file change output when recalculating against the same summary snapshot', () => {
+    const threadDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'file-1',
+              type: 'fileChange',
+              status: 'inProgress',
+              changes: [],
+              text: '',
+            },
+          ],
+        },
+      ],
+    }
+
+    const events = [
+      {
+        workspaceId: 'ws-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        method: 'item/fileChange/outputDelta',
+        payload: {
+          delta: 'diff --git a/app.ts b/app.ts\n',
+          itemId: 'file-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        ts: '2026-03-20T00:00:04.000Z',
+      },
+    ] as const
+
+    const currentLiveDetail = resolveLiveThreadDetail({
+      currentLiveDetail: undefined,
+      events: [...events],
+      threadDetail,
+    })
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [...events],
+      threadDetail,
+    })
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'file-1',
+      type: 'fileChange',
+      status: 'inProgress',
+      text: 'diff --git a/app.ts b/app.ts\n',
+      clientLiveDiffHydrated: true,
     })
   })
 

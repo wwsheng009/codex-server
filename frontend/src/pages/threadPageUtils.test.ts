@@ -236,6 +236,24 @@ describe('threadPageUtils', () => {
     ).toBe('turn-4b:command-1:command:inProgress:0:0:0')
   })
 
+  it('treats status-only file change placeholders as renderable timeline items', () => {
+    expect(
+      latestRenderableThreadItemKey([
+        {
+          id: 'turn-4c',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'file-1',
+              type: 'fileChange',
+              status: 'inProgress',
+            },
+          ],
+        },
+      ]),
+    ).toBe('turn-4c:file-1:file:0:inProgress:0')
+  })
+
   it('treats populated reasoning items as renderable timeline entries', () => {
     expect(
       latestRenderableThreadItemKey([

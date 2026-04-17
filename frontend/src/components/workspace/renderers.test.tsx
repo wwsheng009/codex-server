@@ -3,18 +3,25 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { i18n } from '../../i18n/runtime'
 import type { ThreadTurn } from '../../types/api'
-import {
-  areTurnTimelinePropsEqual,
-  LiveFeed,
-  nextStreamingRevealLength,
-  PlanStatusStack,
-  shouldVirtualizeTurnTimeline,
-  TurnTimeline,
-} from './renderers'
+
+let areTurnTimelinePropsEqual: typeof import('./renderers').areTurnTimelinePropsEqual
+let LiveFeed: typeof import('./renderers').LiveFeed
+let nextStreamingRevealLength: typeof import('./renderers').nextStreamingRevealLength
+let PlanStatusStack: typeof import('./renderers').PlanStatusStack
+let shouldVirtualizeTurnTimeline: typeof import('./renderers').shouldVirtualizeTurnTimeline
+let TurnTimeline: typeof import('./renderers').TurnTimeline
 
 describe('TurnTimeline', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
+    ;({
+      areTurnTimelinePropsEqual,
+      LiveFeed,
+      nextStreamingRevealLength,
+      PlanStatusStack,
+      shouldVirtualizeTurnTimeline,
+      TurnTimeline,
+    } = await import('./renderers'))
   })
 
   it('only enables virtualization for timelines that exceed the threshold with a viewport ref', () => {
@@ -393,6 +400,49 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Reasoning')
     expect(html).toContain('Awaiting reasoning content')
     expect(html).toContain('Thinking…')
+  })
+
+  it('renders context compaction items even when they do not include text', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-context-compaction',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'context-1',
+            type: 'contextCompaction',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Context Compaction')
+    expect(html).toContain('Compacting older thread context')
+    expect(html).toContain('The runtime is condensing older thread context for the current reply.')
+  })
+
+  it('renders file change placeholders before structured changes arrive', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-file-change-placeholder',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'file-change-1',
+            type: 'fileChange',
+            status: 'inProgress',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Files')
+    expect(html).toContain('Awaiting file changes')
+    expect(html).toContain('Preparing file changes…')
   })
 
   it('renders a live cursor for streaming agent messages', () => {

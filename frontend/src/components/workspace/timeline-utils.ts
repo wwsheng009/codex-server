@@ -64,6 +64,13 @@ function toDeltaAggregate(event: ServerEvent) {
         subtitle: stringField(payload.itemId) || undefined,
         text: stringField(payload.delta),
       }
+    case 'item/fileChange/outputDelta':
+      return {
+        groupKey: `file-change:${stringField(payload.itemId) || event.turnId || 'unknown'}`,
+        title: i18n._({ id: 'File Change Draft', message: 'File Change Draft' }),
+        subtitle: stringField(payload.itemId) || undefined,
+        text: stringField(payload.delta),
+      }
     case 'turn/plan/updated':
       return {
         groupKey: `turn-plan:${stringField(payload.turnId) || event.turnId || 'unknown'}`,
@@ -71,6 +78,19 @@ function toDeltaAggregate(event: ServerEvent) {
         subtitle: stringField(payload.turnId) || event.turnId || undefined,
         text: formatTurnPlanUpdate(payload),
       }
+    case 'turn/diff/updated': {
+      const text = formatTurnDiffUpdate(payload)
+      if (!text) {
+        return null
+      }
+
+      return {
+        groupKey: `turn-diff:${stringField(payload.turnId) || event.turnId || 'unknown'}`,
+        title: i18n._({ id: 'Turn Diff', message: 'Turn Diff' }),
+        subtitle: stringField(payload.turnId) || event.turnId || undefined,
+        text,
+      }
+    }
     case 'item/reasoning/summaryTextDelta':
     case 'item/reasoning/textDelta':
       return {
@@ -111,6 +131,30 @@ function formatTurnPlanUpdate(payload: Record<string, unknown>) {
   }
 
   return `${lines.join('\n')}\n\n`
+}
+
+function formatTurnDiffUpdate(payload: Record<string, unknown>) {
+  if (typeof payload.delta === 'string' && payload.delta) {
+    return payload.delta
+  }
+
+  if (typeof payload.diff === 'string' && payload.diff) {
+    return payload.diff
+  }
+
+  if (typeof payload.patch === 'string' && payload.patch) {
+    return payload.patch
+  }
+
+  if (typeof payload.diff === 'object' && payload.diff !== null) {
+    try {
+      return `${JSON.stringify(payload.diff, null, 2)}\n`
+    } catch {
+      return ''
+    }
+  }
+
+  return ''
 }
 
 function asObject(value: unknown) {

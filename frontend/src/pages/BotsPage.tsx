@@ -29,6 +29,7 @@ import {
   listBotConnectionLogsById,
   listBotBindings,
   listBotDeliveryTargets,
+  listBotConnectionRecipientCandidates,
   listBotOutboundDeliveries,
   listBotTriggers,
   listAllBots,
@@ -42,6 +43,7 @@ import {
   sendBotSessionOutboundMessages,
   startWeChatLogin,
   upsertBotDeliveryTarget,
+  updateBot,
   updateBotTrigger,
   updateBotDeliveryTarget,
   updateBotConnection,
@@ -52,6 +54,7 @@ import {
   updateWeChatAccount,
   updateWeChatChannelTiming,
   type CreateBotInput,
+  type UpdateBotInput,
   type UpdateBotDefaultBindingInput,
   type CreateBotConnectionInput,
   type UpdateBotConversationBindingInput,
@@ -101,8 +104,11 @@ import {
   matchesWeChatAccountSearch,
   planBotOutboundMediaDelivery,
   planBotOutboundTextPlacement,
+  resolveBotBooleanSetting,
+  resolveFeishuDeliveryMode,
   validateBotOutboundMediaLocation,
   resolveBotCommandOutputMode,
+  resolveBotProvider,
   resolveBotConversationThreadTarget,
   resolveWeChatChannelTimingEnabled,
   summarizeBotMap,
@@ -116,6 +122,7 @@ import type {
   BotBinding,
   BotConnection,
   BotConversation,
+  BotRecipientCandidate,
   BotDeliveryTarget,
   BotMessageMedia,
   BotReplyMessage,
@@ -245,6 +252,34 @@ function summarizeBotReplyMessages(messages?: BotReplyMessage[] | null) {
   }
 
   return summary.length > 220 ? `${summary.slice(0, 217).trimEnd()}...` : summary
+}
+
+function formatBotScopeLabel(scope?: string | null) {
+  switch (scope?.trim().toLowerCase()) {
+    case 'global':
+      return i18n._({ id: 'Global', message: 'Global' })
+    case 'workspace':
+    default:
+      return i18n._({ id: 'Workspace-scoped', message: 'Workspace-scoped' })
+  }
+}
+
+function formatBotSharingModeLabel(sharingMode?: string | null) {
+  switch (sharingMode?.trim().toLowerCase()) {
+    case 'all_workspaces':
+      return i18n._({ id: 'All workspaces', message: 'All workspaces' })
+    case 'selected_workspaces':
+      return i18n._({ id: 'Selected workspaces', message: 'Selected workspaces' })
+    case 'owner_only':
+    default:
+      return i18n._({ id: 'Owner workspace only', message: 'Owner workspace only' })
+  }
+}
+
+function formatEnabledDisabledLabel(value: boolean) {
+  return value
+    ? i18n._({ id: 'Enabled', message: 'Enabled' })
+    : i18n._({ id: 'Disabled', message: 'Disabled' })
 }
 
 type BotsPageMode = 'config' | 'outbound'
@@ -565,6 +600,14 @@ function formatBotDeliveryRouteLabel(routeType?: string | null) {
       return i18n._({ id: 'Telegram Topic', message: 'Telegram Topic' })
     case 'wechat_session':
       return i18n._({ id: 'WeChat Recipient', message: 'WeChat Recipient' })
+    case 'feishu_chat':
+      return i18n._({ id: 'Feishu Chat', message: 'Feishu Chat' })
+    case 'feishu_thread':
+      return i18n._({ id: 'Feishu Thread', message: 'Feishu Thread' })
+    case 'qqbot_group':
+      return i18n._({ id: 'QQ Bot Group', message: 'QQ Bot Group' })
+    case 'qqbot_c2c':
+      return i18n._({ id: 'QQ Bot Direct Message', message: 'QQ Bot Direct Message' })
     default:
       return i18n._({ id: 'Derived route', message: 'Derived route' })
   }
@@ -584,6 +627,10 @@ function formatBotDeliveryReadinessLabel(readiness?: string | null) {
 
 function isBotDeliveryTargetReady(target: BotDeliveryTarget) {
   return (target.deliveryReadiness?.trim().toLowerCase() ?? 'ready') === 'ready'
+}
+
+function isBotRecipientCandidateReady(candidate: BotRecipientCandidate) {
+  return (candidate.deliveryReadiness?.trim().toLowerCase() ?? 'ready') === 'ready'
 }
 
 function parseTelegramRouteKey(routeType?: string | null, routeKey?: string | null) {
@@ -617,6 +664,52 @@ function parseWeChatRouteKey(routeKey?: string | null) {
   return normalizedRouteKey
 }
 
+function parseFeishuRouteKey(routeType?: string | null, routeKey?: string | null) {
+  const normalizedRouteType = routeType?.trim().toLowerCase() ?? ''
+  const normalizedRouteKey = routeKey?.trim() ?? ''
+  if (!normalizedRouteKey) {
+    return { chatId: '', threadId: '' }
+  }
+
+  if (normalizedRouteType === 'feishu_thread') {
+    const withoutPrefix = normalizedRouteKey.startsWith('chat:') ? normalizedRouteKey.slice(5) : normalizedRouteKey
+    const [chatId = '', threadId = ''] = withoutPrefix.split(':thread:')
+    return { chatId: chatId.trim(), threadId: threadId.trim() }
+  }
+
+  const chatId = normalizedRouteKey.startsWith('chat:') ? normalizedRouteKey.slice(5) : normalizedRouteKey
+  return { chatId: chatId.trim(), threadId: '' }
+}
+
+function parseQQBotRouteKey(routeType?: string | null, routeKey?: string | null) {
+  const normalizedRouteType = routeType?.trim().toLowerCase() ?? ''
+  const normalizedRouteKey = routeKey?.trim() ?? ''
+  if (!normalizedRouteKey) {
+    return ''
+  }
+  if (normalizedRouteType === 'qqbot_c2c' && normalizedRouteKey.startsWith('user:')) {
+    return normalizedRouteKey.slice(5).trim()
+  }
+  if (normalizedRouteType === 'qqbot_group' && normalizedRouteKey.startsWith('group:')) {
+    return normalizedRouteKey.slice(6).trim()
+  }
+  return normalizedRouteKey
+}
+
+function defaultRouteTargetTypeForProvider(provider?: string | null) {
+  switch (provider?.trim().toLowerCase()) {
+    case 'wechat':
+      return 'wechat_session'
+    case 'feishu':
+      return 'feishu_chat'
+    case 'qqbot':
+      return 'qqbot_group'
+    case 'telegram':
+    default:
+      return 'telegram_chat'
+  }
+}
+
 type RouteTargetRecipientMode = 'existing' | 'manual'
 type RouteTargetModalMode = 'create' | 'save_from_existing' | 'edit'
 
@@ -628,34 +721,34 @@ type KnownRouteTargetOption = {
   threadId: string
 }
 
-function buildKnownRouteTargetOptions(
-  provider: string,
+function buildKnownRouteTargetOptionsFromCandidates(
   routeType: string,
-  conversations: BotConversation[],
+  candidates: BotRecipientCandidate[],
 ): KnownRouteTargetOption[] {
-  const normalizedProvider = provider.trim().toLowerCase()
   const normalizedRouteType = routeType.trim().toLowerCase()
-  const orderedConversations = [...conversations].sort((left, right) => {
-    const leftTimestamp = Date.parse(left.updatedAt)
-    const rightTimestamp = Date.parse(right.updatedAt)
-    return (Number.isFinite(rightTimestamp) ? rightTimestamp : 0) - (Number.isFinite(leftTimestamp) ? leftTimestamp : 0)
-  })
   const seen = new Set<string>()
   const options: KnownRouteTargetOption[] = []
 
-  for (const conversation of orderedConversations) {
-    const chatId = conversation.externalChatId.trim()
-    const threadId = conversation.externalThreadId?.trim() ?? ''
-    const title = formatBotConversationTitle(conversation).trim() || chatId
+  for (const candidate of candidates) {
+    if ((candidate.routeType?.trim().toLowerCase() ?? '') !== normalizedRouteType) {
+      continue
+    }
+    if (!isBotRecipientCandidateReady(candidate)) {
+      continue
+    }
+
+    const chatId = candidate.chatId?.trim() ?? ''
+    const threadId = candidate.threadId?.trim() ?? ''
+    const title = candidate.title?.trim() || chatId
     if (!chatId) {
       continue
     }
 
-    if (normalizedProvider === 'telegram' && normalizedRouteType === 'telegram_topic') {
+    if (normalizedRouteType === 'telegram_topic' || normalizedRouteType === 'feishu_thread') {
       if (!threadId) {
         continue
       }
-      const value = `telegram_topic:${chatId}:${threadId}`
+      const value = `${normalizedRouteType}:${chatId}:${threadId}`
       if (seen.has(value)) {
         continue
       }
@@ -671,24 +764,14 @@ function buildKnownRouteTargetOptions(
       continue
     }
 
-    if (normalizedProvider === 'telegram' && normalizedRouteType === 'telegram_chat') {
-      const value = `telegram_chat:${chatId}`
-      if (seen.has(value)) {
-        continue
-      }
-      seen.add(value)
-      options.push({
-        value,
-        label: title === chatId ? chatId : `${title} · ${chatId}`,
-        triggerLabel: title,
-        chatId,
-        threadId: '',
-      })
-      continue
-    }
-
-    if (normalizedProvider === 'wechat' && normalizedRouteType === 'wechat_session') {
-      const value = `wechat_session:${chatId}`
+    if (
+      normalizedRouteType === 'telegram_chat' ||
+      normalizedRouteType === 'wechat_session' ||
+      normalizedRouteType === 'feishu_chat' ||
+      normalizedRouteType === 'qqbot_group' ||
+      normalizedRouteType === 'qqbot_c2c'
+    ) {
+      const value = `${normalizedRouteType}:${chatId}`
       if (seen.has(value)) {
         continue
       }
@@ -922,9 +1005,15 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const [selectedConnectionId, setSelectedConnectionId] = useState(routeSelection.selectedConnectionId)
   const selectionSyncOriginRef = useRef<'local' | 'route' | null>(null)
   const [createBotModalOpen, setCreateBotModalOpen] = useState(false)
+  const [editingBot, setEditingBot] = useState<Bot | null>(null)
   const [createBotWorkspaceId, setCreateBotWorkspaceId] = useState('')
   const [createBotNameDraft, setCreateBotNameDraft] = useState('')
   const [createBotDescriptionDraft, setCreateBotDescriptionDraft] = useState('')
+  const [createBotScopeDraft, setCreateBotScopeDraft] = useState<'workspace' | 'global'>('workspace')
+  const [createBotSharingModeDraft, setCreateBotSharingModeDraft] = useState<
+    'owner_only' | 'all_workspaces' | 'selected_workspaces'
+  >('owner_only')
+  const [createBotSharedWorkspaceIdsDraft, setCreateBotSharedWorkspaceIdsDraft] = useState<string[]>([])
   const [createBotFormError, setCreateBotFormError] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<BotConnection | null>(null)
@@ -1087,12 +1176,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const selectedConnection =
     selectedBotConnections.find((connection) => connection.id === selectedConnectionId) ?? selectedBotConnections[0] ?? null
   const selectedConnectionWorkspaceId = selectedConnection?.workspaceId?.trim() ?? selectedBotWorkspaceId
-  const selectedProvider =
-    selectedConnection?.provider?.trim().toLowerCase() === 'wechat'
-      ? 'wechat'
-      : selectedConnection?.provider?.trim().toLowerCase() === 'telegram'
-        ? 'telegram'
-        : ''
+  const selectedProvider = resolveBotProvider(selectedConnection?.provider)
   const outboundComposerCapabilities = selectedConnection?.capabilities ?? []
   const outboundComposerSupportedMediaKinds = useMemo(
     () => listSupportedBotOutboundMediaKinds(outboundComposerCapabilities),
@@ -1184,6 +1268,13 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     enabled: selectedConnectionWorkspaceId.length > 0 && selectedConnectionId.length > 0,
   })
 
+  const recipientCandidatesQuery = useQuery({
+    queryKey: ['bot-recipient-candidates', selectedConnectionWorkspaceId, selectedConnectionId],
+    queryFn: () => listBotConnectionRecipientCandidates(selectedConnectionWorkspaceId, selectedConnectionId),
+    enabled: selectedConnectionWorkspaceId.length > 0 && selectedConnectionId.length > 0,
+    staleTime: 5_000,
+  })
+
   const botBindingsQuery = useQuery({
     queryKey: ['bot-bindings', selectedBotWorkspaceId, selectedBotId],
     queryFn: () => listBotBindings(selectedBotWorkspaceId, selectedBotId),
@@ -1213,6 +1304,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   })
 
   const conversations = conversationsQuery.data ?? []
+  const recipientCandidates = recipientCandidatesQuery.data ?? []
   const selectedBotBindings = botBindingsQuery.data ?? []
   const botDeliveryTargets = botDeliveryTargetsQuery.data ?? []
   const botOutboundDeliveries = botOutboundDeliveriesQuery.data ?? []
@@ -1340,6 +1432,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       void queryClient.invalidateQueries({ queryKey: ['bots'] })
       void queryClient.invalidateQueries({ queryKey: ['bot-connections'] })
       void queryClient.invalidateQueries({ queryKey: ['bot-conversations'] })
+      void queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] })
       void queryClient.invalidateQueries({ queryKey: ['bot-bindings'] })
       void queryClient.invalidateQueries({ queryKey: ['bot-triggers'] })
       void queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets'] })
@@ -1380,6 +1473,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         queryClient.invalidateQueries({ queryKey: ['bots'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
       ])
     },
   })
@@ -1389,9 +1483,38 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       createBot(workspaceId, input),
     onSuccess: async (bot) => {
       setCreateBotModalOpen(false)
+      setEditingBot(null)
       setCreateBotWorkspaceId('')
       setCreateBotNameDraft('')
       setCreateBotDescriptionDraft('')
+      setCreateBotScopeDraft('workspace')
+      setCreateBotSharingModeDraft('owner_only')
+      setCreateBotSharedWorkspaceIdsDraft([])
+      setCreateBotFormError('')
+      setSelectionState({
+        workspaceFilterId: bot.workspaceId,
+        selectedBotId: bot.id,
+        selectedConnectionId: '',
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bots'] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
+      ])
+    },
+  })
+
+  const updateBotMutation = useMutation({
+    mutationFn: ({ workspaceId, botId, input }: { workspaceId: string; botId: string; input: UpdateBotInput }) =>
+      updateBot(workspaceId, botId, input),
+    onSuccess: async (bot) => {
+      setCreateBotModalOpen(false)
+      setEditingBot(null)
+      setCreateBotWorkspaceId('')
+      setCreateBotNameDraft('')
+      setCreateBotDescriptionDraft('')
+      setCreateBotScopeDraft('workspace')
+      setCreateBotSharingModeDraft('owner_only')
+      setCreateBotSharedWorkspaceIdsDraft([])
       setCreateBotFormError('')
       setSelectionState({
         workspaceFilterId: bot.workspaceId,
@@ -1425,6 +1548,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         queryClient.invalidateQueries({ queryKey: ['bots'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
       ])
     },
   })
@@ -1504,6 +1628,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId, variables.connectionId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates', variables.workspaceId, variables.connectionId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connection-logs', variables.connectionId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connection-logs-summary', variables.connectionId] }),
       ])
@@ -1536,6 +1661,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets', variables.workspaceId, variables.botId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-outbound-deliveries', variables.workspaceId, variables.botId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connection-logs'] }),
@@ -1570,6 +1696,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets', variables.workspaceId, variables.botId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-outbound-deliveries', variables.workspaceId, variables.botId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connection-logs'] }),
@@ -1615,7 +1742,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       }),
     onSuccess: async (_, variables) => {
       closeRouteTargetModal(true)
-      await queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets', variables.workspaceId, variables.botId] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets', variables.workspaceId, variables.botId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
+      ])
     },
   })
 
@@ -1655,7 +1785,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       }),
     onSuccess: async (_, variables) => {
       closeRouteTargetModal(true)
-      await queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets', variables.workspaceId, variables.botId] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets', variables.workspaceId, variables.botId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
+      ])
     },
   })
 
@@ -1672,6 +1805,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       setDeleteDeliveryTarget(null)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets', variables.workspaceId, variables.botId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-triggers', variables.workspaceId, variables.botId] }),
       ])
     },
@@ -1739,6 +1873,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       resetBindingModalState()
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId, variables.connectionId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates', variables.workspaceId, variables.connectionId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-binding-threads'] }),
       ])
     },
@@ -1756,7 +1891,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     }) => clearBotConversationBinding(workspaceId, connectionId, conversationId),
     onSuccess: async (_, variables) => {
       resetBindingModalState()
-      await queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId, variables.connectionId] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bot-conversations', variables.workspaceId, variables.connectionId] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates', variables.workspaceId, variables.connectionId] }),
+      ])
     },
   })
 
@@ -1777,6 +1915,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         queryClient.invalidateQueries({ queryKey: ['bot-bindings', variables.workspaceId, variables.botId] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-binding-threads'] }),
       ])
     },
@@ -1794,6 +1933,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         queryClient.invalidateQueries({ queryKey: ['bots'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bot-recipient-candidates'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-triggers'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-delivery-targets'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-outbound-deliveries'] }),
@@ -1884,6 +2024,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const workspaceById = useMemo(
     () => new Map(workspaces.map((workspace) => [workspace.id, workspace])),
     [workspaces],
+  )
+  const createBotShareableWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.id !== createBotWorkspaceId),
+    [createBotWorkspaceId, workspaces],
   )
   const selectedWorkspaceFilter = workspaceById.get(workspaceFilterId) ?? null
   const selectedBotWorkspace = selectedBotWorkspaceId ? workspaceById.get(selectedBotWorkspaceId) ?? null : null
@@ -2039,6 +2183,14 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         label: i18n._({ id: 'WeChat', message: 'WeChat' }),
       },
       {
+        value: 'feishu',
+        label: i18n._({ id: 'Feishu', message: 'Feishu' }),
+      },
+      {
+        value: 'qqbot',
+        label: i18n._({ id: 'QQ Bot', message: 'QQ Bot' }),
+      },
+      {
         value: 'discord',
         label: i18n._({ id: 'Discord (Next)', message: 'Discord (Next)' }),
         disabled: true,
@@ -2070,6 +2222,20 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       {
         value: 'polling',
         label: i18n._({ id: 'Long Polling', message: 'Long Polling' }),
+      },
+    ],
+    [],
+  )
+
+  const feishuDeliveryModeOptions = useMemo(
+    () => [
+      {
+        value: 'websocket',
+        label: i18n._({ id: 'WebSocket', message: 'WebSocket' }),
+      },
+      {
+        value: 'webhook',
+        label: i18n._({ id: 'Webhook', message: 'Webhook' }),
       },
     ],
     [],
@@ -2233,6 +2399,30 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         },
       ]
     }
+    if (selectedProvider === 'feishu') {
+      return [
+        {
+          value: 'feishu_chat',
+          label: i18n._({ id: 'Feishu Chat', message: 'Feishu Chat' }),
+        },
+        {
+          value: 'feishu_thread',
+          label: i18n._({ id: 'Feishu Thread', message: 'Feishu Thread' }),
+        },
+      ]
+    }
+    if (selectedProvider === 'qqbot') {
+      return [
+        {
+          value: 'qqbot_group',
+          label: i18n._({ id: 'QQ Bot Group', message: 'QQ Bot Group' }),
+        },
+        {
+          value: 'qqbot_c2c',
+          label: i18n._({ id: 'QQ Bot Direct Message', message: 'QQ Bot Direct Message' }),
+        },
+      ]
+    }
     return []
   }, [selectedProvider])
 
@@ -2250,14 +2440,14 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     [],
   )
   const knownRouteTargetOptions = useMemo(
-    () => buildKnownRouteTargetOptions(selectedProvider, routeTargetRouteType, conversations),
-    [conversations, routeTargetRouteType, selectedProvider],
+    () => buildKnownRouteTargetOptionsFromCandidates(routeTargetRouteType, recipientCandidates),
+    [recipientCandidates, routeTargetRouteType],
   )
   const knownRouteTargetSelectOptions = useMemo(
     () => [
       {
         value: '',
-        label: i18n._({ id: 'Select a recent recipient', message: 'Select a recent recipient' }),
+        label: i18n._({ id: 'Select an available recipient', message: 'Select an available recipient' }),
         triggerLabel: i18n._({ id: 'Select recipient', message: 'Select recipient' }),
         disabled: true,
       },
@@ -2389,7 +2579,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     ) ?? null
   const recentSelectedConnectionOutboundDeliveries = selectedConnectionOutboundDeliveries.slice(0, 12)
   const routeTargetRouteKeyPreview =
-    routeTargetRouteType === 'telegram_topic'
+    routeTargetRouteType === 'telegram_topic' || routeTargetRouteType === 'feishu_thread'
       ? routeTargetChatId.trim() && routeTargetThreadId.trim()
         ? `chat:${routeTargetChatId.trim()}:thread:${routeTargetThreadId.trim()}`
         : ''
@@ -2397,6 +2587,14 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         ? routeTargetChatId.trim()
           ? `user:${routeTargetChatId.trim()}`
           : ''
+        : routeTargetRouteType === 'qqbot_c2c'
+          ? routeTargetChatId.trim()
+            ? `user:${routeTargetChatId.trim()}`
+            : ''
+          : routeTargetRouteType === 'qqbot_group'
+            ? routeTargetChatId.trim()
+              ? `group:${routeTargetChatId.trim()}`
+              : ''
       : routeTargetChatId.trim()
         ? `chat:${routeTargetChatId.trim()}`
         : ''
@@ -2428,7 +2626,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const isSaveConnectionDisabled = isEditingConnection && !isConnectionModalDirty
   const formErrorMessage =
     formError || (isEditingConnection ? getErrorMessage(updateMutation.error) : getErrorMessage(createMutation.error))
-  const createBotFormErrorMessage = createBotFormError || getErrorMessage(createBotMutation.error)
+  const isEditingBot = editingBot !== null
+  const createBotFormErrorMessage =
+    createBotFormError || getErrorMessage(isEditingBot ? updateBotMutation.error : createBotMutation.error)
   const actionErrorMessage = actionMutation.error ? getErrorMessage(actionMutation.error) : ''
   const replayFailedReplyErrorMessage = replayFailedReplyMutation.error
     ? getErrorMessage(replayFailedReplyMutation.error)
@@ -2469,9 +2669,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
               'Save this contact for proactive delivery on this endpoint. The destination has been prefilled from the linked conversation so you can keep or refine it before saving.',
           })
         : i18n._({
-            id: 'Create a saved contact for this endpoint. Choose a recent contact or enter a new destination ID, then open advanced options only if you need extra routing settings.',
+            id: 'Create a saved contact for this endpoint. Choose a known contact or enter a new destination ID, then open advanced options only if you need extra routing settings.',
             message:
-              'Create a saved contact for this endpoint. Choose a recent contact or enter a new destination ID, then open advanced options only if you need extra routing settings.',
+              'Create a saved contact for this endpoint. Choose a known contact or enter a new destination ID, then open advanced options only if you need extra routing settings.',
           })
   const routeTargetSubmitLabel =
     routeTargetModalMode === 'edit'
@@ -2512,9 +2712,12 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     ? getErrorMessage(wechatChannelTimingMutation.error)
     : ''
   const editingConnectionHasBotToken = editTarget?.secretKeys?.includes('bot_token') ?? false
+  const editingConnectionHasFeishuAppSecret = editTarget?.secretKeys?.includes('feishu_app_secret') ?? false
+  const editingConnectionHasQQBotAppSecret = editTarget?.secretKeys?.includes('qqbot_app_secret') ?? false
   const editingConnectionHasOpenAIApiKey = editTarget?.secretKeys?.includes('openai_api_key') ?? false
-  const draftProvider = draft.provider.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
+  const draftProvider = resolveBotProvider(draft.provider) || 'telegram'
   const draftTelegramDeliveryMode = draft.telegramDeliveryMode.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
+  const draftFeishuDeliveryMode = resolveFeishuDeliveryMode(draft.feishuDeliveryMode)
   const draftWeChatCredentialSource =
     draft.wechatCredentialSource.trim().toLowerCase() === 'saved'
       ? 'saved'
@@ -2527,7 +2730,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     draft.wechatBotToken.trim().length > 0
   const hasDraftConfirmedWeChatLoginSession =
     draft.wechatLoginSessionId.trim().length > 0 && draft.wechatLoginStatus.trim().toLowerCase() === 'confirmed'
-  const selectedConnectionSupportsRouteTargetConfig = selectedProvider === 'telegram' || selectedProvider === 'wechat'
+  const selectedConnectionSupportsRouteTargetConfig =
+    selectedProvider === 'telegram' ||
+    selectedProvider === 'wechat' ||
+    selectedProvider === 'feishu' ||
+    selectedProvider === 'qqbot'
 
   useEffect(() => {
     if (!routeTargetModalOpen) {
@@ -2859,10 +3066,23 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     selectedProvider === 'telegram' && selectedConnection?.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling'
       ? 'polling'
       : 'webhook'
+  const selectedFeishuDeliveryMode =
+    selectedProvider === 'feishu' ? resolveFeishuDeliveryMode(selectedConnection?.settings?.feishu_delivery_mode) : 'websocket'
   const selectedDeliveryMode =
-    selectedProvider === 'wechat' ? 'polling' : selectedProvider === 'telegram' ? selectedTelegramDeliveryMode : ''
-  const selectedConnectionUsesPolling =
-    selectedProvider === 'wechat' || (selectedProvider === 'telegram' && selectedDeliveryMode === 'polling')
+    selectedProvider === 'wechat'
+      ? 'polling'
+      : selectedProvider === 'telegram'
+        ? selectedTelegramDeliveryMode
+        : selectedProvider === 'feishu'
+          ? selectedFeishuDeliveryMode
+          : selectedProvider === 'qqbot'
+            ? 'gateway_websocket'
+            : ''
+  const selectedConnectionUsesBackgroundRuntime =
+    selectedProvider === 'wechat' ||
+    (selectedProvider === 'feishu' && selectedFeishuDeliveryMode === 'websocket') ||
+    selectedProvider === 'qqbot' ||
+    (selectedProvider === 'telegram' && selectedDeliveryMode === 'polling')
   const selectedRuntimeMode =
     selectedConnection?.settings?.runtime_mode?.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
   const selectedCommandOutputMode = resolveBotCommandOutputMode(selectedConnection?.settings?.command_output_mode)
@@ -2870,8 +3090,30 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     selectedProvider === 'wechat'
       ? resolveWeChatChannelTimingEnabled(selectedConnection?.settings, selectedRuntimeMode)
       : false
+  const selectedFeishuGroupReplyAll =
+    selectedProvider === 'feishu' ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_group_reply_all) : false
+  const selectedFeishuEnableCards =
+    selectedProvider === 'feishu' ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_enable_cards) : false
+  const selectedFeishuThreadIsolation =
+    selectedProvider === 'feishu' ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_thread_isolation) : false
+  const selectedFeishuShareSessionInChannel =
+    selectedProvider === 'feishu'
+      ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_share_session_in_channel)
+      : false
+  const selectedQQBotSandbox =
+    selectedProvider === 'qqbot' ? resolveBotBooleanSetting(selectedConnection?.settings?.qqbot_sandbox) : false
+  const selectedQQBotShareSessionInChannel =
+    selectedProvider === 'qqbot'
+      ? resolveBotBooleanSetting(selectedConnection?.settings?.qqbot_share_session_in_channel)
+      : false
+  const selectedQQBotMarkdownSupport =
+    selectedProvider === 'qqbot' ? resolveBotBooleanSetting(selectedConnection?.settings?.qqbot_markdown_support) : false
   const selectedDeliveryModeLabel =
-    selectedDeliveryMode === 'polling'
+    selectedDeliveryMode === 'gateway_websocket'
+      ? i18n._({ id: 'Gateway WebSocket', message: 'Gateway WebSocket' })
+      : selectedDeliveryMode === 'websocket'
+        ? i18n._({ id: 'WebSocket', message: 'WebSocket' })
+        : selectedDeliveryMode === 'polling'
       ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
       : selectedDeliveryMode === 'webhook'
         ? i18n._({ id: 'Webhook', message: 'Webhook' })
@@ -2885,6 +3127,26 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         : selectedBot
           ? i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
           : i18n._({ id: 'None', message: 'None' })
+  const selectedBotScopeLabel = formatBotScopeLabel(selectedBot?.scope)
+  const selectedBotSharingModeLabel = formatBotSharingModeLabel(selectedBot?.sharingMode)
+  const selectedBotSharedWorkspaceLabel = useMemo(() => {
+    if (!selectedBot) {
+      return i18n._({ id: 'None', message: 'None' })
+    }
+    if (selectedBot.scope?.trim().toLowerCase() !== 'global') {
+      return i18n._({ id: 'Owner workspace only', message: 'Owner workspace only' })
+    }
+    if (selectedBot.sharingMode?.trim().toLowerCase() === 'all_workspaces') {
+      return i18n._({ id: 'All registered workspaces', message: 'All registered workspaces' })
+    }
+    const names = (selectedBot.sharedWorkspaceIds ?? [])
+      .map((workspaceId) => workspaceById.get(workspaceId)?.name ?? workspaceId)
+      .filter(Boolean)
+    if (!names.length) {
+      return i18n._({ id: 'No shared workspace selected', message: 'No shared workspace selected' })
+    }
+    return names.join(', ')
+  }, [selectedBot, workspaceById])
   const activeWeChatLogin: WeChatLogin | null = wechatLoginQuery.data ?? wechatLoginStartMutation.data ?? null
   const activeWeChatLoginStatus = activeWeChatLogin?.status?.trim().toLowerCase() ?? ''
   const [wechatLoginNow, setWechatLoginNow] = useState(() => Date.now())
@@ -3185,7 +3447,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   }
 
   function handleDraftProviderChange(nextValue: string) {
-    const nextProvider = nextValue.trim().toLowerCase() === 'wechat' ? 'wechat' : 'telegram'
+    const nextProvider = resolveBotProvider(nextValue) || 'telegram'
     if (nextProvider !== 'wechat') {
       resetWeChatLoginState()
     }
@@ -3401,25 +3663,67 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
 
   function openCreateBotModal() {
     createBotMutation.reset()
+    updateBotMutation.reset()
     setCreateBotFormError('')
+    setEditingBot(null)
     setCreateBotWorkspaceId(
       workspaceFilterId.trim() || selectedBotWorkspaceId || selectedConnectionWorkspaceId || workspaces[0]?.id || '',
     )
     setCreateBotNameDraft('')
     setCreateBotDescriptionDraft('')
+    setCreateBotScopeDraft('workspace')
+    setCreateBotSharingModeDraft('owner_only')
+    setCreateBotSharedWorkspaceIdsDraft([])
+    setCreateBotModalOpen(true)
+  }
+
+  function openEditBotModal() {
+    if (!selectedBot) {
+      setCreateBotFormError(
+        i18n._({
+          id: 'Select a bot before editing.',
+          message: 'Select a bot before editing.',
+        }),
+      )
+      return
+    }
+
+    createBotMutation.reset()
+    updateBotMutation.reset()
+    setEditingBot(selectedBot)
+    setCreateBotFormError('')
+    setCreateBotWorkspaceId(selectedBot.workspaceId)
+    setCreateBotNameDraft(selectedBot.name ?? '')
+    setCreateBotDescriptionDraft(selectedBot.description ?? '')
+    setCreateBotScopeDraft(selectedBot.scope?.trim().toLowerCase() === 'global' ? 'global' : 'workspace')
+    setCreateBotSharingModeDraft(
+      selectedBot.sharingMode?.trim().toLowerCase() === 'selected_workspaces'
+        ? 'selected_workspaces'
+        : selectedBot.sharingMode?.trim().toLowerCase() === 'owner_only'
+          ? 'owner_only'
+          : 'all_workspaces',
+    )
+    setCreateBotSharedWorkspaceIdsDraft(
+      (selectedBot.sharedWorkspaceIds ?? []).filter((workspaceId) => workspaceId !== selectedBot.workspaceId),
+    )
     setCreateBotModalOpen(true)
   }
 
   function closeCreateBotModal() {
-    if (createBotMutation.isPending) {
+    if (createBotMutation.isPending || updateBotMutation.isPending) {
       return
     }
     setCreateBotModalOpen(false)
+    setEditingBot(null)
     setCreateBotWorkspaceId('')
     setCreateBotFormError('')
     setCreateBotNameDraft('')
     setCreateBotDescriptionDraft('')
+    setCreateBotScopeDraft('workspace')
+    setCreateBotSharingModeDraft('owner_only')
+    setCreateBotSharedWorkspaceIdsDraft([])
     createBotMutation.reset()
+    updateBotMutation.reset()
   }
 
   function handleSubmitCreateBot() {
@@ -3444,13 +3748,40 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       return
     }
 
+    if (createBotScopeDraft === 'global' && createBotSharingModeDraft === 'selected_workspaces' && !createBotSharedWorkspaceIdsDraft.length) {
+      setCreateBotFormError(
+        i18n._({
+          id: 'Select at least one shared workspace when using selected workspace sharing.',
+          message: 'Select at least one shared workspace when using selected workspace sharing.',
+        }),
+      )
+      return
+    }
+
     setCreateBotFormError('')
+    const input = {
+      name: createBotNameDraft.trim(),
+      description: createBotDescriptionDraft.trim(),
+      scope: createBotScopeDraft,
+      sharingMode: createBotScopeDraft === 'global' ? createBotSharingModeDraft : 'owner_only',
+      sharedWorkspaceIds:
+        createBotScopeDraft === 'global' && createBotSharingModeDraft === 'selected_workspaces'
+          ? createBotSharedWorkspaceIdsDraft
+          : [],
+    }
+
+    if (editingBot) {
+      updateBotMutation.mutate({
+        workspaceId: ownerWorkspaceId,
+        botId: editingBot.id,
+        input,
+      })
+      return
+    }
+
     createBotMutation.mutate({
       workspaceId: ownerWorkspaceId,
-      input: {
-        name: createBotNameDraft.trim(),
-        description: createBotDescriptionDraft.trim(),
-      },
+      input,
     })
   }
 
@@ -3606,6 +3937,46 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         i18n._({
           id: 'Telegram bot token is required. Leave it blank only when editing a connection that already stores one.',
           message: 'Telegram bot token is required. Leave it blank only when editing a connection that already stores one.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'feishu' && !draft.feishuAppId.trim()) {
+      setFormError(
+        i18n._({
+          id: 'Feishu App ID is required.',
+          message: 'Feishu App ID is required.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'feishu' && !draft.feishuAppSecret.trim() && !(isEditingConnection && editingConnectionHasFeishuAppSecret)) {
+      setFormError(
+        i18n._({
+          id: 'Feishu App Secret is required. Leave it blank only when editing a connection that already stores one.',
+          message: 'Feishu App Secret is required. Leave it blank only when editing a connection that already stores one.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'qqbot' && !draft.qqbotAppId.trim()) {
+      setFormError(
+        i18n._({
+          id: 'QQ Bot App ID is required.',
+          message: 'QQ Bot App ID is required.',
+        }),
+      )
+      return
+    }
+
+    if (draftProvider === 'qqbot' && !draft.qqbotAppSecret.trim() && !(isEditingConnection && editingConnectionHasQQBotAppSecret)) {
+      setFormError(
+        i18n._({
+          id: 'QQ Bot App Secret is required. Leave it blank only when editing a connection that already stores one.',
+          message: 'QQ Bot App Secret is required. Leave it blank only when editing a connection that already stores one.',
         }),
       )
       return
@@ -3939,22 +4310,32 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     const resolvedMode =
       mode ?? (isSavedBotDeliveryTarget(sourceTarget) ? 'edit' : sourceTarget ? 'save_from_existing' : 'create')
     const editableTarget = resolvedMode === 'edit' && isSavedBotDeliveryTarget(sourceTarget) ? sourceTarget : null
+    const sourceRouteType = sourceTarget?.routeType?.trim().toLowerCase() ?? ''
     const telegramRouteFields = parseTelegramRouteKey(sourceTarget?.routeType, sourceTarget?.routeKey)
+    const feishuRouteFields = parseFeishuRouteKey(sourceTarget?.routeType, sourceTarget?.routeKey)
     const nextRouteType =
-      sourceTarget?.routeType?.trim() === 'telegram_topic'
-        ? 'telegram_topic'
-        : sourceTarget?.routeType?.trim() === 'wechat_session'
-          ? 'wechat_session'
-          : selectedProvider === 'wechat'
-            ? 'wechat_session'
-            : 'telegram_chat'
+      sourceRouteType === 'telegram_topic' ||
+      sourceRouteType === 'wechat_session' ||
+      sourceRouteType === 'feishu_chat' ||
+      sourceRouteType === 'feishu_thread' ||
+      sourceRouteType === 'qqbot_group' ||
+      sourceRouteType === 'qqbot_c2c'
+        ? sourceRouteType
+        : defaultRouteTargetTypeForProvider(selectedProvider)
     const nextChatId =
       nextRouteType === 'wechat_session'
         ? parseWeChatRouteKey(sourceTarget?.routeKey)
-        : telegramRouteFields.chatId
-    const nextThreadId = nextRouteType === 'telegram_topic' ? telegramRouteFields.threadId : ''
+        : nextRouteType === 'feishu_chat' || nextRouteType === 'feishu_thread'
+          ? feishuRouteFields.chatId
+          : nextRouteType === 'qqbot_group' || nextRouteType === 'qqbot_c2c'
+            ? parseQQBotRouteKey(sourceTarget?.routeType, sourceTarget?.routeKey)
+            : telegramRouteFields.chatId
+    const nextThreadId =
+      nextRouteType === 'telegram_topic' || nextRouteType === 'feishu_thread'
+        ? (nextRouteType === 'feishu_thread' ? feishuRouteFields.threadId : telegramRouteFields.threadId)
+        : ''
     const advancedProviderState = stripManagedRouteTargetProviderState(selectedProvider, sourceTarget?.providerState)
-    const initialKnownRouteTargetOptions = buildKnownRouteTargetOptions(selectedProvider, nextRouteType, conversations)
+    const initialKnownRouteTargetOptions = buildKnownRouteTargetOptionsFromCandidates(nextRouteType, recipientCandidates)
     const matchingKnownRouteTarget = findKnownRouteTargetOption(initialKnownRouteTargetOptions, nextChatId, nextThreadId)
     setRouteTargetModalMode(resolvedMode)
     setEditingRouteTarget(editableTarget)
@@ -3987,7 +4368,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setRouteTargetModalMode('create')
     setEditingRouteTarget(null)
     setRouteTargetTitle('')
-    setRouteTargetRouteType('telegram_chat')
+    setRouteTargetRouteType(defaultRouteTargetTypeForProvider(selectedProvider))
     setRouteTargetRecipientMode('manual')
     setRouteTargetSuggestedRecipientValue('')
     setRouteTargetChatId('')
@@ -4024,8 +4405,8 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     if (routeTargetRecipientMode === 'existing' && knownRouteTargetOptions.length > 0 && !routeTargetSuggestedRecipientValue.trim()) {
       setRouteTargetFormError(
         i18n._({
-          id: 'Select a recent recipient or switch to manual entry.',
-          message: 'Select a recent recipient or switch to manual entry.',
+          id: 'Select an available recipient or switch to manual entry.',
+          message: 'Select an available recipient or switch to manual entry.',
         }),
       )
       return
@@ -4044,12 +4425,17 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       )
       return
     }
-    if (routeTargetRouteType === 'telegram_topic' && !threadId) {
+    if ((routeTargetRouteType === 'telegram_topic' || routeTargetRouteType === 'feishu_thread') && !threadId) {
       setRouteTargetFormError(
-        i18n._({
-          id: 'Thread ID is required for Telegram topic targets.',
-          message: 'Thread ID is required for Telegram topic targets.',
-        }),
+        routeTargetRouteType === 'telegram_topic'
+          ? i18n._({
+              id: 'Thread ID is required for Telegram topic targets.',
+              message: 'Thread ID is required for Telegram topic targets.',
+            })
+          : i18n._({
+              id: 'Thread ID is required for thread targets.',
+              message: 'Thread ID is required for thread targets.',
+            }),
       )
       return
     }
@@ -4088,10 +4474,14 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     }
 
     const routeKey =
-      routeTargetRouteType === 'telegram_topic'
+      routeTargetRouteType === 'telegram_topic' || routeTargetRouteType === 'feishu_thread'
         ? `chat:${chatId}:thread:${threadId}`
         : routeTargetRouteType === 'wechat_session'
           ? `user:${chatId}`
+          : routeTargetRouteType === 'qqbot_c2c'
+            ? `user:${chatId}`
+            : routeTargetRouteType === 'qqbot_group'
+              ? `group:${chatId}`
           : `chat:${chatId}`
     setRouteTargetFormError('')
     if (editingRouteTarget) {
@@ -4362,7 +4752,8 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         disabled={
           !selectedConnectionSupportsRouteTargetConfig ||
           !routeTargetChatId.trim() ||
-          (routeTargetRouteType === 'telegram_topic' && !routeTargetThreadId.trim())
+          ((routeTargetRouteType === 'telegram_topic' || routeTargetRouteType === 'feishu_thread') &&
+            !routeTargetThreadId.trim())
         }
         isLoading={isRouteTargetMutationPending}
         onClick={handleSubmitRouteTarget}
@@ -4549,9 +4940,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     : i18n._({ id: 'Bot Outbound Operations', message: 'Bot Outbound Operations' })
   const pageDescription = isConfigMode
     ? i18n._({
-        id: 'Connect Telegram or WeChat bots, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
+        id: 'Connect Telegram, WeChat, Feishu, or QQ Bot endpoints, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
         message:
-          'Connect Telegram or WeChat bots, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
+          'Connect Telegram, WeChat, Feishu, or QQ Bot endpoints, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
       })
     : i18n._({
         id: 'Review proactive recipients, send manual outbound messages, and inspect outbound delivery history without mixing those workflows into the bot configuration surface.',
@@ -4760,7 +5151,12 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                       <strong dir="auto">{selectedBot.name}</strong>
                       <span>{selectedBotWorkspace?.name ?? selectedBot.workspaceId}</span>
                     </div>
-                    <StatusPill status={selectedBot.status} />
+                    <div style={{ alignItems: 'center', display: 'flex', gap: '8px' }}>
+                      <StatusPill status={selectedBot.status} />
+                      <Button intent="secondary" onClick={openEditBotModal} type="button">
+                        {i18n._({ id: 'Edit Bot', message: 'Edit Bot' })}
+                      </Button>
+                    </div>
                   </div>
                   <div className="mode-metrics">
                     <div className="mode-metric">
@@ -4777,6 +5173,18 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                     </div>
                   </div>
                   <div className="detail-list">
+                    <div className="detail-row">
+                      <span>{i18n._({ id: 'Scope', message: 'Scope' })}</span>
+                      <strong>{selectedBotScopeLabel}</strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>{i18n._({ id: 'Sharing', message: 'Sharing' })}</span>
+                      <strong>{selectedBotSharingModeLabel}</strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>{i18n._({ id: 'Shared Workspaces', message: 'Shared Workspaces' })}</span>
+                      <strong>{selectedBotSharedWorkspaceLabel}</strong>
+                    </div>
                     <div className="detail-row">
                       <span>{i18n._({ id: 'Default Binding', message: 'Default Binding' })}</span>
                       <strong>{selectedBotDefaultBindingModeLabel}</strong>
@@ -5082,9 +5490,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                   <div className="empty-state">
                     {isConfigMode
                       ? i18n._({
-                          id: 'No bots yet. Create a bot first, then attach one or more Telegram or WeChat endpoints to it.',
+                          id: 'No bots yet. Create a bot first, then attach one or more Telegram, WeChat, Feishu, or QQ Bot endpoints to it.',
                           message:
-                            'No bots yet. Create a bot first, then attach one or more Telegram or WeChat endpoints to it.',
+                            'No bots yet. Create a bot first, then attach one or more Telegram, WeChat, Feishu, or QQ Bot endpoints to it.',
                         })
                       : i18n._({
                           id: 'No outbound bots are ready yet. Create a bot, attach an endpoint, then return here to manage recipients and deliveries.',
@@ -5893,10 +6301,14 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                               <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
                               <strong>{selectedCommandOutputModeLabel}</strong>
                             </div>
-                            {selectedConnectionUsesPolling ? (
+                            {selectedConnectionUsesBackgroundRuntime ? (
                               <>
                                 <div className="detail-row">
-                                  <span>{i18n._({ id: 'Last Poll Status', message: 'Last Poll Status' })}</span>
+                                  <span>
+                                    {selectedProvider === 'feishu' || selectedProvider === 'qqbot'
+                                      ? i18n._({ id: 'Runtime Status', message: 'Runtime Status' })
+                                      : i18n._({ id: 'Last Poll Status', message: 'Last Poll Status' })}
+                                  </span>
                                   <strong>
                                     {selectedConnection.lastPollStatus ? (
                                       <StatusPill status={selectedConnection.lastPollStatus} />
@@ -5906,11 +6318,19 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                                   </strong>
                                 </div>
                                 <div className="detail-row">
-                                  <span>{i18n._({ id: 'Last Poll Time', message: 'Last Poll Time' })}</span>
+                                  <span>
+                                    {selectedProvider === 'feishu' || selectedProvider === 'qqbot'
+                                      ? i18n._({ id: 'Runtime Updated', message: 'Runtime Updated' })
+                                      : i18n._({ id: 'Last Poll Time', message: 'Last Poll Time' })}
+                                  </span>
                                   <strong>{formatBotTimestamp(selectedConnection.lastPollAt ?? undefined)}</strong>
                                 </div>
                                 <div className="detail-row">
-                                  <span>{i18n._({ id: 'Last Poll Message', message: 'Last Poll Message' })}</span>
+                                  <span>
+                                    {selectedProvider === 'feishu' || selectedProvider === 'qqbot'
+                                      ? i18n._({ id: 'Runtime Message', message: 'Runtime Message' })
+                                      : i18n._({ id: 'Last Poll Message', message: 'Last Poll Message' })}
+                                  </span>
                                   <strong>
                                     {formatBotRuntimeMessage(
                                       selectedConnection.lastPollMessage,
@@ -6088,6 +6508,62 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                                 </strong>
                               </div>
                             ) : null}
+                            {selectedProvider === 'feishu' ? (
+                              <>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Feishu App ID', message: 'Feishu App ID' })}</span>
+                                  <strong>{selectedConnection.settings?.feishu_app_id?.trim() || i18n._({ id: 'none', message: 'none' })}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Feishu Delivery Mode', message: 'Feishu Delivery Mode' })}</span>
+                                  <strong>{selectedDeliveryModeLabel}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Feishu Domain', message: 'Feishu Domain' })}</span>
+                                  <strong>{selectedConnection.settings?.feishu_domain?.trim() || i18n._({ id: 'Default Domain', message: 'Default Domain' })}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Interactive Card', message: 'Interactive Card' })}</span>
+                                  <strong>{formatEnabledDisabledLabel(selectedFeishuEnableCards)}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Group Reply All', message: 'Group Reply All' })}</span>
+                                  <strong>{formatEnabledDisabledLabel(selectedFeishuGroupReplyAll)}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Thread Isolation', message: 'Thread Isolation' })}</span>
+                                  <strong>{formatEnabledDisabledLabel(selectedFeishuThreadIsolation)}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Share Session In Channel', message: 'Share Session In Channel' })}</span>
+                                  <strong>{formatEnabledDisabledLabel(selectedFeishuShareSessionInChannel)}</strong>
+                                </div>
+                              </>
+                            ) : null}
+                            {selectedProvider === 'qqbot' ? (
+                              <>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'QQ Bot App ID', message: 'QQ Bot App ID' })}</span>
+                                  <strong>{selectedConnection.settings?.qqbot_app_id?.trim() || i18n._({ id: 'none', message: 'none' })}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Sandbox', message: 'Sandbox' })}</span>
+                                  <strong>{formatEnabledDisabledLabel(selectedQQBotSandbox)}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Share Session In Channel', message: 'Share Session In Channel' })}</span>
+                                  <strong>{formatEnabledDisabledLabel(selectedQQBotShareSessionInChannel)}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'Markdown Support', message: 'Markdown Support' })}</span>
+                                  <strong>{formatEnabledDisabledLabel(selectedQQBotMarkdownSupport)}</strong>
+                                </div>
+                                <div className="detail-row">
+                                  <span>{i18n._({ id: 'QQ Bot Intents', message: 'QQ Bot Intents' })}</span>
+                                  <strong>{selectedConnection.settings?.qqbot_intents?.trim() || i18n._({ id: 'Recommended default', message: 'Recommended default' })}</strong>
+                                </div>
+                              </>
+                            ) : null}
                             <div className="detail-row">
                               <span>{i18n._({ id: 'AI Config', message: 'AI Config' })}</span>
                               <strong>{summarizeBotMap(selectedConnection.aiConfig)}</strong>
@@ -6117,6 +6593,18 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                           ) : null}
                         </div>
                         <div className="detail-list">
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Scope', message: 'Scope' })}</span>
+                            <strong>{selectedBotScopeLabel}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Sharing', message: 'Sharing' })}</span>
+                            <strong>{selectedBotSharingModeLabel}</strong>
+                          </div>
+                          <div className="detail-row">
+                            <span>{i18n._({ id: 'Shared Workspaces', message: 'Shared Workspaces' })}</span>
+                            <strong>{selectedBotSharedWorkspaceLabel}</strong>
+                          </div>
                           <div className="detail-row">
                             <span>{i18n._({ id: 'Connections', message: 'Connections' })}</span>
                             <strong>{selectedBotConnections.length}</strong>
@@ -6174,9 +6662,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                             <h2>{i18n._({ id: 'Recipients', message: 'Recipients' })}</h2>
                             <HelpTooltip
                               content={i18n._({
-                                id: 'Recipients are the proactive send destinations for this endpoint. Recent contacts appear automatically after the first manual send or notification run.',
+                                id: 'Recipients are the proactive send destinations for this endpoint. Known contacts from conversations and saved routes appear here automatically.',
                                 message:
-                                  'Recipients are the proactive send destinations for this endpoint. Recent contacts appear automatically after the first manual send or notification run.',
+                                  'Recipients are the proactive send destinations for this endpoint. Known contacts from conversations and saved routes appear here automatically.',
                               })}
                             />
                           </div>
@@ -6245,9 +6733,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                       {!botDeliveryTargetsQuery.isLoading && !selectedConnectionDeliveryTargets.length ? (
                         <div className="empty-state">
                           {i18n._({
-                            id: 'No proactive recipients exist for this endpoint yet. Recent contacts will appear after the first manual send or notification run.',
+                            id: 'No proactive recipients exist for this endpoint yet. Known contacts will appear after conversations or saved routes become available.',
                             message:
-                              'No proactive recipients exist for this endpoint yet. Recent contacts will appear after the first manual send or notification run.',
+                              'No proactive recipients exist for this endpoint yet. Known contacts will appear after conversations or saved routes become available.',
                           })}
                         </div>
                       ) : null}
@@ -6306,16 +6794,39 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                                     {i18n._({ id: 'Labels', message: 'Labels' })}: {target.labels.join(', ')}
                                   </p>
                                 ) : null}
-                                {target.deliveryReadiness?.trim().toLowerCase() !== 'ready' &&
-                                target.deliveryReadinessMessage?.trim() ? (
-                                  <p>
-                                    {target.deliveryReadinessMessage}
-                                  </p>
-                                ) : null}
-                                {target.lastContextSeenAt ? (
-                                  <p>
-                                    {i18n._({ id: 'Last context seen', message: 'Last context seen' })}:{' '}
-                                    {formatBotTimestamp(target.lastContextSeenAt)}
+                                  {target.deliveryReadiness?.trim().toLowerCase() !== 'ready' &&
+                                  target.deliveryReadinessMessage?.trim() ? (
+                                    <p>
+                                      {target.deliveryReadinessMessage}
+                                    </p>
+                                  ) : null}
+                                  {targetReadyForSend ? (
+                                    <p>
+                                      {i18n._({
+                                        id: 'This target is ready to be selected in Notification Center for bot subscriptions.',
+                                        message:
+                                          'This target is ready to be selected in Notification Center for bot subscriptions.',
+                                      })}{' '}
+                                      <Link to="/notification-center">
+                                        {i18n._({
+                                          id: 'Open Notification Center',
+                                          message: 'Open Notification Center',
+                                        })}
+                                      </Link>
+                                    </p>
+                                  ) : target.deliveryReadiness?.trim().toLowerCase() === 'waiting_for_context' ? (
+                                    <p>
+                                      {i18n._({
+                                        id: 'This target will appear in Notification Center after the recipient sends a message to this bot and a reply context is available.',
+                                        message:
+                                          'This target will appear in Notification Center after the recipient sends a message to this bot and a reply context is available.',
+                                      })}
+                                    </p>
+                                  ) : null}
+                                  {target.lastContextSeenAt ? (
+                                    <p>
+                                      {i18n._({ id: 'Last context seen', message: 'Last context seen' })}:{' '}
+                                      {formatBotTimestamp(target.lastContextSeenAt)}
                                   </p>
                                 ) : null}
                               </div>
@@ -6388,9 +6899,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                             <h2>{i18n._({ id: 'Notification Triggers', message: 'Notification Triggers' })}</h2>
                             <HelpTooltip
                               content={i18n._({
-                                id: 'Subscribe this endpoint to workspace notifications. Each trigger listens for notification/created events and forwards matching items to one saved recipient.',
+                                id: 'This panel is a compatibility view over Notification Center rules for the legacy system.notification.created topic.',
                                 message:
-                                  'Subscribe this endpoint to workspace notifications. Each trigger listens for notification/created events and forwards matching items to one saved recipient.',
+                                  'This panel is a compatibility view over Notification Center rules for the legacy system.notification.created topic.',
                               })}
                             />
                           </div>
@@ -6408,6 +6919,34 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                             </Button>
                           </div>
                         </div>
+
+                        <InlineNotice
+                          dismissible={false}
+                          noticeKey="bot-trigger-compat-view"
+                          title={i18n._({
+                            id: 'Notification Center manages these trigger rules',
+                            message: 'Notification Center manages these trigger rules',
+                          })}
+                        >
+                          <span>
+                            {i18n._({
+                              id: 'Use this panel for the legacy notification topic only. New hook, automation, bot failure, and email routing should be configured in Notification Center.',
+                              message:
+                                'Use this panel for the legacy notification topic only. New hook, automation, bot failure, and email routing should be configured in Notification Center.',
+                            })}
+                          </span>{' '}
+                          <Button
+                            intent="secondary"
+                            onClick={() => navigate('/notification-center')}
+                            size="sm"
+                            type="button"
+                          >
+                            {i18n._({
+                              id: 'Open Notification Center',
+                              message: 'Open Notification Center',
+                            })}
+                          </Button>
+                        </InlineNotice>
 
                         <div className="form-row">
                           <label className="field">
@@ -6800,13 +7339,13 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                       <div className="section-header">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <h2>{i18n._({ id: 'Reply Formatting', message: 'Reply Formatting' })}</h2>
-                          <HelpTooltip
-                            content={i18n._({
-                              id: 'Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat.',
-                              message:
-                                'Control how workspace command items are summarized when replies are mirrored back into Telegram or WeChat.',
-                            })}
-                          />
+                            <HelpTooltip
+                              content={i18n._({
+                                id: 'Control how workspace command items are summarized when replies are mirrored back into each bot provider.',
+                                message:
+                                  'Control how workspace command items are summarized when replies are mirrored back into each bot provider.',
+                              })}
+                            />
                         </div>
                       </div>
                       <label className="field">
@@ -7128,20 +7667,26 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
               <Button intent="secondary" onClick={closeCreateBotModal} type="button">
                 {i18n._({ id: 'Cancel', message: 'Cancel' })}
               </Button>
-              <Button isLoading={createBotMutation.isPending} onClick={handleSubmitCreateBot} type="button">
-                {i18n._({ id: 'Create Bot', message: 'Create Bot' })}
+              <Button isLoading={isEditingBot ? updateBotMutation.isPending : createBotMutation.isPending} onClick={handleSubmitCreateBot} type="button">
+                {isEditingBot
+                  ? i18n._({ id: 'Save Bot', message: 'Save Bot' })
+                  : i18n._({ id: 'Create Bot', message: 'Create Bot' })}
               </Button>
             </>
           }
           onClose={closeCreateBotModal}
-          title={i18n._({ id: 'New Bot', message: 'New Bot' })}
+          title={isEditingBot ? i18n._({ id: 'Edit Bot', message: 'Edit Bot' }) : i18n._({ id: 'New Bot', message: 'New Bot' })}
         >
           <div className="form-stack">
             {createBotFormErrorMessage ? (
               <InlineNotice
                 dismissible={false}
                 noticeKey={`create-bot-${createBotFormErrorMessage}`}
-                title={i18n._({ id: 'Create Bot Failed', message: 'Create Bot Failed' })}
+                title={
+                  isEditingBot
+                    ? i18n._({ id: 'Update Bot Failed', message: 'Update Bot Failed' })
+                    : i18n._({ id: 'Create Bot Failed', message: 'Create Bot Failed' })
+                }
                 tone="error"
               >
                 {createBotFormErrorMessage}
@@ -7152,9 +7697,13 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
               <span>{i18n._({ id: 'Owner Workspace', message: 'Owner Workspace' })}</span>
               <SelectControl
                 ariaLabel={i18n._({ id: 'Owner Workspace', message: 'Owner Workspace' })}
+                disabled={isEditingBot}
                 fullWidth
                 onChange={(nextValue) => {
                   setCreateBotWorkspaceId(nextValue)
+                  setCreateBotSharedWorkspaceIdsDraft((current) =>
+                    current.filter((workspaceId) => workspaceId !== nextValue),
+                  )
                   setCreateBotFormError('')
                 }}
                 options={workspaces.map((workspace) => ({
@@ -7164,6 +7713,108 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                 value={createBotWorkspaceId}
               />
             </label>
+
+            <div className="form-row">
+              <label className="field">
+                <span>{i18n._({ id: 'Scope', message: 'Scope' })}</span>
+                <SelectControl
+                  ariaLabel={i18n._({ id: 'Scope', message: 'Scope' })}
+                  fullWidth
+                  onChange={(nextValue) => {
+                    const nextScope = nextValue === 'global' ? 'global' : 'workspace'
+                    setCreateBotScopeDraft(nextScope)
+                    if (nextScope === 'workspace') {
+                      setCreateBotSharingModeDraft('owner_only')
+                      setCreateBotSharedWorkspaceIdsDraft([])
+                    } else if (createBotSharingModeDraft === 'owner_only') {
+                      setCreateBotSharingModeDraft('all_workspaces')
+                    }
+                    setCreateBotFormError('')
+                  }}
+                  options={[
+                    {
+                      value: 'workspace',
+                      label: i18n._({ id: 'Workspace-scoped', message: 'Workspace-scoped' }),
+                    },
+                    {
+                      value: 'global',
+                      label: i18n._({ id: 'Global', message: 'Global' }),
+                    },
+                  ]}
+                  value={createBotScopeDraft}
+                />
+              </label>
+
+              <label className="field">
+                <span>{i18n._({ id: 'Sharing', message: 'Sharing' })}</span>
+                <SelectControl
+                  ariaLabel={i18n._({ id: 'Sharing', message: 'Sharing' })}
+                  disabled={createBotScopeDraft !== 'global'}
+                  fullWidth
+                  onChange={(nextValue) => {
+                    const nextMode =
+                      nextValue === 'selected_workspaces'
+                        ? 'selected_workspaces'
+                        : nextValue === 'owner_only'
+                          ? 'owner_only'
+                          : 'all_workspaces'
+                    setCreateBotSharingModeDraft(nextMode)
+                    if (nextMode !== 'selected_workspaces') {
+                      setCreateBotSharedWorkspaceIdsDraft([])
+                    }
+                    setCreateBotFormError('')
+                  }}
+                  options={[
+                    {
+                      value: 'owner_only',
+                      label: i18n._({ id: 'Owner workspace only', message: 'Owner workspace only' }),
+                    },
+                    {
+                      value: 'all_workspaces',
+                      label: i18n._({ id: 'All workspaces', message: 'All workspaces' }),
+                    },
+                    {
+                      value: 'selected_workspaces',
+                      label: i18n._({ id: 'Selected workspaces', message: 'Selected workspaces' }),
+                    },
+                  ]}
+                  value={createBotScopeDraft === 'global' ? createBotSharingModeDraft : 'owner_only'}
+                />
+              </label>
+            </div>
+
+            {createBotScopeDraft === 'global' && createBotSharingModeDraft === 'selected_workspaces' ? (
+              <div className="field">
+                <span>{i18n._({ id: 'Shared Workspaces', message: 'Shared Workspaces' })}</span>
+                <div className="detail-list">
+                  {createBotShareableWorkspaces.length ? (
+                    createBotShareableWorkspaces.map((workspace) => (
+                      <Switch
+                        checked={createBotSharedWorkspaceIdsDraft.includes(workspace.id)}
+                        key={workspace.id}
+                        label={workspace.name}
+                        onChange={(event) => {
+                          setCreateBotSharedWorkspaceIdsDraft((current) => {
+                            if (event.target.checked) {
+                              return [...current, workspace.id]
+                            }
+                            return current.filter((workspaceId) => workspaceId !== workspace.id)
+                          })
+                          setCreateBotFormError('')
+                        }}
+                      />
+                    ))
+                  ) : (
+                    <div className="notice">
+                      {i18n._({
+                        id: 'No other workspace is available for selected sharing.',
+                        message: 'No other workspace is available for selected sharing.',
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
 
             <Input
               hint={i18n._({
@@ -7284,7 +7935,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                     value={draft.telegramDeliveryMode}
                   />
                 </label>
-              ) : (
+              ) : draftProvider === 'wechat' ? (
                 <Input
                   disabled
                   label={
@@ -7299,6 +7950,41 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                     </div>
                   }
                   value={i18n._({ id: 'Long Polling only', message: 'Long Polling only' })}
+                />
+              ) : draftProvider === 'feishu' ? (
+                <label className="field">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {i18n._({ id: 'Feishu Delivery Mode', message: 'Feishu Delivery Mode' })}
+                    <HelpTooltip
+                      content={i18n._({
+                        id: 'Select WebSocket for a persistent runtime connection, or Webhook for callback delivery and verification.',
+                        message: 'Select WebSocket for a persistent runtime connection, or Webhook for callback delivery and verification.',
+                      })}
+                    />
+                  </span>
+                  <SelectControl
+                    ariaLabel={i18n._({ id: 'Feishu Delivery Mode', message: 'Feishu Delivery Mode' })}
+                    fullWidth
+                    onChange={(nextValue) => setDraft((current) => ({ ...current, feishuDeliveryMode: nextValue }))}
+                    options={feishuDeliveryModeOptions}
+                    value={draftFeishuDeliveryMode}
+                  />
+                </label>
+              ) : (
+                <Input
+                  disabled
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {i18n._({ id: 'QQ Bot Delivery Mode', message: 'QQ Bot Delivery Mode' })}
+                      <HelpTooltip
+                        content={i18n._({
+                          id: 'QQ Bot currently uses the official Gateway WebSocket connection in this phase.',
+                          message: 'QQ Bot currently uses the official Gateway WebSocket connection in this phase.',
+                        })}
+                      />
+                    </div>
+                  }
+                  value={i18n._({ id: 'Gateway WebSocket only', message: 'Gateway WebSocket only' })}
                 />
               )}
               <label className="field">
@@ -7362,9 +8048,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                         message: 'No Command Output omits command items entirely.',
                       })}{' '}
                       {i18n._({
-                        id: 'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
+                        id: 'Controls how command items are summarized in bot replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
                         message:
-                          'Controls how command items are summarized in Telegram and WeChat replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
+                          'Controls how command items are summarized in bot replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
                       })}
                     </>
                   }
@@ -7421,7 +8107,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                   value={draft.telegramBotToken}
                 />
               </>
-            ) : (
+            ) : draftProvider === 'wechat' ? (
               <>
                 <div className="form-row">
                   <Input
@@ -7618,9 +8304,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                         placeholder={i18n._({ id: 'wechat-owner-1', message: 'wechat-owner-1' })}
                         value={draft.wechatUserId}
                       />
-                      </div>
+                    </div>
 
-                      <Input
+                    <Input
                       label={
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           {i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
@@ -7644,8 +8330,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                       placeholder={i18n._({ id: 'wechat-token-1', message: 'wechat-token-1' })}
                       type="password"
                       value={draft.wechatBotToken}
-                      />
-
+                    />
                   </>
                 ) : (
                   <>
@@ -7748,6 +8433,161 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                     )}
                   </>
                 )}
+              </>
+            ) : draftProvider === 'feishu' ? (
+              <>
+                {draftFeishuDeliveryMode === 'webhook' ? (
+                  <Input
+                    label={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
+                        <HelpTooltip
+                          content={i18n._({
+                            id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                            message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
+                          })}
+                        />
+                      </div>
+                    }
+                    onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
+                    placeholder="https://bots.example.com"
+                    value={draft.publicBaseUrl}
+                  />
+                ) : null}
+
+                <div className="form-row">
+                  <Input
+                    label={i18n._({ id: 'Feishu App ID', message: 'Feishu App ID' })}
+                    onChange={(event) => setDraft((current) => ({ ...current, feishuAppId: event.target.value }))}
+                    placeholder={i18n._({ id: 'cli_a1b2c3d4e5f6', message: 'cli_a1b2c3d4e5f6' })}
+                    value={draft.feishuAppId}
+                  />
+                  <Input
+                    hint={
+                      isEditingConnection
+                        ? i18n._({
+                            id: 'Leave blank to keep the current Feishu App Secret. Enter a new secret only when rotating credentials.',
+                            message:
+                              'Leave blank to keep the current Feishu App Secret. Enter a new secret only when rotating credentials.',
+                          })
+                        : i18n._({
+                            id: 'Required. Enter the App Secret issued for this Feishu bot.',
+                            message: 'Required. Enter the App Secret issued for this Feishu bot.',
+                          })
+                    }
+                    label={i18n._({ id: 'Feishu App Secret', message: 'Feishu App Secret' })}
+                    onChange={(event) => setDraft((current) => ({ ...current, feishuAppSecret: event.target.value }))}
+                    placeholder={i18n._({ id: 'cli_secret_xxx', message: 'cli_secret_xxx' })}
+                    type="password"
+                    value={draft.feishuAppSecret}
+                  />
+                </div>
+
+                <Input
+                  hint={i18n._({
+                    id: 'Optional. Leave blank to use the default https://open.feishu.cn endpoint.',
+                    message: 'Optional. Leave blank to use the default https://open.feishu.cn endpoint.',
+                  })}
+                  label={i18n._({ id: 'Feishu Domain', message: 'Feishu Domain' })}
+                  onChange={(event) => setDraft((current) => ({ ...current, feishuDomain: event.target.value }))}
+                  placeholder="https://open.feishu.cn"
+                  value={draft.feishuDomain}
+                />
+
+                <Switch
+                  checked={draft.feishuEnableCards}
+                  label={i18n._({ id: 'Interactive Card', message: 'Interactive Card' })}
+                  onChange={(event) => setDraft((current) => ({ ...current, feishuEnableCards: event.target.checked }))}
+                />
+
+                <Switch
+                  checked={draft.feishuGroupReplyAll}
+                  label={i18n._({ id: 'Group Reply All', message: 'Group Reply All' })}
+                  onChange={(event) => setDraft((current) => ({ ...current, feishuGroupReplyAll: event.target.checked }))}
+                />
+
+                <Switch
+                  checked={draft.feishuThreadIsolation}
+                  label={i18n._({ id: 'Thread Isolation', message: 'Thread Isolation' })}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, feishuThreadIsolation: event.target.checked }))
+                  }
+                />
+
+                <Switch
+                  checked={draft.feishuShareSessionInChannel}
+                  label={i18n._({ id: 'Share Session In Channel', message: 'Share Session In Channel' })}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, feishuShareSessionInChannel: event.target.checked }))
+                  }
+                />
+              </>
+            ) : (
+              <>
+                <div className="form-row">
+                  <Input
+                    label={i18n._({ id: 'QQ Bot App ID', message: 'QQ Bot App ID' })}
+                    onChange={(event) => setDraft((current) => ({ ...current, qqbotAppId: event.target.value }))}
+                    placeholder={i18n._({ id: '102345678', message: '102345678' })}
+                    value={draft.qqbotAppId}
+                  />
+                  <Input
+                    hint={
+                      isEditingConnection
+                        ? i18n._({
+                            id: 'Leave blank to keep the current QQ Bot App Secret. Enter a new secret only when rotating credentials.',
+                            message:
+                              'Leave blank to keep the current QQ Bot App Secret. Enter a new secret only when rotating credentials.',
+                          })
+                        : i18n._({
+                            id: 'Required. Enter the App Secret issued for this QQ Bot.',
+                            message: 'Required. Enter the App Secret issued for this QQ Bot.',
+                          })
+                    }
+                    label={i18n._({ id: 'QQ Bot App Secret', message: 'QQ Bot App Secret' })}
+                    onChange={(event) => setDraft((current) => ({ ...current, qqbotAppSecret: event.target.value }))}
+                    placeholder={i18n._({ id: 'qqbot-secret-1', message: 'qqbot-secret-1' })}
+                    type="password"
+                    value={draft.qqbotAppSecret}
+                  />
+                </div>
+
+                <Input
+                  hint={i18n._({
+                    id: 'Optional. Provide custom Gateway intents only when the backend should override the recommended default set.',
+                    message:
+                      'Optional. Provide custom Gateway intents only when the backend should override the recommended default set.',
+                  })}
+                  label={i18n._({ id: 'QQ Bot Intents', message: 'QQ Bot Intents' })}
+                  onChange={(event) => setDraft((current) => ({ ...current, qqbotIntents: event.target.value }))}
+                  placeholder={i18n._({
+                    id: 'PUBLIC_GUILD_MESSAGES,GUILD_MESSAGES,DIRECT_MESSAGE',
+                    message: 'PUBLIC_GUILD_MESSAGES,GUILD_MESSAGES,DIRECT_MESSAGE',
+                  })}
+                  value={draft.qqbotIntents}
+                />
+
+                <Switch
+                  checked={draft.qqbotSandbox}
+                  label={i18n._({ id: 'Sandbox', message: 'Sandbox' })}
+                  onChange={(event) => setDraft((current) => ({ ...current, qqbotSandbox: event.target.checked }))}
+                />
+
+                <Switch
+                  checked={draft.qqbotShareSessionInChannel}
+                  label={i18n._({ id: 'Share Session In Channel', message: 'Share Session In Channel' })}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, qqbotShareSessionInChannel: event.target.checked }))
+                  }
+                />
+
+                <Switch
+                  checked={draft.qqbotMarkdownSupport}
+                  label={i18n._({ id: 'Markdown Support', message: 'Markdown Support' })}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, qqbotMarkdownSupport: event.target.checked }))
+                  }
+                />
               </>
             )}
 
@@ -8418,7 +9258,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                       updateDeliveryTargetMutation.reset()
                       setRouteTargetSuggestedRecipientValue('')
                       setRouteTargetRouteType(nextValue)
-                      if (nextValue !== 'telegram_topic') {
+                      if (nextValue !== 'telegram_topic' && nextValue !== 'feishu_thread') {
                         setRouteTargetThreadId('')
                       }
                     }}
@@ -8441,6 +9281,25 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                   value={routeTargetTitle}
                 />
 
+                {recipientCandidatesQuery.error ? (
+                  <div className="notice">
+                    {i18n._({
+                      id: 'Recipient suggestions could not be loaded right now. You can still enter a destination ID manually.',
+                      message:
+                        'Recipient suggestions could not be loaded right now. You can still enter a destination ID manually.',
+                    })}
+                  </div>
+                ) : null}
+
+                {recipientCandidatesQuery.isLoading && !knownRouteTargetOptions.length ? (
+                  <div className="notice">
+                    {i18n._({
+                      id: 'Loading recipient suggestions...',
+                      message: 'Loading recipient suggestions...',
+                    })}
+                  </div>
+                ) : null}
+
                 {knownRouteTargetOptions.length ? (
                   <div className="field">
                     <span className="field-label">{i18n._({ id: 'Recipient Source', message: 'Recipient Source' })}</span>
@@ -8462,27 +9321,27 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                     </div>
                     <small className="field-hint">
                       {i18n._({
-                        id: 'Use a recent conversation on this endpoint, or switch to manual entry for a brand-new destination.',
+                        id: 'Use a known recipient on this endpoint, or switch to manual entry for a brand-new destination.',
                         message:
-                          'Use a recent conversation on this endpoint, or switch to manual entry for a brand-new destination.',
+                          'Use a known recipient on this endpoint, or switch to manual entry for a brand-new destination.',
                       })}
                     </small>
                   </div>
-                ) : (
+                ) : !recipientCandidatesQuery.isLoading && !recipientCandidatesQuery.error ? (
                   <div className="notice">
                     {i18n._({
-                      id: 'No recent recipients are available on this endpoint yet, so this saved contact needs a manual destination ID.',
+                      id: 'No known recipients are available on this endpoint yet, so this saved contact needs a manual destination ID.',
                       message:
-                        'No recent recipients are available on this endpoint yet, so this saved contact needs a manual destination ID.',
+                        'No known recipients are available on this endpoint yet, so this saved contact needs a manual destination ID.',
                     })}
                   </div>
-                )}
+                ) : null}
 
                 {knownRouteTargetOptions.length && routeTargetRecipientMode === 'existing' ? (
                   <label className="field">
-                    <span>{i18n._({ id: 'Recent Recipient', message: 'Recent Recipient' })}</span>
+                    <span>{i18n._({ id: 'Available Recipient', message: 'Available Recipient' })}</span>
                     <SelectControl
-                      ariaLabel={i18n._({ id: 'Recent Recipient', message: 'Recent Recipient' })}
+                      ariaLabel={i18n._({ id: 'Available Recipient', message: 'Available Recipient' })}
                       fullWidth
                       onChange={(nextValue) => {
                         setRouteTargetFormError('')
@@ -8502,36 +9361,54 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                               id: 'WeChat external user ID for proactive delivery. If this contact has not messaged the bot yet, the target will wait until a reply context becomes available.',
                               message: 'WeChat external user ID for proactive delivery. If this contact has not messaged the bot yet, the target will wait until a reply context becomes available.',
                             })
-                          : i18n._({
+                          : routeTargetRouteType === 'telegram_chat' || routeTargetRouteType === 'telegram_topic'
+                            ? i18n._({
                               id: 'Telegram chat ID, for example -1001234567890.',
                               message: 'Telegram chat ID, for example -1001234567890.',
                             })
+                            : undefined
                       }
                       label={
                         selectedProvider === 'wechat'
                           ? i18n._({ id: 'WeChat User ID', message: 'WeChat User ID' })
-                          : i18n._({ id: 'Chat ID', message: 'Chat ID' })
+                          : routeTargetRouteType === 'qqbot_c2c'
+                            ? i18n._({ id: 'Recipient ID', message: 'Recipient ID' })
+                            : i18n._({ id: 'Chat ID', message: 'Chat ID' })
                       }
                       onChange={(event) => {
                         setRouteTargetFormError('')
                         setRouteTargetChatId(event.target.value)
                       }}
-                      placeholder={selectedProvider === 'wechat' ? 'wxid_xxx' : '-1001234567890'}
+                      placeholder={
+                        selectedProvider === 'wechat'
+                          ? 'wxid_xxx'
+                          : routeTargetRouteType === 'qqbot_group'
+                            ? 'group_openid_xxx'
+                            : routeTargetRouteType === 'qqbot_c2c'
+                              ? 'user_openid_xxx'
+                              : routeTargetRouteType === 'feishu_chat' || routeTargetRouteType === 'feishu_thread'
+                                ? 'oc_xxx'
+                                : '-1001234567890'
+                      }
                       value={routeTargetChatId}
                     />
 
-                    {routeTargetRouteType === 'telegram_topic' ? (
+                    {routeTargetRouteType === 'telegram_topic' || routeTargetRouteType === 'feishu_thread' ? (
                       <Input
-                        hint={i18n._({
-                          id: 'Telegram topic thread ID inside the target supergroup.',
-                          message: 'Telegram topic thread ID inside the target supergroup.',
-                        })}
+                        hint={
+                          routeTargetRouteType === 'telegram_topic'
+                            ? i18n._({
+                                id: 'Telegram topic thread ID inside the target supergroup.',
+                                message: 'Telegram topic thread ID inside the target supergroup.',
+                              })
+                            : undefined
+                        }
                         label={i18n._({ id: 'Thread ID', message: 'Thread ID' })}
                         onChange={(event) => {
                           setRouteTargetFormError('')
                           setRouteTargetThreadId(event.target.value)
                         }}
-                        placeholder="42"
+                        placeholder={routeTargetRouteType === 'telegram_topic' ? '42' : 'om_xxx'}
                         value={routeTargetThreadId}
                       />
                     ) : null}
@@ -8549,12 +9426,27 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                             threadId: selectedKnownRouteTargetOption.threadId,
                           },
                         })
+                      : routeTargetRouteType === 'feishu_thread'
+                        ? i18n._({
+                            id: 'Selected destination: chat {chatId}, thread {threadId}.',
+                            message: 'Selected destination: chat {chatId}, thread {threadId}.',
+                            values: {
+                              chatId: selectedKnownRouteTargetOption.chatId,
+                              threadId: selectedKnownRouteTargetOption.threadId,
+                            },
+                          })
                       : selectedProvider === 'wechat'
                         ? i18n._({
                             id: 'Selected destination: WeChat user {chatId}.',
                             message: 'Selected destination: WeChat user {chatId}.',
                             values: { chatId: selectedKnownRouteTargetOption.chatId },
                           })
+                        : routeTargetRouteType === 'qqbot_c2c'
+                          ? i18n._({
+                              id: 'Selected destination: recipient {chatId}.',
+                              message: 'Selected destination: recipient {chatId}.',
+                              values: { chatId: selectedKnownRouteTargetOption.chatId },
+                            })
                         : i18n._({
                             id: 'Selected destination: chat {chatId}.',
                             message: 'Selected destination: chat {chatId}.',
@@ -9523,6 +10415,7 @@ function serializeBotsPageDraft(draft: BotsPageDraft) {
     draft.runtimeMode,
     draft.commandOutputMode,
     draft.telegramDeliveryMode,
+    draft.feishuDeliveryMode,
     draft.publicBaseUrl,
     draft.wechatBaseUrl,
     draft.wechatRouteTag,
@@ -9532,6 +10425,19 @@ function serializeBotsPageDraft(draft: BotsPageDraft) {
     draft.wechatLoginSessionId,
     draft.wechatLoginStatus,
     draft.wechatQrCodeContent,
+    draft.feishuAppId,
+    draft.feishuAppSecret,
+    draft.feishuDomain,
+    draft.feishuEnableCards,
+    draft.feishuGroupReplyAll,
+    draft.feishuThreadIsolation,
+    draft.feishuShareSessionInChannel,
+    draft.qqbotAppId,
+    draft.qqbotAppSecret,
+    draft.qqbotSandbox,
+    draft.qqbotShareSessionInChannel,
+    draft.qqbotMarkdownSupport,
+    draft.qqbotIntents,
     draft.aiBackend,
     draft.telegramBotToken,
     draft.wechatBotToken,

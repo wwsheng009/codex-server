@@ -1,0 +1,209 @@
+.notification-center-page {
+  gap: 20px;
+}
+
+.notification-center-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.notification-center-subsection {
+  background: var(--panel-bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+
+.notification-center-grid--compact {
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.notification-center-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.notification-center-panel__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.notification-center-panel__header h2,
+.notification-center-subsection h3,
+.notification-center-channel-card__header h3 {
+  margin: 0;
+}
+
+.notification-center-panel__header p,
+.notification-center-channel-card__header p {
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+}
+
+.notification-center-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notification-center-channel-card,
+.notification-center-fact-card {
+  background: var(--panel-bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.notification-center-channel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notification-center-channel-card__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.notification-center-fact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 112px;
+}
+
+.notification-center-fact-card strong {
+  color: var(--text-primary);
+}
+
+.notification-center-fact-card small,
+.notification-center-table__subtle {
+  color: var(--text-secondary);
+}
+
+.notification-center-fact-card__label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.notification-center-inline-tooltip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, var(--border-subtle));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--panel-bg));
+}
+
+.notification-center-inline-tooltip::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 22px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--accent-primary) 22%, var(--border-subtle));
+  border-left: 1px solid color-mix(in srgb, var(--accent-primary) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--panel-bg));
+  transform: rotate(45deg);
+}
+
+.notification-center-inline-tooltip__header strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.notification-center-inline-tooltip__body {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.notification-center-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.notification-center-actions--inline {
+  align-items: center;
+}
+
+.notification-center-filter-row {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.notification-center-table-wrap {
+  overflow-x: auto;
+}
+
+.notification-center-table {
+  border-collapse: collapse;
+  min-width: 100%;
+  width: 100%;
+}
+
+.notification-center-table th,
+.notification-center-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 12px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.notification-center-table th {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.notification-center-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.notification-center-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notification-center-tag {
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.notification-center-pre {
+  font-family: inherit;
+  margin: 0;
+  white-space: pre-wrap;
+}

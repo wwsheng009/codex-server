@@ -4,11 +4,16 @@ import { renderHook, act } from '@testing-library/react'
 import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '../../i18n/runtime'
-import { useThreadPageRefreshEffects } from './useThreadPageRefreshEffects'
+
+let useThreadPageRefreshEffects: typeof import('./useThreadPageRefreshEffects').useThreadPageRefreshEffects
 
 function createBaseInput() {
   return {
-    activePendingTurn: null,
+    activePendingTurn: null as {
+      phase: 'sending' | 'waiting'
+      submittedAt: string
+      turnId?: string
+    } | null,
     contextCompactionFeedback: null,
     isDocumentVisible: true,
     isThreadPinnedToLatest: true,
@@ -17,7 +22,7 @@ function createBaseInput() {
       invalidateQueries: vi.fn().mockResolvedValue(undefined),
       setQueryData: vi.fn(),
     },
-    selectedThreadEvents: [] as Array<{ method: string; ts: string }>,
+    selectedThreadEvents: [] as Array<{ method: string; payload?: unknown; ts: string }>,
     selectedThreadId: 'thread-1',
     setContextCompactionFeedback: vi.fn(),
     streamState: 'idle',
@@ -29,8 +34,9 @@ function createBaseInput() {
 }
 
 describe('useThreadPageRefreshEffects', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
+    ;({ useThreadPageRefreshEffects } = await import('./useThreadPageRefreshEffects'))
   })
 
   afterEach(() => {
@@ -62,7 +68,7 @@ describe('useThreadPageRefreshEffects', () => {
     })
   })
 
-  it('avoids immediate thread detail refresh during an open stream but falls back once the stream goes stale', async () => {
+  it('avoids immediate thread detail refresh for agent deltas during an open stream but falls back once the stream goes stale', async () => {
     vi.useFakeTimers()
     const input = createBaseInput()
     input.activePendingTurn = {
@@ -78,7 +84,7 @@ describe('useThreadPageRefreshEffects', () => {
       },
     ]
 
-    const { rerender } = renderHook((props) => useThreadPageRefreshEffects(props), {
+    renderHook((props) => useThreadPageRefreshEffects(props), {
       initialProps: input,
     })
 
@@ -91,17 +97,38 @@ describe('useThreadPageRefreshEffects', () => {
       queryKey: ['thread-detail', 'ws-1', 'thread-1'],
     })
 
+    await act(async () => {
+      vi.advanceTimersByTime(3_500)
+      await Promise.resolve()
+    })
+
+    expect(input.queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['thread-detail', 'ws-1', 'thread-1'],
+    })
+  })
+
+  it('throttles a thread detail refresh for command output deltas during an open stream', async () => {
+    vi.useFakeTimers()
+    const input = createBaseInput()
+    input.activePendingTurn = {
+      phase: 'waiting',
+      submittedAt: '2026-04-15T02:00:00.000Z',
+      turnId: 'turn-1',
+    }
+    input.streamState = 'open'
     input.selectedThreadEvents = [
-      ...input.selectedThreadEvents,
       {
         method: 'item/commandExecution/outputDelta',
         ts: '2026-04-15T02:00:17.200Z',
       },
     ]
-    rerender(input)
+
+    renderHook((props) => useThreadPageRefreshEffects(props), {
+      initialProps: input,
+    })
 
     await act(async () => {
-      vi.advanceTimersByTime(2_000)
+      vi.advanceTimersByTime(200)
       await Promise.resolve()
     })
 
@@ -110,7 +137,43 @@ describe('useThreadPageRefreshEffects', () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(1_500)
+      vi.advanceTimersByTime(200)
+      await Promise.resolve()
+    })
+
+    expect(input.queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['thread-detail', 'ws-1', 'thread-1'],
+    })
+  })
+
+  it('throttles a thread detail refresh for command lifecycle placeholders during an open stream', async () => {
+    vi.useFakeTimers()
+    const input = createBaseInput()
+    input.activePendingTurn = {
+      phase: 'waiting',
+      submittedAt: '2026-04-15T02:00:00.000Z',
+      turnId: 'turn-1',
+    }
+    input.streamState = 'open'
+    input.selectedThreadEvents = [
+      {
+        method: 'item/started',
+        payload: {
+          item: {
+            id: 'cmd-1',
+            type: 'commandExecution',
+          },
+        },
+        ts: '2026-04-15T02:00:17.200Z',
+      },
+    ]
+
+    renderHook((props) => useThreadPageRefreshEffects(props), {
+      initialProps: input,
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(400)
       await Promise.resolve()
     })
 
@@ -140,3 +203,4 @@ describe('useThreadPageRefreshEffects', () => {
     })
   })
 })
+

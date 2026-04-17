@@ -23,6 +23,14 @@ import type {
   ThreadPageRefreshEffectsInput,
 } from './threadPageEffectTypes'
 
+function asObject(value: unknown) {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
+function stringField(value: unknown) {
+  return typeof value === 'string' ? value : ''
+}
+
 export function useThreadPageRefreshEffects({
   activePendingTurn,
   contextCompactionFeedback,
@@ -149,7 +157,8 @@ export function useThreadPageRefreshEffects({
     }, delayMs)
   }
 
-  function shouldReconcileThreadDetailWithSnapshot(method?: string) {
+  function shouldReconcileThreadDetailWithSnapshot(event: { method?: string; payload?: unknown }) {
+    const method = event.method
     if (typeof method !== 'string') {
       return false
     }
@@ -158,7 +167,25 @@ export function useThreadPageRefreshEffects({
       return true
     }
 
-    return ['thread/compacted', 'thread/closed'].includes(method)
+    if (
+      [
+        'thread/compacted',
+        'thread/closed',
+        'item/commandExecution/outputDelta',
+        'item/fileChange/outputDelta',
+        'turn/diff/updated',
+      ].includes(method)
+    ) {
+      return true
+    }
+
+    if (method !== 'item/started' && method !== 'item/completed') {
+      return false
+    }
+
+    const payload = asObject(event.payload)
+    const item = asObject(payload.item)
+    return ['commandExecution', 'fileChange'].includes(stringField(item.type))
   }
 
   useEffect(() => {
@@ -387,7 +414,7 @@ export function useThreadPageRefreshEffects({
       return
     }
 
-    if (!shouldReconcileThreadDetailWithSnapshot(latestEvent.method)) {
+    if (!shouldReconcileThreadDetailWithSnapshot(latestEvent)) {
       return
     }
 

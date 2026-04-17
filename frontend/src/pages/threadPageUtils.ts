@@ -37,7 +37,9 @@ const threadDetailRefreshMethods = new Set([
   ...threadQueryRefreshMethods,
   'item/started',
   'item/completed',
+  'item/fileChange/outputDelta',
   'turn/plan/updated',
+  'turn/diff/updated',
   'item/agentMessage/delta',
   'item/plan/delta',
   'item/reasoning/summaryTextDelta',
@@ -46,6 +48,8 @@ const threadDetailRefreshMethods = new Set([
 ])
 
 const threadDetailStreamingMethods = new Set([
+  'item/fileChange/outputDelta',
+  'turn/diff/updated',
   'turn/plan/updated',
   'item/agentMessage/delta',
   'item/plan/delta',
@@ -469,7 +473,13 @@ function renderableThreadItemKeySuffix(item: Record<string, unknown>) {
     }
     case 'fileChange': {
       const changeCount = Array.isArray(item.changes) ? item.changes.length : 0
-      return changeCount > 0 ? `file:${changeCount}` : ''
+      const status = stringField(item.status)
+      const previewText = stringField(item.text) || stringField(item.message)
+      if (!changeCount && !status && !previewText) {
+        return ''
+      }
+
+      return `file:${changeCount}:${status}:${previewText.length}`
     }
     case 'reasoning': {
       const summary = Array.isArray(item.summary)

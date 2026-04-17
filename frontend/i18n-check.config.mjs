@@ -427,6 +427,13 @@ export default {
       filePattern: 'src/pages/thread-page/useThreadViewportAutoScroll.ts',
       reason: 'Debug scroll log (not user-facing)',
     },
+    // notification-center catalog - technical topic identifiers
+    {
+      filePattern: 'src/features/notification-center/catalog.ts',
+      kind: 'object-property',
+      property: 'topic',
+      reason: 'Notification topic identifier catalog',
+    },
     // logStreamUtils.ts - backend raw message matcher for legacy compatibility
     {
       filePattern: 'src/features/bots/logStreamUtils.ts',
