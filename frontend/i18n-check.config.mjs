@@ -251,6 +251,11 @@ export default {
     },
     {
       filePattern: 'src/components/workspace/renderers.tsx',
+      text: 'conversation entry placeholder: ${…}',
+      reason: 'Debug log placeholder message (not user-facing)',
+    },
+    {
+      filePattern: 'src/components/workspace/renderers.tsx',
       text: '${…} ... [truncated, ${…} more chars]',
       reason: 'Debug truncation template (not user-facing)',
     },
@@ -421,6 +426,13 @@ export default {
     {
       filePattern: 'src/pages/thread-page/useThreadPageRefreshEffects.ts',
       reason: 'Debug refresh reason (not user-facing)',
+    },
+    // buildThreadPageTurnDisplayState.ts - diagnostic reason for dev profiler
+    {
+      filePattern: 'src/pages/thread-page/buildThreadPageTurnDisplayState.ts',
+      kind: 'object-property',
+      property: 'reason',
+      reason: 'Dev-only diagnostic reason label (not user-facing)',
     },
     // useThreadViewportAutoScroll.ts - debug log
     {

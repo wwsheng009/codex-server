@@ -18,6 +18,7 @@ import {
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
 } from '../threadPageUtils'
+import { threadProjectionRecoveryOnlySnapshot } from './threadRenderingFeatureFlags'
 import type {
   ThreadPageQueryRefreshRequest,
   ThreadPageRefreshEffectsInput,
@@ -369,7 +370,9 @@ export function useThreadPageRefreshEffects({
 
     const shouldRefreshThreadDetail =
       streamState === 'open'
-        ? shouldRefreshThreadDetailDuringOpenStreamForEvent(latestEvent)
+        ? threadProjectionRecoveryOnlySnapshot
+          ? shouldRefreshThreadDetailDuringOpenStreamForEvent(latestEvent)
+          : shouldRefreshThreadDetailForEvent(latestEvent.method)
         : shouldRefreshThreadDetailForEvent(latestEvent.method)
 
     if (!shouldRefreshThreadDetail) {
