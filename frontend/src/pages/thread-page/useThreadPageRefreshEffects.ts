@@ -7,13 +7,13 @@ import {
 import { syncAccountQueriesFromEvent } from '../../features/account/realtime'
 import { i18n } from '../../i18n/runtime'
 import {
-  completedAgentMessageRefreshDelayMs,
   shouldFallbackRefreshThreadDetailDuringOpenStream,
   shouldRefreshHookRunsForEvent,
   shouldRefreshTurnPolicyGovernanceForEvent,
   shouldRefreshMcpServerStatusForEvent,
   shouldRefreshLoadedThreadsForEvent,
   shouldRefreshRuntimeCatalogForEvent,
+  shouldRefreshThreadDetailDuringOpenStreamForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
@@ -22,14 +22,6 @@ import type {
   ThreadPageQueryRefreshRequest,
   ThreadPageRefreshEffectsInput,
 } from './threadPageEffectTypes'
-
-function asObject(value: unknown) {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
-}
-
-function stringField(value: unknown) {
-  return typeof value === 'string' ? value : ''
-}
 
 export function useThreadPageRefreshEffects({
   activePendingTurn,
@@ -155,37 +147,6 @@ export function useThreadPageRefreshEffects({
         queryKey: ['runtime-catalog', workspaceId],
       })
     }, delayMs)
-  }
-
-  function shouldReconcileThreadDetailWithSnapshot(event: { method?: string; payload?: unknown }) {
-    const method = event.method
-    if (typeof method !== 'string') {
-      return false
-    }
-
-    if (streamState !== 'open') {
-      return true
-    }
-
-    if (
-      [
-        'thread/compacted',
-        'thread/closed',
-        'item/commandExecution/outputDelta',
-        'item/fileChange/outputDelta',
-        'turn/diff/updated',
-      ].includes(method)
-    ) {
-      return true
-    }
-
-    if (method !== 'item/started' && method !== 'item/completed') {
-      return false
-    }
-
-    const payload = asObject(event.payload)
-    const item = asObject(payload.item)
-    return ['commandExecution', 'fileChange'].includes(stringField(item.type))
   }
 
   useEffect(() => {
@@ -406,21 +367,16 @@ export function useThreadPageRefreshEffects({
       scheduleThreadQueryRefresh({ loadedThreads: true })
     }
 
-    if (!shouldRefreshThreadDetailForEvent(latestEvent.method)) {
+    const shouldRefreshThreadDetail =
+      streamState === 'open'
+        ? shouldRefreshThreadDetailDuringOpenStreamForEvent(latestEvent)
+        : shouldRefreshThreadDetailForEvent(latestEvent.method)
+
+    if (!shouldRefreshThreadDetail) {
       return
     }
 
     if (isThreadViewportInteracting) {
-      return
-    }
-
-    if (!shouldReconcileThreadDetailWithSnapshot(latestEvent)) {
-      return
-    }
-
-    const completedAgentRefreshDelay = completedAgentMessageRefreshDelayMs(latestEvent)
-    if (completedAgentRefreshDelay !== null) {
-      scheduleThreadDetailRefresh(completedAgentRefreshDelay)
       return
     }
 
@@ -516,11 +472,11 @@ export function useThreadPageRefreshEffects({
       ])
     }
 
-    if (shouldRefreshMcpServerStatusForEvent(latestEvent.method)) {
+    if (shouldRefreshMcpServerStatusForEvent(latestEvent)) {
       scheduleMcpServerStatusRefresh()
     }
 
-    if (shouldRefreshRuntimeCatalogForEvent(latestEvent.method)) {
+    if (shouldRefreshRuntimeCatalogForEvent(latestEvent)) {
       scheduleRuntimeCatalogRefresh()
     }
   }, [queryClient, selectedThreadId, threadListRefreshTimerRef, workspaceActivityEvents, workspaceId])

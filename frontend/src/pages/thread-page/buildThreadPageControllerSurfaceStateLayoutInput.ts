@@ -31,11 +31,12 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
       : undefined,
     displayedTurns: displayState.displayedTurns,
     hasMoreTurnsBefore:
-      controllerState.hasMoreHistoricalTurnsBefore ?? Boolean(dataState.liveThreadDetail?.hasMoreTurns),
+      controllerState.hasMoreHistoricalTurnsBefore ??
+      Boolean(dataState.threadProjection?.hasMoreTurns),
     hasThreads: Boolean(dataState.threadsQuery.data?.length),
     hiddenTurnsCount: Math.max(
       0,
-      (dataState.liveThreadDetail?.turnCount ?? displayState.displayedTurns.length) -
+      (dataState.threadProjection?.turnCount ?? displayState.displayedTurns.length) -
         displayState.displayedTurns.length,
     ),
     isCreateThreadPending: mutationState.createThreadMutation.isPending,

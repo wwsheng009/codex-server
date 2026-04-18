@@ -5,3 +5,16 @@ export type ResolveLiveThreadDetailInput = {
   events: ServerEvent[]
   threadDetail?: ThreadDetail
 }
+
+export type LiveThreadProjectionState = {
+  detail?: ThreadDetail
+  lastEventKey: string
+  selectedThreadId?: string
+}
+
+export type ResolveLiveThreadProjectionStateInput = {
+  currentState?: LiveThreadProjectionState
+  events: ServerEvent[]
+  selectedThreadId?: string
+  threadDetail?: ThreadDetail
+}

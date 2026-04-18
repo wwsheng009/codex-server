@@ -26,7 +26,7 @@ export function useThreadPageControllerEffects({
     isThreadViewportInteracting: viewportState.isThreadViewportInteracting,
     isThreadsLoaded: dataState.threadsQuery.isSuccess,
     latestThreadDetailId: dataState.threadDetailQuery.data?.id,
-    liveThreadTurns: dataState.liveThreadDetail?.turns,
+    liveThreadTurns: dataState.threadProjection?.turns,
     mobileThreadToolsOpen: controllerState.mobileThreadToolsOpen,
     navigate: controllerState.navigate,
     queryClient: controllerState.queryClient,

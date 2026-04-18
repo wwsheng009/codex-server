@@ -49,8 +49,10 @@ export function useThreadPageBotMutations({
           },
         ],
       }),
-    onSuccess: async (_, variables) => {
+    onSuccess: () => {
       setBotSendText('')
+    },
+    onSettled: async (_data, _error, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ['thread-page-bot-delivery-targets', variables.botWorkspaceId, variables.botId],

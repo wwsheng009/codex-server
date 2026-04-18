@@ -9,9 +9,13 @@ import {
   latestSettledMessageKey,
   primeThreadDisplayMetrics,
   primeThreadDisplayMetricsForTurnReplacements,
+  resolveFeishuToolsSyncNoticeEvent,
   shouldRefreshApprovalsForEvent,
   shouldFallbackRefreshThreadDetailDuringOpenStream,
+  shouldRefreshMcpServerStatusForEvent,
   shouldRefreshLoadedThreadsForEvent,
+  shouldRefreshRuntimeCatalogForEvent,
+  shouldRefreshThreadDetailDuringOpenStreamForEvent,
   shouldRefreshThreadDetailForEvent,
   shouldRefreshThreadsForEvent,
   shouldThrottleThreadDetailRefreshForEvent,
@@ -34,6 +38,107 @@ describe('threadPageUtils', () => {
     expect(shouldRefreshLoadedThreadsForEvent('turn/completed')).toBe(false)
   })
 
+  it('refreshes MCP server status for direct runtime events and relevant workspace config mutations', () => {
+    expect(shouldRefreshMcpServerStatusForEvent('mcpServer/startupStatus/updated')).toBe(true)
+    expect(
+      shouldRefreshMcpServerStatusForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
+          triggerMethod: 'config/mcp-server/reload',
+        },
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshMcpServerStatusForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
+          triggerMethod: 'feishu-tools/config/write',
+        },
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshMcpServerStatusForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
+          triggerMethod: 'workspace/config/write',
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('refreshes runtime catalog for tool-affecting workspace config mutations', () => {
+    expect(shouldRefreshRuntimeCatalogForEvent('app/list/updated')).toBe(true)
+    expect(
+      shouldRefreshRuntimeCatalogForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
+          triggerMethod: 'config/mcp-server/reload',
+        },
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshRuntimeCatalogForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
+          triggerMethod: 'feishu-tools/config/write',
+        },
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshRuntimeCatalogForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
+          triggerMethod: 'thread/archive',
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('resolves the latest Feishu tools sync notice event from workspace mutations', () => {
+    expect(
+      resolveFeishuToolsSyncNoticeEvent([
+        {
+          method: 'workspace/httpMutation',
+          payload: {
+            requestKind: 'httpMutation',
+            triggerMethod: 'workspace/config/write',
+          },
+          ts: '2026-04-18T06:00:00Z',
+        },
+        {
+          method: 'workspace/httpMutation',
+          payload: {
+            requestKind: 'httpMutation',
+            triggerMethod: 'feishu-tools/config/write',
+          },
+          ts: '2026-04-18T06:00:05Z',
+        },
+      ]),
+    ).toEqual({
+      eventKey: 'workspace/httpMutation:feishu-tools/config/write:2026-04-18T06:00:05Z',
+      ts: '2026-04-18T06:00:05Z',
+    })
+
+    expect(
+      resolveFeishuToolsSyncNoticeEvent([
+        {
+          method: 'workspace/httpMutation',
+          payload: {
+            requestKind: 'httpMutation',
+            triggerMethod: 'thread/archive',
+          },
+          ts: '2026-04-18T06:00:08Z',
+        },
+      ]),
+    ).toBeNull()
+  })
+
   it('marks item deltas for thread detail refresh', () => {
     expect(shouldRefreshThreadDetailForEvent('item/agentMessage/delta')).toBe(true)
     expect(shouldRefreshThreadDetailForEvent('turn/plan/updated')).toBe(true)
@@ -41,11 +146,39 @@ describe('threadPageUtils', () => {
     expect(shouldRefreshThreadDetailForEvent('workspace/connected')).toBe(false)
   })
 
-  it('throttles only streaming item events', () => {
-    expect(shouldThrottleThreadDetailRefreshForEvent('item/agentMessage/delta')).toBe(true)
-    expect(shouldThrottleThreadDetailRefreshForEvent('turn/plan/updated')).toBe(true)
-    expect(shouldThrottleThreadDetailRefreshForEvent('item/reasoning/textDelta')).toBe(true)
+  it('throttles only recovery-oriented streaming snapshot refresh events', () => {
+    expect(shouldThrottleThreadDetailRefreshForEvent('item/commandExecution/outputDelta')).toBe(true)
+    expect(shouldThrottleThreadDetailRefreshForEvent('item/fileChange/outputDelta')).toBe(true)
+    expect(shouldThrottleThreadDetailRefreshForEvent('item/agentMessage/delta')).toBe(false)
     expect(shouldThrottleThreadDetailRefreshForEvent('turn/completed')).toBe(false)
+  })
+
+  it('limits open-stream thread detail refreshes to recovery-only events', () => {
+    expect(
+      shouldRefreshThreadDetailDuringOpenStreamForEvent({
+        method: 'item/agentMessage/delta',
+      }),
+    ).toBe(false)
+    expect(
+      shouldRefreshThreadDetailDuringOpenStreamForEvent({
+        method: 'hook/completed',
+      }),
+    ).toBe(false)
+    expect(
+      shouldRefreshThreadDetailDuringOpenStreamForEvent({
+        method: 'item/commandExecution/outputDelta',
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshThreadDetailDuringOpenStreamForEvent({
+        method: 'item/started',
+        payload: {
+          item: {
+            type: 'fileChange',
+          },
+        },
+      }),
+    ).toBe(true)
   })
 
   it('only falls back to thread-detail refresh when the open stream has gone stale', () => {
@@ -191,7 +324,7 @@ describe('threadPageUtils', () => {
     ).toBe('turn-3:assistant-3:agent:streaming:15')
   })
 
-  it('tracks the latest renderable timeline item and ignores empty reasoning items', () => {
+  it('tracks the latest renderable timeline item including placeholder-only entries', () => {
     expect(
       latestRenderableThreadItemKey([
         {
@@ -215,7 +348,7 @@ describe('threadPageUtils', () => {
           ],
         },
       ]),
-    ).toBe('turn-4:command-1:command:inProgress:8:18:1200')
+    ).toBe('turn-4:reasoning-1:reasoning:placeholder')
   })
 
   it('treats status-only command placeholders as renderable timeline items', () => {

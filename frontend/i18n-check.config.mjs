@@ -440,5 +440,11 @@ export default {
       text: 'Poll completed successfully. No new messages.',
       reason: 'Backend raw runtime message matcher for legacy compatibility',
     },
+    // FeishuToolsSettingsPage.tsx - window.open feature string, not user text
+    {
+      filePattern: 'src/pages/settings/FeishuToolsSettingsPage.tsx',
+      text: 'noopener,noreferrer',
+      reason: 'window.open features string (browser security token, not UI text)',
+    },
   ],
 }

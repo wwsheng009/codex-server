@@ -68,7 +68,7 @@ import {
 } from '../features/bots/logStreamUtils'
 import { formatLocalizedNumber, formatLocalizedStatusLabel, humanizeDisplayValue } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
-import { getErrorMessage } from '../lib/error-utils'
+import { getBotOutboundErrorMessage, getErrorMessage } from '../lib/error-utils'
 import { buildWorkspaceThreadRoute } from '../lib/thread-routes'
 import {
   BOT_OUTBOUND_MEDIA_KIND_ORDER,
@@ -1656,8 +1656,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         originWorkspaceId: input.originWorkspaceId,
         originThreadId: input.originThreadId,
       }),
-    onSuccess: async (_, variables) => {
+    onSuccess: () => {
       closeOutboundComposer(true)
+    },
+    onSettled: async (_data, _error, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
@@ -1691,8 +1693,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         originWorkspaceId: input.originWorkspaceId,
         originThreadId: input.originThreadId,
       }),
-    onSuccess: async (_, variables) => {
+    onSuccess: (_data, _variables) => {
       closeOutboundComposer(true)
+    },
+    onSettled: async (_data, _error, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['bot-connections'] }),
         queryClient.invalidateQueries({ queryKey: ['bot-conversations'] }),
@@ -2682,8 +2686,8 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     : ''
   const sendOutboundMessageErrorMessage =
     outboundComposerFormError ||
-    getErrorMessage(sendSessionOutboundMessageMutation.error) ||
-    getErrorMessage(sendDeliveryTargetOutboundMessageMutation.error)
+    getBotOutboundErrorMessage(sendSessionOutboundMessageMutation.error) ||
+    getBotOutboundErrorMessage(sendDeliveryTargetOutboundMessageMutation.error)
   const isBindingMutationPending =
     updateConversationBindingMutation.isPending || clearConversationBindingMutation.isPending
   const isDefaultBindingMutationPending = updateBotDefaultBindingMutation.isPending

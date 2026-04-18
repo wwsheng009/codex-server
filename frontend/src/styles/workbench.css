@@ -2224,6 +2224,13 @@
 
 .composer-assist-card__body {
   padding: 0 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.composer-assist-card__notice {
+  margin: 0;
 }
 
 .composer-assist-card__list,

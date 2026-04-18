@@ -21,7 +21,7 @@ export type ThreadPageDisplayStateInput = {
   fullTurnItemOverridesById: Record<string, Record<string, unknown>>
   fullTurnOverridesById: Record<string, ThreadTurn>
   historicalTurns: ThreadTurn[]
-  liveThreadDetail?: ThreadDetail
+  threadProjection?: ThreadDetail
   loadedThreadIds?: string[]
   selectedCommandSession?: CommandRuntimeSession
   selectedThread?: Thread
@@ -40,7 +40,7 @@ export type ThreadPageTurnDisplayStateInput = {
   fullTurnItemOverridesById: Record<string, Record<string, unknown>>
   fullTurnOverridesById: Record<string, ThreadTurn>
   historicalTurns: ThreadTurn[]
-  liveThreadDetail?: ThreadDetail
+  threadProjection?: ThreadDetail
   selectedThreadId?: string
 }
 
@@ -48,7 +48,7 @@ export type ThreadPageSelectionDisplayStateInput = {
   approvals: PendingApproval[]
   contextCompactionFeedback: ContextCompactionFeedback | null
   historicalTurns: ThreadTurn[]
-  liveThreadDetail?: ThreadDetail
+  threadProjection?: ThreadDetail
   loadedThreadIds?: string[]
   selectedCommandSession?: CommandRuntimeSession
   selectedThreadEvents: ServerEvent[]

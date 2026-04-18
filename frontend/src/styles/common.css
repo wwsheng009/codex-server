@@ -2529,6 +2529,526 @@
   min-width: 0;
 }
 
+.feishu-tool-selector-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-card) 92%, transparent), var(--surface-pane-strong));
+}
+
+.feishu-tool-selector-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.feishu-tool-selector-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feishu-oauth-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.feishu-oauth-scope-list__item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-pane-strong) 84%, transparent);
+  cursor: pointer;
+}
+
+.feishu-oauth-scope-list__item input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.feishu-oauth-scope-list__content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.feishu-oauth-scope-list__content strong {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.feishu-oauth-scope-list__content span {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.feishu-tool-selector-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.feishu-tool-selector-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feishu-tool-selector-mode {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface-card);
+}
+
+.feishu-tool-selector-mode legend {
+  padding: 0 6px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.feishu-tool-selector-mode__option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-pane-strong) 84%, transparent);
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.feishu-tool-selector-mode__option:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-pane-strong));
+}
+
+.feishu-tool-selector-mode__option input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.feishu-tool-selector-mode__option div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.feishu-tool-selector-mode__option strong {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.feishu-tool-selector-mode__option span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.feishu-tool-selector-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(220px, 1fr) minmax(160px, 0.7fr);
+  gap: 12px;
+}
+
+.feishu-form-select .custom-select__trigger {
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-input);
+  box-shadow: none;
+  font-size: 0.88rem;
+}
+
+.feishu-form-select .custom-select__trigger:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-input);
+  box-shadow: none;
+}
+
+.feishu-form-select.custom-select--open .custom-select__trigger {
+  border-color: var(--accent);
+  background: var(--bg-main);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.feishu-form-select .custom-select__trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--bg-main);
+}
+
+.feishu-form-select .custom-select__value {
+  font-size: 0.88rem;
+}
+
+.feishu-tool-selector-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feishu-tool-selector-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feishu-tool-selector-table__viewport {
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-card) 94%, transparent);
+}
+
+.feishu-tool-selector-table {
+  width: 100%;
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.feishu-tool-selector-table__col--toggle {
+  width: 76px;
+}
+
+.feishu-tool-selector-table__col--tool {
+  width: 34%;
+}
+
+.feishu-tool-selector-table__col--category {
+  width: 20%;
+}
+
+.feishu-tool-selector-table__col--controls {
+  width: 16%;
+}
+
+.feishu-tool-selector-table__col--scopes {
+  width: 30%;
+}
+
+.feishu-tool-selector-table__header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-overlay) 88%, var(--bg-panel));
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.feishu-tool-selector-table__header--toggle {
+  width: 76px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.feishu-tool-selector-table__row + .feishu-tool-selector-table__row .feishu-tool-selector-table__cell {
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+}
+
+.feishu-tool-selector-table__row--selected {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.feishu-tool-selector-table__row--muted {
+  opacity: 0.72;
+}
+
+.feishu-tool-selector-table__cell {
+  padding: 12px;
+  vertical-align: top;
+}
+
+.feishu-tool-selector-table__cell--toggle {
+  width: 76px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.feishu-tool-selector-table__cell--toggle .ide-switch-group {
+  justify-content: center;
+  width: max-content;
+  min-width: 0;
+}
+
+.feishu-tool-selector-table__primary,
+.feishu-tool-selector-table__secondary,
+.feishu-tool-selector-table__scopes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.feishu-tool-selector-table__primary strong,
+.feishu-tool-selector-table__secondary strong {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.feishu-tool-selector-table__primary p,
+.feishu-tool-selector-table__secondary span,
+.feishu-tool-selector-table__scope-preview {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.feishu-tool-selector-table__primary p {
+  margin: 0;
+}
+
+.feishu-tool-selector-table__primary code {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-pane-strong) 65%, var(--bg-main));
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.feishu-tool-selector-table__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feishu-tool-selector-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.feishu-tool-selector-pagination__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.feishu-permissions-table__toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(160px, 0.7fr);
+  gap: 12px;
+}
+
+.feishu-permissions-table__viewport {
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-card) 94%, transparent);
+}
+
+.feishu-permissions-table {
+  width: 100%;
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.feishu-permissions-table__col--status {
+  width: 18%;
+}
+
+.feishu-permissions-table__col--scope {
+  width: 25%;
+}
+
+.feishu-permissions-table__col--source {
+  width: 12%;
+}
+
+.feishu-permissions-table__col--reason {
+  width: 25%;
+}
+
+.feishu-permissions-table__col--tools {
+  width: 20%;
+}
+
+.feishu-permissions-table__header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-overlay) 88%, var(--bg-panel));
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.feishu-permissions-table__row + .feishu-permissions-table__row .feishu-permissions-table__cell {
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+}
+
+.feishu-permissions-table__row--sensitive {
+  background: color-mix(in srgb, var(--warning) 5%, transparent);
+}
+
+.feishu-permissions-table__cell {
+  padding: 12px;
+  vertical-align: top;
+}
+
+.feishu-permissions-table__status,
+.feishu-permissions-table__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feishu-permissions-table__scope,
+.feishu-permissions-table__source,
+.feishu-permissions-table__reason,
+.feishu-permissions-table__tools-preview {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.feishu-token-snapshot-table__viewport {
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-card) 94%, transparent);
+}
+
+.feishu-token-snapshot-table {
+  width: 100%;
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.feishu-token-snapshot-table__col--field {
+  width: 32%;
+}
+
+.feishu-token-snapshot-table__col--value {
+  width: 68%;
+}
+
+.feishu-token-snapshot-table__header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-overlay) 88%, var(--bg-panel));
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.feishu-token-snapshot-table__row + .feishu-token-snapshot-table__row .feishu-token-snapshot-table__cell {
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+}
+
+.feishu-token-snapshot-table__cell {
+  padding: 12px;
+  vertical-align: top;
+}
+
+.feishu-token-snapshot-table__field,
+.feishu-token-snapshot-table__value {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.feishu-token-snapshot-table__field {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.feishu-token-snapshot-table__value code {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-pane-strong) 65%, var(--bg-main));
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.feishu-tool-selector-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 220px;
+  padding: 24px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-card) 85%, transparent);
+  text-align: center;
+}
+
+.feishu-tool-selector-empty strong {
+  color: var(--text-strong);
+}
+
+.feishu-tool-selector-empty span {
+  max-width: 44ch;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 .setting-group {
   display: flex;
   flex-direction: column;

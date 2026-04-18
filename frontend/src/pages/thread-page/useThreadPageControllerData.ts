@@ -95,7 +95,7 @@ export function useThreadPageControllerData(
     fullTurnItemOverridesById: controllerState.fullTurnItemOverridesById,
     fullTurnOverridesById: controllerState.fullTurnOverridesById,
     historicalTurns: controllerState.historicalTurns,
-    liveThreadDetail: dataState.liveThreadDetail,
+    threadProjection: dataState.threadProjection,
     loadedThreadIds: dataState.loadedThreadsQuery.data,
     selectedCommandSession: dataState.selectedCommandSession,
     selectedThread: dataState.selectedThread,
@@ -285,10 +285,8 @@ export function useThreadPageControllerData(
     }
 
     const latestTurnCount =
-      dataState.liveThreadDetail?.turnCount ??
-      dataState.threadDetailQuery.data?.turnCount ??
-      0
-    const latestWindowTurnCount = dataState.liveThreadDetail?.turns.length ?? 0
+      dataState.threadProjection?.turnCount ?? 0
+    const latestWindowTurnCount = dataState.threadProjection?.turns.length ?? 0
 
     if (
       latestTurnCount > 0 &&
@@ -301,9 +299,8 @@ export function useThreadPageControllerData(
     controllerState.historicalTurns.length,
     controllerState.setHasMoreHistoricalTurnsBefore,
     controllerState.setHistoricalTurns,
-    dataState.liveThreadDetail?.turnCount,
-    dataState.liveThreadDetail?.turns.length,
-    dataState.threadDetailQuery.data?.turnCount,
+    dataState.threadProjection?.turnCount,
+    dataState.threadProjection?.turns.length,
   ])
 
   const statusState = useThreadPageStatusState({
@@ -338,7 +335,7 @@ export function useThreadPageControllerData(
     terminalDockPlacement: controllerState.terminalDockPlacement,
     isThreadPinnedToLatest: viewportState.isThreadPinnedToLatest,
     latestDisplayedTurn: displayState.latestDisplayedTurn,
-    liveThreadStatus: dataState.liveThreadDetail?.status,
+    liveThreadStatus: dataState.threadProjection?.status,
     restartAndRetryPending: controllerState.isRestartAndRetryPending,
     selectedThread: dataState.selectedThread,
     selectedThreadEvents: dataState.selectedThreadEvents,

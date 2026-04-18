@@ -182,6 +182,42 @@ describe('useThreadPageRefreshEffects', () => {
     })
   })
 
+  it('keeps hook lifecycle events on their side queries without refreshing thread detail during an open stream', async () => {
+    vi.useFakeTimers()
+    const input = createBaseInput()
+    input.streamState = 'open'
+    input.selectedThreadEvents = [
+      {
+        method: 'hook/completed',
+        payload: {
+          run: {
+            id: 'hook-1',
+            turnId: 'turn-1',
+            eventName: 'PostToolUse',
+            status: 'completed',
+          },
+        },
+        ts: '2026-04-15T02:00:17.200Z',
+      },
+    ]
+
+    renderHook((props) => useThreadPageRefreshEffects(props), {
+      initialProps: input,
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(100)
+      await Promise.resolve()
+    })
+
+    expect(input.queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['hook-runs', 'ws-1', 'thread-1'],
+    })
+    expect(input.queryClient.invalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: ['thread-detail', 'ws-1', 'thread-1'],
+    })
+  })
+
   it('forces a thread detail refresh when realtime closes after an open stream', async () => {
     vi.useFakeTimers()
     const input = createBaseInput()

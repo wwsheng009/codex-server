@@ -74,7 +74,7 @@ describe('ThreadWorkbenchSurface', () => {
     ).toBe(false)
   })
 
-  it('freezes timeline virtualization while a pinned thread is streaming or waiting', () => {
+  it('keeps the live window unfrozen while a pinned thread is streaming or waiting', () => {
     expect(
       shouldFreezeThreadTimelineVirtualization({
         activePendingTurnPhase: 'waiting',
@@ -82,7 +82,7 @@ describe('ThreadWorkbenchSurface', () => {
         isThreadProcessing: false,
         isThreadViewportInteracting: false,
       }),
-    ).toBe(true)
+    ).toBe(false)
 
     expect(
       shouldFreezeThreadTimelineVirtualization({
@@ -91,7 +91,7 @@ describe('ThreadWorkbenchSurface', () => {
         isThreadProcessing: true,
         isThreadViewportInteracting: false,
       }),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('keeps timeline virtualization live only when the viewport is pinned and idle', () => {
@@ -991,7 +991,7 @@ describe('ThreadWorkbenchSurface', () => {
       ],
     }
 
-    const liveThreadDetail = resolveLiveThreadDetail({
+    const threadProjection = resolveLiveThreadDetail({
       currentLiveDetail,
       events: [],
       threadDetail,
@@ -1002,7 +1002,7 @@ describe('ThreadWorkbenchSurface', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -1072,7 +1072,7 @@ describe('ThreadWorkbenchSurface', () => {
   })
 
   it('renders a status-only live command placeholder during realtime completion recovery', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -1101,7 +1101,7 @@ describe('ThreadWorkbenchSurface', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 

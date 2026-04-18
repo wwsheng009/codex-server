@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react'
 
 import { i18n } from '../../i18n/runtime'
-import { getErrorMessage } from '../../lib/error-utils'
+import { getBotOutboundErrorMessage, getErrorMessage } from '../../lib/error-utils'
 import type { Bot } from '../../types/api'
 
 type ThreadPageBotSendMutationInput = {
@@ -101,7 +101,12 @@ export function buildThreadPageBotActions({
       },
       {
         onError: (error) => {
-          setBotSendError(getErrorMessage(error, i18n._({ id: 'Failed to send message to bot.', message: 'Failed to send message to bot.' })))
+          setBotSendError(
+            getBotOutboundErrorMessage(
+              error,
+              i18n._({ id: 'Failed to send message to bot.', message: 'Failed to send message to bot.' }),
+            ),
+          )
         },
       },
     )

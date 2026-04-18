@@ -18,6 +18,7 @@ import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/
 import { RuntimeRecoveryNoticeContent } from '../../features/workspaces/RuntimeRecoveryNoticeContent'
 import type { ThreadPageRespondApprovalInput } from './threadPageActionTypes'
 import type { ThreadPageRuntimeRecoveryExecutionNotice } from './threadPageRecoveryExecution'
+import { threadTimelineLiveWindowUnfrozen } from './threadRenderingFeatureFlags'
 import type { ThreadViewportScrollInput } from './threadViewportTypes'
 
 export type ThreadRuntimeNotice = {
@@ -160,11 +161,15 @@ export function shouldFreezeThreadTimelineVirtualization({
     return true
   }
 
-  return (
-    isThreadProcessing ||
-    activePendingTurnPhase === 'sending' ||
-    activePendingTurnPhase === 'waiting'
-  )
+  if (!threadTimelineLiveWindowUnfrozen) {
+    return (
+      isThreadProcessing ||
+      activePendingTurnPhase === 'sending' ||
+      activePendingTurnPhase === 'waiting'
+    )
+  }
+
+  return false
 }
 
 export function ThreadWorkbenchSurface({
@@ -482,6 +487,7 @@ export function ThreadWorkbenchSurface({
                     </div>
                   ) : null}
                   <TurnTimeline
+                    disableCompletedMessageAnimation
                     freezeVirtualization={freezeThreadTimelineVirtualization}
                     onReleaseFullTurn={onReleaseFullTurn}
                     onRetainFullTurn={onRetainFullTurn}

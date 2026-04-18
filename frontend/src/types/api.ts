@@ -446,6 +446,12 @@ export type ThreadDetail = Thread & {
   cwd?: string;
   hasMoreTurns?: boolean;
   clientLiveEventSeq?: number;
+  clientProjectionAppliedSeq?: number;
+  clientProjectionCompleteness?: string;
+  clientProjectionUpdatedAt?: string;
+  clientSnapshotContentMode?: string;
+  clientSnapshotTurnLimit?: number;
+  clientSnapshotUpdatedAt?: string;
   messageCount?: number;
   preview?: string;
   path?: string;
@@ -779,6 +785,175 @@ export type AccountCancelLoginResult = {
 
 export type McpOauthLoginResult = {
   authorizationUrl: string;
+};
+
+export type FeishuToolsConfig = {
+  enabled: boolean;
+  appId: string;
+  appSecret?: string | null;
+  appSecretSet?: boolean;
+  mcpEndpoint: string;
+  oauthMode: "app_only" | "user_oauth";
+  sensitiveWriteGuard: boolean;
+  toolAllowlist: string[];
+  updatedAt?: string | null;
+};
+
+export type FeishuToolsConfigResult = {
+  config: FeishuToolsConfig;
+  defaults?: Partial<FeishuToolsConfig> | null;
+  runtimeIntegration?: FeishuToolsRuntimeIntegration | null;
+  source?: string | null;
+  updatedAt?: string | null;
+  warnings?: string[] | null;
+};
+
+export type FeishuToolsRuntimeIntegration = {
+  status: string;
+  mode?: string | null;
+  serverName?: string | null;
+  serverUrl?: string | null;
+  managed?: boolean;
+  threadEnabled?: boolean;
+  botEnabled?: boolean;
+  allowlistAppliedInThread?: boolean;
+  writeGuardAppliedInThread?: boolean;
+  detail?: string | null;
+};
+
+export type FeishuToolsAuthState = {
+  status: string;
+  principalType?: string | null;
+  accountName?: string | null;
+  accountId?: string | null;
+  openId?: string | null;
+  unionId?: string | null;
+  hasAccessToken?: boolean | null;
+  hasRefreshToken?: boolean | null;
+  accessTokenPreview?: string | null;
+  refreshTokenPreview?: string | null;
+  obtainedAt?: string | null;
+  expiresAt?: string | null;
+  refreshExpiresAt?: string | null;
+  grantedScopes?: string[] | null;
+  callbackUrl?: string | null;
+};
+
+export type FeishuToolsInvokeInput = {
+  toolName: string;
+  action?: string;
+  invocationId?: string;
+  params?: Record<string, unknown>;
+};
+
+export type FeishuToolsInvokeError = {
+  code: string;
+  message: string;
+  hint?: string | null;
+};
+
+export type FeishuToolsInvokeProgressEvent = {
+  sequence: number;
+  state: string;
+  message?: string | null;
+  ts: string;
+  detail?: Record<string, unknown> | null;
+};
+
+export type FeishuToolsInvokeProgressPayload = FeishuToolsInvokeProgressEvent & {
+  invocationId: string;
+  toolName?: string | null;
+  action?: string | null;
+  final?: boolean;
+  startedAt?: string | null;
+};
+
+export type FeishuToolsInvokeResult = {
+  toolName: string;
+  action?: string | null;
+  invocationId?: string | null;
+  principal?: string | null;
+  status: "ok" | "error" | string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  events?: FeishuToolsInvokeProgressEvent[] | null;
+  result?: Record<string, unknown> | null;
+  error?: FeishuToolsInvokeError | null;
+};
+
+export type FeishuToolsStatusCheck = {
+  name: string;
+  status: string;
+  detail?: string | null;
+  hint?: string | null;
+  checkedAt?: string | null;
+};
+
+export type FeishuToolsStatusResult = {
+  overallStatus: string;
+  configStatus?: string | null;
+  gatewayStatus?: string | null;
+  oauthStatus?: string | null;
+  serviceEndpoint?: string | null;
+  lastCheckedAt?: string | null;
+  auth?: FeishuToolsAuthState | null;
+  runtimeIntegration?: FeishuToolsRuntimeIntegration | null;
+  checks?: FeishuToolsStatusCheck[] | null;
+  messages?: string[] | null;
+};
+
+export type FeishuToolsCapabilityItem = {
+  toolName: string;
+  title?: string | null;
+  description?: string | null;
+  enabled?: boolean;
+  stage?: string | null;
+  requiredScopes?: string[] | null;
+  riskLevel?: string | null;
+};
+
+export type FeishuToolsCapabilityCategory = {
+  id: string;
+  title: string;
+  description?: string | null;
+  enabledCount?: number | null;
+  totalCount?: number | null;
+  items?: FeishuToolsCapabilityItem[] | null;
+};
+
+export type FeishuToolsCapabilitiesResult = {
+  categories: FeishuToolsCapabilityCategory[];
+  summary?: {
+    enabledCount?: number | null;
+    totalCount?: number | null;
+    stage?: string | null;
+  } | null;
+};
+
+export type FeishuToolsPermissionItem = {
+  scope: string;
+  status: string;
+  source?: string | null;
+  reason?: string | null;
+  tools?: string[] | null;
+  sensitive?: boolean;
+};
+
+export type FeishuToolsPermissionsResult = {
+  overallStatus?: string | null;
+  requiredScopes?: string[] | null;
+  grantedScopes?: string[] | null;
+  missingScopes?: string[] | null;
+  sensitiveScopes?: string[] | null;
+  suggestions?: string[] | null;
+  items?: FeishuToolsPermissionItem[] | null;
+};
+
+export type FeishuToolsOauthLoginResult = {
+  authorizationUrl: string;
+  state?: string | null;
+  expiresAt?: string | null;
 };
 
 export type RateLimitWindow = {

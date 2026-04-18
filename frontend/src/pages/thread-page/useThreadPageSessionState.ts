@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import {
   frontendDebugLog,
   summarizeServerEventForDebug,
   summarizeThreadDetailForDebug,
 } from '../../lib/frontend-runtime-mode'
-import { resolveLiveThreadDetail } from '../threadLiveState'
+import {
+  applyLiveThreadEvents,
+  applyThreadEventToDetail,
+  reconcileLiveThreadDetailSnapshot,
+} from '../threadLiveState'
 import { useSessionStore } from '../../stores/session-store'
 import type { ServerEvent, ThreadDetail } from '../../types/api'
 import type { UseThreadPageSessionStateInput } from './threadPageRuntimeTypes'
@@ -17,7 +21,9 @@ export function useThreadPageSessionState({
   isDocumentVisible,
   selectedProcessId,
   selectedThreadId,
+  threadDetailContentMode,
   threadDetail,
+  threadDetailTurnLimit,
   workspaceId,
 }: UseThreadPageSessionStateInput) {
   const selectedThreadEvents = useSessionStore((state) =>
@@ -28,6 +34,10 @@ export function useThreadPageSessionState({
   const selectedThreadTokenUsage = useSessionStore((state) =>
     selectedThreadId ? state.tokenUsageByThread[selectedThreadId] ?? null : null,
   )
+  const threadProjection = useSessionStore((state) => {
+    const projectionThreadId = selectedThreadId ?? threadDetail?.id
+    return projectionThreadId ? state.threadProjectionsById[projectionThreadId] : undefined
+  })
   const workspaceEvents = useSessionStore((state) =>
     !isDocumentVisible || !workspaceId
       ? EMPTY_EVENTS
@@ -47,24 +57,16 @@ export function useThreadPageSessionState({
       : (EMPTY_COMMAND_SESSIONS as typeof state.commandSessionsByWorkspace[string]),
   )
 
-  const [liveThreadDetailState, setLiveThreadDetailState] = useState<ThreadDetail | undefined>(
-    () =>
-      resolveLiveThreadDetail({
-        currentLiveDetail: undefined,
-        events: selectedThreadEvents,
-        threadDetail,
-      }),
-  )
-
   useEffect(() => {
-    setLiveThreadDetailState((current) =>
-      resolveLiveThreadDetail({
-        currentLiveDetail: current?.id === selectedThreadId ? current : undefined,
-        events: selectedThreadEvents,
-        threadDetail,
-      }),
-    )
-  }, [selectedThreadEvents, selectedThreadId, threadDetail])
+    if (!threadDetail) {
+      return
+    }
+
+    useSessionStore.getState().syncThreadProjectionSnapshot(threadDetail, {
+      contentMode: threadDetailContentMode,
+      turnLimit: threadDetailTurnLimit,
+    })
+  }, [threadDetail, threadDetailContentMode, threadDetailTurnLimit])
 
   useEffect(() => {
     if (!selectedThreadId || selectedThreadEvents.length === 0) {
@@ -79,17 +81,25 @@ export function useThreadPageSessionState({
     })
   }, [selectedThreadEvents, selectedThreadId, workspaceId])
 
-  const liveThreadDetail = useMemo(
-    () =>
-      liveThreadDetailState?.id === (selectedThreadId ?? threadDetail?.id)
-        ? liveThreadDetailState
-        : resolveLiveThreadDetail({
-            currentLiveDetail: undefined,
-            events: selectedThreadEvents,
-            threadDetail,
-          }),
-    [liveThreadDetailState, selectedThreadEvents, selectedThreadId, threadDetail],
-  )
+  const resolvedThreadProjection = useMemo(() => {
+    return resolveThreadPageSessionProjection({
+      selectedThreadEvents,
+      selectedThreadId,
+      threadDetail,
+      contentMode: threadDetailContentMode,
+      turnLimit: threadDetailTurnLimit,
+      threadProjection,
+      workspaceId,
+    })
+  }, [
+    selectedThreadEvents,
+    selectedThreadId,
+    threadProjection,
+    threadDetail,
+    threadDetailContentMode,
+    threadDetailTurnLimit,
+    workspaceId,
+  ])
 
   const commandSessions = useMemo(
     () =>
@@ -114,22 +124,22 @@ export function useThreadPageSessionState({
   )
 
   useEffect(() => {
-    if (!selectedThreadId || !liveThreadDetail) {
+    if (!selectedThreadId || !resolvedThreadProjection) {
       return
     }
 
     frontendDebugLog('thread-session', 'live thread detail recalculated', {
       workspaceId,
       selectedThreadId,
-      summary: summarizeThreadDetailForDebug(liveThreadDetail),
+      summary: summarizeThreadDetailForDebug(resolvedThreadProjection),
     })
-  }, [liveThreadDetail, selectedThreadId, workspaceId])
+  }, [resolvedThreadProjection, selectedThreadId, workspaceId])
 
   return {
     activeCommandCount,
     commandSessionCount,
     commandSessions,
-    liveThreadDetail,
+    threadProjection: resolvedThreadProjection,
     selectedCommandSession,
     selectedThreadEvents,
     selectedThreadTokenUsage,
@@ -151,4 +161,80 @@ function compareCommandSessionsByPriority(
   }
 
   return left.updatedAt < right.updatedAt ? 1 : -1
+}
+
+type ResolveThreadPageSessionProjectionInput = {
+  contentMode?: 'full' | 'summary'
+  selectedThreadEvents: ServerEvent[]
+  selectedThreadId?: string
+  threadDetail?: ThreadDetail
+  threadProjection?: ThreadDetail
+  turnLimit?: number
+  workspaceId: string
+}
+
+export function resolveThreadPageSessionProjection({
+  contentMode,
+  selectedThreadEvents,
+  selectedThreadId,
+  threadDetail,
+  threadProjection,
+  turnLimit,
+  workspaceId,
+}: ResolveThreadPageSessionProjectionInput) {
+  if (threadProjection) {
+    return threadProjection
+  }
+
+  const snapshotProjection = threadDetail
+    ? reconcileLiveThreadDetailSnapshot(undefined, threadDetail, {
+        contentMode,
+        turnLimit,
+      })
+    : undefined
+
+  if (selectedThreadEvents.length === 0) {
+    return snapshotProjection
+  }
+
+  if (snapshotProjection) {
+    return applyLiveThreadEvents(snapshotProjection, selectedThreadEvents)
+  }
+
+  const eventThreadId =
+    selectedThreadId ?? threadDetail?.id ?? selectedThreadEvents[selectedThreadEvents.length - 1]?.threadId
+  if (!eventThreadId) {
+    return undefined
+  }
+
+  const placeholderTs = selectedThreadEvents[0]?.ts ?? new Date(0).toISOString()
+  return selectedThreadEvents.reduce<ThreadDetail>(
+    (current, event) => applyThreadEventToDetail(current, event) ?? current,
+    buildBufferedThreadProjectionPlaceholder({
+      threadId: eventThreadId,
+      ts: placeholderTs,
+      workspaceId,
+    }),
+  )
+}
+
+function buildBufferedThreadProjectionPlaceholder({
+  threadId,
+  ts,
+  workspaceId,
+}: {
+  threadId: string
+  ts: string
+  workspaceId: string
+}): ThreadDetail {
+  return {
+    archived: false,
+    createdAt: ts,
+    id: threadId,
+    name: '',
+    status: 'idle',
+    turns: [],
+    updatedAt: new Date(0).toISOString(),
+    workspaceId,
+  }
 }

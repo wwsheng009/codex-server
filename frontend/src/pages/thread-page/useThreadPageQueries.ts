@@ -36,6 +36,11 @@ export function useThreadPageQueries({
 }: UseThreadPageQueriesInput) {
   const queryClient = useQueryClient()
   const [areBackgroundQueriesEnabled, setAreBackgroundQueriesEnabled] = useState(false)
+  const threadDetailContentMode = resolveThreadDetailContentMode({
+    hasPendingTurn,
+    isDocumentVisible,
+    streamState,
+  })
 
   useEffect(() => {
     if (!workspaceId) {
@@ -148,10 +153,16 @@ export function useThreadPageQueries({
   })
 
   const threadDetailQuery = useQuery({
-    queryKey: ['thread-detail', workspaceId, resolvedSelectedThreadId, turnLimit],
+    queryKey: [
+      'thread-detail',
+      workspaceId,
+      resolvedSelectedThreadId,
+      turnLimit,
+      threadDetailContentMode,
+    ],
     queryFn: () =>
       getThread(workspaceId, resolvedSelectedThreadId ?? '', {
-        contentMode: 'summary',
+        contentMode: threadDetailContentMode,
         turnLimit,
       }),
     enabled: Boolean(workspaceId && resolvedSelectedThreadId),
@@ -259,10 +270,30 @@ export function useThreadPageQueries({
     resolvedSelectedThreadId,
     skillsQuery,
     threadDetailQuery,
+    threadDetailContentMode,
     turnPolicyDecisionsQuery,
     turnPolicyMetricsQuery,
     threadsQuery,
     workspaceRuntimeStateQuery,
     workspaceQuery,
   }
+}
+
+function resolveThreadDetailContentMode({
+  hasPendingTurn,
+  isDocumentVisible,
+  streamState,
+}: Pick<
+  UseThreadPageQueriesInput,
+  'hasPendingTurn' | 'isDocumentVisible' | 'streamState'
+>) {
+  if (!isDocumentVisible) {
+    return 'summary' as const
+  }
+
+  if (hasPendingTurn || streamState === 'connecting' || streamState === 'open') {
+    return 'full' as const
+  }
+
+  return 'summary' as const
 }

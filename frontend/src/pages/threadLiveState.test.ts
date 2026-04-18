@@ -7,6 +7,7 @@ let applyLiveThreadEvents: typeof import('./threadLiveState').applyLiveThreadEve
 let applyThreadEventToDetail: typeof import('./threadLiveState').applyThreadEventToDetail
 let applyThreadEventsToDetail: typeof import('./threadLiveState').applyThreadEventsToDetail
 let resolveLiveThreadDetail: typeof import('./threadLiveState').resolveLiveThreadDetail
+let resolveLiveThreadProjectionState: typeof import('./threadLiveState').resolveLiveThreadProjectionState
 let upsertPendingUserMessage: typeof import('./threadLiveState').upsertPendingUserMessage
 
 beforeAll(async () => {
@@ -16,6 +17,7 @@ beforeAll(async () => {
     applyThreadEventToDetail,
     applyThreadEventsToDetail,
     resolveLiveThreadDetail,
+    resolveLiveThreadProjectionState,
     upsertPendingUserMessage,
   } = await import('./threadLiveState'))
 })
@@ -1350,6 +1352,154 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('preserves a non-trailing live command execution item when a newer snapshot temporarily omits it', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['Checking order'],
+              content: [],
+            },
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'working tree clean',
+              status: 'completed',
+            },
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Done.',
+            },
+          ],
+        },
+      ],
+    }
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'reasoning-1',
+              type: 'reasoning',
+              summary: ['Checking order'],
+              content: [],
+            },
+            {
+              id: 'item-1',
+              type: 'agentMessage',
+              text: 'Done.',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items).toHaveLength(3)
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'reasoning-1',
+      type: 'reasoning',
+    })
+    expect(resolved?.turns[0]?.items[1]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      command: 'git status',
+      aggregatedOutput: 'working tree clean',
+      status: 'completed',
+    })
+    expect(resolved?.turns[0]?.items[2]).toMatchObject({
+      id: 'item-1',
+      type: 'agentMessage',
+      text: 'Done.',
+    })
+  })
+
+  it('preserves a trailing live hook run item when a newer snapshot temporarily omits it', () => {
+    const currentLiveDetail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:02.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'go test ./...',
+              status: 'completed',
+            },
+            {
+              id: 'hook-run-hook-1',
+              type: 'hookRun',
+              itemId: 'cmd-1',
+              eventName: 'PostToolUse',
+              handlerKey: 'builtin.posttooluse.failed-validation-rescue',
+              triggerMethod: 'item/completed',
+              status: 'completed',
+              decision: 'continueTurn',
+              reason: 'validation_command_failed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const newerSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'go test ./...',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveLiveThreadDetail({
+      currentLiveDetail,
+      events: [],
+      threadDetail: newerSnapshot,
+    })
+
+    expect(resolved?.turns[0]?.items).toHaveLength(2)
+    expect(resolved?.turns[0]?.items[1]).toMatchObject({
+      id: 'hook-run-hook-1',
+      type: 'hookRun',
+      itemId: 'cmd-1',
+      status: 'completed',
+      decision: 'continueTurn',
+      reason: 'validation_command_failed',
+    })
+  })
+
   it('preserves an entire trailing live turn when a newer snapshot temporarily omits the newest turn', () => {
     const currentLiveDetail: ThreadDetail = {
       ...makeDetail(),
@@ -1680,6 +1830,110 @@ describe('threadLiveState', () => {
     expect(resolved?.clientLiveEventSeq).toBe(41)
   })
 
+  it('replays seq-filtered command lifecycle events when the snapshot still has an empty placeholder', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      clientLiveEventSeq: 50,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: '',
+              aggregatedOutput: '',
+              status: '',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = applyLiveThreadEvents(detail, [
+      makeSeqEvent(
+        50,
+        'item/completed',
+        {
+          item: {
+            id: 'cmd-1',
+            type: 'commandExecution',
+          },
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:04.000Z',
+      ),
+    ])
+
+    expect(resolved?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      status: 'completed',
+    })
+    expect(resolved?.updatedAt).toBe('2026-03-20T00:00:05.000Z')
+    expect(resolved?.clientLiveEventSeq).toBe(50)
+  })
+
+  it('replays seq-filtered hook lifecycle events when the snapshot is missing the hook item', () => {
+    const detail: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      clientLiveEventSeq: 60,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'go test ./...',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    }
+
+    const resolved = applyLiveThreadEvents(detail, [
+      makeSeqEvent(
+        60,
+        'hook/completed',
+        {
+          run: {
+            id: 'hook-1',
+            turnId: 'turn-1',
+            itemId: 'cmd-1',
+            eventName: 'PostToolUse',
+            handlerKey: 'builtin.posttooluse.failed-validation-rescue',
+            triggerMethod: 'item/completed',
+            status: 'completed',
+            decision: 'continueTurn',
+            reason: 'validation_command_failed',
+          },
+        },
+        '2026-03-20T00:00:04.000Z',
+      ),
+    ])
+
+    expect(resolved?.turns[0]?.items).toHaveLength(2)
+    expect(resolved?.turns[0]?.items[1]).toMatchObject({
+      id: 'hook-run-hook-1',
+      type: 'hookRun',
+      itemId: 'cmd-1',
+      status: 'completed',
+      decision: 'continueTurn',
+      reason: 'validation_command_failed',
+    })
+    expect(String(resolved?.turns[0]?.items[1]?.message ?? '')).toContain(
+      'Failed Validation Rescue',
+    )
+    expect(resolved?.updatedAt).toBe('2026-03-20T00:00:05.000Z')
+  })
+
   it('keeps thread updatedAt monotonic when a newer seq event carries an older timestamp', () => {
     const detail: ThreadDetail = {
       ...makeDetail(),
@@ -1793,6 +2047,190 @@ describe('threadLiveState', () => {
       clientLiveOutputHydrated: true,
     })
     expect(resolved?.clientLiveEventSeq).toBe(41)
+  })
+
+  it('incrementally applies only newly buffered thread events after snapshot refreshes', () => {
+    const summarySnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:05.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n',
+              status: 'inProgress',
+              summaryTruncated: true,
+              outputContentMode: 'summary',
+              outputTotalLength: 48,
+            },
+          ],
+        },
+      ],
+    }
+
+    const firstBufferedEvents = [
+      makeSeqEvent(
+        41,
+        'item/commandExecution/outputDelta',
+        {
+          delta: 'line 2\n',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:05.500Z',
+      ),
+    ]
+
+    const afterFirstBatch = resolveLiveThreadProjectionState({
+      currentState: undefined,
+      events: firstBufferedEvents,
+      selectedThreadId: 'thread-1',
+      threadDetail: summarySnapshot,
+    })
+
+    expect(afterFirstBatch.detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      aggregatedOutput: 'line 1\nline 2\n',
+      clientLiveOutputHydrated: true,
+    })
+    expect(afterFirstBatch.detail?.clientLiveEventSeq).toBe(41)
+
+    const refreshedSnapshot: ThreadDetail = {
+      ...summarySnapshot,
+      updatedAt: '2026-03-20T00:00:06.000Z',
+    }
+
+    const afterRefresh = resolveLiveThreadProjectionState({
+      currentState: afterFirstBatch,
+      events: firstBufferedEvents,
+      selectedThreadId: 'thread-1',
+      threadDetail: refreshedSnapshot,
+    })
+
+    expect(afterRefresh.detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      aggregatedOutput: 'line 1\nline 2\n',
+      clientLiveOutputHydrated: true,
+    })
+    expect(afterRefresh.detail?.clientLiveEventSeq).toBe(41)
+
+    const secondBufferedEvents = [
+      ...firstBufferedEvents,
+      makeSeqEvent(
+        42,
+        'item/commandExecution/outputDelta',
+        {
+          delta: 'line 3\n',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:06.500Z',
+      ),
+    ]
+
+    const afterSecondBatch = resolveLiveThreadProjectionState({
+      currentState: afterRefresh,
+      events: secondBufferedEvents,
+      selectedThreadId: 'thread-1',
+      threadDetail: refreshedSnapshot,
+    })
+
+    expect(afterSecondBatch.detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      aggregatedOutput: 'line 1\nline 2\nline 3\n',
+      clientLiveOutputHydrated: true,
+    })
+    expect(afterSecondBatch.detail?.clientLiveEventSeq).toBe(42)
+  })
+
+  it('preserves already materialized command items when a newer summary snapshot omits them', () => {
+    const initialSnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:01.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [],
+        },
+      ],
+    }
+
+    const bufferedEvents = [
+      makeSeqEvent(
+        41,
+        'item/commandExecution/outputDelta',
+        {
+          delta: 'working tree clean',
+          itemId: 'cmd-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:01.500Z',
+      ),
+      makeSeqEvent(
+        42,
+        'item/completed',
+        {
+          item: {
+            id: 'cmd-1',
+            type: 'commandExecution',
+            status: 'completed',
+          },
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        '2026-03-20T00:00:01.600Z',
+      ),
+    ]
+
+    const initialProjection = resolveLiveThreadProjectionState({
+      currentState: undefined,
+      events: bufferedEvents,
+      selectedThreadId: 'thread-1',
+      threadDetail: initialSnapshot,
+    })
+
+    expect(initialProjection.detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      aggregatedOutput: 'working tree clean',
+      status: 'completed',
+    })
+
+    const newerSummarySnapshot: ThreadDetail = {
+      ...makeDetail(),
+      updatedAt: '2026-03-20T00:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [],
+        },
+      ],
+    }
+
+    const afterRefresh = resolveLiveThreadProjectionState({
+      currentState: initialProjection,
+      events: bufferedEvents,
+      selectedThreadId: 'thread-1',
+      threadDetail: newerSummarySnapshot,
+    })
+
+    expect(afterRefresh.detail?.turns[0]?.items[0]).toMatchObject({
+      id: 'cmd-1',
+      type: 'commandExecution',
+      aggregatedOutput: 'working tree clean',
+      status: 'completed',
+    })
+    expect(afterRefresh.detail?.clientLiveEventSeq).toBe(42)
   })
 
   it('replays stale file change output deltas when a summary snapshot only has an empty placeholder', () => {

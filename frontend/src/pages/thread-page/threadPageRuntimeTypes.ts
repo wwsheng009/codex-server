@@ -29,7 +29,9 @@ export type UseThreadPageSessionStateInput = {
   isDocumentVisible: boolean
   selectedProcessId?: string
   selectedThreadId?: string
+  threadDetailContentMode?: 'full' | 'summary'
   threadDetail?: ThreadDetail
+  threadDetailTurnLimit?: number
   workspaceId: string
 }
 

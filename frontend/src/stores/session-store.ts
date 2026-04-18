@@ -4,11 +4,16 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { decodeBase64 } from '../components/thread/threadRender'
 import { getCompletedCommandOutputDelta } from '../lib/command-output'
 import { readThreadTokenUsageFromEvent } from '../lib/thread-token-usage'
+import {
+  applyThreadEventToDetail,
+  reconcileLiveThreadDetailSnapshot,
+} from '../pages/threadLiveState'
 import { getSelectedThreadIdForWorkspace } from './session-store-utils'
 import type {
   CommandSession,
   CommandSessionSnapshot,
   ServerEvent,
+  ThreadDetail,
   ThreadTokenUsage,
 } from '../types/api'
 import type {
@@ -16,6 +21,7 @@ import type {
   CommandRuntimeSession,
   CommandOutputBatchUpdate,
   SessionState,
+  ThreadProjectionSnapshotMetadata,
   ThreadActivitySummary,
 } from './session-store-types'
 export type {
@@ -42,6 +48,7 @@ export const useSessionStore = create<SessionState>()(
       selectedThreadIdByWorkspace: {},
       lastEventSeqByWorkspace: {},
       eventsByThread: {},
+      threadProjectionsById: {},
       threadActivityByThread: {},
       workspaceEventsByWorkspace: {},
       activityEventsByWorkspace: {},
@@ -76,6 +83,8 @@ export const useSessionStore = create<SessionState>()(
             [workspaceId]: state,
           },
         })),
+      syncThreadProjectionSnapshot: (detail, metadata) =>
+        set((current) => syncThreadProjectionSnapshot(current, detail, metadata)),
       ingestEvents: (events) =>
         set((current) => applySessionEvents(current, events)),
       hydrateCommandSessions: (workspaceId, sessions) =>
@@ -159,6 +168,7 @@ export const useSessionStore = create<SessionState>()(
 
           const nextThreadActivityByThread = { ...current.threadActivityByThread }
           const nextEventsByThread = { ...current.eventsByThread }
+          const nextThreadProjectionsById = { ...current.threadProjectionsById }
           const nextTokenUsageByThread = { ...current.tokenUsageByThread }
 
           for (const [threadId, summary] of Object.entries(current.threadActivityByThread)) {
@@ -168,11 +178,13 @@ export const useSessionStore = create<SessionState>()(
 
             delete nextThreadActivityByThread[threadId]
             delete nextEventsByThread[threadId]
+            delete nextThreadProjectionsById[threadId]
             delete nextTokenUsageByThread[threadId]
           }
 
           if (removedSelectedThreadId) {
             delete nextEventsByThread[removedSelectedThreadId]
+            delete nextThreadProjectionsById[removedSelectedThreadId]
             delete nextTokenUsageByThread[removedSelectedThreadId]
           }
 
@@ -188,6 +200,7 @@ export const useSessionStore = create<SessionState>()(
             commandSessionsByWorkspace: nextCommandSessionsByWorkspace,
             lastEventSeqByWorkspace: nextLastEventSeqByWorkspace,
             eventsByThread: nextEventsByThread,
+            threadProjectionsById: nextThreadProjectionsById,
             threadActivityByThread: nextThreadActivityByThread,
             tokenUsageByThread: nextTokenUsageByThread,
           }
@@ -202,6 +215,9 @@ export const useSessionStore = create<SessionState>()(
           const nextEventsByThread = { ...current.eventsByThread }
           delete nextEventsByThread[threadId]
 
+          const nextThreadProjectionsById = { ...current.threadProjectionsById }
+          delete nextThreadProjectionsById[threadId]
+
           const nextThreadActivityByThread = { ...current.threadActivityByThread }
           delete nextThreadActivityByThread[threadId]
 
@@ -215,6 +231,7 @@ export const useSessionStore = create<SessionState>()(
                 : current.selectedThreadId,
             selectedThreadIdByWorkspace: nextSelectedThreadIdByWorkspace,
             eventsByThread: nextEventsByThread,
+            threadProjectionsById: nextThreadProjectionsById,
             threadActivityByThread: nextThreadActivityByThread,
             tokenUsageByThread: nextTokenUsageByThread,
           }
@@ -253,8 +270,10 @@ export function applySessionEvents(
   let nextActivityEvents = current.activityEventsByWorkspace
   let nextWorkspaceEvents = current.workspaceEventsByWorkspace
   let nextEventsByThread = current.eventsByThread
+  let nextThreadProjectionsById = current.threadProjectionsById
   let nextLastEventSeqByWorkspace = current.lastEventSeqByWorkspace
   let activityEventsCloned = false
+  let threadProjectionsCloned = false
   let workspaceEventsCloned = false
   let threadEventsCloned = false
   let lastEventSeqCloned = false
@@ -269,6 +288,20 @@ export function applySessionEvents(
       nextCommandSessions,
       pendingCommandOutputEvents,
     )
+    for (const event of pendingCommandOutputEvents) {
+      const nextDetail = applyLiveThreadProjectionEvent(
+        nextThreadProjectionsById[event.threadId ?? ''],
+        event,
+      )
+      if (!nextDetail) {
+        continue
+      }
+      if (!threadProjectionsCloned) {
+        nextThreadProjectionsById = { ...nextThreadProjectionsById }
+        threadProjectionsCloned = true
+      }
+      nextThreadProjectionsById[event.threadId!] = nextDetail
+    }
     pendingCommandOutputEvents = []
   }
 
@@ -292,6 +325,20 @@ export function applySessionEvents(
       flushPendingCommandOutputEvents()
       nextCommandSessions = applyCommandEvent(nextCommandSessions, event)
     }
+
+    const selectedThreadIdForWorkspace = current.selectedThreadIdByWorkspace[event.workspaceId]
+    const projectedDetail = applyLiveThreadProjectionEvent(
+      nextThreadProjectionsById[event.threadId ?? ''],
+      event,
+    )
+    if (projectedDetail && event.threadId) {
+      if (!threadProjectionsCloned) {
+        nextThreadProjectionsById = { ...nextThreadProjectionsById }
+        threadProjectionsCloned = true
+      }
+      nextThreadProjectionsById[event.threadId] = projectedDetail
+    }
+
     nextThreadActivity = applyThreadActivityEvent(nextThreadActivity, event)
     nextTokenUsage = applyTokenUsageEvent(nextTokenUsage, event)
 
@@ -322,7 +369,6 @@ export function applySessionEvents(
       nextEventsByThread = { ...nextEventsByThread }
       threadEventsCloned = true
     }
-    const selectedThreadIdForWorkspace = current.selectedThreadIdByWorkspace[event.workspaceId]
     const eventLimit =
       selectedThreadIdForWorkspace === event.threadId
         ? ACTIVE_THREAD_EVENT_LIMIT
@@ -341,10 +387,75 @@ export function applySessionEvents(
     activityEventsByWorkspace: nextActivityEvents,
     commandSessionsByWorkspace: nextCommandSessions,
     eventsByThread: nextEventsByThread,
+    threadProjectionsById: nextThreadProjectionsById,
     lastEventSeqByWorkspace: nextLastEventSeqByWorkspace,
     threadActivityByThread: nextThreadActivity,
     tokenUsageByThread: nextTokenUsage,
     workspaceEventsByWorkspace: nextWorkspaceEvents,
+  }
+}
+
+function syncThreadProjectionSnapshot(
+  current: SessionState,
+  detail: ThreadDetail | undefined,
+  metadata?: ThreadProjectionSnapshotMetadata,
+) {
+  if (!detail) {
+    return current
+  }
+
+  const currentDetail = current.threadProjectionsById[detail.id]
+  const nextDetail = reconcileLiveThreadDetailSnapshot(currentDetail, detail, metadata)
+  if (!nextDetail || nextDetail === currentDetail) {
+    return current
+  }
+
+  return {
+    threadProjectionsById: {
+      ...current.threadProjectionsById,
+      [detail.id]: nextDetail,
+    },
+  }
+}
+
+function applyLiveThreadProjectionEvent(
+  currentDetail: ThreadDetail | undefined,
+  event: ServerEvent,
+) {
+  if (!event.threadId) {
+    return currentDetail
+  }
+
+  const baseDetail = currentDetail ?? buildLiveThreadProjectionPlaceholder(event)
+  return applyThreadEventToDetail(baseDetail, event) ?? baseDetail
+}
+
+function buildLiveThreadProjectionPlaceholder(event: ServerEvent): ThreadDetail {
+  return {
+    archived: false,
+    createdAt: event.ts,
+    id: event.threadId ?? '',
+    name: '',
+    status: readThreadProjectionPlaceholderStatus(event),
+    turns: [],
+    updatedAt: event.ts,
+    workspaceId: event.workspaceId,
+  }
+}
+
+function readThreadProjectionPlaceholderStatus(event: ServerEvent) {
+  switch (event.method) {
+    case 'turn/started':
+    case 'item/started':
+    case 'item/agentMessage/delta':
+    case 'item/commandExecution/outputDelta':
+    case 'item/fileChange/outputDelta':
+    case 'item/plan/delta':
+    case 'item/reasoning/summaryTextDelta':
+    case 'item/reasoning/textDelta':
+      return 'inProgress'
+    default:
+      return 'idle'
   }
 }
 

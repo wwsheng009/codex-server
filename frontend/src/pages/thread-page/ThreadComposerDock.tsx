@@ -96,6 +96,7 @@ export function ThreadComposerDock({
   isWaitingForThreadData: _isWaitingForThreadData,
   maxWorktrees,
   mcpServerStates,
+  mcpSyncNotice,
   mcpServerStatusLoading,
   message,
   mobileCollaborationModeOptions,
@@ -139,6 +140,7 @@ export function ThreadComposerDock({
   totalTokens,
   workspaceId,
 }: ThreadComposerDockProps) {
+  const [visibleMcpSyncNotice, setVisibleMcpSyncNotice] = useState(mcpSyncNotice ?? null)
   const isAutocompleteOpen =
     isCommandAutocompleteOpen || isMentionAutocompleteOpen || isSkillAutocompleteOpen
   const bangShellCommand = parseBangShellCommandShortcut(message)
@@ -162,6 +164,28 @@ export function ThreadComposerDock({
     ? new Date(activePendingTurn.submittedAt).getTime()
     : processingStartTimeRef.current
   const nextQuotaResetAt = getRateLimitsNextResetAt(rateLimits)
+
+  useEffect(() => {
+    if (!mcpSyncNotice) {
+      return
+    }
+
+    const syncedAt = Date.parse(mcpSyncNotice.ts)
+    if (Number.isFinite(syncedAt) && Date.now() - syncedAt > 15_000) {
+      return
+    }
+
+    setVisibleMcpSyncNotice(mcpSyncNotice)
+    const timeoutId = window.setTimeout(() => {
+      setVisibleMcpSyncNotice((current) =>
+        current?.eventKey === mcpSyncNotice.eventKey ? null : current,
+      )
+    }, 10_000)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [mcpSyncNotice])
 
   useLayoutEffect(() => {
     const textarea = composerInputRef.current
@@ -314,6 +338,23 @@ export function ThreadComposerDock({
           <div className="composer-assist-card__body">
             {activeComposerPanel === 'mcp' ? (
               <>
+                {visibleMcpSyncNotice ? (
+                  <InlineNotice
+                    className="composer-assist-card__notice"
+                    noticeKey={`composer-mcp-sync-${visibleMcpSyncNotice.eventKey}`}
+                    title={i18n._({
+                      id: 'Latest Feishu tools configuration synced',
+                      message: 'Latest Feishu tools configuration synced',
+                    })}
+                    tone="info"
+                  >
+                    {i18n._({
+                      id: 'This thread now reflects the saved Feishu tool visibility settings.',
+                      message:
+                        'This thread now reflects the saved Feishu tool visibility settings.',
+                    })}
+                  </InlineNotice>
+                ) : null}
                 {mcpServerStatusLoading ? (
                   <div className="composer-assist-card__empty">
                     {i18n._({

@@ -1,3 +1,4 @@
+import { useStableCallback } from '../../lib/useStableCallback'
 import { buildComposerAutocompleteSelectionHandlers } from './buildComposerAutocompleteSelectionHandlers'
 import { buildComposerKeyDownHandler } from './buildComposerKeyDownHandler'
 import { buildComposerMessageChangeHandler } from './buildComposerMessageChangeHandler'
@@ -5,7 +6,9 @@ import { buildComposerRetryServerRequestHandler } from './buildComposerRetryServ
 import type { ThreadComposerActionsInput } from './threadComposerActionTypes'
 
 export function useThreadComposerActions(input: ThreadComposerActionsInput) {
-  const handleRetryServerRequest = buildComposerRetryServerRequestHandler(input)
+  const handleRetryServerRequest = useStableCallback(
+    buildComposerRetryServerRequestHandler(input),
+  )
   const { handleSelectComposerAutocompleteItem } =
     buildComposerAutocompleteSelectionHandlers(input)
   const handleComposerKeyDown = buildComposerKeyDownHandler({

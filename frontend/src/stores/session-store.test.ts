@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
-import type { ServerEvent } from '../types/api'
+import { i18n } from '../i18n/runtime'
+import type { ServerEvent, ThreadDetail } from '../types/api'
 import type {
   ApplySessionEventsState,
   CommandRuntimeSession,
@@ -24,6 +25,7 @@ beforeAll(async () => {
     localStorage: localStorageStub,
   })
 
+  i18n.loadAndActivate({ locale: 'en', messages: {} })
   sessionStoreModule = await import('./session-store')
 })
 
@@ -168,6 +170,7 @@ function createState(
       },
     },
     eventsByThread: {},
+    threadProjectionsById: {},
     lastEventSeqByWorkspace: {},
     selectedThreadIdByWorkspace: {},
     threadActivityByThread: {},
@@ -300,6 +303,227 @@ describe('applySessionEvents thread activity status', () => {
       latestStatus: 'completed',
       threadId: 'thread-1',
       workspaceId: 'ws-1',
+    })
+  })
+})
+
+describe('live thread detail projection', () => {
+  it('projects selected-thread realtime command output directly in the session store', () => {
+    const nextState = sessionStoreModule.applySessionEvents(
+      {
+        ...createState(),
+        selectedThreadIdByWorkspace: {
+          'ws-1': 'thread-1',
+        },
+      },
+      [
+        {
+          ...makeEvent(
+            'item/started',
+            {
+              item: {
+                id: 'cmd-1',
+                type: 'commandExecution',
+                command: 'npm test',
+              },
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+            },
+            '2026-03-27T01:00:01.000Z',
+          ),
+          seq: 10,
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+        {
+          ...makeEvent(
+            'item/commandExecution/outputDelta',
+            {
+              delta: 'line 1\n',
+              itemId: 'cmd-1',
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+            },
+            '2026-03-27T01:00:01.500Z',
+          ),
+          seq: 11,
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+        },
+      ],
+    )
+
+    expect(nextState.threadProjectionsById['thread-1']).toMatchObject({
+      clientLiveEventSeq: 11,
+      clientProjectionAppliedSeq: 11,
+      clientProjectionCompleteness: 'live-only',
+      clientProjectionUpdatedAt: '2026-03-27T01:00:01.500Z',
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      turns: [
+        {
+          id: 'turn-1',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\n',
+              status: 'inProgress',
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('materializes a projection for inactive threads before they become selected', () => {
+    const nextState = sessionStoreModule.applySessionEvents(createState(), [
+      {
+        ...makeEvent(
+          'item/started',
+          {
+            item: {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: '',
+            },
+            threadId: 'thread-2',
+            turnId: 'turn-2',
+          },
+          '2026-03-27T01:00:10.000Z',
+        ),
+        seq: 20,
+        threadId: 'thread-2',
+        turnId: 'turn-2',
+      },
+      {
+        ...makeEvent(
+          'item/agentMessage/delta',
+          {
+            delta: 'hello from background thread',
+            itemId: 'msg-1',
+            threadId: 'thread-2',
+            turnId: 'turn-2',
+          },
+          '2026-03-27T01:00:10.500Z',
+        ),
+        seq: 21,
+        threadId: 'thread-2',
+        turnId: 'turn-2',
+      },
+    ])
+
+    expect(nextState.threadProjectionsById['thread-2']).toMatchObject({
+      clientLiveEventSeq: 21,
+      clientProjectionAppliedSeq: 21,
+      clientProjectionCompleteness: 'live-only',
+      id: 'thread-2',
+      status: 'inProgress',
+      turns: [
+        {
+          id: 'turn-2',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              phase: 'streaming',
+              text: 'hello from background thread',
+            },
+          ],
+        },
+      ],
+      workspaceId: 'ws-1',
+    })
+  })
+
+  it('keeps projected realtime items when a summary snapshot arrives without them', () => {
+    const currentDetail: ThreadDetail = {
+      archived: false,
+      createdAt: '2026-03-27T01:00:00.000Z',
+      id: 'thread-1',
+      name: 'Thread 1',
+      status: 'inProgress',
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm test',
+              aggregatedOutput: 'line 1\nline 2\n',
+              status: 'completed',
+              clientLiveOutputHydrated: true,
+            },
+          ],
+        },
+      ],
+      updatedAt: '2026-03-27T01:00:02.000Z',
+      workspaceId: 'ws-1',
+      clientLiveEventSeq: 12,
+      clientProjectionAppliedSeq: 12,
+      clientProjectionCompleteness: 'live-only',
+      clientProjectionUpdatedAt: '2026-03-27T01:00:02.000Z',
+    }
+
+    sessionStoreModule.useSessionStore.setState((state) => ({
+      ...state,
+      threadProjectionsById: {
+        ...state.threadProjectionsById,
+        'thread-1': currentDetail,
+      },
+    }))
+
+    sessionStoreModule.useSessionStore
+      .getState()
+      .syncThreadProjectionSnapshot(
+        {
+          archived: false,
+          createdAt: '2026-03-27T01:00:00.000Z',
+          id: 'thread-1',
+          name: 'Thread 1',
+          status: 'completed',
+          turns: [
+            {
+              id: 'turn-1',
+              status: 'completed',
+              items: [],
+            },
+          ],
+          updatedAt: '2026-03-27T01:00:03.000Z',
+          workspaceId: 'ws-1',
+        },
+        {
+          contentMode: 'summary',
+          turnLimit: 40,
+        },
+      )
+
+    expect(
+      sessionStoreModule.useSessionStore.getState().threadProjectionsById['thread-1'],
+    ).toMatchObject({
+      clientLiveEventSeq: 12,
+      clientProjectionAppliedSeq: 12,
+      clientProjectionCompleteness: 'summary',
+      clientProjectionUpdatedAt: '2026-03-27T01:00:02.000Z',
+      clientSnapshotContentMode: 'summary',
+      clientSnapshotTurnLimit: 40,
+      clientSnapshotUpdatedAt: '2026-03-27T01:00:03.000Z',
+      turns: [
+        {
+          id: 'turn-1',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              aggregatedOutput: 'line 1\nline 2\n',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
     })
   })
 })

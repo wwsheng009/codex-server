@@ -30,7 +30,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       dataState: {
         approvalsQuery: { data: [], dataUpdatedAt: 0, isFetching: false },
         commandSessions: [],
-        liveThreadDetail: undefined,
+        threadProjection: undefined,
         resolvedSelectedThreadId: 'thread-1',
         selectedThread: undefined,
         threadDetailQuery: { error: null, isLoading: false },
@@ -91,7 +91,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       dataState: {
         approvalsQuery: { data: [], dataUpdatedAt: 0, isFetching: false },
         commandSessions: [],
-        liveThreadDetail: undefined,
+        threadProjection: undefined,
         resolvedSelectedThreadId: 'thread-1',
         selectedThread: undefined,
         threadDetailQuery: { error: null, isLoading: false },
@@ -157,7 +157,7 @@ describe('buildThreadPageControllerSurfaceStateLayoutInput', () => {
       dataState: {
         approvalsQuery: { data: [], dataUpdatedAt: 0, isFetching: false },
         commandSessions: [],
-        liveThreadDetail: undefined,
+        threadProjection: undefined,
         resolvedSelectedThreadId: 'thread-1',
         selectedThread: undefined,
         threadDetailQuery: { error: null, isLoading: false },

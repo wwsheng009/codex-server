@@ -1,3 +1,4 @@
+import { resolveFeishuToolsSyncNoticeEvent } from '../threadPageUtils'
 import type { BuildThreadPageControllerLayoutPropsInput } from './threadPageControllerLayoutTypes'
 
 export function buildThreadPageControllerComposerStateLayoutInput({
@@ -45,6 +46,7 @@ export function buildThreadPageControllerComposerStateLayoutInput({
     isSkillAutocompleteOpen: controllerState.isSkillAutocompleteOpen,
     maxWorktrees: controllerState.maxWorktrees,
     mcpServerStates: panelState.mcpServerStates,
+    mcpSyncNotice: resolveFeishuToolsSyncNoticeEvent(dataState.workspaceActivityEvents),
     mcpServerStatusLoading: dataState.mcpServerStatusQuery.isLoading,
     message: controllerState.message,
     mobileCollaborationModeOptions: panelState.mobileCollaborationModeOptions,

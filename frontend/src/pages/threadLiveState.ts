@@ -13,8 +13,17 @@ import {
   turnPlanItemId,
 } from '../lib/turn-plan'
 import { readThreadTokenUsageFromEvent } from '../lib/thread-token-usage'
-import type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
-export type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
+import type { ThreadProjectionSnapshotMetadata } from '../stores/session-store-types'
+import type {
+  LiveThreadProjectionState,
+  ResolveLiveThreadDetailInput,
+  ResolveLiveThreadProjectionStateInput,
+} from './threadLiveStateTypes'
+export type {
+  LiveThreadProjectionState,
+  ResolveLiveThreadDetailInput,
+  ResolveLiveThreadProjectionStateInput,
+} from './threadLiveStateTypes'
 
 const THREAD_GOVERNANCE_TURN_ID = 'thread-governance'
 
@@ -25,6 +34,80 @@ export function resolveLiveThreadDetail({
 }: ResolveLiveThreadDetailInput) {
   const baseDetail = selectLiveThreadDetailBase(currentLiveDetail, threadDetail)
   return applyLiveThreadEvents(baseDetail, events)
+}
+
+export function reconcileLiveThreadDetailSnapshot(
+  currentLiveDetail: ThreadDetail | undefined,
+  threadDetail: ThreadDetail | undefined,
+  snapshotMetadata?: ThreadProjectionSnapshotMetadata,
+) {
+  return selectLiveThreadDetailBase(currentLiveDetail, threadDetail, snapshotMetadata)
+}
+
+export function reconcileThreadProjectionSnapshot(
+  currentProjection: ThreadDetail | undefined,
+  snapshotDetail: ThreadDetail | undefined,
+  snapshotMetadata?: ThreadProjectionSnapshotMetadata,
+) {
+  return reconcileLiveThreadDetailSnapshot(currentProjection, snapshotDetail, snapshotMetadata)
+}
+
+export function applyThreadProjectionEvent(
+  projection: ThreadDetail | undefined,
+  event: ServerEvent,
+) {
+  return applyThreadEventToDetail(projection, event)
+}
+
+export function resolveLiveThreadProjectionState({
+  currentState,
+  events,
+  selectedThreadId,
+  threadDetail,
+}: ResolveLiveThreadProjectionStateInput): LiveThreadProjectionState {
+  const targetThreadId = resolveLiveThreadProjectionThreadId(
+    currentState,
+    selectedThreadId,
+    threadDetail,
+    events,
+  )
+
+  if (shouldRebuildLiveThreadProjectionState(currentState, targetThreadId, threadDetail)) {
+    return createLiveThreadProjectionState({
+      events,
+      selectedThreadId: targetThreadId,
+      threadDetail,
+    })
+  }
+
+  if (!currentState) {
+    return createLiveThreadProjectionState({
+      events,
+      selectedThreadId: targetThreadId,
+      threadDetail,
+    })
+  }
+
+  const baseDetail = selectLiveThreadDetailBase(currentState.detail, threadDetail)
+  const nextEvents = sliceUnappliedLiveThreadEvents(events, currentState)
+  const nextDetail =
+    nextEvents.length > 0 ? applyThreadEventsToDetail(baseDetail, nextEvents) : baseDetail
+  const nextLastEventKey =
+    nextEvents.length > 0 ? readLastLiveThreadEventKey(nextEvents) : currentState.lastEventKey
+
+  if (
+    nextDetail === currentState.detail &&
+    nextLastEventKey === currentState.lastEventKey &&
+    targetThreadId === currentState.selectedThreadId
+  ) {
+    return currentState
+  }
+
+  return {
+    detail: nextDetail,
+    lastEventKey: nextLastEventKey,
+    selectedThreadId: targetThreadId,
+  }
 }
 
 export function applyLiveThreadEvents(
@@ -57,6 +140,39 @@ export function applyLiveThreadEvents(
         acceptedEvents.push(event)
         nextDetail = applyThreadEventToDetail(nextDetail, event)
         baselineSeq = readLiveThreadEventSeq(nextDetail)
+        continue
+      }
+
+      const replayDecision =
+        nextDetail ?
+          shouldReplayFilteredBaselineEvent(
+            nextDetail,
+            event,
+            replayState,
+          )
+        : null
+
+      if (nextDetail && replayDecision) {
+        recoveredEvents.push(event)
+        recordConversationLiveDiagnosticEvent({
+          itemId: replayDecision.itemId ?? null,
+          itemType: replayDecision.itemType ?? null,
+          kind: 'baseline-replayed',
+          metadata: {
+            baselineEventSeq: baselineSeq,
+            baselineUpdatedAt: detail.updatedAt,
+            eventSeq,
+            eventTs: event.ts,
+            ...(replayDecision.metadata ?? {}),
+          },
+          method: event.method,
+          reason: replayDecision.reason,
+          serverRequestId: event.serverRequestId ?? null,
+          source: 'thread-live',
+          threadId: detail.id,
+          turnId: replayDecision.turnId ?? event.turnId ?? null,
+        })
+        nextDetail = applyThreadEventToDetailPreservingUpdatedAt(nextDetail, event)
         continue
       }
 
@@ -167,6 +283,99 @@ export function applyLiveThreadEvents(
   })
 
   return nextDetail
+}
+
+function createLiveThreadProjectionState({
+  events,
+  selectedThreadId,
+  threadDetail,
+}: Omit<ResolveLiveThreadProjectionStateInput, 'currentState'>): LiveThreadProjectionState {
+  const detail = resolveLiveThreadDetail({
+    currentLiveDetail: undefined,
+    events,
+    threadDetail,
+  })
+
+  return {
+    detail,
+    lastEventKey: detail ? readLastLiveThreadEventKey(events) : '',
+    selectedThreadId,
+  }
+}
+
+function resolveLiveThreadProjectionThreadId(
+  currentState: LiveThreadProjectionState | undefined,
+  selectedThreadId: string | undefined,
+  threadDetail: ThreadDetail | undefined,
+  events: ServerEvent[],
+) {
+  if (selectedThreadId) {
+    return selectedThreadId
+  }
+
+  if (threadDetail?.id) {
+    return threadDetail.id
+  }
+
+  if (currentState?.selectedThreadId) {
+    return currentState.selectedThreadId
+  }
+
+  if (currentState?.detail?.id) {
+    return currentState.detail.id
+  }
+
+  return events[events.length - 1]?.threadId
+}
+
+function shouldRebuildLiveThreadProjectionState(
+  currentState: LiveThreadProjectionState | undefined,
+  targetThreadId: string | undefined,
+  threadDetail: ThreadDetail | undefined,
+) {
+  if (!currentState) {
+    return true
+  }
+
+  if (currentState.selectedThreadId !== targetThreadId) {
+    return true
+  }
+
+  if (!currentState.detail) {
+    return Boolean(threadDetail)
+  }
+
+  if (threadDetail && currentState.detail.id !== threadDetail.id) {
+    return true
+  }
+
+  return Boolean(targetThreadId) && currentState.detail.id !== targetThreadId
+}
+
+function sliceUnappliedLiveThreadEvents(
+  events: ServerEvent[],
+  currentState: LiveThreadProjectionState,
+) {
+  if (!events.length) {
+    return []
+  }
+
+  if (currentState.lastEventKey) {
+    const lastEventIndex = findLastBufferedLiveThreadEventIndex(events, currentState.lastEventKey)
+    if (lastEventIndex >= 0) {
+      return events.slice(lastEventIndex + 1)
+    }
+  }
+
+  const currentSeq = readLiveThreadEventSeq(currentState.detail)
+  if (currentSeq !== null) {
+    return events.filter((event) => {
+      const eventSeq = readServerEventSeq(event)
+      return eventSeq !== null && eventSeq > currentSeq
+    })
+  }
+
+  return events
 }
 
 export function applyThreadEventsToDetail(
@@ -529,9 +738,9 @@ export function applyThreadEventToDetail(
     })
   }
 
-  return withLiveThreadEventSeq(
+  return withProjectionEventMetadata(
     preserveThreadDetailUpdatedAt(detail, nextDetail),
-    event.seq,
+    event,
   )
 }
 
@@ -927,6 +1136,7 @@ type FilteredEventReplayState = {
   agentMessageItemKeys: Set<string>
   commandExecutionItemKeys: Set<string>
   fileChangeItemKeys: Set<string>
+  hookRunItemKeys: Set<string>
   planItemKeys: Set<string>
   reasoningItemKeys: Set<string>
 }
@@ -944,6 +1154,7 @@ function createFilteredEventReplayState(): FilteredEventReplayState {
     agentMessageItemKeys: new Set<string>(),
     commandExecutionItemKeys: new Set<string>(),
     fileChangeItemKeys: new Set<string>(),
+    hookRunItemKeys: new Set<string>(),
     planItemKeys: new Set<string>(),
     reasoningItemKeys: new Set<string>(),
   }
@@ -1003,6 +1214,24 @@ function shouldReplayFilteredBaselineEvent(
 
       return null
     }
+    case 'hook/started':
+    case 'hook/completed': {
+      const run = asObject(payload.run)
+      const runId = stringField(run.id)
+      const turnId = hookRunTurnId(run, event)
+      if (!turnId || !runId) {
+        return null
+      }
+
+      const itemId = hookRunItemId(runId)
+      return shouldReplayHookRunItem(
+        turnId,
+        itemId,
+        findTurnItem(detail, turnId, itemId),
+        run,
+        replayState,
+      )
+    }
     case 'item/started':
     case 'item/completed': {
       const item = asObject(payload.item)
@@ -1013,36 +1242,36 @@ function shouldReplayFilteredBaselineEvent(
       }
 
       const currentItem = findTurnItem(detail, turnId, itemId)
-        switch (stringField(item.type)) {
-          case 'agentMessage':
-            return shouldReplayAgentMessageItem(
-              turnId,
-              itemId,
+      switch (stringField(item.type)) {
+        case 'agentMessage':
+          return shouldReplayAgentMessageItem(
+            turnId,
+            itemId,
             currentItem,
             item,
             replayState,
           )
-          case 'commandExecution':
-            return shouldReplayCommandExecutionItem(
-              turnId,
-              itemId,
-              currentItem,
-              item,
-              replayState,
-            )
-          case 'fileChange':
-            return shouldReplayFileChangeItem(
-              turnId,
-              itemId,
-              currentItem,
-              item,
-              replayState,
-            )
-          case 'plan':
-            return shouldReplayPlanItem(
-              turnId,
-              itemId,
-              currentItem,
+        case 'commandExecution':
+          return shouldReplayCommandExecutionItem(
+            turnId,
+            itemId,
+            currentItem,
+            item,
+            replayState,
+          )
+        case 'fileChange':
+          return shouldReplayFileChangeItem(
+            turnId,
+            itemId,
+            currentItem,
+            item,
+            replayState,
+          )
+        case 'plan':
+          return shouldReplayPlanItem(
+            turnId,
+            itemId,
+            currentItem,
             item,
             replayState,
           )
@@ -1080,11 +1309,11 @@ function shouldReplayFilteredBaselineEvent(
         replayState,
       )
     }
-      case 'item/commandExecution/outputDelta': {
-        const turnId = stringField(payload.turnId) || event.turnId
-        const itemId = stringField(payload.itemId)
-        if (!turnId || !itemId) {
-          return null
+    case 'item/commandExecution/outputDelta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      if (!turnId || !itemId) {
+        return null
       }
 
       return shouldReplayCommandExecutionItem(
@@ -1092,29 +1321,29 @@ function shouldReplayFilteredBaselineEvent(
         itemId,
         findTurnItem(detail, turnId, itemId),
         undefined,
-          replayState,
-        )
+        replayState,
+      )
+    }
+    case 'item/fileChange/outputDelta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      if (!turnId || !itemId) {
+        return null
       }
-      case 'item/fileChange/outputDelta': {
-        const turnId = stringField(payload.turnId) || event.turnId
-        const itemId = stringField(payload.itemId)
-        if (!turnId || !itemId) {
-          return null
-        }
 
-        return shouldReplayFileChangeItem(
-          turnId,
-          itemId,
-          findTurnItem(detail, turnId, itemId),
-          undefined,
-          replayState,
-        )
-      }
-      case 'item/plan/delta': {
-        const turnId = stringField(payload.turnId) || event.turnId
-        const itemId = stringField(payload.itemId)
-        if (!turnId || !itemId) {
-          return null
+      return shouldReplayFileChangeItem(
+        turnId,
+        itemId,
+        findTurnItem(detail, turnId, itemId),
+        undefined,
+        replayState,
+      )
+    }
+    case 'item/plan/delta': {
+      const turnId = stringField(payload.turnId) || event.turnId
+      const itemId = stringField(payload.itemId)
+      if (!turnId || !itemId) {
+        return null
       }
 
       return shouldReplayPlanItem(
@@ -1158,36 +1387,44 @@ function shouldReplayIncomingTurnItem(
   }
 
   const currentItem = currentItems.find((item) => stringField(item.id) === itemId)
-    switch (stringField(incomingItem.type)) {
-      case 'agentMessage':
-        return shouldReplayAgentMessageItem(
-          turnId,
-          itemId,
+  switch (stringField(incomingItem.type)) {
+    case 'agentMessage':
+      return shouldReplayAgentMessageItem(
+        turnId,
+        itemId,
         currentItem,
         incomingItem,
         replayState,
       )
-      case 'commandExecution':
-        return shouldReplayCommandExecutionItem(
-          turnId,
-          itemId,
-          currentItem,
-          incomingItem,
-          replayState,
-        )
-      case 'fileChange':
-        return shouldReplayFileChangeItem(
-          turnId,
-          itemId,
-          currentItem,
-          incomingItem,
-          replayState,
-        )
-      case 'plan':
-        return shouldReplayPlanItem(
-          turnId,
-          itemId,
-          currentItem,
+    case 'commandExecution':
+      return shouldReplayCommandExecutionItem(
+        turnId,
+        itemId,
+        currentItem,
+        incomingItem,
+        replayState,
+      )
+    case 'fileChange':
+      return shouldReplayFileChangeItem(
+        turnId,
+        itemId,
+        currentItem,
+        incomingItem,
+        replayState,
+      )
+    case 'hookRun':
+      return shouldReplayHookRunItem(
+        turnId,
+        itemId,
+        currentItem,
+        incomingItem,
+        replayState,
+      )
+    case 'plan':
+      return shouldReplayPlanItem(
+        turnId,
+        itemId,
+        currentItem,
         incomingItem,
         replayState,
       )
@@ -1398,6 +1635,61 @@ function shouldReplayFileChangeItem(
   return null
 }
 
+function shouldReplayHookRunItem(
+  turnId: string,
+  itemId: string,
+  currentItem: Record<string, unknown> | undefined,
+  incomingItem: Record<string, unknown> | undefined,
+  replayState: FilteredEventReplayState,
+): FilteredBaselineReplayDecision | null {
+  const itemKey = buildLiveItemLookupKey(turnId, itemId)
+  if (replayState.hookRunItemKeys.has(itemKey)) {
+    return {
+      itemId,
+      itemType: 'hookRun',
+      reason: 'older event replayed: continuing recovered hook run',
+      turnId,
+    }
+  }
+
+  const currentMessage = currentItem ? hookRunMessage(currentItem) : ''
+  const incomingMessage = incomingItem ? hookRunMessage(incomingItem) : ''
+  const currentStatus = stringField(currentItem?.status)
+  const incomingStatus = stringField(incomingItem?.status)
+  const currentDecision = stringField(currentItem?.decision)
+  const incomingDecision = stringField(incomingItem?.decision)
+  const currentReason = stringField(currentItem?.reason)
+  const incomingReason = stringField(incomingItem?.reason)
+  let reason: string | null = null
+  if (!currentItem) {
+    reason = 'older event replayed: missing hook run item'
+  } else if (incomingMessage.length > currentMessage.length) {
+    reason = 'older event replayed: longer hook run message'
+  } else if (!currentStatus && Boolean(incomingStatus)) {
+    reason = 'older event replayed: missing hook run status'
+  } else if (!currentDecision && Boolean(incomingDecision)) {
+    reason = 'older event replayed: missing hook run decision'
+  } else if (!currentReason && Boolean(incomingReason)) {
+    reason = 'older event replayed: missing hook run reason'
+  }
+
+  if (reason) {
+    replayState.hookRunItemKeys.add(itemKey)
+    return {
+      itemId,
+      itemType: 'hookRun',
+      metadata: {
+        currentLength: currentMessage.length,
+        incomingLength: incomingMessage.length,
+      },
+      reason,
+      turnId,
+    }
+  }
+
+  return null
+}
+
 function shouldReplayPlanItem(
   turnId: string,
   itemId: string,
@@ -1521,6 +1813,16 @@ function summarizeLiveDiagnosticTarget(event: ServerEvent) {
         itemId: stringField(item.id) || null,
         itemType: stringField(item.type) || null,
         turnId: stringField(payload.turnId) || event.turnId || null,
+      }
+    }
+    case 'hook/started':
+    case 'hook/completed': {
+      const run = asObject(payload.run)
+      const runId = stringField(run.id)
+      return {
+        itemId: runId ? hookRunItemId(runId) : null,
+        itemType: 'hookRun',
+        turnId: hookRunTurnId(run, event) || null,
       }
     }
     case 'item/agentMessage/delta':
@@ -1658,9 +1960,56 @@ function readServerEventSeq(event: ServerEvent) {
   return typeof event.seq === 'number' && Number.isFinite(event.seq) ? event.seq : null
 }
 
+function readLastLiveThreadEventKey(events: ServerEvent[]) {
+  if (events.length === 0) {
+    return ''
+  }
+
+  return buildLiveThreadEventKey(events[events.length - 1])
+}
+
+function findLastBufferedLiveThreadEventIndex(events: ServerEvent[], eventKey: string) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (buildLiveThreadEventKey(events[index]) === eventKey) {
+      return index
+    }
+  }
+
+  return -1
+}
+
+function buildLiveThreadEventKey(event: ServerEvent) {
+  const eventSeq = readServerEventSeq(event)
+  if (eventSeq !== null) {
+    return `seq:${eventSeq}`
+  }
+
+  const payload = asObject(event.payload)
+  const item = asObject(payload.item)
+  const run = asObject(payload.run)
+
+  return [
+    event.workspaceId,
+    event.threadId ?? '',
+    stringField(payload.turnId) || event.turnId || '',
+    event.method,
+    event.ts,
+    event.serverRequestId ?? '',
+    stringField(payload.itemId) || stringField(item.id) || stringField(run.id),
+    stringField(payload.delta).length,
+  ].join('|')
+}
+
 function readLiveThreadEventSeq(detail: ThreadDetail | undefined) {
   if (!detail) {
     return null
+  }
+
+  if (
+    typeof detail.clientProjectionAppliedSeq === 'number' &&
+    Number.isFinite(detail.clientProjectionAppliedSeq)
+  ) {
+    return detail.clientProjectionAppliedSeq
   }
 
   return typeof detail.clientLiveEventSeq === 'number' && Number.isFinite(detail.clientLiveEventSeq)
@@ -1684,6 +2033,7 @@ function withLiveThreadEventSeq(
   return {
     ...detail,
     clientLiveEventSeq: eventSeq,
+    clientProjectionAppliedSeq: eventSeq,
   }
 }
 
@@ -1692,15 +2042,18 @@ function preserveLiveThreadEventSeq(
   currentLiveDetail: ThreadDetail | undefined,
 ) {
   const currentSeq = readLiveThreadEventSeq(currentLiveDetail)
-  return currentSeq === null ? detail : withLiveThreadEventSeq(detail, currentSeq)
+  const nextDetail =
+    currentSeq === null ? detail : (withLiveThreadEventSeq(detail, currentSeq) ?? detail)
+  return preserveProjectionSnapshotMetadata(nextDetail, currentLiveDetail)
 }
 
 function selectLiveThreadDetailBase(
   currentLiveDetail: ThreadDetail | undefined,
   threadDetail: ThreadDetail | undefined,
+  snapshotMetadata?: ThreadProjectionSnapshotMetadata,
 ) {
   if (!currentLiveDetail) {
-    return threadDetail
+    return annotateProjectionSnapshot(threadDetail, snapshotMetadata)
   }
 
   if (!threadDetail) {
@@ -1708,28 +2061,228 @@ function selectLiveThreadDetailBase(
   }
 
   if (currentLiveDetail.id !== threadDetail.id) {
-    return threadDetail
+    return annotateProjectionSnapshot(threadDetail, snapshotMetadata)
   }
 
   const currentMs = parseTimestamp(currentLiveDetail.updatedAt)
   const snapshotMs = parseTimestamp(threadDetail.updatedAt)
   if (currentMs === null) {
-    return preserveLiveThreadEventSeq(threadDetail, currentLiveDetail)
+    const annotatedSnapshot = annotateProjectionSnapshot(threadDetail, snapshotMetadata)
+    if (!annotatedSnapshot) {
+      return currentLiveDetail
+    }
+    return preserveLiveThreadEventSeq(
+      annotatedSnapshot,
+      currentLiveDetail,
+    )
   }
 
   if (snapshotMs === null) {
-    return preserveLiveThreadEventSeq(currentLiveDetail, threadDetail)
+    return mergeProjectionSnapshotMetadata(currentLiveDetail, threadDetail, snapshotMetadata)
   }
 
   return snapshotMs >= currentMs
-    ? preserveLiveThreadEventSeq(
-        reconcileStreamingSnapshotWithCurrentLiveDetail(
-          threadDetail,
-          currentLiveDetail,
-        ),
-        currentLiveDetail,
-      )
-    : preserveLiveThreadEventSeq(currentLiveDetail, threadDetail)
+    ? (() => {
+        const annotatedSnapshot = annotateProjectionSnapshot(
+          reconcileStreamingSnapshotWithCurrentLiveDetail(
+            threadDetail,
+            currentLiveDetail,
+          ),
+          snapshotMetadata,
+        )
+        return annotatedSnapshot
+          ? preserveLiveThreadEventSeq(annotatedSnapshot, currentLiveDetail)
+          : currentLiveDetail
+      })()
+    : mergeProjectionSnapshotMetadata(currentLiveDetail, threadDetail, snapshotMetadata)
+}
+
+function withProjectionEventMetadata(
+  detail: ThreadDetail | undefined,
+  event: ServerEvent,
+) {
+  if (!detail) {
+    return detail
+  }
+
+  const detailWithSeq = withLiveThreadEventSeq(detail, event.seq) ?? detail
+  const nextCompleteness = ensureProjectionCompleteness(
+    detailWithSeq.clientProjectionCompleteness,
+    'live-only',
+  )
+  const appliedSeq = readLiveThreadEventSeq(detailWithSeq)
+
+  if (
+    detailWithSeq.clientProjectionCompleteness === nextCompleteness &&
+    detailWithSeq.clientProjectionUpdatedAt === event.ts &&
+    detailWithSeq.clientProjectionAppliedSeq === appliedSeq
+  ) {
+    return detailWithSeq
+  }
+
+  return {
+    ...detailWithSeq,
+    clientProjectionAppliedSeq: appliedSeq ?? detailWithSeq.clientProjectionAppliedSeq,
+    clientProjectionCompleteness: nextCompleteness,
+    clientProjectionUpdatedAt: event.ts,
+  }
+}
+
+function annotateProjectionSnapshot(
+  detail: ThreadDetail | undefined,
+  snapshotMetadata?: ThreadProjectionSnapshotMetadata,
+) {
+  if (!detail) {
+    return detail
+  }
+
+  const nextCompleteness = resolveProjectionSnapshotCompleteness(detail, snapshotMetadata)
+  if (
+    detail.clientProjectionCompleteness === nextCompleteness &&
+    detail.clientSnapshotContentMode === snapshotMetadata?.contentMode &&
+    detail.clientSnapshotTurnLimit === snapshotMetadata?.turnLimit &&
+    detail.clientSnapshotUpdatedAt === detail.updatedAt
+  ) {
+    return detail
+  }
+
+  return {
+    ...detail,
+    clientProjectionCompleteness: nextCompleteness,
+    clientSnapshotContentMode: snapshotMetadata?.contentMode,
+    clientSnapshotTurnLimit: snapshotMetadata?.turnLimit,
+    clientSnapshotUpdatedAt: detail.updatedAt,
+  }
+}
+
+function mergeProjectionSnapshotMetadata(
+  detail: ThreadDetail,
+  snapshotDetail: ThreadDetail,
+  snapshotMetadata?: ThreadProjectionSnapshotMetadata,
+) {
+  const annotatedSnapshot = annotateProjectionSnapshot(snapshotDetail, snapshotMetadata)
+  if (!annotatedSnapshot) {
+    return detail
+  }
+
+  const nextCompleteness = mergeProjectionCompleteness(
+    detail.clientProjectionCompleteness,
+    annotatedSnapshot.clientProjectionCompleteness,
+  )
+  const shouldUpdateSnapshotMetadata =
+    annotatedSnapshot.clientSnapshotUpdatedAt !== detail.clientSnapshotUpdatedAt ||
+    annotatedSnapshot.clientSnapshotContentMode !== detail.clientSnapshotContentMode ||
+    annotatedSnapshot.clientSnapshotTurnLimit !== detail.clientSnapshotTurnLimit ||
+    nextCompleteness !== detail.clientProjectionCompleteness
+
+  if (!shouldUpdateSnapshotMetadata) {
+    return detail
+  }
+
+  return {
+    ...detail,
+    clientProjectionCompleteness: nextCompleteness,
+    clientSnapshotContentMode: annotatedSnapshot.clientSnapshotContentMode,
+    clientSnapshotTurnLimit: annotatedSnapshot.clientSnapshotTurnLimit,
+    clientSnapshotUpdatedAt: annotatedSnapshot.clientSnapshotUpdatedAt,
+  }
+}
+
+function preserveProjectionSnapshotMetadata(
+  detail: ThreadDetail,
+  currentLiveDetail: ThreadDetail | undefined,
+) {
+  if (!currentLiveDetail) {
+    return detail
+  }
+
+  const nextCompleteness = mergeProjectionCompleteness(
+    detail.clientProjectionCompleteness,
+    currentLiveDetail.clientProjectionCompleteness,
+  )
+  const hasCurrentSnapshotMetadata =
+    typeof currentLiveDetail.clientSnapshotUpdatedAt === 'string' ||
+    typeof currentLiveDetail.clientSnapshotContentMode === 'string' ||
+    typeof currentLiveDetail.clientSnapshotTurnLimit === 'number'
+  const shouldUpdateSnapshotMetadata =
+    currentLiveDetail.clientProjectionUpdatedAt !== detail.clientProjectionUpdatedAt ||
+    nextCompleteness !== detail.clientProjectionCompleteness ||
+    (hasCurrentSnapshotMetadata &&
+      (currentLiveDetail.clientSnapshotUpdatedAt !== detail.clientSnapshotUpdatedAt ||
+        currentLiveDetail.clientSnapshotContentMode !== detail.clientSnapshotContentMode ||
+        currentLiveDetail.clientSnapshotTurnLimit !== detail.clientSnapshotTurnLimit))
+
+  if (!shouldUpdateSnapshotMetadata) {
+    return detail
+  }
+
+  return {
+    ...detail,
+    clientProjectionCompleteness: nextCompleteness,
+    clientProjectionUpdatedAt:
+      currentLiveDetail.clientProjectionUpdatedAt ?? detail.clientProjectionUpdatedAt,
+    clientSnapshotContentMode: hasCurrentSnapshotMetadata
+      ? currentLiveDetail.clientSnapshotContentMode
+      : detail.clientSnapshotContentMode,
+    clientSnapshotTurnLimit: hasCurrentSnapshotMetadata
+      ? currentLiveDetail.clientSnapshotTurnLimit
+      : detail.clientSnapshotTurnLimit,
+    clientSnapshotUpdatedAt: hasCurrentSnapshotMetadata
+      ? currentLiveDetail.clientSnapshotUpdatedAt
+      : detail.clientSnapshotUpdatedAt,
+  }
+}
+
+function mergeProjectionCompleteness(
+  currentValue: string | undefined,
+  incomingValue: string | undefined,
+) {
+  return projectionCompletenessRank(incomingValue) > projectionCompletenessRank(currentValue)
+    ? incomingValue
+    : currentValue
+}
+
+function ensureProjectionCompleteness(
+  currentValue: string | undefined,
+  incomingValue: string,
+) {
+  return mergeProjectionCompleteness(currentValue, incomingValue) ?? incomingValue
+}
+
+function projectionCompletenessRank(value: string | undefined) {
+  switch (value) {
+    case 'complete':
+      return 4
+    case 'windowed':
+      return 3
+    case 'summary':
+      return 2
+    case 'live-only':
+      return 1
+    default:
+      return 0
+  }
+}
+
+function resolveProjectionSnapshotCompleteness(
+  detail: ThreadDetail,
+  snapshotMetadata?: ThreadProjectionSnapshotMetadata,
+) {
+  const visibleTurnCount = detail.turns.length
+  const totalTurnCount =
+    typeof detail.turnCount === 'number' && Number.isFinite(detail.turnCount)
+      ? detail.turnCount
+      : visibleTurnCount
+
+  if (detail.hasMoreTurns || totalTurnCount > visibleTurnCount) {
+    return 'windowed'
+  }
+
+  if (snapshotMetadata?.contentMode === 'summary') {
+    return 'summary'
+  }
+
+  return 'complete'
 }
 
 function reconcileStreamingSnapshotWithCurrentLiveDetail(
@@ -1751,7 +2304,6 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
     }
 
     let turnChanged = false
-    let lastMatchedCurrentItemIndex = -1
     const items = snapshotTurn.items.map((snapshotItem) => {
       const snapshotItemId = stringField(snapshotItem.id)
       if (!snapshotItemId) {
@@ -1762,20 +2314,7 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
         (item) => stringField(item.id) === snapshotItemId,
       )
       if (!currentItem) {
-        const currentItemIndex = currentTurn.items.findIndex(
-          (item) => stringField(item.id) === snapshotItemId,
-        )
-        if (currentItemIndex > lastMatchedCurrentItemIndex) {
-          lastMatchedCurrentItemIndex = currentItemIndex
-        }
         return snapshotItem
-      }
-
-      const currentItemIndex = currentTurn.items.findIndex(
-        (item) => stringField(item.id) === snapshotItemId,
-      )
-      if (currentItemIndex > lastMatchedCurrentItemIndex) {
-        lastMatchedCurrentItemIndex = currentItemIndex
       }
 
       const reconcileState = buildSnapshotPreservationState(
@@ -1824,11 +2363,7 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
       return reconciledItem
     })
 
-    const trailingLiveItems = currentTurn.items.filter((currentItem, currentItemIndex) => {
-      if (currentItemIndex <= lastMatchedCurrentItemIndex) {
-        return false
-      }
-
+    const missingLiveItems = currentTurn.items.filter((currentItem) => {
       const currentItemId = stringField(currentItem.id)
       if (!currentItemId) {
         return false
@@ -1844,30 +2379,52 @@ function reconcileStreamingSnapshotWithCurrentLiveDetail(
       return shouldPreserveMissingTrailingLiveItem(currentItem)
     })
 
-    if (trailingLiveItems.length > 0) {
+    if (missingLiveItems.length > 0) {
       turnChanged = true
-      for (const trailingItem of trailingLiveItems) {
+      for (const missingItem of missingLiveItems) {
         recordConversationLiveDiagnosticEvent({
-          itemId: stringField(trailingItem.id) || null,
-          itemType: stringField(trailingItem.type) || null,
+          itemId: stringField(missingItem.id) || null,
+          itemType: stringField(missingItem.type) || null,
           kind: 'snapshot-trailing-item-preserved',
           metadata: {
-            currentLength: stringField(trailingItem.text).length,
+            currentLength: preservedLiveItemLength(missingItem),
             currentUpdatedAt: currentLiveDetail.updatedAt,
             snapshotUpdatedAt: threadDetail.updatedAt,
           },
-          reason: 'preserved trailing live item missing from snapshot',
+          reason: 'preserved current live item missing from snapshot',
           source: 'thread-live',
           threadId: threadDetail.id,
           turnId: snapshotTurn.id,
         })
       }
-      frontendDebugLog('thread-live', 'preserved trailing live items missing from snapshot', {
-        items: trailingLiveItems.map(summarizeLiveItemForDebug),
+      frontendDebugLog('thread-live', 'preserved current live items missing from snapshot', {
+        items: missingLiveItems.map(summarizeLiveItemForDebug),
         snapshotTurnId: snapshotTurn.id,
         threadId: threadDetail.id,
       })
-      items.push(...trailingLiveItems)
+      const snapshotItemIds = new Set(
+        snapshotTurn.items
+          .map((snapshotItem) => stringField(snapshotItem.id))
+          .filter((itemId) => itemId.length > 0),
+      )
+      const missingItemIds = new Set(
+        missingLiveItems
+          .map((missingItem) => stringField(missingItem.id))
+          .filter((itemId) => itemId.length > 0),
+      )
+      const currentOrderBaseItems = currentTurn.items.filter((currentItem) => {
+        const currentItemId = stringField(currentItem.id)
+        if (currentItemId) {
+          return snapshotItemIds.has(currentItemId) || missingItemIds.has(currentItemId)
+        }
+
+        return Boolean(liveTurnItemSemanticText(currentItem))
+      })
+      items.splice(
+        0,
+        items.length,
+        ...mergeLiveTurnItemsPreservingCurrentOrder(currentOrderBaseItems, items),
+      )
     }
 
     if (!turnChanged) {
@@ -1956,6 +2513,15 @@ function shouldPreserveMissingTrailingLiveItem(item: Record<string, unknown>) {
         fileChangeList(item).length > 0 ||
         Boolean(stringField(item.status) || stringField(item.text) || stringField(item.message))
       )
+    case 'hookRun':
+      return Boolean(
+        stringField(item.status) ||
+        stringField(item.decision) ||
+        stringField(item.reason) ||
+        stringField(item.eventName) ||
+        stringField(item.handlerKey) ||
+        hookRunMessage(item),
+      )
     case 'plan':
       return stringField(item.text).length > 0
     case 'reasoning':
@@ -1992,6 +2558,13 @@ function preservedLiveItemLength(item: Record<string, unknown>) {
         stringField(item.status).length,
         stringField(item.text).length,
         stringField(item.message).length,
+      )
+    case 'hookRun':
+      return Math.max(
+        stringField(item.status).length,
+        stringField(item.decision).length,
+        stringField(item.reason).length,
+        hookRunMessage(item).length,
       )
     case 'reasoning':
       return stringList(item.summary).join('\n').length + stringList(item.content).join('\n').length
@@ -2239,6 +2812,8 @@ function isLiveThreadDebugMethod(method: string) {
   return [
     'turn/started',
     'turn/completed',
+    'hook/started',
+    'hook/completed',
     'item/started',
     'item/completed',
     'item/agentMessage/delta',

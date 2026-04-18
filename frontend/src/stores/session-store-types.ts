@@ -2,6 +2,7 @@ import type {
   CommandSession,
   CommandSessionSnapshot,
   ServerEvent,
+  ThreadDetail,
   ThreadTokenUsage,
 } from '../types/api'
 
@@ -21,6 +22,11 @@ export type ThreadActivitySummary = {
   workspaceId: string
 }
 
+export type ThreadProjectionSnapshotMetadata = {
+  contentMode?: 'full' | 'summary'
+  turnLimit?: number
+}
+
 export type SessionState = {
   hasHydrated: boolean
   selectedWorkspaceId?: string
@@ -28,6 +34,7 @@ export type SessionState = {
   selectedThreadIdByWorkspace: Record<string, string>
   lastEventSeqByWorkspace: Record<string, number>
   eventsByThread: Record<string, ServerEvent[]>
+  threadProjectionsById: Record<string, ThreadDetail>
   threadActivityByThread: Record<string, ThreadActivitySummary>
   workspaceEventsByWorkspace: Record<string, ServerEvent[]>
   activityEventsByWorkspace: Record<string, ServerEvent[]>
@@ -37,6 +44,10 @@ export type SessionState = {
   setSelectedWorkspace: (workspaceId?: string) => void
   setSelectedThread: (workspaceId?: string, threadId?: string) => void
   setConnectionState: (workspaceId: string, state: string) => void
+  syncThreadProjectionSnapshot: (
+    detail?: ThreadDetail,
+    metadata?: ThreadProjectionSnapshotMetadata,
+  ) => void
   ingestEvent: (event: ServerEvent) => void
   ingestEvents: (events: ServerEvent[]) => void
   hydrateCommandSessions: (workspaceId: string, sessions: CommandSessionSnapshot[]) => void
@@ -57,6 +68,7 @@ export type ApplySessionEventsState = {
   activityEventsByWorkspace: Record<string, ServerEvent[]>
   commandSessionsByWorkspace: Record<string, Record<string, CommandRuntimeSession>>
   eventsByThread: Record<string, ServerEvent[]>
+  threadProjectionsById: Record<string, ThreadDetail>
   lastEventSeqByWorkspace: Record<string, number>
   selectedThreadIdByWorkspace: Record<string, string>
   threadActivityByThread: Record<string, ThreadActivitySummary>

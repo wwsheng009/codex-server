@@ -17,7 +17,7 @@ export function useThreadPageDisplayState(input: ThreadPageDisplayStateInput) {
       input.fullTurnItemOverridesById,
       input.fullTurnOverridesById,
       input.historicalTurns,
-      input.liveThreadDetail?.turns,
+      input.threadProjection?.turns,
       input.selectedThreadId,
     ],
   )
@@ -27,7 +27,7 @@ export function useThreadPageDisplayState(input: ThreadPageDisplayStateInput) {
     [
       input.approvals,
       input.contextCompactionFeedback,
-      input.liveThreadDetail,
+      input.threadProjection,
       input.loadedThreadIds,
       input.selectedCommandSession,
       input.selectedThreadEvents,

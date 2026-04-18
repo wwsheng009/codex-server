@@ -47,6 +47,7 @@ export function buildThreadPageComposerDockProps(
     isWaitingForThreadData: input.isWaitingForThreadData,
     maxWorktrees: input.maxWorktrees,
     mcpServerStates: input.mcpServerStates,
+    mcpSyncNotice: input.mcpSyncNotice,
     mcpServerStatusLoading: input.mcpServerStatusLoading,
     message: input.message,
     mobileCollaborationModeOptions: input.mobileCollaborationModeOptions,

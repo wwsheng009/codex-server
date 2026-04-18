@@ -7,7 +7,7 @@ import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 
 describe('buildThreadPageTurnDisplayState', () => {
   it('applies full item overrides without replacing the whole turn', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -51,7 +51,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       },
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -69,7 +69,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   })
 
   it('merges item content overrides without replacing the base item fields', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -109,7 +109,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -125,7 +125,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   })
 
   it('joins command output chunks from content overrides into a single display payload', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -168,7 +168,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -183,7 +183,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   it('reuses cached joined command output for the same override object', () => {
     const chunks = ['older chunk\n', 'tail chunk']
     const joinSpy = vi.spyOn(chunks, 'join')
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -229,7 +229,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
     const secondState = buildThreadPageTurnDisplayState({
@@ -238,7 +238,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -254,7 +254,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   it('reuses cached joined command output across different override objects that share chunks', () => {
     const chunks = ['older chunk\n', 'tail chunk']
     const joinSpy = vi.spyOn(chunks, 'join')
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -299,7 +299,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
     const secondState = buildThreadPageTurnDisplayState({
@@ -316,7 +316,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -337,7 +337,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       outputLineCount: 10,
       outputStartLine: 0,
     }
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -376,7 +376,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
     const secondState = buildThreadPageTurnDisplayState({
@@ -387,7 +387,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -409,7 +409,7 @@ describe('buildThreadPageTurnDisplayState', () => {
         },
       ],
     }
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -443,7 +443,7 @@ describe('buildThreadPageTurnDisplayState', () => {
         'turn-1': overrideTurn,
       },
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
     const secondState = buildThreadPageTurnDisplayState({
@@ -454,16 +454,26 @@ describe('buildThreadPageTurnDisplayState', () => {
         'turn-1': overrideTurn,
       },
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
     expect(secondState).toBe(firstState)
     expect(secondState.displayedTurns).toBe(firstState.displayedTurns)
-    expect(secondState.displayedTurns[0]).toBe(overrideTurn)
+    expect(secondState.displayedTurns[0]).toBe(firstState.displayedTurns[0])
+    expect(secondState.displayedTurns[0]).not.toBe(overrideTurn)
+    expect(secondState.displayedTurns[0]).toMatchObject({
+      id: 'turn-1',
+      status: 'completed',
+    })
+    expect(secondState.displayedTurns[0].items[0]).toMatchObject({
+      id: 'msg-1',
+      type: 'agentMessage',
+      text: 'full body',
+    })
   })
 
-  it('applies item content overrides on top of full turn overrides', () => {
+  it('applies item content overrides on top of full turn view patches', () => {
     const overrideTurn = {
       id: 'turn-1',
       status: 'completed',
@@ -486,7 +496,78 @@ describe('buildThreadPageTurnDisplayState', () => {
       outputLineCount: 10,
       outputStartLine: 0,
     }
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'completed',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:00.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'summary chunk',
+              outputLineCount: 10,
+              status: 'completed',
+              summaryTruncated: true,
+            },
+          ],
+        },
+      ],
+    }
+    const emptyItemOverrides = {}
+
+    const firstState = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {
+        [threadTurnItemOverrideKey('turn-1', 'cmd-1')]: contentOverride,
+      },
+      fullTurnItemOverridesById: emptyItemOverrides,
+      fullTurnOverridesById: {
+        'turn-1': overrideTurn,
+      },
+      historicalTurns: [],
+      threadProjection,
+      selectedThreadId: 'thread-1',
+    })
+    const secondState = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {
+        [threadTurnItemOverrideKey('turn-1', 'cmd-1')]: contentOverride,
+      },
+      fullTurnItemOverridesById: emptyItemOverrides,
+      fullTurnOverridesById: {
+        'turn-1': overrideTurn,
+      },
+      historicalTurns: [],
+      threadProjection,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(firstState.displayedTurns[0].items[0]).toMatchObject({
+      id: 'cmd-1',
+      aggregatedOutput: 'older chunk\ntail chunk',
+      outputContentMode: 'tail',
+      status: 'completed',
+      summaryTruncated: true,
+    })
+    expect(secondState).toBe(firstState)
+    expect(secondState.displayedTurns).toBe(firstState.displayedTurns)
+    expect(secondState.displayedTurns[0]).toBe(firstState.displayedTurns[0])
+    expect(secondState.displayedTurns[0].items[0]).toBe(firstState.displayedTurns[0].items[0])
+  })
+
+  it('does not let full turn overrides introduce new items that are missing from the projection', () => {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -510,46 +591,37 @@ describe('buildThreadPageTurnDisplayState', () => {
         },
       ],
     }
-    const emptyItemOverrides = {}
 
-    const firstState = buildThreadPageTurnDisplayState({
+    const state = buildThreadPageTurnDisplayState({
       activePendingTurn: null,
-      fullTurnItemContentOverridesById: {
-        [threadTurnItemOverrideKey('turn-1', 'cmd-1')]: contentOverride,
-      },
-      fullTurnItemOverridesById: emptyItemOverrides,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
       fullTurnOverridesById: {
-        'turn-1': overrideTurn,
+        'turn-1': {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'full output',
+              status: 'completed',
+            },
+          ],
+        },
       },
       historicalTurns: [],
-      liveThreadDetail,
-      selectedThreadId: 'thread-1',
-    })
-    const secondState = buildThreadPageTurnDisplayState({
-      activePendingTurn: null,
-      fullTurnItemContentOverridesById: {
-        [threadTurnItemOverrideKey('turn-1', 'cmd-1')]: contentOverride,
-      },
-      fullTurnItemOverridesById: emptyItemOverrides,
-      fullTurnOverridesById: {
-        'turn-1': overrideTurn,
-      },
-      historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
-    expect(firstState.displayedTurns[0].items[0]).toMatchObject({
-      id: 'cmd-1',
-      aggregatedOutput: 'older chunk\ntail chunk',
-      outputContentMode: 'tail',
-      status: 'completed',
-      summaryTruncated: true,
+    expect(state.displayedTurns[0].items).toHaveLength(1)
+    expect(state.displayedTurns[0].items[0]).toMatchObject({
+      id: 'msg-1',
+      type: 'agentMessage',
+      text: 'summary body',
     })
-    expect(secondState).toBe(firstState)
-    expect(secondState.displayedTurns).toBe(firstState.displayedTurns)
-    expect(secondState.displayedTurns[0]).toBe(firstState.displayedTurns[0])
-    expect(secondState.displayedTurns[0].items[0]).toBe(firstState.displayedTurns[0].items[0])
   })
 
   it('preserves references for turns and items that do not receive overrides', () => {
@@ -583,7 +655,7 @@ describe('buildThreadPageTurnDisplayState', () => {
         },
       ],
     }
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -610,7 +682,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -622,7 +694,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   })
 
   it('reuses pending-turn display results for identical turns and pending turn inputs', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -657,7 +729,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
     const secondState = buildThreadPageTurnDisplayState({
@@ -666,7 +738,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -689,7 +761,7 @@ describe('buildThreadPageTurnDisplayState', () => {
         ],
       },
     ]
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -721,12 +793,12 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns,
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
     expect(state.displayedTurns).toHaveLength(1)
-    expect(state.displayedTurns[0]).toBe(liveThreadDetail.turns[0])
+    expect(state.displayedTurns[0]).toBe(threadProjection.turns[0])
     expect(state.displayedTurns[0].items[0]).toMatchObject({
       id: 'msg-1',
       type: 'agentMessage',
@@ -736,7 +808,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   })
 
   it('normalizes stale turn plan status to completed in display state when the turn is completed', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -778,7 +850,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -790,7 +862,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   })
 
   it('excludes the synthetic governance turn from display turn counts and latest-turn selection', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -833,7 +905,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns: [],
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -856,7 +928,7 @@ describe('buildThreadPageTurnDisplayState', () => {
         ],
       },
     ]
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -899,7 +971,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: {},
       fullTurnOverridesById: {},
       historicalTurns,
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 
@@ -914,7 +986,7 @@ describe('buildThreadPageTurnDisplayState', () => {
   })
 
   it('reuses the same display-state result for identical inputs', () => {
-    const liveThreadDetail: ThreadDetail = {
+    const threadProjection: ThreadDetail = {
       id: 'thread-1',
       workspaceId: 'ws-1',
       name: 'Thread 1',
@@ -961,7 +1033,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns,
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
     const secondState = buildThreadPageTurnDisplayState({
@@ -970,7 +1042,7 @@ describe('buildThreadPageTurnDisplayState', () => {
       fullTurnItemOverridesById: emptyItemOverrides,
       fullTurnOverridesById: emptyTurnOverrides,
       historicalTurns,
-      liveThreadDetail,
+      threadProjection,
       selectedThreadId: 'thread-1',
     })
 

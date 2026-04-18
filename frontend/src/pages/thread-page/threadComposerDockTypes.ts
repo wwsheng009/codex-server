@@ -26,6 +26,11 @@ export type WorkingTimerProps = {
   isInterruptible: boolean
 }
 
+export type McpSyncNotice = {
+  eventKey: string
+  ts: string
+}
+
 export type ThreadComposerDockProps = {
   accountEmail?: string
   activeComposerApproval?: PendingApproval | null
@@ -67,6 +72,7 @@ export type ThreadComposerDockProps = {
   isWaitingForThreadData: boolean
   maxWorktrees: number
   mcpServerStates: NormalizedMcpServerState[]
+  mcpSyncNotice?: McpSyncNotice | null
   mcpServerStatusLoading: boolean
   message: string
   mobileCollaborationModeOptions: SelectOption[]

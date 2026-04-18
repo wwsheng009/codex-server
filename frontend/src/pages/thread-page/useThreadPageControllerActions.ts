@@ -122,7 +122,7 @@ export function useThreadPageControllerActions({
     setThreadTurnWindowSize: controllerState.setThreadTurnWindowSize,
     startCommandMutation: mutationState.startCommandMutation,
     startTurnMutation: mutationState.startTurnMutation,
-    threadDetail: dataState.liveThreadDetail ?? dataState.threadDetailQuery.data,
+    threadDetail: dataState.threadProjection,
     stdinValue: controllerState.stdinValue,
     terminateCommandMutation: mutationState.terminateCommandMutation,
     threadShellCommandMutation: mutationState.threadShellCommandMutation,

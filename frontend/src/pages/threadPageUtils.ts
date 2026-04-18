@@ -35,6 +35,8 @@ const turnPolicyGovernanceRefreshMethods = new Set(['hook/completed'])
 
 const threadDetailRefreshMethods = new Set([
   ...threadQueryRefreshMethods,
+  'hook/started',
+  'hook/completed',
   'item/started',
   'item/completed',
   'item/fileChange/outputDelta',
@@ -49,12 +51,13 @@ const threadDetailRefreshMethods = new Set([
 
 const threadDetailStreamingMethods = new Set([
   'item/fileChange/outputDelta',
-  'turn/diff/updated',
-  'turn/plan/updated',
-  'item/agentMessage/delta',
-  'item/plan/delta',
-  'item/reasoning/summaryTextDelta',
-  'item/reasoning/textDelta',
+  'item/commandExecution/outputDelta',
+])
+
+const openStreamRecoveryThreadDetailRefreshMethods = new Set([
+  'thread/closed',
+  'thread/compacted',
+  'item/fileChange/outputDelta',
   'item/commandExecution/outputDelta',
 ])
 
@@ -73,6 +76,20 @@ const threadItemDisplayMetricsCache = new WeakMap<
 const serializedValueLengthCache = new WeakMap<object, number>()
 const userMessageTextCache = new WeakMap<Record<string, unknown>, string>()
 
+type WorkspaceEventLike =
+  | {
+      method?: string
+      payload?: unknown
+      ts?: string
+    }
+  | string
+  | undefined
+
+export type FeishuToolsSyncNoticeEvent = {
+  eventKey: string
+  ts: string
+}
+
 export function shouldRefreshThreadsForEvent(method?: string) {
   return typeof method === 'string' && threadQueryRefreshMethods.has(method)
 }
@@ -81,12 +98,52 @@ export function shouldRefreshLoadedThreadsForEvent(method?: string) {
   return typeof method === 'string' && loadedThreadQueryRefreshMethods.has(method)
 }
 
-export function shouldRefreshMcpServerStatusForEvent(method?: string) {
-  return typeof method === 'string' && mcpServerStatusRefreshMethods.has(method)
+export function shouldRefreshMcpServerStatusForEvent(event: WorkspaceEventLike) {
+  const { method, payload } = normalizeWorkspaceEventLike(event)
+  if (typeof method === 'string' && mcpServerStatusRefreshMethods.has(method)) {
+    return true
+  }
+
+  return hasWorkspaceHttpMutationTrigger(method, payload, [
+    'config/mcp-server/reload',
+    'feishu-tools/config/write',
+  ])
 }
 
-export function shouldRefreshRuntimeCatalogForEvent(method?: string) {
-  return typeof method === 'string' && runtimeCatalogRefreshMethods.has(method)
+export function shouldRefreshRuntimeCatalogForEvent(event: WorkspaceEventLike) {
+  const { method, payload } = normalizeWorkspaceEventLike(event)
+  if (typeof method === 'string' && runtimeCatalogRefreshMethods.has(method)) {
+    return true
+  }
+
+  return hasWorkspaceHttpMutationTrigger(method, payload, [
+    'config/mcp-server/reload',
+    'feishu-tools/config/write',
+  ])
+}
+
+export function resolveFeishuToolsSyncNoticeEvent(
+  events: Array<{
+    method?: string
+    payload?: unknown
+    ts?: string
+  }>,
+): FeishuToolsSyncNoticeEvent | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    const { method, payload, ts } = normalizeWorkspaceEventLike(event)
+    if (!hasWorkspaceHttpMutationTrigger(method, payload, ['feishu-tools/config/write'])) {
+      continue
+    }
+
+    const triggerMethod = stringField(asObject(payload).triggerMethod)
+    return {
+      eventKey: `${method ?? 'workspace/httpMutation'}:${triggerMethod}:${ts ?? index}`,
+      ts: ts ?? '',
+    }
+  }
+
+  return null
 }
 
 export function shouldRefreshHookRunsForEvent(method?: string) {
@@ -103,6 +160,28 @@ export function shouldRefreshThreadDetailForEvent(method?: string) {
 
 export function shouldThrottleThreadDetailRefreshForEvent(method?: string) {
   return typeof method === 'string' && threadDetailStreamingMethods.has(method)
+}
+
+export function shouldRefreshThreadDetailDuringOpenStreamForEvent(event: {
+  method?: string
+  payload?: unknown
+}) {
+  const method = event.method
+  if (typeof method !== 'string') {
+    return false
+  }
+
+  if (openStreamRecoveryThreadDetailRefreshMethods.has(method)) {
+    return true
+  }
+
+  if (method !== 'item/started' && method !== 'item/completed') {
+    return false
+  }
+
+  const payload = asObject(event.payload)
+  const item = asObject(payload.item)
+  return ['commandExecution', 'fileChange'].includes(stringField(item.type))
 }
 
 export function shouldFallbackRefreshThreadDetailDuringOpenStream(
@@ -388,7 +467,7 @@ function computeThreadItemDisplayMetrics(item: Record<string, unknown>) {
           ? phase === 'streaming'
             ? `agent:streaming:${text.length}`
             : `agent:${text.length}`
-          : ''
+          : 'agent:placeholder'
 
       return {
         loadedAssistantMessageCount: 1,
@@ -437,7 +516,7 @@ function renderableThreadItemKeySuffix(item: Record<string, unknown>) {
       const phase = stringField(item.phase)
       const hasVisibleStreamingBubble = phase === 'streaming'
       if (!text.trim() && !hasVisibleStreamingBubble) {
-        return ''
+        return 'agent:placeholder'
       }
 
       return phase === 'streaming'
@@ -450,33 +529,33 @@ function renderableThreadItemKeySuffix(item: Record<string, unknown>) {
       const outputLineCount = numberField(item.outputLineCount) ?? 0
       const status = stringField(item.status)
       if (!command && !output && !status) {
-        return ''
+        return 'command:placeholder'
       }
 
       return `command:${status}:${command.length}:${output.length}:${outputLineCount}`
     }
     case 'plan': {
       const text = stringField(item.text)
-      return text.trim() ? `plan:${text.length}` : ''
+      return text.trim() ? `plan:${text.length}` : 'plan:placeholder'
     }
     case 'turnPlan': {
       const turnPlan = readTurnPlanItem(item)
       if (!turnPlan) {
-        return ''
+        return 'turnPlan:placeholder'
       }
 
       const explanationLength = turnPlan.explanation?.length ?? 0
       const totalStepLength = turnPlan.steps.reduce((sum, entry) => sum + entry.step.length, 0)
       return explanationLength || turnPlan.steps.length
         ? `turnPlan:${turnPlan.status}:${explanationLength}:${turnPlan.steps.length}:${totalStepLength}`
-        : ''
+        : 'turnPlan:placeholder'
     }
     case 'fileChange': {
       const changeCount = Array.isArray(item.changes) ? item.changes.length : 0
       const status = stringField(item.status)
       const previewText = stringField(item.text) || stringField(item.message)
       if (!changeCount && !status && !previewText) {
-        return ''
+        return 'file:placeholder'
       }
 
       return `file:${changeCount}:${status}:${previewText.length}`
@@ -489,7 +568,7 @@ function renderableThreadItemKeySuffix(item: Record<string, unknown>) {
         ? item.content.filter((entry): entry is string => typeof entry === 'string').join('\n').trim()
         : ''
       if (!summary && !content) {
-        return ''
+        return 'reasoning:placeholder'
       }
 
       return `reasoning:${summary.length}:${content.length}`
@@ -549,4 +628,38 @@ function numberField(value: unknown) {
 
 function asObject(value: unknown) {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
+function normalizeWorkspaceEventLike(event: WorkspaceEventLike) {
+  if (typeof event === 'string' || event === undefined) {
+    return {
+      method: event,
+      payload: undefined,
+      ts: '',
+    }
+  }
+
+  return {
+    method: event.method,
+    payload: event.payload,
+    ts: typeof event.ts === 'string' ? event.ts : '',
+  }
+}
+
+function hasWorkspaceHttpMutationTrigger(
+  method: string | undefined,
+  payload: unknown,
+  triggers: string[],
+) {
+  if (method !== 'workspace/httpMutation') {
+    return false
+  }
+
+  const event = asObject(payload)
+  if (stringField(event.requestKind) !== 'httpMutation' && !('triggerMethod' in event)) {
+    return false
+  }
+
+  const triggerMethod = stringField(event.triggerMethod)
+  return triggerMethod !== '' && triggers.includes(triggerMethod)
 }

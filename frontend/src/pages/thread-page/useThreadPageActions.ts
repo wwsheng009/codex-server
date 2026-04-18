@@ -1,3 +1,4 @@
+import { useStableCallback } from '../../lib/useStableCallback'
 import { getRecoverableRuntimeActionKind } from './threadPageRuntimeRecovery'
 import { buildThreadPageBotActions } from './buildThreadPageBotActions'
 import { buildThreadPageCommandActions } from './buildThreadPageCommandActions'
@@ -8,11 +9,17 @@ export function useThreadPageActions(input: ThreadPageActionsInput) {
   const botActions = buildThreadPageBotActions(input)
   const threadActions = buildThreadPageThreadActions(input)
   const commandActions = buildThreadPageCommandActions(input)
+  const handleLoadFullTurn = useStableCallback(threadActions.handleLoadFullTurn)
+  const handleReleaseFullTurn = useStableCallback(threadActions.handleReleaseFullTurn)
+  const handleRetainFullTurn = useStableCallback(threadActions.handleRetainFullTurn)
 
   return {
     ...botActions,
     ...threadActions,
     ...commandActions,
+    handleLoadFullTurn,
+    handleReleaseFullTurn,
+    handleRetainFullTurn,
     handleRetryRuntimeOperation: async () => {
       if (input.recoverableSendInput?.trim()) {
         await threadActions.handleRetrySend()

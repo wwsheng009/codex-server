@@ -37,6 +37,7 @@ export function useThreadPageData({
     modelsQuery,
     resolvedSelectedThreadId,
     skillsQuery,
+    threadDetailContentMode,
     threadDetailQuery,
     turnPolicyDecisionsQuery,
     turnPolicyMetricsQuery,
@@ -69,7 +70,7 @@ export function useThreadPageData({
     activeCommandCount,
     commandSessionCount,
     commandSessions,
-    liveThreadDetail,
+    threadProjection,
     selectedCommandSession,
     selectedThreadEvents,
     selectedThreadTokenUsage,
@@ -79,13 +80,15 @@ export function useThreadPageData({
     isDocumentVisible,
     selectedProcessId,
     selectedThreadId: resolvedSelectedThreadId,
+    threadDetailContentMode,
     threadDetail: threadDetailQuery.data,
+    threadDetailTurnLimit: threadTurnWindowSize,
     workspaceId,
   })
 
   const selectedThread = useThreadPageSelectedThread({
     selectedThreadId: resolvedSelectedThreadId,
-    threadDetail: threadDetailQuery.data,
+    threadDetail: threadProjection,
     threads: threadsQuery.data,
   })
 
@@ -137,7 +140,7 @@ export function useThreadPageData({
     fileSearchQuery,
     hookConfigurationQuery,
     hookRunsQuery,
-    liveThreadDetail,
+    threadProjection,
     loadedThreadsQuery,
     mcpServerStatusQuery,
     modelsQuery,

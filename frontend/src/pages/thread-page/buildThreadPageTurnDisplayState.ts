@@ -40,6 +40,7 @@ const itemOverrideMetadataCache = new WeakMap<
 >()
 const turnOverrideMetadataCache = new WeakMap<Record<string, ThreadTurn>, TurnOverrideMetadata>()
 const mergedTurnHistoryCache = new WeakMap<ThreadTurn[], WeakMap<ThreadTurn[], ThreadTurn[]>>()
+const mergedTurnViewPatchCache = new WeakMap<ThreadTurn, WeakMap<ThreadTurn, ThreadTurn | null>>()
 const turnIdSetCache = new WeakMap<ThreadTurn[], Set<string>>()
 const turnMetadataCache = new WeakMap<ThreadTurn, TurnMetadata>()
 const pendingTurnMetadataCache = new WeakMap<PendingThreadTurn, PendingTurnMetadata>()
@@ -52,11 +53,11 @@ export function buildThreadPageTurnDisplayState({
   fullTurnItemOverridesById,
   fullTurnOverridesById,
   historicalTurns,
-  liveThreadDetail,
+  threadProjection,
   selectedThreadId,
 }: ThreadPageTurnDisplayStateInput) {
   const turnsWithOverrides = applyTurnAndItemOverrides(
-    mergeThreadTurnHistory(historicalTurns, liveThreadDetail?.turns ?? []),
+    composeRenderedTurns(historicalTurns, threadProjection?.turns ?? []),
     fullTurnOverridesById,
     fullTurnItemOverridesById,
     fullTurnItemContentOverridesById,
@@ -456,17 +457,20 @@ function applyTurnOverrides(
       continue
     }
 
-    primeTurnMetadata(override)
+    const patchedTurn = applyTurnViewPatch(turns[index], override)
+    if (!patchedTurn) {
+      continue
+    }
     if (!nextTurns) {
       nextTurns = [...turns]
     }
     if (!cacheNode) {
       cacheNode = turnArrayEntry.turnOverrideResultTree
     }
-    nextTurns[index] = override
+    nextTurns[index] = patchedTurn
     resolvedTurnReplacements.push({
       turnIndex: index,
-      turnRef: override,
+      turnRef: patchedTurn,
     })
     cacheNode = getOrCreateTurnOverrideCacheChild(cacheNode, index, override)
     turnChanged = true
@@ -539,15 +543,13 @@ function applyTurnAndItemOverrides(
     }
 
     const baseOverrideTurn = fullTurnOverridesById[turnId]
-    const baseTurn = baseOverrideTurn ?? turns[turnIndex]
-    if (baseOverrideTurn) {
-      primeTurnMetadata(baseOverrideTurn)
-    }
+    const baseTurn =
+      baseOverrideTurn ? applyTurnViewPatch(turns[turnIndex], baseOverrideTurn) ?? turns[turnIndex] : turns[turnIndex]
 
     const itemOverridesForTurn = itemOverrideMetadata.byTurnId.get(baseTurn.id)
     const itemContentOverridesForTurn = itemContentOverrideMetadata.byTurnId.get(baseTurn.id)
     if (!itemOverridesForTurn && !itemContentOverridesForTurn) {
-      if (!baseOverrideTurn) {
+      if (baseTurn === turns[turnIndex]) {
         continue
       }
 
@@ -1114,6 +1116,77 @@ function applyTurnReplacements(
   return nextTurns
 }
 
+function applyTurnViewPatch(turn: ThreadTurn, overrideTurn: ThreadTurn) {
+  let cachedByOverride = mergedTurnViewPatchCache.get(turn)
+  if (!cachedByOverride) {
+    cachedByOverride = new WeakMap<ThreadTurn, ThreadTurn | null>()
+    mergedTurnViewPatchCache.set(turn, cachedByOverride)
+  }
+
+  if (cachedByOverride.has(overrideTurn)) {
+    return cachedByOverride.get(overrideTurn) ?? undefined
+  }
+
+  const overrideItemsById = new Map<string, Record<string, unknown>>()
+  for (const item of overrideTurn.items) {
+    const itemId = typeof item.id === 'string' ? item.id : ''
+    if (!itemId) {
+      continue
+    }
+
+    overrideItemsById.set(itemId, item)
+  }
+
+  let nextItems: ThreadTurn['items'] | null = null
+  let turnChanged = false
+  for (let itemIndex = 0; itemIndex < turn.items.length; itemIndex += 1) {
+    const item = turn.items[itemIndex]
+    const itemId = typeof item.id === 'string' ? item.id : ''
+    if (!itemId) {
+      continue
+    }
+
+    const overrideItem = overrideItemsById.get(itemId)
+    if (!overrideItem || overrideItem === item) {
+      continue
+    }
+
+    if (!nextItems) {
+      nextItems = [...turn.items]
+    }
+    nextItems[itemIndex] = overrideItem
+    turnChanged = true
+  }
+
+  const { items: _overrideItems, ...overrideFields } = overrideTurn
+  for (const key in overrideFields) {
+    if (!Object.prototype.hasOwnProperty.call(overrideFields, key)) {
+      continue
+    }
+
+    if ((turn as Record<string, unknown>)[key] === (overrideFields as Record<string, unknown>)[key]) {
+      continue
+    }
+
+    turnChanged = true
+    break
+  }
+
+  if (!turnChanged) {
+    cachedByOverride.set(overrideTurn, null)
+    return undefined
+  }
+
+  const nextTurn = {
+    ...turn,
+    ...overrideFields,
+    items: nextItems ?? turn.items,
+  }
+  primeTurnMetadata(nextTurn)
+  cachedByOverride.set(overrideTurn, nextTurn)
+  return nextTurn
+}
+
 function resolveCommandOutputContent(
   override: Record<string, unknown>,
   item: Record<string, unknown>,
@@ -1218,7 +1291,7 @@ function turnHasUserMessage(turn: ThreadTurn) {
   return hasUserMessage
 }
 
-function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: ThreadTurn[]) {
+function composeRenderedTurns(historicalTurns: ThreadTurn[], liveTurns: ThreadTurn[]) {
   if (!historicalTurns.length) {
     return liveTurns
   }
@@ -1234,45 +1307,18 @@ function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: Thread
 
   const historicalTurnIds = getTurnIdSet(historicalTurns)
   const liveTurnIds = getTurnIdSet(liveTurns)
-  let hasOverlap = false
-  for (const turnId of liveTurnIds) {
-    if (historicalTurnIds.has(turnId)) {
-      hasOverlap = true
-      break
-    }
-  }
-
-  if (!hasOverlap) {
-    const mergedTurns = mergeTurnsPreservingGovernanceLead(historicalTurns, liveTurns)
-
-    let cacheByLiveTurns = mergedTurnHistoryCache.get(historicalTurns)
-    if (!cacheByLiveTurns) {
-      cacheByLiveTurns = new WeakMap<ThreadTurn[], ThreadTurn[]>()
-      mergedTurnHistoryCache.set(historicalTurns, cacheByLiveTurns)
-    }
-    getTurnArrayCacheEntry(mergedTurns).turnIndexById = buildTurnIndexById(mergedTurns)
-    turnIdSetCache.set(mergedTurns, new Set([...historicalTurnIds, ...liveTurnIds]))
-    cacheByLiveTurns.set(liveTurns, mergedTurns)
-    return mergedTurns
-  }
-
-  const seenTurnIds = new Set<string>()
   const mergedTurns: ThreadTurn[] = []
-  const liveTurnsById = new Map<string, ThreadTurn>()
-
-  for (const turn of liveTurns) {
-    liveTurnsById.set(turn.id, turn)
-  }
+  const seenTurnIds = new Set<string>()
 
   prependLeadingGovernanceTurns(mergedTurns, seenTurnIds, historicalTurnIds, liveTurns)
 
   for (const turn of historicalTurns) {
-    if (seenTurnIds.has(turn.id)) {
+    if (seenTurnIds.has(turn.id) || liveTurnIds.has(turn.id)) {
       continue
     }
 
     seenTurnIds.add(turn.id)
-    mergedTurns.push(liveTurnsById.get(turn.id) ?? turn)
+    mergedTurns.push(turn)
   }
 
   for (const turn of liveTurns) {
@@ -1292,32 +1338,6 @@ function mergeThreadTurnHistory(historicalTurns: ThreadTurn[], liveTurns: Thread
   getTurnArrayCacheEntry(mergedTurns).turnIndexById = buildTurnIndexById(mergedTurns)
   turnIdSetCache.set(mergedTurns, seenTurnIds)
   cacheByLiveTurns.set(liveTurns, mergedTurns)
-  return mergedTurns
-}
-
-function mergeTurnsPreservingGovernanceLead(historicalTurns: ThreadTurn[], liveTurns: ThreadTurn[]) {
-  const historicalTurnIds = getTurnIdSet(historicalTurns)
-  const mergedTurns: ThreadTurn[] = []
-  const seenTurnIds = new Set<string>()
-
-  prependLeadingGovernanceTurns(mergedTurns, seenTurnIds, historicalTurnIds, liveTurns)
-
-  for (const turn of historicalTurns) {
-    if (seenTurnIds.has(turn.id)) {
-      continue
-    }
-    seenTurnIds.add(turn.id)
-    mergedTurns.push(turn)
-  }
-
-  for (const turn of liveTurns) {
-    if (seenTurnIds.has(turn.id)) {
-      continue
-    }
-    seenTurnIds.add(turn.id)
-    mergedTurns.push(turn)
-  }
-
   return mergedTurns
 }
 
