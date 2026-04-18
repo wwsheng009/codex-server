@@ -43,10 +43,13 @@ describe('handleWorkspaceStreamEvent', () => {
     expect(firstSnapshot.streams).toEqual([])
   })
 
-  it('flushes queued deltas before deferring completion to the next frame', () => {
+  it('flushes queued deltas before ingesting a terminal event immediately', () => {
     const stream = makeStream()
     const flushQueuedEvents = vi.fn(() => {
       stream.eventQueue = []
+    })
+    const flushDeferredEvents = vi.fn(() => {
+      stream.deferredEvents = []
     })
     const ingestImmediateEvent = vi.fn()
     const scheduleDeferredFlush = vi.fn()
@@ -59,6 +62,7 @@ describe('handleWorkspaceStreamEvent', () => {
         itemId: 'item-1',
       }),
       {
+        flushDeferredEvents,
         flushQueuedEvents,
         ingestImmediateEvent,
         scheduleDeferredFlush,
@@ -84,6 +88,7 @@ describe('handleWorkspaceStreamEvent', () => {
         },
       }),
       {
+        flushDeferredEvents,
         flushQueuedEvents,
         ingestImmediateEvent,
         scheduleDeferredFlush,
@@ -93,17 +98,19 @@ describe('handleWorkspaceStreamEvent', () => {
 
     expect(flushQueuedEvents).toHaveBeenCalledTimes(1)
     expect(stream.eventQueue).toEqual([])
-    expect(stream.deferredEvents).toEqual([
+    expect(stream.deferredEvents).toEqual([])
+    expect(flushDeferredEvents).not.toHaveBeenCalled()
+    expect(scheduleDeferredFlush).not.toHaveBeenCalled()
+    expect(ingestImmediateEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'item/completed',
       }),
-    ])
-    expect(scheduleDeferredFlush).toHaveBeenCalledTimes(1)
-    expect(ingestImmediateEvent).not.toHaveBeenCalled()
+    )
   })
 
   it('keeps standalone non-delta events immediate when nothing is queued', () => {
     const stream = makeStream()
+    const flushDeferredEvents = vi.fn()
     const flushQueuedEvents = vi.fn()
     const ingestImmediateEvent = vi.fn()
     const scheduleDeferredFlush = vi.fn()
@@ -114,6 +121,7 @@ describe('handleWorkspaceStreamEvent', () => {
     })
 
     handleWorkspaceStreamEvent(stream, startedEvent, {
+      flushDeferredEvents,
       flushQueuedEvents,
       ingestImmediateEvent,
       scheduleDeferredFlush,
@@ -122,6 +130,7 @@ describe('handleWorkspaceStreamEvent', () => {
 
     expect(ingestImmediateEvent).toHaveBeenCalledTimes(1)
     expect(ingestImmediateEvent).toHaveBeenCalledWith(startedEvent)
+    expect(flushDeferredEvents).not.toHaveBeenCalled()
     expect(flushQueuedEvents).not.toHaveBeenCalled()
     expect(scheduleDeferredFlush).not.toHaveBeenCalled()
     expect(scheduleQueuedFlush).not.toHaveBeenCalled()

@@ -137,6 +137,8 @@ export type ConversationLiveItemLifecycleEntry = {
   lastEventTs: number
   placeholderRendered: boolean
   replayedCount: number
+  snapshotPreservedCount: number
+  snapshotReconciledCount: number
   startedAt: number | null
   suppressedReason: string | null
   turnId: string

@@ -61,7 +61,8 @@ import {
 } from './threadConversationProfiler'
 import { useVirtualizedConversationEntries } from './useVirtualizedConversationEntries'
 import { frontendDebugLog } from '../../lib/frontend-runtime-mode'
-import type { PendingApproval, ThreadTurn } from '../../types/api'
+import { formatHookRunFeedbackEntries, formatHookRunMessage } from '../../lib/hook-run-display'
+import type { HookOutputEntry, PendingApproval, ThreadTurn } from '../../types/api'
 const EXPANDABLE_MESSAGE_THRESHOLD_CHARS = 4_000
 const EXPANDABLE_MESSAGE_PREVIEW_CHARS = 1_200
 const FULL_TURN_OVERRIDE_TTL_MS = 30_000
@@ -114,6 +115,7 @@ function selectionBelongsToContainer(container: HTMLElement | null) {
 }
 
 export const TurnTimeline = memo(function TurnTimeline({
+  disableCompletedMessageAnimation = false,
   disableVirtualization = false,
   freezeVirtualization = false,
   onReleaseFullTurn,
@@ -170,6 +172,7 @@ export const TurnTimeline = memo(function TurnTimeline({
         </SystemTimelineCard>
       ) : (
         <MemoTimelineItem
+          disableCompletedMessageAnimation={disableCompletedMessageAnimation}
           item={entry.item}
           onReleaseFullTurn={onReleaseFullTurn}
           onRetainFullTurn={onRetainFullTurn}
@@ -184,6 +187,7 @@ export const TurnTimeline = memo(function TurnTimeline({
       )}
     </ConversationRenderProfilerBoundary>
   ), [
+    disableCompletedMessageAnimation,
     handleRetryServerRequest,
     onReleaseFullTurn,
     onRequestFullTurn,
@@ -209,6 +213,22 @@ export const TurnTimeline = memo(function TurnTimeline({
     visibleEntries,
   ])
 
+  useEffect(() => {
+    if (!turns.length || entries.length > 0) {
+      return
+    }
+
+    recordConversationLiveDiagnosticEvent({
+      kind: 'timeline-placeholder',
+      metadata: {
+        turnCount: turns.length,
+      },
+      reason: 'rendered empty timeline fallback because all turn items were omitted',
+      source: 'thread-render',
+      turnId: turns[turns.length - 1]?.id ?? null,
+    })
+  }, [entries.length, turns])
+
   return (
     <ConversationRenderProfilerBoundary id="TurnTimeline">
       <div aria-live="polite" className="conversation-stream" role="log">
@@ -218,6 +238,17 @@ export const TurnTimeline = memo(function TurnTimeline({
             className="conversation-stream__spacer"
             style={{ height: paddingTop }}
           />
+        ) : null}
+        {!entries.length && turns.length > 0 ? (
+          <ConversationEntryRow>
+            <InlineNotice title={i18n._({ id: 'No visible thread events', message: 'No visible thread events' })}>
+              {i18n._({
+                id: 'This thread has updates, but none of them produced a renderable timeline entry yet. Try waiting for the next event or refreshing the thread detail.',
+                message:
+                  'This thread has updates, but none of them produced a renderable timeline entry yet. Try waiting for the next event or refreshing the thread detail.',
+              })}
+            </InlineNotice>
+          </ConversationEntryRow>
         ) : null}
         {visibleEntries.map((entry) =>
           isVirtualizedTimeline ? (
@@ -252,6 +283,7 @@ export function areTurnTimelinePropsEqual(
   next: TurnTimelineProps,
 ) {
   return (
+    previous.disableCompletedMessageAnimation === next.disableCompletedMessageAnimation &&
     previous.disableVirtualization === next.disableVirtualization &&
     previous.freezeVirtualization === next.freezeVirtualization &&
     previous.onReleaseFullTurn === next.onReleaseFullTurn &&
@@ -1389,6 +1421,7 @@ function StreamingAgentMessage({ content }: { content: string }) {
 }
 
 function TimelineItem({
+  disableCompletedMessageAnimation,
   item,
   onReleaseFullTurn,
   onRetainFullTurn,
@@ -1440,16 +1473,17 @@ function TimelineItem({
       const isStreaming = phase === 'streaming'
       const sanitizedText = isStreaming ? text : sanitizeThreadMarkdownContent(text)
       const shouldAnimateCompletedMessage =
-        clientRenderMode === 'animate-once' && sanitizedText !== ''
+        !disableCompletedMessageAnimation &&
+        clientRenderMode === 'animate-once' &&
+        sanitizedText !== ''
       const hasStreamingPresentation = isStreaming || shouldAnimateCompletedMessage
 
       if (!sanitizedText) {
-        if (!isStreaming) {
-          logSuppressedTimelineItem(item, turnId, 'agentMessage without text')
-          return null
-        }
-
-        logTimelinePlaceholderItem(item, turnId, 'agentMessage streaming placeholder')
+        logTimelinePlaceholderItem(
+          item,
+          turnId,
+          isStreaming ? 'agentMessage streaming placeholder' : 'agentMessage placeholder',
+        )
 
         return (
           <article className="conversation-row conversation-row--assistant">
@@ -1534,8 +1568,23 @@ function TimelineItem({
           : outputLineCount ?? countOutputLines(output)
 
       if (!command && !output && !status) {
-        logSuppressedTimelineItem(item, turnId, 'commandExecution without command/output/status')
-        return null
+        logTimelinePlaceholderItem(item, turnId, 'commandExecution placeholder')
+        return (
+          <SystemTimelineCard
+            className="conversation-card--command"
+            meta={humanizeToolStatus('inProgress')}
+            statusTone={statusToneFromValue('inProgress')}
+            summary={i18n._({
+              id: 'renderers.commandExecution',
+              message: 'Command execution',
+            })}
+            title={i18n._({ id: "Command", message: "Command" })}
+          >
+            <div className="conversation-card__placeholder">
+              {i18n._({ id: "Waiting for output.", message: "Waiting for output." })}
+            </div>
+          </SystemTimelineCard>
+        )
       }
 
       return (
@@ -1644,8 +1693,18 @@ function TimelineItem({
       const explanation = turnPlan?.explanation ?? ''
 
       if (!steps.length && !explanation) {
-        logSuppressedTimelineItem(item, turnId, 'turnPlan without content')
-        return null
+        logTimelinePlaceholderItem(item, turnId, 'turnPlan placeholder')
+        return (
+          <SystemTimelineCard
+            className="conversation-card--plan"
+            summary={i18n._({ id: "Plan", message: "Plan" })}
+            title={i18n._({ id: "Plan", message: "Plan" })}
+          >
+            <div className="conversation-card__placeholder">
+              {i18n._({ id: 'Thinking…', message: 'Thinking…' })}
+            </div>
+          </SystemTimelineCard>
+        )
       }
 
       return (
@@ -1684,8 +1743,18 @@ function TimelineItem({
       const steps = planSteps(item)
 
       if (!steps.length) {
-        logSuppressedTimelineItem(item, turnId, 'plan without steps')
-        return null
+        logTimelinePlaceholderItem(item, turnId, 'plan placeholder')
+        return (
+          <SystemTimelineCard
+            className="conversation-card--plan"
+            summary={i18n._({ id: "Plan", message: "Plan" })}
+            title={i18n._({ id: "Plan", message: "Plan" })}
+          >
+            <div className="conversation-card__placeholder">
+              {i18n._({ id: 'Thinking…', message: 'Thinking…' })}
+            </div>
+          </SystemTimelineCard>
+        )
       }
 
       return (
@@ -1755,6 +1824,29 @@ function TimelineItem({
               </li>
             ))}
           </ul>
+        </SystemTimelineCard>
+      )
+    }
+    case 'hookRun': {
+      const text = sanitizeThreadMarkdownContent(hookRunDisplayText(item))
+      const status = stringField(item.status)
+
+      if (!text) {
+        logSuppressedTimelineItem(item, turnId, 'hookRun without message')
+        return null
+      }
+
+      return (
+        <SystemTimelineCard
+          className="conversation-card--hook"
+          meta={status ? humanizeToolStatus(status) : undefined}
+          statusTone={status ? statusToneFromValue(status) : undefined}
+          summary={truncateSingleLine(text, 104)}
+          title={i18n._({ id: 'Hook Run', message: 'Hook Run' })}
+        >
+          <CopyableMessageBody className="conversation-card__content" source={text} tone="system">
+            <ThreadMarkdown content={text} />
+          </CopyableMessageBody>
         </SystemTimelineCard>
       )
     }
@@ -1860,6 +1952,7 @@ function TimelineItem({
 
 const MemoTimelineItem = memo(TimelineItem, (previous, next) => {
   return (
+    previous.disableCompletedMessageAnimation === next.disableCompletedMessageAnimation &&
     previous.item === next.item &&
     previous.onReleaseFullTurn === next.onReleaseFullTurn &&
     previous.onRequestFullTurn === next.onRequestFullTurn &&
@@ -3712,6 +3805,32 @@ function findActiveStreamingAgentItemKey(turns: ThreadTurn[]) {
   return null
 }
 
+function hookRunDisplayText(item: Record<string, unknown>) {
+  const message = stringField(item.message)
+  if (message) {
+    return message
+  }
+
+  const feedback =
+    stringField(item.feedback) ||
+    formatHookRunFeedbackEntries(
+      Array.isArray(item.entries) ? (item.entries as HookOutputEntry[]) : undefined,
+    )
+
+  return formatHookRunMessage({
+    decision: stringField(item.decision),
+    eventName: stringField(item.eventName),
+    feedback,
+    handlerKey: stringField(item.handlerKey),
+    reason: stringField(item.reason),
+    sessionStartSource: stringField(item.sessionStartSource),
+    status: stringField(item.status),
+    toolKind: stringField(item.toolKind),
+    toolName: stringField(item.toolName),
+    triggerMethod: stringField(item.triggerMethod),
+  })
+}
+
 function conversationEntryOmissionReason(item: Record<string, unknown>) {
   const type = stringField(item.type)
 
@@ -3719,34 +3838,16 @@ function conversationEntryOmissionReason(item: Record<string, unknown>) {
     case 'userMessage':
       return userMessageText(item) ? null : 'userMessage without text'
     case 'agentMessage':
-      return stringField(item.text) || stringField(item.phase) === 'streaming'
-        ? null
-        : 'agentMessage without text'
-    case 'commandExecution': {
-      const command = stringField(item.command)
-      const output = stringField(item.aggregatedOutput)
-      const status = stringField(item.status)
-      return command || output || status
-        ? null
-        : 'commandExecution without command/output/status'
-    }
+    case 'commandExecution':
     case 'contextCompaction':
       return null
     case 'turnPlan':
-      return (() => {
-        const turnPlan = readTurnPlanItem(item)
-        return turnPlan?.steps.length || turnPlan?.explanation
-          ? null
-          : 'turnPlan without content'
-      })()
     case 'plan':
-      return planSteps(item).length ? null : 'plan without steps'
     case 'fileChange':
-      return fileChanges(item).length || stringField(item.text) || stringField(item.message) || stringField(item.status)
-        ? null
-        : 'fileChange without changes'
     case 'reasoning':
       return null
+    case 'hookRun':
+      return hookRunDisplayText(item) ? null : 'hookRun without message'
     case 'webSearch':
       return webSearchCardSummary(item) ? null : 'webSearch without details'
     case 'mcpToolCall':

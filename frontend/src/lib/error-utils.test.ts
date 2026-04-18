@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiClientError } from './api-client'
-import { describeError, getErrorMessage, isAuthenticationError } from './error-utils'
+import { describeError, getBotOutboundErrorMessage, getErrorMessage, isAuthenticationError } from './error-utils'
 
 describe('error-utils', () => {
   it('keeps backend error titles generic instead of remapping them', () => {
@@ -53,5 +53,25 @@ describe('error-utils', () => {
     })
 
     expect(getErrorMessage(error)).toBe('telegram media file path must be a file')
+  })
+
+  it('remaps WeChat reply context failures to a clearer outbound guidance message', () => {
+    const error = new Error(
+      'WeChat delivery failed during outbound send: wechat sendmessage text failed (chars=2 preview="11"): wechat /ilink/bot/sendmessage returned api error (ret=-2 errcode=0): reply context unavailable',
+    )
+
+    expect(getBotOutboundErrorMessage(error)).toBe(
+      'WeChat cannot send this proactive message yet because the saved reply context is no longer valid. Ask the recipient to send a new message to this bot first, then try again.',
+    )
+  })
+
+  it('remaps WeChat waiting-for-context validation failures to the same outbound guidance message', () => {
+    const error = new Error(
+      'invalid input: wechat recipient "wxid_alice" has not established a sendable reply context yet; wait for the user to send a message first',
+    )
+
+    expect(getBotOutboundErrorMessage(error)).toBe(
+      'WeChat cannot send this proactive message yet because the saved reply context is no longer valid. Ask the recipient to send a new message to this bot first, then try again.',
+    )
   })
 })

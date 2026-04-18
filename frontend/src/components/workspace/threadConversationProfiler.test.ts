@@ -1,17 +1,31 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
-import {
-  buildConversationLiveDiagnosticsSnapshot,
-  buildConversationRenderProfilerExportPayload,
-  buildConversationRenderProfilerDiagnosticOverview,
-  appendConversationRenderProfilerSample,
-  buildConversationRenderProfilerSnapshot,
-  buildConversationRenderProfilerSuggestions,
-  buildConversationScrollDiagnosticsSnapshot,
-  createConversationRenderProfilerRecordState,
-} from './threadConversationProfiler'
+import { i18n } from '../../i18n/runtime'
+
+let buildConversationLiveDiagnosticsSnapshot: typeof import('./threadConversationProfiler').buildConversationLiveDiagnosticsSnapshot
+let buildConversationRenderProfilerExportPayload: typeof import('./threadConversationProfiler').buildConversationRenderProfilerExportPayload
+let buildConversationRenderProfilerDiagnosticOverview: typeof import('./threadConversationProfiler').buildConversationRenderProfilerDiagnosticOverview
+let appendConversationRenderProfilerSample: typeof import('./threadConversationProfiler').appendConversationRenderProfilerSample
+let buildConversationRenderProfilerSnapshot: typeof import('./threadConversationProfiler').buildConversationRenderProfilerSnapshot
+let buildConversationRenderProfilerSuggestions: typeof import('./threadConversationProfiler').buildConversationRenderProfilerSuggestions
+let buildConversationScrollDiagnosticsSnapshot: typeof import('./threadConversationProfiler').buildConversationScrollDiagnosticsSnapshot
+let createConversationRenderProfilerRecordState: typeof import('./threadConversationProfiler').createConversationRenderProfilerRecordState
 
 describe('threadConversationProfiler', () => {
+  beforeAll(async () => {
+    i18n.loadAndActivate({ locale: 'en', messages: {} })
+    ;({
+      buildConversationLiveDiagnosticsSnapshot,
+      buildConversationRenderProfilerExportPayload,
+      buildConversationRenderProfilerDiagnosticOverview,
+      appendConversationRenderProfilerSample,
+      buildConversationRenderProfilerSnapshot,
+      buildConversationRenderProfilerSuggestions,
+      buildConversationScrollDiagnosticsSnapshot,
+      createConversationRenderProfilerRecordState,
+    } = await import('./threadConversationProfiler'))
+  })
+
   it('keeps only recent samples inside the rolling window', () => {
     const record = createConversationRenderProfilerRecordState('TurnTimeline')
 
@@ -606,5 +620,64 @@ describe('threadConversationProfiler', () => {
         ],
       },
     })
+  })
+
+  it('does not classify filtered items as unrecovered when snapshot reconciliation already caught them up', () => {
+    const snapshot = buildConversationLiveDiagnosticsSnapshot(
+      [
+        {
+          id: 1,
+          itemId: 'cmd-1',
+          itemType: 'commandExecution',
+          kind: 'baseline-filtered',
+          method: 'item/commandExecution/outputDelta',
+          source: 'thread-live',
+          threadId: 'thread-1',
+          ts: 100,
+          turnId: 'turn-1',
+        },
+        {
+          id: 2,
+          itemId: 'cmd-1',
+          itemType: 'commandExecution',
+          kind: 'snapshot-reconciled',
+          metadata: {
+            currentLength: 240,
+            incomingLength: 120,
+          },
+          reason: 'preserved longer current text',
+          source: 'thread-live',
+          threadId: 'thread-1',
+          ts: 110,
+          turnId: 'turn-1',
+        },
+      ],
+      {
+        enabled: true,
+        now: 120,
+      },
+    )
+
+    expect(snapshot.latestItemLifecycle[0]).toMatchObject({
+      filteredCount: 1,
+      replayedCount: 0,
+      snapshotReconciledCount: 1,
+      snapshotPreservedCount: 0,
+    })
+    expect(snapshot.topProblemItems).toEqual([
+      {
+        evidence: [
+          'filtered 1 time(s)',
+          'snapshot recovered 1 time(s)',
+          'final text length 240',
+        ],
+        itemId: 'cmd-1',
+        itemType: 'commandExecution',
+        key: 'turn-1:cmd-1',
+        score: 1,
+        summary: 'Baseline filtered the item, but snapshot recovery caught it up',
+        turnId: 'turn-1',
+      },
+    ])
   })
 })

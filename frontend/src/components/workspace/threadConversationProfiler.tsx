@@ -34,33 +34,6 @@ const MAX_CONVERSATION_LIVE_DIAGNOSTIC_EVENTS = 400
 const MAX_CONVERSATION_LIVE_DIAGNOSTIC_RECENT_EVENTS = 12
 const SCROLL_DIAGNOSTIC_JITTER_WINDOW_MS = 220
 
-const KNOWN_CONVERSATION_SCROLL_MUTATORS: ConversationScrollMutatorDescriptor[] = [
-  {
-    file: 'frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts',
-    reason: i18n._({
-      id: 'threadConversationProfiler.autoScrollReason',
-      message: 'Follows new content, thread-open settle, jump-to-latest, and bottom-clearance changes by calling scrollTo(bottom).',
-    }),
-    source: 'auto-scroll',
-  },
-  {
-    file: 'frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts',
-    reason: i18n._({
-      id: 'threadConversationProfiler.olderTurnRestoreReason',
-      message: 'Restores viewport position after loading older turns through the shared viewport scroll coordinator.',
-    }),
-    source: 'older-turn-restore',
-  },
-  {
-    file: 'frontend/src/components/workspace/useVirtualizedConversationEntries.ts',
-    reason: i18n._({
-      id: 'threadConversationProfiler.virtualizationLayoutReason',
-      message: 'Does not write scrollTop directly, but measured height and padding updates can change scrollHeight while follow mode is active.',
-    }),
-    source: 'virtualization-layout',
-  },
-]
-
 const conversationRenderProfilerListeners = new Set<() => void>()
 const conversationRenderProfilerRecords = new Map<string, ConversationRenderProfilerRecordState>()
 const conversationScrollDiagnosticEvents: ConversationScrollDiagnosticEvent[] = []
@@ -92,6 +65,35 @@ function getConversationRenderProfilerNow() {
   }
 
   return Date.now()
+}
+
+function getKnownConversationScrollMutators(): ConversationScrollMutatorDescriptor[] {
+  return [
+    {
+      file: 'frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts',
+      reason: i18n._({
+        id: 'threadConversationProfiler.autoScrollReason',
+        message: 'Follows new content, thread-open settle, jump-to-latest, and bottom-clearance changes by calling scrollTo(bottom).',
+      }),
+      source: 'auto-scroll',
+    },
+    {
+      file: 'frontend/src/pages/thread-page/useThreadViewportAutoScroll.ts',
+      reason: i18n._({
+        id: 'threadConversationProfiler.olderTurnRestoreReason',
+        message: 'Restores viewport position after loading older turns through the shared viewport scroll coordinator.',
+      }),
+      source: 'older-turn-restore',
+    },
+    {
+      file: 'frontend/src/components/workspace/useVirtualizedConversationEntries.ts',
+      reason: i18n._({
+        id: 'threadConversationProfiler.virtualizationLayoutReason',
+        message: 'Does not write scrollTop directly, but measured height and padding updates can change scrollHeight while follow mode is active.',
+      }),
+      source: 'virtualization-layout',
+    },
+  ]
 }
 
 function readConversationRenderProfilerEnabledFromStorage() {
@@ -766,6 +768,8 @@ export function buildConversationLiveItemLifecycleEntries(
         lastEventTs: event.ts,
         placeholderRendered: false,
         replayedCount: 0,
+        snapshotPreservedCount: 0,
+        snapshotReconciledCount: 0,
         startedAt: null,
         suppressedReason: null,
         turnId: event.turnId,
@@ -796,6 +800,10 @@ export function buildConversationLiveItemLifecycleEntries(
       existing.filteredCount += 1
     } else if (event.kind === 'baseline-replayed') {
       existing.replayedCount += 1
+    } else if (event.kind === 'snapshot-reconciled') {
+      existing.snapshotReconciledCount += 1
+    } else if (event.kind === 'snapshot-trailing-item-preserved') {
+      existing.snapshotPreservedCount += 1
     } else if (event.kind === 'timeline-placeholder') {
       existing.placeholderRendered = true
     } else if (event.kind === 'timeline-suppressed') {
@@ -844,10 +852,19 @@ export function buildConversationLiveProblemItems(
         score += 2
       }
 
+      const snapshotRecoveredCount =
+        entry.snapshotReconciledCount + entry.snapshotPreservedCount
+
       if (entry.filteredCount > 0 && entry.replayedCount === 0) {
-        summary = 'Baseline filtered the item without replay'
         evidence.push(`filtered ${entry.filteredCount} time(s)`)
-        score += 4
+        if (snapshotRecoveredCount > 0) {
+          summary = 'Baseline filtered the item, but snapshot recovery caught it up'
+          evidence.push(`snapshot recovered ${snapshotRecoveredCount} time(s)`)
+          score += 1
+        } else {
+          summary = 'Baseline filtered the item without replay'
+          score += 4
+        }
       } else if (entry.replayedCount > 0) {
         summary = 'Older item state had to be replayed'
         evidence.push(`replayed ${entry.replayedCount} time(s)`)
@@ -1166,7 +1183,7 @@ export function buildConversationRenderProfilerSnapshot(
     enabled: options?.enabled ?? false,
     liveDiagnostics,
     liveDiagnosticsEnabled: options?.liveDiagnosticsEnabled ?? false,
-    knownScrollMutators: KNOWN_CONVERSATION_SCROLL_MUTATORS,
+    knownScrollMutators: getKnownConversationScrollMutators(),
     lastCommitTime,
     panelVisible: false,
     records: renderedRecords,
@@ -1547,6 +1564,8 @@ function formatConversationLiveLifecycleDetail(entry: ConversationLiveItemLifecy
     `delta ${entry.deltaCount}`,
     entry.filteredCount > 0 ? `filtered ${entry.filteredCount}` : null,
     entry.replayedCount > 0 ? `replayed ${entry.replayedCount}` : null,
+    entry.snapshotReconciledCount > 0 ? `snapshot-reconciled ${entry.snapshotReconciledCount}` : null,
+    entry.snapshotPreservedCount > 0 ? `snapshot-preserved ${entry.snapshotPreservedCount}` : null,
     entry.finalTextLength > 0 ? `len ${entry.finalTextLength}` : null,
     entry.placeholderRendered ? 'placeholder' : null,
     entry.suppressedReason ? `suppressed: ${entry.suppressedReason}` : null,

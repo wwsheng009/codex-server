@@ -445,6 +445,53 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Preparing file changes…')
   })
 
+  it('renders command execution placeholders before command details arrive', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-command-placeholder',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'command-1',
+            type: 'commandExecution',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Command')
+    expect(html).toContain('Waiting for output.')
+  })
+
+  it('renders plan placeholders before step content arrives', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-plan-placeholder',
+        status: 'inProgress',
+        items: [
+          {
+            id: 'turn-plan-empty',
+            type: 'turnPlan',
+            explanation: '',
+            steps: [],
+          },
+          {
+            id: 'plan-empty',
+            type: 'plan',
+            text: '',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Plan')
+    expect((html.match(/Thinking…/g) ?? []).length).toBeGreaterThanOrEqual(2)
+  })
+
   it('renders a live cursor for streaming agent messages', () => {
     const turns: ThreadTurn[] = [
       {
@@ -569,6 +616,30 @@ describe('TurnTimeline', () => {
     expect(html).not.toContain('conversation-bubble__cursor')
   })
 
+  it('can disable animate-once rendering on the active thread surface', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-3b-disabled',
+        status: 'completed',
+        items: [
+          {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: 'Completed reply',
+            clientRenderMode: 'animate-once',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(
+      <TurnTimeline disableCompletedMessageAnimation turns={turns} />,
+    )
+
+    expect(html).not.toContain('conversation-bubble--streaming')
+    expect(html).toContain('Completed reply')
+  })
+
   it('renders a lightweight streaming assistant placeholder before the first text chunk arrives', () => {
     const turns: ThreadTurn[] = [
       {
@@ -592,7 +663,7 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Thinking…')
   })
 
-  it('still suppresses completed assistant items that never received any text', () => {
+  it('renders a placeholder for completed assistant items that have not received text yet', () => {
     const turns: ThreadTurn[] = [
       {
         id: 'turn-3c-empty-completed',
@@ -609,8 +680,8 @@ describe('TurnTimeline', () => {
 
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
-    expect(html).not.toContain('conversation-row--assistant')
-    expect(html).not.toContain('Thinking…')
+    expect(html).toContain('conversation-row--assistant')
+    expect(html).toContain('Thinking…')
   })
 
   it('reveals streaming agent text progressively when a large delta arrives', () => {
@@ -954,6 +1025,57 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Failed Validation Rescue')
     expect(html).toContain('Continue Turn')
     expect(html).toContain('Validation command failed')
+  })
+
+  it('derives hook run text when the backend item does not include a prebuilt message', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-hook-derived',
+        status: 'completed',
+        items: [
+          {
+            id: 'hook-run-hook-2',
+            type: 'hookRun',
+            eventName: 'PostToolUse',
+            handlerKey: 'builtin.posttooluse.failed-validation-rescue',
+            triggerMethod: 'item/completed',
+            status: 'completed',
+            decision: 'continueTurn',
+            reason: 'validation_command_failed',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Hook Run')
+    expect(html).toContain('Post-Tool Use')
+    expect(html).toContain('Failed Validation Rescue')
+    expect(html).toContain('Continue Turn')
+    expect(html).toContain('Validation command failed')
+  })
+
+  it('renders an empty-state fallback when turns exist but all timeline items are omitted', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-empty',
+        status: 'completed',
+        items: [
+          {
+            id: 'blank-web-search',
+            type: 'webSearch',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('No visible thread events')
+    expect(html).toContain(
+      'This thread has updates, but none of them produced a renderable timeline entry yet.',
+    )
   })
 
   it('renders streaming markdown as plain text until the message settles', () => {

@@ -1,4 +1,5 @@
 import { ApiClientError } from './api-client'
+import { i18n } from '../i18n/runtime'
 import type { UserFacingError } from './errorUtilsTypes'
 export type { UserFacingError } from './errorUtilsTypes'
 
@@ -29,6 +30,20 @@ export function getErrorMessage(error: unknown, fallback?: string) {
   }
 
   return describeError(error, fallback).message
+}
+
+export function getBotOutboundErrorMessage(error: unknown, fallback?: string) {
+  if (error == null) {
+    return fallback ?? ''
+  }
+
+  const rawMessage = readErrorMessage(error).trim()
+  const friendlyMessage = friendlyBotOutboundErrorMessage(rawMessage)
+  if (friendlyMessage) {
+    return friendlyMessage
+  }
+
+  return getErrorMessage(error, fallback)
 }
 
 export function isAuthenticationError(error: unknown) {
@@ -81,4 +96,26 @@ function friendlyErrorMessageForCode(code: string) {
     default:
       return ''
   }
+}
+
+function friendlyBotOutboundErrorMessage(message: string) {
+  const normalized = message.trim().toLowerCase()
+  if (!normalized) {
+    return ''
+  }
+
+  if (
+    normalized.includes('wechat') &&
+    (normalized.includes('reply context unavailable') ||
+      normalized.includes('sendable reply context') ||
+      normalized.includes('wait for the user to send a message first'))
+  ) {
+    return i18n._({
+      id: 'WeChat cannot send this proactive message yet because the saved reply context is no longer valid. Ask the recipient to send a new message to this bot first, then try again.',
+      message:
+        'WeChat cannot send this proactive message yet because the saved reply context is no longer valid. Ask the recipient to send a new message to this bot first, then try again.',
+    })
+  }
+
+  return ''
 }

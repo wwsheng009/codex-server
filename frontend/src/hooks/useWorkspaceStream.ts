@@ -42,6 +42,7 @@ let workspaceStreamDiagnosticsDirty = true
 let workspaceStreamDiagnosticsSnapshotCache: WorkspaceStreamManagerDiagnostics | null = null
 
 type WorkspaceStreamEventHandlers = {
+  flushDeferredEvents: (stream: WorkspaceStream) => void
   flushQueuedEvents: (stream: WorkspaceStream) => void
   ingestImmediateEvent: (event: ServerEvent) => void
   scheduleDeferredFlush: (stream: WorkspaceStream) => void
@@ -1124,6 +1125,7 @@ export function handleWorkspaceStreamEvent(
   stream: WorkspaceStream,
   event: ServerEvent,
   handlers: WorkspaceStreamEventHandlers = {
+    flushDeferredEvents: flushDeferredWorkspaceEvents,
     flushQueuedEvents: flushWorkspaceStreamEvents,
     ingestImmediateEvent: (nextEvent) => useSessionStore.getState().ingestEvent(nextEvent),
     scheduleDeferredFlush: scheduleDeferredWorkspaceEventFlush,
@@ -1131,12 +1133,11 @@ export function handleWorkspaceStreamEvent(
   },
 ) {
   if (!isBatchableWorkspaceEvent(event.method)) {
-    if (stream.eventQueue.length > 0 || stream.deferredEvents.length > 0) {
+    if (stream.eventQueue.length > 0) {
       handlers.flushQueuedEvents(stream)
-      stream.deferredEvents.push(event)
-      scheduleWorkspaceStreamDiagnosticsChanged()
-      handlers.scheduleDeferredFlush(stream)
-      return
+    }
+    if (stream.deferredEvents.length > 0) {
+      handlers.flushDeferredEvents(stream)
     }
 
     handlers.ingestImmediateEvent(event)

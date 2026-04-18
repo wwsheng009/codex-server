@@ -106,6 +106,10 @@ const McpSettingsPage = lazy(async () => {
   const module = await import("../pages/settings/McpSettingsPage");
   return { default: module.McpSettingsPage };
 });
+const FeishuToolsSettingsPage = lazy(async () => {
+  const module = await import("../pages/settings/FeishuToolsSettingsPage");
+  return { default: module.FeishuToolsSettingsPage };
+});
 const PersonalizationSettingsPage = lazy(async () => {
   const module = await import("../pages/settings/PersonalizationSettingsPage");
   return { default: module.PersonalizationSettingsPage };
@@ -204,6 +208,10 @@ export const router = createBrowserRouter([
                     element: lazyElement(PersonalizationSettingsPage),
                   },
                   { path: "mcp", element: lazyElement(McpSettingsPage) },
+                  {
+                    path: "feishu-tools",
+                    element: lazyElement(FeishuToolsSettingsPage),
+                  },
                   { path: "git", element: lazyElement(GitSettingsPage) },
                   {
                     path: "environment",

@@ -24,6 +24,7 @@ export type ThreadTurnContentHandler = (
 export type RetryServerRequestHandler = (item: Record<string, unknown>) => void
 
 export type TurnTimelineProps = {
+  disableCompletedMessageAnimation?: boolean
   disableVirtualization?: boolean
   freezeVirtualization?: boolean
   onReleaseFullTurn?: ThreadTurnContentHandler
@@ -144,6 +145,7 @@ export type CompactSystemStatusIconProps = {
 }
 
 export type TimelineItemProps = {
+  disableCompletedMessageAnimation?: boolean
   item: Record<string, unknown>
   onReleaseFullTurn?: ThreadTurnContentHandler
   onRetainFullTurn?: ThreadTurnContentHandler

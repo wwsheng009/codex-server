@@ -562,5 +562,9 @@ export function formatHookRunMessage({
     lines.push(`Feedback: ${trimHookRunValue(feedback)}`)
   }
 
+  if (!lines.length) {
+    return i18n._({ id: 'Hook run updated', message: 'Hook run updated' })
+  }
+
   return lines.join('\n')
 }
