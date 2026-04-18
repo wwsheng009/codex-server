@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useSearchParams } from 'react-router-dom'
 
 import { getSettingsSections } from '../../features/settings/sections'
 import { i18n } from '../../i18n/runtime'
@@ -10,6 +10,7 @@ import { useSessionStore } from '../../stores/session-store'
 
 export function SettingsShell() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const [searchParams] = useSearchParams()
   const sessionSelectedWorkspaceId = useSessionStore((state) => state.selectedWorkspaceId)
   const settingsSections = getSettingsSections()
 
@@ -24,6 +25,14 @@ export function SettingsShell() {
       return undefined
     }
 
+    const requestedWorkspaceId = searchParams.get('workspaceId')?.trim() ?? ''
+    if (
+      requestedWorkspaceId &&
+      workspaces.some((workspace) => workspace.id === requestedWorkspaceId)
+    ) {
+      return requestedWorkspaceId
+    }
+
     if (selectedWorkspaceId && workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
       return selectedWorkspaceId
     }
@@ -36,7 +45,7 @@ export function SettingsShell() {
     }
 
     return workspaces[0]?.id
-  }, [selectedWorkspaceId, sessionSelectedWorkspaceId, workspacesQuery.data])
+  }, [searchParams, selectedWorkspaceId, sessionSelectedWorkspaceId, workspacesQuery.data])
 
   const workspaceName =
     workspacesQuery.data?.find((workspace) => workspace.id === workspaceId)?.name ??

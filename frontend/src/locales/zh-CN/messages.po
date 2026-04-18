@@ -18580,6 +18580,11 @@ msgid "WeChat user ID is required for a saved contact."
 msgstr "保存的联系人需要微信用户ID。"
 
 #. js-lingui-explicit-id
+#: src/lib/error-utils.ts:114
+msgid "WeChat cannot send this proactive message yet because the saved reply context is no longer valid. Ask the recipient to send a new message to this bot first, then try again."
+msgstr "当前还不能通过 WeChat 发送这条主动消息，因为已保存的回复上下文已经失效。请先让收件人给这个机器人发送一条新消息，然后再重试。"
+
+#. js-lingui-explicit-id
 #: src/pages/BotsPage.tsx:8149
 msgid "wechat-account-1"
 msgstr "wechat-account-1"
@@ -19213,6 +19218,281 @@ msgid "zsh"
 msgstr "桀骜"
 
 #. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:356
+msgid "Managed MCP endpoint"
+msgstr "受管 MCP 端点"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:822
+msgid "OAuth scope request"
+msgstr "OAuth 权限请求"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:828
+msgid "The next OAuth run will request every currently missing scope for the enabled tool set."
+msgstr "下一次 OAuth 会为当前启用工具集合请求所有仍然缺失的 scope。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:918
+msgid "The next OAuth run will derive scopes from the selected tools and request only the currently missing user permissions those tools still need."
+msgstr "下一次 OAuth 会根据选中的工具自动推导 scope，并且只请求这些工具当前仍缺失的用户权限。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:834
+msgid "The next OAuth run will request only the missing scopes selected below."
+msgstr "下一次 OAuth 只会请求下方选中的缺失 scope。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:840
+msgid "The next OAuth run will request the exact scopes entered below, even if they are not part of the current missing-scope summary."
+msgstr "下一次 OAuth 会按下方输入的精确 scope 列表发起请求，即使它们不在当前缺失 scope 摘要中。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:844
+msgid "All missing scopes"
+msgstr "所有缺失 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:845
+msgid "Selected missing scopes"
+msgstr "选中的缺失 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:940
+msgid "Selected tools -> scopes"
+msgstr "选中工具 -> 推导 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:846
+msgid "Manual scope list"
+msgstr "手动 scope 列表"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:849
+msgid "{count} requestable"
+msgstr "{count} 个可请求"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:857
+msgid "{count} selected"
+msgstr "{count} 个已选"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:965
+msgid "{count} tools selected"
+msgstr "{count} 个工具已选"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:973
+msgid "Following exposed tool set"
+msgstr "跟随当前暴露工具集"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:978
+msgid "Custom OAuth tool set"
+msgstr "自定义 OAuth 工具集"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:972
+msgid "{count} scopes derived"
+msgstr "已推导 {count} 个 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:864
+msgid "{count} manual"
+msgstr "{count} 个手动输入"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:868
+msgid "OAuth scope request mode"
+msgstr "OAuth scope 请求模式"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:872
+msgid "Choose how many missing scopes to request"
+msgstr "选择本次要请求多少缺失 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:883
+msgid "Request all missing scopes"
+msgstr "请求所有缺失 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1037
+msgid "Request scopes from selected tools"
+msgstr "根据选中工具请求 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1043
+msgid "Best when you want authorization to follow the exact tool set you are about to expose or test."
+msgstr "适合希望授权严格跟随当前准备暴露或测试的工具集合。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:889
+msgid "Best when you want one OAuth run to cover the entire currently enabled tool set."
+msgstr "适合希望一次 OAuth 尽量覆盖当前整套启用工具权限的场景。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1060
+msgid "Request selected missing scopes directly"
+msgstr "直接请求选中的缺失 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:910
+msgid "Best when you want staged rollout or want to avoid requesting high-risk scopes too early."
+msgstr "适合分阶段上线，或暂时不想过早请求高风险 scope 的场景。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:925
+msgid "Request manually entered scopes"
+msgstr "请求手动输入的 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:931
+msgid "Best when you want to test a specific permission set or request scopes that are not currently highlighted as missing."
+msgstr "适合测试一组特定权限，或请求当前未在缺失列表中高亮的 scope。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:923
+msgid "Select all requestable scopes"
+msgstr "全选可请求 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1102
+msgid "Select all requestable tools"
+msgstr "全选可请求工具"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1107
+msgid "Use exposed tool set"
+msgstr "使用当前暴露工具集"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1110
+msgid "Exposed tool boundary"
+msgstr "暴露工具边界"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1114
+msgid "The workspace currently exposes every modeled Feishu tool, so OAuth can derive scopes from the full requestable tool set."
+msgstr "当前工作区暴露了所有建模过的 Feishu tool，因此 OAuth 可以从完整的可请求工具集合中派生 scopes。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1120
+msgid "The workspace allowlist currently limits Feishu access to the selected tools below. OAuth can follow that same boundary."
+msgstr "当前工作区 allowlist 只允许访问下方这些工具，OAuth 可以沿用同一边界。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1128
+msgid "{count} requestable tools in scope"
+msgstr "范围内有 {count} 个可请求工具"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1146
+msgid "No currently exposed Feishu tools still require user OAuth scopes."
+msgstr "当前已暴露的 Feishu 工具里，没有仍需用户 OAuth scope 的项。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1155
+msgid "OAuth tool boundary"
+msgstr "OAuth 工具边界"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1160
+msgid "This OAuth run is aligned with the current workspace tool exposure boundary."
+msgstr "本次 OAuth 与当前工作区工具暴露边界保持一致。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1166
+msgid "This OAuth run currently uses a custom tool subset. It can be narrower or broader than the workspace exposure boundary."
+msgstr "本次 OAuth 当前使用自定义工具子集，范围可能比工作区暴露边界更窄，也可能更宽。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1189
+msgid "{count} extra beyond exposure"
+msgstr "超出暴露边界 {count} 个"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1197
+msgid "{count} skipped from exposure"
+msgstr "从暴露边界中跳过 {count} 个"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1108
+msgid "Clear selected tools"
+msgstr "清空已选工具"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1114
+msgid "Scopes are derived from the selected tools and filtered to the user permissions that are still missing."
+msgstr "scope 会根据选中的工具自动推导，并过滤成当前仍然缺失的用户权限。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1124
+msgid "OAuth tool selection currently overrides the exposure panel"
+msgstr "当前 OAuth 工具选择已覆盖暴露面板配置"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1130
+msgid "Use the exposed tool set action if you want authorization to return to the same tool boundary currently configured for this workspace."
+msgstr "如果你希望授权重新回到当前工作区配置的同一工具边界，请使用“使用当前暴露工具集”。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1218
+msgid "Derived scope request"
+msgstr "派生后的 scope 请求"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1222
+msgid "The final OAuth request is built from the selected tools and filtered to the user permissions that are still missing."
+msgstr "最终 OAuth 请求会基于选中的工具生成，并过滤为当前仍然缺失的用户权限。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:928
+msgid "Clear selected scopes"
+msgstr "清空已选 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:933
+msgid "Only the checked scopes will be included in the next OAuth authorization URL."
+msgstr "下一次 OAuth 授权链接中只会包含当前勾选的 scope。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1137
+msgid "{count} missing scopes"
+msgstr "{count} 个缺失 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1145
+msgid "{count} sensitive scopes"
+msgstr "{count} 个敏感 scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1168
+msgid "Select at least one tool to derive the missing OAuth scopes for this run."
+msgstr "请至少选择一个工具，以便为本次 OAuth 推导缺失 scope。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:985
+msgid "Manual OAuth scopes"
+msgstr "手动 OAuth scope"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:990
+msgid "Enter one scope per line or separate scopes with commas."
+msgstr "每行输入一个 scope，或使用逗号分隔多个 scope。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:997
+msgid "Manual mode sends exactly the normalized scopes listed here. Duplicates and blank lines are removed automatically."
+msgstr "手动模式会按这里列出的规范化 scope 精确发起请求；重复项和空行会自动去重清理。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:347
+msgid "codex-server now hosts the Feishu MCP adapter itself. Saving this page manages workspace mcpServers.feishu-tools automatically, threads use that MCP server directly, and bots can use the same Feishu tools only through the thread they are bound to."
+msgstr "codex-server 现在会自行托管 Feishu MCP 适配层。保存此页面时会自动管理工作区的 mcpServers.feishu-tools；thread 会直接使用该 MCP server，而 bot 只能通过其绑定的 thread 使用同一套 Feishu tools。"
+
+#. js-lingui-explicit-id
 #: src/pages/workspaces/WorkspaceHookConfigurationEditorSection.tsx:505
 msgid "SessionStart template placeholder"
 msgstr "SessionStart 模板占位符"
@@ -19221,3 +19501,88 @@ msgstr "SessionStart 模板占位符"
 #: src/pages/settings/GovernanceSettingsPage.tsx:1802
 msgid "SessionStart template override placeholder"
 msgstr "SessionStart 模板覆盖占位符"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1747
+msgid "The workspace has a Feishu access token, but no refresh token was saved. Re-run OAuth before the access token expires."
+msgstr "当前工作区已有 Feishu access token，但没有保存 refresh token。请在 access token 过期前重新执行 OAuth。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:728
+msgid "Persisted token snapshot"
+msgstr "已保存的 token 摘要"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:732
+msgid "Masked preview of the token material currently saved for this workspace."
+msgstr "当前工作区已保存 token 内容的脱敏预览。"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:755
+msgid "Copy masked snapshot"
+msgstr "复制脱敏摘要"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:769
+msgid "Field"
+msgstr "字段"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:772
+msgid "Value"
+msgstr "值"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1854
+msgid "Access token saved"
+msgstr "已保存 access token"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1857
+msgid "Yes"
+msgstr "是"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1858
+msgid "No"
+msgstr "否"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1864
+msgid "Access token preview"
+msgstr "access token 预览"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1872
+msgid "Refresh token saved"
+msgstr "已保存 refresh token"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1882
+msgid "Refresh token preview"
+msgstr "refresh token 预览"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1890
+msgid "Obtained at"
+msgstr "获取时间"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1895
+msgid "Access token expires at"
+msgstr "access token 过期时间"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1903
+msgid "Refresh token expires at"
+msgstr "refresh token 过期时间"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1911
+msgid "Open ID"
+msgstr "Open ID"
+
+#. js-lingui-explicit-id
+#: src/pages/settings/FeishuToolsSettingsPage.tsx:1917
+msgid "Union ID"
+msgstr "Union ID"

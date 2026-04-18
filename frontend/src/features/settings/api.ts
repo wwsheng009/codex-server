@@ -5,6 +5,14 @@ import type {
   AccessBootstrapResult,
   ConfigWriteResult,
   ExternalAgentConfigDetectResult,
+  FeishuToolsAuthState,
+  FeishuToolsCapabilitiesResult,
+  FeishuToolsConfigResult,
+  FeishuToolsInvokeInput,
+  FeishuToolsInvokeResult,
+  FeishuToolsOauthLoginResult,
+  FeishuToolsPermissionsResult,
+  FeishuToolsStatusResult,
   FeedbackUploadResult,
   EventHubDiagnosticsSnapshot,
   McpOauthLoginResult,
@@ -110,6 +118,20 @@ export type McpOauthLoginInput = {
   name: string;
   scopes?: string[];
   timeoutSecs?: number;
+};
+
+export type FeishuToolsConfigWriteInput = {
+  enabled: boolean;
+  appId: string;
+  appSecret?: string;
+  mcpEndpoint: string;
+  oauthMode: "app_only" | "user_oauth";
+  sensitiveWriteGuard: boolean;
+  toolAllowlist: string[];
+};
+
+export type FeishuToolsOauthLoginInput = {
+  scopes?: string[];
 };
 
 export function readConfig(workspaceId: string, input: ReadConfigInput) {
@@ -250,6 +272,85 @@ export function uploadFeedback(
 export function mcpOauthLogin(workspaceId: string, input: McpOauthLoginInput) {
   return apiRequest<McpOauthLoginResult>(
     `/api/workspaces/${workspaceId}/mcp/oauth/login`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function readFeishuToolsConfig(workspaceId: string) {
+  return apiRequest<FeishuToolsConfigResult>(
+    `/api/workspaces/${workspaceId}/feishu-tools/config`,
+  );
+}
+
+export function writeFeishuToolsConfig(
+  workspaceId: string,
+  input: FeishuToolsConfigWriteInput,
+) {
+  return apiRequest<FeishuToolsConfigResult>(
+    `/api/workspaces/${workspaceId}/feishu-tools/config`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function readFeishuToolsStatus(workspaceId: string) {
+  return apiRequest<FeishuToolsStatusResult>(
+    `/api/workspaces/${workspaceId}/feishu-tools/status`,
+  );
+}
+
+export function readFeishuToolsCapabilities(workspaceId: string) {
+  return apiRequest<FeishuToolsCapabilitiesResult>(
+    `/api/workspaces/${workspaceId}/feishu-tools/capabilities`,
+  );
+}
+
+export function readFeishuToolsPermissions(workspaceId: string) {
+  return apiRequest<FeishuToolsPermissionsResult>(
+    `/api/workspaces/${workspaceId}/feishu-tools/permissions`,
+  );
+}
+
+export function feishuToolsOauthLogin(
+  workspaceId: string,
+  input: FeishuToolsOauthLoginInput,
+) {
+  return apiRequest<FeishuToolsOauthLoginResult>(
+    `/api/workspaces/${workspaceId}/feishu-tools/oauth/login`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function readFeishuToolsOauthStatus(workspaceId: string) {
+  return apiRequest<FeishuToolsAuthState>(
+    `/api/workspaces/${workspaceId}/feishu-tools/oauth/status`,
+  );
+}
+
+export function revokeFeishuToolsOauth(workspaceId: string) {
+  return apiRequest<FeishuToolsAuthState>(
+    `/api/workspaces/${workspaceId}/feishu-tools/oauth/revoke`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+  );
+}
+
+export function invokeFeishuTool(
+  workspaceId: string,
+  input: FeishuToolsInvokeInput,
+) {
+  return apiRequest<FeishuToolsInvokeResult>(
+    `/api/workspaces/${workspaceId}/feishu-tools/invoke`,
     {
       method: "POST",
       body: JSON.stringify(input),

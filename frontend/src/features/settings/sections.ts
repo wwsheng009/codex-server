@@ -39,6 +39,15 @@ export function getSettingsSections() {
       caption: i18n._({ id: 'settings.mcp.caption', message: 'Server authorization and integration setup.' }),
     },
     {
+      id: 'feishu-tools',
+      to: '/settings/feishu-tools',
+      label: i18n._({ id: 'Feishu Tools', message: 'Feishu Tools' }),
+      caption: i18n._({
+        id: 'settings.feishu_tools.caption',
+        message: 'Workspace Feishu Docs, Drive, message history, Calendar, Tasks, Sheets, and Base setup.',
+      }),
+    },
+    {
       id: 'git',
       to: '/settings/git',
       label: i18n._({ id: 'Git', message: 'Git' }),
