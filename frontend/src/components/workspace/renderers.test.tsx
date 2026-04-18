@@ -1056,7 +1056,7 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Validation command failed')
   })
 
-  it('renders an empty-state fallback when turns exist but all timeline items are omitted', () => {
+  it('renders placeholder cards for items that would otherwise be omitted (placeholder-first)', () => {
     const turns: ThreadTurn[] = [
       {
         id: 'turn-empty',
@@ -1072,10 +1072,8 @@ describe('TurnTimeline', () => {
 
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
-    expect(html).toContain('No visible thread events')
-    expect(html).toContain(
-      'This thread has updates, but none of them produced a renderable timeline entry yet.',
-    )
+    expect(html).not.toContain('No visible thread events')
+    expect(html).toContain('Web Search')
   })
 
   it('renders streaming markdown as plain text until the message settles', () => {

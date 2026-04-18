@@ -46,7 +46,7 @@ describe('buildThreadPageTurnDisplayState', () => {
         [threadTurnItemOverrideKey('turn-1', 'msg-1')]: {
           id: 'msg-1',
           type: 'agentMessage',
-          text: 'full body',
+          text: 'full body with additional detail',
         },
       },
       fullTurnOverridesById: {},
@@ -58,7 +58,7 @@ describe('buildThreadPageTurnDisplayState', () => {
     expect(state.displayedTurns).toHaveLength(1)
     expect(state.displayedTurns[0].items[0]).toMatchObject({
       id: 'msg-1',
-      text: 'full body',
+      text: 'full body with additional detail',
       type: 'agentMessage',
     })
     expect(state.displayedTurns[0].items[1]).toMatchObject({
@@ -405,7 +405,7 @@ describe('buildThreadPageTurnDisplayState', () => {
         {
           id: 'msg-1',
           type: 'agentMessage',
-          text: 'full body',
+          text: 'full body with additional detail',
         },
       ],
     }
@@ -469,7 +469,7 @@ describe('buildThreadPageTurnDisplayState', () => {
     expect(secondState.displayedTurns[0].items[0]).toMatchObject({
       id: 'msg-1',
       type: 'agentMessage',
-      text: 'full body',
+      text: 'full body with additional detail',
     })
   })
 
@@ -1048,6 +1048,115 @@ describe('buildThreadPageTurnDisplayState', () => {
 
     expect(secondState).toBe(firstState)
     expect(secondState.displayedTurns).toBe(firstState.displayedTurns)
+  })
+
+  it('preserves live agent message text when a shorter item override would shrink it (single-truth guard)', () => {
+    const threadProjection: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'inProgress',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:00.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: 'live streamed text that is already long',
+              phase: 'streaming',
+            },
+          ],
+        },
+      ],
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {
+        [threadTurnItemOverrideKey('turn-1', 'msg-1')]: {
+          id: 'msg-1',
+          type: 'agentMessage',
+          text: 'stale summary',
+          phase: 'completed',
+        },
+      },
+      fullTurnOverridesById: {},
+      historicalTurns: [],
+      threadProjection,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(state.displayedTurns[0].items[0]).toMatchObject({
+      id: 'msg-1',
+      text: 'live streamed text that is already long',
+      phase: 'streaming',
+    })
+  })
+
+  it('preserves live aggregated output when a shorter turn-override output would shrink it (single-truth guard)', () => {
+    const threadProjection: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'inProgress',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:00.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'a very long live output that came from streaming deltas',
+              outputLineCount: 120,
+            },
+          ],
+        },
+      ],
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: null,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {
+        'turn-1': {
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'git status',
+              aggregatedOutput: 'short stale',
+              outputLineCount: 1,
+            },
+          ],
+        } as ThreadDetail['turns'][number],
+      },
+      historicalTurns: [],
+      threadProjection,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(state.displayedTurns[0].items[0]).toMatchObject({
+      id: 'cmd-1',
+      aggregatedOutput: 'a very long live output that came from streaming deltas',
+    })
   })
 
 })

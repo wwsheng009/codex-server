@@ -6,6 +6,8 @@ import {
 } from '../threadPageUtils'
 import { normalizeTurnPlanStatus, readTurnPlanItem } from '../../lib/turn-plan'
 import { buildPendingThreadTurn } from '../threadPageTurnHelpers'
+import { recordConversationLiveDiagnosticEvent } from '../../components/workspace/threadConversationProfiler'
+import { threadProjectionSingleTruth } from './threadRenderingFeatureFlags'
 import type { ThreadPageTurnDisplayStateInput } from './threadPageDisplayTypes'
 import type { PendingThreadTurn } from '../threadPageTurnHelpers'
 import { buildThreadContentSignature } from './threadContentSignature'
@@ -46,6 +48,106 @@ const turnMetadataCache = new WeakMap<ThreadTurn, TurnMetadata>()
 const pendingTurnMetadataCache = new WeakMap<PendingThreadTurn, PendingTurnMetadata>()
 const turnArrayCache = new WeakMap<ThreadTurn[], TurnArrayCacheEntry>()
 const THREAD_GOVERNANCE_TURN_ID = 'thread-governance'
+const guardedOverrideItemCache = new WeakMap<
+  Record<string, unknown>,
+  WeakMap<Record<string, unknown>, Record<string, unknown>>
+>()
+
+function readStringField(source: Record<string, unknown>, key: string) {
+  const value = source[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function guardOverrideAgainstLiveItem(
+  baseItem: Record<string, unknown>,
+  overrideItem: Record<string, unknown>,
+  reason: 'turn-override' | 'item-override' | 'item-content-override',
+) {
+  if (!threadProjectionSingleTruth) {
+    return overrideItem
+  }
+  if (baseItem === overrideItem) {
+    return overrideItem
+  }
+
+  let cachedByBase = guardedOverrideItemCache.get(overrideItem)
+  if (!cachedByBase) {
+    cachedByBase = new WeakMap<Record<string, unknown>, Record<string, unknown>>()
+    guardedOverrideItemCache.set(overrideItem, cachedByBase)
+  }
+  const cached = cachedByBase.get(baseItem)
+  if (cached) {
+    return cached
+  }
+
+  const baseType = readStringField(baseItem, 'type')
+  const overrideType = readStringField(overrideItem, 'type')
+  const preserveType = baseType && overrideType && baseType !== overrideType
+  const patches: Record<string, unknown> = {}
+  let guardTriggered = false
+  const baseItemId = readStringField(baseItem, 'id') || null
+
+  if (preserveType) {
+    patches.type = baseType
+    guardTriggered = true
+  }
+
+  const activeType = preserveType ? baseType : overrideType || baseType
+
+  if (activeType === 'agentMessage') {
+    const baseText = readStringField(baseItem, 'text')
+    const overrideText = readStringField(overrideItem, 'text')
+    if (baseText.length > overrideText.length) {
+      patches.text = baseText
+      guardTriggered = true
+    }
+    const basePhase = readStringField(baseItem, 'phase')
+    const overridePhase = readStringField(overrideItem, 'phase')
+    if (basePhase === 'streaming' && overridePhase !== 'streaming') {
+      patches.phase = basePhase
+      guardTriggered = true
+    }
+    const baseRenderMode = readStringField(baseItem, 'clientRenderMode')
+    if (baseRenderMode === 'animate-once' && !('clientRenderMode' in overrideItem)) {
+      patches.clientRenderMode = baseRenderMode
+      guardTriggered = true
+    }
+  } else if (activeType === 'commandExecution') {
+    const baseOutput = readStringField(baseItem, 'aggregatedOutput')
+    const overrideOutput = readStringField(overrideItem, 'aggregatedOutput')
+    const overrideChunks = overrideItem.aggregatedOutputChunks
+    const overrideHasExplicitChunks = Array.isArray(overrideChunks) && overrideChunks.length > 0
+    if (!overrideHasExplicitChunks && baseOutput.length > overrideOutput.length) {
+      patches.aggregatedOutput = baseOutput
+      guardTriggered = true
+    }
+  }
+
+  if (!guardTriggered) {
+    cachedByBase.set(baseItem, overrideItem)
+    return overrideItem
+  }
+
+  const guarded = {
+    ...overrideItem,
+    ...patches,
+  }
+  cachedByBase.set(baseItem, guarded)
+
+  recordConversationLiveDiagnosticEvent({
+    itemId: baseItemId,
+    itemType: activeType || null,
+    kind: 'override-truth-guarded',
+    metadata: {
+      reason,
+      guardedKeys: Object.keys(patches).join(','),
+    },
+    reason: `override truth guarded (${reason})`,
+    source: 'thread-page-display',
+  })
+
+  return guarded
+}
 
 export function buildThreadPageTurnDisplayState({
   activePendingTurn,
@@ -65,6 +167,8 @@ export function buildThreadPageTurnDisplayState({
   const displayedTurns = reconcileDisplayTurnPlanStatuses(
     applyPendingTurnDisplay(turnsWithOverrides, activePendingTurn),
   )
+
+  assertProjectionItemsVisibleInTimeline(threadProjection?.turns ?? [], displayedTurns, selectedThreadId ?? null)
 
   const selectedThreadCacheKey = selectedThreadId ?? ''
   const cachedResult = getCachedTurnDisplayStateResult(
@@ -106,6 +210,74 @@ export function buildThreadPageTurnDisplayState({
 
   setCachedTurnDisplayStateResult(displayedTurns, selectedThreadCacheKey, activePendingTurn, result)
   return result
+}
+
+const projectionAlertSignatureCache = new WeakMap<ThreadTurn[], WeakMap<ThreadTurn[], string>>()
+
+function assertProjectionItemsVisibleInTimeline(
+  projectionTurns: ThreadTurn[],
+  displayedTurns: ThreadTurn[],
+  threadId: string | null,
+) {
+  if (!threadProjectionSingleTruth) {
+    return
+  }
+  if (!projectionTurns.length) {
+    return
+  }
+
+  let cachedByDisplay = projectionAlertSignatureCache.get(projectionTurns)
+  if (!cachedByDisplay) {
+    cachedByDisplay = new WeakMap<ThreadTurn[], string>()
+    projectionAlertSignatureCache.set(projectionTurns, cachedByDisplay)
+  }
+  if (cachedByDisplay.has(displayedTurns)) {
+    return
+  }
+
+  const displayedItemIds = new Set<string>()
+  for (const turn of displayedTurns) {
+    for (const item of turn.items) {
+      const itemId = typeof item.id === 'string' ? item.id : ''
+      if (itemId) {
+        displayedItemIds.add(`${turn.id}::${itemId}`)
+      }
+    }
+  }
+
+  const missing: Array<{ turnId: string; itemId: string; itemType: string }> = []
+  for (const turn of projectionTurns) {
+    for (const item of turn.items) {
+      const itemId = typeof item.id === 'string' ? item.id : ''
+      if (!itemId) {
+        continue
+      }
+      if (!displayedItemIds.has(`${turn.id}::${itemId}`)) {
+        missing.push({
+          turnId: turn.id,
+          itemId,
+          itemType: typeof item.type === 'string' ? item.type : '',
+        })
+      }
+    }
+  }
+
+  cachedByDisplay.set(displayedTurns, missing.length ? 'missing' : 'ok')
+
+  for (const entry of missing) {
+    recordConversationLiveDiagnosticEvent({
+      itemId: entry.itemId,
+      itemType: entry.itemType || null,
+      kind: 'projection-item-missing-in-timeline',
+      metadata: {
+        missingCount: missing.length,
+      },
+      reason: 'projection item missing from rendered timeline',
+      source: 'thread-page-display',
+      threadId,
+      turnId: entry.turnId,
+    })
+  }
 }
 
 function countDisplayableTurns(turns: ThreadTurn[]) {
@@ -837,8 +1009,9 @@ function applyItemContentOverride(
     ...override,
     aggregatedOutput: resolveCommandOutputContent(override, item),
   }
-  cachedByOverride.set(override, mergedItem)
-  return mergedItem
+  const guardedItem = guardOverrideAgainstLiveItem(item, mergedItem, 'item-content-override')
+  cachedByOverride.set(override, guardedItem)
+  return guardedItem
 }
 
 function resolveTurnItemOverrides(
@@ -887,7 +1060,7 @@ function resolveTurnItemOverrides(
     }
 
     if (itemOverride) {
-      nextItems[itemIndex] = itemOverride
+      nextItems[itemIndex] = guardOverrideAgainstLiveItem(item, itemOverride, 'item-override')
       cacheNode = getOrCreateTurnItemOverrideCacheChild(cacheNode, itemIndex, 0, itemOverride)
     } else {
       nextItems[itemIndex] = applyItemContentOverride(itemContentOverride!, item)
@@ -1151,10 +1324,15 @@ function applyTurnViewPatch(turn: ThreadTurn, overrideTurn: ThreadTurn) {
       continue
     }
 
+    const guardedOverrideItem = guardOverrideAgainstLiveItem(item, overrideItem, 'turn-override')
+    if (guardedOverrideItem === item) {
+      continue
+    }
+
     if (!nextItems) {
       nextItems = [...turn.items]
     }
-    nextItems[itemIndex] = overrideItem
+    nextItems[itemIndex] = guardedOverrideItem
     turnChanged = true
   }
 

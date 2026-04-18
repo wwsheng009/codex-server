@@ -18,7 +18,10 @@ import type { WorkspaceRuntimeRecoverySummary } from '../../features/workspaces/
 import { RuntimeRecoveryNoticeContent } from '../../features/workspaces/RuntimeRecoveryNoticeContent'
 import type { ThreadPageRespondApprovalInput } from './threadPageActionTypes'
 import type { ThreadPageRuntimeRecoveryExecutionNotice } from './threadPageRecoveryExecution'
-import { threadTimelineLiveWindowUnfrozen } from './threadRenderingFeatureFlags'
+import {
+  threadTimelineLiveWindowUnfrozen,
+  threadTimelinePlaceholderFirst,
+} from './threadRenderingFeatureFlags'
 import type { ThreadViewportScrollInput } from './threadViewportTypes'
 
 export type ThreadRuntimeNotice = {
@@ -487,7 +490,7 @@ export function ThreadWorkbenchSurface({
                     </div>
                   ) : null}
                   <TurnTimeline
-                    disableCompletedMessageAnimation
+                    disableCompletedMessageAnimation={threadTimelinePlaceholderFirst}
                     freezeVirtualization={freezeThreadTimelineVirtualization}
                     onReleaseFullTurn={onReleaseFullTurn}
                     onRetainFullTurn={onRetainFullTurn}

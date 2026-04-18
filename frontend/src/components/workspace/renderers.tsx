@@ -18,6 +18,7 @@ import {
 } from '../thread/ThreadContent'
 import { formatLocalizedStatusLabel, formatLocalizedTime } from '../../i18n/display'
 import { i18n } from '../../i18n/runtime'
+import { threadTimelinePlaceholderFirst } from '../../pages/thread-page/threadRenderingFeatureFlags'
 import { containsAnsiEscapeCode, safeJson } from '../thread/threadRender'
 import { InlineNotice } from '../ui/InlineNotice'
 import { Input } from '../ui/Input'
@@ -3874,6 +3875,21 @@ function collectTurnConversationEntries(turn: ThreadTurn) {
     const item = turnItems[itemIndex]
     const omissionReason = conversationEntryOmissionReason(item)
     if (omissionReason) {
+      if (threadTimelinePlaceholderFirst) {
+        logTimelinePlaceholderItem(
+          item,
+          turn.id,
+          `conversation entry placeholder: ${omissionReason}`,
+        )
+        entries.push({
+          kind: 'item',
+          key: buildConversationEntryItemKey(turn.id, item, itemIndex),
+          item,
+          turnId: turn.id,
+        })
+        continue
+      }
+
       logSuppressedTimelineItem(item, turn.id, `conversation entry omitted: ${omissionReason}`)
       continue
     }

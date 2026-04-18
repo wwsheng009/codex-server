@@ -29,6 +29,8 @@ export type ConversationLiveDiagnosticKind =
   | 'viewport-detached'
   | 'timeline-placeholder'
   | 'timeline-suppressed'
+  | 'projection-item-missing-in-timeline'
+  | 'override-truth-guarded'
 
 export type ConversationLiveDiagnosticMetadata = Record<
   string,
