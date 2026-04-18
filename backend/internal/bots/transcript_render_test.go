@@ -48,6 +48,80 @@ func TestRenderBotToolCallItemIncludesResultPreview(t *testing.T) {
 	}
 }
 
+func TestRenderBotToolProgressItemFormatsSheetBusinessSummary(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItem(map[string]any{
+		"id":       "tool-progress-1",
+		"type":     "toolProgress",
+		"toolName": "feishu_sheet",
+		"action":   "append",
+		"state":    "success",
+		"message":  "Feishu tool invocation completed",
+		"detail": map[string]any{
+			"updatedRows":  2,
+			"updatedCells": 6,
+			"tableRange":   "Sheet1!A1:C2",
+		},
+	})
+
+	expected := strings.Join([]string{
+		"Feishu Sheet · Append Rows [Success]",
+		"Append done",
+		"2 rows · 6 cells · Sheet1!A1:C2",
+	}, "\n")
+	if text != expected {
+		t.Fatalf("unexpected sheet tool progress render %q", text)
+	}
+}
+
+func TestRenderBotToolProgressItemFormatsBaseBusinessMessage(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItem(map[string]any{
+		"id":       "tool-progress-2",
+		"type":     "toolProgress",
+		"toolName": "feishu_bitable_app_table_record",
+		"action":   "batch_create",
+		"state":    "writing",
+		"message":  "Executing Feishu tool",
+	})
+
+	expected := strings.Join([]string{
+		"Feishu Base · Batch Create Records [Writing]",
+		"Creating records",
+	}, "\n")
+	if text != expected {
+		t.Fatalf("unexpected base tool progress render %q", text)
+	}
+}
+
+func TestRenderBotToolProgressItemFormatsSheetErrorShortSentence(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItem(map[string]any{
+		"id":       "tool-progress-3",
+		"type":     "toolProgress",
+		"toolName": "feishu_sheet",
+		"action":   "append",
+		"state":    "error",
+		"message":  "Feishu tool invocation failed",
+		"detail": map[string]any{
+			"code":    "rate_limited",
+			"message": "Too many requests",
+		},
+	})
+
+	expected := strings.Join([]string{
+		"Feishu Sheet · Append Rows [Error]",
+		"Append failed",
+		"rate_limited: Too many requests",
+	}, "\n")
+	if text != expected {
+		t.Fatalf("unexpected sheet tool error render %q", text)
+	}
+}
+
 func TestRenderBotCommandExecutionItemSupportsSingleLineMode(t *testing.T) {
 	t.Parallel()
 

@@ -20,6 +20,7 @@ import (
 	appRuntime "codex-server/backend/internal/runtime"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
+	"codex-server/backend/internal/turns"
 )
 
 const (
@@ -41,6 +42,7 @@ const (
 	botReplyDeliveryStatusRetrying     = "retrying"
 	botReplyDeliveryStatusDelivered    = "delivered"
 	botReplyDeliveryStatusFailed       = "failed"
+	feishuApprovalRouteType            = "feishu_approval"
 	deliveryTargetReadinessReady       = "ready"
 	deliveryTargetReadinessWaiting     = "waiting_for_context"
 	botScopeWorkspace                  = "workspace"
@@ -86,6 +88,7 @@ type inboundJob struct {
 	connectionID string
 	deliveryID   string
 	message      InboundMessage
+	dispatch     string
 }
 
 type botApprovalCommand struct {
@@ -138,6 +141,15 @@ type replyDeliveryError struct {
 	phase        string
 	attemptCount int
 	cause        error
+}
+
+const (
+	inboundDispatchNormal = "normal"
+	inboundDispatchSteer  = "steer"
+)
+
+type turnSteerer interface {
+	Steer(ctx context.Context, workspaceID string, threadID string, input string) (turns.Result, error)
 }
 
 type replyDeliveryRetryableError struct {
@@ -1157,6 +1169,72 @@ func (s *Service) ensureSessionBackedTargetForConversation(
 	return target, nil
 }
 
+func (s *Service) resolveReplyDeliveryTarget(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (store.BotDeliveryTarget, error) {
+	if target, ok, err := s.findSpecialReplyDeliveryTarget(connection, conversation); ok || err != nil {
+		return target, err
+	}
+	return s.ensureSessionBackedTargetForConversation(ctx, connection, conversation)
+}
+
+func (s *Service) findSpecialReplyDeliveryTarget(
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (store.BotDeliveryTarget, bool, error) {
+	if normalizeProviderName(connection.Provider) != feishuProviderName {
+		return store.BotDeliveryTarget{}, false, nil
+	}
+
+	eventType := strings.TrimSpace(conversation.ProviderState[feishuEventTypeKey])
+	if eventType == "" {
+		return store.BotDeliveryTarget{}, false, nil
+	}
+
+	approvalCode := strings.TrimSpace(conversation.ProviderState[feishuApprovalCodeKey])
+	if approvalCode == "" {
+		return store.BotDeliveryTarget{}, false, fmt.Errorf("%w: feishu approval events require an approval code", ErrInvalidInput)
+	}
+
+	target, ok := s.findFeishuApprovalRouteBackedTarget(connection.WorkspaceID, connection, approvalCode)
+	if !ok {
+		return store.BotDeliveryTarget{}, false, fmt.Errorf(
+			"%w: feishu approval event for %q requires a route-backed target with routeType %q",
+			ErrInvalidInput,
+			approvalCode,
+			feishuApprovalRouteType,
+		)
+	}
+	return target, true, nil
+}
+
+func (s *Service) findFeishuApprovalRouteBackedTarget(
+	workspaceID string,
+	connection store.BotConnection,
+	approvalCode string,
+) (store.BotDeliveryTarget, bool) {
+	normalizedRouteKey := canonicalFeishuApprovalRouteKey(approvalCode)
+	candidates := s.store.ListBotDeliveryTargets(workspaceID, connection.BotID)
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.ConnectionID) != strings.TrimSpace(connection.ID) {
+			continue
+		}
+		if strings.TrimSpace(candidate.TargetType) != "route_backed" {
+			continue
+		}
+		if strings.TrimSpace(candidate.RouteType) != feishuApprovalRouteType {
+			continue
+		}
+		if canonicalFeishuApprovalRouteKey(candidate.RouteKey) != normalizedRouteKey {
+			continue
+		}
+		return candidate, true
+	}
+	return store.BotDeliveryTarget{}, false
+}
+
 func replyOutboundDeliveryThreadID(outbound replyOutboundDeliveryContext) string {
 	if outbound.storedConversation != nil && strings.TrimSpace(outbound.storedConversation.ThreadID) != "" {
 		return strings.TrimSpace(outbound.storedConversation.ThreadID)
@@ -1171,7 +1249,7 @@ func (s *Service) prepareReplyOutboundDelivery(
 	sourceDelivery *store.BotInboundDelivery,
 	reply AIResult,
 ) (replyOutboundDeliveryContext, error) {
-	target, err := s.ensureSessionBackedTargetForConversation(ctx, connection, conversation)
+	target, err := s.resolveReplyDeliveryTarget(ctx, connection, conversation)
 	if err != nil {
 		return replyOutboundDeliveryContext{}, err
 	}
@@ -1714,7 +1792,7 @@ func (s *Service) ReplayLatestFailedReply(
 		slog.String("failedDeliveryId", failedDelivery.ID),
 		slog.String("failedMessageId", strings.TrimSpace(failedDelivery.MessageID)),
 	)
-	if err := s.processInboundMessage(ctx, connection.ID, failedDelivery.ID); err != nil {
+	if err := s.processInboundMessage(ctx, connection.ID, failedDelivery.ID, inboundDispatchNormal); err != nil {
 		s.appendConnectionLog(
 			connection.WorkspaceID,
 			connection.ID,
@@ -2365,6 +2443,12 @@ func connectionCapabilitiesForConnection(connection store.BotConnection) []strin
 	case feishuProviderName:
 		return []string{
 			"supportsTextOutbound",
+			"supportsMediaOutbound",
+			"supportsImageOutbound",
+			"supportsVoiceOutbound",
+			"supportsFileOutbound",
+			"supportsRemoteMediaURLSource",
+			"supportsLocalMediaPathSource",
 			"supportsProactivePush",
 			"supportsSessionlessPush",
 		}
@@ -2505,6 +2589,8 @@ func canonicalRouteForTargetType(routeType string, conversation store.BotConvers
 		return "feishu_chat", "chat:" + chatID
 	case "feishu_thread":
 		return "feishu_thread", "chat:" + chatID + ":thread:" + threadID
+	case feishuApprovalRouteType:
+		return feishuApprovalRouteType, canonicalFeishuApprovalRouteKey(conversationID)
 	case "qqbot_group":
 		return "qqbot_group", "group:" + chatID
 	case "qqbot_c2c":
@@ -2607,6 +2693,20 @@ func buildSyntheticConversationForTarget(connection store.BotConnection, target 
 		conversation.ExternalConversationID = firstNonEmpty(strings.TrimSpace(target.ProviderState["feishu_conversation_id"]), "chat:"+chatID+":thread:"+threadID)
 		conversation.ExternalUserID = strings.TrimSpace(target.ProviderState["feishu_user_open_id"])
 		conversation.ExternalTitle = firstNonEmpty(conversation.ExternalTitle, strings.TrimSpace(target.ProviderState["feishu_chat_name"]))
+
+	case feishuApprovalRouteType:
+		chatID, threadID, err := parseFeishuDeliveryRoute("", target.ProviderState)
+		if err != nil {
+			return store.BotConversation{}, err
+		}
+		conversation.ExternalChatID = chatID
+		conversation.ExternalThreadID = strings.TrimSpace(threadID)
+		conversation.ExternalConversationID = canonicalFeishuApprovalRouteKey(routeKey)
+		conversation.ExternalUserID = strings.TrimSpace(target.ProviderState["feishu_user_open_id"])
+		conversation.ExternalTitle = firstNonEmpty(conversation.ExternalTitle, strings.TrimSpace(target.ProviderState["feishu_chat_name"]))
+		conversation.ProviderState = mergeProviderState(conversation.ProviderState, map[string]string{
+			feishuApprovalCodeKey: feishuApprovalCodeFromRouteKey(routeKey),
+		})
 
 	case "qqbot_group", "qqbot_c2c":
 		messageType, groupOpenID, userOpenID, err := parseQQBotDeliveryRoute(routeType, routeKey, target.ProviderState)
@@ -2723,6 +2823,23 @@ func parseFeishuDeliveryRoute(routeKey string, providerState map[string]string) 
 		return "", "", fmt.Errorf("%w: feishu route key must include a chat id", ErrInvalidInput)
 	}
 	return chatID, threadID, nil
+}
+
+func canonicalFeishuApprovalRouteKey(value string) string {
+	approvalCode := feishuApprovalCodeFromRouteKey(value)
+	if approvalCode == "" {
+		return ""
+	}
+	return "approval:" + approvalCode
+}
+
+func feishuApprovalCodeFromRouteKey(value string) string {
+	normalized := strings.TrimSpace(value)
+	lower := strings.ToLower(normalized)
+	if strings.HasPrefix(lower, "approval:") {
+		return strings.TrimSpace(normalized[len("approval:"):])
+	}
+	return normalized
 }
 
 func parseQQBotDeliveryRoute(routeType string, routeKey string, providerState map[string]string) (string, string, string, error) {
@@ -2850,6 +2967,14 @@ func wechatConversationMatchesRecipient(conversation store.BotConversation, toUs
 
 func wechatWaitingForContextMessage() string {
 	return "Waiting for the recipient to send a message first so WeChat reply context can be established."
+}
+
+func wechatMissingReplyContextError(toUserID string) error {
+	return fmt.Errorf(
+		"%w: wechat recipient %q has not established a sendable reply context yet; wait for the user to send a message first",
+		ErrInvalidInput,
+		firstNonEmpty(strings.TrimSpace(toUserID), "unknown"),
+	)
 }
 
 func pausedConnectionHealthMessage() string {
@@ -2990,6 +3115,16 @@ func (s *Service) resolveConversationForDeliveryTarget(
 			return store.BotConversation{}, nil, store.ErrBotConversationNotFound
 		}
 		conversation = s.ensureConversationBotIdentity(conversation, connection)
+		if normalizeProviderName(connection.Provider) == wechatProviderName {
+			conversation.ProviderState = mergeProviderState(target.ProviderState, conversation.ProviderState)
+			if strings.TrimSpace(conversation.ProviderState[wechatContextTokenKey]) == "" {
+				return store.BotConversation{}, &conversation, wechatMissingReplyContextError(firstNonEmpty(
+					strings.TrimSpace(conversation.ExternalChatID),
+					strings.TrimSpace(conversation.ExternalUserID),
+					strings.TrimSpace(conversation.ExternalConversationID),
+				))
+			}
+		}
 		return conversation, &conversation, nil
 	}
 
@@ -3006,11 +3141,7 @@ func (s *Service) resolveConversationForDeliveryTarget(
 		if resolution.HasUsableContext {
 			return resolution.SendConversation, resolution.StoredConversation, nil
 		}
-		return store.BotConversation{}, nil, fmt.Errorf(
-			"%w: wechat recipient %q has not established a sendable reply context yet; wait for the user to send a message first",
-			ErrInvalidInput,
-			resolution.ToUserID,
-		)
+		return store.BotConversation{}, nil, wechatMissingReplyContextError(resolution.ToUserID)
 	}
 	if shouldReuseLatestRouteBackedConversation(connection.Provider) {
 		sendConversation, storedConversation := s.resolveLatestRouteBackedConversation(
@@ -3183,6 +3314,83 @@ func (s *Service) sendOutboundDeliveryWithRetry(
 	)
 }
 
+func clearWeChatReplyContextProviderState(providerState map[string]string) map[string]string {
+	return stripManagedWeChatRouteProviderState(providerState)
+}
+
+func (s *Service) invalidateWeChatReplyContextOnDeliveryFailure(
+	connection store.BotConnection,
+	target store.BotDeliveryTarget,
+	storedConversation *store.BotConversation,
+	err error,
+) (store.BotDeliveryTarget, *store.BotConversation, bool) {
+	if normalizeProviderName(connection.Provider) != wechatProviderName || !isWeChatReplyContextUnavailableError(err) {
+		return target, storedConversation, false
+	}
+
+	updated := false
+	nextTarget := target
+	sanitizedTargetState := clearWeChatReplyContextProviderState(target.ProviderState)
+	if !reflect.DeepEqual(sanitizedTargetState, target.ProviderState) {
+		updated = true
+		if strings.TrimSpace(target.ID) != "" {
+			if updatedTarget, updateErr := s.store.UpdateBotDeliveryTarget(connection.WorkspaceID, target.ID, func(current store.BotDeliveryTarget) store.BotDeliveryTarget {
+				current.ProviderState = clearWeChatReplyContextProviderState(current.ProviderState)
+				return current
+			}); updateErr == nil {
+				nextTarget = updatedTarget
+			} else {
+				nextTarget.ProviderState = sanitizedTargetState
+			}
+		} else {
+			nextTarget.ProviderState = sanitizedTargetState
+		}
+	}
+
+	nextConversation := storedConversation
+	if storedConversation != nil {
+		sanitizedConversationState := clearWeChatReplyContextProviderState(storedConversation.ProviderState)
+		if !reflect.DeepEqual(sanitizedConversationState, storedConversation.ProviderState) {
+			updated = true
+			if strings.TrimSpace(storedConversation.ID) != "" {
+				if updatedConversation, updateErr := s.store.UpdateBotConversation(
+					connection.WorkspaceID,
+					storedConversation.ID,
+					func(current store.BotConversation) store.BotConversation {
+						current.ProviderState = clearWeChatReplyContextProviderState(current.ProviderState)
+						return current
+					},
+				); updateErr == nil {
+					nextConversation = &updatedConversation
+				} else {
+					conversationCopy := *storedConversation
+					conversationCopy.ProviderState = sanitizedConversationState
+					nextConversation = &conversationCopy
+				}
+			} else {
+				conversationCopy := *storedConversation
+				conversationCopy.ProviderState = sanitizedConversationState
+				nextConversation = &conversationCopy
+			}
+		}
+	}
+
+	if updated {
+		s.appendConnectionLog(
+			connection.WorkspaceID,
+			connection.ID,
+			"warning",
+			"wechat_reply_context_invalidated",
+			fmt.Sprintf(
+				"WeChat upstream rejected the stored reply context for target %s. Cleared the saved reply context and waiting for a new inbound message.",
+				firstNonEmpty(strings.TrimSpace(target.ID), "unknown"),
+			),
+		)
+	}
+
+	return nextTarget, nextConversation, updated
+}
+
 func (s *Service) sendOutboundDeliveryWithRetryHooks(
 	ctx context.Context,
 	provider Provider,
@@ -3272,6 +3480,7 @@ func (s *Service) sendOutboundDeliveryWithRetryHooks(
 			if updateErr == nil {
 				delivery = updatedDelivery
 			}
+			target, storedConversation, _ = s.invalidateWeChatReplyContextOnDeliveryFailure(connection, target, storedConversation, err)
 			if storedConversation != nil {
 				updatedConversation := s.recordConversationOutboundDeliveryState(
 					connection,
@@ -4299,10 +4508,10 @@ func (s *Service) retireWorkerIfIdle(key string, worker *inboundWorker) bool {
 }
 
 func (s *Service) processJob(ctx context.Context, job inboundJob) {
-	_ = s.processInboundMessage(ctx, job.connectionID, job.deliveryID)
+	_ = s.processInboundMessage(ctx, job.connectionID, job.deliveryID, job.dispatch)
 }
 
-func (s *Service) processInboundMessage(ctx context.Context, connectionID string, deliveryID string) error {
+func (s *Service) processInboundMessage(ctx context.Context, connectionID string, deliveryID string, dispatch string) error {
 	connection, ok := s.store.FindBotConnection(connectionID)
 	if !ok {
 		return store.ErrBotConnectionNotFound
@@ -4354,6 +4563,7 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 		slog.String("threadId", strings.TrimSpace(conversation.ThreadID)),
 		slog.String("externalConversationId", strings.TrimSpace(conversation.ExternalConversationID)),
 	)
+	conversation = s.recordConversationInboundReceipt(connection, conversation, message)
 
 	if handled, controlText, controlErr := s.handleProviderCommand(ctx, provider, connection, conversation, message); handled {
 		logBotDebug(ctx, connection, "processing provider command",
@@ -4403,6 +4613,20 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 			return controlErr
 		}
 		updatedConversation := s.recordConversationOutcome(connection, conversation, AIResult{}, message, controlText)
+		_, _ = s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID)
+		s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/processed", map[string]any{
+			"connectionId":   connection.ID,
+			"conversationId": updatedConversation.ID,
+			"threadId":       updatedConversation.ThreadID,
+		})
+		return nil
+	}
+
+	if handled, updatedConversation, steerErr := s.handleActiveTurnSteer(ctx, connection, conversation, delivery, message, dispatch); handled {
+		if steerErr != nil {
+			_, _ = s.store.FailBotInboundDelivery(connection.WorkspaceID, delivery.ID, steerErr.Error())
+			return steerErr
+		}
 		_, _ = s.store.CompleteBotInboundDelivery(connection.WorkspaceID, delivery.ID)
 		s.publish(connection.WorkspaceID, updatedConversation.ThreadID, "bot/message/processed", map[string]any{
 			"connectionId":   connection.ID,
@@ -4465,6 +4689,12 @@ func (s *Service) processInboundMessage(ctx context.Context, connectionID string
 			return current
 		})
 		return nil
+	}
+
+	conversation, err = s.ensureConversationExecutionThread(messageCtx, connection, conversation, message, aiBackend)
+	if err != nil {
+		_, _ = s.store.FailBotInboundDelivery(connection.WorkspaceID, delivery.ID, err.Error())
+		return err
 	}
 
 	reply, replyAttemptCount, failureDelivered, failureText, err := s.executeAIReply(messageCtx, provider, aiBackend, connection, conversation, message, &delivery)
@@ -5654,6 +5884,9 @@ func (s *Service) workerKeyForJob(job inboundJob) string {
 	commandText := job.message.Text
 	if connection, ok := s.store.FindBotConnection(job.connectionID); ok {
 		commandText = normalizeInboundCommandText(connection, commandText)
+	}
+	if strings.EqualFold(strings.TrimSpace(job.dispatch), inboundDispatchSteer) {
+		return job.connectionID + "\x00steer\x00" + job.message.ConversationID
 	}
 	if isBotControlCommand(commandText) {
 		return job.connectionID + "\x00control"
@@ -8597,13 +8830,79 @@ func (s *Service) acceptInboundMessage(connection store.BotConnection, message I
 		return false, nil
 	}
 
+	dispatch := inboundDispatchNormal
+	if s.shouldDispatchInboundAsSteer(connection, message) {
+		dispatch = inboundDispatchSteer
+	}
+
 	s.enqueueJob(inboundJob{
 		connectionID: connection.ID,
 		deliveryID:   delivery.ID,
 		message:      inboundMessageFromDelivery(delivery),
+		dispatch:     dispatch,
 	})
 	s.publishMessageReceived(connection, message)
 	return true, nil
+}
+
+func (s *Service) shouldDispatchInboundAsSteer(connection store.BotConnection, message InboundMessage) bool {
+	if s == nil || s.store == nil || s.threads == nil || s.turns == nil {
+		return false
+	}
+	if _, ok := s.turns.(turnSteerer); !ok {
+		return false
+	}
+	if normalizeAIBackendName(connection.AIBackend) != normalizeAIBackendName(defaultAIBackend) {
+		return false
+	}
+	if strings.TrimSpace(message.Text) == "" || len(message.Media) > 0 {
+		return false
+	}
+	if isBotControlCommand(normalizeInboundCommandText(connection, message.Text)) {
+		return false
+	}
+
+	conversation, ok := s.store.FindBotConversationByExternalConversation(connection.WorkspaceID, connection.ID, message.ConversationID)
+	if !ok {
+		return false
+	}
+	threadRef := s.currentConversationThreadRef(connection, conversation)
+	if threadRef.ThreadID == "" {
+		return false
+	}
+	return s.threadHasActiveTurn(threadRef.WorkspaceID, threadRef.ThreadID)
+}
+
+func (s *Service) threadHasActiveTurn(workspaceID string, threadID string) bool {
+	if s == nil || s.threads == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(s.workerContext(), 2*time.Second)
+	defer cancel()
+
+	detail, err := s.threads.GetDetail(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(threadID))
+	if err != nil {
+		return false
+	}
+	for _, turn := range detail.Turns {
+		if botTurnStatusLooksActive(turn.Status) {
+			return true
+		}
+	}
+	return false
+}
+
+func botTurnStatusLooksActive(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	normalized = strings.ReplaceAll(normalized, "-", "")
+
+	switch normalized {
+	case "active", "running", "processing", "sending", "waiting", "inprogress", "started":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) recoverPendingInboundDeliveries(workspaceID string, connectionID string) {
@@ -8634,6 +8933,7 @@ func (s *Service) recoverPendingInboundDeliveries(workspaceID string, connection
 			connectionID: delivery.ConnectionID,
 			deliveryID:   delivery.ID,
 			message:      inboundMessageFromDelivery(delivery),
+			dispatch:     inboundDispatchNormal,
 		})
 	}
 }
@@ -8852,6 +9152,125 @@ func (s *Service) recordConversationOutcome(
 		fallbackOutboundText,
 		conversationReplyDeliveryState{},
 	)
+}
+
+func (s *Service) recordConversationInboundReceipt(
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	inbound InboundMessage,
+) store.BotConversation {
+	lastInboundText := messageSummaryText(inbound.Text, inbound.Media)
+	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		current.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
+		current.LastInboundText = lastInboundText
+		return current
+	})
+	if err != nil {
+		conversation.LastInboundMessageID = strings.TrimSpace(inbound.MessageID)
+		conversation.LastInboundText = lastInboundText
+		return conversation
+	}
+	return updatedConversation
+}
+
+func (s *Service) handleActiveTurnSteer(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	delivery store.BotInboundDelivery,
+	inbound InboundMessage,
+	dispatch string,
+) (bool, store.BotConversation, error) {
+	if !strings.EqualFold(strings.TrimSpace(dispatch), inboundDispatchSteer) {
+		return false, conversation, nil
+	}
+	steerer, ok := s.turns.(turnSteerer)
+	if !ok {
+		return false, conversation, nil
+	}
+	threadRef := s.currentConversationThreadRef(connection, conversation)
+	if threadRef.ThreadID == "" {
+		return false, conversation, nil
+	}
+	if !s.threadHasActiveTurn(threadRef.WorkspaceID, threadRef.ThreadID) {
+		return false, conversation, nil
+	}
+
+	result, err := steerer.Steer(ctx, threadRef.WorkspaceID, threadRef.ThreadID, inbound.Text)
+	if err != nil {
+		if errors.Is(err, appRuntime.ErrNoActiveTurn) {
+			return false, conversation, nil
+		}
+		return true, conversation, err
+	}
+
+	logBotDebug(ctx, connection, "steered inbound message into active turn",
+		slog.String("conversationStoreId", conversation.ID),
+		slog.String("threadId", threadRef.ThreadID),
+		slog.String("threadWorkspaceId", threadRef.WorkspaceID),
+		slog.String("turnId", strings.TrimSpace(result.TurnID)),
+		slog.String("deliveryId", delivery.ID),
+	)
+	return true, s.recordConversationInboundReceipt(connection, conversation, inbound), nil
+}
+
+func (s *Service) ensureConversationExecutionThread(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+	inbound InboundMessage,
+	aiBackend AIBackend,
+) (store.BotConversation, error) {
+	if s == nil || s.store == nil || s.threads == nil || aiBackend == nil {
+		return conversation, nil
+	}
+	if normalizeAIBackendName(aiBackend.Name()) != normalizeAIBackendName(defaultAIBackend) {
+		return conversation, nil
+	}
+
+	currentRef := s.currentConversationThreadRef(connection, conversation)
+	if currentRef.ThreadID != "" {
+		return conversation, nil
+	}
+
+	targetWorkspaceID := s.conversationExecutionWorkspaceID(connection, conversation)
+	thread, err := s.threads.Create(ctx, targetWorkspaceID, threads.CreateInput{
+		Name:               buildThreadName(connection, inbound),
+		Model:              strings.TrimSpace(connection.AIConfig["model"]),
+		PermissionPreset:   strings.TrimSpace(connection.AIConfig["permission_preset"]),
+		SessionStartSource: pendingConversationSessionStartSource(conversation.BackendState),
+	})
+	if err != nil {
+		return store.BotConversation{}, err
+	}
+
+	contextVersion := conversationContextVersion(conversation)
+	threadRef := botThreadRef{WorkspaceID: targetWorkspaceID, ThreadID: thread.ID}
+	updatedConversation, err := s.store.UpdateBotConversation(connection.WorkspaceID, conversation.ID, func(current store.BotConversation) store.BotConversation {
+		if strings.TrimSpace(current.ThreadID) != "" {
+			return current
+		}
+		knownThreadRefs := knownConversationThreadRefsFromState(current.BackendState, current.WorkspaceID)
+		knownThreadRefs = appendBotThreadRef(knownThreadRefs, threadRef, targetWorkspaceID)
+		current.ThreadID = thread.ID
+		current.BackendState = conversationBackendStateWithCurrentThreadRef(
+			conversationBackendStateWithKnownThreadRefs(current.BackendState, knownThreadRefs),
+			threadRef,
+			targetWorkspaceID,
+		)
+		current.BackendState = conversationBackendStateWithVersion(current.BackendState, contextVersion)
+		return current
+	})
+	if err != nil {
+		return store.BotConversation{}, err
+	}
+
+	logBotDebug(ctx, connection, "persisted conversation execution thread before turn completion",
+		slog.String("conversationStoreId", updatedConversation.ID),
+		slog.String("threadId", thread.ID),
+		slog.String("threadWorkspaceId", targetWorkspaceID),
+	)
+	return updatedConversation, nil
 }
 
 func (s *Service) recordConversationReplyOutcome(

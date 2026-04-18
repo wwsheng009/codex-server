@@ -832,6 +832,78 @@ func TestWorkspaceThreadAIBackendWaitsForLateServerRequestResolution(t *testing.
 	}
 }
 
+func TestWorkspaceThreadAIBackendStreamsFeishuToolProgressWithoutPersistingItInFinalReply(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-feishu-tool-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-feishu-tool-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeFeishuToolProgressTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 40 * time.Millisecond
+
+	snapshots := make([][]OutboundMessage, 0, 4)
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    feishuProviderName,
+		Name:        "Feishu Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-feishu-tool-1",
+		Text:           "append rows",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		snapshots = append(snapshots, cloneOutboundMessages(update.Messages))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 || result.Messages[0].Text != "append completed" {
+		t.Fatalf("expected final reply to exclude transient tool progress, got %#v", result.Messages)
+	}
+
+	foundProgressSnapshot := false
+	foundSuccessSnapshot := false
+	for _, snapshot := range snapshots {
+		for _, message := range snapshot {
+			if strings.Contains(message.Text, "Feishu Sheet · Append Rows [Writing]") {
+				foundProgressSnapshot = true
+			}
+			if strings.Contains(message.Text, "Feishu Sheet · Append Rows [Success]") &&
+				strings.Contains(message.Text, "Rows appended") &&
+				strings.Contains(message.Text, "2 rows · 6 cells") {
+				foundSuccessSnapshot = true
+			}
+		}
+	}
+	if !foundProgressSnapshot {
+		t.Fatalf("expected a streaming snapshot with Feishu tool progress, got %#v", snapshots)
+	}
+	if !foundSuccessSnapshot {
+		t.Fatalf("expected a streaming snapshot with Feishu tool completion detail, got %#v", snapshots)
+	}
+}
+
 func TestWorkspaceThreadAIBackendPreservesCommandOrderAfterTurnCompletion(t *testing.T) {
 	t.Parallel()
 
@@ -1937,6 +2009,96 @@ func (f *fakeLateServerRequestTurns) Start(_ context.Context, workspaceID string
 
 	return turns.Result{
 		TurnID: "turn-stream-2",
+		Status: "running",
+	}, nil
+}
+
+type fakeFeishuToolProgressTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeFeishuToolProgressTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-feishu-tool-1",
+			Method:      feishuInvokeProgressEvent,
+			Payload: map[string]any{
+				"threadId":     threadID,
+				"turnId":       "turn-stream-feishu-tool-1",
+				"invocationId": "invoke_feishu_tool_1",
+				"toolName":     "feishu_sheet",
+				"action":       "append",
+				"sequence":     1,
+				"state":        "writing",
+				"message":      "Appending rows to sheet",
+				"startedAt":    time.Now().UTC().Format(time.RFC3339),
+				"ts":           time.Now().UTC().Format(time.RFC3339),
+			},
+			TS: time.Now().UTC(),
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-feishu-tool-1",
+			Method:      feishuInvokeProgressEvent,
+			Payload: map[string]any{
+				"threadId":     threadID,
+				"turnId":       "turn-stream-feishu-tool-1",
+				"invocationId": "invoke_feishu_tool_1",
+				"toolName":     "feishu_sheet",
+				"action":       "append",
+				"sequence":     2,
+				"state":        "success",
+				"message":      "Rows appended",
+				"startedAt":    time.Now().UTC().Format(time.RFC3339),
+				"ts":           time.Now().UTC().Format(time.RFC3339),
+				"detail": map[string]any{
+					"updatedRows":  2,
+					"updatedCells": 6,
+				},
+				"final": true,
+			},
+			TS: time.Now().UTC(),
+		})
+
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-stream-feishu-tool-1",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "assistant-1",
+					"type": "agentMessage",
+					"text": "append completed",
+				},
+			},
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-feishu-tool-1",
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-feishu-tool-1",
+				"turn": map[string]any{
+					"id":     "turn-stream-feishu-tool-1",
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-stream-feishu-tool-1",
 		Status: "running",
 	}, nil
 }

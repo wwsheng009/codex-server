@@ -399,6 +399,40 @@ func TestWeChatAPIErrorIncludesRetAndSessionExpiredFallbackWhenErrmsgMissing(t *
 	}
 }
 
+func TestWeChatAPIErrorIncludesReplyContextUnavailableFallbackForSendMessageRetMinusTwo(t *testing.T) {
+	t.Parallel()
+
+	err := wechatAPIError("/ilink/bot/sendmessage", wechatAPIResponse{
+		Ret:     wechatReplyContextInvalidRet,
+		ErrCode: 0,
+	})
+	if err == nil {
+		t.Fatal("expected wechatAPIError() to return an error")
+	}
+	if !strings.Contains(err.Error(), "ret=-2 errcode=0") {
+		t.Fatalf("expected wechat api error to include ret and errcode, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "reply context unavailable") {
+		t.Fatalf("expected wechat api error to include reply context fallback, got %q", err.Error())
+	}
+}
+
+func TestIsWeChatReplyContextUnavailableErrorRecognizesWrappedSendMessageError(t *testing.T) {
+	t.Parallel()
+
+	err := wrapWeChatSendMessageError(
+		"text",
+		wechatTextSendSummary("hello"),
+		wechatAPIError("/ilink/bot/sendmessage", wechatAPIResponse{
+			Ret:     wechatReplyContextInvalidRet,
+			ErrCode: 0,
+		}),
+	)
+	if !isWeChatReplyContextUnavailableError(err) {
+		t.Fatalf("expected wrapped sendmessage error to be classified as reply context unavailable, got %v", err)
+	}
+}
+
 func TestWeChatSendTextMessageWrapsAPIErrorWithTextSummary(t *testing.T) {
 	t.Parallel()
 

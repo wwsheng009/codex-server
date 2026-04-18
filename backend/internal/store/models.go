@@ -73,6 +73,31 @@ type RuntimePreferences struct {
 	UpdatedAt                                                                time.Time                        `json:"updatedAt,omitempty"`
 }
 
+type FeishuUserToken struct {
+	AccessToken           string     `json:"accessToken,omitempty"`
+	RefreshToken          string     `json:"refreshToken,omitempty"`
+	AccessTokenExpiresAt  *time.Time `json:"accessTokenExpiresAt,omitempty"`
+	RefreshTokenExpiresAt *time.Time `json:"refreshTokenExpiresAt,omitempty"`
+	Scopes                []string   `json:"scopes,omitempty"`
+	OpenID                string     `json:"openId,omitempty"`
+	UnionID               string     `json:"unionId,omitempty"`
+	ObtainedAt            *time.Time `json:"obtainedAt,omitempty"`
+}
+
+type FeishuToolsConfig struct {
+	WorkspaceID         string          `json:"workspaceId"`
+	Enabled             bool            `json:"enabled"`
+	AppID               string          `json:"appId,omitempty"`
+	AppSecret           string          `json:"appSecret,omitempty"`
+	ManagedMCPAuthToken string          `json:"managedMcpAuthToken,omitempty"`
+	MCPEndpoint         string          `json:"mcpEndpoint,omitempty"`
+	OauthMode           string          `json:"oauthMode,omitempty"`
+	SensitiveWriteGuard bool            `json:"sensitiveWriteGuard"`
+	ToolAllowlist       []string        `json:"toolAllowlist,omitempty"`
+	UserToken           FeishuUserToken `json:"userToken,omitempty"`
+	UpdatedAt           time.Time       `json:"updatedAt,omitempty"`
+}
+
 type TurnPolicyAlertGovernanceEvent struct {
 	ID          string     `json:"id"`
 	Action      string     `json:"action"`

@@ -50,6 +50,8 @@ func renderBotVisibleItemWithConfig(item map[string]any, config botTranscriptRen
 		return renderBotHookRunItem(item)
 	case "serverRequest":
 		return renderBotServerRequestItem(item)
+	case "toolProgress":
+		return renderBotToolProgressItem(item)
 	default:
 		return renderBotFallbackItem(item)
 	}
@@ -313,6 +315,329 @@ func renderBotServerRequestItem(item map[string]any) string {
 			return statusLine + "\nRequest ID: " + requestID
 		}
 		return statusLine + "\nRequest ID: " + requestID + "\n" + strings.Join(hints, "\n")
+	}
+}
+
+func renderBotToolProgressItem(item map[string]any) string {
+	toolName := strings.TrimSpace(stringValue(item["toolName"]))
+	action := strings.TrimSpace(stringValue(item["action"]))
+	state := strings.TrimSpace(firstNonEmpty(stringValue(item["state"]), stringValue(item["status"]), "running"))
+	message := strings.TrimSpace(stringValue(item["message"]))
+	detail := objectValue(item["detail"])
+
+	title := botFeishuToolProgressTitle(toolName, action)
+	message = botFeishuToolProgressMessage(toolName, action, state, message, detail)
+
+	lines := []string{title + " [" + humanizeBotStatus(state) + "]"}
+	if message != "" {
+		lines = append(lines, message)
+	}
+	if summary := botSummarizeFeishuToolProgress(toolName, action, state, detail); summary != "" {
+		lines = append(lines, summary)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func botFeishuToolProgressTitle(toolName string, action string) string {
+	family := botFeishuToolFamily(toolName)
+	switch family {
+	case "sheet":
+		return "Feishu Sheet · " + botFeishuSheetActionLabel(action)
+	case "base":
+		return "Feishu Base · " + botFeishuBaseActionLabel(toolName, action)
+	default:
+		title := "Feishu Tool"
+		if toolName != "" {
+			title += ": " + toolName
+			if action != "" {
+				title += "." + action
+			}
+		}
+		return title
+	}
+}
+
+func botFeishuToolProgressMessage(toolName string, action string, state string, rawMessage string, detail map[string]any) string {
+	if !isGenericFeishuToolProgressMessage(rawMessage) {
+		return rawMessage
+	}
+
+	switch botFeishuToolFamily(toolName) {
+	case "sheet":
+		switch strings.TrimSpace(action) {
+		case "append":
+			return botFeishuActionMessage(state, "Appending rows", "Append done", "Append failed")
+		case "write":
+			return botFeishuActionMessage(state, "Writing cells", "Write done", "Write failed")
+		case "export":
+			return botFeishuActionMessage(state, "Preparing export", "Export ready", "Export failed")
+		case "create":
+			return botFeishuActionMessage(state, "Creating sheet", "Sheet created", "Create failed")
+		case "find":
+			return botFeishuActionMessage(state, "Searching sheet", "Search done", "Search failed")
+		case "read", "info":
+			return botFeishuActionMessage(state, "Reading sheet", "Read done", "Read failed")
+		}
+	case "base":
+		resource := botFeishuBaseResourceLabel(toolName, false)
+		switch strings.TrimSpace(action) {
+		case "batch_create":
+			return botFeishuActionMessage(state, "Creating "+strings.ToLower(resource), "Create done", "Create failed")
+		case "batch_update":
+			return botFeishuActionMessage(state, "Updating "+strings.ToLower(resource), "Update done", "Update failed")
+		case "batch_delete":
+			return botFeishuActionMessage(state, "Deleting "+strings.ToLower(resource), "Delete done", "Delete failed")
+		case "", "create":
+			return botFeishuActionMessage(state, "Creating "+strings.ToLower(botFeishuBaseResourceLabel(toolName, true)), "Create done", "Create failed")
+		case "patch", "update":
+			return botFeishuActionMessage(state, "Updating "+strings.ToLower(botFeishuBaseResourceLabel(toolName, true)), "Update done", "Update failed")
+		case "delete":
+			return botFeishuActionMessage(state, "Deleting "+strings.ToLower(botFeishuBaseResourceLabel(toolName, true)), "Delete done", "Delete failed")
+		case "copy":
+			return botFeishuActionMessage(state, "Copying base", "Copy done", "Copy failed")
+		case "list", "get", "search":
+			return botFeishuActionMessage(state, "Reading base", "Read done", "Read failed")
+		}
+	}
+
+	switch strings.TrimSpace(strings.ToLower(state)) {
+	case "queued":
+		return "Feishu request queued"
+	case "authorizing":
+		return "Checking Feishu authorization"
+	case "writing", "running":
+		return "Processing Feishu request"
+	case "verifying":
+		return "Confirming Feishu result"
+	case "success":
+		return "Done"
+	case "error":
+		return "Failed"
+	default:
+		return rawMessage
+	}
+}
+
+func botFeishuActionMessage(state string, pending string, completed string, failed string) string {
+	switch strings.TrimSpace(strings.ToLower(state)) {
+	case "success":
+		return completed
+	case "error":
+		return failed
+	default:
+		return pending
+	}
+}
+
+func botSummarizeFeishuToolProgress(toolName string, action string, state string, detail map[string]any) string {
+	if len(detail) == 0 {
+		return ""
+	}
+
+	switch botFeishuToolFamily(toolName) {
+	case "sheet":
+		return botSummarizeFeishuSheetProgress(action, detail)
+	case "base":
+		return botSummarizeFeishuBaseProgress(detail)
+	}
+
+	parts := make([]string, 0, 5)
+	if ticket := strings.TrimSpace(stringValue(detail["ticket"])); ticket != "" {
+		parts = append(parts, "Ticket "+ticket)
+	}
+	if problem := botSummarizeFeishuError(detail); problem != "" {
+		parts = append(parts, problem)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func botSummarizeFeishuSheetProgress(action string, detail map[string]any) string {
+	parts := make([]string, 0, 4)
+	if updatedRows, ok := numberValue(detail["updatedRows"]); ok {
+		switch strings.TrimSpace(action) {
+		case "append":
+			parts = append(parts, fmt.Sprintf("%d rows", updatedRows))
+		case "write":
+			parts = append(parts, fmt.Sprintf("%d rows", updatedRows))
+		default:
+			parts = append(parts, fmt.Sprintf("%d rows", updatedRows))
+		}
+	}
+	if updatedCells, ok := numberValue(detail["updatedCells"]); ok {
+		parts = append(parts, fmt.Sprintf("%d cells", updatedCells))
+	}
+	if tableRange := strings.TrimSpace(stringValue(detail["tableRange"])); tableRange != "" {
+		parts = append(parts, tableRange)
+	}
+	if ticket := strings.TrimSpace(stringValue(detail["ticket"])); ticket != "" {
+		parts = append(parts, "Ticket "+ticket)
+	}
+	if problem := botSummarizeFeishuError(detail); problem != "" {
+		parts = append(parts, problem)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func botSummarizeFeishuBaseProgress(detail map[string]any) string {
+	parts := make([]string, 0, 4)
+	if count, ok := numberValue(detail["count"]); ok {
+		parts = append(parts, fmt.Sprintf("%d items", count))
+	}
+	if count, ok := numberValue(detail["total"]); ok {
+		parts = append(parts, fmt.Sprintf("%d items", count))
+	}
+	if ticket := strings.TrimSpace(stringValue(detail["ticket"])); ticket != "" {
+		parts = append(parts, "Ticket "+ticket)
+	}
+	if problem := botSummarizeFeishuError(detail); problem != "" {
+		parts = append(parts, problem)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func botSummarizeFeishuError(detail map[string]any) string {
+	code := strings.TrimSpace(stringValue(detail["code"]))
+	message := strings.TrimSpace(stringValue(detail["message"]))
+	hint := strings.TrimSpace(stringValue(detail["hint"]))
+	switch {
+	case code != "" && message != "":
+		return code + ": " + message
+	case message != "":
+		return message
+	case hint != "":
+		return hint
+	default:
+		return ""
+	}
+}
+
+func botFeishuToolFamily(toolName string) string {
+	switch {
+	case strings.EqualFold(strings.TrimSpace(toolName), "feishu_sheet"):
+		return "sheet"
+	case strings.HasPrefix(strings.TrimSpace(toolName), "feishu_bitable_"):
+		return "base"
+	default:
+		return ""
+	}
+}
+
+func botFeishuSheetActionLabel(action string) string {
+	switch strings.TrimSpace(action) {
+	case "", "info":
+		return "Load Sheet Info"
+	case "read":
+		return "Read Sheet"
+	case "write":
+		return "Write Cells"
+	case "append":
+		return "Append Rows"
+	case "find":
+		return "Find Cells"
+	case "create":
+		return "Create Sheet"
+	case "export":
+		return "Export Sheet"
+	default:
+		return humanizeBotItemType(action)
+	}
+}
+
+func botFeishuBaseActionLabel(toolName string, action string) string {
+	resourceSingular := botFeishuBaseResourceLabel(toolName, true)
+	resourcePlural := botFeishuBaseResourceLabel(toolName, false)
+	switch strings.TrimSpace(action) {
+	case "", "create":
+		return "Create " + resourceSingular
+	case "get":
+		return "Read " + resourceSingular
+	case "list":
+		return "List " + resourcePlural
+	case "patch", "update":
+		return "Update " + resourceSingular
+	case "delete":
+		return "Delete " + resourceSingular
+	case "copy":
+		return "Copy Base"
+	case "search":
+		return "Search " + resourcePlural
+	case "batch_create":
+		return "Batch Create " + resourcePlural
+	case "batch_update":
+		return "Batch Update " + resourcePlural
+	case "batch_delete":
+		return "Batch Delete " + resourcePlural
+	default:
+		return humanizeBotItemType(action)
+	}
+}
+
+func botFeishuBaseResourceLabel(toolName string, singular bool) string {
+	switch strings.TrimSpace(toolName) {
+	case "feishu_bitable_app":
+		if singular {
+			return "Base"
+		}
+		return "Bases"
+	case "feishu_bitable_app_table":
+		if singular {
+			return "Table"
+		}
+		return "Tables"
+	case "feishu_bitable_app_table_field":
+		if singular {
+			return "Field"
+		}
+		return "Fields"
+	case "feishu_bitable_app_table_record":
+		if singular {
+			return "Record"
+		}
+		return "Records"
+	case "feishu_bitable_app_table_view":
+		if singular {
+			return "View"
+		}
+		return "Views"
+	default:
+		if singular {
+			return "Item"
+		}
+		return "Items"
+	}
+}
+
+func isGenericFeishuToolProgressMessage(message string) bool {
+	switch strings.TrimSpace(message) {
+	case "",
+		"Feishu tool invocation accepted",
+		"Workspace Feishu configuration validated",
+		"Executing Feishu tool",
+		"Feishu tool invocation completed":
+		return true
+	default:
+		return strings.HasPrefix(strings.TrimSpace(message), "Feishu tool invocation")
+	}
+}
+
+func numberValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), true
+	case int32:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case float64:
+		return int64(typed), true
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed, true
+		}
+		return 0, false
+	default:
+		return 0, false
 	}
 }
 

@@ -77,6 +77,7 @@ type MemoryStore struct {
 	inspectionCache               MemoryInspection
 	inspectionCacheValid          bool
 	runtimePrefs                  RuntimePreferences
+	feishuToolsConfigs            map[string]FeishuToolsConfig
 	workspaces                    map[string]Workspace
 	commandSessions               map[string]map[string]CommandSessionSnapshot
 	automations                   map[string]Automation
@@ -139,6 +140,7 @@ type threadProjectionTurnsManifest struct {
 
 type storeSnapshot struct {
 	RuntimePreferences            *RuntimePreferences            `json:"runtimePreferences,omitempty"`
+	FeishuToolsConfigs            []FeishuToolsConfig            `json:"feishuToolsConfigs,omitempty"`
 	Workspaces                    []Workspace                    `json:"workspaces"`
 	CommandSessions               []CommandSessionSnapshot       `json:"commandSessions,omitempty"`
 	WorkspaceEvents               []storedWorkspaceEventLog      `json:"workspaceEvents,omitempty"`
@@ -195,6 +197,7 @@ type storedThreadProjection struct {
 func NewMemoryStore() *MemoryStore {
 	store := &MemoryStore{
 		workspaces:                    make(map[string]Workspace),
+		feishuToolsConfigs:            make(map[string]FeishuToolsConfig),
 		commandSessions:               make(map[string]map[string]CommandSessionSnapshot),
 		automations:                   make(map[string]Automation),
 		templates:                     make(map[string]AutomationTemplate),
@@ -612,6 +615,35 @@ func (s *MemoryStore) SetRuntimePreferences(prefs RuntimePreferences) RuntimePre
 	s.persistLocked()
 
 	return s.runtimePrefs
+}
+
+func (s *MemoryStore) GetFeishuToolsConfig(workspaceID string) (FeishuToolsConfig, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	config, ok := s.feishuToolsConfigs[strings.TrimSpace(workspaceID)]
+	if !ok {
+		return FeishuToolsConfig{}, false
+	}
+	return cloneFeishuToolsConfig(config), true
+}
+
+func (s *MemoryStore) SetFeishuToolsConfig(config FeishuToolsConfig) (FeishuToolsConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	config.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
+	if config.WorkspaceID == "" {
+		return FeishuToolsConfig{}, ErrWorkspaceNotFound
+	}
+	if _, ok := s.workspaces[config.WorkspaceID]; !ok {
+		return FeishuToolsConfig{}, ErrWorkspaceNotFound
+	}
+
+	config = normalizeLoadedFeishuToolsConfig(config)
+	s.feishuToolsConfigs[config.WorkspaceID] = config
+	s.persistLocked()
+	return cloneFeishuToolsConfig(config), nil
 }
 
 func cloneOptionalBool(value *bool) *bool {
@@ -4234,6 +4266,18 @@ func (s *MemoryStore) load() error {
 			if prefs != nil {
 				s.runtimePrefs = normalizeLoadedRuntimePreferences(*prefs)
 			}
+		case "feishuToolsConfigs":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var config FeishuToolsConfig
+				if err := decoder.Decode(&config); err != nil {
+					return err
+				}
+				config = normalizeLoadedFeishuToolsConfig(config)
+				s.feishuToolsConfigs[config.WorkspaceID] = config
+				return nil
+			}); err != nil {
+				return err
+			}
 		case "workspaces":
 			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
 				var workspace Workspace
@@ -4689,6 +4733,22 @@ func normalizeLoadedRuntimePreferences(prefs RuntimePreferences) RuntimePreferen
 	return prefs
 }
 
+func normalizeLoadedFeishuToolsConfig(config FeishuToolsConfig) FeishuToolsConfig {
+	config.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
+	config.AppID = strings.TrimSpace(config.AppID)
+	config.AppSecret = strings.TrimSpace(config.AppSecret)
+	config.ManagedMCPAuthToken = strings.TrimSpace(config.ManagedMCPAuthToken)
+	config.MCPEndpoint = strings.TrimSpace(config.MCPEndpoint)
+	config.OauthMode = strings.TrimSpace(config.OauthMode)
+	if len(config.ToolAllowlist) > 0 {
+		config.ToolAllowlist = cloneStringSlice(config.ToolAllowlist)
+	} else {
+		config.ToolAllowlist = nil
+	}
+	config.UserToken = cloneFeishuUserToken(config.UserToken)
+	return config
+}
+
 func decodeJSONArray(decoder *json.Decoder, consume func(*json.Decoder) error) error {
 	startToken, err := decoder.Token()
 	if err != nil {
@@ -4837,6 +4897,9 @@ func (s *MemoryStore) persistNowLocked() error {
 			prefs.AccessTokens = cloneAccessTokens(prefs.AccessTokens)
 		}
 		snapshot.RuntimePreferences = &prefs
+	}
+	for _, config := range s.feishuToolsConfigs {
+		snapshot.FeishuToolsConfigs = append(snapshot.FeishuToolsConfigs, cloneFeishuToolsConfig(config))
 	}
 
 	for _, workspace := range s.workspaces {
@@ -5000,6 +5063,9 @@ func (s *MemoryStore) persistNowLocked() error {
 	})
 	sort.Slice(snapshot.BotConnections, func(i int, j int) bool {
 		return snapshot.BotConnections[i].ID < snapshot.BotConnections[j].ID
+	})
+	sort.Slice(snapshot.FeishuToolsConfigs, func(i int, j int) bool {
+		return snapshot.FeishuToolsConfigs[i].WorkspaceID < snapshot.FeishuToolsConfigs[j].WorkspaceID
 	})
 	sort.Slice(snapshot.BotConnectionLogs, func(i int, j int) bool {
 		if snapshot.BotConnectionLogs[i].WorkspaceID == snapshot.BotConnectionLogs[j].WorkspaceID {
@@ -6196,6 +6262,40 @@ func cloneBotConnection(connection BotConnection) BotConnection {
 		next.Secrets = nil
 	}
 	next.LastPollAt = cloneOptionalTime(connection.LastPollAt)
+	return next
+}
+
+func cloneFeishuUserToken(token FeishuUserToken) FeishuUserToken {
+	next := token
+	next.AccessToken = strings.TrimSpace(token.AccessToken)
+	next.RefreshToken = strings.TrimSpace(token.RefreshToken)
+	next.OpenID = strings.TrimSpace(token.OpenID)
+	next.UnionID = strings.TrimSpace(token.UnionID)
+	next.AccessTokenExpiresAt = cloneOptionalTime(token.AccessTokenExpiresAt)
+	next.RefreshTokenExpiresAt = cloneOptionalTime(token.RefreshTokenExpiresAt)
+	next.ObtainedAt = cloneOptionalTime(token.ObtainedAt)
+	if len(token.Scopes) > 0 {
+		next.Scopes = cloneStringSlice(token.Scopes)
+	} else {
+		next.Scopes = nil
+	}
+	return next
+}
+
+func cloneFeishuToolsConfig(config FeishuToolsConfig) FeishuToolsConfig {
+	next := config
+	next.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
+	next.AppID = strings.TrimSpace(config.AppID)
+	next.AppSecret = strings.TrimSpace(config.AppSecret)
+	next.ManagedMCPAuthToken = strings.TrimSpace(config.ManagedMCPAuthToken)
+	next.MCPEndpoint = strings.TrimSpace(config.MCPEndpoint)
+	next.OauthMode = strings.TrimSpace(config.OauthMode)
+	if len(config.ToolAllowlist) > 0 {
+		next.ToolAllowlist = cloneStringSlice(config.ToolAllowlist)
+	} else {
+		next.ToolAllowlist = nil
+	}
+	next.UserToken = cloneFeishuUserToken(config.UserToken)
 	return next
 }
 

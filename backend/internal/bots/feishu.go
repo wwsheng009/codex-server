@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"codex-server/backend/internal/store"
@@ -45,6 +46,15 @@ const (
 	feishuUserOpenIDKey                      = "feishu_user_open_id"
 	feishuConversationIDKey                  = "feishu_conversation_id"
 	feishuChatNameKey                        = "feishu_chat_name"
+	feishuEventTypeKey                       = "feishu_event_type"
+	feishuApprovalCodeKey                    = "feishu_approval_code"
+	feishuApprovalIDKey                      = "feishu_approval_id"
+	feishuApprovalInstanceCodeKey            = "feishu_approval_instance_code"
+	feishuApprovalStatusKey                  = "feishu_approval_status"
+	feishuApprovalVersionIDKey               = "feishu_approval_version_id"
+	feishuApprovalTimestampKey               = "feishu_approval_timestamp"
+	feishuApprovalEventUUIDKey               = "feishu_approval_event_uuid"
+	feishuApprovalOperateTimeKey             = "feishu_approval_operate_time"
 	feishuDefaultDomain                      = "https://open.feishu.cn"
 	feishuDefaultHTTPTimeout                 = 15 * time.Second
 	feishuWSReadTimeout                      = 90 * time.Second
@@ -128,23 +138,73 @@ type feishuSendMessageResponse struct {
 	} `json:"data"`
 }
 
+type feishuEventHeader struct {
+	EventType       string `json:"event_type"`
+	EventID         string `json:"event_id"`
+	Token           string `json:"token"`
+	AppID           string `json:"app_id"`
+	TenantKey       string `json:"tenant_key"`
+	EventCreateTime string `json:"event_create_time"`
+}
+
 type feishuEventEnvelope struct {
-	Schema string `json:"schema"`
-	Header struct {
-		EventType string `json:"event_type"`
-	} `json:"header"`
-	Event feishuMessageEvent `json:"event"`
+	Schema string            `json:"schema"`
+	Type   string            `json:"type"`
+	Header feishuEventHeader `json:"header"`
 }
 
 type feishuWebhookEnvelope struct {
-	Type      string `json:"type"`
-	Token     string `json:"token"`
-	Challenge string `json:"challenge"`
-	Schema    string `json:"schema"`
-	Header    struct {
-		EventType string `json:"event_type"`
-	} `json:"header"`
-	Event feishuMessageEvent `json:"event"`
+	Type      string            `json:"type"`
+	Token     string            `json:"token"`
+	Challenge string            `json:"challenge"`
+	Schema    string            `json:"schema"`
+	Header    feishuEventHeader `json:"header"`
+	Event     json.RawMessage   `json:"event"`
+}
+
+type feishuMessageEventEnvelope struct {
+	Schema string             `json:"schema"`
+	Header feishuEventHeader  `json:"header"`
+	Event  feishuMessageEvent `json:"event"`
+}
+
+type feishuApprovalUpdatedEventEnvelope struct {
+	Schema string            `json:"schema"`
+	Header feishuEventHeader `json:"header"`
+	Event  struct {
+		Object feishuApprovalUpdatedEvent `json:"object"`
+	} `json:"event"`
+}
+
+type feishuApprovalUpdatedEvent struct {
+	ApprovalID       string              `json:"approval_id"`
+	ApprovalCode     string              `json:"approval_code"`
+	VersionID        string              `json:"version_id"`
+	WidgetGroupType  int                 `json:"widget_group_type"`
+	FormDefinitionID string              `json:"form_definition_id"`
+	ProcessObj       string              `json:"process_obj"`
+	Timestamp        feishuFlexibleValue `json:"timestamp"`
+	Extra            string              `json:"extra"`
+}
+
+type feishuApprovalInstanceEnvelope struct {
+	Timestamp string                      `json:"ts"`
+	UUID      string                      `json:"uuid"`
+	Token     string                      `json:"token"`
+	Type      string                      `json:"type"`
+	Event     feishuApprovalInstanceEvent `json:"event"`
+}
+
+type feishuApprovalInstanceEvent struct {
+	AppID               string              `json:"app_id"`
+	TenantKey           string              `json:"tenant_key"`
+	Type                string              `json:"type"`
+	ApprovalCode        string              `json:"approval_code"`
+	InstanceCode        string              `json:"instance_code"`
+	Status              string              `json:"status"`
+	OperateTime         feishuFlexibleValue `json:"operate_time"`
+	InstanceOperateTime feishuFlexibleValue `json:"instance_operate_time"`
+	UUID                string              `json:"uuid"`
 }
 
 type feishuMessageEvent struct {
@@ -196,6 +256,7 @@ type feishuPostElement struct {
 	Text     string `json:"text"`
 	Language string `json:"language"`
 	Href     string `json:"href"`
+	ImageKey string `json:"image_key"`
 }
 
 type feishuWSHeader struct {
@@ -213,6 +274,44 @@ type feishuWSFrame struct {
 	PayloadType     string
 	Payload         []byte
 	LogIDNew        string
+}
+
+type feishuStreamingReplySession struct {
+	provider     *feishuProvider
+	connection   store.BotConnection
+	conversation store.BotConversation
+
+	mu                sync.Mutex
+	sentMessages      []OutboundMessage
+	streamMessageID   string
+	streamPayload     *feishuSendPayload
+	streamMessageText string
+}
+
+type feishuFlexibleValue string
+
+func (v *feishuFlexibleValue) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || strings.EqualFold(trimmed, "null") {
+		*v = ""
+		return nil
+	}
+
+	var stringValue string
+	if err := json.Unmarshal(data, &stringValue); err == nil {
+		*v = feishuFlexibleValue(strings.TrimSpace(stringValue))
+		return nil
+	}
+
+	var number json.Number
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&number); err == nil {
+		*v = feishuFlexibleValue(strings.TrimSpace(number.String()))
+		return nil
+	}
+
+	return fmt.Errorf("decode feishu flexible value")
 }
 
 func (e *feishuRequestError) Error() string {
@@ -520,24 +619,250 @@ func (p *feishuProvider) SendMessages(
 	)
 
 	for _, message := range messages {
-		text := messageSummaryText(message.Text, message.Media)
-		text = strings.TrimSpace(text)
-		if text == "" {
-			continue
+		text := strings.TrimSpace(message.Text)
+		if text != "" {
+			payload := feishuBuildSendPayload(text, parseBoolSetting(connection.Settings[feishuEnableCardsSetting], false))
+			_, sendErr := p.sendFeishuMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, payload)
+			if sendErr != nil {
+				if deliveredParts == 0 && isFeishuRetryableSendError(sendErr) {
+					return markReplyDeliveryRetryable(sendErr)
+				}
+				return sendErr
+			}
+			deliveredParts += 1
 		}
 
-		payload := feishuBuildSendPayload(text, parseBoolSetting(connection.Settings[feishuEnableCardsSetting], false))
-		sendErr := p.sendFeishuMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, payload)
-		if sendErr != nil {
-			if deliveredParts == 0 && isFeishuRetryableSendError(sendErr) {
-				return markReplyDeliveryRetryable(sendErr)
+		for _, media := range message.Media {
+			sendErr := p.sendMediaMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, media)
+			if sendErr != nil {
+				if deliveredParts == 0 && isFeishuRetryableSendError(sendErr) {
+					return markReplyDeliveryRetryable(sendErr)
+				}
+				return sendErr
 			}
-			return sendErr
+			deliveredParts += 1
 		}
-		deliveredParts += 1
 	}
 
 	return nil
+}
+
+func (p *feishuProvider) StartStreamingReply(
+	_ context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (StreamingReplySession, error) {
+	appID := strings.TrimSpace(connection.Settings[feishuAppIDSetting])
+	if appID == "" {
+		return nil, fmt.Errorf("%w: feishu app id is required", ErrInvalidInput)
+	}
+	appSecret := strings.TrimSpace(connection.Secrets[feishuAppSecretKey])
+	if appSecret == "" {
+		return nil, fmt.Errorf("%w: feishu app secret is required", ErrInvalidInput)
+	}
+	if _, err := p.providerDomain(connection); err != nil {
+		return nil, err
+	}
+	chatID := firstNonEmpty(
+		strings.TrimSpace(conversation.ExternalChatID),
+		strings.TrimSpace(conversation.ProviderState[feishuChatIDKey]),
+	)
+	if chatID == "" {
+		return nil, fmt.Errorf("%w: feishu external chat id is required", ErrInvalidInput)
+	}
+
+	return &feishuStreamingReplySession{
+		provider:     p,
+		connection:   connection,
+		conversation: conversation,
+	}, nil
+}
+
+func (s *feishuStreamingReplySession) Update(ctx context.Context, update StreamingUpdate) error {
+	if s == nil || s.provider == nil {
+		return nil
+	}
+
+	current := normalizeStreamingMessages(update)
+	if len(current) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	toSend := nextFeishuStreamingUpdateMessages(s.sentMessages, current)
+	if len(toSend) > 0 {
+		s.sentMessages = append(cloneOutboundMessages(s.sentMessages), cloneOutboundMessages(toSend)...)
+	}
+	s.mu.Unlock()
+
+	if len(toSend) == 0 {
+		return nil
+	}
+	return s.sendOrUpdateStreamingMessages(ctx, toSend, false)
+}
+
+func (s *feishuStreamingReplySession) Complete(ctx context.Context, messages []OutboundMessage) error {
+	if s == nil || s.provider == nil {
+		return nil
+	}
+
+	finalMessages := cloneOutboundMessages(messages)
+	if len(finalMessages) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	toSend := remainingFeishuStreamingMessages(s.sentMessages, finalMessages)
+	if len(toSend) > 0 {
+		s.sentMessages = append(cloneOutboundMessages(s.sentMessages), cloneOutboundMessages(toSend)...)
+	}
+	s.mu.Unlock()
+
+	if len(toSend) == 0 {
+		return nil
+	}
+	return s.sendOrUpdateStreamingMessages(ctx, toSend, true)
+}
+
+func (s *feishuStreamingReplySession) Fail(ctx context.Context, text string) error {
+	if s == nil || s.provider == nil {
+		return nil
+	}
+
+	text = strings.TrimSpace(text)
+	if text == "" {
+		text = defaultStreamingFailureText
+	}
+	return s.sendOrUpdateStreamingMessages(ctx, []OutboundMessage{{Text: text}}, true)
+}
+
+func (s *feishuStreamingReplySession) sendOrUpdateStreamingMessages(
+	ctx context.Context,
+	messages []OutboundMessage,
+	_ bool,
+) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	if single, ok := feishuSingleTextMessage(messages); ok {
+		return s.sendOrUpdateStreamingSingleText(ctx, single)
+	}
+
+	return s.provider.SendMessages(ctx, s.connection, s.conversation, messages)
+}
+
+func (s *feishuStreamingReplySession) sendOrUpdateStreamingSingleText(ctx context.Context, text string) error {
+	domain, token, chatID, replyMessageID, replyInThread, err := s.provider.feishuSendContext(ctx, s.connection, s.conversation)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	streamMessageID := strings.TrimSpace(s.streamMessageID)
+	lastText := strings.TrimSpace(s.streamMessageText)
+	s.mu.Unlock()
+
+	payload := feishuBuildStreamingPayload(text)
+	if streamMessageID != "" {
+		if lastText == strings.TrimSpace(text) {
+			return nil
+		}
+		if err := s.provider.updateFeishuMessage(ctx, domain, token, streamMessageID, payload); err == nil {
+			s.mu.Lock()
+			s.streamPayload = &payload
+			s.streamMessageText = strings.TrimSpace(text)
+			s.mu.Unlock()
+			return nil
+		}
+	}
+
+	response, err := s.provider.sendFeishuMessage(ctx, s.connection, domain, token, chatID, replyMessageID, replyInThread, payload)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.streamMessageID = strings.TrimSpace(response.Data.MessageID)
+	s.streamPayload = &payload
+	s.streamMessageText = strings.TrimSpace(text)
+	s.mu.Unlock()
+	return nil
+}
+
+func feishuSingleTextMessage(messages []OutboundMessage) (string, bool) {
+	if len(messages) != 1 {
+		return "", false
+	}
+	message := messages[0]
+	if len(message.Media) > 0 {
+		return "", false
+	}
+	text := strings.TrimSpace(message.Text)
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+func nextFeishuStreamingUpdateMessages(sent []OutboundMessage, current []OutboundMessage) []OutboundMessage {
+	if len(current) == 0 {
+		return nil
+	}
+
+	toSend := make([]OutboundMessage, 0, len(current))
+	commonPrefix := outboundMessageCommonPrefixLen(sent, current)
+	start := len(sent)
+	if commonPrefix < len(sent) {
+		start = len(current)
+	}
+	if start < len(current)-1 {
+		toSend = append(toSend, cloneOutboundMessages(current[start:len(current)-1])...)
+	}
+
+	tail := current[len(current)-1]
+	if shouldEmitFeishuStreamingTail(tail) {
+		if len(sent) == 0 || !equalOutboundMessage(sent[len(sent)-1], tail) {
+			if len(toSend) == 0 || !equalOutboundMessage(toSend[len(toSend)-1], tail) {
+				toSend = append(toSend, cloneOutboundMessage(tail))
+			}
+		}
+	}
+
+	return toSend
+}
+
+func remainingFeishuStreamingMessages(sent []OutboundMessage, final []OutboundMessage) []OutboundMessage {
+	if len(final) == 0 {
+		return nil
+	}
+
+	commonPrefix := outboundMessageCommonPrefixLen(sent, final)
+	if commonPrefix >= len(final) {
+		return nil
+	}
+	return cloneOutboundMessages(final[commonPrefix:])
+}
+
+func shouldEmitFeishuStreamingTail(message OutboundMessage) bool {
+	text := strings.TrimSpace(message.Text)
+	if text == "" || len(message.Media) > 0 {
+		return false
+	}
+	return strings.Contains(text, "Request ID:") || strings.HasPrefix(text, "Feishu Sheet ·") || strings.HasPrefix(text, "Feishu Base ·") || strings.HasPrefix(text, "Feishu Tool:")
+}
+
+func outboundMessageCommonPrefixLen(left []OutboundMessage, right []OutboundMessage) int {
+	limit := len(left)
+	if len(right) < limit {
+		limit = len(right)
+	}
+	for index := 0; index < limit; index++ {
+		if !equalOutboundMessage(left[index], right[index]) {
+			return index
+		}
+	}
+	return limit
 }
 
 func (p *feishuProvider) ReplyDeliveryRetryDecision(err error, attempt int) (bool, time.Duration) {
@@ -752,16 +1077,37 @@ func (p *feishuProvider) parseFeishuEventPayload(payload []byte, connection stor
 		return InboundMessage{}, fmt.Errorf("%w: decode feishu event: %s", ErrInvalidInput, err.Error())
 	}
 
-	if strings.TrimSpace(envelope.Header.EventType) != "im.message.receive_v1" {
-		return InboundMessage{}, ErrWebhookIgnored
+	switch strings.TrimSpace(envelope.Header.EventType) {
+	case "im.message.receive_v1":
+		var messageEnvelope feishuMessageEventEnvelope
+		if err := json.Unmarshal(payload, &messageEnvelope); err != nil {
+			return InboundMessage{}, fmt.Errorf("%w: decode feishu message event: %s", ErrInvalidInput, err.Error())
+		}
+		return p.inboundMessageFromFeishuEvent(connection, messageEnvelope)
+	case "approval.approval.updated_v4":
+		var approvalEnvelope feishuApprovalUpdatedEventEnvelope
+		if err := json.Unmarshal(payload, &approvalEnvelope); err != nil {
+			return InboundMessage{}, fmt.Errorf("%w: decode feishu approval updated event: %s", ErrInvalidInput, err.Error())
+		}
+		return inboundMessageFromFeishuApprovalUpdatedEvent(approvalEnvelope), nil
 	}
 
-	return p.inboundMessageFromFeishuEvent(connection, envelope)
+	if strings.EqualFold(strings.TrimSpace(envelope.Type), "event_callback") {
+		var approvalInstanceEnvelope feishuApprovalInstanceEnvelope
+		if err := json.Unmarshal(payload, &approvalInstanceEnvelope); err != nil {
+			return InboundMessage{}, fmt.Errorf("%w: decode feishu approval callback: %s", ErrInvalidInput, err.Error())
+		}
+		if strings.TrimSpace(approvalInstanceEnvelope.Event.Type) == "approval_instance" {
+			return inboundMessageFromFeishuApprovalInstanceEvent(approvalInstanceEnvelope), nil
+		}
+	}
+
+	return InboundMessage{}, ErrWebhookIgnored
 }
 
 func (p *feishuProvider) inboundMessageFromFeishuEvent(
 	connection store.BotConnection,
-	envelope feishuEventEnvelope,
+	envelope feishuMessageEventEnvelope,
 ) (InboundMessage, error) {
 	message := envelope.Event.Message
 	sender := envelope.Event.Sender
@@ -786,19 +1132,26 @@ func (p *feishuProvider) inboundMessageFromFeishuEvent(
 	}
 
 	var text string
+	var media []store.BotMessageMedia
 	var err error
 	switch strings.TrimSpace(message.MessageType) {
 	case "text":
 		text, err = extractFeishuTextContent(message.Content, message.Mentions, botOpenID)
+	case "image":
+		media, err = p.extractInboundFeishuImage(context.Background(), connection, messageID, message.Content)
+	case "audio":
+		media, err = p.extractInboundFeishuAudio(context.Background(), connection, messageID, message.Content)
+	case "file":
+		media, err = p.extractInboundFeishuFile(context.Background(), connection, messageID, message.Content)
 	case "post":
-		text, err = extractFeishuPostText(message.Content, message.Mentions, botOpenID)
+		text, media, err = p.extractFeishuPostText(context.Background(), connection, messageID, message.Content, message.Mentions, botOpenID)
 	default:
 		return InboundMessage{}, ErrWebhookIgnored
 	}
 	if err != nil {
 		return InboundMessage{}, err
 	}
-	if text == "" {
+	if strings.TrimSpace(text) == "" && len(media) == 0 {
 		return InboundMessage{}, ErrWebhookIgnored
 	}
 
@@ -840,8 +1193,132 @@ func (p *feishuProvider) inboundMessageFromFeishuEvent(
 		Username:         username,
 		Title:            title,
 		Text:             text,
+		Media:            media,
 		ProviderData:     providerData,
 	}, nil
+}
+
+func inboundMessageFromFeishuApprovalUpdatedEvent(envelope feishuApprovalUpdatedEventEnvelope) InboundMessage {
+	eventType := strings.TrimSpace(envelope.Header.EventType)
+	object := envelope.Event.Object
+	approvalCode := strings.TrimSpace(object.ApprovalCode)
+	approvalID := strings.TrimSpace(object.ApprovalID)
+	versionID := strings.TrimSpace(object.VersionID)
+	timestamp := strings.TrimSpace(string(object.Timestamp))
+	formDefinitionID := strings.TrimSpace(object.FormDefinitionID)
+	messageID := firstNonEmpty(
+		strings.TrimSpace(envelope.Header.EventID),
+		firstNonEmpty(versionID, approvalID, approvalCode)+"@"+timestamp,
+	)
+
+	lines := make([]string, 0, 6)
+	lines = append(lines, "Feishu approval definition updated")
+	if approvalCode != "" {
+		lines = append(lines, "Approval Code: "+approvalCode)
+	}
+	if approvalID != "" {
+		lines = append(lines, "Approval ID: "+approvalID)
+	}
+	if versionID != "" {
+		lines = append(lines, "Version ID: "+versionID)
+	}
+	if timestamp != "" {
+		lines = append(lines, "Timestamp: "+timestamp)
+	}
+	if formDefinitionID != "" {
+		lines = append(lines, "Form Definition ID: "+formDefinitionID)
+	}
+
+	return InboundMessage{
+		ConversationID:   feishuApprovalDefinitionConversationID(approvalCode, approvalID),
+		ExternalChatID:   feishuApprovalDefinitionChatID(approvalCode),
+		ExternalThreadID: firstNonEmpty(approvalID, versionID),
+		MessageID:        messageID,
+		UserID:           firstNonEmpty(strings.TrimSpace(envelope.Header.AppID), "approval.approval.updated_v4"),
+		Username:         "Feishu Approval",
+		Title:            firstNonEmpty(strings.TrimSpace("Feishu Approval "+approvalCode), "Feishu Approval Definition"),
+		Text:             strings.TrimSpace(strings.Join(lines, "\n")),
+		ProviderData: map[string]string{
+			feishuEventTypeKey:         eventType,
+			feishuApprovalCodeKey:      approvalCode,
+			feishuApprovalIDKey:        approvalID,
+			feishuApprovalVersionIDKey: versionID,
+			feishuApprovalTimestampKey: timestamp,
+		},
+	}
+}
+
+func inboundMessageFromFeishuApprovalInstanceEvent(envelope feishuApprovalInstanceEnvelope) InboundMessage {
+	event := envelope.Event
+	eventType := strings.TrimSpace(event.Type)
+	approvalCode := strings.TrimSpace(event.ApprovalCode)
+	instanceCode := strings.TrimSpace(event.InstanceCode)
+	status := strings.TrimSpace(event.Status)
+	operateTime := strings.TrimSpace(string(event.OperateTime))
+	instanceOperateTime := strings.TrimSpace(string(event.InstanceOperateTime))
+	eventUUID := firstNonEmpty(strings.TrimSpace(event.UUID), strings.TrimSpace(envelope.UUID))
+	messageID := firstNonEmpty(eventUUID, instanceCode+"@"+operateTime)
+
+	lines := make([]string, 0, 7)
+	lines = append(lines, "Feishu approval instance status changed")
+	if approvalCode != "" {
+		lines = append(lines, "Approval Code: "+approvalCode)
+	}
+	if instanceCode != "" {
+		lines = append(lines, "Instance Code: "+instanceCode)
+	}
+	if status != "" {
+		lines = append(lines, "Status: "+status)
+	}
+	if operateTime != "" {
+		lines = append(lines, "Operate Time: "+operateTime)
+	}
+	if instanceOperateTime != "" && instanceOperateTime != operateTime {
+		lines = append(lines, "Instance Operate Time: "+instanceOperateTime)
+	}
+	if eventUUID != "" {
+		lines = append(lines, "Event UUID: "+eventUUID)
+	}
+
+	return InboundMessage{
+		ConversationID:   feishuApprovalInstanceConversationID(approvalCode, instanceCode),
+		ExternalChatID:   feishuApprovalInstanceChatID(approvalCode),
+		ExternalThreadID: instanceCode,
+		MessageID:        messageID,
+		UserID:           firstNonEmpty(strings.TrimSpace(event.AppID), "approval_instance"),
+		Username:         "Feishu Approval",
+		Title:            firstNonEmpty(strings.TrimSpace("Feishu Approval "+approvalCode), "Feishu Approval Instance"),
+		Text:             strings.TrimSpace(strings.Join(lines, "\n")),
+		ProviderData: map[string]string{
+			feishuEventTypeKey:            eventType,
+			feishuApprovalCodeKey:         approvalCode,
+			feishuApprovalInstanceCodeKey: instanceCode,
+			feishuApprovalStatusKey:       status,
+			feishuApprovalEventUUIDKey:    eventUUID,
+			feishuApprovalOperateTimeKey:  operateTime,
+		},
+	}
+}
+
+func feishuApprovalDefinitionConversationID(approvalCode string, approvalID string) string {
+	base := firstNonEmpty(strings.TrimSpace(approvalCode), strings.TrimSpace(approvalID), "unknown")
+	return "approval-definition:" + base
+}
+
+func feishuApprovalDefinitionChatID(approvalCode string) string {
+	base := firstNonEmpty(strings.TrimSpace(approvalCode), "approval-definition")
+	return "approval-definition:" + base
+}
+
+func feishuApprovalInstanceConversationID(approvalCode string, instanceCode string) string {
+	baseCode := firstNonEmpty(strings.TrimSpace(approvalCode), "unknown")
+	baseInstance := firstNonEmpty(strings.TrimSpace(instanceCode), "instance")
+	return "approval:" + baseCode + ":instance:" + baseInstance
+}
+
+func feishuApprovalInstanceChatID(approvalCode string) string {
+	base := firstNonEmpty(strings.TrimSpace(approvalCode), "approval")
+	return "approval:" + base
 }
 
 func feishuConversationKey(
@@ -887,24 +1364,39 @@ func extractFeishuTextContent(raw string, mentions []feishuMention, botOpenID st
 	return text, nil
 }
 
-func extractFeishuPostText(raw string, mentions []feishuMention, botOpenID string) (string, error) {
+func (p *feishuProvider) extractFeishuPostText(
+	ctx context.Context,
+	connection store.BotConnection,
+	messageID string,
+	raw string,
+	mentions []feishuMention,
+	botOpenID string,
+) (string, []store.BotMessageMedia, error) {
 	var flat feishuPostContent
 	if err := json.Unmarshal([]byte(raw), &flat); err == nil && len(flat.Content) > 0 {
-		return feishuPostText(flat, mentions, botOpenID), nil
+		return p.feishuPostText(ctx, connection, messageID, flat, mentions, botOpenID)
 	}
 
 	var languageMap map[string]feishuPostContent
 	if err := json.Unmarshal([]byte(raw), &languageMap); err != nil {
-		return "", fmt.Errorf("%w: decode feishu post content: %s", ErrInvalidInput, err.Error())
+		return "", nil, fmt.Errorf("%w: decode feishu post content: %s", ErrInvalidInput, err.Error())
 	}
 	for _, content := range languageMap {
-		return feishuPostText(content, mentions, botOpenID), nil
+		return p.feishuPostText(ctx, connection, messageID, content, mentions, botOpenID)
 	}
-	return "", nil
+	return "", nil, nil
 }
 
-func feishuPostText(content feishuPostContent, mentions []feishuMention, botOpenID string) string {
+func (p *feishuProvider) feishuPostText(
+	ctx context.Context,
+	connection store.BotConnection,
+	messageID string,
+	content feishuPostContent,
+	mentions []feishuMention,
+	botOpenID string,
+) (string, []store.BotMessageMedia, error) {
 	lines := make([]string, 0, len(content.Content)+1)
+	media := make([]store.BotMessageMedia, 0)
 	if title := strings.TrimSpace(content.Title); title != "" {
 		lines = append(lines, title)
 	}
@@ -916,6 +1408,15 @@ func feishuPostText(content feishuPostContent, mentions []feishuMention, botOpen
 				if text := strings.TrimSpace(item.Text); text != "" {
 					parts = append(parts, text)
 				}
+			case "img":
+				if strings.TrimSpace(item.ImageKey) == "" {
+					continue
+				}
+				imageMedia, err := p.downloadInboundFeishuImageByKey(ctx, connection, messageID, strings.TrimSpace(item.ImageKey), "")
+				if err != nil {
+					return "", nil, err
+				}
+				media = append(media, imageMedia)
 			}
 		}
 		if len(parts) > 0 {
@@ -923,7 +1424,7 @@ func feishuPostText(content feishuPostContent, mentions []feishuMention, botOpen
 		}
 	}
 	text := stripFeishuMentions(strings.Join(lines, "\n"), mentions, botOpenID)
-	return html.UnescapeString(strings.TrimSpace(text))
+	return html.UnescapeString(strings.TrimSpace(text)), media, nil
 }
 
 func isFeishuBotMentioned(mentions []feishuMention, botOpenID string) bool {
@@ -1008,6 +1509,13 @@ func feishuBuildSendPayload(text string, useCard bool) feishuSendPayload {
 	}
 }
 
+func feishuBuildStreamingPayload(text string) feishuSendPayload {
+	return feishuSendPayload{
+		Content: buildFeishuUpdatableCardJSON(text),
+		MsgType: "interactive",
+	}
+}
+
 func buildFeishuCardJSON(content string) string {
 	card := map[string]any{
 		"schema": "2.0",
@@ -1027,6 +1535,59 @@ func buildFeishuCardJSON(content string) string {
 	return string(data)
 }
 
+func buildFeishuUpdatableCardJSON(content string) string {
+	card := map[string]any{
+		"schema": "2.0",
+		"config": map[string]any{
+			"wide_screen_mode": true,
+			"update_multi":     true,
+		},
+		"body": map[string]any{
+			"elements": []map[string]any{
+				{
+					"tag":     "markdown",
+					"content": strings.TrimSpace(content),
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(card)
+	return string(data)
+}
+
+func (p *feishuProvider) feishuSendContext(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (domain string, token string, chatID string, replyMessageID string, replyInThread bool, err error) {
+	appID := strings.TrimSpace(connection.Settings[feishuAppIDSetting])
+	if appID == "" {
+		err = fmt.Errorf("%w: feishu app id is required", ErrInvalidInput)
+		return
+	}
+	appSecret := strings.TrimSpace(connection.Secrets[feishuAppSecretKey])
+	if appSecret == "" {
+		err = fmt.Errorf("%w: feishu app secret is required", ErrInvalidInput)
+		return
+	}
+	domain, err = p.providerDomain(connection)
+	if err != nil {
+		return
+	}
+	chatID = firstNonEmpty(strings.TrimSpace(conversation.ExternalChatID), strings.TrimSpace(conversation.ProviderState[feishuChatIDKey]))
+	if chatID == "" {
+		err = fmt.Errorf("%w: feishu external chat id is required", ErrInvalidInput)
+		return
+	}
+	token, err = p.tenantAccessToken(ctx, domain, appID, appSecret)
+	if err != nil {
+		return
+	}
+	replyMessageID = strings.TrimSpace(conversation.ProviderState[feishuMessageIDKey])
+	replyInThread = shouldFeishuReplyInThread(connection, conversation)
+	return
+}
+
 func (p *feishuProvider) sendFeishuMessage(
 	ctx context.Context,
 	connection store.BotConnection,
@@ -1036,17 +1597,17 @@ func (p *feishuProvider) sendFeishuMessage(
 	replyMessageID string,
 	replyInThread bool,
 	payload feishuSendPayload,
-) error {
+) (feishuSendMessageResponse, error) {
 	if replyMessageID != "" {
-		sendErr := p.sendFeishuReply(ctx, domain, token, replyMessageID, payload, replyInThread)
+		response, sendErr := p.sendFeishuReply(ctx, domain, token, replyMessageID, payload, replyInThread)
 		if sendErr != nil && shouldFeishuFallbackToCreate(sendErr) {
 			logBotDebug(ctx, connection, "feishu reply failed; falling back to chat send",
 				slog.String("replyMessageId", replyMessageID),
 				slog.String("error", sendErr.Error()),
 			)
-			sendErr = p.sendFeishuCreate(ctx, domain, token, chatID, payload)
+			response, sendErr = p.sendFeishuCreate(ctx, domain, token, chatID, payload)
 		}
-		return sendErr
+		return response, sendErr
 	}
 	return p.sendFeishuCreate(ctx, domain, token, chatID, payload)
 }
@@ -1058,7 +1619,7 @@ func (p *feishuProvider) sendFeishuReply(
 	messageID string,
 	payload feishuSendPayload,
 	replyInThread bool,
-) error {
+) (feishuSendMessageResponse, error) {
 	response := feishuSendMessageResponse{}
 	body := map[string]any{
 		"content":  payload.Content,
@@ -1067,7 +1628,8 @@ func (p *feishuProvider) sendFeishuReply(
 	if replyInThread {
 		body["reply_in_thread"] = true
 	}
-	return p.callJSON(ctx, http.MethodPost, domain, "/open-apis/im/v1/messages/"+url.PathEscape(strings.TrimSpace(messageID))+"/reply", token, body, &response)
+	err := p.callJSON(ctx, http.MethodPost, domain, "/open-apis/im/v1/messages/"+url.PathEscape(strings.TrimSpace(messageID))+"/reply", token, body, &response)
+	return response, err
 }
 
 func (p *feishuProvider) sendFeishuCreate(
@@ -1076,13 +1638,33 @@ func (p *feishuProvider) sendFeishuCreate(
 	token string,
 	chatID string,
 	payload feishuSendPayload,
-) error {
+) (feishuSendMessageResponse, error) {
 	response := feishuSendMessageResponse{}
-	return p.callJSON(ctx, http.MethodPost, domain, "/open-apis/im/v1/messages?receive_id_type=chat_id", token, map[string]any{
+	err := p.callJSON(ctx, http.MethodPost, domain, "/open-apis/im/v1/messages?receive_id_type=chat_id", token, map[string]any{
 		"receive_id": strings.TrimSpace(chatID),
 		"content":    payload.Content,
 		"msg_type":   payload.MsgType,
 	}, &response)
+	return response, err
+}
+
+func (p *feishuProvider) updateFeishuMessage(
+	ctx context.Context,
+	domain string,
+	token string,
+	messageID string,
+	payload feishuSendPayload,
+) error {
+	body := map[string]any{
+		"content": payload.Content,
+	}
+	method := http.MethodPatch
+	requestPath := "/open-apis/im/v1/messages/" + url.PathEscape(strings.TrimSpace(messageID))
+	if payload.MsgType != "interactive" {
+		method = http.MethodPut
+		body["msg_type"] = payload.MsgType
+	}
+	return p.callJSON(ctx, method, domain, requestPath, token, body, &feishuSendMessageResponse{})
 }
 
 func feishuTextMessageContent(text string) string {

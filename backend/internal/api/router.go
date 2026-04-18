@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
 	"runtime/debug"
@@ -25,6 +26,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/feishutools"
 	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/memorydiag"
 	"codex-server/backend/internal/notificationcenter"
@@ -62,6 +64,7 @@ type Dependencies struct {
 	ConfigFS             *configfs.Service
 	ExecFS               *execfs.Service
 	Feedback             *feedback.Service
+	FeishuTools          *feishutools.Service
 	Events               *events.Hub
 	RuntimePrefs         *runtimeprefs.Service
 	MemoryDiagnostics    *memorydiag.Service
@@ -86,6 +89,7 @@ type Server struct {
 	configfs           *configfs.Service
 	execfs             *execfs.Service
 	feedback           *feedback.Service
+	feishuTools        *feishutools.Service
 	events             *events.Hub
 	runtimePrefs       *runtimeprefs.Service
 	memoryDiag         *memorydiag.Service
@@ -113,6 +117,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		configfs:           deps.ConfigFS,
 		execfs:             deps.ExecFS,
 		feedback:           deps.Feedback,
+		feishuTools:        deps.FeishuTools,
 		events:             deps.Events,
 		runtimePrefs:       deps.RuntimePrefs,
 		memoryDiag:         deps.MemoryDiagnostics,
@@ -143,6 +148,9 @@ func NewRouter(deps Dependencies) http.Handler {
 		r.Get("/access/bootstrap", server.handleAccessBootstrap)
 		r.Post("/access/login", server.handleAccessLogin)
 		r.Post("/access/logout", server.handleAccessLogout)
+		r.Get("/feishu-tools/oauth/callback", server.handleFeishuToolsOauthCallback)
+		r.Get("/feishu-tools/mcp/{workspaceId}", server.handleFeishuToolsMCP)
+		r.Post("/feishu-tools/mcp/{workspaceId}", server.handleFeishuToolsMCP)
 
 		r.Group(func(r chi.Router) {
 			r.Use(server.requireProtectedAccess)
@@ -214,6 +222,15 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/{workspaceId}/search/files", server.handleFuzzyFileSearch)
 				r.Post("/{workspaceId}/feedback/upload", server.handleFeedbackUpload)
 				r.Post("/{workspaceId}/mcp/oauth/login", server.handleMcpOauthLogin)
+				r.Get("/{workspaceId}/feishu-tools/config", server.handleReadFeishuToolsConfig)
+				r.Post("/{workspaceId}/feishu-tools/config", server.handleWriteFeishuToolsConfig)
+				r.Get("/{workspaceId}/feishu-tools/status", server.handleReadFeishuToolsStatus)
+				r.Get("/{workspaceId}/feishu-tools/capabilities", server.handleReadFeishuToolsCapabilities)
+				r.Get("/{workspaceId}/feishu-tools/permissions", server.handleReadFeishuToolsPermissions)
+				r.Post("/{workspaceId}/feishu-tools/oauth/login", server.handleFeishuToolsOauthLogin)
+				r.Get("/{workspaceId}/feishu-tools/oauth/status", server.handleFeishuToolsOauthStatus)
+				r.Post("/{workspaceId}/feishu-tools/oauth/revoke", server.handleFeishuToolsOauthRevoke)
+				r.Post("/{workspaceId}/feishu-tools/invoke", server.handleFeishuToolsInvoke)
 				r.Get("/{workspaceId}/experimental-features", server.handleListExperimentalFeatures)
 				r.Get("/{workspaceId}/mcp-server-status", server.handleListMcpServerStatus)
 				r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
@@ -3351,6 +3368,286 @@ func (s *Server) handleMcpOauthLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, result)
 }
 
+func (s *Server) handleReadFeishuToolsConfig(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	result, err := s.feishuTools.ReadConfig(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWriteFeishuToolsConfig(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	var request struct {
+		Enabled             bool     `json:"enabled"`
+		AppID               string   `json:"appId"`
+		AppSecret           string   `json:"appSecret"`
+		MCPEndpoint         string   `json:"mcpEndpoint"`
+		OauthMode           string   `json:"oauthMode"`
+		SensitiveWriteGuard bool     `json:"sensitiveWriteGuard"`
+		ToolAllowlist       []string `json:"toolAllowlist"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.feishuTools.WriteConfig(r.Context(), workspaceID, feishutools.ConfigInput{
+		Enabled:             request.Enabled,
+		AppID:               request.AppID,
+		AppSecret:           request.AppSecret,
+		MCPEndpoint:         request.MCPEndpoint,
+		OauthMode:           request.OauthMode,
+		SensitiveWriteGuard: request.SensitiveWriteGuard,
+		ToolAllowlist:       request.ToolAllowlist,
+	})
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	s.publishWorkspaceHTTPMutationAudit(r, workspaceID, map[string]any{
+		"triggerMethod": "feishu-tools/config/write",
+		"toolKind":      "feishuToolsConfigWrite",
+		"toolName":      "feishu-tools/config",
+		"reason":        "feishu_tools_config_write_audited",
+		"context":       "Save Feishu tools configuration",
+		"fingerprint":   "feishu-tools/config/write",
+	})
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleReadFeishuToolsStatus(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	result, err := s.feishuTools.Status(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleReadFeishuToolsCapabilities(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	result, err := s.feishuTools.Capabilities(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleReadFeishuToolsPermissions(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	result, err := s.feishuTools.Permissions(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFeishuToolsOauthLogin(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	var request struct {
+		Scopes []string `json:"scopes"`
+	}
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.feishuTools.OauthLoginWithBaseURL(r.Context(), workspaceID, request.Scopes, requestBaseURL(r))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleFeishuToolsOauthStatus(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	result, err := s.feishuTools.OauthStatusWithBaseURL(r.Context(), workspaceID, requestBaseURL(r))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFeishuToolsInvoke(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	var request feishutools.InvokeInput
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	result, err := s.feishuTools.Invoke(r.Context(), workspaceID, request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFeishuToolsOauthRevoke(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	result, err := s.feishuTools.OauthRevoke(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFeishuToolsMCP(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "use POST application/json for the built-in Feishu MCP endpoint")
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		token = strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	}
+	if !s.feishuTools.ValidateManagedMCPToken(workspaceID, token) {
+		writeError(w, http.StatusUnauthorized, "access_session_invalid", "invalid feishu mcp token")
+		return
+	}
+
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	requestContext := feishutools.ContextWithInvokeEventScope(
+		r.Context(),
+		firstNonEmptyString(
+			r.Header.Get("X-Codex-Thread-Id"),
+			r.URL.Query().Get("threadId"),
+		),
+		firstNonEmptyString(
+			r.Header.Get("X-Codex-Turn-Id"),
+			r.URL.Query().Get("turnId"),
+		),
+	)
+
+	response, hasResponse := s.feishuTools.HandleMCP(requestContext, workspaceID, payload)
+	if !hasResponse {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(response)
+}
+
+// handleFeishuToolsOauthCallback is intentionally registered as a public
+// route: Feishu redirects the browser directly to this URL after the user
+// consents. CSRF protection comes from the signed one-time state parameter
+// minted when the authorize URL was built.
+func (s *Server) handleFeishuToolsOauthCallback(w http.ResponseWriter, r *http.Request) {
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	query := r.URL.Query()
+	if errCode := strings.TrimSpace(query.Get("error")); errCode != "" {
+		description := strings.TrimSpace(query.Get("error_description"))
+		if description == "" {
+			description = errCode
+		}
+		writeError(w, http.StatusBadRequest, "feishu_oauth_error", description)
+		return
+	}
+
+	code := strings.TrimSpace(query.Get("code"))
+	state := strings.TrimSpace(query.Get("state"))
+
+	result, err := s.feishuTools.OauthCallbackWithBaseURL(r.Context(), state, code, requestBaseURL(r))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	if result.RedirectTo != "" {
+		http.Redirect(w, r, result.RedirectTo, http.StatusSeeOther)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleConfigRequirementsRead(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 
@@ -3754,6 +4051,31 @@ func parseAfterSeq(raw string) uint64 {
 	return value
 }
 
+func requestBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
+	scheme := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+
+	host := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0])
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" {
+		return ""
+	}
+
+	return scheme + "://" + host
+}
+
 func buildWorkspaceStreamSubscriberIdentity(r *http.Request) (string, string) {
 	source := "api.workspace_stream"
 	role := "workspace-stream"
@@ -3928,6 +4250,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, automations.ErrExecutionUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "automation_execution_unavailable", err.Error())
 	case errors.Is(err, auth.ErrInvalidLoginInput):
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+	case errors.Is(err, feishutools.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, appRuntime.ErrRuntimeNotConfigured):
 		writeError(w, http.StatusBadRequest, "runtime_not_configured", err.Error())

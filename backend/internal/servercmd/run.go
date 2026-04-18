@@ -3,6 +3,7 @@ package servercmd
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,6 +26,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/feishutools"
 	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/logging"
 	"codex-server/backend/internal/memorydiag"
@@ -123,6 +125,11 @@ func runServer(cfg config.Config) error {
 	catalogService := catalog.NewService(runtimeManager, runtimePrefsService)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
+	feishuToolsService := feishutools.NewService(configFSService, catalogService, authService, dataStore)
+	feishuToolsService.SetPublicBaseURL(cfg.PublicBaseURL)
+	feishuToolsService.SetRuntimeBaseURL(runtimeLoopbackBaseURL(cfg.Addr))
+	feishuToolsService.SetFrontendOrigin(cfg.FrontendOrigin)
+	feishuToolsService.SetEventPublisher(eventHub)
 	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
 	memoryDiagService := memorydiag.NewService(dataStore)
 	accessControlService := accesscontrol.NewService(dataStore, cfg.AllowRemoteAccess)
@@ -167,6 +174,7 @@ func runServer(cfg config.Config) error {
 		ConfigFS:           configFSService,
 		ExecFS:             execfsService,
 		Feedback:           feedbackService,
+		FeishuTools:        feishuToolsService,
 		Events:             eventHub,
 		RuntimePrefs:       runtimePrefsService,
 		MemoryDiagnostics:  memoryDiagService,
@@ -255,6 +263,35 @@ func runServer(cfg config.Config) error {
 	}
 
 	return nil
+}
+
+func runtimeLoopbackBaseURL(addr string) string {
+	trimmed := strings.TrimSpace(addr)
+	if trimmed == "" {
+		return ""
+	}
+
+	host := ""
+	port := ""
+	if strings.HasPrefix(trimmed, ":") {
+		port = strings.TrimPrefix(trimmed, ":")
+	} else if parsedHost, parsedPort, err := net.SplitHostPort(trimmed); err == nil {
+		host = strings.TrimSpace(parsedHost)
+		port = strings.TrimSpace(parsedPort)
+	} else {
+		host = trimmed
+	}
+
+	if port == "" {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	if strings.EqualFold(host, "localhost") {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func fallbackRuntimePreference(value string, fallback string) string {

@@ -28,6 +28,9 @@ func prepareInboundMessageForAI(connection store.BotConnection, inbound InboundM
 	case telegramProviderName:
 		next.Text = prepareInboundTextWithMediaSummaryAndNote(next.Text, mediaSummary, telegramAIOutboundMediaNote)
 		return next
+	case feishuProviderName:
+		next.Text = prepareInboundTextWithMediaSummaryAndNote(next.Text, mediaSummary, feishuAIOutboundMediaNote)
+		return next
 	default:
 		if mediaSummary == "" {
 			return next
@@ -47,6 +50,8 @@ func normalizeProviderReplyMessages(connection store.BotConnection, messages []O
 		return normalizeWeChatReplyMessages(messages)
 	case telegramProviderName:
 		return normalizeTelegramReplyMessages(messages)
+	case feishuProviderName:
+		return normalizeFeishuReplyMessages(messages)
 	default:
 		return cloneOutboundMessages(messages)
 	}

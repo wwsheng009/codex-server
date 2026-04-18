@@ -25,6 +25,7 @@ import (
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/execfs"
 	"codex-server/backend/internal/feedback"
+	"codex-server/backend/internal/feishutools"
 	"codex-server/backend/internal/hooks"
 	"codex-server/backend/internal/memorydiag"
 	"codex-server/backend/internal/notificationcenter"
@@ -5355,6 +5356,8 @@ func TestConfigAndSearchRoutesValidateRequestBody(t *testing.T) {
 		"/api/workspaces/" + created.Data.ID + "/config/read",
 		"/api/workspaces/" + created.Data.ID + "/config/write",
 		"/api/workspaces/" + created.Data.ID + "/config/batch-write",
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/config",
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/oauth/login",
 		"/api/workspaces/" + created.Data.ID + "/external-agent/detect",
 		"/api/workspaces/" + created.Data.ID + "/external-agent/import",
 		"/api/workspaces/" + created.Data.ID + "/skills/config/write",
@@ -5401,7 +5404,69 @@ func TestConfigAndSearchRoutesValidateRequestBody(t *testing.T) {
 		t.Fatalf("expected config requirements route to be wired, got %d", requirementsResponse.Code)
 	}
 
+	feishuConfigWriteResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+created.Data.ID+"/feishu-tools/config",
+		`{"enabled":true,"appId":"cli_demo","mcpEndpoint":"https://mcp.example.com","oauthMode":"user_oauth","sensitiveWriteGuard":true,"toolAllowlist":["feishu_fetch_doc"]}`,
+	)
+	if feishuConfigWriteResponse.Code != http.StatusAccepted && feishuConfigWriteResponse.Code != http.StatusBadGateway {
+		t.Fatalf("expected feishu tools config route to be wired, got %d", feishuConfigWriteResponse.Code)
+	}
+
+	feishuOauthResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+created.Data.ID+"/feishu-tools/oauth/login",
+		`{"scopes":["search:docs:read"]}`,
+	)
+	if feishuOauthResponse.Code != http.StatusAccepted && feishuOauthResponse.Code != http.StatusBadGateway && feishuOauthResponse.Code != http.StatusBadRequest {
+		t.Fatalf("expected feishu tools oauth route to be wired, got %d", feishuOauthResponse.Code)
+	}
+
+	feishuOauthRevokeResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+created.Data.ID+"/feishu-tools/oauth/revoke",
+		`{}`,
+	)
+	if feishuOauthRevokeResponse.Code != http.StatusOK && feishuOauthRevokeResponse.Code != http.StatusBadGateway {
+		t.Fatalf("expected feishu tools oauth revoke route to be wired, got %d", feishuOauthRevokeResponse.Code)
+	}
+
+	feishuInvokeResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/workspaces/"+created.Data.ID+"/feishu-tools/invoke",
+		`{"toolName":"not_a_tool"}`,
+	)
+	if feishuInvokeResponse.Code != http.StatusBadRequest {
+		t.Fatalf("expected feishu tools invoke route to reject unknown tool, got %d", feishuInvokeResponse.Code)
+	}
+
+	feishuCallbackResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/feishu-tools/oauth/callback?state=unknown&code=deadbeef",
+		"",
+	)
+	// Unknown state must fail closed with a client-level error; exact code
+	// may map via validation_error (400).
+	if feishuCallbackResponse.Code != http.StatusBadRequest && feishuCallbackResponse.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected feishu tools oauth callback route to be wired, got %d", feishuCallbackResponse.Code)
+	}
+
 	for _, path := range []string{
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/config",
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/status",
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/capabilities",
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/permissions",
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/oauth/status",
 		"/api/workspaces/" + created.Data.ID + "/experimental-features",
 		"/api/workspaces/" + created.Data.ID + "/mcp-server-status",
 		"/api/workspaces/" + created.Data.ID + "/threads/loaded",
@@ -5438,6 +5503,79 @@ func TestCORSAllowsLoopbackFrontendPortFallback(t *testing.T) {
 
 	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Fatalf("expected Access-Control-Allow-Credentials=true, got %q", got)
+	}
+}
+
+func TestRequestBaseURLUsesForwardedHeaders(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18080/api/workspaces/ws-1/feishu-tools/oauth/status", nil)
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set("X-Forwarded-Host", "portal.example.com")
+
+	if got := requestBaseURL(request); got != "https://portal.example.com" {
+		t.Fatalf("requestBaseURL() = %q", got)
+	}
+}
+
+func TestRequestBaseURLFallsBackToRequestHost(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "http://localhost:18080/api/workspaces/ws-1/feishu-tools/oauth/status", nil)
+
+	if got := requestBaseURL(request); got != "http://localhost:18080" {
+		t.Fatalf("requestBaseURL() = %q", got)
+	}
+}
+
+func TestFeishuToolsMCPRouteRequiresManagedTokenAndServesJSONRPC(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := dataStore.CreateWorkspace("Workspace A", t.TempDir())
+	if _, err := dataStore.SetFeishuToolsConfig(store.FeishuToolsConfig{
+		WorkspaceID:         workspace.ID,
+		Enabled:             true,
+		AppID:               "cli_demo",
+		AppSecret:           "secret",
+		ManagedMCPAuthToken: "token-123",
+	}); err != nil {
+		t.Fatalf("SetFeishuToolsConfig() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
+
+	unauthorized := performJSONRequest(t, router, http.MethodPost, "/api/feishu-tools/mcp/"+workspace.ID, body)
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized mcp request to be rejected, got %d", unauthorized.Code)
+	}
+
+	initialized := performJSONRequest(t, router, http.MethodPost, "/api/feishu-tools/mcp/"+workspace.ID+"?token=token-123", body)
+	if initialized.Code != http.StatusOK {
+		t.Fatalf("expected authorized initialize request to succeed, got %d", initialized.Code)
+	}
+	if !strings.Contains(initialized.Body.String(), `"protocolVersion":"2025-03-26"`) {
+		t.Fatalf("unexpected initialize payload %s", initialized.Body.String())
+	}
+
+	listed := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/feishu-tools/mcp/"+workspace.ID+"?token=token-123",
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
+	)
+	if listed.Code != http.StatusOK {
+		t.Fatalf("expected tools/list request to succeed, got %d", listed.Code)
+	}
+	if !strings.Contains(listed.Body.String(), `"name":"feishu_fetch_doc"`) {
+		t.Fatalf("unexpected tools/list payload %s", listed.Body.String())
 	}
 }
 
@@ -7312,6 +7450,7 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 	workspaceService := workspace.NewService(dataStore, runtimeManager)
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
+	feishuToolsService := feishutools.NewService(configFSService, catalog.NewService(runtimeManager, runtimePrefsService), authService, dataStore)
 	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
 	memoryDiagService := memorydiag.NewService(dataStore)
 	accessControlService := accesscontrol.NewService(dataStore, true)
@@ -7334,6 +7473,7 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 		ConfigFS:           configFSService,
 		ExecFS:             execfsService,
 		Feedback:           feedbackService,
+		FeishuTools:        feishuToolsService,
 		Events:             eventHub,
 		RuntimePrefs:       runtimePrefsService,
 		MemoryDiagnostics:  memoryDiagService,

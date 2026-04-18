@@ -1297,6 +1297,151 @@ func TestSendWeChatRouteBackedDeliveryTargetUsesLatestConversationContext(t *tes
 	}
 }
 
+func TestSendWeChatSessionBackedDeliveryTargetClearsReplyContextAfterUpstreamRejectsIt(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeWeChatProvider()
+	provider.pushSendError(wrapWeChatSendMessageError(
+		"text",
+		wechatTextSendSummary("Hello again"),
+		wechatAPIError("/ilink/bot/sendmessage", wechatAPIResponse{
+			Ret:     wechatReplyContextInvalidRet,
+			ErrCode: 0,
+		}),
+	))
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  wechatProviderName,
+		AIBackend: "fake_ai",
+		Secrets: map[string]string{
+			"bot_token": "wechat-token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	conversation, err := dataStore.CreateBotConversation(store.BotConversation{
+		BotID:                  connection.BotID,
+		WorkspaceID:            workspace.ID,
+		ConnectionID:           connection.ID,
+		Provider:               connection.Provider,
+		ExternalConversationID: "wechat-user-1",
+		ExternalChatID:         "wechat-user-1",
+		ExternalUserID:         "wechat-user-1",
+		ExternalTitle:          "Alice",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-stale",
+			"conversation_extra":  "keep-me",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBotConversation() error = %v", err)
+	}
+
+	target, err := dataStore.CreateBotDeliveryTarget(store.BotDeliveryTarget{
+		WorkspaceID:    workspace.ID,
+		BotID:          connection.BotID,
+		ConnectionID:   connection.ID,
+		ConversationID: conversation.ID,
+		Provider:       connection.Provider,
+		TargetType:     "session_backed",
+		RouteType:      "wechat_session",
+		RouteKey:       "user:wechat-user-1",
+		Title:          "Alice",
+		ProviderState: map[string]string{
+			wechatContextTokenKey: "ctx-stale",
+			"target_extra":        "keep-me",
+		},
+		Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBotDeliveryTarget() error = %v", err)
+	}
+
+	_, err = service.SendDeliveryTargetOutboundMessages(context.Background(), workspace.ID, connection.BotID, target.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{Text: "Hello again"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected SendDeliveryTargetOutboundMessages() to fail")
+	}
+	if !strings.Contains(err.Error(), "reply context unavailable") {
+		t.Fatalf("expected send failure to surface reply context invalidation, got %v", err)
+	}
+
+	updatedConversation, ok := dataStore.GetBotConversation(workspace.ID, conversation.ID)
+	if !ok {
+		t.Fatalf("expected stored conversation %s after failed send", conversation.ID)
+	}
+	if got := updatedConversation.ProviderState[wechatContextTokenKey]; got != "" {
+		t.Fatalf("expected conversation reply context to be cleared, got %#v", updatedConversation.ProviderState)
+	}
+	if got := updatedConversation.ProviderState["conversation_extra"]; got != "keep-me" {
+		t.Fatalf("expected conversation custom provider state to be preserved, got %#v", updatedConversation.ProviderState)
+	}
+
+	updatedTarget, ok := dataStore.GetBotDeliveryTarget(workspace.ID, target.ID)
+	if !ok {
+		t.Fatalf("expected stored delivery target %s after failed send", target.ID)
+	}
+	if got := updatedTarget.ProviderState[wechatContextTokenKey]; got != "" {
+		t.Fatalf("expected delivery target reply context to be cleared, got %#v", updatedTarget.ProviderState)
+	}
+	if got := updatedTarget.ProviderState["target_extra"]; got != "keep-me" {
+		t.Fatalf("expected delivery target custom provider state to be preserved, got %#v", updatedTarget.ProviderState)
+	}
+
+	targets, err := service.ListDeliveryTargets(workspace.ID, connection.BotID)
+	if err != nil {
+		t.Fatalf("ListDeliveryTargets() error = %v", err)
+	}
+	var listedTarget DeliveryTargetView
+	for _, candidate := range targets {
+		if candidate.ID == target.ID {
+			listedTarget = candidate
+			break
+		}
+	}
+	if listedTarget.ID == "" {
+		t.Fatalf("expected target %s to appear in delivery target list", target.ID)
+	}
+	if listedTarget.DeliveryReadiness != deliveryTargetReadinessWaiting {
+		t.Fatalf("expected delivery target readiness to fall back to waiting, got %#v", listedTarget)
+	}
+	if !strings.Contains(listedTarget.DeliveryReadinessMessage, "send a message first") {
+		t.Fatalf("expected waiting delivery target guidance after context invalidation, got %#v", listedTarget)
+	}
+
+	_, err = service.SendDeliveryTargetOutboundMessages(context.Background(), workspace.ID, connection.BotID, target.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{Text: "Retry now"},
+		},
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected follow-up send to fail fast with ErrInvalidInput, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "send a message first") {
+		t.Fatalf("expected follow-up send to explain reply context is unavailable, got %v", err)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		t.Fatalf("expected no successful outbound send after context invalidation, got %#v", sent)
+	default:
+	}
+}
+
 func TestUpsertFeishuRouteBackedDeliveryTargetSupportsSessionlessPush(t *testing.T) {
 	t.Parallel()
 
@@ -1474,6 +1619,181 @@ func TestSendFeishuRouteBackedDeliveryTargetUsesLatestConversationContext(t *tes
 	}
 	if updatedConversation.LastOutboundDeliveryStatus != "delivered" {
 		t.Fatalf("expected feishu matched conversation outbound status to be updated, got %#v", updatedConversation)
+	}
+}
+
+func TestSendFeishuApprovalRouteBackedDeliveryTargetUsesConfiguredChat(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newNamedFakeProvider(feishuProviderName)
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{fakeAIBackend{}},
+	})
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  feishuProviderName,
+		AIBackend: "fake_ai",
+		Settings: map[string]string{
+			feishuAppIDSetting:        "cli_a1b2c3d4",
+			feishuDeliveryModeSetting: feishuDeliveryModeWebSocket,
+			feishuBotOpenIDSetting:    "ou_bot_123",
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	target, err := service.UpsertDeliveryTarget(context.Background(), workspace.ID, connection.BotID, UpsertDeliveryTargetInput{
+		EndpointID: connection.ID,
+		TargetType: "route_backed",
+		RouteType:  feishuApprovalRouteType,
+		RouteKey:   "approval:APPROVAL_CODE_1",
+		Title:      "Feishu Approval Sink",
+		ProviderState: map[string]string{
+			feishuChatIDKey:         "oc_chat_notify_1",
+			feishuThreadIDKey:       "om_thread_notify_1",
+			feishuConversationIDKey: "approval:APPROVAL_CODE_1",
+			feishuChatNameKey:       "Ops Notify",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertDeliveryTarget(feishu approval route_backed) error = %v", err)
+	}
+
+	_, err = service.SendDeliveryTargetOutboundMessages(context.Background(), workspace.ID, connection.BotID, target.ID, SendOutboundMessagesInput{
+		SourceType: "manual",
+		Messages: []store.BotReplyMessage{
+			{Text: "Approval update"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendDeliveryTargetOutboundMessages() error = %v", err)
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if sent.Conversation.ExternalChatID != "oc_chat_notify_1" {
+			t.Fatalf("expected approval route to use configured feishu chat id, got %#v", sent.Conversation)
+		}
+		if sent.Conversation.ExternalThreadID != "om_thread_notify_1" {
+			t.Fatalf("expected approval route to use configured feishu thread id, got %#v", sent.Conversation)
+		}
+		if got := sent.Conversation.ExternalConversationID; got != "approval:APPROVAL_CODE_1" {
+			t.Fatalf("expected approval route key to remain as external conversation id, got %#v", sent.Conversation)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for feishu approval route-backed outbound send")
+	}
+}
+
+func TestHandleFeishuApprovalInboundUsesApprovalRouteBackedTargetForReply(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newNamedFakeProvider(feishuProviderName)
+	backend := &scriptedAIBackend{
+		result: AIResult{
+			Messages: []OutboundMessage{{Text: "approval reply"}},
+		},
+	}
+	service := NewService(dataStore, nil, nil, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		Providers:     []Provider{provider},
+		AIBackends:    []AIBackend{backend},
+	})
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  feishuProviderName,
+		AIBackend: "scripted_ai",
+		Settings: map[string]string{
+			feishuAppIDSetting:        "cli_a1b2c3d4",
+			feishuDeliveryModeSetting: feishuDeliveryModeWebSocket,
+			feishuBotOpenIDSetting:    "ou_bot_123",
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	if _, err := dataStore.CreateBotDeliveryTarget(store.BotDeliveryTarget{
+		WorkspaceID:  workspace.ID,
+		BotID:        connection.BotID,
+		ConnectionID: connection.ID,
+		Provider:     connection.Provider,
+		TargetType:   "route_backed",
+		RouteType:    feishuApprovalRouteType,
+		RouteKey:     "approval:APPROVAL_CODE_1",
+		Title:        "Approval Notify",
+		ProviderState: map[string]string{
+			feishuChatIDKey:         "oc_chat_notify_1",
+			feishuThreadIDKey:       "om_thread_notify_1",
+			feishuConversationIDKey: "approval:APPROVAL_CODE_1",
+			feishuChatNameKey:       "Ops Notify",
+		},
+		Status: "active",
+	}); err != nil {
+		t.Fatalf("CreateBotDeliveryTarget() error = %v", err)
+	}
+
+	storedConnection, ok := dataStore.GetBotConnection(workspace.ID, connection.ID)
+	if !ok {
+		t.Fatalf("expected stored bot connection %s", connection.ID)
+	}
+
+	accepted, err := service.acceptInboundMessage(storedConnection, InboundMessage{
+		ConversationID:   "approval:APPROVAL_CODE_1:instance:INSTANCE_CODE_1",
+		ExternalChatID:   "approval:APPROVAL_CODE_1",
+		ExternalThreadID: "INSTANCE_CODE_1",
+		MessageID:        "evt_approval_instance_1",
+		UserID:           "cli_approval_1",
+		Username:         "Feishu Approval",
+		Title:            "Feishu Approval APPROVAL_CODE_1",
+		Text:             "Feishu approval instance status changed\nApproval Code: APPROVAL_CODE_1\nStatus: PENDING",
+		ProviderData: map[string]string{
+			feishuEventTypeKey:      "approval_instance",
+			feishuApprovalCodeKey:   "APPROVAL_CODE_1",
+			feishuApprovalStatusKey: "PENDING",
+		},
+	})
+	if err != nil {
+		t.Fatalf("acceptInboundMessage() error = %v", err)
+	}
+	if !accepted {
+		t.Fatal("expected approval inbound message to be accepted")
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "approval reply" {
+			t.Fatalf("expected approval reply to be sent, got %#v", sent.Messages)
+		}
+		if sent.Conversation.ExternalChatID != "oc_chat_notify_1" {
+			t.Fatalf("expected approval reply to use configured chat route, got %#v", sent.Conversation)
+		}
+		if sent.Conversation.ExternalThreadID != "om_thread_notify_1" {
+			t.Fatalf("expected approval reply to use configured thread route, got %#v", sent.Conversation)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for feishu approval reply")
+	}
+
+	if backend.callCount() != 1 {
+		t.Fatalf("expected approval inbound to reach ai backend once, got %d", backend.callCount())
+	}
+	if got := backend.lastInboundMessage().ProviderData[feishuApprovalCodeKey]; got != "APPROVAL_CODE_1" {
+		t.Fatalf("expected approval code to reach ai backend, got %#v", backend.lastInboundMessage())
 	}
 }
 
@@ -3216,6 +3536,124 @@ func TestHandleWebhookNewThreadCommandStartsFreshWorkspaceThread(t *testing.T) {
 	}
 	if conversationContextVersion(conversations[0]) != 1 {
 		t.Fatalf("expected conversation context version 1 after /newthread, got %#v", conversations[0].BackendState)
+	}
+}
+
+func TestHandleWebhookSteersIncomingMessageWhileTurnInProgress(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newFakeProvider()
+	threadsExec := newFakeBotThreads()
+	turnsExec := newFakeSteeringBotTurns(threadsExec)
+
+	service := NewService(dataStore, threadsExec, turnsExec, nil, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  5 * time.Millisecond,
+		TurnTimeout:   2 * time.Second,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.turnSettleDelay = 5 * time.Millisecond
+		backend.pollInterval = 5 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  "fakechat",
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	sendWebhook := func(payload string) {
+		request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(payload))
+		request.Header.Set("X-Test-Secret", "fake-secret")
+
+		result, err := service.HandleWebhook(request, connection.ID)
+		if err != nil {
+			t.Fatalf("HandleWebhook() error = %v", err)
+		}
+		if result.Accepted != 1 {
+			t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+		}
+	}
+
+	sendWebhook(`{"conversationId":"chat-steer-1","messageId":"msg-steer-1","userId":"user-1","username":"alice","title":"Alice","text":"first message"}`)
+
+	var threadID string
+	select {
+	case threadID = <-turnsExec.startedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first turn to start")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations := service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == threadID &&
+			conversations[0].LastInboundMessageID == "msg-steer-1" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	conversations := service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 || conversations[0].ThreadID != threadID {
+		t.Fatalf("expected active conversation thread %q before turn completion, got %#v", threadID, conversations)
+	}
+	if conversations[0].LastInboundMessageID != "msg-steer-1" {
+		t.Fatalf("expected first inbound message to be recorded immediately, got %#v", conversations[0])
+	}
+
+	sendWebhook(`{"conversationId":"chat-steer-1","messageId":"msg-steer-2","userId":"user-1","username":"alice","title":"Alice","text":"follow up"}`)
+
+	select {
+	case steered := <-turnsExec.steeredCh:
+		if steered != "follow up" {
+			t.Fatalf("expected steer input %q, got %q", "follow up", steered)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for inbound message to steer into active turn")
+	}
+
+	select {
+	case sent := <-provider.sentCh:
+		t.Fatalf("did not expect reply before active turn completed, got %#v", sent)
+	default:
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 && conversations[0].LastInboundMessageID == "msg-steer-2" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	conversations = service.ListConversations(workspace.ID, connection.ID)
+	if len(conversations) != 1 || conversations[0].LastInboundMessageID != "msg-steer-2" {
+		t.Fatalf("expected steered inbound receipt to update conversation immediately, got %#v", conversations)
+	}
+
+	turnsExec.complete(threadID, "reply: first message")
+
+	select {
+	case sent := <-provider.sentCh:
+		if len(sent.Messages) != 1 || sent.Messages[0].Text != "reply: first message" {
+			t.Fatalf("expected final reply %q, got %#v", "reply: first message", sent.Messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for reply after completing active turn")
+	}
+
+	if got := turnsExec.steerCalls(); len(got) != 1 || got[0] != "follow up" {
+		t.Fatalf("expected one steer call for follow up message, got %#v", got)
 	}
 }
 
@@ -9624,7 +10062,16 @@ func (f *fakeBotThreads) Unarchive(_ context.Context, workspaceID string, thread
 func (f *fakeBotThreads) setCompletedTurn(threadID string, turn store.ThreadTurn) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.setTurnLocked(threadID, turn)
+}
 
+func (f *fakeBotThreads) setTurn(threadID string, turn store.ThreadTurn) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setTurnLocked(threadID, turn)
+}
+
+func (f *fakeBotThreads) setTurnLocked(threadID string, turn store.ThreadTurn) {
 	detail := f.details[threadID]
 	replaced := false
 	for index, existing := range detail.Turns {
@@ -9648,6 +10095,90 @@ func (f *fakeBotThreads) setCompletedTurn(threadID string, turn store.ThreadTurn
 	}
 	detail.Thread.UpdatedAt = detail.Thread.UpdatedAt.Add(30 * time.Second)
 	f.details[threadID] = detail
+}
+
+type fakeSteeringBotTurns struct {
+	mu          sync.Mutex
+	threads     *fakeBotThreads
+	startedCh   chan string
+	steeredCh   chan string
+	turnID      string
+	lastThread  string
+	startInputs []string
+	steerInputs []string
+}
+
+func newFakeSteeringBotTurns(threads *fakeBotThreads) *fakeSteeringBotTurns {
+	return &fakeSteeringBotTurns{
+		threads:   threads,
+		startedCh: make(chan string, 4),
+		steeredCh: make(chan string, 4),
+		turnID:    "turn-bot-active-1",
+	}
+}
+
+func (f *fakeSteeringBotTurns) Start(_ context.Context, workspaceID string, threadID string, input string, _ turns.StartOptions) (turns.Result, error) {
+	f.mu.Lock()
+	f.lastThread = threadID
+	f.startInputs = append(f.startInputs, input)
+	turnID := f.turnID
+	f.mu.Unlock()
+
+	f.threads.setTurn(threadID, store.ThreadTurn{
+		ID:     turnID,
+		Status: "inProgress",
+		Items: []map[string]any{
+			{
+				"id":   "assistant-" + turnID,
+				"type": "agentMessage",
+				"text": "working",
+			},
+		},
+	})
+	f.startedCh <- threadID
+	return turns.Result{TurnID: turnID, Status: "started"}, nil
+}
+
+func (f *fakeSteeringBotTurns) Steer(_ context.Context, workspaceID string, threadID string, input string) (turns.Result, error) {
+	f.mu.Lock()
+	f.steerInputs = append(f.steerInputs, input)
+	turnID := f.turnID
+	f.mu.Unlock()
+
+	detail, err := f.threads.GetDetail(context.Background(), workspaceID, threadID)
+	if err != nil {
+		return turns.Result{}, err
+	}
+	for _, turn := range detail.Turns {
+		if turn.ID == turnID && strings.EqualFold(strings.TrimSpace(turn.Status), "inProgress") {
+			f.steeredCh <- input
+			return turns.Result{TurnID: turnID, Status: "steered"}, nil
+		}
+	}
+	return turns.Result{}, appRuntime.ErrNoActiveTurn
+}
+
+func (f *fakeSteeringBotTurns) complete(threadID string, text string) {
+	f.mu.Lock()
+	turnID := f.turnID
+	f.mu.Unlock()
+	f.threads.setTurn(threadID, store.ThreadTurn{
+		ID:     turnID,
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":   "assistant-" + turnID,
+				"type": "agentMessage",
+				"text": text,
+			},
+		},
+	})
+}
+
+func (f *fakeSteeringBotTurns) steerCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.steerInputs...)
 }
 
 type fakeBotTurns struct {

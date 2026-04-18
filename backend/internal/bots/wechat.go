@@ -25,46 +25,47 @@ import (
 )
 
 const (
-	wechatProviderName          = "wechat"
-	wechatDeliveryModeSetting   = "wechat_delivery_mode"
-	wechatDeliveryModePolling   = "polling"
-	wechatBaseURLSetting        = "wechat_base_url"
-	wechatCDNBaseURLSetting     = "wechat_cdn_base_url"
-	wechatRouteTagSetting       = "wechat_route_tag"
-	wechatLoginSessionIDSetting = "wechat_login_session_id"
-	wechatSavedAccountIDSetting = "wechat_saved_account_id"
-	wechatAccountIDSetting      = "wechat_account_id"
-	wechatOwnerUserIDSetting    = "wechat_owner_user_id"
-	wechatSyncBufSetting        = "wechat_sync_buf"
-	wechatContextTokenKey       = "wechat_context_token"
-	wechatSessionIDKey          = "wechat_session_id"
-	wechatSenderNameKey         = "wechat_sender_name"
-	wechatCreatedAtMSKey        = "wechat_created_at_ms"
-	wechatAppIDHeader           = "bot"
-	wechatChannelVersion        = "0.3.0"
-	wechatDefaultHTTPTimeout    = 15 * time.Second
-	wechatConfigHTTPTimeout     = 10 * time.Second
-	wechatTypingKeepaliveDelay  = 5 * time.Second
-	wechatTypingConfigTTL       = 24 * time.Hour
-	wechatDefaultCDNBaseURL     = "https://novac2c.cdn.weixin.qq.com/c2c"
-	wechatLongPollTimeoutBuf    = 5 * time.Second
-	wechatMessageTypeUser       = 1
-	wechatMessageTypeBot        = 2
-	wechatMessageStateComplete  = 2
-	wechatTypingStatusTyping    = 1
-	wechatTypingStatusCancel    = 2
-	wechatItemTypeText          = 1
-	wechatItemTypeImage         = 2
-	wechatItemTypeVoice         = 3
-	wechatItemTypeFile          = 4
-	wechatItemTypeVideo         = 5
-	wechatUploadMediaTypeImage  = 1
-	wechatUploadMediaTypeVideo  = 2
-	wechatUploadMediaTypeFile   = 3
-	wechatSessionExpiredErrCode = -14
-	wechatReplyRetryAttempts    = 2
-	wechatReplyRetryBaseDelay   = 500 * time.Millisecond
-	wechatReplyRetryMaxDelay    = 3 * time.Second
+	wechatProviderName           = "wechat"
+	wechatDeliveryModeSetting    = "wechat_delivery_mode"
+	wechatDeliveryModePolling    = "polling"
+	wechatBaseURLSetting         = "wechat_base_url"
+	wechatCDNBaseURLSetting      = "wechat_cdn_base_url"
+	wechatRouteTagSetting        = "wechat_route_tag"
+	wechatLoginSessionIDSetting  = "wechat_login_session_id"
+	wechatSavedAccountIDSetting  = "wechat_saved_account_id"
+	wechatAccountIDSetting       = "wechat_account_id"
+	wechatOwnerUserIDSetting     = "wechat_owner_user_id"
+	wechatSyncBufSetting         = "wechat_sync_buf"
+	wechatContextTokenKey        = "wechat_context_token"
+	wechatSessionIDKey           = "wechat_session_id"
+	wechatSenderNameKey          = "wechat_sender_name"
+	wechatCreatedAtMSKey         = "wechat_created_at_ms"
+	wechatAppIDHeader            = "bot"
+	wechatChannelVersion         = "0.3.0"
+	wechatDefaultHTTPTimeout     = 15 * time.Second
+	wechatConfigHTTPTimeout      = 10 * time.Second
+	wechatTypingKeepaliveDelay   = 5 * time.Second
+	wechatTypingConfigTTL        = 24 * time.Hour
+	wechatDefaultCDNBaseURL      = "https://novac2c.cdn.weixin.qq.com/c2c"
+	wechatLongPollTimeoutBuf     = 5 * time.Second
+	wechatMessageTypeUser        = 1
+	wechatMessageTypeBot         = 2
+	wechatMessageStateComplete   = 2
+	wechatTypingStatusTyping     = 1
+	wechatTypingStatusCancel     = 2
+	wechatItemTypeText           = 1
+	wechatItemTypeImage          = 2
+	wechatItemTypeVoice          = 3
+	wechatItemTypeFile           = 4
+	wechatItemTypeVideo          = 5
+	wechatUploadMediaTypeImage   = 1
+	wechatUploadMediaTypeVideo   = 2
+	wechatUploadMediaTypeFile    = 3
+	wechatReplyContextInvalidRet = -2
+	wechatSessionExpiredErrCode  = -14
+	wechatReplyRetryAttempts     = 2
+	wechatReplyRetryBaseDelay    = 500 * time.Millisecond
+	wechatReplyRetryMaxDelay     = 3 * time.Second
 )
 
 var (
@@ -680,6 +681,19 @@ func isTransientWeChatDeliveryError(err error) bool {
 	}
 
 	return false
+}
+
+func isWeChatReplyContextUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var requestErr *wechatRequestError
+	if !errors.As(err, &requestErr) {
+		return false
+	}
+
+	return requestErr.apiRet == wechatReplyContextInvalidRet || requestErr.statusCode == wechatReplyContextInvalidRet
 }
 
 func wrapWeChatSendMessageError(mode string, summary string, err error) error {
@@ -1480,8 +1494,14 @@ func wechatAPIError(path string, response wechatAPIResponse) error {
 	}
 
 	description := strings.TrimSpace(response.ErrMsg)
-	if description == "" && response.ErrCode == wechatSessionExpiredErrCode {
-		description = "session expired"
+	if description == "" {
+		switch {
+		case path == "/ilink/bot/sendmessage" &&
+			(response.Ret == wechatReplyContextInvalidRet || response.ErrCode == wechatReplyContextInvalidRet):
+			description = "reply context unavailable"
+		case response.Ret == wechatSessionExpiredErrCode || response.ErrCode == wechatSessionExpiredErrCode:
+			description = "session expired"
+		}
 	}
 	if description == "" {
 		description = "wechat api request failed"

@@ -19,6 +19,7 @@ const (
 	defaultThreadPollInterval  = 1500 * time.Millisecond
 	defaultStreamFlushInterval = 400 * time.Millisecond
 	defaultTurnSettleDelay     = 300 * time.Millisecond
+	feishuInvokeProgressEvent  = "feishuTools/invoke/progress"
 )
 
 type workspaceThreadAIBackend struct {
@@ -366,7 +367,7 @@ func (b *workspaceThreadAIBackend) waitForTurn(
 				)
 				continue
 			}
-			if !matchesTurnEvent(event, threadID, turnID) {
+			if !matchesStreamingTurnEvent(event, threadID, turnID) {
 				continue
 			}
 			lastTurnEventAt = time.Now()
@@ -551,6 +552,10 @@ func (b *workspaceThreadAIBackend) waitForTurnStream(
 				if stream.ApplyServerRequestEvent(event) {
 					flushImmediately = len(stream.lastEmitted) == 0
 				}
+			case feishuInvokeProgressEvent:
+				if stream.ApplyFeishuInvokeProgressEvent(event) {
+					flushImmediately = true
+				}
 			case "turn/completed", "turn/failed", "turn/interrupted", "turn/canceled", "turn/cancelled":
 				if turn, ok := b.lookupCompletedTurnStreaming(ctx, connection.WorkspaceID, threadID, turnID); ok {
 					turn.Items = stream.mergeCompletedTurnItems(turn.Items)
@@ -610,7 +615,8 @@ func shouldLogWorkspaceStreamingEvent(event store.EventEnvelope) bool {
 		"turn/cancelled",
 		"item/agentMessage/delta",
 		"item/plan/delta",
-		"item/commandExecution/outputDelta":
+		"item/commandExecution/outputDelta",
+		feishuInvokeProgressEvent:
 		return true
 	case "item/started", "item/completed":
 		payload := objectValue(event.Payload)
@@ -829,6 +835,25 @@ func matchesTurnEvent(event store.EventEnvelope, threadID string, turnID string)
 	return eventTurnID == strings.TrimSpace(turnID)
 }
 
+func matchesStreamingTurnEvent(event store.EventEnvelope, threadID string, turnID string) bool {
+	if matchesTurnEvent(event, threadID, turnID) {
+		return true
+	}
+	return isUnscopedFeishuInvokeProgressEvent(event)
+}
+
+func isUnscopedFeishuInvokeProgressEvent(event store.EventEnvelope) bool {
+	if strings.TrimSpace(event.Method) != feishuInvokeProgressEvent {
+		return false
+	}
+	if strings.TrimSpace(event.ThreadID) != "" || strings.TrimSpace(event.TurnID) != "" {
+		return false
+	}
+	payload := objectValue(event.Payload)
+	return strings.TrimSpace(stringValue(payload["threadId"])) == "" &&
+		strings.TrimSpace(stringValue(payload["turnId"])) == ""
+}
+
 func nestedObjectID(value any) string {
 	object := objectValue(value)
 	return strings.TrimSpace(stringValue(object["id"]))
@@ -849,6 +874,7 @@ type botVisibleItemState struct {
 	ReasoningContent []string
 	Command          string
 	AggregatedOutput string
+	Transient        bool
 	Raw              map[string]any
 }
 
@@ -991,6 +1017,50 @@ func (s *botVisibleItemStream) ApplyServerRequestEvent(event store.EventEnvelope
 	return true
 }
 
+func (s *botVisibleItemStream) ApplyFeishuInvokeProgressEvent(event store.EventEnvelope) bool {
+	if strings.TrimSpace(event.Method) != feishuInvokeProgressEvent {
+		return false
+	}
+
+	payload := objectValue(event.Payload)
+	sequence := intValue(payload["sequence"])
+	invocationID := strings.TrimSpace(stringValue(payload["invocationId"]))
+	if sequence <= 0 && invocationID == "" {
+		return false
+	}
+
+	itemID := strings.TrimSpace(fmt.Sprintf("feishu-tool-progress-%s-%06d", invocationID, sequence))
+	if itemID == "feishu-tool-progress--000000" {
+		itemID = strings.TrimSpace(fmt.Sprintf(
+			"feishu-tool-progress-%s-%s-%06d",
+			strings.ReplaceAll(strings.TrimSpace(stringValue(payload["toolName"])), "/", "-"),
+			strings.ReplaceAll(strings.TrimSpace(stringValue(payload["action"])), "/", "-"),
+			sequence,
+		))
+	}
+
+	target := s.ensureTransientItem(itemID, "toolProgress")
+	target.Raw["id"] = itemID
+	target.Raw["type"] = "toolProgress"
+	target.Raw["invocationId"] = invocationID
+	target.Raw["sequence"] = sequence
+	target.Raw["toolName"] = strings.TrimSpace(stringValue(payload["toolName"]))
+	target.Raw["action"] = strings.TrimSpace(stringValue(payload["action"]))
+	target.Raw["state"] = strings.TrimSpace(stringValue(payload["state"]))
+	target.Raw["message"] = strings.TrimSpace(stringValue(payload["message"]))
+	target.Raw["ts"] = strings.TrimSpace(stringValue(payload["ts"]))
+	target.Raw["startedAt"] = strings.TrimSpace(stringValue(payload["startedAt"]))
+	if detail := objectValue(payload["detail"]); len(detail) > 0 {
+		target.Raw["detail"] = mergeBotItemMap(nil, detail)
+	}
+	if final, ok := payload["final"].(bool); ok {
+		target.Raw["final"] = final
+	}
+
+	s.dirty = true
+	return true
+}
+
 func (s *botVisibleItemStream) Flush(ctx context.Context, handle StreamingUpdateHandler) error {
 	if handle == nil || !s.dirty {
 		return nil
@@ -1116,6 +1186,19 @@ func (s *botVisibleItemStream) ensureItem(itemID string, itemType string) *botVi
 	return item
 }
 
+func (s *botVisibleItemStream) ensureTransientItem(itemID string, itemType string) *botVisibleItemState {
+	item := s.ensureItem(itemID, itemType)
+	item.Transient = true
+	if item.Raw == nil {
+		item.Raw = map[string]any{
+			"id":   itemID,
+			"type": itemType,
+		}
+	}
+	item.Raw["transient"] = true
+	return item
+}
+
 func renderBotVisibleItemState(item *botVisibleItemState) string {
 	return renderBotVisibleItemStateWithConfig(item, botTranscriptRenderConfig{})
 }
@@ -1141,7 +1224,7 @@ func (s *botVisibleItemStream) materializedItems() []map[string]any {
 	items := make([]map[string]any, 0, len(s.order))
 	for _, itemID := range s.order {
 		item := s.items[itemID]
-		if item == nil || !isBotVisibleItemType(strings.TrimSpace(item.ItemType)) {
+		if item == nil || item.Transient || !isBotVisibleItemType(strings.TrimSpace(item.ItemType)) {
 			continue
 		}
 		items = append(items, materializeBotVisibleItemState(item))
