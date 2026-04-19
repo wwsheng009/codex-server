@@ -28,6 +28,8 @@ import (
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/feishutools"
 	"codex-server/backend/internal/hooks"
+	"codex-server/backend/internal/jobs"
+	"codex-server/backend/internal/jobsmcp"
 	"codex-server/backend/internal/logging"
 	"codex-server/backend/internal/memorydiag"
 	"codex-server/backend/internal/notificationcenter"
@@ -130,6 +132,11 @@ func runServer(cfg config.Config) error {
 	feishuToolsService.SetRuntimeBaseURL(runtimeLoopbackBaseURL(cfg.Addr))
 	feishuToolsService.SetFrontendOrigin(cfg.FrontendOrigin)
 	feishuToolsService.SetEventPublisher(eventHub)
+	jobService := jobs.NewService(dataStore, eventHub)
+	jobsMCPService := jobsmcp.NewService(configFSService, jobService, dataStore)
+	jobsMCPService.SetRuntimeBaseURL(runtimeLoopbackBaseURL(cfg.Addr))
+	jobService.RegisterExecutor(automations.NewJobExecutor(automationService))
+	automationService.SetJobService(jobService)
 	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
 	memoryDiagService := memorydiag.NewService(dataStore)
 	accessControlService := accesscontrol.NewService(dataStore, cfg.AllowRemoteAccess)
@@ -137,6 +144,7 @@ func runServer(cfg config.Config) error {
 	serviceCtx, serviceCancel := context.WithCancel(context.Background())
 	defer serviceCancel()
 	automationService.Start(serviceCtx)
+	jobService.Start(serviceCtx)
 	botService.Start(serviceCtx)
 	notificationCenterService.Start(serviceCtx)
 	turnPolicyService.SetHooksPrimary(true)
@@ -163,6 +171,8 @@ func runServer(cfg config.Config) error {
 		Workspaces:         workspaceService,
 		Bots:               botService,
 		Automations:        automationService,
+		Jobs:               jobService,
+		JobsMCP:            jobsMCPService,
 		Notifications:      notificationsService,
 		NotificationCenter: notificationCenterService,
 		Hooks:              hookService,

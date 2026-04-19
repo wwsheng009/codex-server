@@ -28,6 +28,8 @@ import (
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/feishutools"
 	"codex-server/backend/internal/hooks"
+	"codex-server/backend/internal/jobs"
+	"codex-server/backend/internal/jobsmcp"
 	"codex-server/backend/internal/memorydiag"
 	"codex-server/backend/internal/notificationcenter"
 	"codex-server/backend/internal/notifications"
@@ -53,6 +55,8 @@ type Dependencies struct {
 	Workspaces           *workspace.Service
 	Bots                 *bots.Service
 	Automations          *automations.Service
+	Jobs                 *jobs.Service
+	JobsMCP              *jobsmcp.Service
 	Notifications        *notifications.Service
 	NotificationCenter   *notificationcenter.Service
 	Hooks                *hooks.Service
@@ -78,6 +82,8 @@ type Server struct {
 	workspaces         *workspace.Service
 	bots               *bots.Service
 	automations        *automations.Service
+	jobs               *jobs.Service
+	jobsMCP            *jobsmcp.Service
 	notifications      *notifications.Service
 	notificationCenter *notificationcenter.Service
 	hooks              *hooks.Service
@@ -106,6 +112,8 @@ func NewRouter(deps Dependencies) http.Handler {
 		workspaces:         deps.Workspaces,
 		bots:               deps.Bots,
 		automations:        deps.Automations,
+		jobs:               deps.Jobs,
+		jobsMCP:            deps.JobsMCP,
 		notifications:      deps.Notifications,
 		notificationCenter: deps.NotificationCenter,
 		hooks:              deps.Hooks,
@@ -151,6 +159,8 @@ func NewRouter(deps Dependencies) http.Handler {
 		r.Get("/feishu-tools/oauth/callback", server.handleFeishuToolsOauthCallback)
 		r.Get("/feishu-tools/mcp/{workspaceId}", server.handleFeishuToolsMCP)
 		r.Post("/feishu-tools/mcp/{workspaceId}", server.handleFeishuToolsMCP)
+		r.Get("/jobs-mcp/{workspaceId}", server.handleJobsMCP)
+		r.Post("/jobs-mcp/{workspaceId}", server.handleJobsMCP)
 
 		r.Group(func(r chi.Router) {
 			r.Use(server.requireProtectedAccess)
@@ -172,6 +182,21 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/{automationId}/run", server.handleRunAutomation)
 				r.Delete("/{automationId}", server.handleDeleteAutomation)
 			})
+			r.Route("/jobs", func(r chi.Router) {
+				r.Get("/", server.handleListBackgroundJobs)
+				r.Post("/", server.handleCreateBackgroundJob)
+				r.Get("/executors", server.handleListBackgroundJobExecutors)
+				r.Get("/{jobId}", server.handleGetBackgroundJob)
+				r.Get("/{jobId}/runs", server.handleListBackgroundJobRuns)
+				r.Post("/{jobId}", server.handleUpdateBackgroundJob)
+				r.Post("/{jobId}/pause", server.handlePauseBackgroundJob)
+				r.Post("/{jobId}/resume", server.handleResumeBackgroundJob)
+				r.Post("/{jobId}/run", server.handleRunBackgroundJob)
+				r.Delete("/{jobId}", server.handleDeleteBackgroundJob)
+			})
+			r.Get("/job-runs/{runId}", server.handleGetBackgroundJobRun)
+			r.Post("/job-runs/{runId}/retry", server.handleRetryBackgroundJobRun)
+			r.Post("/job-runs/{runId}/cancel", server.handleCancelBackgroundJobRun)
 			r.Route("/automation-templates", func(r chi.Router) {
 				r.Get("/", server.handleListAutomationTemplates)
 				r.Post("/", server.handleCreateAutomationTemplate)
@@ -222,6 +247,8 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/{workspaceId}/search/files", server.handleFuzzyFileSearch)
 				r.Post("/{workspaceId}/feedback/upload", server.handleFeedbackUpload)
 				r.Post("/{workspaceId}/mcp/oauth/login", server.handleMcpOauthLogin)
+				r.Get("/{workspaceId}/jobs-mcp/config", server.handleReadJobsMCPConfig)
+				r.Post("/{workspaceId}/jobs-mcp/config", server.handleWriteJobsMCPConfig)
 				r.Get("/{workspaceId}/feishu-tools/config", server.handleReadFeishuToolsConfig)
 				r.Post("/{workspaceId}/feishu-tools/config", server.handleWriteFeishuToolsConfig)
 				r.Get("/{workspaceId}/feishu-tools/status", server.handleReadFeishuToolsStatus)
@@ -236,6 +263,8 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/{workspaceId}/mcp-server-status", server.handleListMcpServerStatus)
 				r.Post("/{workspaceId}/windows-sandbox/setup-start", server.handleWindowsSandboxSetupStart)
 				r.Get("/{workspaceId}/collaboration-modes", server.handleListCollaborationModes)
+				r.Get("/{workspaceId}/jobs", server.handleListWorkspaceBackgroundJobs)
+				r.Post("/{workspaceId}/jobs", server.handleCreateWorkspaceBackgroundJob)
 				r.Get("/{workspaceId}/turn-policy-decisions", server.handleListTurnPolicyDecisions)
 				r.Get("/{workspaceId}/notification-subscriptions", server.handleListNotificationSubscriptions)
 				r.Post("/{workspaceId}/notification-subscriptions", server.handleCreateNotificationSubscription)
@@ -887,6 +916,163 @@ func (s *Server) handleRunAutomation(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteAutomation(w http.ResponseWriter, r *http.Request) {
 	automationID := chi.URLParam(r, "automationId")
 	if err := s.automations.Delete(automationID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleListBackgroundJobs(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.jobs.List())
+}
+
+func (s *Server) handleListBackgroundJobExecutors(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.jobs.ListExecutors())
+}
+
+func (s *Server) handleCreateBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	var request jobs.CreateInput
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	job, err := s.jobs.Create(request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, job)
+}
+
+func (s *Server) handleCreateWorkspaceBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	var request jobs.CreateInput
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+	request.WorkspaceID = chi.URLParam(r, "workspaceId")
+
+	job, err := s.jobs.Create(request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, job)
+}
+
+func (s *Server) handleGetBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.jobs.Get(chi.URLParam(r, "jobId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleListWorkspaceBackgroundJobs(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	items := s.jobs.List()
+	filtered := make([]store.BackgroundJob, 0)
+	for _, item := range items {
+		if item.WorkspaceID == workspaceID {
+			filtered = append(filtered, item)
+		}
+	}
+	writeJSON(w, http.StatusOK, filtered)
+}
+
+func (s *Server) handleListBackgroundJobRuns(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobId")
+	if _, err := s.jobs.Get(jobID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.jobs.ListRuns(jobID))
+}
+
+func (s *Server) handleGetBackgroundJobRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.jobs.GetRun(chi.URLParam(r, "runId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, run)
+}
+
+func (s *Server) handleUpdateBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	var request jobs.UpdateInput
+
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+	job, err := s.jobs.Update(chi.URLParam(r, "jobId"), request)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handlePauseBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.jobs.Pause(chi.URLParam(r, "jobId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleResumeBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.jobs.Resume(chi.URLParam(r, "jobId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleRunBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	run, err := s.jobs.Trigger(r.Context(), chi.URLParam(r, "jobId"), "manual")
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (s *Server) handleRetryBackgroundJobRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.jobs.RetryRun(r.Context(), chi.URLParam(r, "runId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (s *Server) handleCancelBackgroundJobRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.jobs.CancelRun(chi.URLParam(r, "runId"))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (s *Server) handleDeleteBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	if err := s.jobs.Delete(chi.URLParam(r, "jobId")); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
@@ -3385,6 +3571,55 @@ func (s *Server) handleReadFeishuToolsConfig(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleReadJobsMCPConfig(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.jobsMCP == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "jobs mcp service is unavailable")
+		return
+	}
+	result, err := s.jobsMCP.ReadConfig(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWriteJobsMCPConfig(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.jobsMCP == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "jobs mcp service is unavailable")
+		return
+	}
+	var request struct {
+		Enabled       bool     `json:"enabled"`
+		ServerName    string   `json:"serverName"`
+		ToolAllowlist []string `json:"toolAllowlist"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+	result, err := s.jobsMCP.WriteConfig(r.Context(), workspaceID, jobsmcp.ConfigInput{
+		Enabled:       request.Enabled,
+		ServerName:    request.ServerName,
+		ToolAllowlist: request.ToolAllowlist,
+	})
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	s.publishWorkspaceHTTPMutationAudit(r, workspaceID, map[string]any{
+		"triggerMethod": "jobs-mcp/config/write",
+		"toolKind":      "jobsMcpConfigWrite",
+		"toolName":      "jobs-mcp/config",
+		"reason":        "jobs_mcp_config_write_audited",
+		"context":       "Save Jobs MCP configuration",
+		"fingerprint":   "jobs-mcp/config/write",
+	})
+	writeJSON(w, http.StatusAccepted, result)
+}
+
 func (s *Server) handleWriteFeishuToolsConfig(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "workspaceId")
 	if s.feishuTools == nil {
@@ -3638,6 +3873,32 @@ func (s *Server) handleFeishuToolsMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(response)
+}
+
+func (s *Server) handleJobsMCP(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.jobsMCP == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "jobs mcp service is unavailable")
+		return
+	}
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if !s.jobsMCP.ValidateManagedMCPToken(workspaceID, token) {
+		writeError(w, http.StatusUnauthorized, "access_session_invalid", "invalid jobs mcp token")
+		return
+	}
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+	response, hasResponse := s.jobsMCP.HandleMCP(r.Context(), workspaceID, payload)
+	if !hasResponse {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(response)
@@ -4234,6 +4495,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "automation_template_not_found", err.Error())
 	case errors.Is(err, store.ErrAutomationRunNotFound):
 		writeError(w, http.StatusNotFound, "automation_run_not_found", err.Error())
+	case errors.Is(err, store.ErrBackgroundJobNotFound):
+		writeError(w, http.StatusNotFound, "background_job_not_found", err.Error())
+	case errors.Is(err, store.ErrBackgroundJobRunNotFound):
+		writeError(w, http.StatusNotFound, "background_job_run_not_found", err.Error())
 	case errors.Is(err, store.ErrNotificationNotFound):
 		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
 	case errors.Is(err, store.ErrNotificationSubscriptionNotFound):
@@ -4280,6 +4545,12 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "automation_already_running", err.Error())
 	case errors.Is(err, automations.ErrExecutionUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "automation_execution_unavailable", err.Error())
+	case errors.Is(err, jobs.ErrInvalidInput), errors.Is(err, jobs.ErrExecutorNotFound):
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+	case errors.Is(err, jobs.ErrJobAlreadyRunning):
+		writeError(w, http.StatusConflict, "background_job_already_running", err.Error())
+	case errors.Is(err, jobs.ErrJobRunNotActive):
+		writeError(w, http.StatusConflict, "background_job_run_not_active", err.Error())
 	case errors.Is(err, auth.ErrInvalidLoginInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, feishutools.ErrInvalidInput):
