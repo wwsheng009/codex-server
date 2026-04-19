@@ -30,6 +30,8 @@ var (
 	ErrAutomationNotFound                   = errors.New("automation not found")
 	ErrAutomationTemplateNotFound           = errors.New("automation template not found")
 	ErrAutomationRunNotFound                = errors.New("automation run not found")
+	ErrBackgroundJobNotFound                = errors.New("background job not found")
+	ErrBackgroundJobRunNotFound             = errors.New("background job run not found")
 	ErrNotificationNotFound                 = errors.New("notification not found")
 	ErrNotificationSubscriptionNotFound     = errors.New("notification subscription not found")
 	ErrNotificationEmailTargetNotFound      = errors.New("notification email target not found")
@@ -77,6 +79,7 @@ type MemoryStore struct {
 	inspectionCache               MemoryInspection
 	inspectionCacheValid          bool
 	runtimePrefs                  RuntimePreferences
+	jobMCPConfigs                 map[string]JobMCPConfig
 	feishuToolsConfigs            map[string]FeishuToolsConfig
 	feishuToolAudits              map[string]FeishuToolAuditRecord
 	workspaces                    map[string]Workspace
@@ -84,6 +87,8 @@ type MemoryStore struct {
 	automations                   map[string]Automation
 	templates                     map[string]AutomationTemplate
 	runs                          map[string]AutomationRun
+	backgroundJobs                map[string]BackgroundJob
+	backgroundJobRuns             map[string]BackgroundJobRun
 	notifications                 map[string]Notification
 	notificationSubscriptions     map[string]NotificationSubscription
 	notificationEmailTargets      map[string]NotificationEmailTarget
@@ -141,14 +146,17 @@ type threadProjectionTurnsManifest struct {
 
 type storeSnapshot struct {
 	RuntimePreferences            *RuntimePreferences            `json:"runtimePreferences,omitempty"`
+	JobMCPConfigs                 []JobMCPConfig                 `json:"jobMcpConfigs,omitempty"`
 	FeishuToolsConfigs            []FeishuToolsConfig            `json:"feishuToolsConfigs,omitempty"`
-	FeishuToolAudits             []FeishuToolAuditRecord        `json:"feishuToolAudits,omitempty"`
+	FeishuToolAudits              []FeishuToolAuditRecord        `json:"feishuToolAudits,omitempty"`
 	Workspaces                    []Workspace                    `json:"workspaces"`
 	CommandSessions               []CommandSessionSnapshot       `json:"commandSessions,omitempty"`
 	WorkspaceEvents               []storedWorkspaceEventLog      `json:"workspaceEvents,omitempty"`
 	Automations                   []Automation                   `json:"automations,omitempty"`
 	AutomationTemplates           []AutomationTemplate           `json:"automationTemplates,omitempty"`
 	AutomationRuns                []AutomationRun                `json:"automationRuns,omitempty"`
+	BackgroundJobs                []BackgroundJob                `json:"backgroundJobs,omitempty"`
+	BackgroundJobRuns             []BackgroundJobRun             `json:"backgroundJobRuns,omitempty"`
 	Notifications                 []Notification                 `json:"notifications,omitempty"`
 	NotificationSubscriptions     []NotificationSubscription     `json:"notificationSubscriptions,omitempty"`
 	NotificationEmailTargets      []NotificationEmailTarget      `json:"notificationEmailTargets,omitempty"`
@@ -199,12 +207,15 @@ type storedThreadProjection struct {
 func NewMemoryStore() *MemoryStore {
 	store := &MemoryStore{
 		workspaces:                    make(map[string]Workspace),
+		jobMCPConfigs:                 make(map[string]JobMCPConfig),
 		feishuToolsConfigs:            make(map[string]FeishuToolsConfig),
 		feishuToolAudits:              make(map[string]FeishuToolAuditRecord),
 		commandSessions:               make(map[string]map[string]CommandSessionSnapshot),
 		automations:                   make(map[string]Automation),
 		templates:                     make(map[string]AutomationTemplate),
 		runs:                          make(map[string]AutomationRun),
+		backgroundJobs:                make(map[string]BackgroundJob),
+		backgroundJobRuns:             make(map[string]BackgroundJobRun),
 		notifications:                 make(map[string]Notification),
 		notificationSubscriptions:     make(map[string]NotificationSubscription),
 		notificationEmailTargets:      make(map[string]NotificationEmailTarget),
@@ -629,6 +640,35 @@ func (s *MemoryStore) GetFeishuToolsConfig(workspaceID string) (FeishuToolsConfi
 		return FeishuToolsConfig{}, false
 	}
 	return cloneFeishuToolsConfig(config), true
+}
+
+func (s *MemoryStore) GetJobMCPConfig(workspaceID string) (JobMCPConfig, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	config, ok := s.jobMCPConfigs[strings.TrimSpace(workspaceID)]
+	if !ok {
+		return JobMCPConfig{}, false
+	}
+	return cloneJobMCPConfig(config), true
+}
+
+func (s *MemoryStore) SetJobMCPConfig(config JobMCPConfig) (JobMCPConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	config.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
+	if config.WorkspaceID == "" {
+		return JobMCPConfig{}, ErrWorkspaceNotFound
+	}
+	if _, ok := s.workspaces[config.WorkspaceID]; !ok {
+		return JobMCPConfig{}, ErrWorkspaceNotFound
+	}
+
+	config = normalizeLoadedJobMCPConfig(config)
+	s.jobMCPConfigs[config.WorkspaceID] = config
+	s.persistLocked()
+	return cloneJobMCPConfig(config), nil
 }
 
 func (s *MemoryStore) SetFeishuToolsConfig(config FeishuToolsConfig) (FeishuToolsConfig, error) {
@@ -1058,6 +1098,240 @@ func (s *MemoryStore) AppendAutomationRunLog(runID string, entry AutomationRunLo
 	s.persistLocked()
 
 	return cloneAutomationRun(run), nil
+}
+
+func (s *MemoryStore) ListBackgroundJobs() []BackgroundJob {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BackgroundJob, 0, len(s.backgroundJobs))
+	for _, job := range s.backgroundJobs {
+		items = append(items, cloneBackgroundJob(job))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBackgroundJob(jobID string) (BackgroundJob, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	job, ok := s.backgroundJobs[jobID]
+	if !ok {
+		return BackgroundJob{}, false
+	}
+
+	return cloneBackgroundJob(job), true
+}
+
+func (s *MemoryStore) CreateBackgroundJob(job BackgroundJob) (BackgroundJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[job.WorkspaceID]
+	if !ok {
+		return BackgroundJob{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	job.ID = NewID("job")
+	job.WorkspaceName = firstNonEmpty(strings.TrimSpace(job.WorkspaceName), workspace.Name)
+	job.SourceType = strings.TrimSpace(job.SourceType)
+	job.SourceRefID = strings.TrimSpace(job.SourceRefID)
+	job.Name = strings.TrimSpace(job.Name)
+	job.Description = strings.TrimSpace(job.Description)
+	job.ExecutorKind = strings.TrimSpace(job.ExecutorKind)
+	job.Schedule = strings.TrimSpace(job.Schedule)
+	job.ScheduleLabel = strings.TrimSpace(job.ScheduleLabel)
+	job.Status = firstNonEmpty(strings.TrimSpace(job.Status), "active")
+	job.Payload = cloneAnyMap(job.Payload)
+	job.LastRunID = strings.TrimSpace(job.LastRunID)
+	job.LastRunStatus = strings.TrimSpace(job.LastRunStatus)
+	job.LastError = strings.TrimSpace(job.LastError)
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	job.UpdatedAt = now
+
+	s.backgroundJobs[job.ID] = cloneBackgroundJob(job)
+	s.persistLocked()
+
+	return cloneBackgroundJob(job), nil
+}
+
+func (s *MemoryStore) UpdateBackgroundJob(jobID string, updater func(BackgroundJob) BackgroundJob) (BackgroundJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.backgroundJobs[jobID]
+	if !ok {
+		return BackgroundJob{}, ErrBackgroundJobNotFound
+	}
+
+	next := updater(cloneBackgroundJob(job))
+	next.ID = job.ID
+	next.WorkspaceID = job.WorkspaceID
+	next.WorkspaceName = firstNonEmpty(strings.TrimSpace(next.WorkspaceName), strings.TrimSpace(job.WorkspaceName))
+	next.SourceType = strings.TrimSpace(next.SourceType)
+	next.SourceRefID = strings.TrimSpace(next.SourceRefID)
+	next.Name = strings.TrimSpace(next.Name)
+	next.Description = strings.TrimSpace(next.Description)
+	next.ExecutorKind = strings.TrimSpace(next.ExecutorKind)
+	next.Schedule = strings.TrimSpace(next.Schedule)
+	next.ScheduleLabel = strings.TrimSpace(next.ScheduleLabel)
+	next.Status = firstNonEmpty(strings.TrimSpace(next.Status), strings.TrimSpace(job.Status), "active")
+	next.Payload = cloneAnyMap(next.Payload)
+	next.LastRunID = strings.TrimSpace(next.LastRunID)
+	next.LastRunStatus = strings.TrimSpace(next.LastRunStatus)
+	next.LastError = strings.TrimSpace(next.LastError)
+	next.CreatedAt = job.CreatedAt
+	next.UpdatedAt = time.Now().UTC()
+
+	s.backgroundJobs[jobID] = cloneBackgroundJob(next)
+	s.persistLocked()
+
+	return cloneBackgroundJob(next), nil
+}
+
+func (s *MemoryStore) DeleteBackgroundJob(jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.backgroundJobs[jobID]; !ok {
+		return ErrBackgroundJobNotFound
+	}
+
+	delete(s.backgroundJobs, jobID)
+	for runID, run := range s.backgroundJobRuns {
+		if run.JobID == jobID {
+			delete(s.backgroundJobRuns, runID)
+		}
+	}
+	s.persistLocked()
+
+	return nil
+}
+
+func (s *MemoryStore) ListBackgroundJobRuns(jobID string) []BackgroundJobRun {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BackgroundJobRun, 0)
+	for _, run := range s.backgroundJobRuns {
+		if jobID != "" && run.JobID != jobID {
+			continue
+		}
+		items = append(items, cloneBackgroundJobRun(run))
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].StartedAt.After(items[j].StartedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) ListActiveBackgroundJobRuns() []BackgroundJobRun {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]BackgroundJobRun, 0)
+	for _, run := range s.backgroundJobRuns {
+		switch strings.TrimSpace(run.Status) {
+		case "queued", "running":
+			items = append(items, cloneBackgroundJobRun(run))
+		}
+	}
+
+	sort.Slice(items, func(i int, j int) bool {
+		return items[i].StartedAt.After(items[j].StartedAt)
+	})
+
+	return items
+}
+
+func (s *MemoryStore) GetBackgroundJobRun(runID string) (BackgroundJobRun, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	run, ok := s.backgroundJobRuns[runID]
+	if !ok {
+		return BackgroundJobRun{}, false
+	}
+
+	return cloneBackgroundJobRun(run), true
+}
+
+func (s *MemoryStore) CreateBackgroundJobRun(run BackgroundJobRun) (BackgroundJobRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.backgroundJobs[run.JobID]
+	if !ok {
+		return BackgroundJobRun{}, ErrBackgroundJobNotFound
+	}
+	workspace, ok := s.workspaces[run.WorkspaceID]
+	if !ok {
+		return BackgroundJobRun{}, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	run.ID = NewID("jobrun")
+	run.JobName = firstNonEmpty(strings.TrimSpace(run.JobName), job.Name)
+	run.WorkspaceName = firstNonEmpty(strings.TrimSpace(run.WorkspaceName), workspace.Name)
+	run.ExecutorKind = firstNonEmpty(strings.TrimSpace(run.ExecutorKind), job.ExecutorKind)
+	run.Trigger = firstNonEmpty(strings.TrimSpace(run.Trigger), "manual")
+	run.Status = firstNonEmpty(strings.TrimSpace(run.Status), "queued")
+	run.Output = cloneAnyMap(run.Output)
+	run.Summary = strings.TrimSpace(run.Summary)
+	run.Error = strings.TrimSpace(run.Error)
+	if run.StartedAt.IsZero() {
+		run.StartedAt = now
+	}
+	if run.Logs == nil {
+		run.Logs = []BackgroundJobRunLogEntry{}
+	} else {
+		run.Logs = append([]BackgroundJobRunLogEntry{}, run.Logs...)
+	}
+
+	s.backgroundJobRuns[run.ID] = cloneBackgroundJobRun(run)
+	s.persistLocked()
+
+	return cloneBackgroundJobRun(run), nil
+}
+
+func (s *MemoryStore) UpdateBackgroundJobRun(runID string, updater func(BackgroundJobRun) BackgroundJobRun) (BackgroundJobRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	run, ok := s.backgroundJobRuns[runID]
+	if !ok {
+		return BackgroundJobRun{}, ErrBackgroundJobRunNotFound
+	}
+
+	next := updater(cloneBackgroundJobRun(run))
+	next.ID = run.ID
+	next.JobID = run.JobID
+	next.WorkspaceID = run.WorkspaceID
+	next.JobName = firstNonEmpty(strings.TrimSpace(next.JobName), strings.TrimSpace(run.JobName))
+	next.WorkspaceName = firstNonEmpty(strings.TrimSpace(next.WorkspaceName), strings.TrimSpace(run.WorkspaceName))
+	next.ExecutorKind = firstNonEmpty(strings.TrimSpace(next.ExecutorKind), strings.TrimSpace(run.ExecutorKind))
+	next.Trigger = firstNonEmpty(strings.TrimSpace(next.Trigger), strings.TrimSpace(run.Trigger), "manual")
+	next.Status = firstNonEmpty(strings.TrimSpace(next.Status), strings.TrimSpace(run.Status), "queued")
+	next.Output = cloneAnyMap(next.Output)
+	next.Summary = strings.TrimSpace(next.Summary)
+	next.Error = strings.TrimSpace(next.Error)
+	next.StartedAt = run.StartedAt
+	next.Logs = append([]BackgroundJobRunLogEntry{}, next.Logs...)
+
+	s.backgroundJobRuns[runID] = cloneBackgroundJobRun(next)
+	s.persistLocked()
+
+	return cloneBackgroundJobRun(next), nil
 }
 
 func (s *MemoryStore) ListNotifications() []Notification {
@@ -4269,6 +4543,18 @@ func (s *MemoryStore) load() error {
 			if prefs != nil {
 				s.runtimePrefs = normalizeLoadedRuntimePreferences(*prefs)
 			}
+		case "jobMcpConfigs":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var config JobMCPConfig
+				if err := decoder.Decode(&config); err != nil {
+					return err
+				}
+				config = normalizeLoadedJobMCPConfig(config)
+				s.jobMCPConfigs[config.WorkspaceID] = config
+				return nil
+			}); err != nil {
+				return err
+			}
 		case "feishuToolsConfigs":
 			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
 				var config FeishuToolsConfig
@@ -4390,6 +4676,33 @@ func (s *MemoryStore) load() error {
 					return err
 				}
 				s.runs[run.ID] = cloneAutomationRun(run)
+				updateLoadedMaxID(&maxID, run.ID)
+				for _, entry := range run.Logs {
+					updateLoadedMaxID(&maxID, entry.ID)
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "backgroundJobs":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var job BackgroundJob
+				if err := decoder.Decode(&job); err != nil {
+					return err
+				}
+				s.backgroundJobs[job.ID] = cloneBackgroundJob(job)
+				updateLoadedMaxID(&maxID, job.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
+		case "backgroundJobRuns":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var run BackgroundJobRun
+				if err := decoder.Decode(&run); err != nil {
+					return err
+				}
+				s.backgroundJobRuns[run.ID] = cloneBackgroundJobRun(run)
 				updateLoadedMaxID(&maxID, run.ID)
 				for _, entry := range run.Logs {
 					updateLoadedMaxID(&maxID, entry.ID)
@@ -4748,6 +5061,18 @@ func normalizeLoadedRuntimePreferences(prefs RuntimePreferences) RuntimePreferen
 	return prefs
 }
 
+func normalizeLoadedJobMCPConfig(config JobMCPConfig) JobMCPConfig {
+	config.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
+	config.ServerName = strings.TrimSpace(config.ServerName)
+	config.ManagedMCPAuthToken = strings.TrimSpace(config.ManagedMCPAuthToken)
+	if len(config.ToolAllowlist) > 0 {
+		config.ToolAllowlist = normalizeStringSlice(config.ToolAllowlist)
+	} else {
+		config.ToolAllowlist = nil
+	}
+	return config
+}
+
 func normalizeLoadedFeishuToolsConfig(config FeishuToolsConfig) FeishuToolsConfig {
 	config.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
 	config.AppID = strings.TrimSpace(config.AppID)
@@ -4914,6 +5239,9 @@ func (s *MemoryStore) persistNowLocked() error {
 		}
 		snapshot.RuntimePreferences = &prefs
 	}
+	for _, config := range s.jobMCPConfigs {
+		snapshot.JobMCPConfigs = append(snapshot.JobMCPConfigs, cloneJobMCPConfig(config))
+	}
 	for _, config := range s.feishuToolsConfigs {
 		snapshot.FeishuToolsConfigs = append(snapshot.FeishuToolsConfigs, cloneFeishuToolsConfig(config))
 	}
@@ -4944,6 +5272,12 @@ func (s *MemoryStore) persistNowLocked() error {
 	}
 	for _, run := range s.runs {
 		snapshot.AutomationRuns = append(snapshot.AutomationRuns, cloneAutomationRun(run))
+	}
+	for _, job := range s.backgroundJobs {
+		snapshot.BackgroundJobs = append(snapshot.BackgroundJobs, cloneBackgroundJob(job))
+	}
+	for _, run := range s.backgroundJobRuns {
+		snapshot.BackgroundJobRuns = append(snapshot.BackgroundJobRuns, cloneBackgroundJobRun(run))
 	}
 	for _, notification := range s.notifications {
 		snapshot.Notifications = append(snapshot.Notifications, notification)
@@ -5085,6 +5419,9 @@ func (s *MemoryStore) persistNowLocked() error {
 	})
 	sort.Slice(snapshot.FeishuToolsConfigs, func(i int, j int) bool {
 		return snapshot.FeishuToolsConfigs[i].WorkspaceID < snapshot.FeishuToolsConfigs[j].WorkspaceID
+	})
+	sort.Slice(snapshot.JobMCPConfigs, func(i int, j int) bool {
+		return snapshot.JobMCPConfigs[i].WorkspaceID < snapshot.JobMCPConfigs[j].WorkspaceID
 	})
 	sort.Slice(snapshot.FeishuToolAudits, func(i int, j int) bool {
 		return snapshot.FeishuToolAudits[i].ID < snapshot.FeishuToolAudits[j].ID
@@ -6140,6 +6477,40 @@ func cloneAutomationRun(run AutomationRun) AutomationRun {
 	return next
 }
 
+func cloneBackgroundJob(job BackgroundJob) BackgroundJob {
+	next := job
+	next.Name = strings.TrimSpace(job.Name)
+	next.SourceType = strings.TrimSpace(job.SourceType)
+	next.SourceRefID = strings.TrimSpace(job.SourceRefID)
+	next.Description = strings.TrimSpace(job.Description)
+	next.ExecutorKind = strings.TrimSpace(job.ExecutorKind)
+	next.Schedule = strings.TrimSpace(job.Schedule)
+	next.ScheduleLabel = strings.TrimSpace(job.ScheduleLabel)
+	next.Status = strings.TrimSpace(job.Status)
+	next.Payload = cloneAnyMap(job.Payload)
+	next.LastRunID = strings.TrimSpace(job.LastRunID)
+	next.LastRunStatus = strings.TrimSpace(job.LastRunStatus)
+	next.LastError = strings.TrimSpace(job.LastError)
+	return next
+}
+
+func cloneBackgroundJobRun(run BackgroundJobRun) BackgroundJobRun {
+	next := run
+	next.JobName = strings.TrimSpace(run.JobName)
+	next.ExecutorKind = strings.TrimSpace(run.ExecutorKind)
+	next.Trigger = strings.TrimSpace(run.Trigger)
+	next.Status = strings.TrimSpace(run.Status)
+	next.Output = cloneAnyMap(run.Output)
+	next.Summary = strings.TrimSpace(run.Summary)
+	next.Error = strings.TrimSpace(run.Error)
+	if len(run.Logs) > 0 {
+		next.Logs = append([]BackgroundJobRunLogEntry{}, run.Logs...)
+	} else {
+		next.Logs = []BackgroundJobRunLogEntry{}
+	}
+	return next
+}
+
 func cloneBot(bot Bot) Bot {
 	next := bot
 	next.Scope = strings.TrimSpace(bot.Scope)
@@ -6318,6 +6689,19 @@ func cloneFeishuToolsConfig(config FeishuToolsConfig) FeishuToolsConfig {
 		next.ToolAllowlist = nil
 	}
 	next.UserToken = cloneFeishuUserToken(config.UserToken)
+	return next
+}
+
+func cloneJobMCPConfig(config JobMCPConfig) JobMCPConfig {
+	next := config
+	next.WorkspaceID = strings.TrimSpace(config.WorkspaceID)
+	next.ServerName = strings.TrimSpace(config.ServerName)
+	next.ManagedMCPAuthToken = strings.TrimSpace(config.ManagedMCPAuthToken)
+	if len(config.ToolAllowlist) > 0 {
+		next.ToolAllowlist = cloneStringSlice(config.ToolAllowlist)
+	} else {
+		next.ToolAllowlist = nil
+	}
 	return next
 }
 

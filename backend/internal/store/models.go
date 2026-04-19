@@ -84,6 +84,15 @@ type FeishuUserToken struct {
 	ObtainedAt            *time.Time `json:"obtainedAt,omitempty"`
 }
 
+type JobMCPConfig struct {
+	WorkspaceID         string    `json:"workspaceId"`
+	Enabled             bool      `json:"enabled"`
+	ServerName          string    `json:"serverName,omitempty"`
+	ManagedMCPAuthToken string    `json:"managedMcpAuthToken,omitempty"`
+	ToolAllowlist       []string  `json:"toolAllowlist,omitempty"`
+	UpdatedAt           time.Time `json:"updatedAt,omitempty"`
+}
+
 type FeishuToolsConfig struct {
 	WorkspaceID         string          `json:"workspaceId"`
 	Enabled             bool            `json:"enabled"`
@@ -148,6 +157,11 @@ type Automation struct {
 	NextRun       string     `json:"nextRun"`
 	NextRunAt     *time.Time `json:"nextRunAt,omitempty"`
 	LastRun       *time.Time `json:"lastRun"`
+	JobID         string     `json:"jobId,omitempty"`
+	ManagedBy     string     `json:"managedBy,omitempty"`
+	JobStatus     string     `json:"jobStatus,omitempty"`
+	JobExecutor   string     `json:"jobExecutor,omitempty"`
+	LastRunStatus string     `json:"lastRunStatus,omitempty"`
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 }
@@ -252,6 +266,53 @@ type NotificationMailServerConfig struct {
 	SkipVerify  bool      `json:"skipVerify"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type BackgroundJob struct {
+	ID            string         `json:"id"`
+	WorkspaceID   string         `json:"workspaceId"`
+	WorkspaceName string         `json:"workspaceName"`
+	SourceType    string         `json:"sourceType,omitempty"`
+	SourceRefID   string         `json:"sourceRefId,omitempty"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	ExecutorKind  string         `json:"executorKind"`
+	Schedule      string         `json:"schedule,omitempty"`
+	ScheduleLabel string         `json:"scheduleLabel,omitempty"`
+	Status        string         `json:"status"`
+	Payload       map[string]any `json:"payload,omitempty"`
+	LastRunID     string         `json:"lastRunId,omitempty"`
+	LastRunStatus string         `json:"lastRunStatus,omitempty"`
+	LastError     string         `json:"lastError,omitempty"`
+	LastRunAt     *time.Time     `json:"lastRunAt,omitempty"`
+	NextRunAt     *time.Time     `json:"nextRunAt,omitempty"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+}
+
+type BackgroundJobRunLogEntry struct {
+	ID        string    `json:"id"`
+	TS        time.Time `json:"ts"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	EventType string    `json:"eventType,omitempty"`
+}
+
+type BackgroundJobRun struct {
+	ID            string                     `json:"id"`
+	JobID         string                     `json:"jobId"`
+	JobName       string                     `json:"jobName"`
+	WorkspaceID   string                     `json:"workspaceId"`
+	WorkspaceName string                     `json:"workspaceName"`
+	ExecutorKind  string                     `json:"executorKind"`
+	Trigger       string                     `json:"trigger"`
+	Status        string                     `json:"status"`
+	Output        map[string]any             `json:"output,omitempty"`
+	Summary       string                     `json:"summary,omitempty"`
+	Error         string                     `json:"error,omitempty"`
+	StartedAt     time.Time                  `json:"startedAt"`
+	FinishedAt    *time.Time                 `json:"finishedAt,omitempty"`
+	Logs          []BackgroundJobRunLogEntry `json:"logs"`
 }
 
 type NotificationDispatch struct {
