@@ -107,6 +107,7 @@ export function shouldRefreshMcpServerStatusForEvent(event: WorkspaceEventLike) 
   return hasWorkspaceHttpMutationTrigger(method, payload, [
     'config/mcp-server/reload',
     'feishu-tools/config/write',
+    'jobs-mcp/config/write',
   ])
 }
 
@@ -119,6 +120,7 @@ export function shouldRefreshRuntimeCatalogForEvent(event: WorkspaceEventLike) {
   return hasWorkspaceHttpMutationTrigger(method, payload, [
     'config/mcp-server/reload',
     'feishu-tools/config/write',
+    'jobs-mcp/config/write',
   ])
 }
 

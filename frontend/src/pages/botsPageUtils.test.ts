@@ -7,6 +7,10 @@ import {
   BOT_COMMAND_OUTPUT_MODE_NONE,
   BOT_COMMAND_OUTPUT_MODE_SETTING,
   BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
+  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
+  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SETTING,
+  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE,
+  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
   buildBotConnectionUpdateInput,
   buildBotsPageDraftFromConnection,
   buildBotConnectionCreateInput,
@@ -17,6 +21,7 @@ import {
   formatBotConversationBindingModeLabel,
   formatBotConversationBindingSourceLabel,
   formatBotConversationTitle,
+  formatFeishuStreamingPlainTextStrategyLabel,
   formatBotWorkspacePermissionPresetLabel,
   formatWeChatAccountLabel,
   findWeChatAccountForConnection,
@@ -35,6 +40,7 @@ import {
   resolveBotCommandOutputMode,
   resolveBotConversationBindingMode,
   resolveBotConversationThreadTarget,
+  resolveFeishuStreamingPlainTextStrategy,
   validateBotOutboundMediaLocation,
   resolveWeChatChannelTimingEnabled,
   summarizeBotMap,
@@ -471,6 +477,20 @@ describe('botsPageUtils', () => {
     expect(input.settings?.[BOT_COMMAND_OUTPUT_MODE_SETTING]).toBe(BOT_COMMAND_OUTPUT_MODE_NONE)
   })
 
+  it('writes the configured feishu plain-text streaming strategy into bot settings', () => {
+    const input = buildBotConnectionCreateInput({
+      ...EMPTY_BOTS_PAGE_DRAFT,
+      provider: 'feishu',
+      feishuAppId: 'cli_123',
+      feishuAppSecret: 'secret_123',
+      feishuStreamingPlainTextStrategy: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
+    })
+
+    expect(input.settings?.[FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SETTING]).toBe(
+      FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
+    )
+  })
+
   it('resolves and formats bot command output modes with a brief default', () => {
     expect(resolveBotCommandOutputMode(undefined)).toBe(BOT_COMMAND_OUTPUT_MODE_BRIEF)
     expect(resolveBotCommandOutputMode('unknown')).toBe(BOT_COMMAND_OUTPUT_MODE_BRIEF)
@@ -481,6 +501,30 @@ describe('botsPageUtils', () => {
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE)).toBe('Single Line')
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_BRIEF)).toBe('Brief (3-5 lines)')
     expect(formatBotCommandOutputModeLabel(BOT_COMMAND_OUTPUT_MODE_FULL)).toBe('Full Output')
+
+    expect(resolveFeishuStreamingPlainTextStrategy(undefined)).toBe(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA)
+    expect(resolveFeishuStreamingPlainTextStrategy('unknown')).toBe(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA)
+    expect(resolveFeishuStreamingPlainTextStrategy(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY)).toBe(
+      FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
+    )
+    expect(resolveFeishuStreamingPlainTextStrategy(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA)).toBe(
+      FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
+    )
+    expect(
+      resolveFeishuStreamingPlainTextStrategy(undefined, FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY),
+    ).toBe(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY)
+    expect(formatFeishuStreamingPlainTextStrategyLabel(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY)).toBe(
+      'Update One Message',
+    )
+    expect(formatFeishuStreamingPlainTextStrategyLabel(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE)).toBe(
+      'Send Completed Chunks',
+    )
+    expect(formatFeishuStreamingPlainTextStrategyLabel(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA)).toBe(
+      'Send New Text',
+    )
+    expect(formatFeishuStreamingPlainTextStrategyLabel(undefined, FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY)).toBe(
+      'Update One Message',
+    )
   })
 
   it('formats workspace thread permission presets with a safe default', () => {
@@ -907,5 +951,101 @@ describe('botsPageUtils', () => {
         },
       }),
     ).toBe('https://bots.example.com')
+  })
+
+  it('builds a feishu edit draft with the stored plain-text streaming strategy', () => {
+    const draft = buildBotsPageDraftFromConnection({
+      id: 'bot_feishu_1',
+      workspaceId: 'ws_1',
+      provider: 'feishu',
+      name: 'Feishu Bot',
+      status: 'active',
+      aiBackend: 'workspace_thread',
+      aiConfig: {
+        model: 'gpt-5.4',
+        permission_preset: 'default',
+        reasoning_effort: 'medium',
+        collaboration_mode: 'default',
+      },
+      settings: {
+        feishu_app_id: 'cli_123',
+        feishu_delivery_mode: 'websocket',
+        feishu_streaming_plain_text_strategy: 'update_only',
+        runtime_mode: 'normal',
+        command_output_mode: 'brief',
+      },
+      secretKeys: ['feishu_app_secret'],
+      createdAt: '2026-04-06T00:00:00Z',
+      updatedAt: '2026-04-06T00:00:00Z',
+    })
+
+    expect(draft).toMatchObject({
+      provider: 'feishu',
+      feishuAppId: 'cli_123',
+      feishuStreamingPlainTextStrategy: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
+    })
+  })
+
+  it('keeps legacy feishu connections on update_only when the plain-text strategy is missing', () => {
+    const draft = buildBotsPageDraftFromConnection({
+      id: 'bot_feishu_legacy',
+      workspaceId: 'ws_1',
+      provider: 'feishu',
+      name: 'Legacy Feishu Bot',
+      status: 'active',
+      aiBackend: 'workspace_thread',
+      aiConfig: {
+        model: 'gpt-5.4',
+        permission_preset: 'default',
+        reasoning_effort: 'medium',
+        collaboration_mode: 'default',
+      },
+      settings: {
+        feishu_app_id: 'cli_legacy',
+        feishu_delivery_mode: 'websocket',
+        runtime_mode: 'normal',
+        command_output_mode: 'brief',
+      },
+      secretKeys: ['feishu_app_secret'],
+      createdAt: '2026-04-06T00:00:00Z',
+      updatedAt: '2026-04-06T00:00:00Z',
+    })
+
+    expect(draft.feishuStreamingPlainTextStrategy).toBe(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY)
+  })
+
+  it('defaults new feishu drafts to append delta', () => {
+    expect(EMPTY_BOTS_PAGE_DRAFT.feishuStreamingPlainTextStrategy).toBe(
+      FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
+    )
+  })
+
+  it('builds a feishu edit draft with append delta when configured', () => {
+    const draft = buildBotsPageDraftFromConnection({
+      id: 'bot_feishu_2',
+      workspaceId: 'ws_1',
+      provider: 'feishu',
+      name: 'Feishu Bot',
+      status: 'active',
+      aiBackend: 'workspace_thread',
+      aiConfig: {
+        model: 'gpt-5.4',
+        permission_preset: 'default',
+        reasoning_effort: 'medium',
+        collaboration_mode: 'default',
+      },
+      settings: {
+        feishu_app_id: 'cli_456',
+        feishu_delivery_mode: 'websocket',
+        feishu_streaming_plain_text_strategy: 'append_delta',
+        runtime_mode: 'normal',
+        command_output_mode: 'brief',
+      },
+      secretKeys: ['feishu_app_secret'],
+      createdAt: '2026-04-06T00:00:00Z',
+      updatedAt: '2026-04-06T00:00:00Z',
+    })
+
+    expect(draft.feishuStreamingPlainTextStrategy).toBe(FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA)
   })
 })

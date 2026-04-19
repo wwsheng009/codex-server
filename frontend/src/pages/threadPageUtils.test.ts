@@ -63,6 +63,15 @@ describe('threadPageUtils', () => {
         method: 'workspace/httpMutation',
         payload: {
           requestKind: 'httpMutation',
+          triggerMethod: 'jobs-mcp/config/write',
+        },
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshMcpServerStatusForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
           triggerMethod: 'workspace/config/write',
         },
       }),
@@ -86,6 +95,15 @@ describe('threadPageUtils', () => {
         payload: {
           requestKind: 'httpMutation',
           triggerMethod: 'feishu-tools/config/write',
+        },
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshRuntimeCatalogForEvent({
+        method: 'workspace/httpMutation',
+        payload: {
+          requestKind: 'httpMutation',
+          triggerMethod: 'jobs-mcp/config/write',
         },
       }),
     ).toBe(true)

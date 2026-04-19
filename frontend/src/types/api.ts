@@ -50,6 +50,11 @@ export type Automation = {
   nextRun: string;
   nextRunAt?: string | null;
   lastRun: string | null;
+  jobId?: string;
+  managedBy?: string;
+  jobStatus?: string;
+  jobExecutor?: string;
+  lastRunStatus?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -88,6 +93,89 @@ export type AutomationRun = {
   startedAt: string;
   finishedAt?: string | null;
   logs: AutomationRunLogEntry[];
+};
+
+export type BackgroundJob = {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  sourceType?: string;
+  sourceRefId?: string;
+  name: string;
+  description: string;
+  executorKind: string;
+  schedule?: string;
+  scheduleLabel?: string;
+  status: string;
+  payload?: Record<string, unknown> | null;
+  lastRunId?: string;
+  lastRunStatus?: string;
+  lastError?: string;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BackgroundJobRunLogEntry = {
+  id: string;
+  ts: string;
+  level: string;
+  message: string;
+  eventType?: string;
+};
+
+export type BackgroundJobRun = {
+  id: string;
+  jobId: string;
+  jobName: string;
+  workspaceId: string;
+  workspaceName: string;
+  executorKind: string;
+  trigger: string;
+  status: string;
+  output?: Record<string, unknown> | null;
+  summary?: string;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string | null;
+  logs: BackgroundJobRunLogEntry[];
+};
+
+export type BackgroundJobExecutor = {
+  kind: string;
+  title: string;
+  description: string;
+  supportsSchedule: boolean;
+  payloadSchema?: Record<string, unknown> | null;
+  examplePayload?: Record<string, unknown> | null;
+};
+
+export type JobMCPRuntimeIntegration = {
+  status: string;
+  mode?: string | null;
+  serverName?: string | null;
+  serverUrl?: string | null;
+  managed?: boolean;
+  threadEnabled?: boolean;
+  detail?: string | null;
+};
+
+export type JobMCPConfig = {
+  enabled: boolean;
+  serverName: string;
+  mcpEndpoint: string;
+  toolAllowlist?: string[] | null;
+  updatedAt?: string | null;
+};
+
+export type JobMCPConfigResult = {
+  config: JobMCPConfig;
+  runtimeIntegration?: JobMCPRuntimeIntegration | null;
+  source?: string | null;
+  updatedAt?: string | null;
+  warnings?: string[] | null;
+  availableTools?: string[] | null;
 };
 
 export type NotificationItem = {

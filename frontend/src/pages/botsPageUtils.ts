@@ -14,6 +14,10 @@ export const BOT_COMMAND_OUTPUT_MODE_DETAILED = 'detailed'
 export const BOT_COMMAND_OUTPUT_MODE_FULL = 'full'
 export const FEISHU_DELIVERY_MODE_WEBSOCKET = 'websocket'
 export const FEISHU_DELIVERY_MODE_WEBHOOK = 'webhook'
+export const FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SETTING = 'feishu_streaming_plain_text_strategy'
+export const FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY = 'update_only'
+export const FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE = 'smart_preserve'
+export const FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA = 'append_delta'
 
 export type SupportedBotProvider = 'telegram' | 'wechat' | 'feishu' | 'qqbot'
 
@@ -77,6 +81,7 @@ export type BotsPageDraft = {
   feishuAppId: string
   feishuAppSecret: string
   feishuDomain: string
+  feishuStreamingPlainTextStrategy: string
   feishuEnableCards: boolean
   feishuGroupReplyAll: boolean
   feishuThreadIsolation: boolean
@@ -124,6 +129,7 @@ export const EMPTY_BOTS_PAGE_DRAFT: BotsPageDraft = {
   feishuAppId: '',
   feishuAppSecret: '',
   feishuDomain: '',
+  feishuStreamingPlainTextStrategy: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
   feishuEnableCards: false,
   feishuGroupReplyAll: false,
   feishuThreadIsolation: false,
@@ -187,6 +193,38 @@ export function resolveFeishuDeliveryMode(value?: string | null) {
   return value?.trim().toLowerCase() === FEISHU_DELIVERY_MODE_WEBHOOK
     ? FEISHU_DELIVERY_MODE_WEBHOOK
     : FEISHU_DELIVERY_MODE_WEBSOCKET
+}
+
+export function resolveFeishuStreamingPlainTextStrategy(
+  value?: string | null,
+  fallback: string = FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
+) {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized === FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY) {
+    return FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY
+  }
+  if (normalized === FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE) {
+    return FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE
+  }
+  if (normalized === FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA) {
+    return FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA
+  }
+  return resolveFeishuStreamingPlainTextStrategy(fallback, FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA)
+}
+
+export function formatFeishuStreamingPlainTextStrategyLabel(
+  value?: string | null,
+  fallback: string = FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
+) {
+  switch (resolveFeishuStreamingPlainTextStrategy(value, fallback)) {
+    case FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY:
+      return i18n._({ id: 'Update One Message', message: 'Update One Message' })
+    case FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA:
+      return i18n._({ id: 'Send New Text', message: 'Send New Text' })
+    case FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE:
+    default:
+      return i18n._({ id: 'Send Completed Chunks', message: 'Send Completed Chunks' })
+  }
 }
 
 function normalizeBotOutboundMediaKind(value?: string | null): BotOutboundMediaKind {
@@ -537,6 +575,9 @@ export function buildBotConnectionCreateInput(draft: BotsPageDraft): CreateBotCo
     if (draft.feishuDomain.trim()) {
       settings.feishu_domain = draft.feishuDomain.trim()
     }
+    settings[FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SETTING] = resolveFeishuStreamingPlainTextStrategy(
+      draft.feishuStreamingPlainTextStrategy,
+    )
     settings.feishu_enable_cards = String(draft.feishuEnableCards)
     settings.feishu_group_reply_all = String(draft.feishuGroupReplyAll)
     settings.feishu_thread_isolation = String(draft.feishuThreadIsolation)
@@ -657,6 +698,13 @@ export function buildBotsPageDraftFromConnection(
     feishuAppId: provider === 'feishu' ? connection.settings?.feishu_app_id?.trim() ?? '' : '',
     feishuAppSecret: '',
     feishuDomain: provider === 'feishu' ? connection.settings?.feishu_domain?.trim() ?? '' : '',
+    feishuStreamingPlainTextStrategy:
+      provider === 'feishu'
+        ? resolveFeishuStreamingPlainTextStrategy(
+            connection.settings?.[FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SETTING],
+            FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
+          )
+        : FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
     feishuEnableCards: provider === 'feishu' ? resolveBotBooleanSetting(connection.settings?.feishu_enable_cards) : false,
     feishuGroupReplyAll: provider === 'feishu' ? resolveBotBooleanSetting(connection.settings?.feishu_group_reply_all) : false,
     feishuThreadIsolation:
