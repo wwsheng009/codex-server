@@ -434,6 +434,13 @@ export default {
       property: 'reason',
       reason: 'Dev-only diagnostic reason label (not user-facing)',
     },
+    // useThreadPageSessionState.ts - diagnostic reason for dev profiler
+    {
+      filePattern: 'src/pages/thread-page/useThreadPageSessionState.ts',
+      kind: 'object-property',
+      property: 'reason',
+      reason: 'Dev-only diagnostic reason label (not user-facing)',
+    },
     // useThreadViewportAutoScroll.ts - debug log
     {
       filePattern: 'src/pages/thread-page/useThreadViewportAutoScroll.ts',

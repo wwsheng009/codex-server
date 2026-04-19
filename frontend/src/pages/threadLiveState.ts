@@ -14,16 +14,8 @@ import {
 } from '../lib/turn-plan'
 import { readThreadTokenUsageFromEvent } from '../lib/thread-token-usage'
 import type { ThreadProjectionSnapshotMetadata } from '../stores/session-store-types'
-import type {
-  LiveThreadProjectionState,
-  ResolveLiveThreadDetailInput,
-  ResolveLiveThreadProjectionStateInput,
-} from './threadLiveStateTypes'
-export type {
-  LiveThreadProjectionState,
-  ResolveLiveThreadDetailInput,
-  ResolveLiveThreadProjectionStateInput,
-} from './threadLiveStateTypes'
+import type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
+export type { ResolveLiveThreadDetailInput } from './threadLiveStateTypes'
 
 const THREAD_GOVERNANCE_TURN_ID = 'thread-governance'
 
@@ -57,57 +49,6 @@ export function applyThreadProjectionEvent(
   event: ServerEvent,
 ) {
   return applyThreadEventToDetail(projection, event)
-}
-
-export function resolveLiveThreadProjectionState({
-  currentState,
-  events,
-  selectedThreadId,
-  threadDetail,
-}: ResolveLiveThreadProjectionStateInput): LiveThreadProjectionState {
-  const targetThreadId = resolveLiveThreadProjectionThreadId(
-    currentState,
-    selectedThreadId,
-    threadDetail,
-    events,
-  )
-
-  if (shouldRebuildLiveThreadProjectionState(currentState, targetThreadId, threadDetail)) {
-    return createLiveThreadProjectionState({
-      events,
-      selectedThreadId: targetThreadId,
-      threadDetail,
-    })
-  }
-
-  if (!currentState) {
-    return createLiveThreadProjectionState({
-      events,
-      selectedThreadId: targetThreadId,
-      threadDetail,
-    })
-  }
-
-  const baseDetail = selectLiveThreadDetailBase(currentState.detail, threadDetail)
-  const nextEvents = sliceUnappliedLiveThreadEvents(events, currentState)
-  const nextDetail =
-    nextEvents.length > 0 ? applyThreadEventsToDetail(baseDetail, nextEvents) : baseDetail
-  const nextLastEventKey =
-    nextEvents.length > 0 ? readLastLiveThreadEventKey(nextEvents) : currentState.lastEventKey
-
-  if (
-    nextDetail === currentState.detail &&
-    nextLastEventKey === currentState.lastEventKey &&
-    targetThreadId === currentState.selectedThreadId
-  ) {
-    return currentState
-  }
-
-  return {
-    detail: nextDetail,
-    lastEventKey: nextLastEventKey,
-    selectedThreadId: targetThreadId,
-  }
 }
 
 export function applyLiveThreadEvents(
@@ -283,99 +224,6 @@ export function applyLiveThreadEvents(
   })
 
   return nextDetail
-}
-
-function createLiveThreadProjectionState({
-  events,
-  selectedThreadId,
-  threadDetail,
-}: Omit<ResolveLiveThreadProjectionStateInput, 'currentState'>): LiveThreadProjectionState {
-  const detail = resolveLiveThreadDetail({
-    currentLiveDetail: undefined,
-    events,
-    threadDetail,
-  })
-
-  return {
-    detail,
-    lastEventKey: detail ? readLastLiveThreadEventKey(events) : '',
-    selectedThreadId,
-  }
-}
-
-function resolveLiveThreadProjectionThreadId(
-  currentState: LiveThreadProjectionState | undefined,
-  selectedThreadId: string | undefined,
-  threadDetail: ThreadDetail | undefined,
-  events: ServerEvent[],
-) {
-  if (selectedThreadId) {
-    return selectedThreadId
-  }
-
-  if (threadDetail?.id) {
-    return threadDetail.id
-  }
-
-  if (currentState?.selectedThreadId) {
-    return currentState.selectedThreadId
-  }
-
-  if (currentState?.detail?.id) {
-    return currentState.detail.id
-  }
-
-  return events[events.length - 1]?.threadId
-}
-
-function shouldRebuildLiveThreadProjectionState(
-  currentState: LiveThreadProjectionState | undefined,
-  targetThreadId: string | undefined,
-  threadDetail: ThreadDetail | undefined,
-) {
-  if (!currentState) {
-    return true
-  }
-
-  if (currentState.selectedThreadId !== targetThreadId) {
-    return true
-  }
-
-  if (!currentState.detail) {
-    return Boolean(threadDetail)
-  }
-
-  if (threadDetail && currentState.detail.id !== threadDetail.id) {
-    return true
-  }
-
-  return Boolean(targetThreadId) && currentState.detail.id !== targetThreadId
-}
-
-function sliceUnappliedLiveThreadEvents(
-  events: ServerEvent[],
-  currentState: LiveThreadProjectionState,
-) {
-  if (!events.length) {
-    return []
-  }
-
-  if (currentState.lastEventKey) {
-    const lastEventIndex = findLastBufferedLiveThreadEventIndex(events, currentState.lastEventKey)
-    if (lastEventIndex >= 0) {
-      return events.slice(lastEventIndex + 1)
-    }
-  }
-
-  const currentSeq = readLiveThreadEventSeq(currentState.detail)
-  if (currentSeq !== null) {
-    return events.filter((event) => {
-      const eventSeq = readServerEventSeq(event)
-      return eventSeq !== null && eventSeq > currentSeq
-    })
-  }
-
-  return events
 }
 
 export function applyThreadEventsToDetail(
@@ -1958,46 +1806,6 @@ function preserveThreadDetailUpdatedAt(
 
 function readServerEventSeq(event: ServerEvent) {
   return typeof event.seq === 'number' && Number.isFinite(event.seq) ? event.seq : null
-}
-
-function readLastLiveThreadEventKey(events: ServerEvent[]) {
-  if (events.length === 0) {
-    return ''
-  }
-
-  return buildLiveThreadEventKey(events[events.length - 1])
-}
-
-function findLastBufferedLiveThreadEventIndex(events: ServerEvent[], eventKey: string) {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (buildLiveThreadEventKey(events[index]) === eventKey) {
-      return index
-    }
-  }
-
-  return -1
-}
-
-function buildLiveThreadEventKey(event: ServerEvent) {
-  const eventSeq = readServerEventSeq(event)
-  if (eventSeq !== null) {
-    return `seq:${eventSeq}`
-  }
-
-  const payload = asObject(event.payload)
-  const item = asObject(payload.item)
-  const run = asObject(payload.run)
-
-  return [
-    event.workspaceId,
-    event.threadId ?? '',
-    stringField(payload.turnId) || event.turnId || '',
-    event.method,
-    event.ts,
-    event.serverRequestId ?? '',
-    stringField(payload.itemId) || stringField(item.id) || stringField(run.id),
-    stringField(payload.delta).length,
-  ].join('|')
 }
 
 function readLiveThreadEventSeq(detail: ThreadDetail | undefined) {

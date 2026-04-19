@@ -5,11 +5,8 @@ import {
   summarizeServerEventForDebug,
   summarizeThreadDetailForDebug,
 } from '../../lib/frontend-runtime-mode'
-import {
-  applyLiveThreadEvents,
-  applyThreadEventToDetail,
-  reconcileLiveThreadDetailSnapshot,
-} from '../threadLiveState'
+import { reconcileLiveThreadDetailSnapshot } from '../threadLiveState'
+import { recordConversationLiveDiagnosticEvent } from '../../components/workspace/threadConversationProfiler'
 import { useSessionStore } from '../../stores/session-store'
 import type { ServerEvent, ThreadDetail } from '../../types/api'
 import type { UseThreadPageSessionStateInput } from './threadPageRuntimeTypes'
@@ -193,48 +190,25 @@ export function resolveThreadPageSessionProjection({
       })
     : undefined
 
-  if (selectedThreadEvents.length === 0) {
-    return snapshotProjection
+  if (selectedThreadEvents.length > 0) {
+    const diagnosticThreadId =
+      selectedThreadId ??
+      threadDetail?.id ??
+      selectedThreadEvents[selectedThreadEvents.length - 1]?.threadId ??
+      null
+    recordConversationLiveDiagnosticEvent({
+      kind: 'projection-item-missing-in-timeline',
+      metadata: {
+        bufferedEventCount: selectedThreadEvents.length,
+        hasSnapshot: Boolean(snapshotProjection),
+        phase: 'session-projection-fallback-suppressed',
+        workspaceId: workspaceId || null,
+      },
+      reason: 'session projection absent; event-replay fallback suppressed under single-truth',
+      source: 'thread-page-session',
+      threadId: diagnosticThreadId,
+    })
   }
 
-  if (snapshotProjection) {
-    return applyLiveThreadEvents(snapshotProjection, selectedThreadEvents)
-  }
-
-  const eventThreadId =
-    selectedThreadId ?? threadDetail?.id ?? selectedThreadEvents[selectedThreadEvents.length - 1]?.threadId
-  if (!eventThreadId) {
-    return undefined
-  }
-
-  const placeholderTs = selectedThreadEvents[0]?.ts ?? new Date(0).toISOString()
-  return selectedThreadEvents.reduce<ThreadDetail>(
-    (current, event) => applyThreadEventToDetail(current, event) ?? current,
-    buildBufferedThreadProjectionPlaceholder({
-      threadId: eventThreadId,
-      ts: placeholderTs,
-      workspaceId,
-    }),
-  )
-}
-
-function buildBufferedThreadProjectionPlaceholder({
-  threadId,
-  ts,
-  workspaceId,
-}: {
-  threadId: string
-  ts: string
-  workspaceId: string
-}): ThreadDetail {
-  return {
-    archived: false,
-    createdAt: ts,
-    id: threadId,
-    name: '',
-    status: 'idle',
-    turns: [],
-    updatedAt: new Date(0).toISOString(),
-    workspaceId,
-  }
+  return snapshotProjection
 }

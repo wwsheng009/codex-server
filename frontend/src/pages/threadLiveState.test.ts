@@ -7,7 +7,6 @@ let applyLiveThreadEvents: typeof import('./threadLiveState').applyLiveThreadEve
 let applyThreadEventToDetail: typeof import('./threadLiveState').applyThreadEventToDetail
 let applyThreadEventsToDetail: typeof import('./threadLiveState').applyThreadEventsToDetail
 let resolveLiveThreadDetail: typeof import('./threadLiveState').resolveLiveThreadDetail
-let resolveLiveThreadProjectionState: typeof import('./threadLiveState').resolveLiveThreadProjectionState
 let upsertPendingUserMessage: typeof import('./threadLiveState').upsertPendingUserMessage
 
 beforeAll(async () => {
@@ -17,7 +16,6 @@ beforeAll(async () => {
     applyThreadEventToDetail,
     applyThreadEventsToDetail,
     resolveLiveThreadDetail,
-    resolveLiveThreadProjectionState,
     upsertPendingUserMessage,
   } = await import('./threadLiveState'))
 })
@@ -2047,190 +2045,6 @@ describe('threadLiveState', () => {
       clientLiveOutputHydrated: true,
     })
     expect(resolved?.clientLiveEventSeq).toBe(41)
-  })
-
-  it('incrementally applies only newly buffered thread events after snapshot refreshes', () => {
-    const summarySnapshot: ThreadDetail = {
-      ...makeDetail(),
-      updatedAt: '2026-03-20T00:00:05.000Z',
-      turns: [
-        {
-          id: 'turn-1',
-          status: 'inProgress',
-          items: [
-            {
-              id: 'cmd-1',
-              type: 'commandExecution',
-              command: 'npm test',
-              aggregatedOutput: 'line 1\n',
-              status: 'inProgress',
-              summaryTruncated: true,
-              outputContentMode: 'summary',
-              outputTotalLength: 48,
-            },
-          ],
-        },
-      ],
-    }
-
-    const firstBufferedEvents = [
-      makeSeqEvent(
-        41,
-        'item/commandExecution/outputDelta',
-        {
-          delta: 'line 2\n',
-          itemId: 'cmd-1',
-          threadId: 'thread-1',
-          turnId: 'turn-1',
-        },
-        '2026-03-20T00:00:05.500Z',
-      ),
-    ]
-
-    const afterFirstBatch = resolveLiveThreadProjectionState({
-      currentState: undefined,
-      events: firstBufferedEvents,
-      selectedThreadId: 'thread-1',
-      threadDetail: summarySnapshot,
-    })
-
-    expect(afterFirstBatch.detail?.turns[0]?.items[0]).toMatchObject({
-      id: 'cmd-1',
-      aggregatedOutput: 'line 1\nline 2\n',
-      clientLiveOutputHydrated: true,
-    })
-    expect(afterFirstBatch.detail?.clientLiveEventSeq).toBe(41)
-
-    const refreshedSnapshot: ThreadDetail = {
-      ...summarySnapshot,
-      updatedAt: '2026-03-20T00:00:06.000Z',
-    }
-
-    const afterRefresh = resolveLiveThreadProjectionState({
-      currentState: afterFirstBatch,
-      events: firstBufferedEvents,
-      selectedThreadId: 'thread-1',
-      threadDetail: refreshedSnapshot,
-    })
-
-    expect(afterRefresh.detail?.turns[0]?.items[0]).toMatchObject({
-      id: 'cmd-1',
-      aggregatedOutput: 'line 1\nline 2\n',
-      clientLiveOutputHydrated: true,
-    })
-    expect(afterRefresh.detail?.clientLiveEventSeq).toBe(41)
-
-    const secondBufferedEvents = [
-      ...firstBufferedEvents,
-      makeSeqEvent(
-        42,
-        'item/commandExecution/outputDelta',
-        {
-          delta: 'line 3\n',
-          itemId: 'cmd-1',
-          threadId: 'thread-1',
-          turnId: 'turn-1',
-        },
-        '2026-03-20T00:00:06.500Z',
-      ),
-    ]
-
-    const afterSecondBatch = resolveLiveThreadProjectionState({
-      currentState: afterRefresh,
-      events: secondBufferedEvents,
-      selectedThreadId: 'thread-1',
-      threadDetail: refreshedSnapshot,
-    })
-
-    expect(afterSecondBatch.detail?.turns[0]?.items[0]).toMatchObject({
-      id: 'cmd-1',
-      aggregatedOutput: 'line 1\nline 2\nline 3\n',
-      clientLiveOutputHydrated: true,
-    })
-    expect(afterSecondBatch.detail?.clientLiveEventSeq).toBe(42)
-  })
-
-  it('preserves already materialized command items when a newer summary snapshot omits them', () => {
-    const initialSnapshot: ThreadDetail = {
-      ...makeDetail(),
-      updatedAt: '2026-03-20T00:00:01.000Z',
-      turns: [
-        {
-          id: 'turn-1',
-          status: 'inProgress',
-          items: [],
-        },
-      ],
-    }
-
-    const bufferedEvents = [
-      makeSeqEvent(
-        41,
-        'item/commandExecution/outputDelta',
-        {
-          delta: 'working tree clean',
-          itemId: 'cmd-1',
-          threadId: 'thread-1',
-          turnId: 'turn-1',
-        },
-        '2026-03-20T00:00:01.500Z',
-      ),
-      makeSeqEvent(
-        42,
-        'item/completed',
-        {
-          item: {
-            id: 'cmd-1',
-            type: 'commandExecution',
-            status: 'completed',
-          },
-          threadId: 'thread-1',
-          turnId: 'turn-1',
-        },
-        '2026-03-20T00:00:01.600Z',
-      ),
-    ]
-
-    const initialProjection = resolveLiveThreadProjectionState({
-      currentState: undefined,
-      events: bufferedEvents,
-      selectedThreadId: 'thread-1',
-      threadDetail: initialSnapshot,
-    })
-
-    expect(initialProjection.detail?.turns[0]?.items[0]).toMatchObject({
-      id: 'cmd-1',
-      type: 'commandExecution',
-      aggregatedOutput: 'working tree clean',
-      status: 'completed',
-    })
-
-    const newerSummarySnapshot: ThreadDetail = {
-      ...makeDetail(),
-      updatedAt: '2026-03-20T00:00:03.000Z',
-      turns: [
-        {
-          id: 'turn-1',
-          status: 'completed',
-          items: [],
-        },
-      ],
-    }
-
-    const afterRefresh = resolveLiveThreadProjectionState({
-      currentState: initialProjection,
-      events: bufferedEvents,
-      selectedThreadId: 'thread-1',
-      threadDetail: newerSummarySnapshot,
-    })
-
-    expect(afterRefresh.detail?.turns[0]?.items[0]).toMatchObject({
-      id: 'cmd-1',
-      type: 'commandExecution',
-      aggregatedOutput: 'working tree clean',
-      status: 'completed',
-    })
-    expect(afterRefresh.detail?.clientLiveEventSeq).toBe(42)
   })
 
   it('replays stale file change output deltas when a summary snapshot only has an empty placeholder', () => {

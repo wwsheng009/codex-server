@@ -11,7 +11,7 @@ beforeAll(async () => {
 })
 
 describe('resolveThreadPageSessionProjection', () => {
-  it('replays buffered thread events onto the snapshot when the store projection is missing', () => {
+  it('returns the snapshot projection only (no event-replay) when the store projection is missing under single-truth', () => {
     const snapshot: ThreadDetail = {
       archived: false,
       createdAt: '2026-04-18T10:00:00.000Z',
@@ -56,26 +56,19 @@ describe('resolveThreadPageSessionProjection', () => {
     })
 
     expect(resolved).toMatchObject({
-      clientLiveEventSeq: 41,
-      clientProjectionAppliedSeq: 41,
+      id: 'thread-1',
       clientProjectionCompleteness: 'summary',
       turns: [
         {
           id: 'turn-1',
-          items: [
-            {
-              id: 'msg-1',
-              type: 'agentMessage',
-              phase: 'streaming',
-              text: 'streamed reply',
-            },
-          ],
+          items: [],
         },
       ],
     })
+    expect((resolved as ThreadDetail | undefined)?.clientLiveEventSeq).toBeUndefined()
   })
 
-  it('can build a temporary projection directly from buffered events without a snapshot', () => {
+  it('returns undefined (no projection, no replay) when neither snapshot nor store projection exists', () => {
     const selectedThreadEvents: ServerEvent[] = [
       {
         method: 'item/started',
@@ -116,26 +109,60 @@ describe('resolveThreadPageSessionProjection', () => {
       workspaceId: 'ws-1',
     })
 
-    expect(resolved).toMatchObject({
-      clientLiveEventSeq: 8,
-      clientProjectionAppliedSeq: 8,
-      clientProjectionCompleteness: 'live-only',
-      id: 'thread-2',
+    expect(resolved).toBeUndefined()
+  })
+
+  it('prefers the store projection directly without touching buffered events', () => {
+    const storeProjection: ThreadDetail = {
+      archived: false,
+      createdAt: '2026-04-18T10:00:00.000Z',
+      id: 'thread-3',
+      name: 'Thread 3',
+      status: 'inProgress',
       turns: [
         {
-          id: 'turn-2',
+          id: 'turn-3',
+          status: 'inProgress',
           items: [
             {
-              aggregatedOutput: 'line 1\n',
-              command: 'npm test',
-              id: 'cmd-1',
-              status: 'inProgress',
-              type: 'commandExecution',
+              id: 'msg-3',
+              type: 'agentMessage',
+              text: 'from store projection',
+              phase: 'streaming',
             },
           ],
         },
       ],
+      updatedAt: '2026-04-18T10:00:10.000Z',
+      workspaceId: 'ws-1',
+      clientLiveEventSeq: 100,
+      clientProjectionAppliedSeq: 100,
+      clientProjectionCompleteness: 'live-only',
+    }
+    const selectedThreadEvents: ServerEvent[] = [
+      {
+        method: 'item/agentMessage/delta',
+        payload: {
+          delta: 'ignored',
+          itemId: 'msg-3',
+          threadId: 'thread-3',
+          turnId: 'turn-3',
+        },
+        seq: 101,
+        threadId: 'thread-3',
+        turnId: 'turn-3',
+        ts: '2026-04-18T10:00:11.000Z',
+        workspaceId: 'ws-1',
+      },
+    ]
+
+    const resolved = resolveThreadPageSessionProjection({
+      selectedThreadEvents,
+      selectedThreadId: 'thread-3',
+      threadProjection: storeProjection,
       workspaceId: 'ws-1',
     })
+
+    expect(resolved).toBe(storeProjection)
   })
 })
