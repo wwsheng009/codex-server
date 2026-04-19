@@ -98,6 +98,31 @@ type FeishuToolsConfig struct {
 	UpdatedAt           time.Time       `json:"updatedAt,omitempty"`
 }
 
+type FeishuToolAuditRecord struct {
+	ID            string    `json:"id"`
+	WorkspaceID   string    `json:"workspaceId"`
+	ThreadID      string    `json:"threadId,omitempty"`
+	TurnID        string    `json:"turnId,omitempty"`
+	InvocationID  string    `json:"invocationId,omitempty"`
+	ToolName      string    `json:"toolName"`
+	Action        string    `json:"action,omitempty"`
+	ActionKey     string    `json:"actionKey,omitempty"`
+	PrincipalType string    `json:"principalType,omitempty"`
+	PrincipalID   string    `json:"principalId,omitempty"`
+	Result        string    `json:"result"`
+	ErrorCode     string    `json:"errorCode,omitempty"`
+	ErrorMessage  string    `json:"errorMessage,omitempty"`
+	StartedAt     time.Time `json:"startedAt"`
+	CompletedAt   time.Time `json:"completedAt"`
+	DurationMs    int64     `json:"durationMs"`
+}
+
+type FeishuToolAuditFilter struct {
+	ToolName string `json:"toolName,omitempty"`
+	Result   string `json:"result,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
 type TurnPolicyAlertGovernanceEvent struct {
 	ID          string     `json:"id"`
 	Action      string     `json:"action"`

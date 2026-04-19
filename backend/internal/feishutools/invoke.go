@@ -118,6 +118,7 @@ func (s *Service) Invoke(ctx context.Context, workspaceID string, input InvokeIn
 			"durationMs": result.DurationMs,
 		})
 		result.Events = tracker.Snapshot()
+		s.persistInvokeAudit(ctx, workspaceID, config, result, actionKey)
 		// The HTTP layer should still deliver a 200 with structured error so
 		// agents can inspect the payload; mapping happens at router level.
 		return result, nil
@@ -132,6 +133,7 @@ func (s *Service) Invoke(ctx context.Context, workspaceID string, input InvokeIn
 	result.Result = data
 	emitInvokeProgress(ctx, "success", "Feishu tool invocation completed", buildInvokeCompletionDetail(data, result.DurationMs))
 	result.Events = tracker.Snapshot()
+	s.persistInvokeAudit(ctx, workspaceID, config, result, actionKey)
 	return result, nil
 }
 
@@ -194,6 +196,8 @@ func (s *Service) runTool(ctx context.Context, workspaceID string, config Config
 		return s.runIMGetThreadMessages(ctx, workspaceID, config, params)
 	case "feishu_im_user_fetch_resource":
 		return s.runIMFetchResource(ctx, workspaceID, config, params)
+	case "feishu_im_bot_image":
+		return s.runIMBotImage(ctx, workspaceID, config, params)
 	case "feishu_im_user_message":
 		return s.runIMUserMessage(ctx, workspaceID, config, action, params)
 	case "feishu_search_user":
@@ -244,6 +248,10 @@ func (s *Service) runTool(ctx context.Context, workspaceID string, config Config
 		return s.runWikiSpace(ctx, workspaceID, config, action, params)
 	case "feishu_wiki_space_node":
 		return s.runWikiSpaceNode(ctx, workspaceID, config, action, params)
+	case "feishu_oauth":
+		return s.runOauthTool(ctx, workspaceID, config, action, params)
+	case "feishu_oauth_batch_auth":
+		return s.runOauthBatchAuth(ctx, workspaceID, config, params)
 	default:
 		return nil, toolInvalidInput(fmt.Sprintf("tool %q is not implemented yet", tool))
 	}
@@ -257,4 +265,73 @@ func toInvokeError(err error) *InvokeError {
 		return &InvokeError{Code: gerr.Code, Message: gerr.Message, Hint: gerr.Hint}
 	}
 	return &InvokeError{Code: "internal_error", Message: err.Error()}
+}
+
+func (s *Service) persistInvokeAudit(ctx context.Context, workspaceID string, config Config, result InvokeResult, actionKey string) {
+	if s == nil || s.store == nil {
+		return
+	}
+	scope := invokeEventScopeFromContext(ctx)
+	principalType, principalID := resolveAuditPrincipal(config, result, actionKey)
+	record := store.FeishuToolAuditRecord{
+		WorkspaceID:   strings.TrimSpace(workspaceID),
+		ThreadID:      strings.TrimSpace(scope.ThreadID),
+		TurnID:        strings.TrimSpace(scope.TurnID),
+		InvocationID:  strings.TrimSpace(result.InvocationID),
+		ToolName:      strings.TrimSpace(result.ToolName),
+		Action:        strings.TrimSpace(result.Action),
+		ActionKey:     strings.TrimSpace(actionKey),
+		PrincipalType: principalType,
+		PrincipalID:   principalID,
+		Result:        auditResultStatus(result),
+		StartedAt:     parseAuditTime(result.StartedAt),
+		CompletedAt:   parseAuditTime(result.CompletedAt),
+		DurationMs:    result.DurationMs,
+	}
+	if result.Error != nil {
+		record.ErrorCode = strings.TrimSpace(result.Error.Code)
+		record.ErrorMessage = strings.TrimSpace(result.Error.Message)
+	}
+	_, _ = s.store.CreateFeishuToolAuditRecord(record)
+}
+
+func resolveAuditPrincipal(config Config, result InvokeResult, actionKey string) (string, string) {
+	principal := strings.TrimSpace(result.Principal)
+	switch principal {
+	case "bot":
+		return "bot", strings.TrimSpace(config.AppID)
+	case "user":
+		return "user", firstNonEmpty(strings.TrimSpace(config.UserToken.OpenID), strings.TrimSpace(config.UserToken.UnionID))
+	case "tenant", "app":
+		return "tenant", strings.TrimSpace(config.AppID)
+	}
+
+	if actionUsesUserScopes(actionKey) {
+		return "user", firstNonEmpty(strings.TrimSpace(config.UserToken.OpenID), strings.TrimSpace(config.UserToken.UnionID))
+	}
+	return "tenant", strings.TrimSpace(config.AppID)
+}
+
+func actionUsesUserScopes(actionKey string) bool {
+	for _, scope := range toolActionScopes[actionKey] {
+		if !isRequiredAppScope(scope) {
+			return true
+		}
+	}
+	return false
+}
+
+func auditResultStatus(result InvokeResult) string {
+	if strings.EqualFold(strings.TrimSpace(result.Status), "ok") {
+		return "success"
+	}
+	return "failure"
+}
+
+func parseAuditTime(value string) time.Time {
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed.UTC()
 }

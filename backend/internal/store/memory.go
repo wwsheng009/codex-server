@@ -78,6 +78,7 @@ type MemoryStore struct {
 	inspectionCacheValid          bool
 	runtimePrefs                  RuntimePreferences
 	feishuToolsConfigs            map[string]FeishuToolsConfig
+	feishuToolAudits              map[string]FeishuToolAuditRecord
 	workspaces                    map[string]Workspace
 	commandSessions               map[string]map[string]CommandSessionSnapshot
 	automations                   map[string]Automation
@@ -141,6 +142,7 @@ type threadProjectionTurnsManifest struct {
 type storeSnapshot struct {
 	RuntimePreferences            *RuntimePreferences            `json:"runtimePreferences,omitempty"`
 	FeishuToolsConfigs            []FeishuToolsConfig            `json:"feishuToolsConfigs,omitempty"`
+	FeishuToolAudits             []FeishuToolAuditRecord        `json:"feishuToolAudits,omitempty"`
 	Workspaces                    []Workspace                    `json:"workspaces"`
 	CommandSessions               []CommandSessionSnapshot       `json:"commandSessions,omitempty"`
 	WorkspaceEvents               []storedWorkspaceEventLog      `json:"workspaceEvents,omitempty"`
@@ -198,6 +200,7 @@ func NewMemoryStore() *MemoryStore {
 	store := &MemoryStore{
 		workspaces:                    make(map[string]Workspace),
 		feishuToolsConfigs:            make(map[string]FeishuToolsConfig),
+		feishuToolAudits:              make(map[string]FeishuToolAuditRecord),
 		commandSessions:               make(map[string]map[string]CommandSessionSnapshot),
 		automations:                   make(map[string]Automation),
 		templates:                     make(map[string]AutomationTemplate),
@@ -4278,6 +4281,18 @@ func (s *MemoryStore) load() error {
 			}); err != nil {
 				return err
 			}
+		case "feishuToolAudits":
+			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
+				var record FeishuToolAuditRecord
+				if err := decoder.Decode(&record); err != nil {
+					return err
+				}
+				s.feishuToolAudits[record.ID] = cloneFeishuToolAuditRecord(record)
+				updateLoadedMaxID(&maxID, record.ID)
+				return nil
+			}); err != nil {
+				return err
+			}
 		case "workspaces":
 			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {
 				var workspace Workspace
@@ -4840,6 +4855,7 @@ func (s *MemoryStore) persistNowLocked() error {
 
 	snapshot := storeSnapshot{
 		Workspaces:                make([]Workspace, 0, len(s.workspaces)),
+		FeishuToolAudits:          make([]FeishuToolAuditRecord, 0, len(s.feishuToolAudits)),
 		CommandSessions:           make([]CommandSessionSnapshot, 0),
 		WorkspaceEvents:           make([]storedWorkspaceEventLog, 0, len(s.workspaceEvents)),
 		Automations:               make([]Automation, 0, len(s.automations)),
@@ -4900,6 +4916,9 @@ func (s *MemoryStore) persistNowLocked() error {
 	}
 	for _, config := range s.feishuToolsConfigs {
 		snapshot.FeishuToolsConfigs = append(snapshot.FeishuToolsConfigs, cloneFeishuToolsConfig(config))
+	}
+	for _, record := range s.feishuToolAudits {
+		snapshot.FeishuToolAudits = append(snapshot.FeishuToolAudits, cloneFeishuToolAuditRecord(record))
 	}
 
 	for _, workspace := range s.workspaces {
@@ -5066,6 +5085,9 @@ func (s *MemoryStore) persistNowLocked() error {
 	})
 	sort.Slice(snapshot.FeishuToolsConfigs, func(i int, j int) bool {
 		return snapshot.FeishuToolsConfigs[i].WorkspaceID < snapshot.FeishuToolsConfigs[j].WorkspaceID
+	})
+	sort.Slice(snapshot.FeishuToolAudits, func(i int, j int) bool {
+		return snapshot.FeishuToolAudits[i].ID < snapshot.FeishuToolAudits[j].ID
 	})
 	sort.Slice(snapshot.BotConnectionLogs, func(i int, j int) bool {
 		if snapshot.BotConnectionLogs[i].WorkspaceID == snapshot.BotConnectionLogs[j].WorkspaceID {

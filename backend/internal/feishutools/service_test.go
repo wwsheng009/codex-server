@@ -481,6 +481,70 @@ func TestWriteConfigPersistsToStore(t *testing.T) {
 	}
 }
 
+func TestInvokePersistsFeishuToolAuditRecord(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", t.TempDir())
+	service := NewService(nil, nil, nil, dataStore)
+
+	now := time.Now().UTC()
+	pointerTime := func(value time.Time) *time.Time {
+		return &value
+	}
+	if _, err := dataStore.SetFeishuToolsConfig(store.FeishuToolsConfig{
+		WorkspaceID: workspace.ID,
+		Enabled:     true,
+		AppID:       "cli_store_app",
+		AppSecret:   "store-secret",
+		OauthMode:   OauthModeUserAuth,
+		ToolAllowlist: []string{
+			"feishu_oauth",
+		},
+		UserToken: store.FeishuUserToken{
+			AccessToken:           "u-access",
+			RefreshToken:          "u-refresh",
+			Scopes:                []string{"offline_access"},
+			OpenID:                "ou_user_1",
+			AccessTokenExpiresAt:  pointerTime(now.Add(1 * time.Hour)),
+			RefreshTokenExpiresAt: pointerTime(now.Add(24 * time.Hour)),
+			ObtainedAt:            pointerTime(now),
+		},
+	}); err != nil {
+		t.Fatalf("SetFeishuToolsConfig() error = %v", err)
+	}
+
+	ctx := ContextWithInvokeEventScope(context.Background(), "thread-1", "turn-1")
+	result, err := service.Invoke(ctx, workspace.ID, InvokeInput{
+		ToolName: "feishu_oauth",
+		Action:   "status",
+	})
+	if err != nil {
+		t.Fatalf("Invoke() error = %v", err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("expected ok invoke result, got %#v", result)
+	}
+
+	records := dataStore.ListFeishuToolAuditRecords(workspace.ID, store.FeishuToolAuditFilter{})
+	if len(records) != 1 {
+		t.Fatalf("expected one audit record, got %#v", records)
+	}
+	record := records[0]
+	if record.ThreadID != "thread-1" || record.TurnID != "turn-1" {
+		t.Fatalf("expected thread scope to persist, got %#v", record)
+	}
+	if record.ToolName != "feishu_oauth" || record.Action != "status" || record.ActionKey != "feishu_oauth.status" {
+		t.Fatalf("unexpected tool audit fields %#v", record)
+	}
+	if record.PrincipalType != "user" || record.PrincipalID != "ou_user_1" {
+		t.Fatalf("unexpected principal in audit record %#v", record)
+	}
+	if record.Result != "success" || record.DurationMs < 0 {
+		t.Fatalf("unexpected audit outcome %#v", record)
+	}
+}
+
 func TestWriteConfigSynchronizesManagedMcpServerIntoWorkspaceConfig(t *testing.T) {
 	hub := events.NewHub()
 	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{

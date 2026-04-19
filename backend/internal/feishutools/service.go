@@ -184,6 +184,16 @@ type ConfigInput struct {
 	ToolAllowlist       []string
 }
 
+type AuditQuery struct {
+	ToolName string
+	Result   string
+	Limit    int
+}
+
+type AuditResult struct {
+	Items []store.FeishuToolAuditRecord `json:"items"`
+}
+
 func NewService(configFS *configfs.Service, catalogService *catalog.Service, authService *auth.Service, dataStore *store.MemoryStore) *Service {
 	service := &Service{
 		configfs: configFS,
@@ -248,6 +258,21 @@ func (s *Service) SetEventPublisher(publisher invokeEventPublisher) {
 		return
 	}
 	s.events = publisher
+}
+
+func (s *Service) Audits(ctx context.Context, workspaceID string, query AuditQuery) (AuditResult, error) {
+	if s == nil || s.store == nil {
+		return AuditResult{}, fmt.Errorf("%w: feishu tools service is not initialized", ErrInvalidInput)
+	}
+	if _, err := s.readConfig(ctx, workspaceID); err != nil {
+		return AuditResult{}, err
+	}
+	items := s.store.ListFeishuToolAuditRecords(workspaceID, store.FeishuToolAuditFilter{
+		ToolName: strings.TrimSpace(query.ToolName),
+		Result:   strings.TrimSpace(query.Result),
+		Limit:    query.Limit,
+	})
+	return AuditResult{Items: items}, nil
 }
 
 func (s *Service) ReadConfig(ctx context.Context, workspaceID string) (ConfigResult, error) {

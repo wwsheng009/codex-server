@@ -227,6 +227,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/{workspaceId}/feishu-tools/status", server.handleReadFeishuToolsStatus)
 				r.Get("/{workspaceId}/feishu-tools/capabilities", server.handleReadFeishuToolsCapabilities)
 				r.Get("/{workspaceId}/feishu-tools/permissions", server.handleReadFeishuToolsPermissions)
+				r.Get("/{workspaceId}/feishu-tools/audits", server.handleReadFeishuToolsAudits)
 				r.Post("/{workspaceId}/feishu-tools/oauth/login", server.handleFeishuToolsOauthLogin)
 				r.Get("/{workspaceId}/feishu-tools/oauth/status", server.handleFeishuToolsOauthStatus)
 				r.Post("/{workspaceId}/feishu-tools/oauth/revoke", server.handleFeishuToolsOauthRevoke)
@@ -3472,6 +3473,36 @@ func (s *Server) handleReadFeishuToolsPermissions(w http.ResponseWriter, r *http
 	}
 
 	result, err := s.feishuTools.Permissions(r.Context(), workspaceID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleReadFeishuToolsAudits(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if s.feishuTools == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "feishu tools service is unavailable")
+		return
+	}
+
+	limit := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, "validation_error", "limit must be a non-negative integer")
+			return
+		}
+		limit = parsed
+	}
+
+	result, err := s.feishuTools.Audits(r.Context(), workspaceID, feishutools.AuditQuery{
+		ToolName: strings.TrimSpace(r.URL.Query().Get("toolName")),
+		Result:   strings.TrimSpace(r.URL.Query().Get("result")),
+		Limit:    limit,
+	})
 	if err != nil {
 		s.writeStoreError(w, err)
 		return

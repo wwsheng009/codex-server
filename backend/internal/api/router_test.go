@@ -5466,6 +5466,7 @@ func TestConfigAndSearchRoutesValidateRequestBody(t *testing.T) {
 		"/api/workspaces/" + created.Data.ID + "/feishu-tools/status",
 		"/api/workspaces/" + created.Data.ID + "/feishu-tools/capabilities",
 		"/api/workspaces/" + created.Data.ID + "/feishu-tools/permissions",
+		"/api/workspaces/" + created.Data.ID + "/feishu-tools/audits",
 		"/api/workspaces/" + created.Data.ID + "/feishu-tools/oauth/status",
 		"/api/workspaces/" + created.Data.ID + "/experimental-features",
 		"/api/workspaces/" + created.Data.ID + "/mcp-server-status",
