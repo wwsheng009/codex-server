@@ -8,6 +8,7 @@ import (
 
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/hooks"
+	"codex-server/backend/internal/jobs"
 	"codex-server/backend/internal/notificationcenter"
 	"codex-server/backend/internal/notifications"
 	"codex-server/backend/internal/store"
@@ -130,6 +131,44 @@ func TestListHydratesCurrentWorkspaceName(t *testing.T) {
 
 	if reloaded.WorkspaceName != "Renamed Workspace" {
 		t.Fatalf("expected hydrated workspace name, got %q", reloaded.WorkspaceName)
+	}
+}
+
+func TestCreateHydratesLinkedBackgroundJobMetadata(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	jobService := jobs.NewService(dataStore, events.NewHub())
+
+	service := NewService(dataStore, nil, nil, nil)
+	jobService.RegisterExecutor(NewJobExecutor(service))
+	service.SetJobService(jobService)
+
+	automation, err := service.Create(CreateInput{
+		Title:       "Daily Sync",
+		Description: "Summary",
+		Prompt:      "Summarize changes",
+		WorkspaceID: workspace.ID,
+		Schedule:    "hourly",
+		Model:       "gpt-5.4",
+		Reasoning:   "medium",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if automation.JobID == "" {
+		t.Fatal("expected linked job id to be populated")
+	}
+	if automation.ManagedBy != "background_job" {
+		t.Fatalf("expected managedBy background_job, got %q", automation.ManagedBy)
+	}
+	if automation.JobExecutor != "automation_run" {
+		t.Fatalf("expected job executor automation_run, got %q", automation.JobExecutor)
+	}
+	if automation.JobStatus != "active" {
+		t.Fatalf("expected active linked job status, got %q", automation.JobStatus)
 	}
 }
 

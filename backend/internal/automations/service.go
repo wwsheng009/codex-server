@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/robfig/cron/v3"
-
 	"codex-server/backend/internal/events"
+	"codex-server/backend/internal/jobs"
+	"codex-server/backend/internal/scheduleutil"
 	"codex-server/backend/internal/store"
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turncapture"
@@ -46,6 +45,7 @@ type Service struct {
 	threads threadExecutor
 	turns   turnExecutor
 	events  *events.Hub
+	jobs    *jobs.Service
 
 	now                  func() time.Time
 	schedulePollInterval time.Duration
@@ -59,6 +59,10 @@ type Service struct {
 	activeRunByThread     map[string]string
 	activeRunByThreadTurn map[string]string
 	finalizingRuns        map[string]struct{}
+}
+
+func (s *Service) SetJobService(jobService *jobs.Service) {
+	s.jobs = jobService
 }
 
 type CreateInput struct {
@@ -174,6 +178,10 @@ func (s *Service) Start(ctx context.Context) {
 		}()
 	}
 
+	if s.jobs != nil {
+		go s.reconcileAutomationJobs()
+	}
+
 	go s.recoverActiveRuns(ctx)
 	go s.schedulerLoop(ctx)
 }
@@ -181,7 +189,7 @@ func (s *Service) Start(ctx context.Context) {
 func (s *Service) List() []store.Automation {
 	items := s.store.ListAutomations()
 	for index := range items {
-		items[index] = s.hydrate(items[index])
+		items[index] = s.hydrateWithJob(items[index])
 	}
 
 	return items
@@ -193,7 +201,7 @@ func (s *Service) Get(automationID string) (store.Automation, error) {
 		return store.Automation{}, store.ErrAutomationNotFound
 	}
 
-	return s.hydrate(automation), nil
+	return s.hydrateWithJob(automation), nil
 }
 
 func (s *Service) ListTemplates() []store.AutomationTemplate {
@@ -259,12 +267,32 @@ func (s *Service) DeleteTemplate(templateID string) error {
 }
 
 func (s *Service) ListRuns(automationID string) []store.AutomationRun {
+	if s.jobs != nil {
+		if job, ok := s.jobs.FindBySource("automation", automationID); ok {
+			runs := s.jobs.ListRuns(job.ID)
+			items := make([]store.AutomationRun, 0, len(runs))
+			for _, run := range runs {
+				items = append(items, mapJobRunToAutomationRun(job, run))
+			}
+			return items
+		}
+	}
 	return s.store.ListAutomationRuns(automationID)
 }
 
 func (s *Service) GetRun(runID string) (store.AutomationRun, error) {
 	run, ok := s.store.GetAutomationRun(runID)
 	if !ok {
+		if s.jobs != nil {
+			jobRun, err := s.jobs.GetRun(runID)
+			if err == nil {
+				job, jobErr := s.jobs.Get(jobRun.JobID)
+				if jobErr == nil {
+					return mapJobRunToAutomationRun(job, jobRun), nil
+				}
+				return mapJobRunToAutomationRun(store.BackgroundJob{}, jobRun), nil
+			}
+		}
 		return store.AutomationRun{}, store.ErrAutomationRunNotFound
 	}
 
@@ -292,7 +320,7 @@ func (s *Service) Create(input CreateInput) (store.Automation, error) {
 		return store.Automation{}, store.ErrWorkspaceNotFound
 	}
 
-	schedule := normalizeSchedule(input.Schedule)
+	schedule := scheduleutil.Normalize(input.Schedule)
 	now := s.now()
 	nextRunAt := nextScheduledTime(now, schedule, s.location)
 
@@ -303,7 +331,7 @@ func (s *Service) Create(input CreateInput) (store.Automation, error) {
 		WorkspaceID:   workspace.ID,
 		WorkspaceName: workspace.Name,
 		Schedule:      schedule,
-		ScheduleLabel: scheduleLabel(schedule),
+		ScheduleLabel: scheduleutil.Label(schedule),
 		Model:         normalizeModel(input.Model),
 		Reasoning:     normalizeReasoning(input.Reasoning),
 		Status:        "active",
@@ -314,7 +342,13 @@ func (s *Service) Create(input CreateInput) (store.Automation, error) {
 		return store.Automation{}, err
 	}
 
-	return s.hydrate(automation), nil
+	if s.jobs != nil {
+		if _, err := s.ensureJobForAutomation(s.hydrate(automation)); err != nil {
+			return store.Automation{}, err
+		}
+	}
+
+	return s.hydrateWithJob(automation), nil
 }
 
 func (s *Service) Pause(automationID string) (store.Automation, error) {
@@ -328,7 +362,15 @@ func (s *Service) Pause(automationID string) (store.Automation, error) {
 		return store.Automation{}, err
 	}
 
-	return s.hydrate(automation), nil
+	if s.jobs != nil {
+		if job, ok := s.jobs.FindBySource("automation", automationID); ok {
+			if _, err := s.jobs.Pause(job.ID); err != nil {
+				return store.Automation{}, err
+			}
+		}
+	}
+
+	return s.hydrateWithJob(automation), nil
 }
 
 func (s *Service) Resume(automationID string) (store.Automation, error) {
@@ -343,14 +385,25 @@ func (s *Service) Resume(automationID string) (store.Automation, error) {
 		return store.Automation{}, err
 	}
 
-	return s.hydrate(automation), nil
+	if s.jobs != nil {
+		if _, err := s.ensureJobForAutomation(s.hydrate(automation)); err != nil {
+			return store.Automation{}, err
+		}
+		if job, ok := s.jobs.FindBySource("automation", automationID); ok {
+			if _, err := s.jobs.Resume(job.ID); err != nil {
+				return store.Automation{}, err
+			}
+		}
+	}
+
+	return s.hydrateWithJob(automation), nil
 }
 
 func (s *Service) Fix(automationID string) (store.Automation, error) {
 	now := s.now()
 	automation, err := s.store.UpdateAutomation(automationID, func(current store.Automation) store.Automation {
-		current.Schedule = normalizeSchedule(current.Schedule)
-		current.ScheduleLabel = scheduleLabel(current.Schedule)
+		current.Schedule = scheduleutil.Normalize(current.Schedule)
+		current.ScheduleLabel = scheduleutil.Label(current.Schedule)
 		current.Model = normalizeModel(current.Model)
 		current.Reasoning = normalizeReasoning(current.Reasoning)
 		if current.Status == "active" && current.NextRunAt == nil {
@@ -363,11 +416,24 @@ func (s *Service) Fix(automationID string) (store.Automation, error) {
 		return store.Automation{}, err
 	}
 
-	return s.hydrate(automation), nil
+	if s.jobs != nil {
+		if _, err := s.ensureJobForAutomation(s.hydrate(automation)); err != nil {
+			return store.Automation{}, err
+		}
+	}
+
+	return s.hydrateWithJob(automation), nil
 }
 
 func (s *Service) Delete(automationID string) error {
 	s.clearActiveAutomation(automationID)
+	if s.jobs != nil {
+		if job, ok := s.jobs.FindBySource("automation", automationID); ok {
+			if err := s.jobs.Delete(job.ID); err != nil {
+				return err
+			}
+		}
+	}
 	return s.store.DeleteAutomation(automationID)
 }
 
@@ -375,6 +441,17 @@ func (s *Service) Trigger(ctx context.Context, automationID string) (store.Autom
 	automation, ok := s.store.GetAutomation(automationID)
 	if !ok {
 		return store.AutomationRun{}, store.ErrAutomationNotFound
+	}
+
+	if s.jobs != nil {
+		job, err := s.ensureJobForAutomation(s.hydrate(automation))
+		if err == nil {
+			run, triggerErr := s.jobs.Trigger(ctx, job.ID, "manual")
+			if triggerErr != nil {
+				return store.AutomationRun{}, triggerErr
+			}
+			return mapJobRunToAutomationRun(job, run), nil
+		}
 	}
 
 	return s.startRun(ctx, s.hydrate(automation), "manual")
@@ -407,6 +484,11 @@ func (s *Service) runDueAutomations(ctx context.Context) {
 	now := s.now()
 	for _, automation := range s.store.ListAutomations() {
 		automation = s.hydrate(automation)
+		if s.jobs != nil {
+			if _, ok := s.jobs.FindBySource("automation", automation.ID); ok {
+				continue
+			}
+		}
 		if automation.Status != "active" || automation.NextRunAt == nil || now.Before(*automation.NextRunAt) {
 			continue
 		}
@@ -733,7 +815,7 @@ func (s *Service) hydrate(automation store.Automation) store.Automation {
 		automation.Schedule = "hourly"
 	}
 	if strings.TrimSpace(automation.ScheduleLabel) == "" {
-		automation.ScheduleLabel = scheduleLabel(automation.Schedule)
+		automation.ScheduleLabel = scheduleutil.Label(automation.Schedule)
 	}
 	if strings.TrimSpace(automation.Model) == "" {
 		automation.Model = "gpt-5.4"
@@ -750,6 +832,99 @@ func (s *Service) hydrate(automation store.Automation) store.Automation {
 	automation.NextRun = formatAutomationNextRun(automation.Status, automation.NextRunAt, s.location)
 
 	return automation
+}
+
+func (s *Service) hydrateWithJob(automation store.Automation) store.Automation {
+	automation = s.hydrate(automation)
+	if s.jobs == nil {
+		return automation
+	}
+	job, ok := s.jobs.FindBySource("automation", automation.ID)
+	if !ok {
+		return automation
+	}
+	automation.JobID = job.ID
+	automation.ManagedBy = "background_job"
+	automation.JobStatus = job.Status
+	automation.JobExecutor = job.ExecutorKind
+	automation.LastRunStatus = job.LastRunStatus
+	if strings.TrimSpace(job.Status) != "" {
+		automation.Status = job.Status
+	}
+	if job.NextRunAt != nil || automation.Status == "paused" {
+		automation.NextRunAt = job.NextRunAt
+	}
+	if job.LastRunAt != nil {
+		automation.LastRun = job.LastRunAt
+	}
+	automation.NextRun = formatAutomationNextRun(automation.Status, automation.NextRunAt, s.location)
+	return automation
+}
+
+func (s *Service) ensureJobForAutomation(automation store.Automation) (store.BackgroundJob, error) {
+	if s.jobs == nil {
+		return store.BackgroundJob{}, jobs.ErrExecutorNotFound
+	}
+	if job, ok := s.jobs.FindBySource("automation", automation.ID); ok {
+		return job, nil
+	}
+	return s.jobs.Create(jobs.CreateInput{
+		SourceType:   "automation",
+		SourceRefID:  automation.ID,
+		Name:         automation.Title,
+		Description:  firstNonEmpty(strings.TrimSpace(automation.Description), strings.TrimSpace(automation.Prompt)),
+		WorkspaceID:  automation.WorkspaceID,
+		ExecutorKind: "automation_run",
+		Schedule:     automation.Schedule,
+		Payload: map[string]any{
+			"automationId": automation.ID,
+			"model":        automation.Model,
+			"reasoning":    automation.Reasoning,
+		},
+	})
+}
+
+func mapJobRunToAutomationRun(job store.BackgroundJob, run store.BackgroundJobRun) store.AutomationRun {
+	return store.AutomationRun{
+		ID:              run.ID,
+		AutomationID:    strings.TrimSpace(job.SourceRefID),
+		AutomationTitle: run.JobName,
+		WorkspaceID:     run.WorkspaceID,
+		WorkspaceName:   run.WorkspaceName,
+		Trigger:         run.Trigger,
+		Status:          run.Status,
+		Summary:         run.Summary,
+		Error:           run.Error,
+		StartedAt:       run.StartedAt,
+		FinishedAt:      run.FinishedAt,
+		Logs:            mapJobRunLogs(run.Logs),
+	}
+}
+
+func mapJobRunLogs(entries []store.BackgroundJobRunLogEntry) []store.AutomationRunLogEntry {
+	if len(entries) == 0 {
+		return []store.AutomationRunLogEntry{}
+	}
+	items := make([]store.AutomationRunLogEntry, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, store.AutomationRunLogEntry{
+			ID:        entry.ID,
+			TS:        entry.TS,
+			Level:     entry.Level,
+			Message:   entry.Message,
+			EventType: entry.EventType,
+		})
+	}
+	return items
+}
+
+func (s *Service) reconcileAutomationJobs() {
+	if s.jobs == nil {
+		return
+	}
+	for _, automation := range s.store.ListAutomations() {
+		_, _ = s.ensureJobForAutomation(s.hydrate(automation))
+	}
 }
 
 func (s *Service) appendRunLog(runID string, level string, eventType string, message string) {
@@ -859,77 +1034,15 @@ func (s *Service) endFinalization(runID string) {
 	delete(s.finalizingRuns, runID)
 }
 
-func normalizeSchedule(value string) string {
-	val := strings.TrimSpace(value)
-	if val == "" || val == "hourly" {
-		return "0 * * * *"
-	}
-	if strings.HasPrefix(val, "daily-") && len(val) == 10 {
-		hh, _ := strconv.Atoi(val[6:8])
-		mm, _ := strconv.Atoi(val[8:10])
-		return fmt.Sprintf("%d %d * * *", mm, hh)
-	}
-	if strings.HasPrefix(val, "weekly-") && len(val) == 12 {
-		day, _ := strconv.Atoi(val[7:8])
-		hh, _ := strconv.Atoi(val[9:11])
-		mm, _ := strconv.Atoi(val[11:13])
-		return fmt.Sprintf("%d %d * * %d", mm, hh, day)
-	}
-	if strings.HasPrefix(val, "monthly-") && len(val) == 13 {
-		day, _ := strconv.Atoi(val[8:10])
-		hh, _ := strconv.Atoi(val[11:13])
-		mm, _ := strconv.Atoi(val[13:15])
-		return fmt.Sprintf("%d %d %d * *", mm, hh, day)
-	}
-	return val
-}
-
-func scheduleLabel(schedule string) string {
-	if schedule == "0 * * * *" {
-		return "Every hour"
-	}
-
-	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	sched, err := p.Parse(schedule)
-	if err != nil {
-		return "Custom: " + schedule
-	}
-
-	// Try to detect common patterns for cleaner labels
-	fields := strings.Fields(schedule)
-	if len(fields) == 5 {
-		mm, hh, dom, mon, dow := fields[0], fields[1], fields[2], fields[3], fields[4]
-		if dom == "*" && mon == "*" && dow == "*" {
-			return fmt.Sprintf("Hourly at :%s", mm)
-		}
-		if dom == "*" && mon == "*" && dow != "*" {
-			return fmt.Sprintf("Weekly (Day %s) at %s:%s", dow, hh, mm)
-		}
-		if dom != "*" && mon == "*" && dow == "*" {
-			return fmt.Sprintf("Monthly (Day %s) at %s:%s", dom, hh, mm)
-		}
-		if dom == "*" && mon == "*" && dow == "*" {
-			return fmt.Sprintf("Daily at %s:%s", hh, mm)
-		}
-	}
-
-	_ = sched
-	return "Cron: " + schedule
-}
-
 func nextScheduledTime(now time.Time, schedule string, location *time.Location) *time.Time {
-	p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	sched, err := p.Parse(schedule)
-	if err != nil {
+	nextUTC := scheduleutil.NextRunAt(now, schedule, location)
+	if nextUTC == nil {
 		// Fallback to hourly if invalid cron
 		next := now.In(location).Truncate(time.Hour).Add(time.Hour)
-		nextUTC := next.UTC()
-		return &nextUTC
+		fallback := next.UTC()
+		return &fallback
 	}
-
-	next := sched.Next(now.In(location))
-	nextUTC := next.UTC()
-	return &nextUTC
+	return nextUTC
 }
 
 func formatAutomationNextRun(status string, nextRunAt *time.Time, location *time.Location) string {
