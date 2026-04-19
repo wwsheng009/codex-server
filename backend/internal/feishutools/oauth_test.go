@@ -264,6 +264,73 @@ func TestOauthLoginWithBaseURLAlwaysRequestsOfflineAccess(t *testing.T) {
 	}
 }
 
+func TestRunOauthBatchAuthFiltersSensitiveScopes(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	service := NewService(nil, nil, nil, dataStore)
+	service.SetPublicBaseURL("http://localhost:18080")
+
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	if _, err := dataStore.SetFeishuToolsConfig(store.FeishuToolsConfig{
+		WorkspaceID:         workspace.ID,
+		Enabled:             true,
+		AppID:               "cli_app_123",
+		AppSecret:           "secret",
+		OauthMode:           OauthModeUserAuth,
+		SensitiveWriteGuard: true,
+		ToolAllowlist:       []string{"feishu_calendar_event"},
+	}); err != nil {
+		t.Fatalf("SetFeishuToolsConfig() error = %v", err)
+	}
+
+	result, err := service.runOauthBatchAuth(context.Background(), workspace.ID, Config{
+		Enabled:             true,
+		AppID:               "cli_app_123",
+		AppSecret:           "secret",
+		AppSecretSet:        true,
+		OauthMode:           OauthModeUserAuth,
+		SensitiveWriteGuard: true,
+		ToolAllowlist:       []string{"feishu_calendar_event"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("runOauthBatchAuth() error = %v", err)
+	}
+
+	requestedScopes, _ := result["requestedScopes"].([]string)
+	if len(requestedScopes) == 0 {
+		t.Fatalf("expected requested scopes, got %#v", result)
+	}
+	for _, scope := range requestedScopes {
+		if scope == "calendar:calendar.event:delete" {
+			t.Fatalf("expected sensitive delete scope to be filtered, got %#v", requestedScopes)
+		}
+	}
+	foundOfflineAccess := false
+	for _, scope := range requestedScopes {
+		if scope == oauthOfflineAccessScope {
+			foundOfflineAccess = true
+			break
+		}
+	}
+	if !foundOfflineAccess {
+		t.Fatalf("expected offline_access to be requested, got %#v", requestedScopes)
+	}
+
+	rawURL, _ := result["authorizationUrl"].(string)
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse authorization url: %v", err)
+	}
+	scopeText := parsed.Query().Get("scope")
+	if strings.Contains(scopeText, "calendar:calendar.event:delete") {
+		t.Fatalf("expected authorization url to exclude sensitive scope, got %q", scopeText)
+	}
+	if !strings.Contains(scopeText, oauthOfflineAccessScope) {
+		t.Fatalf("expected authorization url to include offline_access, got %q", scopeText)
+	}
+}
+
 func TestAuthStateReflectsSnapshot(t *testing.T) {
 	t.Parallel()
 

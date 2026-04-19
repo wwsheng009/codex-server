@@ -41,9 +41,9 @@ func TestRunIMSearchMessagesFiltersByQueryContains(t *testing.T) {
 
 	service := newTestService(t, server.URL)
 	result, err := service.runIMSearchMessages(context.Background(), "ws", validUserConfig(), map[string]any{
-		"containerId":    "chat_1",
-		"pageSize":       10,
-		"queryContains":  "hello",
+		"containerId":   "chat_1",
+		"pageSize":      10,
+		"queryContains": "hello",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -240,6 +240,53 @@ func TestRunIMFetchResourceRejectsInvalidType(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported resource type") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunIMBotImageUsesTenantToken(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte("bot-image-bytes")
+	var authHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case openAPITenantTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"tenant_access_token":"tenant-access","expire":7200}`))
+		case "/open-apis/im/v1/messages/m-1/resources/img-key":
+			authHeader = r.Header.Get("Authorization")
+			if r.URL.Query().Get("type") != "image" {
+				t.Errorf("expected type=image, got %q", r.URL.Query().Get("type"))
+			}
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	service := newTestService(t, server.URL)
+	result, err := service.runIMBotImage(context.Background(), "ws", Config{
+		Enabled:      true,
+		AppID:        "cli_app",
+		AppSecret:    "secret",
+		AppSecretSet: true,
+	}, map[string]any{
+		"messageId": "m-1",
+		"fileKey":   "img-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if authHeader != "Bearer tenant-access" {
+		t.Fatalf("expected tenant token auth header, got %q", authHeader)
+	}
+	if result["principal"] != "bot" {
+		t.Fatalf("expected bot principal, got %#v", result)
+	}
+	if got, _ := result["bodyBase64"].(string); got != base64.StdEncoding.EncodeToString(payload) {
+		t.Fatalf("unexpected bodyBase64: %q", got)
 	}
 }
 

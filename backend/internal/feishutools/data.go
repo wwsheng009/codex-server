@@ -39,6 +39,7 @@ var capabilityCategories = []capabilityCategoryDefinition{
 			"feishu_im_user_get_messages",
 			"feishu_im_user_get_thread_messages",
 			"feishu_im_user_fetch_resource",
+			"feishu_im_bot_image",
 			"feishu_im_user_message",
 		},
 	},
@@ -104,6 +105,15 @@ var capabilityCategories = []capabilityCategoryDefinition{
 			"feishu_drive_file",
 			"feishu_doc_comments",
 			"feishu_doc_media",
+		},
+	},
+	{
+		ID:          "auth",
+		Title:       "Authorization",
+		Description: "Inspect, start, revoke, or batch-request Feishu user authorization.",
+		ToolNames: []string{
+			"feishu_oauth",
+			"feishu_oauth_batch_auth",
 		},
 	},
 }
@@ -208,6 +218,14 @@ var toolDefinitions = map[string]toolDefinition{
 		Stage:       "phase_1",
 		RiskLevel:   "read",
 		ActionKeys:  []string{"feishu_im_user_fetch_resource.default"},
+	},
+	"feishu_im_bot_image": {
+		ToolName:    "feishu_im_bot_image",
+		Title:       "Download Bot Message Resource",
+		Description: "Download images or files from IM messages using the workspace bot credentials.",
+		Stage:       "phase_2",
+		RiskLevel:   "read",
+		ActionKeys:  []string{"feishu_im_bot_image.default"},
 	},
 	"feishu_im_user_message": {
 		ToolName:    "feishu_im_user_message",
@@ -492,6 +510,26 @@ var toolDefinitions = map[string]toolDefinition{
 			"feishu_doc_media.download",
 		},
 	},
+	"feishu_oauth": {
+		ToolName:    "feishu_oauth",
+		Title:       "Manage Feishu OAuth",
+		Description: "Start, inspect, or revoke the workspace Feishu user authorization.",
+		Stage:       "phase_2",
+		RiskLevel:   "write",
+		ActionKeys: []string{
+			"feishu_oauth.status",
+			"feishu_oauth.login",
+			"feishu_oauth.revoke",
+		},
+	},
+	"feishu_oauth_batch_auth": {
+		ToolName:    "feishu_oauth_batch_auth",
+		Title:       "Batch Request Feishu OAuth",
+		Description: "Request the current workspace's missing non-sensitive Feishu user scopes in one authorization flow.",
+		Stage:       "phase_2",
+		RiskLevel:   "write",
+		ActionKeys:  []string{"feishu_oauth_batch_auth.default"},
+	},
 }
 
 var toolActionScopes = map[string][]string{
@@ -541,11 +579,18 @@ var toolActionScopes = map[string][]string{
 	"feishu_chat.search":          {"im:chat:read"},
 	"feishu_chat.get":             {"im:chat:read"},
 	"feishu_chat_members.default": {"im:chat.members:read"},
+	"feishu_oauth.status":         {oauthOfflineAccessScope},
+	"feishu_oauth.login":          {oauthOfflineAccessScope},
+	"feishu_oauth.revoke":         {oauthOfflineAccessScope},
+	"feishu_oauth_batch_auth.default": {
+		oauthOfflineAccessScope,
+	},
 	"feishu_im_user_fetch_resource.default": {
 		"im:message.group_msg:get_as_user",
 		"im:message.p2p_msg:get_as_user",
 		"im:message:readonly",
 	},
+	"feishu_im_bot_image.default": {"im:resource"},
 	"feishu_im_user_get_messages.default": {
 		"im:chat:read",
 		"im:message:readonly",

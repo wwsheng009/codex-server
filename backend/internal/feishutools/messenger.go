@@ -327,6 +327,62 @@ func (s *Service) runIMFetchResource(ctx context.Context, workspaceID string, co
 	}, nil
 }
 
+func (s *Service) runIMBotImage(ctx context.Context, workspaceID string, config Config, params map[string]any) (map[string]any, error) {
+	messageID := strings.TrimSpace(stringParam(params, "messageId", "message_id"))
+	if messageID == "" {
+		return nil, toolInvalidInput("messageId is required")
+	}
+	fileKey := strings.TrimSpace(stringParam(params, "fileKey", "file_key"))
+	if fileKey == "" {
+		return nil, toolInvalidInput("fileKey is required")
+	}
+	resourceType := strings.TrimSpace(stringParam(params, "type", "resourceType", "resource_type"))
+	if resourceType == "" {
+		resourceType = "image"
+	}
+	if resourceType != "image" && resourceType != "file" {
+		return nil, toolInvalidInput(fmt.Sprintf("unsupported resource type %q; expected image|file", resourceType))
+	}
+
+	maxBytes := imDefaultResourceMaxSize
+	if value, ok := intParam(params, "maxBytes", "max_bytes"); ok && value > 0 {
+		maxBytes = value
+	}
+	if maxBytes > imDefaultResourceMaxSize {
+		maxBytes = imDefaultResourceMaxSize
+	}
+
+	query := url.Values{}
+	query.Set("type", resourceType)
+
+	token, err := s.gateway.TenantToken(ctx, workspaceID, config)
+	if err != nil {
+		return nil, err
+	}
+
+	download, err := s.gateway.downloadResource(
+		ctx,
+		fmt.Sprintf(imResourcePathTemplate, url.PathEscape(messageID), url.PathEscape(fileKey)),
+		query,
+		token,
+		maxBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"messageId":   messageID,
+		"fileKey":     fileKey,
+		"type":        resourceType,
+		"contentType": download.ContentType,
+		"sizeBytes":   download.SizeBytes,
+		"truncated":   download.Truncated,
+		"bodyBase64":  base64.StdEncoding.EncodeToString(download.Bytes),
+		"principal":   "bot",
+	}, nil
+}
+
 // filterMessagesByText applies a best-effort substring filter over the text
 // run content of each message. It is intentionally tolerant because Feishu
 // messages can arrive in many content shapes; anything we cannot inspect we
