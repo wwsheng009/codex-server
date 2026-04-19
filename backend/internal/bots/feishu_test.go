@@ -535,6 +535,118 @@ func TestFeishuSendMessagesReplyFallback(t *testing.T) {
 	}
 }
 
+func TestFeishuStartTypingAddsAndRemovesReaction(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case feishuAppAccessTokenEndpoint:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             0,
+				"app_access_token": "token_123",
+				"expire":           7200,
+			})
+		case "/open-apis/im/v1/messages/om_123/reactions":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST reaction create, got %s", r.Method)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode reaction create body: %v", err)
+			}
+			reactionType, _ := body["reaction_type"].(map[string]any)
+			if reactionType["emoji_type"] != feishuTypingReactionEmojiType {
+				t.Fatalf("unexpected reaction payload %#v", body)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"reaction_id": "reaction_123",
+				},
+			})
+		case "/open-apis/im/v1/messages/om_123/reactions/reaction_123":
+			if r.Method != http.MethodDelete {
+				t.Fatalf("expected DELETE reaction remove, got %s", r.Method)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newFeishuProvider(server.Client()).(*feishuProvider)
+	session, err := provider.StartTyping(context.Background(), store.BotConnection{
+		ID:       "conn_feishu_typing_1",
+		Provider: feishuProviderName,
+		Settings: map[string]string{
+			feishuAppIDSetting:  "app_123",
+			feishuDomainSetting: server.URL,
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret_123",
+		},
+	}, store.BotConversation{
+		ExternalChatID: "oc_chat_456",
+		ProviderState: map[string]string{
+			feishuChatIDKey:    "oc_chat_456",
+			feishuMessageIDKey: "om_123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartTyping() error = %v", err)
+	}
+	if session == nil {
+		t.Fatal("expected typing session")
+	}
+	if err := session.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if len(paths) != 3 || !strings.Contains(paths[1], "/reactions") || !strings.Contains(paths[2], "/reactions/reaction_123") {
+		t.Fatalf("expected token, create reaction, delete reaction sequence, got %#v", paths)
+	}
+}
+
+func TestFeishuStartTypingWithoutReplyMessageReturnsNilSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case feishuAppAccessTokenEndpoint:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             0,
+				"app_access_token": "token_123",
+				"expire":           7200,
+			})
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newFeishuProvider(server.Client()).(*feishuProvider)
+	session, err := provider.StartTyping(context.Background(), store.BotConnection{
+		ID:       "conn_feishu_typing_2",
+		Provider: feishuProviderName,
+		Settings: map[string]string{
+			feishuAppIDSetting:  "app_123",
+			feishuDomainSetting: server.URL,
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret_123",
+		},
+	}, store.BotConversation{
+		ExternalChatID: "oc_chat_456",
+		ProviderState: map[string]string{
+			feishuChatIDKey: "oc_chat_456",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartTyping() error = %v", err)
+	}
+	if session != nil {
+		t.Fatalf("expected nil typing session, got %#v", session)
+	}
+}
+
 func TestFeishuStreamingReplySessionEmitsApprovalSnapshotBeforeCompletion(t *testing.T) {
 	var replyPayloads []map[string]any
 	var patchPayloads []map[string]any
@@ -820,6 +932,96 @@ func TestFeishuSendMessagesUsesInteractiveCardWhenEnabled(t *testing.T) {
 	content, _ := payload["content"].(string)
 	if !strings.Contains(content, `"schema":"2.0"`) {
 		t.Fatalf("expected card schema payload, got %#v", payload)
+	}
+}
+
+func TestBuildFeishuCardJSONWrapsMarkdownTablesAsCodeBlocks(t *testing.T) {
+	cardJSON := buildFeishuCardJSON("总结如下：\n\n| Name | Value |\n| --- | --- |\n| foo | bar |")
+
+	var card struct {
+		Body struct {
+			Elements []struct {
+				Content string `json:"content"`
+			} `json:"elements"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(cardJSON), &card); err != nil {
+		t.Fatalf("unmarshal card json error = %v", err)
+	}
+	if len(card.Body.Elements) != 1 {
+		t.Fatalf("expected one card element, got %#v", card.Body.Elements)
+	}
+	content := card.Body.Elements[0].Content
+	expected := "```text\n| Name | Value |\n| --- | --- |\n| foo | bar |\n```"
+	if !strings.Contains(content, expected) {
+		t.Fatalf("expected markdown table to be wrapped as code block, got %q", content)
+	}
+}
+
+func TestFeishuSendMessagesFallsBackToTextWhenCardTableLimitTriggered(t *testing.T) {
+	var payloads []map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case feishuAppAccessTokenEndpoint:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             0,
+				"app_access_token": "token_123",
+				"expire":           7200,
+			})
+		case "/open-apis/im/v1/messages":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode feishu payload error = %v", err)
+			}
+			payloads = append(payloads, payload)
+			if payload["msg_type"] == "interactive" {
+				http.Error(w, "Failed to create card content, ext=ErrCode: 11310; ErrMsg: card table number over limit; ErrorValue: table;", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newFeishuProvider(server.Client()).(*feishuProvider)
+	err := provider.SendMessages(context.Background(), store.BotConnection{
+		ID:       "conn_feishu_card_limit_1",
+		Provider: feishuProviderName,
+		Settings: map[string]string{
+			feishuAppIDSetting:       "app_123",
+			feishuDomainSetting:      server.URL,
+			feishuEnableCardsSetting: "true",
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret_123",
+		},
+	}, store.BotConversation{
+		ExternalChatID: "oc_chat_456",
+		ProviderState: map[string]string{
+			feishuChatIDKey: "oc_chat_456",
+		},
+	}, []OutboundMessage{{
+		Text: "结果如下：\n\n| Name | Value |\n| --- | --- |\n| foo | bar |",
+	}})
+	if err != nil {
+		t.Fatalf("SendMessages() error = %v", err)
+	}
+
+	if len(payloads) != 2 {
+		t.Fatalf("expected interactive send plus text fallback, got %#v", payloads)
+	}
+	if payloads[0]["msg_type"] != "interactive" {
+		t.Fatalf("expected first payload to be interactive, got %#v", payloads[0])
+	}
+	if payloads[1]["msg_type"] != "text" {
+		t.Fatalf("expected second payload to fall back to text, got %#v", payloads[1])
+	}
+	content, _ := payloads[1]["content"].(string)
+	if !strings.Contains(content, `| Name | Value |`) {
+		t.Fatalf("expected text fallback to preserve table text, got %#v", payloads[1])
 	}
 }
 

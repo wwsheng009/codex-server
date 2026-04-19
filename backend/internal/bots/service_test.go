@@ -6887,6 +6887,139 @@ func TestServiceStreamsReplyWhenProviderAndBackendSupportStreaming(t *testing.T)
 	}
 }
 
+func TestServiceStreamsFeishuReplyWithoutAuditHookTailFromCompletedTurn(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/a")
+	provider := newNamedFakeStreamingProvider(feishuProviderName)
+	hub := events.NewHub()
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-feishu-audit-1",
+			WorkspaceID: workspace.ID,
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-feishu-audit-1",
+				WorkspaceID: workspace.ID,
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	turnsExec := &fakeFeishuAuditTailTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	service := NewService(dataStore, threadsExec, turnsExec, hub, Config{
+		PublicBaseURL: "https://bots.example.com",
+		PollInterval:  10 * time.Millisecond,
+		TurnTimeout:   time.Second,
+		Providers:     []Provider{provider},
+	})
+	if backend, ok := service.aiBackends[defaultAIBackend].(*workspaceThreadAIBackend); ok {
+		backend.streamFlushInterval = 10 * time.Millisecond
+		backend.turnSettleDelay = 40 * time.Millisecond
+		backend.pollInterval = 10 * time.Millisecond
+	}
+	service.Start(context.Background())
+
+	connection, err := service.CreateConnection(context.Background(), workspace.ID, CreateConnectionInput{
+		Provider:  feishuProviderName,
+		AIBackend: defaultAIBackend,
+		Secrets: map[string]string{
+			"bot_token": "token-feishu-stream-audit",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateConnection() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/hooks/bots/"+connection.ID, strings.NewReader(`{
+		"conversationId":"chat-feishu-stream-audit-1",
+		"messageId":"msg-feishu-stream-audit-1",
+		"userId":"user-1",
+		"username":"alice",
+		"title":"Alice",
+		"text":"我需要当前git状态"
+	}`))
+	request.Header.Set("X-Test-Secret", "fake-secret")
+
+	result, err := service.HandleWebhook(request, connection.ID)
+	if err != nil {
+		t.Fatalf("HandleWebhook() error = %v", err)
+	}
+	if result.Accepted != 1 {
+		t.Fatalf("expected 1 accepted inbound message, got %d", result.Accepted)
+	}
+
+	select {
+	case <-provider.completedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Feishu streaming completion")
+	}
+
+	provider.mu.Lock()
+	updates := append([][]OutboundMessage(nil), provider.updates...)
+	completedMessages := append([]OutboundMessage(nil), provider.completedMessages...)
+	sendMessagesCalls := provider.sendMessagesCalls
+	provider.mu.Unlock()
+
+	if sendMessagesCalls != 0 {
+		t.Fatalf("expected Feishu streaming provider to avoid SendMessages fallback, got %d calls", sendMessagesCalls)
+	}
+	if len(completedMessages) != 1 || completedMessages[0].Text != "工作区干净" {
+		t.Fatalf("expected only the final Feishu reply content, got %#v", completedMessages)
+	}
+	for _, update := range updates {
+		for _, message := range update {
+			if strings.Contains(message.Text, "Event: Turn Start") {
+				t.Fatalf("expected audit hook run to stay hidden from Feishu streaming updates, got %#v", updates)
+			}
+		}
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var conversations []store.BotConversation
+	for {
+		conversations = service.ListConversations(workspace.ID, connection.ID)
+		if len(conversations) == 1 &&
+			conversations[0].ThreadID == threadsExec.thread.ID &&
+			conversations[0].LastOutboundText == "工作区干净" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected Feishu streaming conversation state to settle, got %#v", conversations)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	var outboundDeliveries []store.BotOutboundDelivery
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		outboundDeliveries = dataStore.ListBotOutboundDeliveries(workspace.ID, store.BotOutboundDeliveryFilter{
+			BotID:          connection.BotID,
+			ConversationID: conversations[0].ID,
+			SourceType:     "reply",
+		})
+		if len(outboundDeliveries) == 1 && outboundDeliveries[0].Status == "delivered" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(outboundDeliveries) != 1 {
+		t.Fatalf("expected a single Feishu streaming reply outbound delivery, got %#v", outboundDeliveries)
+	}
+	if len(outboundDeliveries[0].Messages) != 1 || outboundDeliveries[0].Messages[0].Text != "工作区干净" {
+		t.Fatalf("expected outbound delivery to persist only the final Feishu reply, got %#v", outboundDeliveries[0].Messages)
+	}
+}
+
 func TestServiceAppendsTimingToWeChatStreamingReplyInDebugMode(t *testing.T) {
 	t.Parallel()
 

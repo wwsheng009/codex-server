@@ -250,6 +250,10 @@ func renderBotToolCallItem(item map[string]any) string {
 }
 
 func renderBotHookRunItem(item map[string]any) string {
+	if !shouldRenderBotHookRunItem(item) {
+		return ""
+	}
+
 	if message := strings.TrimSpace(stringValue(item["message"])); message != "" {
 		return message
 	}
@@ -262,6 +266,32 @@ func renderBotHookRunItem(item map[string]any) string {
 		Reason:     stringValue(item["reason"]),
 		Feedback:   botHookRunFeedbackText(item["entries"]),
 	})
+}
+
+func shouldRenderBotHookRunItem(item map[string]any) bool {
+	handlerKey := strings.TrimSpace(stringValue(item["handlerKey"]))
+	if handlerKey == "" {
+		return true
+	}
+	if handlerKey == "builtin.sessionstart.inject-project-context" {
+		return false
+	}
+
+	for _, prefix := range []string{
+		"builtin.turnstart.audit-",
+		"builtin.turnsteer.audit-",
+		"builtin.turninterrupt.audit-",
+		"builtin.reviewstart.audit-",
+		"builtin.httpmutation.audit-",
+		"builtin.serverrequest.audit-",
+		"builtin.posttooluse.audit-",
+	} {
+		if strings.HasPrefix(handlerKey, prefix) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func botHookRunFeedbackText(value any) string {

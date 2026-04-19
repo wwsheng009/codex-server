@@ -450,6 +450,43 @@ func TestCollectBotVisibleMessagesFormatsHookRunsWithoutPrecomputedMessage(t *te
 	}
 }
 
+func TestCollectBotVisibleMessagesSuppressesAuditHookRuns(t *testing.T) {
+	t.Parallel()
+
+	messages := collectBotVisibleMessages(store.ThreadTurn{
+		ID:     "turn-hook-run-audit-1",
+		Status: "completed",
+		Items: []map[string]any{
+			{
+				"id":         "hook-run-audit-1",
+				"type":       "hookRun",
+				"eventName":  "TurnStart",
+				"handlerKey": "builtin.turnstart.audit-thread-turn-start",
+				"status":     "completed",
+				"decision":   "continue",
+				"reason":     "turn_start_audited",
+				"message": strings.Join([]string{
+					"Event: Turn Start",
+					"Handler: Thread Turn Start Audit",
+					"Status: Completed",
+				}, "\n"),
+			},
+			{
+				"id":   "agent-1",
+				"type": "agentMessage",
+				"text": "工作区干净",
+			},
+		},
+	})
+
+	if len(messages) != 1 {
+		t.Fatalf("expected only the agent message to remain, got %#v", messages)
+	}
+	if messages[0].Text != "工作区干净" {
+		t.Fatalf("unexpected remaining message %#v", messages[0])
+	}
+}
+
 func TestCollectBotVisibleMessagesRespectsCommandOutputMode(t *testing.T) {
 	t.Parallel()
 
@@ -901,6 +938,68 @@ func TestWorkspaceThreadAIBackendStreamsFeishuToolProgressWithoutPersistingItInF
 	}
 	if !foundSuccessSnapshot {
 		t.Fatalf("expected a streaming snapshot with Feishu tool completion detail, got %#v", snapshots)
+	}
+}
+
+func TestWorkspaceThreadAIBackendSuppressesAuditHookRunsAppendedByCompletedTurn(t *testing.T) {
+	t.Parallel()
+
+	threadsExec := &fakeWorkspaceThreads{
+		thread: store.Thread{
+			ID:          "thread-stream-feishu-audit-1",
+			WorkspaceID: "ws_123",
+			Name:        "Bot Thread",
+			Status:      "idle",
+		},
+		detail: store.ThreadDetail{
+			Thread: store.Thread{
+				ID:          "thread-stream-feishu-audit-1",
+				WorkspaceID: "ws_123",
+				Name:        "Bot Thread",
+				Status:      "idle",
+			},
+			Turns: []store.ThreadTurn{},
+		},
+	}
+	hub := events.NewHub()
+	turnsExec := &fakeFeishuAuditTailTurns{
+		hub:     hub,
+		threads: threadsExec,
+	}
+
+	backend := newWorkspaceThreadAIBackend(threadsExec, turnsExec, hub, 10*time.Millisecond, time.Second).(*workspaceThreadAIBackend)
+	backend.streamFlushInterval = 10 * time.Millisecond
+	backend.turnSettleDelay = 40 * time.Millisecond
+
+	snapshots := make([][]OutboundMessage, 0, 4)
+	result, err := backend.ProcessMessageStream(context.Background(), store.BotConnection{
+		WorkspaceID: "ws_123",
+		Provider:    feishuProviderName,
+		Name:        "Feishu Bot",
+	}, store.BotConversation{}, InboundMessage{
+		ConversationID: "chat-feishu-audit-1",
+		Text:           "我需要当前git状态",
+	}, func(_ context.Context, update StreamingUpdate) error {
+		snapshots = append(snapshots, cloneOutboundMessages(update.Messages))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessageStream() error = %v", err)
+	}
+
+	if len(result.Messages) != 1 {
+		t.Fatalf("expected only the final agent reply, got %#v", result.Messages)
+	}
+	if result.Messages[0].Text != "工作区干净" {
+		t.Fatalf("unexpected final agent reply %#v", result.Messages[0])
+	}
+
+	for _, snapshot := range snapshots {
+		for _, message := range snapshot {
+			if strings.Contains(message.Text, "Event: Turn Start") {
+				t.Fatalf("expected audit hook run to stay hidden from snapshots, got %#v", snapshots)
+			}
+		}
 	}
 }
 
@@ -2099,6 +2198,83 @@ func (f *fakeFeishuToolProgressTurns) Start(_ context.Context, workspaceID strin
 
 	return turns.Result{
 		TurnID: "turn-stream-feishu-tool-1",
+		Status: "running",
+	}, nil
+}
+
+type fakeFeishuAuditTailTurns struct {
+	hub     *events.Hub
+	threads *fakeWorkspaceThreads
+}
+
+func (f *fakeFeishuAuditTailTurns) Start(_ context.Context, workspaceID string, threadID string, _ string, _ turns.StartOptions) (turns.Result, error) {
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-feishu-audit-1",
+			Method:      "item/agentMessage/delta",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-feishu-audit-1",
+				"itemId":   "assistant-1",
+				"delta":    "工作区干净",
+			},
+			TS: time.Now().UTC(),
+		})
+
+		f.threads.setCompletedTurn(store.ThreadTurn{
+			ID:     "turn-stream-feishu-audit-1",
+			Status: "completed",
+			Items: []map[string]any{
+				{
+					"id":   "assistant-1",
+					"type": "agentMessage",
+					"text": "工作区干净",
+				},
+				{
+					"id":         "hook-run-audit-1",
+					"type":       "hookRun",
+					"eventName":  "TurnStart",
+					"handlerKey": "builtin.turnstart.audit-thread-turn-start",
+					"status":     "completed",
+					"decision":   "continue",
+					"reason":     "turn_start_audited",
+					"message": strings.Join([]string{
+						"Event: Turn Start",
+						"Handler: Thread Turn Start Audit",
+						"Status: Completed",
+						"Decision: Continue",
+						"Trigger: Bot Webhook",
+						"Tool: Turn Start",
+						"Session Start Source: Resume",
+						"Reason: Turn start audited",
+					}, "\n"),
+				},
+			},
+		})
+
+		time.Sleep(5 * time.Millisecond)
+		f.hub.Publish(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			ThreadID:    threadID,
+			TurnID:      "turn-stream-feishu-audit-1",
+			Method:      "turn/completed",
+			Payload: map[string]any{
+				"threadId": threadID,
+				"turnId":   "turn-stream-feishu-audit-1",
+				"turn": map[string]any{
+					"id":     "turn-stream-feishu-audit-1",
+					"status": "completed",
+				},
+			},
+			TS: time.Now().UTC(),
+		})
+	}()
+
+	return turns.Result{
+		TurnID: "turn-stream-feishu-audit-1",
 		Status: "running",
 	}, nil
 }

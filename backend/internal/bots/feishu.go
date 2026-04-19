@@ -73,6 +73,7 @@ const (
 	feishuAppAccessTokenEndpoint             = "/open-apis/auth/v3/tenant_access_token/internal"
 	feishuBotInfoEndpoint                    = "/open-apis/bot/v3/info"
 	feishuWebsocketConnectEndpoint           = "/callback/ws/endpoint"
+	feishuTypingReactionEmojiType            = "Typing"
 )
 
 type feishuProvider struct {
@@ -135,6 +136,14 @@ type feishuSendMessageResponse struct {
 	Msg  string `json:"msg"`
 	Data struct {
 		MessageID string `json:"message_id"`
+	} `json:"data"`
+}
+
+type feishuMessageReactionResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		ReactionID string `json:"reaction_id"`
 	} `json:"data"`
 }
 
@@ -286,6 +295,14 @@ type feishuStreamingReplySession struct {
 	streamMessageID   string
 	streamPayload     *feishuSendPayload
 	streamMessageText string
+}
+
+type feishuTypingSession struct {
+	provider   *feishuProvider
+	domain     string
+	token      string
+	messageID  string
+	reactionID string
 }
 
 type feishuFlexibleValue string
@@ -621,8 +638,17 @@ func (p *feishuProvider) SendMessages(
 	for _, message := range messages {
 		text := strings.TrimSpace(message.Text)
 		if text != "" {
-			payload := feishuBuildSendPayload(text, parseBoolSetting(connection.Settings[feishuEnableCardsSetting], false))
-			_, sendErr := p.sendFeishuMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, payload)
+			_, sendErr := p.sendFeishuTextMessage(
+				ctx,
+				connection,
+				domain,
+				token,
+				chatID,
+				replyMessageID,
+				replyInThread,
+				text,
+				parseBoolSetting(connection.Settings[feishuEnableCardsSetting], false),
+			)
 			if sendErr != nil {
 				if deliveredParts == 0 && isFeishuRetryableSendError(sendErr) {
 					return markReplyDeliveryRetryable(sendErr)
@@ -645,6 +671,50 @@ func (p *feishuProvider) SendMessages(
 	}
 
 	return nil
+}
+
+func (p *feishuProvider) StartTyping(
+	ctx context.Context,
+	connection store.BotConnection,
+	conversation store.BotConversation,
+) (TypingSession, error) {
+	domain, token, _, replyMessageID, _, err := p.feishuSendContext(ctx, connection, conversation)
+	if err != nil {
+		return nil, err
+	}
+	replyMessageID = strings.TrimSpace(replyMessageID)
+	if replyMessageID == "" {
+		return nil, nil
+	}
+
+	reactionID, reactionErr := p.addFeishuTypingReaction(ctx, domain, token, replyMessageID)
+	if reactionErr != nil {
+		logBotDebug(ctx, connection, "feishu typing indicator start skipped",
+			slog.String("messageId", replyMessageID),
+			slog.String("error", reactionErr.Error()),
+		)
+		return nil, nil
+	}
+	reactionID = strings.TrimSpace(reactionID)
+	if reactionID == "" {
+		logBotDebug(ctx, connection, "feishu typing indicator start skipped",
+			slog.String("messageId", replyMessageID),
+			slog.String("error", "missing reaction id"),
+		)
+		return nil, nil
+	}
+
+	logBotDebug(ctx, connection, "feishu typing indicator started",
+		slog.String("messageId", replyMessageID),
+		slog.String("reactionId", reactionID),
+	)
+	return &feishuTypingSession{
+		provider:   p,
+		domain:     domain,
+		token:      token,
+		messageID:  replyMessageID,
+		reactionID: reactionID,
+	}, nil
 }
 
 func (p *feishuProvider) StartStreamingReply(
@@ -774,10 +844,31 @@ func (s *feishuStreamingReplySession) sendOrUpdateStreamingSingleText(ctx contex
 			s.streamMessageText = strings.TrimSpace(text)
 			s.mu.Unlock()
 			return nil
+		} else if isFeishuCardContentLimitError(err) {
+			textPayload := feishuSendPayload{
+				Content: feishuTextMessageContent(text),
+				MsgType: "text",
+			}
+			if updateErr := s.provider.updateFeishuMessage(ctx, domain, token, streamMessageID, textPayload); updateErr == nil {
+				s.mu.Lock()
+				s.streamPayload = &textPayload
+				s.streamMessageText = strings.TrimSpace(text)
+				s.mu.Unlock()
+				return nil
+			}
 		}
 	}
 
-	response, err := s.provider.sendFeishuMessage(ctx, s.connection, domain, token, chatID, replyMessageID, replyInThread, payload)
+	response, err := s.provider.sendFeishuStreamingTextMessage(
+		ctx,
+		s.connection,
+		domain,
+		token,
+		chatID,
+		replyMessageID,
+		replyInThread,
+		text,
+	)
 	if err != nil {
 		return err
 	}
@@ -1516,6 +1607,49 @@ func feishuBuildStreamingPayload(text string) feishuSendPayload {
 	}
 }
 
+func (p *feishuProvider) sendFeishuTextMessage(
+	ctx context.Context,
+	connection store.BotConnection,
+	domain string,
+	token string,
+	chatID string,
+	replyMessageID string,
+	replyInThread bool,
+	text string,
+	useCard bool,
+) (feishuSendMessageResponse, error) {
+	payload := feishuBuildSendPayload(text, useCard)
+	response, err := p.sendFeishuMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, payload)
+	if err == nil || !useCard || !isFeishuCardContentLimitError(err) {
+		return response, err
+	}
+	return p.sendFeishuMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, feishuSendPayload{
+		Content: feishuTextMessageContent(text),
+		MsgType: "text",
+	})
+}
+
+func (p *feishuProvider) sendFeishuStreamingTextMessage(
+	ctx context.Context,
+	connection store.BotConnection,
+	domain string,
+	token string,
+	chatID string,
+	replyMessageID string,
+	replyInThread bool,
+	text string,
+) (feishuSendMessageResponse, error) {
+	payload := feishuBuildStreamingPayload(text)
+	response, err := p.sendFeishuMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, payload)
+	if err == nil || !isFeishuCardContentLimitError(err) {
+		return response, err
+	}
+	return p.sendFeishuMessage(ctx, connection, domain, token, chatID, replyMessageID, replyInThread, feishuSendPayload{
+		Content: feishuTextMessageContent(text),
+		MsgType: "text",
+	})
+}
+
 func buildFeishuCardJSON(content string) string {
 	card := map[string]any{
 		"schema": "2.0",
@@ -1526,7 +1660,7 @@ func buildFeishuCardJSON(content string) string {
 			"elements": []map[string]any{
 				{
 					"tag":     "markdown",
-					"content": strings.TrimSpace(content),
+					"content": sanitizeFeishuCardMarkdown(content),
 				},
 			},
 		},
@@ -1546,13 +1680,84 @@ func buildFeishuUpdatableCardJSON(content string) string {
 			"elements": []map[string]any{
 				{
 					"tag":     "markdown",
-					"content": strings.TrimSpace(content),
+					"content": sanitizeFeishuCardMarkdown(content),
 				},
 			},
 		},
 	}
 	data, _ := json.Marshal(card)
 	return string(data)
+}
+
+func sanitizeFeishuCardMarkdown(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+	sanitized := make([]string, 0, len(lines))
+	inFence := false
+	for index := 0; index < len(lines); index++ {
+		line := strings.TrimRight(lines[index], " \t")
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			sanitized = append(sanitized, line)
+			continue
+		}
+		if inFence || !isFeishuMarkdownTableStart(lines, index) {
+			sanitized = append(sanitized, line)
+			continue
+		}
+
+		tableLines := []string{
+			strings.TrimRight(lines[index], " \t"),
+			strings.TrimRight(lines[index+1], " \t"),
+		}
+		index += 2
+		for index < len(lines) && isFeishuMarkdownTableRow(lines[index]) {
+			tableLines = append(tableLines, strings.TrimRight(lines[index], " \t"))
+			index++
+		}
+		index--
+
+		sanitized = append(sanitized, "```text", strings.Join(tableLines, "\n"), "```")
+	}
+	return strings.TrimSpace(strings.Join(sanitized, "\n"))
+}
+
+func isFeishuMarkdownTableStart(lines []string, index int) bool {
+	return index+1 < len(lines) &&
+		isFeishuMarkdownTableRow(lines[index]) &&
+		isFeishuMarkdownTableSeparator(lines[index+1])
+}
+
+func isFeishuMarkdownTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "|") &&
+		strings.HasSuffix(trimmed, "|") &&
+		strings.Count(trimmed, "|") >= 2
+}
+
+func isFeishuMarkdownTableSeparator(line string) bool {
+	if !isFeishuMarkdownTableRow(line) {
+		return false
+	}
+	parts := strings.Split(strings.TrimSpace(line), "|")
+	cellCount := 0
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Trim(trimmed, "-: ") != "" {
+			return false
+		}
+		cellCount++
+	}
+	return cellCount > 0
 }
 
 func (p *feishuProvider) feishuSendContext(
@@ -1646,6 +1851,60 @@ func (p *feishuProvider) sendFeishuCreate(
 		"msg_type":   payload.MsgType,
 	}, &response)
 	return response, err
+}
+
+func (p *feishuProvider) addFeishuTypingReaction(
+	ctx context.Context,
+	domain string,
+	token string,
+	messageID string,
+) (string, error) {
+	response := feishuMessageReactionResponse{}
+	err := p.callJSON(
+		ctx,
+		http.MethodPost,
+		domain,
+		"/open-apis/im/v1/messages/"+url.PathEscape(strings.TrimSpace(messageID))+"/reactions",
+		token,
+		map[string]any{
+			"reaction_type": map[string]any{
+				"emoji_type": feishuTypingReactionEmojiType,
+			},
+		},
+		&response,
+	)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(response.Data.ReactionID), nil
+}
+
+func (p *feishuProvider) removeFeishuTypingReaction(
+	ctx context.Context,
+	domain string,
+	token string,
+	messageID string,
+	reactionID string,
+) error {
+	return p.callJSON(
+		ctx,
+		http.MethodDelete,
+		domain,
+		"/open-apis/im/v1/messages/"+url.PathEscape(strings.TrimSpace(messageID))+"/reactions/"+url.PathEscape(strings.TrimSpace(reactionID)),
+		token,
+		nil,
+		&feishuMessageReactionResponse{},
+	)
+}
+
+func (s *feishuTypingSession) Stop(ctx context.Context) error {
+	if s == nil || s.provider == nil || strings.TrimSpace(s.reactionID) == "" {
+		return nil
+	}
+	if err := s.provider.removeFeishuTypingReaction(ctx, s.domain, s.token, s.messageID, s.reactionID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *feishuProvider) updateFeishuMessage(
@@ -1836,6 +2095,16 @@ func shouldFeishuFallbackToCreate(err error) bool {
 	return true
 }
 
+func isFeishuCardContentLimitError(err error) bool {
+	var requestErr *feishuRequestError
+	if !errors.As(err, &requestErr) || requestErr == nil || requestErr.cause != nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(requestErr.apiMsg))
+	return strings.Contains(message, "failed to create card content") ||
+		strings.Contains(message, "card table number over limit")
+}
+
 func isFeishuRetryableSendError(err error) bool {
 	if err == nil {
 		return false
@@ -1895,6 +2164,8 @@ func (r feishuWSEndpointResponse) responseCode() int              { return r.Cod
 func (r feishuWSEndpointResponse) responseMessage() string        { return r.Msg }
 func (r feishuSendMessageResponse) responseCode() int             { return r.Code }
 func (r feishuSendMessageResponse) responseMessage() string       { return r.Msg }
+func (r feishuMessageReactionResponse) responseCode() int         { return r.Code }
+func (r feishuMessageReactionResponse) responseMessage() string   { return r.Msg }
 
 func (r feishuBotInfoResponse) openID() string {
 	return firstNonEmpty(strings.TrimSpace(r.Bot.OpenID), strings.TrimSpace(r.Data.OpenID))

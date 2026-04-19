@@ -233,6 +233,29 @@ func TestRenderBotHookRunItemBuildsReadableMessageWithoutPrecomputedSummary(t *t
 	}
 }
 
+func TestRenderBotHookRunItemSuppressesAuditEvents(t *testing.T) {
+	t.Parallel()
+
+	text := renderBotVisibleItem(map[string]any{
+		"id":         "hook-run-audit-1",
+		"type":       "hookRun",
+		"eventName":  "TurnStart",
+		"handlerKey": "builtin.turnstart.audit-thread-turn-start",
+		"status":     "completed",
+		"decision":   "continue",
+		"reason":     "turn_start_audited",
+		"message": strings.Join([]string{
+			"Event: Turn Start",
+			"Handler: Thread Turn Start Audit",
+			"Status: Completed",
+		}, "\n"),
+	})
+
+	if text != "" {
+		t.Fatalf("expected audit hook run to be suppressed, got %q", text)
+	}
+}
+
 func TestRenderBotFileChangeItemMarksOmissions(t *testing.T) {
 	t.Parallel()
 
