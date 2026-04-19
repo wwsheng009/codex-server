@@ -4,10 +4,12 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
+import { AutomationFormFields } from '../components/ui/AutomationFormFields'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
-import { CronGenerator } from '../components/ui/CronGenerator'
+import { FormErrorNotice } from '../components/ui/FormErrorNotice'
 import { InlineNotice } from '../components/ui/InlineNotice'
 import { Modal } from '../components/ui/Modal'
+import { ScheduleEditor } from '../components/ui/ScheduleEditor'
 import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
 import { Input } from '../components/ui/Input'
@@ -58,31 +60,6 @@ function createEmptyTemplateDraft(): TemplateDraft {
   }
 }
 
-function getAutomationFrequencyOptions() {
-  return [
-    { value: 'hourly', label: i18n._({ id: 'Hourly', message: 'Hourly' }) },
-    { value: 'daily', label: i18n._({ id: 'Daily', message: 'Daily' }) },
-    { value: 'weekly', label: i18n._({ id: 'Weekly', message: 'Weekly' }) },
-    { value: 'monthly', label: i18n._({ id: 'Monthly', message: 'Monthly' }) },
-    {
-      value: 'cron',
-      label: i18n._({ id: 'Advanced (Cron)', message: 'Advanced (Cron)' }),
-    },
-  ]
-}
-
-function getAutomationWeekdayOptions() {
-  return [
-    { value: '0', label: i18n._({ id: 'Sunday', message: 'Sunday' }) },
-    { value: '1', label: i18n._({ id: 'Monday', message: 'Monday' }) },
-    { value: '2', label: i18n._({ id: 'Tuesday', message: 'Tuesday' }) },
-    { value: '3', label: i18n._({ id: 'Wednesday', message: 'Wednesday' }) },
-    { value: '4', label: i18n._({ id: 'Thursday', message: 'Thursday' }) },
-    { value: '5', label: i18n._({ id: 'Friday', message: 'Friday' }) },
-    { value: '6', label: i18n._({ id: 'Saturday', message: 'Saturday' }) },
-  ]
-}
-
 function getAutomationReasoningOptions() {
   return [
     { value: 'low', label: i18n._({ id: 'Low', message: 'Low' }) },
@@ -90,26 +67,6 @@ function getAutomationReasoningOptions() {
     { value: 'high', label: i18n._({ id: 'High', message: 'High' }) },
     { value: 'xhigh', label: i18n._({ id: 'Extra High', message: 'Extra High' }) },
   ]
-}
-
-function getScheduleType(schedule: string) {
-  if (schedule === '0 * * * *' || schedule === 'hourly') {
-    return 'hourly'
-  }
-
-  if (schedule.startsWith('daily-')) {
-    return 'daily'
-  }
-
-  if (schedule.startsWith('weekly-')) {
-    return 'weekly'
-  }
-
-  if (schedule.startsWith('monthly-')) {
-    return 'monthly'
-  }
-
-  return 'cron'
 }
 
 export function AutomationsPage() {
@@ -241,8 +198,6 @@ export function AutomationsPage() {
           ? getErrorMessage(deleteTemplateMutation.error)
           : '')
   const actionTarget = automationActionMutation.isPending ? automationActionMutation.variables : null
-  const frequencyOptions = getAutomationFrequencyOptions()
-  const weekdayOptions = getAutomationWeekdayOptions()
   const reasoningOptions = getAutomationReasoningOptions()
 
   function openCreateModal(template?: AutomationTemplate) {
@@ -465,6 +420,9 @@ export function AutomationsPage() {
           <Button onClick={() => openCreateModal()}>
             {i18n._({ id: 'New Automation', message: 'New Automation' })}
           </Button>
+          <Link className="ide-button ide-button--secondary" to="/jobs">
+            {i18n._({ id: 'Open Jobs', message: 'Open Jobs' })}
+          </Link>
         </div>
       </header>
 
@@ -514,11 +472,27 @@ export function AutomationsPage() {
                 <div className="automation-compact-row" key={automation.id}>
                   <Link className="automation-compact-row__main" to={`/automations/${automation.id}`}>
                     <strong>{automation.title}</strong>
-                    <span>{automation.workspaceName}</span>
+                    <span>
+                      {automation.workspaceName}
+                      {automation.managedBy === 'background_job'
+                        ? ` · ${i18n._({
+                            id: 'Managed by Background Jobs',
+                            message: 'Managed by Background Jobs',
+                          })}`
+                        : ''}
+                    </span>
                   </Link>
                   <div className="automation-compact-row__actions">
                     <StatusPill status={automation.status} />
                     <div className="divider-v" />
+                    {automation.jobId ? (
+                      <Link
+                        className="ide-button ide-button--ghost"
+                        to={`/jobs?jobId=${encodeURIComponent(automation.jobId)}`}
+                      >
+                        {i18n._({ id: 'Open Job', message: 'Open Job' })}
+                      </Link>
+                    ) : null}
                     <Button
                       intent="ghost"
                       isLoading={actionTarget?.id === automation.id && actionTarget.action === 'fix'}
@@ -630,182 +604,23 @@ export function AutomationsPage() {
           }
         >
           <form className="form-stack" onSubmit={handleCreate}>
-            <div className="form-row">
-              <label className="field">
-                <span>{i18n._({ id: 'Capability Template', message: 'Capability Template' })}</span>
-                <SelectControl
-                  ariaLabel={i18n._({ id: 'Select a template', message: 'Select a template' })}
-                  fullWidth
-                  onChange={handleTemplateSelect}
-                  options={[
-                    {
-                      value: '',
-                      label: i18n._({
-                        id: 'None (Start from scratch)',
-                        message: 'None (Start from scratch)',
-                      }),
-                    },
-                    ...templates.map((template) => ({ value: template.id, label: `[${template.category}] ${template.title}` })),
-                  ]}
-                  value={activeTemplate?.id ?? ''}
-                />
-              </label>
-              <label className="field">
-                <span>{i18n._({ id: 'Target Workspace', message: 'Target Workspace' })}</span>
-                <SelectControl
-                  ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
-                  fullWidth
-                  onChange={(nextValue) =>
-                    setDraft((current) => ({ ...current, workspaceId: nextValue }))
-                  }
-                  options={(workspacesQuery.data ?? []).map((workspace) => ({
-                    value: workspace.id,
-                    label: workspace.name,
-                  }))}
-                  value={draft.workspaceId}
-                />
-              </label>
-            </div>
-
-            <div className="form-row">
-              <Input
-                label={i18n._({ id: 'Title', message: 'Title' })}
-                onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                placeholder={i18n._({ id: 'Daily Sync', message: 'Daily Sync' })}
-                value={draft.title}
-              />
-              <Input
-                label={i18n._({ id: 'Description', message: 'Description' })}
-                onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-                placeholder={i18n._({
-                  id: "Briefly describe the automation's purpose...",
-                  message: "Briefly describe the automation's purpose...",
-                })}
-                value={draft.description}
-              />
-            </div>
-
-            <TextArea
-              label={i18n._({ id: 'Prompt', message: 'Prompt' })}
-              onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
-              placeholder={i18n._({
-                id: 'What should the assistant do?',
-                message: 'What should the assistant do?',
-              })}
-              rows={5}
-              value={draft.prompt}
+            <AutomationFormFields
+              draft={draft}
+              setDraft={setDraft}
+              templates={templates}
+              activeTemplateId={activeTemplate?.id ?? ''}
+              workspaces={workspacesQuery.data ?? []}
+              onTemplateChange={handleTemplateSelect}
             />
 
             <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
-              <div className="field">
-                <span>{i18n._({ id: 'Frequency', message: 'Frequency' })}</span>
-                <SelectControl
-                  ariaLabel={i18n._({ id: 'Frequency', message: 'Frequency' })}
-                  fullWidth
-                  onChange={(nextValue) => {
-                    let baseSchedule = '0 * * * *'
-                    if (nextValue === 'daily') baseSchedule = 'daily-0900'
-                    if (nextValue === 'weekly') baseSchedule = 'weekly-1-0900'
-                    if (nextValue === 'monthly') baseSchedule = 'monthly-01-0900'
-                    if (nextValue === 'cron') baseSchedule = '0 9 * * 1-5'
-                    setDraft((current) => ({ ...current, schedule: baseSchedule }))
-                  }}
-                  options={frequencyOptions}
-                  value={getScheduleType(draft.schedule)}
-                />
-              </div>
-
-              {/* Dynamic sub-controls based on Frequency */}
-              {draft.schedule.startsWith('daily-') && (
-                <Input
-                  label={i18n._({ id: 'Run Time', message: 'Run Time' })}
-                  type="time"
-                  onChange={(e) => {
-                    const [hh, mm] = e.target.value.split(':')
-                    setDraft((current) => ({ ...current, schedule: `daily-${hh}${mm}` }))
-                  }}
-                  value={`${draft.schedule.slice(6, 8)}:${draft.schedule.slice(8, 10)}`}
-                />
-              )}
-
-              {draft.schedule.startsWith('weekly-') && (
-                <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <div className="field">
-                    <span>{i18n._({ id: 'Day', message: 'Day' })}</span>
-                    <SelectControl
-                      ariaLabel={i18n._({ id: 'Day of Week', message: 'Day of Week' })}
-                      fullWidth
-                      onChange={(day) => {
-                        const time = draft.schedule.slice(9)
-                        setDraft((current) => ({ ...current, schedule: `weekly-${day}-${time}` }))
-                      }}
-                      options={weekdayOptions}
-                      value={draft.schedule.slice(7, 8)}
-                    />
-                  </div>
-                  <Input
-                    label={i18n._({ id: 'Time', message: 'Time' })}
-                    type="time"
-                    onChange={(e) => {
-                      const [hh, mm] = e.target.value.split(':')
-                      const day = draft.schedule.slice(7, 8)
-                      setDraft((current) => ({ ...current, schedule: `weekly-${day}-${hh}${mm}` }))
-                    }}
-                    value={`${draft.schedule.slice(9, 11)}:${draft.schedule.slice(11, 13)}`}
-                  />
-                </div>
-              )}
-
-              {draft.schedule.startsWith('monthly-') && (
-                <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <Input
-                    label={i18n._({ id: 'Day of Month', message: 'Day of Month' })}
-                    type="number"
-                    min="1"
-                    max="31"
-                    onChange={(e) => {
-                      const day = e.target.value.padStart(2, '0')
-                      const time = draft.schedule.slice(11)
-                      setDraft((current) => ({ ...current, schedule: `monthly-${day}-${time}` }))
-                    }}
-                    value={draft.schedule.slice(8, 10)}
-                  />
-                  <Input
-                    label={i18n._({ id: 'Time', message: 'Time' })}
-                    type="time"
-                    onChange={(e) => {
-                      const [hh, mm] = e.target.value.split(':')
-                      const day = draft.schedule.slice(8, 10)
-                      setDraft((current) => ({ ...current, schedule: `monthly-${day}-${hh}${mm}` }))
-                    }}
-                    value={`${draft.schedule.slice(11, 13)}:${draft.schedule.slice(13, 15)}`}
-                  />
-                </div>
-              )}
-
-              {!(draft.schedule === '0 * * * *' || draft.schedule === 'hourly' || draft.schedule.startsWith('daily-') || draft.schedule.startsWith('weekly-') || draft.schedule.startsWith('monthly-')) && (
-                <div className="field">
-                  <span>{i18n._({ id: 'Advanced Scheduling', message: 'Advanced Scheduling' })}</span>
-                  <div className="cron-trigger-area">
-                    <code>{draft.schedule}</code>
-                    <Button intent="secondary" size="sm" onClick={() => setCronPickerOpen(true)}>
-                      {i18n._({ id: 'Edit', message: 'Edit' })}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {draft.schedule === '0 * * * *' || draft.schedule === 'hourly' ? (
-                <div className="field">
-                  <span>{i18n._({ id: 'Interval', message: 'Interval' })}</span>
-                  <div style={{ padding: '12px 0', fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-                    {i18n._({
-                      id: 'Runs once per hour, on the hour.',
-                      message: 'Runs once per hour, on the hour.',
-                    })}
-                  </div>
-                </div>
-              ) : null}
+              <ScheduleEditor
+                schedule={draft.schedule}
+                manualLabel="0 * * * *"
+                onChange={(schedule) => setDraft((current) => ({ ...current, schedule }))}
+                cronPickerOpen={cronPickerOpen}
+                onCronPickerOpenChange={setCronPickerOpen}
+              />
             </div>
 
             <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
@@ -840,19 +655,15 @@ export function AutomationsPage() {
                 />
               </label>
             </div>
-            {createError ? (
-              <InlineNotice
-                dismissible
-                noticeKey={`automation-create-${createError}`}
-                title={i18n._({
-                  id: 'Automation Setup Incomplete',
-                  message: 'Automation Setup Incomplete',
-                })}
-                tone="error"
-              >
-                {createError}
-              </InlineNotice>
-            ) : null}
+            <FormErrorNotice
+              dismissible
+              noticeKey={`automation-create-${createError}`}
+              error={createError}
+              title={i18n._({
+                id: 'Automation Setup Incomplete',
+                message: 'Automation Setup Incomplete',
+              })}
+            />
           </form>
         </Modal>
       ) : null}
@@ -970,30 +781,6 @@ export function AutomationsPage() {
             message: 'Delete Automation?',
           })}
         />
-      ) : null}
-
-      {cronPickerOpen ? (
-        <Modal
-          onClose={() => setCronPickerOpen(false)}
-          title={i18n._({
-            id: 'Configure Advanced Schedule',
-            message: 'Configure Advanced Schedule',
-          })}
-          description={i18n._({
-            id: 'Use the visual generator below to define your execution frequency.',
-            message: 'Use the visual generator below to define your execution frequency.',
-          })}
-          footer={
-            <Button type="button" onClick={() => setCronPickerOpen(false)}>
-              {i18n._({ id: 'Apply Schedule', message: 'Apply Schedule' })}
-            </Button>
-          }
-        >
-          <CronGenerator
-            value={draft.schedule}
-            onChange={(cron) => setDraft((current) => ({ ...current, schedule: cron }))}
-          />
-        </Modal>
       ) : null}
     </section>
   )

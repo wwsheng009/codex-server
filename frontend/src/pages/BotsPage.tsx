@@ -78,6 +78,9 @@ import {
   BOT_COMMAND_OUTPUT_MODE_FULL,
   BOT_COMMAND_OUTPUT_MODE_NONE,
   BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
+  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
+  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE,
+  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
   buildBotConnectionCreateInput,
   buildBotConnectionUpdateInput,
   buildBotsPageDraftFromConnection,
@@ -89,6 +92,7 @@ import {
   formatBotConversationBindingModeLabel,
   formatBotConversationBindingSourceLabel,
   formatBotConversationTitle,
+  formatFeishuStreamingPlainTextStrategyLabel,
   formatBotWorkspacePermissionPresetLabel,
   formatBotProviderLabel,
   formatBotTimestamp,
@@ -106,6 +110,7 @@ import {
   planBotOutboundTextPlacement,
   resolveBotBooleanSetting,
   resolveFeishuDeliveryMode,
+  resolveFeishuStreamingPlainTextStrategy,
   validateBotOutboundMediaLocation,
   resolveBotCommandOutputMode,
   resolveBotProvider,
@@ -2266,6 +2271,24 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       {
         value: BOT_COMMAND_OUTPUT_MODE_FULL,
         label: i18n._({ id: 'Full Output', message: 'Full Output' }),
+      },
+    ],
+    [],
+  )
+
+  const feishuStreamingPlainTextStrategyOptions = useMemo(
+    () => [
+      {
+        value: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
+        label: i18n._({ id: 'Send New Text (Default)', message: 'Send New Text (Default)' }),
+      },
+      {
+        value: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE,
+        label: i18n._({ id: 'Send Completed Chunks', message: 'Send Completed Chunks' }),
+      },
+      {
+        value: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
+        label: i18n._({ id: 'Update One Message', message: 'Update One Message' }),
       },
     ],
     [],
@@ -6527,6 +6550,15 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                                   <strong>{selectedConnection.settings?.feishu_domain?.trim() || i18n._({ id: 'Default Domain', message: 'Default Domain' })}</strong>
                                 </div>
                                 <div className="detail-row">
+                                  <span>{i18n._({ id: 'Streaming Plain Text', message: 'Streaming Plain Text' })}</span>
+                                  <strong>
+                                    {formatFeishuStreamingPlainTextStrategyLabel(
+                                      selectedConnection.settings?.feishu_streaming_plain_text_strategy,
+                                      FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
+                                    )}
+                                  </strong>
+                                </div>
+                                <div className="detail-row">
                                   <span>{i18n._({ id: 'Interactive Card', message: 'Interactive Card' })}</span>
                                   <strong>{formatEnabledDisabledLabel(selectedFeishuEnableCards)}</strong>
                                 </div>
@@ -8498,6 +8530,28 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                   value={draft.feishuDomain}
                 />
 
+                <label className="field">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>{i18n._({ id: 'Streaming Plain Text', message: 'Streaming Plain Text' })}</span>
+                    <HelpTooltip
+                      content={i18n._({
+                        id: 'Default: Send New Text sends each newly appended plain-text segment as a separate Feishu reply, while plans and tool progress continue updating one message. Send Completed Chunks keeps finished text blocks as separate replies. Update One Message keeps the chat shorter, but only the latest plain-text snapshot remains visible.',
+                        message:
+                          'Default: Send New Text sends each newly appended plain-text segment as a separate Feishu reply, while plans and tool progress continue updating one message. Send Completed Chunks keeps finished text blocks as separate replies. Update One Message keeps the chat shorter, but only the latest plain-text snapshot remains visible.',
+                      })}
+                    />
+                  </div>
+                  <SelectControl
+                    ariaLabel={i18n._({ id: 'Streaming Plain Text', message: 'Streaming Plain Text' })}
+                    fullWidth
+                    onChange={(nextValue) =>
+                      setDraft((current) => ({ ...current, feishuStreamingPlainTextStrategy: nextValue }))
+                    }
+                    options={feishuStreamingPlainTextStrategyOptions}
+                    value={resolveFeishuStreamingPlainTextStrategy(draft.feishuStreamingPlainTextStrategy)}
+                  />
+                </label>
+
                 <Switch
                   checked={draft.feishuEnableCards}
                   label={i18n._({ id: 'Interactive Card', message: 'Interactive Card' })}
@@ -10432,6 +10486,7 @@ function serializeBotsPageDraft(draft: BotsPageDraft) {
     draft.feishuAppId,
     draft.feishuAppSecret,
     draft.feishuDomain,
+    draft.feishuStreamingPlainTextStrategy,
     draft.feishuEnableCards,
     draft.feishuGroupReplyAll,
     draft.feishuThreadIsolation,
