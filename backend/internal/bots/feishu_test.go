@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -649,7 +650,6 @@ func TestFeishuStartTypingWithoutReplyMessageReturnsNilSession(t *testing.T) {
 
 func TestFeishuStreamingReplySessionEmitsApprovalSnapshotBeforeCompletion(t *testing.T) {
 	var replyPayloads []map[string]any
-	var patchPayloads []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case feishuAppAccessTokenEndpoint:
@@ -664,13 +664,12 @@ func TestFeishuStreamingReplySessionEmitsApprovalSnapshotBeforeCompletion(t *tes
 				t.Fatalf("decode feishu streaming payload error = %v", err)
 			}
 			replyPayloads = append(replyPayloads, payload)
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"message_id": "om_stream_1"}})
-		case "/open-apis/im/v1/messages/om_stream_1":
-			var payload map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode feishu patch payload error = %v", err)
+			messageID := "om_stream_1"
+			if len(replyPayloads) > 1 {
+				messageID = "om_stream_2"
 			}
-			patchPayloads = append(patchPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"message_id": messageID}})
+		case "/open-apis/im/v1/messages/om_stream_1", "/open-apis/im/v1/messages/om_stream_2":
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0})
 		default:
 			http.NotFound(w, r)
@@ -726,12 +725,12 @@ func TestFeishuStreamingReplySessionEmitsApprovalSnapshotBeforeCompletion(t *tes
 	if err := session.Complete(context.Background(), []OutboundMessage{{Text: "All done"}}); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-	if len(replyPayloads) != 1 || len(patchPayloads) != 1 {
-		t.Fatalf("expected final completion to patch existing streaming message, got replies=%#v patches=%#v", replyPayloads, patchPayloads)
+	if len(replyPayloads) != 2 {
+		t.Fatalf("expected final completion to send a new reply after approval snapshot, got %#v", replyPayloads)
 	}
-	finalContent, _ := patchPayloads[0]["content"].(string)
+	finalContent, _ := replyPayloads[1]["content"].(string)
 	if !strings.Contains(finalContent, "All done") {
-		t.Fatalf("expected final completion payload, got %#v", patchPayloads[0])
+		t.Fatalf("expected final completion payload, got %#v", replyPayloads[1])
 	}
 }
 
@@ -802,15 +801,115 @@ func TestFeishuStreamingReplySessionEmitsFeishuToolProgressBeforeCompletion(t *t
 		t.Fatalf("expected tool progress snapshot content, got %#v", replyPayloads[0])
 	}
 
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "Feishu Sheet · Append Rows [Writing]\nstep 2"}},
+	}); err != nil {
+		t.Fatalf("Update(progress step2) error = %v", err)
+	}
+	if len(replyPayloads) != 1 || len(patchPayloads) != 1 {
+		t.Fatalf("expected tool progress to update the same streaming message, got replies=%#v patches=%#v", replyPayloads, patchPayloads)
+	}
+	progressPatchContent, _ := patchPayloads[0]["content"].(string)
+	if !strings.Contains(progressPatchContent, "step 2") {
+		t.Fatalf("expected tool progress patch payload, got %#v", patchPayloads[0])
+	}
+
 	if err := session.Complete(context.Background(), []OutboundMessage{{Text: "All done"}}); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-	if len(replyPayloads) != 1 || len(patchPayloads) != 1 {
-		t.Fatalf("expected final completion to patch existing streaming message, got replies=%#v patches=%#v", replyPayloads, patchPayloads)
+	if len(replyPayloads) != 2 || len(patchPayloads) != 1 {
+		t.Fatalf("expected final completion to preserve progress and send a new reply, got replies=%#v patches=%#v", replyPayloads, patchPayloads)
 	}
-	finalContent, _ := patchPayloads[0]["content"].(string)
+	finalContent, _ := replyPayloads[1]["content"].(string)
 	if !strings.Contains(finalContent, "All done") {
-		t.Fatalf("expected final completion payload, got %#v", patchPayloads[0])
+		t.Fatalf("expected final completion payload, got %#v", replyPayloads[1])
+	}
+}
+
+func TestFeishuStreamingReplySessionKeepsPlanUpdatesOnOneMessage(t *testing.T) {
+	var replyPayloads []map[string]any
+	var patchPayloads []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case feishuAppAccessTokenEndpoint:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             0,
+				"app_access_token": "token_123",
+				"expire":           7200,
+			})
+		case "/open-apis/im/v1/messages/om_123/reply":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode feishu streaming payload error = %v", err)
+			}
+			replyPayloads = append(replyPayloads, payload)
+			messageID := "om_stream_plan_1"
+			if len(replyPayloads) > 1 {
+				messageID = "om_stream_plan_2"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"message_id": messageID}})
+		case "/open-apis/im/v1/messages/om_stream_plan_1":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode feishu patch payload error = %v", err)
+			}
+			patchPayloads = append(patchPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newFeishuProvider(server.Client()).(*feishuProvider)
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		ID:       "conn_feishu_stream_plan_1",
+		Provider: feishuProviderName,
+		Settings: map[string]string{
+			feishuAppIDSetting:  "app_123",
+			feishuDomainSetting: server.URL,
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret_123",
+		},
+	}, store.BotConversation{
+		ExternalChatID: "oc_chat_456",
+		ProviderState: map[string]string{
+			feishuChatIDKey:    "oc_chat_456",
+			feishuMessageIDKey: "om_123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "Plan:\n1. Inspect logs"}},
+	}); err != nil {
+		t.Fatalf("Update(plan step1) error = %v", err)
+	}
+	if len(replyPayloads) != 1 || len(patchPayloads) != 0 {
+		t.Fatalf("expected first plan snapshot to send one reply, got replies=%#v patches=%#v", replyPayloads, patchPayloads)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "Plan:\n1. Inspect logs\n2. Verify Feishu delivery"}},
+	}); err != nil {
+		t.Fatalf("Update(plan step2) error = %v", err)
+	}
+	if len(replyPayloads) != 1 || len(patchPayloads) != 1 {
+		t.Fatalf("expected second plan snapshot to patch the same reply, got replies=%#v patches=%#v", replyPayloads, patchPayloads)
+	}
+
+	if err := session.Complete(context.Background(), []OutboundMessage{{Text: "All done"}}); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if len(replyPayloads) != 2 || len(patchPayloads) != 1 {
+		t.Fatalf("expected final completion to send a new reply after plan updates, got replies=%#v patches=%#v", replyPayloads, patchPayloads)
+	}
+	finalContent, _ := replyPayloads[1]["content"].(string)
+	if !strings.Contains(finalContent, "All done") {
+		t.Fatalf("expected final completion payload, got %#v", replyPayloads[1])
 	}
 }
 
@@ -870,8 +969,10 @@ func TestFeishuStreamingReplySessionFallsBackToNewReplyWhenPatchFails(t *testing
 	}); err != nil {
 		t.Fatalf("Update(step1) error = %v", err)
 	}
-	if err := session.Complete(context.Background(), []OutboundMessage{{Text: "step 2"}}); err != nil {
-		t.Fatalf("Complete(step2) error = %v", err)
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "Feishu Sheet · Append Rows [Writing]\nstep 2"}},
+	}); err != nil {
+		t.Fatalf("Update(step2) error = %v", err)
 	}
 
 	if len(replyPayloads) != 2 {
@@ -880,6 +981,230 @@ func TestFeishuStreamingReplySessionFallsBackToNewReplyWhenPatchFails(t *testing
 	secondContent, _ := replyPayloads[1]["content"].(string)
 	if !strings.Contains(secondContent, "step 2") {
 		t.Fatalf("expected fallback reply to include final text, got %#v", replyPayloads[1])
+	}
+}
+
+func TestFeishuStreamingReplySessionSmartPreserveSplitsPlainTextAcrossReplies(t *testing.T) {
+	var replyPayloads []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case feishuAppAccessTokenEndpoint:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             0,
+				"app_access_token": "token_123",
+				"expire":           7200,
+			})
+		case "/open-apis/im/v1/messages/om_123/reply":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode feishu streaming payload error = %v", err)
+			}
+			replyPayloads = append(replyPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"message_id": fmt.Sprintf("om_plain_%d", len(replyPayloads))}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newFeishuProvider(server.Client()).(*feishuProvider)
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		ID:       "conn_feishu_stream_plain_1",
+		Provider: feishuProviderName,
+		Settings: map[string]string{
+			feishuAppIDSetting:                      "app_123",
+			feishuDomainSetting:                     server.URL,
+			feishuStreamingPlainTextStrategySetting: feishuStreamingPlainTextStrategySmartPreserve,
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret_123",
+		},
+	}, store.BotConversation{
+		ExternalChatID: "oc_chat_456",
+		ProviderState: map[string]string{
+			feishuChatIDKey:    "oc_chat_456",
+			feishuMessageIDKey: "om_123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	firstChunk := strings.Repeat("A", 180) + ".\n\nSecond chunk starts"
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: firstChunk}},
+	}); err != nil {
+		t.Fatalf("Update(firstChunk) error = %v", err)
+	}
+	if len(replyPayloads) != 1 {
+		t.Fatalf("expected one preserved chunk reply, got %#v", replyPayloads)
+	}
+	firstContent, _ := replyPayloads[0]["content"].(string)
+	if !strings.Contains(firstContent, strings.Repeat("A", 180)) {
+		t.Fatalf("expected first preserved chunk to be sent, got %#v", replyPayloads[0])
+	}
+	if strings.Contains(firstContent, "Second chunk starts") {
+		t.Fatalf("did not expect partial second chunk in preserved reply, got %#v", replyPayloads[0])
+	}
+
+	finalText := strings.Repeat("A", 180) + ".\n\nSecond chunk starts and finishes here."
+	if err := session.Complete(context.Background(), []OutboundMessage{{Text: finalText}}); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if len(replyPayloads) != 2 {
+		t.Fatalf("expected final remainder reply after preserved chunk, got %#v", replyPayloads)
+	}
+	finalContent, _ := replyPayloads[1]["content"].(string)
+	if strings.Contains(finalContent, strings.Repeat("A", 180)) {
+		t.Fatalf("did not expect committed prefix to repeat in final remainder, got %#v", replyPayloads[1])
+	}
+	if !strings.Contains(finalContent, "Second chunk starts and finishes here.") {
+		t.Fatalf("expected final remainder content, got %#v", replyPayloads[1])
+	}
+}
+
+func TestFeishuStreamingReplySessionUpdateOnlyKeepsPlainTextBufferedUntilCompletion(t *testing.T) {
+	var replyPayloads []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case feishuAppAccessTokenEndpoint:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             0,
+				"app_access_token": "token_123",
+				"expire":           7200,
+			})
+		case "/open-apis/im/v1/messages/om_123/reply":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode feishu streaming payload error = %v", err)
+			}
+			replyPayloads = append(replyPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"message_id": "om_plain_final_1"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newFeishuProvider(server.Client()).(*feishuProvider)
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		ID:       "conn_feishu_stream_plain_2",
+		Provider: feishuProviderName,
+		Settings: map[string]string{
+			feishuAppIDSetting:                      "app_123",
+			feishuDomainSetting:                     server.URL,
+			feishuStreamingPlainTextStrategySetting: feishuStreamingPlainTextStrategyUpdateOnly,
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret_123",
+		},
+	}, store.BotConversation{
+		ExternalChatID: "oc_chat_456",
+		ProviderState: map[string]string{
+			feishuChatIDKey:    "oc_chat_456",
+			feishuMessageIDKey: "om_123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: strings.Repeat("buffered text ", 16)}},
+	}); err != nil {
+		t.Fatalf("Update(buffered) error = %v", err)
+	}
+	if len(replyPayloads) != 0 {
+		t.Fatalf("expected update_only strategy to keep plain text buffered, got %#v", replyPayloads)
+	}
+
+	finalText := strings.Repeat("buffered text ", 16) + "done."
+	if err := session.Complete(context.Background(), []OutboundMessage{{Text: finalText}}); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if len(replyPayloads) != 1 {
+		t.Fatalf("expected final plain text reply on completion, got %#v", replyPayloads)
+	}
+	finalContent, _ := replyPayloads[0]["content"].(string)
+	if !strings.Contains(finalContent, "done.") {
+		t.Fatalf("expected final buffered content, got %#v", replyPayloads[0])
+	}
+}
+
+func TestFeishuStreamingReplySessionAppendDeltaEmitsOnlyNewPlainTextReplies(t *testing.T) {
+	var replyPayloads []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case feishuAppAccessTokenEndpoint:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             0,
+				"app_access_token": "token_123",
+				"expire":           7200,
+			})
+		case "/open-apis/im/v1/messages/om_123/reply":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode feishu streaming payload error = %v", err)
+			}
+			replyPayloads = append(replyPayloads, payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"message_id": fmt.Sprintf("om_plain_append_%d", len(replyPayloads))}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newFeishuProvider(server.Client()).(*feishuProvider)
+	session, err := provider.StartStreamingReply(context.Background(), store.BotConnection{
+		ID:       "conn_feishu_stream_plain_3",
+		Provider: feishuProviderName,
+		Settings: map[string]string{
+			feishuAppIDSetting:                      "app_123",
+			feishuDomainSetting:                     server.URL,
+			feishuStreamingPlainTextStrategySetting: feishuStreamingPlainTextStrategyAppendDelta,
+		},
+		Secrets: map[string]string{
+			feishuAppSecretKey: "secret_123",
+		},
+	}, store.BotConversation{
+		ExternalChatID: "oc_chat_456",
+		ProviderState: map[string]string{
+			feishuChatIDKey:    "oc_chat_456",
+			feishuMessageIDKey: "om_123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartStreamingReply() error = %v", err)
+	}
+
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "First chunk"}},
+	}); err != nil {
+		t.Fatalf("Update(first chunk) error = %v", err)
+	}
+	if err := session.Update(context.Background(), StreamingUpdate{
+		Messages: []OutboundMessage{{Text: "First chunk second chunk"}},
+	}); err != nil {
+		t.Fatalf("Update(second chunk) error = %v", err)
+	}
+	if err := session.Complete(context.Background(), []OutboundMessage{{Text: "First chunk second chunk final chunk"}}); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	if len(replyPayloads) != 3 {
+		t.Fatalf("expected append_delta to send three incremental replies, got %#v", replyPayloads)
+	}
+	firstContent, _ := replyPayloads[0]["content"].(string)
+	secondContent, _ := replyPayloads[1]["content"].(string)
+	finalContent, _ := replyPayloads[2]["content"].(string)
+	if !strings.Contains(firstContent, "First chunk") {
+		t.Fatalf("expected first payload to contain initial text, got %#v", replyPayloads[0])
+	}
+	if strings.Contains(secondContent, "First chunk") || !strings.Contains(secondContent, "second chunk") {
+		t.Fatalf("expected second payload to contain only appended text, got %#v", replyPayloads[1])
+	}
+	if strings.Contains(finalContent, "First chunk") || strings.Contains(finalContent, "second chunk") || !strings.Contains(finalContent, "final chunk") {
+		t.Fatalf("expected final payload to contain only the final append, got %#v", replyPayloads[2])
 	}
 }
 

@@ -75,6 +75,22 @@ func normalizeBotConnectionSettings(settings map[string]string) (map[string]stri
 		return nil, err
 	}
 	normalized[botCommandOutputModeSetting] = commandOutputMode
+
+	feishuStreamingPlainTextStrategy := parseFeishuStreamingPlainTextStrategy(
+		normalized[feishuStreamingPlainTextStrategySetting],
+		"",
+	)
+	if normalized[feishuStreamingPlainTextStrategySetting] != "" && feishuStreamingPlainTextStrategy == "" {
+		return nil, fmt.Errorf(
+			"%w: feishu streaming plain text strategy must be update_only, smart_preserve, or append_delta",
+			ErrInvalidInput,
+		)
+	}
+	if feishuStreamingPlainTextStrategy == "" {
+		delete(normalized, feishuStreamingPlainTextStrategySetting)
+	} else {
+		normalized[feishuStreamingPlainTextStrategySetting] = feishuStreamingPlainTextStrategy
+	}
 	return normalized, nil
 }
 

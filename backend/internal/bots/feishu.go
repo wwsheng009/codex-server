@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"codex-server/backend/internal/store"
 
@@ -23,57 +25,61 @@ import (
 )
 
 const (
-	feishuProviderName                       = "feishu"
-	feishuAppIDSetting                       = "feishu_app_id"
-	feishuAppSecretKey                       = "feishu_app_secret"
-	feishuDomainSetting                      = "feishu_domain"
-	feishuDeliveryModeSetting                = "feishu_delivery_mode"
-	feishuDeliveryModeWebSocket              = "websocket"
-	feishuDeliveryModeWebhook                = "webhook"
-	feishuGroupReplyAllSetting               = "feishu_group_reply_all"
-	feishuThreadIsolationSetting             = "feishu_thread_isolation"
-	feishuShareSessionInChannelSetting       = "feishu_share_session_in_channel"
-	feishuResolveMentionsSetting             = "feishu_resolve_mentions"
-	feishuEnableCardsSetting                 = "feishu_enable_cards"
-	feishuBotOpenIDSetting                   = "bot_open_id"
-	feishuBotDisplayNameSetting              = "bot_display_name"
-	feishuChatIDKey                          = "feishu_chat_id"
-	feishuMessageIDKey                       = "feishu_message_id"
-	feishuThreadIDKey                        = "feishu_thread_id"
-	feishuRootIDKey                          = "feishu_root_id"
-	feishuParentIDKey                        = "feishu_parent_id"
-	feishuChatTypeKey                        = "feishu_chat_type"
-	feishuUserOpenIDKey                      = "feishu_user_open_id"
-	feishuConversationIDKey                  = "feishu_conversation_id"
-	feishuChatNameKey                        = "feishu_chat_name"
-	feishuEventTypeKey                       = "feishu_event_type"
-	feishuApprovalCodeKey                    = "feishu_approval_code"
-	feishuApprovalIDKey                      = "feishu_approval_id"
-	feishuApprovalInstanceCodeKey            = "feishu_approval_instance_code"
-	feishuApprovalStatusKey                  = "feishu_approval_status"
-	feishuApprovalVersionIDKey               = "feishu_approval_version_id"
-	feishuApprovalTimestampKey               = "feishu_approval_timestamp"
-	feishuApprovalEventUUIDKey               = "feishu_approval_event_uuid"
-	feishuApprovalOperateTimeKey             = "feishu_approval_operate_time"
-	feishuDefaultDomain                      = "https://open.feishu.cn"
-	feishuDefaultHTTPTimeout                 = 15 * time.Second
-	feishuWSReadTimeout                      = 90 * time.Second
-	feishuPollingReconnectInitialDelay       = time.Second
-	feishuPollingReconnectMaxDelay           = 15 * time.Second
-	feishuReplyRetryAttempts                 = 2
-	feishuReplyRetryBaseDelay                = 500 * time.Millisecond
-	feishuReplyRetryMaxDelay                 = 3 * time.Second
-	feishuWSFrameMethodControl         int32 = 0
-	feishuWSFrameMethodData            int32 = 1
-	feishuWSHeaderType                       = "type"
-	feishuWSHeaderPing                       = "ping"
-	feishuWSHeaderPong                       = "pong"
-	feishuWSHeaderEvent                      = "event"
-	feishuWSHeaderBizRT                      = "biz_rt"
-	feishuAppAccessTokenEndpoint             = "/open-apis/auth/v3/tenant_access_token/internal"
-	feishuBotInfoEndpoint                    = "/open-apis/bot/v3/info"
-	feishuWebsocketConnectEndpoint           = "/callback/ws/endpoint"
-	feishuTypingReactionEmojiType            = "Typing"
+	feishuProviderName                                  = "feishu"
+	feishuAppIDSetting                                  = "feishu_app_id"
+	feishuAppSecretKey                                  = "feishu_app_secret"
+	feishuDomainSetting                                 = "feishu_domain"
+	feishuDeliveryModeSetting                           = "feishu_delivery_mode"
+	feishuDeliveryModeWebSocket                         = "websocket"
+	feishuDeliveryModeWebhook                           = "webhook"
+	feishuGroupReplyAllSetting                          = "feishu_group_reply_all"
+	feishuThreadIsolationSetting                        = "feishu_thread_isolation"
+	feishuShareSessionInChannelSetting                  = "feishu_share_session_in_channel"
+	feishuResolveMentionsSetting                        = "feishu_resolve_mentions"
+	feishuEnableCardsSetting                            = "feishu_enable_cards"
+	feishuStreamingPlainTextStrategySetting             = "feishu_streaming_plain_text_strategy"
+	feishuBotOpenIDSetting                              = "bot_open_id"
+	feishuBotDisplayNameSetting                         = "bot_display_name"
+	feishuChatIDKey                                     = "feishu_chat_id"
+	feishuMessageIDKey                                  = "feishu_message_id"
+	feishuThreadIDKey                                   = "feishu_thread_id"
+	feishuRootIDKey                                     = "feishu_root_id"
+	feishuParentIDKey                                   = "feishu_parent_id"
+	feishuChatTypeKey                                   = "feishu_chat_type"
+	feishuUserOpenIDKey                                 = "feishu_user_open_id"
+	feishuConversationIDKey                             = "feishu_conversation_id"
+	feishuChatNameKey                                   = "feishu_chat_name"
+	feishuEventTypeKey                                  = "feishu_event_type"
+	feishuApprovalCodeKey                               = "feishu_approval_code"
+	feishuApprovalIDKey                                 = "feishu_approval_id"
+	feishuApprovalInstanceCodeKey                       = "feishu_approval_instance_code"
+	feishuApprovalStatusKey                             = "feishu_approval_status"
+	feishuApprovalVersionIDKey                          = "feishu_approval_version_id"
+	feishuApprovalTimestampKey                          = "feishu_approval_timestamp"
+	feishuApprovalEventUUIDKey                          = "feishu_approval_event_uuid"
+	feishuApprovalOperateTimeKey                        = "feishu_approval_operate_time"
+	feishuDefaultDomain                                 = "https://open.feishu.cn"
+	feishuDefaultHTTPTimeout                            = 15 * time.Second
+	feishuWSReadTimeout                                 = 90 * time.Second
+	feishuPollingReconnectInitialDelay                  = time.Second
+	feishuPollingReconnectMaxDelay                      = 15 * time.Second
+	feishuReplyRetryAttempts                            = 2
+	feishuReplyRetryBaseDelay                           = 500 * time.Millisecond
+	feishuReplyRetryMaxDelay                            = 3 * time.Second
+	feishuWSFrameMethodControl                    int32 = 0
+	feishuWSFrameMethodData                       int32 = 1
+	feishuWSHeaderType                                  = "type"
+	feishuWSHeaderPing                                  = "ping"
+	feishuWSHeaderPong                                  = "pong"
+	feishuWSHeaderEvent                                 = "event"
+	feishuWSHeaderBizRT                                 = "biz_rt"
+	feishuAppAccessTokenEndpoint                        = "/open-apis/auth/v3/tenant_access_token/internal"
+	feishuBotInfoEndpoint                               = "/open-apis/bot/v3/info"
+	feishuWebsocketConnectEndpoint                      = "/callback/ws/endpoint"
+	feishuTypingReactionEmojiType                       = "Typing"
+	feishuStreamingPlainTextStrategyUpdateOnly          = "update_only"
+	feishuStreamingPlainTextStrategySmartPreserve       = "smart_preserve"
+	feishuStreamingPlainTextStrategyAppendDelta         = "append_delta"
 )
 
 type feishuProvider struct {
@@ -290,12 +296,24 @@ type feishuStreamingReplySession struct {
 	connection   store.BotConnection
 	conversation store.BotConversation
 
-	mu                sync.Mutex
-	sentMessages      []OutboundMessage
-	streamMessageID   string
-	streamPayload     *feishuSendPayload
-	streamMessageText string
+	mu                       sync.Mutex
+	sentMessages             []OutboundMessage
+	streamMessageID          string
+	streamPayload            *feishuSendPayload
+	streamMessageText        string
+	streamMessageKind        feishuStreamingTextKind
+	plainTextStrategy        string
+	plainTextCommittedPrefix string
 }
+
+type feishuStreamingTextKind string
+
+const (
+	feishuStreamingTextKindDefault        feishuStreamingTextKind = "default"
+	feishuStreamingTextKindStatus         feishuStreamingTextKind = "status"
+	feishuStreamingTextKindToolProgress   feishuStreamingTextKind = "tool_progress"
+	feishuStreamingTextKindActionRequired feishuStreamingTextKind = "action_required"
+)
 
 type feishuTypingSession struct {
 	provider   *feishuProvider
@@ -421,6 +439,10 @@ func (p *feishuProvider) Activate(
 	settings[feishuBotOpenIDSetting] = info.openID()
 	settings[feishuBotDisplayNameSetting] = info.displayName()
 	settings[feishuEnableCardsSetting] = strconv.FormatBool(parseBoolSetting(connection.Settings[feishuEnableCardsSetting], false))
+	settings[feishuStreamingPlainTextStrategySetting] = parseFeishuStreamingPlainTextStrategy(
+		connection.Settings[feishuStreamingPlainTextStrategySetting],
+		feishuStreamingPlainTextStrategyUpdateOnly,
+	)
 	switch mode {
 	case feishuDeliveryModeWebhook:
 		webhookURL, err := buildWebhookURL(publicBaseURL, connection.ID)
@@ -745,6 +767,10 @@ func (p *feishuProvider) StartStreamingReply(
 		provider:     p,
 		connection:   connection,
 		conversation: conversation,
+		plainTextStrategy: parseFeishuStreamingPlainTextStrategy(
+			connection.Settings[feishuStreamingPlainTextStrategySetting],
+			feishuStreamingPlainTextStrategyUpdateOnly,
+		),
 	}, nil
 }
 
@@ -756,6 +782,12 @@ func (s *feishuStreamingReplySession) Update(ctx context.Context, update Streami
 	current := normalizeStreamingMessages(update)
 	if len(current) == 0 {
 		return nil
+	}
+	if s.shouldUseFeishuSmartPlainTextStrategy(current) {
+		return s.handleFeishuSmartPlainTextUpdate(ctx, current[0].Text, false)
+	}
+	if s.shouldUseFeishuAppendDeltaPlainTextStrategy(current) {
+		return s.handleFeishuAppendDeltaPlainTextUpdate(ctx, current[0].Text)
 	}
 
 	s.mu.Lock()
@@ -777,6 +809,16 @@ func (s *feishuStreamingReplySession) Complete(ctx context.Context, messages []O
 	}
 
 	finalMessages := cloneOutboundMessages(messages)
+	if len(finalMessages) == 0 {
+		return nil
+	}
+	if s.shouldUseFeishuSmartPlainTextStrategy(finalMessages) {
+		return s.handleFeishuSmartPlainTextUpdate(ctx, finalMessages[0].Text, true)
+	}
+	if s.shouldUseFeishuAppendDeltaPlainTextStrategy(finalMessages) {
+		return s.handleFeishuAppendDeltaPlainTextUpdate(ctx, finalMessages[0].Text)
+	}
+	finalMessages = s.trimCommittedFeishuPlainTextPrefix(finalMessages)
 	if len(finalMessages) == 0 {
 		return nil
 	}
@@ -809,39 +851,194 @@ func (s *feishuStreamingReplySession) Fail(ctx context.Context, text string) err
 func (s *feishuStreamingReplySession) sendOrUpdateStreamingMessages(
 	ctx context.Context,
 	messages []OutboundMessage,
-	_ bool,
+	final bool,
 ) error {
 	if len(messages) == 0 {
 		return nil
 	}
 
 	if single, ok := feishuSingleTextMessage(messages); ok {
-		return s.sendOrUpdateStreamingSingleText(ctx, single)
+		return s.sendOrUpdateStreamingSingleText(ctx, single, final)
 	}
 
 	return s.provider.SendMessages(ctx, s.connection, s.conversation, messages)
 }
 
-func (s *feishuStreamingReplySession) sendOrUpdateStreamingSingleText(ctx context.Context, text string) error {
+func (s *feishuStreamingReplySession) shouldUseFeishuSmartPlainTextStrategy(messages []OutboundMessage) bool {
+	if s == nil || s.provider == nil || s.plainTextStrategy != feishuStreamingPlainTextStrategySmartPreserve {
+		return false
+	}
+	text, ok := feishuSingleTextMessage(messages)
+	if !ok {
+		return false
+	}
+	return classifyFeishuStreamingText(text) == feishuStreamingTextKindDefault
+}
+
+func (s *feishuStreamingReplySession) shouldUseFeishuAppendDeltaPlainTextStrategy(messages []OutboundMessage) bool {
+	if s == nil || s.provider == nil || s.plainTextStrategy != feishuStreamingPlainTextStrategyAppendDelta {
+		return false
+	}
+	text, ok := feishuSingleTextMessage(messages)
+	if !ok {
+		return false
+	}
+	return classifyFeishuStreamingText(text) == feishuStreamingTextKindDefault
+}
+
+func (s *feishuStreamingReplySession) handleFeishuSmartPlainTextUpdate(
+	ctx context.Context,
+	text string,
+	final bool,
+) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	committedPrefix := s.plainTextCommittedPrefix
+	s.mu.Unlock()
+
+	if committedPrefix != "" && !strings.HasPrefix(text, committedPrefix) {
+		committedPrefix = ""
+	}
+
+	uncommitted := text
+	if committedPrefix != "" {
+		uncommitted = strings.TrimPrefix(text, committedPrefix)
+	}
+	if strings.TrimSpace(uncommitted) == "" {
+		if final {
+			s.mu.Lock()
+			s.plainTextCommittedPrefix = text
+			s.mu.Unlock()
+		}
+		return nil
+	}
+
+	if !final {
+		boundary := findFeishuPlainTextCommitBoundary(uncommitted)
+		if boundary <= 0 {
+			return nil
+		}
+		committedChunk := uncommitted[:boundary]
+		if err := s.provider.SendMessages(ctx, s.connection, s.conversation, []OutboundMessage{{
+			Text: strings.TrimSpace(committedChunk),
+		}}); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.plainTextCommittedPrefix = committedPrefix + committedChunk
+		s.mu.Unlock()
+		return nil
+	}
+
+	if err := s.provider.SendMessages(ctx, s.connection, s.conversation, []OutboundMessage{{
+		Text: strings.TrimSpace(uncommitted),
+	}}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.plainTextCommittedPrefix = text
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *feishuStreamingReplySession) handleFeishuAppendDeltaPlainTextUpdate(
+	ctx context.Context,
+	text string,
+) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	committedPrefix := s.plainTextCommittedPrefix
+	s.mu.Unlock()
+
+	uncommitted := text
+	if committedPrefix != "" && strings.HasPrefix(text, committedPrefix) {
+		uncommitted = strings.TrimPrefix(text, committedPrefix)
+	}
+	if strings.TrimSpace(uncommitted) == "" {
+		s.mu.Lock()
+		s.plainTextCommittedPrefix = text
+		s.mu.Unlock()
+		return nil
+	}
+
+	if err := s.provider.SendMessages(ctx, s.connection, s.conversation, []OutboundMessage{{
+		Text: strings.TrimSpace(uncommitted),
+	}}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.plainTextCommittedPrefix = text
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *feishuStreamingReplySession) trimCommittedFeishuPlainTextPrefix(messages []OutboundMessage) []OutboundMessage {
+	if s == nil {
+		return cloneOutboundMessages(messages)
+	}
+	s.mu.Lock()
+	committedPrefix := s.plainTextCommittedPrefix
+	s.mu.Unlock()
+	if committedPrefix == "" || len(messages) == 0 {
+		return cloneOutboundMessages(messages)
+	}
+
+	cloned := cloneOutboundMessages(messages)
+	firstText := strings.TrimSpace(cloned[0].Text)
+	if firstText == "" || !strings.HasPrefix(firstText, committedPrefix) {
+		return cloned
+	}
+
+	cloned[0].Text = strings.TrimSpace(strings.TrimPrefix(firstText, committedPrefix))
+	if outboundMessageHasContent(cloned[0]) {
+		return cloned
+	}
+	if len(cloned) == 1 {
+		return nil
+	}
+	return cloned[1:]
+}
+
+func (s *feishuStreamingReplySession) sendOrUpdateStreamingSingleText(
+	ctx context.Context,
+	text string,
+	final bool,
+) error {
 	domain, token, chatID, replyMessageID, replyInThread, err := s.provider.feishuSendContext(ctx, s.connection, s.conversation)
 	if err != nil {
 		return err
 	}
+	text = strings.TrimSpace(text)
+	textKind := classifyFeishuStreamingText(text)
 
 	s.mu.Lock()
 	streamMessageID := strings.TrimSpace(s.streamMessageID)
 	lastText := strings.TrimSpace(s.streamMessageText)
+	streamMessageKind := s.streamMessageKind
 	s.mu.Unlock()
+
+	if shouldStartNewFeishuStreamingMessage(streamMessageID != "", streamMessageKind, textKind, final) {
+		return s.sendFreshStreamingSingleText(ctx, domain, token, chatID, replyMessageID, replyInThread, text, textKind)
+	}
 
 	payload := feishuBuildStreamingPayload(text)
 	if streamMessageID != "" {
-		if lastText == strings.TrimSpace(text) {
+		if lastText == text {
 			return nil
 		}
 		if err := s.provider.updateFeishuMessage(ctx, domain, token, streamMessageID, payload); err == nil {
 			s.mu.Lock()
 			s.streamPayload = &payload
-			s.streamMessageText = strings.TrimSpace(text)
+			s.streamMessageText = text
+			s.streamMessageKind = textKind
 			s.mu.Unlock()
 			return nil
 		} else if isFeishuCardContentLimitError(err) {
@@ -852,13 +1049,27 @@ func (s *feishuStreamingReplySession) sendOrUpdateStreamingSingleText(ctx contex
 			if updateErr := s.provider.updateFeishuMessage(ctx, domain, token, streamMessageID, textPayload); updateErr == nil {
 				s.mu.Lock()
 				s.streamPayload = &textPayload
-				s.streamMessageText = strings.TrimSpace(text)
+				s.streamMessageText = text
+				s.streamMessageKind = textKind
 				s.mu.Unlock()
 				return nil
 			}
 		}
 	}
 
+	return s.sendFreshStreamingSingleText(ctx, domain, token, chatID, replyMessageID, replyInThread, text, textKind)
+}
+
+func (s *feishuStreamingReplySession) sendFreshStreamingSingleText(
+	ctx context.Context,
+	domain string,
+	token string,
+	chatID string,
+	replyMessageID string,
+	replyInThread bool,
+	text string,
+	textKind feishuStreamingTextKind,
+) error {
 	response, err := s.provider.sendFeishuStreamingTextMessage(
 		ctx,
 		s.connection,
@@ -874,9 +1085,18 @@ func (s *feishuStreamingReplySession) sendOrUpdateStreamingSingleText(ctx contex
 	}
 
 	s.mu.Lock()
-	s.streamMessageID = strings.TrimSpace(response.Data.MessageID)
-	s.streamPayload = &payload
-	s.streamMessageText = strings.TrimSpace(text)
+	if textKind == feishuStreamingTextKindActionRequired {
+		s.streamMessageID = ""
+		s.streamPayload = nil
+		s.streamMessageText = ""
+		s.streamMessageKind = ""
+	} else {
+		payload := feishuBuildStreamingPayload(text)
+		s.streamMessageID = strings.TrimSpace(response.Data.MessageID)
+		s.streamPayload = &payload
+		s.streamMessageText = text
+		s.streamMessageKind = textKind
+	}
 	s.mu.Unlock()
 	return nil
 }
@@ -940,7 +1160,134 @@ func shouldEmitFeishuStreamingTail(message OutboundMessage) bool {
 	if text == "" || len(message.Media) > 0 {
 		return false
 	}
-	return strings.Contains(text, "Request ID:") || strings.HasPrefix(text, "Feishu Sheet ·") || strings.HasPrefix(text, "Feishu Base ·") || strings.HasPrefix(text, "Feishu Tool:")
+	return classifyFeishuStreamingText(text) != feishuStreamingTextKindDefault
+}
+
+func classifyFeishuStreamingText(text string) feishuStreamingTextKind {
+	text = strings.TrimSpace(text)
+	switch {
+	case looksLikeFeishuActionRequiredText(text):
+		return feishuStreamingTextKindActionRequired
+	case looksLikeFeishuStatusText(text):
+		return feishuStreamingTextKindStatus
+	case looksLikeFeishuToolProgressText(text):
+		return feishuStreamingTextKindToolProgress
+	default:
+		return feishuStreamingTextKindDefault
+	}
+}
+
+func findFeishuPlainTextCommitBoundary(text string) int {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if strings.TrimSpace(text) == "" {
+		return 0
+	}
+
+	if boundary := lastFeishuPlainTextBlankLineBoundary(text); boundary > 0 {
+		return boundary
+	}
+	if boundary := lastFeishuPlainTextSentenceBoundary(text); boundary > 0 &&
+		utf8.RuneCountInString(strings.TrimSpace(text[:boundary])) >= 160 {
+		return boundary
+	}
+	if boundary := lastFeishuPlainTextLineBoundary(text); boundary > 0 &&
+		utf8.RuneCountInString(strings.TrimSpace(text[:boundary])) >= 240 {
+		return boundary
+	}
+	return 0
+}
+
+func lastFeishuPlainTextBlankLineBoundary(text string) int {
+	index := strings.LastIndex(text, "\n\n")
+	if index < 0 {
+		return 0
+	}
+	boundary := index + len("\n\n")
+	if strings.TrimSpace(text[:boundary]) == "" {
+		return 0
+	}
+	return boundary
+}
+
+func lastFeishuPlainTextLineBoundary(text string) int {
+	index := strings.LastIndex(text, "\n")
+	if index < 0 {
+		return 0
+	}
+	boundary := index + 1
+	if boundary >= len(text) || strings.TrimSpace(text[:boundary]) == "" {
+		return 0
+	}
+	return boundary
+}
+
+func lastFeishuPlainTextSentenceBoundary(text string) int {
+	boundary := 0
+	for index, char := range text {
+		if !isFeishuSentenceBoundaryRune(char) {
+			continue
+		}
+		next := index + utf8.RuneLen(char)
+		if next >= len(text) {
+			boundary = next
+			continue
+		}
+		nextRune, _ := utf8.DecodeRuneInString(text[next:])
+		if unicode.IsSpace(nextRune) {
+			boundary = next
+		}
+	}
+	return boundary
+}
+
+func isFeishuSentenceBoundaryRune(char rune) bool {
+	switch char {
+	case '.', '!', '?', '。', '！', '？':
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeFeishuActionRequiredText(text string) bool {
+	text = strings.TrimSpace(text)
+	return strings.Contains(text, "Request ID:") ||
+		strings.HasPrefix(text, "Command Approval:") ||
+		strings.Contains(text, "/approve ") ||
+		strings.Contains(text, "/decline ")
+}
+
+func looksLikeFeishuToolProgressText(text string) bool {
+	text = strings.TrimSpace(text)
+	return strings.HasPrefix(text, "Feishu Sheet ·") ||
+		strings.HasPrefix(text, "Feishu Base ·") ||
+		strings.HasPrefix(text, "Feishu Tool:")
+}
+
+func looksLikeFeishuStatusText(text string) bool {
+	text = strings.TrimSpace(text)
+	return strings.HasPrefix(text, "Plan:\n") || strings.HasPrefix(text, "Plan Status:")
+}
+
+func shouldStartNewFeishuStreamingMessage(
+	hasActiveMessage bool,
+	activeKind feishuStreamingTextKind,
+	nextKind feishuStreamingTextKind,
+	final bool,
+) bool {
+	if nextKind == feishuStreamingTextKindActionRequired {
+		return true
+	}
+	if !hasActiveMessage {
+		return false
+	}
+	if final && activeKind != feishuStreamingTextKindDefault {
+		return true
+	}
+	if activeKind != nextKind && (activeKind != feishuStreamingTextKindDefault || nextKind != feishuStreamingTextKindDefault) {
+		return true
+	}
+	return false
 }
 
 func outboundMessageCommonPrefixLen(left []OutboundMessage, right []OutboundMessage) int {
@@ -2048,6 +2395,19 @@ func parseFeishuDeliveryMode(value string) (string, error) {
 		return feishuDeliveryModeWebhook, nil
 	default:
 		return "", fmt.Errorf("%w: feishu delivery mode must be websocket or webhook", ErrInvalidInput)
+	}
+}
+
+func parseFeishuStreamingPlainTextStrategy(value string, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case feishuStreamingPlainTextStrategyUpdateOnly:
+		return feishuStreamingPlainTextStrategyUpdateOnly
+	case feishuStreamingPlainTextStrategySmartPreserve:
+		return feishuStreamingPlainTextStrategySmartPreserve
+	case feishuStreamingPlainTextStrategyAppendDelta:
+		return feishuStreamingPlainTextStrategyAppendDelta
+	default:
+		return fallback
 	}
 }
 
