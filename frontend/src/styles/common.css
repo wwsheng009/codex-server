@@ -2729,6 +2729,24 @@
   border-spacing: 0;
   table-layout: fixed;
 }
+.feishu-tool-selector-table--auto-layout {
+  table-layout: auto;
+}
+
+.feishu-tool-selector-table--auto-layout .feishu-tool-selector-table__col--toggle {
+  width: auto;
+  min-width: 56px;
+}
+
+.feishu-tool-selector-table--auto-layout .feishu-tool-selector-table__header--toggle {
+  width: auto;
+  min-width: 56px;
+}
+
+.feishu-tool-selector-table--auto-layout .feishu-tool-selector-table__cell--toggle {
+  width: auto;
+  min-width: 56px;
+}
 
 .feishu-tool-selector-table__col--toggle {
   width: 76px;
@@ -2778,6 +2796,14 @@
 
 .feishu-tool-selector-table__row--muted {
   opacity: 0.72;
+}
+
+.feishu-tool-selector-table__row:hover:not(.feishu-tool-selector-table__row--muted) {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.feishu-tool-selector-table__row--selected:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .feishu-tool-selector-table__cell {
@@ -2849,6 +2875,7 @@
 }
 
 .feishu-tool-selector-pagination {
+  padding: 10px 0 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2856,6 +2883,12 @@
   gap: 12px;
 }
 
+.feishu-tool-selector-pagination__info {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
 .feishu-tool-selector-pagination__actions {
   display: flex;
   flex-wrap: wrap;
