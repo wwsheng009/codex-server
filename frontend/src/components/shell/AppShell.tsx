@@ -86,6 +86,12 @@ function getPrimaryNavItems() {
       icon: AutomationIcon,
     },
     {
+      section: 'jobs',
+      to: '/jobs',
+      label: i18n._({ id: 'Jobs', message: 'Jobs' }),
+      icon: TerminalIcon,
+    },
+    {
       section: 'notification-center',
       to: '/notification-center',
       label: i18n._({ id: 'Notification Center', message: 'Notification Center' }),
@@ -823,6 +829,8 @@ export function AppShell() {
     ? 'workspaces'
     : location.pathname.startsWith('/automations')
       ? 'automations'
+      : location.pathname.startsWith('/jobs')
+        ? 'jobs'
       : location.pathname.startsWith('/bots/outbound')
         ? 'bots-outbound'
       : location.pathname.startsWith('/bots')
@@ -862,6 +870,18 @@ export function AppShell() {
         onSelect: () => navigate('/automations'),
       },
       {
+        id: 'nav-jobs',
+        title: i18n._({ id: 'Open Jobs', message: 'Open Jobs' }),
+        group: 'Nav',
+        subtitle: i18n._({
+          id: 'Inspect background jobs and queued work',
+          message: 'Inspect background jobs and queued work',
+        }),
+        keywords: ['jobs', 'background', 'queue', 'worker', 'scheduler'],
+        priority: currentSection === 'jobs' ? 40 : 12,
+        onSelect: () => navigate('/jobs'),
+      },
+      {
         id: 'nav-bots',
         group: 'Nav',
         title: i18n._({ id: 'Open Bots', message: 'Open Bots' }),
@@ -870,7 +890,7 @@ export function AppShell() {
           message: 'Manage bot integrations and chat bindings',
         }),
         keywords: ['bots', 'telegram', 'webhook', 'integrations'],
-        priority: currentSection === 'bots' ? 40 : 12,
+        priority: currentSection === 'bots' ? 40 : 13,
         onSelect: () => navigate('/bots'),
       },
       {
@@ -882,7 +902,7 @@ export function AppShell() {
           message: 'Manage proactive recipients and outbound deliveries',
         }),
         keywords: ['bots', 'outbound', 'proactive', 'recipients', 'deliveries', 'operations'],
-        priority: currentSection === 'bots-outbound' ? 40 : 13,
+        priority: currentSection === 'bots-outbound' ? 40 : 14,
         onSelect: () => navigate('/bots/outbound'),
       },
       {
@@ -894,7 +914,7 @@ export function AppShell() {
           message: 'Browse installed workspace skills',
         }),
         keywords: ['skills', 'catalog', 'directory'],
-        priority: currentSection === 'skills' ? 40 : 14,
+        priority: currentSection === 'skills' ? 40 : 15,
         onSelect: () => navigate('/skills'),
       },
       {
@@ -906,7 +926,7 @@ export function AppShell() {
           message: 'Inspect runtime inventory and actions',
         }),
         keywords: ['runtime', 'catalog', 'models', 'plugins'],
-        priority: currentSection === 'runtime' ? 40 : 15,
+        priority: currentSection === 'runtime' ? 40 : 16,
         onSelect: () => navigate('/runtime'),
       },
       {
