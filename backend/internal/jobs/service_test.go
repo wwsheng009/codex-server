@@ -2,12 +2,166 @@ package jobs
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
 )
+
+type testExecutor struct {
+	definition     ExecutorDefinition
+	normalizeInput func(*CreateInput) error
+	validateJob    func(store.BackgroundJob) error
+	execute        func(context.Context, ExecutionRequest) (map[string]any, error)
+}
+
+func (e testExecutor) Definition() ExecutorDefinition {
+	return e.definition
+}
+
+func (e testExecutor) Execute(ctx context.Context, request ExecutionRequest) (map[string]any, error) {
+	if e.execute == nil {
+		return map[string]any{"ok": true}, nil
+	}
+	return e.execute(ctx, request)
+}
+
+func (e testExecutor) NormalizeCreateInput(input *CreateInput) error {
+	if e.normalizeInput == nil {
+		return nil
+	}
+	return e.normalizeInput(input)
+}
+
+func (e testExecutor) ValidateStoredJob(job store.BackgroundJob) error {
+	if e.validateJob == nil {
+		return nil
+	}
+	return e.validateJob(job)
+}
+
+func newAutomationRunTestRunner(dataStore *store.MemoryStore) Runner {
+	return testExecutor{
+		definition: ExecutorDefinition{
+			Kind:             "automation_run",
+			Title:            "Automation Run",
+			SupportsSchedule: true,
+		},
+		normalizeInput: func(input *CreateInput) error {
+			return normalizeTestAutomationRunInput(dataStore, input)
+		},
+		validateJob: func(job store.BackgroundJob) error {
+			return normalizeTestAutomationRunInput(dataStore, &CreateInput{
+				SourceType:   job.SourceType,
+				SourceRefID:  job.SourceRefID,
+				Name:         firstNonEmpty(strings.TrimSpace(job.Name), "automation_run"),
+				WorkspaceID:  job.WorkspaceID,
+				ExecutorKind: job.ExecutorKind,
+				Schedule:     job.Schedule,
+				Payload:      cloneAnyMap(job.Payload),
+			})
+		},
+	}
+}
+
+func normalizeTestAutomationRunInput(dataStore *store.MemoryStore, input *CreateInput) error {
+	if input == nil {
+		return nil
+	}
+	payload := cloneAnyMap(input.Payload)
+	automationID := readString(payload, "automationId")
+	sourceType := strings.TrimSpace(input.SourceType)
+	sourceRefID := strings.TrimSpace(input.SourceRefID)
+
+	switch {
+	case sourceType != "" && !strings.EqualFold(sourceType, "automation"):
+		return newClassifiedError(
+			ErrInvalidInput,
+			"automation_run jobs must use sourceType automation",
+			store.ErrorMetadata{
+				Code:      "automation_run_source_type_invalid",
+				Category:  "validation",
+				Retryable: ptrBool(false),
+				Details: map[string]string{
+					"executorKind": "automation_run",
+					"sourceType":   sourceType,
+				},
+			},
+		)
+	case automationID == "" && sourceRefID == "":
+		return newClassifiedError(
+			ErrInvalidInput,
+			"automation_run jobs require automationId or sourceRefId",
+			store.ErrorMetadata{
+				Code:      "automation_run_reference_required",
+				Category:  "validation",
+				Retryable: ptrBool(false),
+				Details: map[string]string{
+					"executorKind": "automation_run",
+				},
+			},
+		)
+	case automationID != "" && sourceRefID != "" && automationID != sourceRefID:
+		return newClassifiedError(
+			ErrInvalidInput,
+			"automation_run job sourceRefId must match payload automationId",
+			store.ErrorMetadata{
+				Code:      "automation_run_reference_mismatch",
+				Category:  "validation",
+				Retryable: ptrBool(false),
+				Details: map[string]string{
+					"executorKind": "automation_run",
+					"sourceRefId":  sourceRefID,
+					"automationId": automationID,
+				},
+			},
+		)
+	}
+
+	resolvedAutomationID := firstNonEmpty(automationID, sourceRefID)
+	automation, ok := dataStore.GetAutomation(resolvedAutomationID)
+	if !ok {
+		return newClassifiedError(
+			store.ErrAutomationNotFound,
+			"automation not found",
+			store.ErrorMetadata{
+				Code:      "automation_not_found",
+				Category:  "reference",
+				Retryable: ptrBool(false),
+				Details: map[string]string{
+					"executorKind": "automation_run",
+					"automationId": resolvedAutomationID,
+				},
+			},
+		)
+	}
+	if strings.TrimSpace(automation.WorkspaceID) != strings.TrimSpace(input.WorkspaceID) {
+		return newClassifiedError(
+			ErrInvalidInput,
+			"automation_run job workspaceId must match automation workspace",
+			store.ErrorMetadata{
+				Code:      "automation_run_workspace_mismatch",
+				Category:  "validation",
+				Retryable: ptrBool(false),
+				Details: map[string]string{
+					"executorKind":          "automation_run",
+					"automationId":          resolvedAutomationID,
+					"workspaceId":           strings.TrimSpace(input.WorkspaceID),
+					"automationWorkspaceId": strings.TrimSpace(automation.WorkspaceID),
+				},
+			},
+		)
+	}
+
+	payload["automationId"] = resolvedAutomationID
+	input.Payload = payload
+	input.SourceType = "automation"
+	input.SourceRefID = resolvedAutomationID
+	return nil
+}
 
 func TestCreateAndTriggerNoopJob(t *testing.T) {
 	t.Parallel()
@@ -217,5 +371,296 @@ func TestCreateSupportsAutomationStyleSchedules(t *testing.T) {
 				t.Fatal("expected nextRunAt for scheduled job")
 			}
 		})
+	}
+}
+
+func TestCreateAutomationRunJobValidatesReferences(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	otherWorkspace := dataStore.CreateWorkspace("Workspace B", "E:/projects/ai/codex-server")
+	automation, err := dataStore.CreateAutomation(store.Automation{
+		WorkspaceID: workspace.ID,
+		Title:       "Automation A",
+		Status:      "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateAutomation() error = %v", err)
+	}
+
+	service := NewService(dataStore, nil)
+	service.RegisterRunner(newAutomationRunTestRunner(dataStore))
+
+	t.Run("backfills source reference from payload", func(t *testing.T) {
+		job, err := service.Create(CreateInput{
+			Name:         "Automation Backfill",
+			WorkspaceID:  workspace.ID,
+			ExecutorKind: "automation_run",
+			Payload: map[string]any{
+				"automationId": automation.ID,
+			},
+		})
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		if job.SourceType != "automation" || job.SourceRefID != automation.ID {
+			t.Fatalf("expected automation source to be normalized, got %#v", job)
+		}
+		if got, _ := job.Payload["automationId"].(string); got != automation.ID {
+			t.Fatalf("expected payload automationId %q, got %#v", automation.ID, job.Payload)
+		}
+	})
+
+	t.Run("rejects missing automation", func(t *testing.T) {
+		_, err := service.Create(CreateInput{
+			Name:         "Missing Automation",
+			WorkspaceID:  workspace.ID,
+			ExecutorKind: "automation_run",
+			SourceType:   "automation",
+			SourceRefID:  "auto_missing",
+		})
+		if !errors.Is(err, store.ErrAutomationNotFound) {
+			t.Fatalf("expected ErrAutomationNotFound, got %v", err)
+		}
+		meta, ok := ExtractErrorMetadata(err)
+		if !ok || meta.Code != "automation_not_found" || meta.Retryable == nil || *meta.Retryable {
+			t.Fatalf("expected structured automation_not_found metadata, got %#v", meta)
+		}
+	})
+
+	t.Run("rejects workspace mismatch", func(t *testing.T) {
+		_, err := service.Create(CreateInput{
+			Name:         "Wrong Workspace",
+			WorkspaceID:  otherWorkspace.ID,
+			ExecutorKind: "automation_run",
+			SourceType:   "automation",
+			SourceRefID:  automation.ID,
+		})
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected ErrInvalidInput, got %v", err)
+		}
+		meta, ok := ExtractErrorMetadata(err)
+		if !ok || meta.Code != "automation_run_workspace_mismatch" {
+			t.Fatalf("expected workspace mismatch metadata, got %#v", meta)
+		}
+	})
+
+	t.Run("rejects source mismatch", func(t *testing.T) {
+		_, err := service.Create(CreateInput{
+			Name:         "Mismatched Source",
+			WorkspaceID:  workspace.ID,
+			ExecutorKind: "automation_run",
+			SourceType:   "automation",
+			SourceRefID:  automation.ID,
+			Payload: map[string]any{
+				"automationId": "auto_other",
+			},
+		})
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected ErrInvalidInput, got %v", err)
+		}
+		meta, ok := ExtractErrorMetadata(err)
+		if !ok || meta.Code != "automation_run_reference_mismatch" {
+			t.Fatalf("expected reference mismatch metadata, got %#v", meta)
+		}
+	})
+}
+
+func TestAutomationRunFailureClassificationAndRetryBlock(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	service := NewService(dataStore, nil)
+	service.RegisterRunner(testExecutor{
+		definition: ExecutorDefinition{
+			Kind:             "automation_run",
+			Title:            "Automation Run",
+			SupportsSchedule: true,
+		},
+		validateJob: func(job store.BackgroundJob) error {
+			return normalizeTestAutomationRunInput(dataStore, &CreateInput{
+				SourceType:   job.SourceType,
+				SourceRefID:  job.SourceRefID,
+				Name:         firstNonEmpty(strings.TrimSpace(job.Name), "automation_run"),
+				WorkspaceID:  job.WorkspaceID,
+				ExecutorKind: job.ExecutorKind,
+				Schedule:     job.Schedule,
+				Payload:      cloneAnyMap(job.Payload),
+			})
+		},
+		execute: func(context.Context, ExecutionRequest) (map[string]any, error) {
+			return nil, store.ErrAutomationNotFound
+		},
+	})
+
+	job, err := dataStore.CreateBackgroundJob(store.BackgroundJob{
+		WorkspaceID:   workspace.ID,
+		WorkspaceName: workspace.Name,
+		Name:          "Legacy Automation Job",
+		ExecutorKind:  "automation_run",
+		SourceType:    "automation",
+		SourceRefID:   "auto_missing",
+		Payload: map[string]any{
+			"automationId": "auto_missing",
+		},
+		Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBackgroundJob() error = %v", err)
+	}
+
+	run, err := service.Trigger(context.Background(), job.ID, "manual")
+	if err != nil {
+		t.Fatalf("Trigger() error = %v", err)
+	}
+
+	service.processRun(context.Background(), queuedRun{jobID: job.ID, runID: run.ID, trigger: "manual"})
+
+	storedRun, err := service.GetRun(run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if storedRun.Status != "failed" {
+		t.Fatalf("expected failed run, got %#v", storedRun)
+	}
+	if storedRun.ErrorMeta == nil || storedRun.ErrorMeta.Code != "automation_not_found" {
+		t.Fatalf("expected automation_not_found error metadata, got %#v", storedRun.ErrorMeta)
+	}
+	if storedRun.ErrorMeta.Retryable == nil || *storedRun.ErrorMeta.Retryable {
+		t.Fatalf("expected non-retryable failed run, got %#v", storedRun.ErrorMeta)
+	}
+
+	_, err = service.RetryRun(context.Background(), run.ID)
+	if !errors.Is(err, ErrJobRunNotRetryable) {
+		t.Fatalf("expected ErrJobRunNotRetryable, got %v", err)
+	}
+	meta, ok := ExtractErrorMetadata(err)
+	if !ok || meta.Code != "automation_not_found" || meta.Retryable == nil || *meta.Retryable {
+		t.Fatalf("expected retry-block metadata to preserve automation_not_found, got %#v", meta)
+	}
+}
+
+func TestRetryRunBlocksLegacyAutomationReferenceWithoutStoredMetadata(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	service := NewService(dataStore, nil)
+	service.RegisterRunner(newAutomationRunTestRunner(dataStore))
+
+	job, err := dataStore.CreateBackgroundJob(store.BackgroundJob{
+		WorkspaceID:   workspace.ID,
+		WorkspaceName: workspace.Name,
+		Name:          "Legacy Missing Automation Job",
+		ExecutorKind:  "automation_run",
+		SourceType:    "automation",
+		SourceRefID:   "auto_missing",
+		Payload: map[string]any{
+			"automationId": "auto_missing",
+		},
+		Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateBackgroundJob() error = %v", err)
+	}
+	run, err := dataStore.CreateBackgroundJobRun(store.BackgroundJobRun{
+		JobID:         job.ID,
+		WorkspaceID:   workspace.ID,
+		WorkspaceName: workspace.Name,
+		ExecutorKind:  job.ExecutorKind,
+		Trigger:       "manual",
+		Status:        "failed",
+		Error:         "automation not found",
+		StartedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("CreateBackgroundJobRun() error = %v", err)
+	}
+
+	_, err = service.RetryRun(context.Background(), run.ID)
+	if !errors.Is(err, ErrJobRunNotRetryable) {
+		t.Fatalf("expected ErrJobRunNotRetryable, got %v", err)
+	}
+	meta, ok := ExtractErrorMetadata(err)
+	if !ok || meta.Code != "automation_not_found" || meta.Retryable == nil || *meta.Retryable {
+		t.Fatalf("expected automation_not_found retry block metadata, got %#v", meta)
+	}
+}
+
+func TestFailRunStoresFailureOutput(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	service := NewService(dataStore, nil)
+	service.RegisterRunner(testExecutor{
+		definition: ExecutorDefinition{
+			Kind:             "failure_output",
+			Title:            "Failure Output",
+			SupportsSchedule: true,
+		},
+		execute: func(context.Context, ExecutionRequest) (map[string]any, error) {
+			return nil, withFailureOutput(
+				NewClassifiedError(
+					errors.New("non-zero exit"),
+					"Shell script exited with code 2.",
+					store.ErrorMetadata{
+						Code:      "shell_script_exit_non_zero",
+						Category:  "execution",
+						Retryable: ptrBool(true),
+					},
+				),
+				map[string]any{
+					"message":  "Shell script exited with code 2.",
+					"exitCode": 2,
+					"stderr":   "boom",
+				},
+			)
+		},
+	})
+
+	job, err := service.Create(CreateInput{
+		Name:         "Failure Output Job",
+		WorkspaceID:  workspace.ID,
+		ExecutorKind: "failure_output",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	run, err := service.Trigger(context.Background(), job.ID, "manual")
+	if err != nil {
+		t.Fatalf("Trigger() error = %v", err)
+	}
+
+	service.processRun(context.Background(), queuedRun{jobID: job.ID, runID: run.ID, trigger: "manual"})
+
+	storedRun, err := service.GetRun(run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if storedRun.Status != "failed" {
+		t.Fatalf("expected failed run, got %#v", storedRun)
+	}
+	if storedRun.Output["stderr"] != "boom" {
+		t.Fatalf("expected failure output to be persisted, got %#v", storedRun.Output)
+	}
+	if storedRun.Summary != "Shell script exited with code 2." {
+		t.Fatalf("expected summary from failure output, got %q", storedRun.Summary)
+	}
+}
+
+func TestSummarizeOutputPrefersSummaryBeforeMessage(t *testing.T) {
+	t.Parallel()
+
+	output := map[string]any{
+		"message": "Prompt run completed successfully.",
+		"summary": "Nightly summary complete",
+	}
+
+	if got := summarizeOutput(output); got != "Nightly summary complete" {
+		t.Fatalf("expected summarizeOutput() to prefer summary, got %q", got)
 	}
 }

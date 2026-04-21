@@ -15,6 +15,7 @@ type envelope struct {
 type errorEnvelope struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
@@ -24,12 +25,17 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 }
 
 func writeError(w http.ResponseWriter, status int, code string, message string) {
+	writeErrorDetails(w, status, code, message, nil)
+}
+
+func writeErrorDetails(w http.ResponseWriter, status int, code string, message string, details any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(envelope{
 		Error: &errorEnvelope{
 			Code:    code,
 			Message: message,
+			Details: details,
 		},
 	})
 }

@@ -27,6 +27,8 @@ import (
 	"codex-server/backend/internal/feedback"
 	"codex-server/backend/internal/feishutools"
 	"codex-server/backend/internal/hooks"
+	"codex-server/backend/internal/jobs"
+	"codex-server/backend/internal/jobsmcp"
 	"codex-server/backend/internal/memorydiag"
 	"codex-server/backend/internal/notificationcenter"
 	"codex-server/backend/internal/notifications"
@@ -5580,6 +5582,60 @@ func TestFeishuToolsMCPRouteRequiresManagedTokenAndServesJSONRPC(t *testing.T) {
 	}
 }
 
+func TestJobsMCPRouteRequiresManagedTokenAndRejectsGET(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	workspace := dataStore.CreateWorkspace("Workspace A", t.TempDir())
+	if _, err := dataStore.SetJobMCPConfig(store.JobMCPConfig{
+		WorkspaceID:         workspace.ID,
+		Enabled:             true,
+		ManagedMCPAuthToken: "token-123",
+	}); err != nil {
+		t.Fatalf("SetJobMCPConfig() error = %v", err)
+	}
+
+	router := newTestRouter(dataStore)
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
+
+	unauthorized := performJSONRequest(t, router, http.MethodPost, "/api/jobs-mcp/"+workspace.ID, body)
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized mcp request to be rejected, got %d", unauthorized.Code)
+	}
+
+	rejectedGet := performJSONRequest(t, router, http.MethodGet, "/api/jobs-mcp/"+workspace.ID+"?token=token-123", "")
+	if rejectedGet.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected GET request to be rejected, got %d", rejectedGet.Code)
+	}
+
+	initialized := performJSONRequest(t, router, http.MethodPost, "/api/jobs-mcp/"+workspace.ID+"?token=token-123", body)
+	if initialized.Code != http.StatusOK {
+		t.Fatalf("expected authorized initialize request to succeed, got %d", initialized.Code)
+	}
+	if !strings.Contains(initialized.Body.String(), `"protocolVersion":"2025-03-26"`) {
+		t.Fatalf("unexpected initialize payload %s", initialized.Body.String())
+	}
+
+	batch := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/jobs-mcp/"+workspace.ID+"?token=token-123",
+		`[{"jsonrpc":"2.0","id":2,"method":"initialize","params":{}},{"jsonrpc":"2.0","method":"notifications/initialized"}]`,
+	)
+	if batch.Code != http.StatusOK {
+		t.Fatalf("expected batch request to succeed, got %d", batch.Code)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(batch.Body.String()), `[`) {
+		t.Fatalf("expected batch response array, got %s", batch.Body.String())
+	}
+}
+
 func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
 	t.Parallel()
 
@@ -7401,6 +7457,78 @@ func TestNotificationDispatchRoutesListGetAndRetry(t *testing.T) {
 	}
 }
 
+func TestBackgroundJobExecutorsRouteReturnsStructuredFieldMetadata(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	router := newTestRouter(dataStore)
+
+	response := performJSONRequest(t, router, http.MethodGet, "/api/jobs/executors", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200 from background job executors route, got %d", response.Code)
+	}
+
+	var payload struct {
+		Data []jobs.ExecutorDefinition `json:"data"`
+	}
+	decodeResponseBody(t, response, &payload)
+
+	if len(payload.Data) == 0 {
+		t.Fatal("expected executors to be returned")
+	}
+
+	var promptDefinition *jobs.ExecutorDefinition
+	var shellDefinition *jobs.ExecutorDefinition
+	var automationDefinition *jobs.ExecutorDefinition
+	for index := range payload.Data {
+		switch payload.Data[index].Kind {
+		case "prompt_run":
+			promptDefinition = &payload.Data[index]
+		case "shell_script":
+			shellDefinition = &payload.Data[index]
+		case "automation_run":
+			automationDefinition = &payload.Data[index]
+		}
+	}
+
+	if promptDefinition == nil || promptDefinition.Form == nil {
+		t.Fatalf("expected prompt_run metadata in route response, got %#v", payload.Data)
+	}
+	if shellDefinition == nil || shellDefinition.Form == nil {
+		t.Fatalf("expected shell_script metadata in route response, got %#v", payload.Data)
+	}
+	if automationDefinition == nil || automationDefinition.Form == nil {
+		t.Fatalf("expected automation_run metadata in route response, got %#v", payload.Data)
+	}
+
+	promptThreadNameField := findRouteExecutorFormField(promptDefinition.Form.Fields, "threadName")
+	if promptThreadNameField == nil || !promptThreadNameField.Advanced || promptThreadNameField.Group != "execution" {
+		t.Fatalf("expected prompt_run advanced execution metadata, got %#v", promptThreadNameField)
+	}
+	promptModelField := findRouteExecutorFormField(promptDefinition.Form.Fields, "model")
+	if promptModelField == nil || promptModelField.DataSource == nil || promptModelField.DataSource.Kind != "workspace_models" {
+		t.Fatalf("expected prompt_run datasource metadata, got %#v", promptModelField)
+	}
+
+	shellField := findRouteExecutorFormField(shellDefinition.Form.Fields, "shell")
+	if shellField == nil || len(shellField.Options) == 0 || shellField.Options[0].Label == "" {
+		t.Fatalf("expected shell_script labeled options, got %#v", shellField)
+	}
+	shellWorkdirField := findRouteExecutorFormField(shellDefinition.Form.Fields, "workdir")
+	if shellWorkdirField == nil || shellWorkdirField.Validation == nil || !shellWorkdirField.Validation.RelativeWorkspacePath {
+		t.Fatalf("expected shell_script validation metadata, got %#v", shellWorkdirField)
+	}
+
+	automationModelField := findRouteExecutorFormField(automationDefinition.Form.Fields, "model")
+	if automationModelField == nil || !automationModelField.Advanced || automationModelField.Group != "overrides" {
+		t.Fatalf("expected automation_run override metadata, got %#v", automationModelField)
+	}
+	automationField := findRouteExecutorFormField(automationDefinition.Form.Fields, "automationRef")
+	if automationField == nil || automationField.Validation == nil || automationField.Validation.DisallowedPattern == "" {
+		t.Fatalf("expected automation_run validation metadata, got %#v", automationField)
+	}
+}
+
 func newTestRouter(dataStore *store.MemoryStore) http.Handler {
 	return newTestRouterWithShutdown(dataStore, nil)
 }
@@ -7452,6 +7580,11 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 	configFSService := configfs.NewService(runtimeManager)
 	feedbackService := feedback.NewService(runtimeManager)
 	feishuToolsService := feishutools.NewService(configFSService, catalog.NewService(runtimeManager, runtimePrefsService), authService, dataStore)
+	jobService := jobs.NewService(dataStore, eventHub)
+	jobService.RegisterRunner(automations.NewJobRunner(automationService))
+	jobService.RegisterRunner(jobs.NewPromptRunRunner(threadService, turnService, dataStore))
+	jobService.RegisterRunner(jobs.NewShellScriptRunner(runtimeManager, dataStore))
+	jobsMCPService := jobsmcp.NewService(configFSService, jobService, dataStore)
 	execfsService := execfs.NewService(runtimeManager, eventHub, dataStore)
 	memoryDiagService := memorydiag.NewService(dataStore)
 	accessControlService := accesscontrol.NewService(dataStore, true)
@@ -7463,6 +7596,8 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 		Workspaces:         workspaceService,
 		Bots:               botService,
 		Automations:        automationService,
+		Jobs:               jobService,
+		JobsMCP:            jobsMCPService,
 		Notifications:      notificationsService,
 		NotificationCenter: notificationCenterService,
 		Hooks:              hookService,
@@ -7548,6 +7683,15 @@ func decodeResponseBody(t *testing.T, recorder *httptest.ResponseRecorder, targe
 	if err := json.NewDecoder(recorder.Body).Decode(target); err != nil {
 		t.Fatalf("decode response body error = %v", err)
 	}
+}
+
+func findRouteExecutorFormField(fields []jobs.ExecutorFormField, purpose string) *jobs.ExecutorFormField {
+	for index := range fields {
+		if fields[index].Purpose == purpose {
+			return &fields[index]
+		}
+	}
+	return nil
 }
 
 func waitForCondition(t *testing.T, condition func() bool) {

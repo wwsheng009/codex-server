@@ -53,6 +53,31 @@ func TestParseConfigReadsFlatKeys(t *testing.T) {
 	}
 }
 
+func TestParseConfigReadsManagedMcpServerCompatToolFiltersWithoutEndpointOverride(t *testing.T) {
+	t.Parallel()
+
+	config := parseConfig(map[string]any{
+		"mcp_servers": map[string]any{
+			managedMCPServerName: map[string]any{
+				"url":            "https://mcp.example.com/sse",
+				"enabled":        true,
+				"enabled_tools":  []any{"feishu_fetch_doc"},
+				"disabled_tools": []any{"feishu_calendar_event"},
+			},
+		},
+	})
+
+	if !config.Enabled {
+		t.Fatalf("expected managed mcp compat config to enable Feishu tools")
+	}
+	if config.MCPEndpoint != "" {
+		t.Fatalf("expected managed mcp compat url not to override explicit endpoint source, got %q", config.MCPEndpoint)
+	}
+	if len(config.ToolAllowlist) != 1 || config.ToolAllowlist[0] != "feishu_fetch_doc" {
+		t.Fatalf("unexpected allowlist %#v", config.ToolAllowlist)
+	}
+}
+
 func TestBuildPermissionsTracksSensitiveScopes(t *testing.T) {
 	t.Parallel()
 
@@ -473,6 +498,9 @@ func TestWriteConfigPersistsToStore(t *testing.T) {
 	if readResult.Config.AppID != "cli_store_app" {
 		t.Fatalf("expected stored app id, got %#v", readResult.Config)
 	}
+	if readResult.Config.MCPEndpoint != "https://mcp.example.com/sse" {
+		t.Fatalf("expected explicit override to round-trip through read config, got %#v", readResult.Config)
+	}
 	if !readResult.Config.AppSecretSet {
 		t.Fatalf("expected stored secret to remain set")
 	}
@@ -688,7 +716,10 @@ func TestWriteConfigGeneratesManagedMcpEndpointWhenInputIsBlank(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteConfig() error = %v", err)
 	}
-	if result.Config.MCPEndpoint == "" {
+	if result.Config.MCPEndpoint != "" {
+		t.Fatalf("expected explicit override field to remain blank, got %#v", result.Config)
+	}
+	if result.ManagedMCPEndpoint == "" {
 		t.Fatal("expected built-in managed mcp endpoint to be generated")
 	}
 	if got := result.RuntimeIntegration; got == nil || got.Status != "configured" || !got.AllowlistAppliedInThread || !got.WriteGuardAppliedInThread {
@@ -713,14 +744,14 @@ func TestWriteConfigGeneratesManagedMcpEndpointWhenInputIsBlank(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected managed mcp server entry, got %#v", servers)
 	}
-	if managed["url"] != result.Config.MCPEndpoint {
+	if managed["url"] != result.ManagedMCPEndpoint {
 		t.Fatalf("expected generated endpoint to be written, got %#v", managed)
 	}
 	if managed["enabled"] != true {
 		t.Fatalf("expected generated endpoint entry to stay enabled, got %#v", managed)
 	}
-	if !strings.Contains(result.Config.MCPEndpoint, "/api/feishu-tools/mcp/"+workspace.ID+"?token=") {
-		t.Fatalf("unexpected generated endpoint %q", result.Config.MCPEndpoint)
+	if !strings.Contains(result.ManagedMCPEndpoint, "/api/feishu-tools/mcp/"+workspace.ID+"?token=") {
+		t.Fatalf("unexpected generated endpoint %q", result.ManagedMCPEndpoint)
 	}
 }
 
@@ -836,6 +867,74 @@ func TestWriteTokenSnapshotPersistsToStore(t *testing.T) {
 	}
 	if readConfig.UserToken.AccessToken != "access-token" {
 		t.Fatalf("expected access token from store, got %#v", readConfig.UserToken)
+	}
+}
+
+func TestReadConfigKeepsGeneratedEndpointUnlessStoreExplicitlyOverrides(t *testing.T) {
+	managedEntry := managedMcpServerEntry(Config{
+		Enabled:             true,
+		MCPEndpoint:         "https://mcp.example.com/custom",
+		OauthMode:           OauthModeUserAuth,
+		SensitiveWriteGuard: true,
+		ToolAllowlist:       []string{"feishu_fetch_doc"},
+	})
+	hub := events.NewHub()
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"config/read": {
+				Result: map[string]any{
+					"config": map[string]any{
+						"mcp_servers": map[string]any{
+							managedMCPServerName: managedEntry,
+						},
+					},
+					"origins": map[string]any{},
+					"layers":  []any{},
+				},
+			},
+		},
+	})
+
+	runtimeManager := runtime.NewManager(session.Command, hub)
+	rootPath := t.TempDir()
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", rootPath)
+	runtimeManager.Configure(workspace.ID, rootPath)
+	t.Cleanup(func() {
+		runtimeManager.Remove(workspace.ID)
+	})
+
+	if _, err := dataStore.SetFeishuToolsConfig(store.FeishuToolsConfig{
+		WorkspaceID:         workspace.ID,
+		Enabled:             true,
+		AppID:               "cli_store_app",
+		AppSecret:           "store-secret",
+		ManagedMCPAuthToken: "token-123",
+		SensitiveWriteGuard: true,
+		OauthMode:           OauthModeUserAuth,
+	}); err != nil {
+		t.Fatalf("SetFeishuToolsConfig() error = %v", err)
+	}
+
+	service := NewService(configfs.NewService(runtimeManager), nil, nil, dataStore)
+	service.SetRuntimeBaseURL("http://127.0.0.1:18080")
+	result, err := service.ReadConfig(context.Background(), workspace.ID)
+	if err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	expectedEndpoint := "http://127.0.0.1:18080/api/feishu-tools/mcp/" + workspace.ID + "?token=token-123"
+	if result.Config.MCPEndpoint != "" {
+		t.Fatalf("expected explicit override field to stay blank until user saves one, got %#v", result.Config)
+	}
+	if result.ManagedMCPEndpoint != expectedEndpoint {
+		t.Fatalf("expected generated managed endpoint to be reported separately, got %#v", result)
+	}
+	if len(result.Config.ToolAllowlist) != 1 || result.Config.ToolAllowlist[0] != "feishu_fetch_doc" {
+		t.Fatalf("expected allowlist from managed mcp compat, got %#v", result.Config.ToolAllowlist)
+	}
+	if result.RuntimeIntegration == nil || result.RuntimeIntegration.Status != "sync_required" {
+		t.Fatalf("expected runtime integration to require sync because runtime still has a custom url, got %#v", result.RuntimeIntegration)
 	}
 }
 

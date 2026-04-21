@@ -6469,6 +6469,7 @@ func (s *MemoryStore) releaseTransientLoadMemory() {
 
 func cloneAutomationRun(run AutomationRun) AutomationRun {
 	next := run
+	next.ErrorMeta = cloneErrorMetadata(run.ErrorMeta)
 	if len(run.Logs) > 0 {
 		next.Logs = append([]AutomationRunLogEntry{}, run.Logs...)
 	} else {
@@ -6503,12 +6504,24 @@ func cloneBackgroundJobRun(run BackgroundJobRun) BackgroundJobRun {
 	next.Output = cloneAnyMap(run.Output)
 	next.Summary = strings.TrimSpace(run.Summary)
 	next.Error = strings.TrimSpace(run.Error)
+	next.ErrorMeta = cloneErrorMetadata(run.ErrorMeta)
 	if len(run.Logs) > 0 {
 		next.Logs = append([]BackgroundJobRunLogEntry{}, run.Logs...)
 	} else {
 		next.Logs = []BackgroundJobRunLogEntry{}
 	}
 	return next
+}
+
+func cloneErrorMetadata(meta *ErrorMetadata) *ErrorMetadata {
+	if meta == nil {
+		return nil
+	}
+	next := *meta
+	if len(meta.Details) > 0 {
+		next.Details = cloneStringMap(meta.Details)
+	}
+	return &next
 }
 
 func cloneBot(bot Bot) Bot {

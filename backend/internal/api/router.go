@@ -3884,7 +3884,18 @@ func (s *Server) handleJobsMCP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "jobs mcp service is unavailable")
 		return
 	}
+	if r.Method == http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "use POST application/json for the built-in Jobs MCP endpoint")
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		token = strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	}
 	if !s.jobsMCP.ValidateManagedMCPToken(workspaceID, token) {
 		writeError(w, http.StatusUnauthorized, "access_session_invalid", "invalid jobs mcp token")
 		return
@@ -4484,21 +4495,21 @@ func (s *Server) workspaceExists(workspaceID string) bool {
 func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrWorkspaceNotFound):
-		writeError(w, http.StatusNotFound, "workspace_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "workspace_not_found", err)
 	case errors.Is(err, store.ErrThreadNotFound):
-		writeError(w, http.StatusNotFound, "thread_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "thread_not_found", err)
 	case errors.Is(err, store.ErrApprovalNotFound):
-		writeError(w, http.StatusNotFound, "approval_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "approval_not_found", err)
 	case errors.Is(err, store.ErrAutomationNotFound):
-		writeError(w, http.StatusNotFound, "automation_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "automation_not_found", err)
 	case errors.Is(err, store.ErrAutomationTemplateNotFound):
-		writeError(w, http.StatusNotFound, "automation_template_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "automation_template_not_found", err)
 	case errors.Is(err, store.ErrAutomationRunNotFound):
-		writeError(w, http.StatusNotFound, "automation_run_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "automation_run_not_found", err)
 	case errors.Is(err, store.ErrBackgroundJobNotFound):
-		writeError(w, http.StatusNotFound, "background_job_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "background_job_not_found", err)
 	case errors.Is(err, store.ErrBackgroundJobRunNotFound):
-		writeError(w, http.StatusNotFound, "background_job_run_not_found", err.Error())
+		writeStructuredError(w, http.StatusNotFound, "background_job_run_not_found", err)
 	case errors.Is(err, store.ErrNotificationNotFound):
 		writeError(w, http.StatusNotFound, "notification_not_found", err.Error())
 	case errors.Is(err, store.ErrNotificationSubscriptionNotFound):
@@ -4546,11 +4557,13 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, automations.ErrExecutionUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "automation_execution_unavailable", err.Error())
 	case errors.Is(err, jobs.ErrInvalidInput), errors.Is(err, jobs.ErrExecutorNotFound):
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		writeStructuredError(w, http.StatusBadRequest, "validation_error", err)
 	case errors.Is(err, jobs.ErrJobAlreadyRunning):
 		writeError(w, http.StatusConflict, "background_job_already_running", err.Error())
 	case errors.Is(err, jobs.ErrJobRunNotActive):
 		writeError(w, http.StatusConflict, "background_job_run_not_active", err.Error())
+	case errors.Is(err, jobs.ErrJobRunNotRetryable):
+		writeStructuredError(w, http.StatusConflict, "background_job_run_not_retryable", err)
 	case errors.Is(err, auth.ErrInvalidLoginInput):
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 	case errors.Is(err, feishutools.ErrInvalidInput):
@@ -4566,6 +4579,16 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	default:
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 	}
+}
+
+func writeStructuredError(w http.ResponseWriter, status int, code string, err error) {
+	if meta, ok := jobs.ExtractErrorMetadata(err); ok {
+		writeErrorDetails(w, status, code, err.Error(), map[string]any{
+			"errorMeta": meta,
+		})
+		return
+	}
+	writeError(w, status, code, err.Error())
 }
 
 func botValidationErrorCode(err error) string {

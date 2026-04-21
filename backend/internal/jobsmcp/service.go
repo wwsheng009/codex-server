@@ -1,6 +1,7 @@
 package jobsmcp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -206,8 +207,35 @@ func (s *Service) ValidateManagedMCPToken(workspaceID string, token string) bool
 }
 
 func (s *Service) HandleMCP(ctx context.Context, workspaceID string, payload []byte) ([]byte, bool) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
+		return marshalMCPResponse(mcpErrorResponse(nil, -32700, "parse error")), true
+	}
+
+	if trimmed[0] == '[' {
+		var requests []mcpJSONRPCRequest
+		if err := json.Unmarshal(trimmed, &requests); err != nil {
+			return marshalMCPResponse(mcpErrorResponse(nil, -32700, "parse error")), true
+		}
+		if len(requests) == 0 {
+			return marshalMCPResponse(mcpErrorResponse(nil, -32600, "invalid request")), true
+		}
+
+		responses := make([]mcpJSONRPCResponse, 0, len(requests))
+		for _, request := range requests {
+			response, ok := s.handleMCPRequest(ctx, workspaceID, request)
+			if ok {
+				responses = append(responses, response)
+			}
+		}
+		if len(responses) == 0 {
+			return nil, false
+		}
+		return marshalMCPResponse(responses), true
+	}
+
 	var request mcpJSONRPCRequest
-	if err := json.Unmarshal(payload, &request); err != nil {
+	if err := json.Unmarshal(trimmed, &request); err != nil {
 		return marshalMCPResponse(mcpErrorResponse(nil, -32700, "parse error")), true
 	}
 	response, ok := s.handleMCPRequest(ctx, workspaceID, request)
@@ -218,6 +246,13 @@ func (s *Service) HandleMCP(ctx context.Context, workspaceID string, payload []b
 }
 
 func (s *Service) handleMCPRequest(ctx context.Context, workspaceID string, request mcpJSONRPCRequest) (mcpJSONRPCResponse, bool) {
+	if strings.TrimSpace(request.JSONRPC) != "2.0" || strings.TrimSpace(request.Method) == "" {
+		if request.ID == nil {
+			return mcpJSONRPCResponse{}, false
+		}
+		return mcpErrorResponse(request.ID, -32600, "invalid request"), true
+	}
+
 	switch request.Method {
 	case "initialize":
 		return mcpJSONRPCResponse{
@@ -230,14 +265,27 @@ func (s *Service) handleMCPRequest(ctx context.Context, workspaceID string, requ
 					"version": "1.0.0",
 				},
 				"capabilities": map[string]any{
-					"tools": map[string]any{},
+					"tools": map[string]any{
+						"listChanged": false,
+					},
 				},
 			},
-		}, true
+		}, request.ID != nil
 	case "notifications/initialized":
-		return mcpJSONRPCResponse{}, false
+		if request.ID == nil {
+			return mcpJSONRPCResponse{}, false
+		}
+		return mcpJSONRPCResponse{JSONRPC: "2.0", ID: request.ID, Result: map[string]any{}}, true
+	case "ping":
+		if request.ID == nil {
+			return mcpJSONRPCResponse{}, false
+		}
+		return mcpJSONRPCResponse{JSONRPC: "2.0", ID: request.ID, Result: map[string]any{}}, true
 	case "tools/list":
 		config, _ := s.readStoredConfig(workspaceID)
+		if request.ID == nil {
+			return mcpJSONRPCResponse{}, false
+		}
 		return mcpJSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      request.ID,
@@ -246,6 +294,9 @@ func (s *Service) handleMCPRequest(ctx context.Context, workspaceID string, requ
 			},
 		}, true
 	case "tools/call":
+		if request.ID == nil {
+			return mcpJSONRPCResponse{}, false
+		}
 		var params mcpToolCallParams
 		if len(request.Params) > 0 {
 			if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -270,9 +321,13 @@ func (s *Service) handleMCPRequest(ctx context.Context, workspaceID string, requ
 					},
 				},
 				"structuredContent": result,
+				"isError":           false,
 			},
 		}, true
 	default:
+		if request.ID == nil {
+			return mcpJSONRPCResponse{}, false
+		}
 		return mcpErrorResponse(request.ID, -32601, "method not found"), true
 	}
 }
@@ -718,7 +773,7 @@ func buildMCPTools(config Config) []map[string]any {
 		enabledSet[name] = struct{}{}
 	}
 	all := []map[string]any{
-		toolDef("jobs_list", "List background jobs in the current workspace.", nil),
+		toolDef("jobs_list", "List background jobs in the current workspace.", emptyObjectSchema()),
 		toolDef("jobs_get", "Get one background job by id.", requiredObjectSchema(map[string]any{"jobId": stringSchema("Background job identifier.")}, "jobId")),
 		toolDef("jobs_create", "Create a background job in the current workspace.", requiredObjectSchema(map[string]any{
 			"name":         stringSchema("Job name."),
@@ -749,7 +804,7 @@ func buildMCPTools(config Config) []map[string]any {
 		toolDef("job_runs_list", "List runs for a background job.", requiredObjectSchema(map[string]any{"jobId": stringSchema("Background job identifier.")}, "jobId")),
 		toolDef("job_run_retry", "Retry a job run.", requiredObjectSchema(map[string]any{"runId": stringSchema("Background job run identifier.")}, "runId")),
 		toolDef("job_run_cancel", "Cancel a queued or running job run.", requiredObjectSchema(map[string]any{"runId": stringSchema("Background job run identifier.")}, "runId")),
-		toolDef("job_executors_list", "List available job executors.", nil),
+		toolDef("job_executors_list", "List available job executors.", emptyObjectSchema()),
 	}
 	filtered := make([]map[string]any, 0, len(all))
 	for _, tool := range all {
@@ -764,9 +819,7 @@ func toolDef(name string, description string, inputSchema map[string]any) map[st
 	tool := map[string]any{
 		"name":        name,
 		"description": description,
-	}
-	if len(inputSchema) > 0 {
-		tool["inputSchema"] = inputSchema
+		"inputSchema": inputSchema,
 	}
 	return tool
 }
@@ -775,10 +828,19 @@ func stringSchema(description string) map[string]any {
 	return map[string]any{"type": "string", "description": description}
 }
 
+func emptyObjectSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": false,
+	}
+}
+
 func requiredObjectSchema(properties map[string]any, required ...string) map[string]any {
 	schema := map[string]any{
-		"type":       "object",
-		"properties": properties,
+		"type":                 "object",
+		"properties":           properties,
+		"additionalProperties": false,
 	}
 	if len(required) > 0 {
 		schema["required"] = required

@@ -67,6 +67,7 @@ type Config struct {
 type ConfigResult struct {
 	Config             Config              `json:"config"`
 	Defaults           Config              `json:"defaults"`
+	ManagedMCPEndpoint string              `json:"managedMcpEndpoint,omitempty"`
 	RuntimeIntegration *RuntimeIntegration `json:"runtimeIntegration,omitempty"`
 	Source             string              `json:"source,omitempty"`
 	UpdatedAt          string              `json:"updatedAt,omitempty"`
@@ -282,8 +283,10 @@ func (s *Service) ReadConfig(ctx context.Context, workspaceID string) (ConfigRes
 	}
 	runtimeConfig, _ := s.readRuntimeConfig(ctx, workspaceID)
 	resolvedEndpoint, builtinManaged := s.resolvedManagedMCPEndpoint(workspaceID, config)
-	config.MCPEndpoint = resolvedEndpoint
-	runtimeIntegration := buildRuntimeIntegration(runtimeConfig, config, s.configfs != nil, builtinManaged)
+	effectiveConfig := config
+	effectiveConfig.MCPEndpoint = resolvedEndpoint
+	runtimeIntegration := buildRuntimeIntegration(runtimeConfig, effectiveConfig, s.configfs != nil, builtinManaged)
+	managedEndpoint := s.generatedManagedMCPEndpoint(workspaceID)
 
 	source := "store"
 	if !config.UserToken.Connected() && strings.TrimSpace(config.AppID) == "" && s.configfs != nil {
@@ -293,6 +296,7 @@ func (s *Service) ReadConfig(ctx context.Context, workspaceID string) (ConfigRes
 	return ConfigResult{
 		Config:             config,
 		Defaults:           defaultConfig(),
+		ManagedMCPEndpoint: managedEndpoint,
 		RuntimeIntegration: &runtimeIntegration,
 		Source:             source,
 	}, nil
@@ -350,13 +354,15 @@ func (s *Service) WriteConfig(ctx context.Context, workspaceID string, input Con
 	resultConfig := normalized
 	resultConfig.AppSecretSet = existing.AppSecretSet || normalized.AppSecret != ""
 	resultConfig.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	managedEndpoint, _ := s.resolvedManagedMCPEndpointFromToken(workspaceID, Config{}, persisted.ManagedMCPAuthToken)
 	resolvedEndpoint, builtinManaged := s.resolvedManagedMCPEndpointFromToken(
 		workspaceID,
 		resultConfig,
 		persisted.ManagedMCPAuthToken,
 	)
-	resultConfig.MCPEndpoint = resolvedEndpoint
-	runtimeIntegration := buildRuntimeIntegration(runtimeConfig, resultConfig, s.configfs != nil, builtinManaged)
+	effectiveConfig := resultConfig
+	effectiveConfig.MCPEndpoint = resolvedEndpoint
+	runtimeIntegration := buildRuntimeIntegration(runtimeConfig, effectiveConfig, s.configfs != nil, builtinManaged)
 	warnings := make([]string, 0, 2)
 	if s.configfs == nil {
 		runtimeIntegration.Status = "unavailable"
@@ -367,7 +373,7 @@ func (s *Service) WriteConfig(ctx context.Context, workspaceID string, input Con
 	} else {
 		managedServers, syncedIntegration := buildManagedMcpServers(
 			s.readWorkspaceConfigFile(workspaceID),
-			resultConfig,
+			effectiveConfig,
 			true,
 			builtinManaged,
 		)
@@ -392,6 +398,7 @@ func (s *Service) WriteConfig(ctx context.Context, workspaceID string, input Con
 	return ConfigResult{
 		Config:             resultConfig,
 		Defaults:           defaultConfig(),
+		ManagedMCPEndpoint: managedEndpoint,
 		RuntimeIntegration: &runtimeIntegration,
 		Source:             "store",
 		UpdatedAt:          resultConfig.UpdatedAt,
@@ -682,7 +689,22 @@ func (s *Service) readConfig(ctx context.Context, workspaceID string) (Config, e
 
 	if s.store != nil {
 		if storedConfig, ok := s.store.GetFeishuToolsConfig(workspaceID); ok {
-			return configFromStore(storedConfig), nil
+			config := configFromStore(storedConfig)
+			if s.configfs == nil {
+				return config, nil
+			}
+
+			result, err := s.configfs.ReadConfig(ctx, workspaceID, true)
+			if err != nil {
+				return config, nil
+			}
+
+			return s.overlayStoreConfigWithManagedMcpServerCompat(
+				workspaceID,
+				config,
+				storedConfig,
+				mergeConfigLayers(result.Config, result.Layers),
+			), nil
 		}
 	}
 
@@ -822,6 +844,18 @@ func (s *Service) resolvedManagedMCPEndpointFromToken(workspaceID string, config
 	), true
 }
 
+func (s *Service) generatedManagedMCPEndpoint(workspaceID string) string {
+	if s == nil || s.store == nil {
+		return ""
+	}
+	stored, ok := s.store.GetFeishuToolsConfig(workspaceID)
+	if !ok {
+		return ""
+	}
+	endpoint, _ := s.resolvedManagedMCPEndpointFromToken(workspaceID, Config{}, stored.ManagedMCPAuthToken)
+	return endpoint
+}
+
 func (s *Service) ValidateManagedMCPToken(workspaceID string, token string) bool {
 	if s == nil || s.store == nil {
 		return false
@@ -846,8 +880,16 @@ func parseConfig(raw map[string]any) Config {
 	if raw == nil {
 		return config
 	}
+	managedEntry := managedMcpServerCompatEntry(raw)
 
 	config.Enabled = boolValue(raw["feishu_tools_enabled"], config.Enabled)
+	if !hasNestedKey(raw, "feishu_tools_enabled") && !hasNestedKey(raw, "feishu_tools", "enabled") {
+		if enabled, ok := boolConfigValue(managedEntry["enabled"]); ok {
+			config.Enabled = enabled
+		} else if len(managedEntry) > 0 {
+			config.Enabled = true
+		}
+	}
 	config.AppID = firstNonEmpty(
 		stringValue(raw["feishu_app_id"]),
 		stringValue(nestedValue(raw, "feishu_tools", "app_id")),
@@ -876,6 +918,11 @@ func parseConfig(raw map[string]any) Config {
 		stringSliceValue(raw["feishu_tool_allowlist"]),
 		stringSliceValue(nestedValue(raw, "feishu_tools", "tool_allowlist")),
 	))
+	if !hasNestedKey(raw, "feishu_tool_allowlist") && !hasNestedKey(raw, "feishu_tools", "tool_allowlist") {
+		if allowlist, ok := managedMcpServerToolAllowlist(managedEntry); ok {
+			config.ToolAllowlist = allowlist
+		}
+	}
 
 	return config
 }
@@ -1494,6 +1541,24 @@ func boolValue(value any, fallback bool) bool {
 	}
 }
 
+func boolConfigValue(value any) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes", "on":
+			return true, true
+		case "false", "0", "no", "off":
+			return false, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+}
+
 func nestedValue(root map[string]any, keys ...string) any {
 	if root == nil || len(keys) == 0 {
 		return nil
@@ -1507,6 +1572,29 @@ func nestedValue(root map[string]any, keys ...string) any {
 		current = object[key]
 	}
 	return current
+}
+
+func hasNestedKey(root map[string]any, keys ...string) bool {
+	if root == nil || len(keys) == 0 {
+		return false
+	}
+
+	current := root
+	for index, key := range keys {
+		value, ok := current[key]
+		if !ok {
+			return false
+		}
+		if index == len(keys)-1 {
+			return true
+		}
+		next, ok := value.(map[string]any)
+		if !ok {
+			return false
+		}
+		current = next
+	}
+	return false
 }
 
 func firstNonEmpty(values ...string) string {
@@ -1918,7 +2006,8 @@ func buildRuntimeIntegration(raw map[string]any, config Config, configfsAvailabl
 	}
 
 	currentServers := runtimeMcpServersValue(raw)
-	currentEntry, hasManagedServer := currentServers[managedMCPServerName]
+	currentEntry := normalizeManagedMcpServerEntry(objectMapValue(currentServers[managedMCPServerName]))
+	hasManagedServer := len(currentEntry) > 0
 
 	if !config.Enabled {
 		if hasManagedServer {
@@ -2005,6 +2094,116 @@ func managedMcpToolFilters(config Config) ([]string, []string) {
 
 func allManagedToolNames() []string {
 	return sortedKeys(toolDefinitions)
+}
+
+func (s *Service) overlayStoreConfigWithManagedMcpServerCompat(workspaceID string, config Config, stored store.FeishuToolsConfig, raw map[string]any) Config {
+	entry := managedMcpServerCompatEntry(raw)
+	if len(entry) == 0 {
+		return config
+	}
+
+	expectedConfig := config
+	resolvedEndpoint, _ := s.resolvedManagedMCPEndpointFromToken(workspaceID, expectedConfig, stored.ManagedMCPAuthToken)
+	expectedConfig.MCPEndpoint = resolvedEndpoint
+	if config.Enabled && strings.TrimSpace(expectedConfig.MCPEndpoint) != "" && reflect.DeepEqual(entry, managedMcpServerEntry(expectedConfig)) {
+		return config
+	}
+
+	if allowlist, ok := managedMcpServerToolAllowlist(entry); ok {
+		config.ToolAllowlist = allowlist
+	}
+	return config
+}
+
+func managedMcpServerCompatEntry(raw map[string]any) map[string]any {
+	servers := runtimeMcpServersValue(raw)
+	if len(servers) == 0 {
+		return nil
+	}
+	return normalizeManagedMcpServerEntry(objectMapValue(servers[managedMCPServerName]))
+}
+
+func normalizeManagedMcpServerEntry(entry map[string]any) map[string]any {
+	if len(entry) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]any)
+	if url := stringValue(entry["url"]); url != "" {
+		normalized["url"] = url
+	}
+	if enabled, ok := boolConfigValue(entry["enabled"]); ok {
+		normalized["enabled"] = enabled
+	}
+	if _, ok := entry["enabled_tools"]; ok {
+		normalized["enabled_tools"] = normalizeManagedEntryToolNames(stringSliceValue(entry["enabled_tools"]))
+	}
+	if _, ok := entry["disabled_tools"]; ok {
+		normalized["disabled_tools"] = normalizeManagedEntryToolNames(stringSliceValue(entry["disabled_tools"]))
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func managedMcpServerToolAllowlist(entry map[string]any) ([]string, bool) {
+	if len(entry) == 0 {
+		return nil, false
+	}
+
+	allTools := allManagedToolNames()
+	if len(allTools) == 0 {
+		return nil, false
+	}
+
+	_, hasEnabled := entry["enabled_tools"]
+	_, hasDisabled := entry["disabled_tools"]
+	enabledTools := normalizeManagedEntryToolNames(stringSliceValue(entry["enabled_tools"]))
+	disabledTools := normalizeManagedEntryToolNames(stringSliceValue(entry["disabled_tools"]))
+
+	switch {
+	case hasEnabled && len(enabledTools) > 0:
+		if len(enabledTools) == len(allTools) {
+			return nil, true
+		}
+		return enabledTools, true
+	case hasDisabled && len(disabledTools) > 0:
+		disabledSet := make(map[string]struct{}, len(disabledTools))
+		for _, toolName := range disabledTools {
+			disabledSet[toolName] = struct{}{}
+		}
+		enabled := make([]string, 0, len(allTools))
+		for _, toolName := range allTools {
+			if _, blocked := disabledSet[toolName]; blocked {
+				continue
+			}
+			enabled = append(enabled, toolName)
+		}
+		if len(enabled) == len(allTools) {
+			return nil, true
+		}
+		return enabled, true
+	case hasEnabled || hasDisabled:
+		return nil, true
+	default:
+		return nil, false
+	}
+}
+
+func normalizeManagedEntryToolNames(values []string) []string {
+	set := make(map[string]struct{})
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := toolDefinitions[trimmed]; !ok {
+			continue
+		}
+		set[trimmed] = struct{}{}
+	}
+	return sortedKeys(set)
 }
 
 func runtimeMcpServersValue(raw map[string]any) map[string]any {

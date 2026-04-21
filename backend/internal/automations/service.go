@@ -786,7 +786,10 @@ func (s *Service) ensureThread(ctx context.Context, automation store.Automation)
 		return "", automation, err
 	}
 
-	return thread.ID, s.hydrate(updatedAutomation), nil
+	hydratedAutomation := s.hydrate(updatedAutomation)
+	hydratedAutomation.Model = automation.Model
+	hydratedAutomation.Reasoning = automation.Reasoning
+	return thread.ID, hydratedAutomation, nil
 }
 
 func (s *Service) handleEvent(ctx context.Context, event store.EventEnvelope) {
@@ -895,6 +898,7 @@ func mapJobRunToAutomationRun(job store.BackgroundJob, run store.BackgroundJobRu
 		Status:          run.Status,
 		Summary:         run.Summary,
 		Error:           run.Error,
+		ErrorMeta:       run.ErrorMeta,
 		StartedAt:       run.StartedAt,
 		FinishedAt:      run.FinishedAt,
 		Logs:            mapJobRunLogs(run.Logs),

@@ -197,6 +197,7 @@ type AutomationRun struct {
 	Status          string                  `json:"status"`
 	Summary         string                  `json:"summary,omitempty"`
 	Error           string                  `json:"error,omitempty"`
+	ErrorMeta       *ErrorMetadata          `json:"errorMeta,omitempty"`
 	StartedAt       time.Time               `json:"startedAt"`
 	FinishedAt      *time.Time              `json:"finishedAt,omitempty"`
 	Logs            []AutomationRunLogEntry `json:"logs"`
@@ -310,9 +311,17 @@ type BackgroundJobRun struct {
 	Output        map[string]any             `json:"output,omitempty"`
 	Summary       string                     `json:"summary,omitempty"`
 	Error         string                     `json:"error,omitempty"`
+	ErrorMeta     *ErrorMetadata             `json:"errorMeta,omitempty"`
 	StartedAt     time.Time                  `json:"startedAt"`
 	FinishedAt    *time.Time                 `json:"finishedAt,omitempty"`
 	Logs          []BackgroundJobRunLogEntry `json:"logs"`
+}
+
+type ErrorMetadata struct {
+	Code      string            `json:"code,omitempty"`
+	Category  string            `json:"category,omitempty"`
+	Retryable *bool             `json:"retryable,omitempty"`
+	Details   map[string]string `json:"details,omitempty"`
 }
 
 type NotificationDispatch struct {
