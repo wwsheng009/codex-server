@@ -57,6 +57,90 @@ type FieldOption = {
   disabled?: boolean
 }
 
+function generateFieldsFromPayloadSchema(
+  schema: Record<string, unknown> | null | undefined,
+): JobExecutorFormField[] {
+  if (!schema) {
+    return []
+  }
+  const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
+  if (!properties || typeof properties !== 'object') {
+    return []
+  }
+
+  const fields: JobExecutorFormField[] = []
+  for (const [key, prop] of Object.entries(properties)) {
+    if (!prop || typeof prop !== 'object') {
+      continue
+    }
+
+    const type = prop.type as string | undefined
+    let kind: JobExecutorFormField['kind'] = 'text'
+
+    if (type === 'string') {
+      kind = 'text'
+    } else if (type === 'number' || type === 'integer') {
+      kind = 'number'
+    } else if (type === 'boolean') {
+      kind = 'select'
+    }
+
+    const enumValues = prop.enum as string[] | undefined
+    if (Array.isArray(enumValues) && enumValues.length > 0) {
+      kind = 'select'
+    }
+
+    if (
+      kind === 'text' &&
+      type === 'string' &&
+      ((prop.format as string) === 'multiline' ||
+        key === 'script' ||
+        key === 'prompt' ||
+        key === 'message' ||
+        (prop.description as string)?.toLowerCase().includes('multiline'))
+    ) {
+      kind = 'textarea'
+    }
+
+    const field: JobExecutorFormField = {
+      purpose: key,
+      kind,
+      label: (prop.title as string) || humanizeIdentifier(key),
+      hint: (prop.description as string) || '',
+      payloadKey: key,
+      placeholder:
+        typeof prop.default === 'string'
+          ? prop.default
+          : typeof prop.default === 'number'
+            ? String(prop.default)
+            : undefined,
+    }
+
+    if (kind === 'textarea') {
+      field.rows = 6
+    }
+
+    if (kind === 'select' && Array.isArray(enumValues)) {
+      field.options = enumValues.map((value) => ({
+        value: String(value),
+        label: String(value),
+      }))
+    }
+
+    if (key === 'automationId' || key === 'automationRef') {
+      field.kind = 'automation_select'
+      field.dataSource = { kind: 'workspace_automations', allowBlank: true }
+    } else if (key === 'model') {
+      field.kind = 'model_select'
+      field.dataSource = { kind: 'workspace_models', allowCustomValue: true }
+    }
+
+    fields.push(field)
+  }
+
+  return fields
+}
+
 export function JobFormFields<TDraft extends JobDraft>({
   draft,
   setDraft,
@@ -67,7 +151,13 @@ export function JobFormFields<TDraft extends JobDraft>({
   sourceType,
   sourceRefId,
 }: JobFormFieldsProps<TDraft>) {
-  const formFields = currentExecutor?.form?.fields ?? []
+  const formFields = useMemo(() => {
+    const explicit = currentExecutor?.form?.fields ?? []
+    if (explicit.length > 0) {
+      return explicit
+    }
+    return generateFieldsFromPayloadSchema(currentExecutor?.payloadSchema)
+  }, [currentExecutor])
   const hasStructuredPayloadForm = formFields.length > 0
   const capabilities = currentExecutor?.capabilities ?? null
   const automationField =

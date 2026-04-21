@@ -1004,6 +1004,18 @@ func (noopExecutor) Definition() ExecutorDefinition {
 				},
 			},
 		},
+		Form: &ExecutorFormSpec{
+			Fields: []ExecutorFormField{
+				{
+					Label:       "Message",
+					Hint:        "Optional status text returned by the executor.",
+					Purpose:     "message",
+					Kind:        "text",
+					PayloadKey:  "message",
+					Placeholder: "background job smoke test",
+				},
+			},
+		},
 	}
 }
 
