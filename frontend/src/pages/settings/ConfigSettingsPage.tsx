@@ -119,6 +119,13 @@ type AccessTokenDraft = {
   updatedAt?: string | null;
 };
 
+const EMPTY_STRING_LIST: string[] = [];
+const EMPTY_ACCESS_TOKENS: RuntimePreferencesResult["configuredAccessTokens"] =
+  [];
+const EMPTY_DETECTED_EXTERNAL_ITEMS: NonNullable<
+  Awaited<ReturnType<typeof detectExternalAgentConfig>>["items"]
+> = [];
+
 type RuntimePreferencesMutationInput = {
   modelCatalogPath?: string;
   defaultShellType?: string;
@@ -1034,16 +1041,16 @@ export function ConfigSettingsPage() {
             "Access: {access}; local: {local}; remote: {remote}; shell: {shell}; terminal: {terminal}; turn sandbox: {turnSandbox}; command sandbox: {commandSandbox}; backend trace: {backendTrace}.",
           values: {
             access:
-              (result.configuredAccessTokens ?? []).filter(
+              (result.configuredAccessTokens ?? EMPTY_ACCESS_TOKENS).filter(
                 (token) => token.status === "active",
               ).length > 0
                 ? i18n._({
                     id: "{count} active token(s)",
                     message: "{count} active token(s)",
                     values: {
-                      count: (result.configuredAccessTokens ?? []).filter(
-                        (token) => token.status === "active",
-                      ).length,
+                      count: (
+                        result.configuredAccessTokens ?? EMPTY_ACCESS_TOKENS
+                      ).filter((token) => token.status === "active").length,
                     },
                   })
                 : i18n._({ id: "Open", message: "Open" }),
@@ -1099,7 +1106,8 @@ export function ConfigSettingsPage() {
     },
   });
   const configuredAccessTokenCount =
-    runtimePreferencesQuery.data?.configuredAccessTokens?.length ?? 0;
+    (runtimePreferencesQuery.data?.configuredAccessTokens ??
+      EMPTY_ACCESS_TOKENS).length;
   const showFirstAccessTokenGuide =
     runtimePreferencesQuery.isSuccess &&
     shouldShowFirstAccessTokenGuide({
@@ -1273,7 +1281,8 @@ export function ConfigSettingsPage() {
   const importExternalMutation = useMutation({
     mutationFn: () =>
       importExternalAgentConfig(workspaceId!, {
-        migrationItems: detectExternalMutation.data?.items ?? [],
+        migrationItems:
+          detectExternalMutation.data?.items ?? EMPTY_DETECTED_EXTERNAL_ITEMS,
       }),
     onSuccess: (result) => {
       pushToast({
@@ -1353,9 +1362,13 @@ export function ConfigSettingsPage() {
   const configLayerCount = Array.isArray(configQuery.data?.layers)
     ? configQuery.data.layers.length
     : 0;
+  const supportedTerminalShells =
+    runtimePreferencesQuery.data?.supportedTerminalShells ?? EMPTY_STRING_LIST;
+  const configuredAccessTokens =
+    runtimePreferencesQuery.data?.configuredAccessTokens ?? EMPTY_ACCESS_TOKENS;
   const shellTypeOptions = getShellTypeOptions();
   const terminalShellOptions = getTerminalShellOptions(
-    runtimePreferencesQuery.data?.supportedTerminalShells ?? [],
+    supportedTerminalShells,
     defaultTerminalShell,
   );
   const approvalPolicyOptions = getApprovalPolicyOptions();
@@ -1374,16 +1387,16 @@ export function ConfigSettingsPage() {
       runtimePreferencesQuery.data?.effectiveModelCatalogPath,
     ),
     accessControl:
-      (runtimePreferencesQuery.data?.configuredAccessTokens ?? []).filter(
+      configuredAccessTokens.filter(
         (token) => token.status === "active",
       ).length > 0
         ? i18n._({
             id: "{count} active token(s)",
             message: "{count} active token(s)",
             values: {
-              count: (
-                runtimePreferencesQuery.data?.configuredAccessTokens ?? []
-              ).filter((token) => token.status === "active").length,
+              count: configuredAccessTokens.filter(
+                (token) => token.status === "active",
+              ).length,
             },
           })
         : i18n._({ id: "Open", message: "Open" }),
@@ -1431,7 +1444,7 @@ export function ConfigSettingsPage() {
       label: i18n._({ id: "Access", message: "Access" }),
       value: runtimeSummary.accessControl,
       tone:
-        (runtimePreferencesQuery.data?.configuredAccessTokens ?? []).filter(
+        configuredAccessTokens.filter(
           (token) => token.status === "active",
         ).length > 0
           ? "active"
@@ -4217,7 +4230,7 @@ function ConfigDetailsSummary({
 function buildAccessTokenDrafts(
   result: RuntimePreferencesResult,
 ): AccessTokenDraft[] {
-  return (result.configuredAccessTokens ?? []).map((token) => ({
+  return (result.configuredAccessTokens ?? EMPTY_ACCESS_TOKENS).map((token) => ({
     id: token.id,
     label: token.label ?? "",
     token: "",

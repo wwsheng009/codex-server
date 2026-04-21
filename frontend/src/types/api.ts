@@ -3,6 +3,7 @@ export type ApiResponse<T> = {
   error?: {
     code: string;
     message: string;
+    [key: string]: unknown;
   } | null;
 };
 
@@ -111,6 +112,10 @@ export type BackgroundJob = {
   lastRunId?: string;
   lastRunStatus?: string;
   lastError?: string;
+  lastErrorCode?: string;
+  lastErrorRetryable?: boolean;
+  lastErrorResourceId?: string;
+  lastErrorResourceType?: string;
   lastRunAt?: string | null;
   nextRunAt?: string | null;
   createdAt: string;
@@ -125,6 +130,13 @@ export type BackgroundJobRunLogEntry = {
   eventType?: string;
 };
 
+export type ErrorMetadata = {
+  code?: string;
+  category?: string;
+  retryable?: boolean | null;
+  details?: Record<string, string> | null;
+};
+
 export type BackgroundJobRun = {
   id: string;
   jobId: string;
@@ -137,6 +149,12 @@ export type BackgroundJobRun = {
   output?: Record<string, unknown> | null;
   summary?: string;
   error?: string;
+  errorMeta?: ErrorMetadata | null;
+  errorCode?: string;
+  errorMessage?: string;
+  retryable?: boolean;
+  resourceId?: string;
+  resourceType?: string;
   startedAt: string;
   finishedAt?: string | null;
   logs: BackgroundJobRunLogEntry[];
@@ -149,6 +167,69 @@ export type BackgroundJobExecutor = {
   supportsSchedule: boolean;
   payloadSchema?: Record<string, unknown> | null;
   examplePayload?: Record<string, unknown> | null;
+  capabilities?: {
+    defaultCreatePriority?: number;
+    automationRef?: {
+      payloadKey?: string;
+      sourceType?: string;
+    } | null;
+    prompt?: {
+      promptKey?: string;
+      modelKey?: string;
+      reasoningKey?: string;
+      defaultModel?: string;
+      defaultReasoning?: string;
+      useWorkspaceModelCatalog?: boolean;
+    } | null;
+    script?: {
+      scriptKey?: string;
+      shellKey?: string;
+      workdirKey?: string;
+      timeoutKey?: string;
+      shellOptions?: string[] | null;
+    } | null;
+  } | null;
+  form?: {
+    fields?: Array<{
+      purpose: string;
+      kind: string;
+      label?: string;
+      hint?: string;
+      placeholder?: string;
+      payloadKey?: string;
+      required?: boolean;
+      advanced?: boolean;
+      group?: string;
+      rows?: number;
+      preserveWhitespace?: boolean;
+      defaultString?: string;
+      defaultNumber?: number | null;
+      min?: number | null;
+      max?: number | null;
+      step?: number | null;
+      dataSource?: {
+        kind: string;
+        allowCustomValue?: boolean;
+        allowBlank?: boolean;
+        blankLabel?: string;
+      } | null;
+      validation?: {
+        minLength?: number | null;
+        maxLength?: number | null;
+        pattern?: string;
+        patternFlags?: string;
+        disallowedPattern?: string;
+        disallowedPatternFlags?: string;
+        integerOnly?: boolean;
+        relativeWorkspacePath?: boolean;
+        allowSourceRefFallback?: boolean;
+      } | null;
+      options?: Array<{
+        value: string;
+        label?: string;
+      }> | null;
+    }> | null;
+  } | null;
 };
 
 export type JobMCPRuntimeIntegration = {
@@ -890,6 +971,7 @@ export type FeishuToolsConfig = {
 export type FeishuToolsConfigResult = {
   config: FeishuToolsConfig;
   defaults?: Partial<FeishuToolsConfig> | null;
+  managedMcpEndpoint?: string | null;
   runtimeIntegration?: FeishuToolsRuntimeIntegration | null;
   source?: string | null;
   updatedAt?: string | null;

@@ -24,6 +24,11 @@ const shellContextState = vi.hoisted(() => ({
   useSettingsShellContext: vi.fn(),
 }));
 
+const workspaceStreamState = vi.hoisted(() => ({
+  useWorkspaceEventSubscription: vi.fn(),
+  useWorkspaceStream: vi.fn(),
+}));
+
 vi.mock("../../features/settings/api", () => ({
   feishuToolsOauthLogin: settingsApiState.feishuToolsOauthLogin,
   invokeFeishuTool: settingsApiState.invokeFeishuTool,
@@ -40,17 +45,32 @@ vi.mock("../../features/settings/shell-context", () => ({
   useSettingsShellContext: shellContextState.useSettingsShellContext,
 }));
 
+vi.mock("../../hooks/useWorkspaceStream", () => ({
+  useWorkspaceEventSubscription: workspaceStreamState.useWorkspaceEventSubscription,
+  useWorkspaceStream: workspaceStreamState.useWorkspaceStream,
+}));
+
 let FeishuToolsSettingsPageComponent: Awaited<
   typeof import("./FeishuToolsSettingsPage")
 >["FeishuToolsSettingsPage"];
+let renderedQueryClients: QueryClient[] = [];
+
+function clearRenderedQueryClients() {
+  for (const queryClient of renderedQueryClients) {
+    queryClient.clear();
+  }
+  renderedQueryClients = [];
+}
 
 function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
       mutations: {
+        gcTime: 0,
         retry: false,
       },
       queries: {
+        gcTime: 0,
         retry: false,
       },
     },
@@ -59,11 +79,23 @@ function createQueryClient() {
 
 function renderWithProviders(node: ReactNode) {
   const queryClient = createQueryClient();
+  renderedQueryClients.push(queryClient);
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>{node}</MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+async function clickOptionLabel(text: string) {
+  const optionTexts = await screen.findAllByText(text);
+  const optionLabel = optionTexts
+    .map((optionText) => optionText.closest("label"))
+    .find((candidate) => candidate instanceof HTMLElement);
+  if (!(optionLabel instanceof HTMLElement)) {
+    throw new Error(`Could not find clickable label for option: ${text}`);
+  }
+  fireEvent.click(optionLabel);
 }
 
 function createCapabilitiesResult() {
@@ -132,6 +164,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   cleanup();
+  clearRenderedQueryClients();
   settingsApiState.feishuToolsOauthLogin.mockReset();
   settingsApiState.invokeFeishuTool.mockReset();
   settingsApiState.readFeishuToolsCapabilities.mockReset();
@@ -141,6 +174,8 @@ beforeEach(() => {
   settingsApiState.readFeishuToolsStatus.mockReset();
   settingsApiState.revokeFeishuToolsOauth.mockReset();
   settingsApiState.writeFeishuToolsConfig.mockReset();
+  workspaceStreamState.useWorkspaceEventSubscription.mockReset();
+  workspaceStreamState.useWorkspaceStream.mockReset();
 
   shellContextState.useSettingsShellContext.mockReturnValue({
     workspaceId: "ws-1",
@@ -150,6 +185,8 @@ beforeEach(() => {
     workspacesLoading: false,
     setSelectedWorkspaceId: vi.fn(),
   });
+  workspaceStreamState.useWorkspaceEventSubscription.mockImplementation(() => undefined);
+  workspaceStreamState.useWorkspaceStream.mockReturnValue("idle");
 
   settingsApiState.feishuToolsOauthLogin.mockResolvedValue({
     authorizationUrl: "",
@@ -199,15 +236,70 @@ beforeEach(() => {
       sensitiveWriteGuard: true,
       toolAllowlist: [],
     },
+    managedMcpEndpoint: "http://localhost/api/feishu-tools/mcp/ws-1?token=managed",
     warnings: [],
   });
 });
 
 afterEach(() => {
   cleanup();
+  clearRenderedQueryClients();
 });
 
 describe("FeishuToolsSettingsPage", () => {
+  it("preserves a custom MCP endpoint when saving configuration", async () => {
+    settingsApiState.readFeishuToolsConfig.mockResolvedValue({
+      config: {
+        enabled: true,
+        appId: "cli_demo",
+        appSecretSet: true,
+        mcpEndpoint: "https://mcp.example.com/custom",
+        oauthMode: "user_oauth",
+        sensitiveWriteGuard: true,
+        toolAllowlist: ["feishu_fetch_doc"],
+      },
+      managedMcpEndpoint: "http://localhost/api/feishu-tools/mcp/ws-1?token=managed",
+      runtimeIntegration: {
+        status: "configured",
+      },
+      warnings: [],
+    });
+
+    renderWithProviders(<FeishuToolsSettingsPageComponent />);
+
+    const managedEndpointInput = (await screen.findByLabelText(
+      "Managed MCP endpoint",
+    )) as HTMLInputElement;
+    await waitFor(() => {
+      expect(managedEndpointInput.value).toBe(
+        "http://localhost/api/feishu-tools/mcp/ws-1?token=managed",
+      );
+    });
+
+    const endpointInput = (await screen.findByLabelText(
+      "Custom MCP endpoint override",
+    )) as HTMLInputElement;
+    expect(endpointInput.value).toBe("https://mcp.example.com/custom");
+    expect(await screen.findByText("Custom MCP override active")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Current thread runtime prefers the saved custom MCP endpoint override shown below instead of the managed MCP endpoint above. Save after editing this field to change or remove the active override.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("https://mcp.example.com/custom")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+
+    await waitFor(() => {
+      expect(settingsApiState.writeFeishuToolsConfig).toHaveBeenCalledWith(
+        "ws-1",
+        expect.objectContaining({
+          mcpEndpoint: "https://mcp.example.com/custom",
+        }),
+      );
+    });
+  });
+
   it("filters visible tools and writes the selected allowlist from the popup panel", async () => {
     settingsApiState.readFeishuToolsConfig.mockResolvedValue({
       config: {
@@ -228,9 +320,10 @@ describe("FeishuToolsSettingsPage", () => {
     renderWithProviders(<FeishuToolsSettingsPageComponent />);
 
     await screen.findByRole("button", { name: "Configure tool panel" });
+    expect(screen.queryByText("Custom MCP override active")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Configure tool panel" }));
-    fireEvent.click(screen.getByLabelText("Restrict to selected tools"));
+    await clickOptionLabel("Restrict to selected tools");
     fireEvent.change(screen.getByLabelText("Filter tools"), {
       target: { value: "doc" },
     });
@@ -270,7 +363,7 @@ describe("FeishuToolsSettingsPage", () => {
     await screen.findByRole("button", { name: "Configure tool panel" });
 
     fireEvent.click(screen.getByRole("button", { name: "Configure tool panel" }));
-    fireEvent.click(screen.getByLabelText("Expose all modeled tools"));
+    await clickOptionLabel("Expose all modeled tools");
     fireEvent.click(screen.getByRole("button", { name: "Apply tool selection" }));
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
 
@@ -328,9 +421,17 @@ describe("FeishuToolsSettingsPage", () => {
 
     renderWithProviders(<FeishuToolsSettingsPageComponent />);
 
-    await screen.findByRole("button", { name: "Start Feishu OAuth" });
+    const startOauthButton = (await screen.findByRole("button", {
+      name: "Start Feishu OAuth",
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(startOauthButton.disabled).toBe(false);
+    });
+    await waitFor(() => {
+      expect(screen.queryAllByText("Following exposed tool set").length).toBeGreaterThan(0);
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "Start Feishu OAuth" }));
+    fireEvent.click(startOauthButton);
 
     await waitFor(() => {
       expect(settingsApiState.feishuToolsOauthLogin).toHaveBeenCalledWith("ws-1", {
@@ -393,7 +494,7 @@ describe("FeishuToolsSettingsPage", () => {
 
     await screen.findByRole("button", { name: "Start Feishu OAuth" });
 
-    fireEvent.click(screen.getByLabelText("Request selected missing scopes directly"));
+    await clickOptionLabel("Request selected missing scopes directly");
     fireEvent.click(screen.getByRole("checkbox", { name: /docx:document:readonly/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /offline_access/i }));
     fireEvent.click(screen.getByRole("button", { name: "Start Feishu OAuth" }));
@@ -451,8 +552,11 @@ describe("FeishuToolsSettingsPage", () => {
 
     await screen.findByRole("button", { name: "Start Feishu OAuth" });
 
-    fireEvent.click(screen.getByLabelText("Request scopes from selected tools"));
-    fireEvent.click(screen.getByRole("checkbox", { name: /read document/i }));
+    await clickOptionLabel("Request scopes from selected tools");
+    await clickOptionLabel("Read Document");
+    await waitFor(() => {
+      expect(screen.queryAllByText("Custom OAuth tool set").length).toBeGreaterThan(0);
+    });
     fireEvent.click(screen.getByRole("button", { name: "Start Feishu OAuth" }));
 
     await waitFor(() => {
@@ -560,7 +664,7 @@ describe("FeishuToolsSettingsPage", () => {
 
     await screen.findByRole("button", { name: "Start Feishu OAuth" });
 
-    fireEvent.click(screen.getByLabelText("Request manually entered scopes"));
+    await clickOptionLabel("Request manually entered scopes");
     fireEvent.change(screen.getByLabelText("Manual OAuth scopes"), {
       target: {
         value: "task:task:write\noffline_access\n\ntask:task:write",

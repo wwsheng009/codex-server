@@ -45,12 +45,17 @@ import {
 import { i18n } from "../../i18n/runtime";
 import { getErrorMessage } from "../../lib/error-utils";
 
+const EMPTY_CAPABILITY_CATEGORIES: FeishuToolsCapabilityCategory[] = [];
+const EMPTY_PERMISSION_ITEMS: FeishuToolsPermissionItem[] = [];
+const EMPTY_STRING_LIST: string[] = [];
+
 export function FeishuToolsSettingsPage() {
   const queryClient = useQueryClient();
   const { workspaceId, workspaceName } = useSettingsShellContext();
   const [enabled, setEnabled] = useState(false);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
+  const [mcpEndpoint, setMcpEndpoint] = useState("");
   const [oauthMode, setOauthMode] = useState<"app_only" | "user_oauth">("user_oauth");
   const [sensitiveWriteGuard, setSensitiveWriteGuard] = useState(true);
   const [toolSelectionMode, setToolSelectionMode] = useState<"all" | "custom">("all");
@@ -100,6 +105,7 @@ export function FeishuToolsSettingsPage() {
     setEnabled(config.enabled);
     setAppId(config.appId ?? "");
     setAppSecret("");
+    setMcpEndpoint(config.mcpEndpoint ?? "");
     setOauthMode(config.oauthMode ?? "user_oauth");
     setSensitiveWriteGuard(config.sensitiveWriteGuard ?? true);
     const normalizedAllowlist = normalizeToolNames(config.toolAllowlist ?? []);
@@ -113,7 +119,7 @@ export function FeishuToolsSettingsPage() {
         enabled,
         appId,
         appSecret: appSecret.trim() || undefined,
-        mcpEndpoint: "",
+        mcpEndpoint: mcpEndpoint.trim(),
         oauthMode,
         sensitiveWriteGuard,
         toolAllowlist: toolSelectionMode === "all" ? [] : selectedToolNames,
@@ -248,7 +254,7 @@ export function FeishuToolsSettingsPage() {
     [],
   );
 
-  const categories = capabilitiesQuery.data?.categories ?? [];
+  const categories = capabilitiesQuery.data?.categories ?? EMPTY_CAPABILITY_CATEGORIES;
   const toolCatalog = useMemo(() => flattenToolCatalog(categories), [categories]);
   const totalToolCount =
     toolCatalog.length || capabilitiesQuery.data?.summary?.totalCount || 0;
@@ -330,11 +336,11 @@ export function FeishuToolsSettingsPage() {
     visibleToolRows.length,
     toolSelectorPage * parsedToolSelectorPageSize,
   );
-  const permissionItems = permissionsQuery.data?.items ?? [];
+  const permissionItems = permissionsQuery.data?.items ?? EMPTY_PERMISSION_ITEMS;
   const grantedPermissionItems = permissionItems.filter((item) => item.status === "granted");
   const missingPermissionItems = permissionItems.filter((item) => item.status === "missing");
   const sensitivePermissionItems = permissionItems.filter((item) => item.sensitive);
-  const requestableOauthScopes = permissionsQuery.data?.missingScopes ?? [];
+  const requestableOauthScopes = permissionsQuery.data?.missingScopes ?? EMPTY_STRING_LIST;
   const requestableOauthPermissionItems = useMemo(
     () => buildRequestableOauthPermissionItems(permissionItems, requestableOauthScopes),
     [permissionItems, requestableOauthScopes],
@@ -445,7 +451,12 @@ export function FeishuToolsSettingsPage() {
   const runtimeIntegration =
     statusQuery.data?.runtimeIntegration ?? configQuery.data?.runtimeIntegration ?? null;
   const managedMcpEndpoint =
-    runtimeIntegration?.serverUrl ?? statusQuery.data?.serviceEndpoint ?? configQuery.data?.config.mcpEndpoint ?? "";
+    configMutation.data?.managedMcpEndpoint ?? configQuery.data?.managedMcpEndpoint ?? "";
+  const persistedCustomMcpEndpointOverride = (
+    configMutation.data?.config.mcpEndpoint ??
+    configQuery.data?.config.mcpEndpoint ??
+    ""
+  ).trim();
   const persistedTokenSnapshot = useMemo(
     () => buildPersistedTokenSnapshot(oauthStatusQuery.data),
     [oauthStatusQuery.data],
@@ -674,6 +685,58 @@ export function FeishuToolsSettingsPage() {
                 }
                 value={appSecret}
               />
+              <Input
+                label={i18n._({ id: "Managed MCP endpoint", message: "Managed MCP endpoint" })}
+                hint={i18n._({
+                  id: "codex-server generates this default MCP URL for thread runtime automatically.",
+                  message:
+                    "codex-server generates this default MCP URL for thread runtime automatically.",
+                })}
+                placeholder={i18n._({
+                  id: "The managed MCP endpoint will appear here when available.",
+                  message: "The managed MCP endpoint will appear here when available.",
+                })}
+                readOnly
+                value={managedMcpEndpoint}
+              />
+              <Input
+                label={i18n._({
+                  id: "Custom MCP endpoint override",
+                  message: "Custom MCP endpoint override",
+                })}
+                hint={i18n._({
+                  id: "Optional. Leave blank to use the managed MCP endpoint above, or enter a custom URL only when you explicitly need to override it.",
+                  message:
+                    "Optional. Leave blank to use the managed MCP endpoint above, or enter a custom URL only when you explicitly need to override it.",
+                })}
+                onChange={(event) => setMcpEndpoint(event.target.value)}
+                placeholder={i18n._({
+                  id: "Leave blank to use the managed MCP endpoint.",
+                  message: "Leave blank to use the managed MCP endpoint.",
+                })}
+                value={mcpEndpoint}
+              />
+              {persistedCustomMcpEndpointOverride ? (
+                <InlineNotice
+                  noticeKey="feishu-tools-custom-mcp-override-active"
+                  title={i18n._({
+                    id: "Custom MCP override active",
+                    message: "Custom MCP override active",
+                  })}
+                  tone="info"
+                >
+                  <div className="form-stack">
+                    <span>
+                      {i18n._({
+                        id: "Current thread runtime prefers the saved custom MCP endpoint override shown below instead of the managed MCP endpoint above. Save after editing this field to change or remove the active override.",
+                        message:
+                          "Current thread runtime prefers the saved custom MCP endpoint override shown below instead of the managed MCP endpoint above. Save after editing this field to change or remove the active override.",
+                      })}
+                    </span>
+                    <code>{persistedCustomMcpEndpointOverride}</code>
+                  </div>
+                </InlineNotice>
+              ) : null}
               <label className="field">
                 <span>{i18n._({ id: "OAuth mode", message: "OAuth mode" })}</span>
                 <SelectControl
@@ -834,18 +897,6 @@ export function FeishuToolsSettingsPage() {
                   "codex-server now hosts the Feishu MCP adapter itself. Saving this page manages workspace mcp_servers.feishu-tools automatically, threads use that MCP server directly, and bots can use the same Feishu tools only through the thread they are bound to.",
               })}
             </InlineNotice>
-            {managedMcpEndpoint ? (
-              <InlineNotice
-                noticeKey="feishu-tools-managed-mcp-endpoint"
-                title={i18n._({
-                  id: "Managed MCP endpoint",
-                  message: "Managed MCP endpoint",
-                })}
-                tone="info"
-              >
-                <code>{managedMcpEndpoint}</code>
-              </InlineNotice>
-            ) : null}
           </SettingRow>
         </SettingsGroup>
 

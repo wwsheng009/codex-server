@@ -6,10 +6,12 @@ import type {
   SettingsWorkspaceScopePanelProps,
 } from './settingsWorkspaceScopePanelTypes'
 
+const EMPTY_SUMMARY_ITEMS: NonNullable<SettingsWorkspaceScopePanelProps['extraSummaryItems']> = []
+
 export function SettingsWorkspaceScopePanel({
   title,
   description,
-  extraSummaryItems = [],
+  extraSummaryItems = EMPTY_SUMMARY_ITEMS,
 }: SettingsWorkspaceScopePanelProps) {
   const resolvedTitle = title ?? i18n._({ id: 'Workspace Scope', message: 'Workspace Scope' })
   const resolvedDescription =

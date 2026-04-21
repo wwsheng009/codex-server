@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type {
@@ -82,11 +82,13 @@ export function SelectControl({
   const menuRef = useRef<HTMLDivElement | null>(null)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
   const listboxId = useId()
-  const selectedIndex = useMemo(() => options.findIndex((option) => option.value === value), [options, value])
+  const selectedIndex = options.findIndex((option) => option.value === value)
   const selectedOption = selectedIndex >= 0 ? options[selectedIndex] : null
+  const selectedOptionDisabled = selectedIndex >= 0 ? Boolean(options[selectedIndex]?.disabled) : false
+  const firstEnabledOptionIndex = firstEnabledIndex(options)
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(() =>
-    selectedIndex >= 0 && !options[selectedIndex]?.disabled ? selectedIndex : firstEnabledIndex(options),
+    selectedIndex >= 0 && !selectedOptionDisabled ? selectedIndex : firstEnabledOptionIndex,
   )
   const [menuPosition, setMenuPosition] = useState<SelectMenuPosition | null>(null)
 
@@ -107,12 +109,9 @@ export function SelectControl({
       return
     }
 
-    const nextIndex =
-      selectedIndex >= 0 && !options[selectedIndex]?.disabled
-        ? selectedIndex
-        : firstEnabledIndex(options)
+    const nextIndex = selectedIndex >= 0 && !selectedOptionDisabled ? selectedIndex : firstEnabledOptionIndex
     setHighlightedIndex(nextIndex)
-  }, [isOpen, options, selectedIndex])
+  }, [firstEnabledOptionIndex, isOpen, selectedIndex, selectedOptionDisabled])
 
   useEffect(() => {
     if (!disabled) {

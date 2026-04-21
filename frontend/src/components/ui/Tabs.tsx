@@ -7,21 +7,35 @@ import type {
 } from './tabsTypes'
 
 const TABS_ACTIVATE_EVENT = 'codex-server:tabs-activate'
+const TAB_ID_SEPARATOR = '\u0000'
 
-function isValidTabId(items: TabItem[], tabId: string | null | undefined): tabId is string {
-  return Boolean(tabId) && items.some((item) => item.id === tabId)
+function buildTabIdsKey(items: TabItem[]) {
+  return items.map((item) => item.id).join(TAB_ID_SEPARATOR)
 }
 
-function resolveInitialActiveId(items: TabItem[], defaultValue?: string, storageKey?: string) {
-  const fallbackId = items[0]?.id ?? ''
+function splitTabIdsKey(tabIdsKey: string) {
+  return tabIdsKey ? tabIdsKey.split(TAB_ID_SEPARATOR) : []
+}
+
+function isValidTabId(tabIdsKey: string, tabId: string | null | undefined): tabId is string {
+  if (!tabId) {
+    return false
+  }
+
+  return splitTabIdsKey(tabIdsKey).includes(tabId)
+}
+
+function resolveInitialActiveId(tabIdsKey: string, defaultValue?: string, storageKey?: string) {
+  const tabIds = splitTabIdsKey(tabIdsKey)
+  const fallbackId = tabIds[0] ?? ''
   if (storageKey && typeof window !== 'undefined') {
     const stored = window.localStorage.getItem(storageKey)
-    if (isValidTabId(items, stored)) {
+    if (isValidTabId(tabIdsKey, stored)) {
       return stored
     }
   }
 
-  return isValidTabId(items, defaultValue) ? defaultValue : fallbackId
+  return isValidTabId(tabIdsKey, defaultValue) ? defaultValue : fallbackId
 }
 
 export function activateStoredTab(storageKey: string, tabId: string) {
@@ -39,22 +53,25 @@ export function activateStoredTab(storageKey: string, tabId: string) {
 
 export function Tabs({ items, ariaLabel, defaultValue, className = '', storageKey }: TabsProps) {
   const tabsId = useId()
-  const [activeId, setActiveId] = useState(() => resolveInitialActiveId(items, defaultValue, storageKey))
+  const tabIdsKey = buildTabIdsKey(items)
+  const initialActiveId = resolveInitialActiveId(tabIdsKey, defaultValue, storageKey)
+  const [activeId, setActiveId] = useState(() => initialActiveId)
 
   const activeIndex = useMemo(
     () => items.findIndex((item) => item.id === activeId),
     [activeId, items],
   )
   const activeItem = activeIndex >= 0 ? items[activeIndex] : items[0]
+  const activeIdValid = isValidTabId(tabIdsKey, activeId)
 
   useEffect(() => {
     if (!items.length) {
       return
     }
-    if (!isValidTabId(items, activeId)) {
-      setActiveId(resolveInitialActiveId(items, defaultValue, storageKey))
+    if (!activeIdValid && activeId !== initialActiveId) {
+      setActiveId(initialActiveId)
     }
-  }, [activeId, defaultValue, items, storageKey])
+  }, [activeId, activeIdValid, initialActiveId, items.length])
 
   useEffect(() => {
     if (!storageKey || typeof window === 'undefined' || !activeItem) {
@@ -69,7 +86,7 @@ export function Tabs({ items, ariaLabel, defaultValue, className = '', storageKe
     }
 
     const syncActiveId = (nextTabId: string | null | undefined) => {
-      if (isValidTabId(items, nextTabId)) {
+      if (isValidTabId(tabIdsKey, nextTabId)) {
         setActiveId(nextTabId)
       }
     }
@@ -96,7 +113,7 @@ export function Tabs({ items, ariaLabel, defaultValue, className = '', storageKe
       window.removeEventListener('storage', handleStorage)
       window.removeEventListener(TABS_ACTIVATE_EVENT, handleActivate)
     }
-  }, [items, storageKey])
+  }, [storageKey, tabIdsKey])
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (!items.length) {

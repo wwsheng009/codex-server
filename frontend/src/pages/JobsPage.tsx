@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -13,6 +13,7 @@ import { ScheduleEditor } from '../components/ui/ScheduleEditor'
 import { SelectControl } from '../components/ui/SelectControl'
 import { StatusPill } from '../components/ui/StatusPill'
 import { Switch } from '../components/ui/Switch'
+import { listAutomations } from '../features/automations/api'
 import {
   cancelBackgroundJobRun,
   createBackgroundJob,
@@ -28,10 +29,18 @@ import {
   updateBackgroundJob,
   writeJobMCPConfig,
 } from '../features/jobs/api'
+import {
+  normalizeExecutorFormPayload,
+  validateExecutorFormPayload,
+} from '../features/jobs/executorFormRuntime'
+import {
+  getJobFailurePresentation,
+  isBackgroundJobRunRetryable,
+} from '../features/jobs/errorPresentation'
 import { listWorkspaces } from '../features/workspaces/api'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
-import type { BackgroundJob } from '../types/api'
+import type { BackgroundJob, BackgroundJobExecutor, BackgroundJobRun } from '../types/api'
 
 type Draft = {
   name: string
@@ -59,11 +68,114 @@ const EMPTY_DRAFT: Draft = {
   payload: DEFAULT_BACKGROUND_JOB_PAYLOAD,
 }
 
+const JOB_STATS_STYLE_BLOCK = `
+  .jobs-page__stats-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .jobs-page__stats-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 108px;
+    padding: 18px 20px;
+    overflow: hidden;
+  }
+
+  .jobs-page__stats-label {
+    display: block;
+    min-height: 2.35em;
+    color: var(--text-faint);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.5;
+    text-transform: uppercase;
+  }
+
+  .jobs-page__stats-value {
+    margin-top: auto;
+    display: block;
+    color: var(--text-strong);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jobs-page__stats-card--danger {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--danger, #dc2626) 6%, transparent), transparent 52%),
+      color-mix(in srgb, var(--surface-pane) 92%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #dc2626) 16%, var(--border-subtle));
+  }
+
+  .jobs-page__stats-card--danger::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: color-mix(in srgb, var(--danger, #dc2626) 36%, transparent);
+  }
+
+  .jobs-page__stats-card--danger .jobs-page__stats-value {
+    color: color-mix(in srgb, var(--text-strong) 78%, var(--danger, #dc2626));
+  }
+
+  .jobs-page__stats-card--danger-active {
+    border-color: color-mix(in srgb, var(--danger, #dc2626) 24%, var(--border-subtle));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--danger, #dc2626) 10%, transparent);
+  }
+
+  @media (max-width: 640px) {
+    .jobs-page__stats-grid {
+      gap: 12px;
+    }
+
+    .jobs-page__stats-card {
+      min-height: 92px;
+      padding: 14px 16px;
+      gap: 8px;
+    }
+
+    .jobs-page__stats-label {
+      min-height: auto;
+      font-size: 0.74rem;
+      line-height: 1.4;
+    }
+
+    .jobs-page__stats-value {
+      font-size: 1.75rem;
+    }
+  }
+`
+
+function getJobStatusPillStatus(job?: Pick<BackgroundJob, 'status' | 'lastRunStatus'> | null) {
+  if (!job) {
+    return ''
+  }
+
+  if (job.status === 'paused') {
+    return 'paused'
+  }
+
+  if (job.lastRunStatus === 'failed') {
+    return 'failed'
+  }
+
+  return 'active'
+}
+
 export function JobsPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [modalOpen, setModalOpen] = useState(false)
+  const [jobDetailOpen, setJobDetailOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState('')
   const [editingJob, setEditingJob] = useState<BackgroundJob | null>(null)
   const [selectedRunId, setSelectedRunId] = useState('')
@@ -77,6 +189,7 @@ export function JobsPage() {
   const [mcpSelectedToolNames, setMcpSelectedToolNames] = useState<string[]>([])
   const [toolExposureModalOpen, setToolExposureModalOpen] = useState(false)
   const [toolTablePage, setToolTablePage] = useState(1)
+  const [mcpPanelExpanded, setMcpPanelExpanded] = useState(false)
 
   const TOOL_TABLE_PAGE_SIZE = 5
 
@@ -92,6 +205,11 @@ export function JobsPage() {
   const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
     queryFn: listWorkspaces,
+  })
+  const automationsQuery = useQuery({
+    queryKey: ['automations'],
+    queryFn: listAutomations,
+    refetchInterval: 10_000,
   })
   const runsQuery = useQuery({
     queryKey: ['background-job-runs', selectedJobId],
@@ -127,7 +245,7 @@ export function JobsPage() {
 
   useEffect(() => {
     if (!draft.executorKind && executorsQuery.data?.[0]?.kind) {
-      const executor = executorsQuery.data[0]
+      const executor = selectDefaultBackgroundJobExecutor(executorsQuery.data)
       setDraft((current) => ({
         ...current,
         executorKind: executor.kind,
@@ -152,6 +270,7 @@ export function JobsPage() {
     const jobs = jobsQuery.data ?? []
     if (!jobs.length) {
       setSelectedJobId('')
+      setJobDetailOpen(false)
       return
     }
     const requestedJobId = searchParams.get('jobId')?.trim() ?? ''
@@ -255,6 +374,7 @@ export function JobsPage() {
     onSuccess: async (_, jobId) => {
       if (selectedJobId === jobId) {
         setSelectedJobId('')
+        setJobDetailOpen(false)
       }
       setConfirmDelete(null)
       await queryClient.invalidateQueries({ queryKey: ['background-jobs'] })
@@ -304,15 +424,55 @@ export function JobsPage() {
     mcpToolSelectionMode === 'all' ? availableManagedToolNames : normalizeManagedToolNames(mcpSelectedToolNames)
   const allManagedToolsSelected =
     availableManagedToolNames.length > 0 && mcpVisibleSelectedToolNames.length === availableManagedToolNames.length
+  const selectedJobStatus = getJobStatusPillStatus(selectedJob)
+  const selectedJobFailure = selectedJob && hasJobFailure(selectedJob) ? getJobFailurePresentation(selectedJob) : null
+  const selectedRunFailure = selectedRun && hasJobFailure(selectedRun) ? getJobFailurePresentation(selectedRun) : null
+  const canRetrySelectedRun = selectedRun ? isRunRetryAllowed(selectedRun) : false
+  const canCancelSelectedRun = selectedRun ? isRunCancelable(selectedRun) : false
+  const retryBlockedMessage =
+    selectedRun && !canRetrySelectedRun
+      ? selectedRunFailure?.retryable === false || isBackgroundJobRunRetryable(selectedRun) === false
+        ? selectedRunFailure?.message
+        : i18n._({
+            id: 'Retry is available after this run finishes.',
+            message: 'Retry is available after this run finishes.',
+          })
+      : ''
+  const jobStats = [
+    {
+      key: 'active',
+      label: i18n._({ id: 'Active Jobs', message: 'Active Jobs' }),
+      value: activeCount,
+    },
+    {
+      key: 'paused',
+      label: i18n._({ id: 'Paused Jobs', message: 'Paused Jobs' }),
+      value: pausedCount,
+    },
+    {
+      key: 'failed',
+      label: i18n._({ id: 'Last Run Failed', message: 'Last Run Failed' }),
+      value: failedCount,
+      tone: 'danger' as const,
+    },
+  ]
+
+  function closeJobDetails() {
+    setJobDetailOpen(false)
+  }
+
   function closeModal() {
     setModalOpen(false)
     setEditingJob(null)
     setFormError('')
+    const nextExecutor =
+      currentExecutor ??
+      (executorsQuery.data?.length ? selectDefaultBackgroundJobExecutor(executorsQuery.data) : null)
     setDraft((current) => ({
       ...EMPTY_DRAFT,
       workspaceId: current.workspaceId || workspacesQuery.data?.[0]?.id || '',
-      executorKind: currentExecutor?.kind || executorsQuery.data?.[0]?.kind || '',
-      payload: JSON.stringify(currentExecutor?.examplePayload ?? executorsQuery.data?.[0]?.examplePayload ?? {}, null, 2),
+      executorKind: nextExecutor?.kind || '',
+      payload: JSON.stringify(nextExecutor?.examplePayload ?? {}, null, 2),
     }))
   }
 
@@ -328,6 +488,14 @@ export function JobsPage() {
     })
     setFormError('')
     setModalOpen(true)
+  }
+
+  function openJobDetails(jobId: string) {
+    if (jobId !== selectedJobId) {
+      setSelectedRunId('')
+    }
+    setSelectedJobId(jobId)
+    setJobDetailOpen(true)
   }
 
   function submitCreateForm() {
@@ -358,6 +526,17 @@ export function JobsPage() {
       payload,
     }
 
+    const executorFormFields = currentExecutor?.form?.fields ?? []
+    payload = normalizeExecutorFormPayload(payload, executorFormFields)
+    input.payload = payload
+    const executorFormError = validateExecutorFormPayload(payload, executorFormFields, {
+      fallbackSourceRefId: editingJob?.sourceRefId,
+    })
+    if (executorFormError) {
+      setFormError(executorFormError)
+      return
+    }
+
     if (editingJob) {
       updateMutation.mutate({ jobId: editingJob.id, input })
       return
@@ -373,8 +552,22 @@ export function JobsPage() {
     saveMcpConfigMutation.mutate()
   }
 
+  function resetManagedMcpConfigDraft() {
+    const config = mcpConfigQuery.data?.config
+    if (!config) {
+      return
+    }
+    setMcpEnabled(config.enabled)
+    setMcpServerName(config.serverName || 'codex-jobs')
+    const nextTools = normalizeManagedToolNames(config.toolAllowlist ?? [])
+    setMcpToolSelectionMode(nextTools.length > 0 ? 'custom' : 'all')
+    setMcpSelectedToolNames(nextTools)
+  }
+
   return (
-    <section className="screen">
+    <section className="screen jobs-page">
+      <style>{JOB_STATS_STYLE_BLOCK}</style>
+
       <section className="mode-strip">
         <div className="mode-strip__meta">
           <span className="mode-strip__eyebrow">
@@ -395,148 +588,228 @@ export function JobsPage() {
         </div>
       </section>
 
-      <section className="stats-grid">
-        <article className="stats-card">
-          <span>{i18n._({ id: 'Active Jobs', message: 'Active Jobs' })}</span>
-          <strong>{activeCount}</strong>
-        </article>
-        <article className="stats-card">
-          <span>{i18n._({ id: 'Paused Jobs', message: 'Paused Jobs' })}</span>
-          <strong>{pausedCount}</strong>
-        </article>
-        <article className="stats-card">
-          <span>{i18n._({ id: 'Last Run Failed', message: 'Last Run Failed' })}</span>
-          <strong>{failedCount}</strong>
-        </article>
+      <section className="stats-grid jobs-page__stats-grid">
+        {jobStats.map((item) => (
+          <article
+            className={[
+              'stats-card',
+              'jobs-page__stats-card',
+              item.tone === 'danger' ? 'jobs-page__stats-card--danger' : '',
+              item.tone === 'danger' && item.value > 0 ? 'jobs-page__stats-card--danger-active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            key={item.key}
+          >
+            <span className="jobs-page__stats-label">{item.label}</span>
+            <strong className="jobs-page__stats-value">{item.value}</strong>
+          </article>
+        ))}
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section jobs-page__mcp-section jobs-page__mcp-section--muted">
         <header className="section-header">
           <div>
             <h2>{i18n._({ id: 'Managed MCP Tool', message: 'Managed MCP Tool' })}</h2>
             <p>
               {i18n._({
-                id: 'Save one workspace-scoped MCP tool here so Codex can manage background jobs through codex-server itself.',
-                message:
-                  'Save one workspace-scoped MCP tool here so Codex can manage background jobs through codex-server itself.',
+                id: 'Keep this configuration available when Codex should manage jobs through the workspace MCP endpoint.',
+                message: 'Keep this configuration available when Codex should manage jobs through the workspace MCP endpoint.',
               })}
             </p>
           </div>
-          {mcpRuntimeIntegration ? <StatusPill status={mcpRuntimeIntegration.status} /> : null}
+          <div className="section-header__actions">
+            {mcpRuntimeIntegration ? <StatusPill status={mcpRuntimeIntegration.status} /> : null}
+            <Button intent="ghost" onClick={() => setMcpPanelExpanded((current) => !current)}>
+              {mcpPanelExpanded
+                ? i18n._({ id: 'Hide Configuration', message: 'Hide Configuration' })
+                : i18n._({ id: 'Show Configuration', message: 'Show Configuration' })}
+            </Button>
+          </div>
         </header>
 
-        <div className="form-grid">
-          <label className="field">
+        <div className="jobs-page__mcp-summary">
+          <article className="jobs-page__mcp-summary-card">
+            <span>{i18n._({ id: 'Status', message: 'Status' })}</span>
+            <strong>
+              {mcpEnabled
+                ? i18n._({ id: 'Managed MCP enabled', message: 'Managed MCP enabled' })
+                : i18n._({ id: 'Managed MCP disabled', message: 'Managed MCP disabled' })}
+            </strong>
+          </article>
+          <article className="jobs-page__mcp-summary-card">
             <span>{i18n._({ id: 'Workspace', message: 'Workspace' })}</span>
-            <SelectControl
-              ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
-              fullWidth
-              value={mcpWorkspaceId}
-              onChange={setMcpWorkspaceId}
-              options={(workspacesQuery.data ?? []).map((workspace) => ({
-                value: workspace.id,
-                label: workspace.name,
-              }))}
+            <strong>{workspacesQuery.data?.find((workspace) => workspace.id === mcpWorkspaceId)?.name || '—'}</strong>
+          </article>
+          <article className="jobs-page__mcp-summary-card">
+            <span>{i18n._({ id: 'Server Name', message: 'Server Name' })}</span>
+            <strong>
+              {mcpServerName.trim() || i18n._({ id: 'Not configured', message: 'Not configured' })}
+            </strong>
+          </article>
+        </div>
+
+        {mcpPanelExpanded ? (
+          <>
+            <div className="jobs-page__management-grid">
+              <div className="settings-card jobs-page__group-card jobs-page__config-node">
+                <header className="section-header">
+                  <div>
+                    <h3>{i18n._({ id: 'Workspace Configuration', message: 'Workspace Configuration' })}</h3>
+                    <p>
+                      {i18n._({
+                        id: 'Keep workspace selection, naming, enablement, and save actions in one compact block.',
+                        message: 'Keep workspace selection, naming, enablement, and save actions in one compact block.',
+                      })}
+                    </p>
+                  </div>
+                </header>
+                <div className="jobs-page__compact-form">
+                  <label className="field">
+                    <span>{i18n._({ id: 'Workspace', message: 'Workspace' })}</span>
+                    <SelectControl
+                      ariaLabel={i18n._({ id: 'Workspace', message: 'Workspace' })}
+                      fullWidth
+                      value={mcpWorkspaceId}
+                      onChange={setMcpWorkspaceId}
+                      options={(workspacesQuery.data ?? []).map((workspace) => ({
+                        value: workspace.id,
+                        label: workspace.name,
+                      }))}
+                    />
+                  </label>
+                  <Input
+                    label={i18n._({ id: 'Managed MCP Server Name', message: 'Managed MCP Server Name' })}
+                    value={mcpServerName}
+                    onChange={(event) => setMcpServerName(event.target.value)}
+                  />
+                  <div className="jobs-page__compact-form jobs-page__compact-form--single">
+                    <Switch
+                      label={i18n._({ id: 'Enable managed MCP tool', message: 'Enable managed MCP tool' })}
+                      hint={i18n._({
+                        id: 'This saves one workspace-level MCP server for all Codex sessions in the selected workspace.',
+                        message:
+                          'This saves one workspace-level MCP server for all Codex sessions in the selected workspace.',
+                      })}
+                      checked={mcpEnabled}
+                      onChange={(event) => setMcpEnabled(event.target.checked)}
+                    />
+                  </div>
+                </div>
+                <div className="jobs-page__node-actions">
+                  <Button intent="secondary" onClick={resetManagedMcpConfigDraft}>
+                    {i18n._({ id: 'Reset Form', message: 'Reset Form' })}
+                  </Button>
+                  <Button onClick={submitManagedMcpConfig} disabled={!mcpWorkspaceId || saveMcpConfigMutation.isPending}>
+                    {saveMcpConfigMutation.isPending
+                      ? i18n._({ id: 'Saving…', message: 'Saving…' })
+                      : i18n._({ id: 'Save MCP Tool Config', message: 'Save MCP Tool Config' })}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="settings-card jobs-page__group-card jobs-page__config-node jobs-page__config-node--exposure">
+                <div className="feishu-tool-selector-card">
+                  <div className="section-header">
+                    <div>
+                      <h3>{i18n._({ id: 'Tool Exposure', message: 'Tool Exposure' })}</h3>
+                      <p>
+                        {i18n._({
+                          id: 'Manage Jobs MCP visibility as a separate configuration node from workspace endpoint settings.',
+                          message: 'Manage Jobs MCP visibility as a separate configuration node from workspace endpoint settings.',
+                        })}
+                      </p>
+                    </div>
+                    <div className="section-header__actions">
+                      <span className="meta-pill">
+                        {mcpToolSelectionMode === 'all'
+                          ? i18n._({ id: 'All tools exposed', message: 'All tools exposed' })
+                          : i18n._({
+                              id: '{count} of {total} tools selected',
+                              message: '{count} of {total} tools selected',
+                              values: {
+                                count: mcpVisibleSelectedToolNames.length,
+                                total: availableManagedToolNames.length,
+                              },
+                            })}
+                      </span>
+                      <span className="meta-pill">
+                        {i18n._({
+                          id: '{count} tools available',
+                          message: '{count} tools available',
+                          values: { count: availableManagedToolNames.length },
+                        })}
+                      </span>
+                      <Button
+                        intent="secondary"
+                        onClick={() => {
+                          setToolTablePage(1)
+                          setToolExposureModalOpen(true)
+                        }}
+                      >
+                        {i18n._({ id: 'Configure', message: 'Configure' })}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="jobs-page__exposure-overview">
+                    <div className="jobs-page__exposure-copy">
+                      <strong>
+                        {mcpToolSelectionMode === 'all'
+                          ? i18n._({
+                              id: 'All managed Jobs MCP tools are currently exposed to Codex in this workspace.',
+                              message: 'All managed Jobs MCP tools are currently exposed to Codex in this workspace.',
+                            })
+                          : i18n._({
+                              id: '{count} of {total} tools selected',
+                              message: '{count} of {total} tools selected',
+                              values: {
+                                count: mcpVisibleSelectedToolNames.length,
+                                total: availableManagedToolNames.length,
+                              },
+                            })}
+                      </strong>
+                      <span>
+                        {i18n._({
+                          id: 'Open the selector to change which managed Jobs MCP operations remain visible to Codex.',
+                          message: 'Open the selector to change which managed Jobs MCP operations remain visible to Codex.',
+                        })}
+                      </span>
+                    </div>
+                    {mcpVisibleSelectedToolNames.length > 0 ? (
+                      <div className="feishu-tool-selector-chip-list">
+                        {mcpVisibleSelectedToolNames.map((toolName) => (
+                          <span className="meta-pill" key={toolName}>
+                            {toolName}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {mcpRuntimeIntegration?.serverUrl ? (
+              <InlineNotice tone="info" title={i18n._({ id: 'Managed MCP Endpoint', message: 'Managed MCP Endpoint' })}>
+                <code>{mcpRuntimeIntegration.serverUrl}</code>
+              </InlineNotice>
+            ) : null}
+            {mcpRuntimeIntegration?.detail ? (
+              <InlineNotice tone="info" title={i18n._({ id: 'Runtime Integration', message: 'Runtime Integration' })}>
+                {mcpRuntimeIntegration.detail}
+              </InlineNotice>
+            ) : null}
+            <FormErrorNotice
+              error={mcpConfigQuery.error ? getErrorMessage(mcpConfigQuery.error) : ''}
+              title={i18n._({ id: 'Failed To Load MCP Tool Config', message: 'Failed To Load MCP Tool Config' })}
             />
-          </label>
-          <Input
-            label={i18n._({ id: 'Managed MCP Server Name', message: 'Managed MCP Server Name' })}
-            value={mcpServerName}
-            onChange={(event) => setMcpServerName(event.target.value)}
-          />
-          <Switch
-            label={i18n._({ id: 'Enable managed MCP tool', message: 'Enable managed MCP tool' })}
-            hint={i18n._({
-              id: 'This saves one workspace-level MCP server for all Codex sessions in the selected workspace.',
-              message:
-                'This saves one workspace-level MCP server for all Codex sessions in the selected workspace.',
-            })}
-            checked={mcpEnabled}
-            onChange={(event) => setMcpEnabled(event.target.checked)}
-          />
-        </div>
-
-        <div className="feishu-tool-selector-card">
-          <div className="section-header">
-            <div>
-              <h3>{i18n._({ id: 'Tool Exposure', message: 'Tool Exposure' })}</h3>
-              <p>
-                {mcpToolSelectionMode === 'all'
-                  ? i18n._({ id: 'All managed Jobs MCP tools are currently exposed to Codex in this workspace.', message: 'All managed Jobs MCP tools are currently exposed to Codex in this workspace.' })
-                  : i18n._({
-                      id: '{count} of {total} tools selected',
-                      message: '{count} of {total} tools selected',
-                      values: { count: mcpVisibleSelectedToolNames.length, total: availableManagedToolNames.length },
-                    })}
-              </p>
-            </div>
-            <div className="section-header__actions">
-              <span className="meta-pill">
-                {i18n._({
-                  id: '{count} tools available',
-                  message: '{count} tools available',
-                  values: { count: availableManagedToolNames.length },
-                })}
-              </span>
-              <Button intent="secondary" onClick={() => { setToolTablePage(1); setToolExposureModalOpen(true); }}>
-                {i18n._({ id: 'Configure', message: 'Configure' })}
-              </Button>
-            </div>
-          </div>
-
-          {mcpVisibleSelectedToolNames.length > 0 ? (
-            <div className="feishu-tool-selector-chip-list">
-              {mcpVisibleSelectedToolNames.map((toolName) => (
-                <span className="meta-pill" key={toolName}>
-                  {toolName}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        {mcpRuntimeIntegration?.serverUrl ? (
-          <InlineNotice tone="info" title={i18n._({ id: 'Managed MCP Endpoint', message: 'Managed MCP Endpoint' })}>
-            <code>{mcpRuntimeIntegration.serverUrl}</code>
-          </InlineNotice>
+            <FormErrorNotice
+              error={saveMcpConfigMutation.error ? getErrorMessage(saveMcpConfigMutation.error) : ''}
+              title={i18n._({ id: 'Failed To Save MCP Tool Config', message: 'Failed To Save MCP Tool Config' })}
+            />
+          </>
         ) : null}
-        {mcpRuntimeIntegration?.detail ? (
-          <InlineNotice tone="info" title={i18n._({ id: 'Runtime Integration', message: 'Runtime Integration' })}>
-            {mcpRuntimeIntegration.detail}
-          </InlineNotice>
-        ) : null}
-        <FormErrorNotice
-          error={mcpConfigQuery.error ? getErrorMessage(mcpConfigQuery.error) : ''}
-          title={i18n._({ id: 'Failed To Load MCP Tool Config', message: 'Failed To Load MCP Tool Config' })}
-        />
-        <FormErrorNotice
-          error={saveMcpConfigMutation.error ? getErrorMessage(saveMcpConfigMutation.error) : ''}
-          title={i18n._({ id: 'Failed To Save MCP Tool Config', message: 'Failed To Save MCP Tool Config' })}
-        />
-
-        <div className="modal-card__footer">
-          <Button
-            intent="secondary"
-            onClick={() => {
-              const config = mcpConfigQuery.data?.config
-              if (!config) {
-                return
-              }
-              setMcpEnabled(config.enabled)
-              setMcpServerName(config.serverName || 'codex-jobs')
-              const nextTools = normalizeManagedToolNames(config.toolAllowlist ?? [])
-              setMcpToolSelectionMode(nextTools.length > 0 ? 'custom' : 'all')
-              setMcpSelectedToolNames(nextTools)
-            }}
-          >
-            {i18n._({ id: 'Reset Form', message: 'Reset Form' })}
-          </Button>
-          <Button onClick={submitManagedMcpConfig} disabled={!mcpWorkspaceId || saveMcpConfigMutation.isPending}>
-            {saveMcpConfigMutation.isPending
-              ? i18n._({ id: 'Saving…', message: 'Saving…' })
-              : i18n._({ id: 'Save MCP Tool Config', message: 'Save MCP Tool Config' })}
-          </Button>
-        </div>
       </section>
 
       {jobsQuery.error ? (
@@ -545,11 +818,62 @@ export function JobsPage() {
         </InlineNotice>
       ) : null}
 
-      <div className="detail-layout">
+      <section className="settings-card jobs-page__command-bar">
+        <div className="jobs-page__command-bar-copy">
+          <span className="mode-strip__eyebrow">{i18n._({ id: 'Primary Actions', message: 'Primary Actions' })}</span>
+          <h2>
+            {selectedJob
+              ? i18n._({ id: 'Manage Selected Job', message: 'Manage Selected Job' })
+              : i18n._({ id: 'Select a job to manage', message: 'Select a job to manage' })}
+          </h2>
+          <p>
+            {selectedJob
+              ? selectedJob.description || i18n._({ id: 'No description provided.', message: 'No description provided.' })
+              : i18n._({
+                  id: 'Choose a job from the list to run it, edit its definition, or change its schedule state.',
+                  message: 'Choose a job from the list to run it, edit its definition, or change its schedule state.',
+                })}
+          </p>
+        </div>
+        <div className="jobs-page__command-bar-actions">
+          <Button onClick={() => setModalOpen(true)}>{i18n._({ id: 'Create Job', message: 'Create Job' })}</Button>
+          {selectedJob ? (
+            <>
+              <Button intent="ghost" onClick={() => openJobDetails(selectedJob.id)}>
+                {i18n._({ id: 'Open Details', message: 'Open Details' })}
+              </Button>
+              <Button
+                intent="secondary"
+                onClick={() => runMutation.mutate(selectedJob.id)}
+                disabled={runMutation.isPending}
+              >
+                {i18n._({ id: 'Run Now', message: 'Run Now' })}
+              </Button>
+              <Button intent="ghost" onClick={() => openEditModal(selectedJob)}>
+                {i18n._({ id: 'Edit', message: 'Edit' })}
+              </Button>
+              {selectedJob.status === 'paused' ? (
+                <Button intent="secondary" onClick={() => resumeMutation.mutate(selectedJob.id)}>
+                  {i18n._({ id: 'Resume', message: 'Resume' })}
+                </Button>
+              ) : (
+                <Button intent="secondary" onClick={() => pauseMutation.mutate(selectedJob.id)}>
+                  {i18n._({ id: 'Pause', message: 'Pause' })}
+                </Button>
+              )}
+              <Button intent="ghost" onClick={() => setConfirmDelete(selectedJob)}>
+                {i18n._({ id: 'Delete', message: 'Delete' })}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      <div className="detail-layout detail-layout--single">
         <section className="detail-layout__main settings-section">
           <header className="section-header">
             <div>
-          <h2>{i18n._({ id: 'Jobs', message: 'Jobs' })}</h2>
+              <h2>{i18n._({ id: 'Jobs', message: 'Jobs' })}</h2>
             </div>
             <div className="section-header__meta">{jobs.length}</div>
           </header>
@@ -568,15 +892,7 @@ export function JobsPage() {
                   >
                     <div className="automation-compact-row__title">
                       <h3>{job.name}</h3>
-                      <StatusPill
-                        status={
-                          job.status === 'paused'
-                          ? i18n._({ id: 'Paused', message: 'Paused' })
-                          : job.lastRunStatus === 'failed'
-                            ? i18n._({ id: 'Failed', message: 'Failed' })
-                            : i18n._({ id: 'Active', message: 'Active' })
-                        }
-                      />
+                      <StatusPill status={getJobStatusPillStatus(job)} />
                     </div>
                     <p>{job.description || i18n._({ id: 'No description provided.', message: 'No description provided.' })}</p>
                     <dl className="automation-compact-row__meta">
@@ -602,30 +918,26 @@ export function JobsPage() {
                       </div>
                     </dl>
                   </button>
-                  <div className="automation-compact-row__actions">
-                    <Button
-                      type="button"
-                      intent="secondary"
-                      onClick={() => runMutation.mutate(job.id)}
-                      disabled={runMutation.isPending}
-                    >
-                      {i18n._({ id: 'Run Now', message: 'Run Now' })}
-                    </Button>
-                    <Button type="button" intent="ghost" onClick={() => openEditModal(job)}>
-                      {i18n._({ id: 'Edit', message: 'Edit' })}
-                    </Button>
-                    {job.status === 'paused' ? (
-                      <Button type="button" intent="secondary" onClick={() => resumeMutation.mutate(job.id)}>
-                        {i18n._({ id: 'Resume', message: 'Resume' })}
+                  <div className="automation-compact-row__actions jobs-page__row-actions">
+                    <div className="jobs-page__action-cluster">
+                      <Button
+                        type="button"
+                        intent="secondary"
+                        onClick={() => runMutation.mutate(job.id)}
+                        disabled={runMutation.isPending}
+                      >
+                        {i18n._({ id: 'Run Now', message: 'Run Now' })}
                       </Button>
-                    ) : (
-                      <Button type="button" intent="secondary" onClick={() => pauseMutation.mutate(job.id)}>
-                        {i18n._({ id: 'Pause', message: 'Pause' })}
+                      <Button
+                        type="button"
+                        intent="ghost"
+                        aria-haspopup="dialog"
+                        aria-expanded={jobDetailOpen && selectedJobId === job.id}
+                        onClick={() => openJobDetails(job.id)}
+                      >
+                        {i18n._({ id: 'Open Details', message: 'Open Details' })}
                       </Button>
-                    )}
-                    <Button type="button" intent="ghost" onClick={() => setConfirmDelete(job)}>
-                      {i18n._({ id: 'Delete', message: 'Delete' })}
-                    </Button>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -644,136 +956,352 @@ export function JobsPage() {
             </InlineNotice>
           )}
         </section>
+      </div>
 
-        <aside className="detail-layout__side settings-section">
-          <header className="section-header">
-            <div>
-              <h2>{i18n._({ id: 'Recent Runs', message: 'Recent Runs' })}</h2>
-              <p>{selectedJob?.name ?? i18n._({ id: 'Select a job', message: 'Select a job' })}</p>
-            </div>
-          </header>
-
-          {selectedJob ? (
-            <>
-              <dl className="definition-grid">
-                <div>
-                  <dt>{i18n._({ id: 'Executor', message: 'Executor' })}</dt>
-                  <dd>{selectedJob.executorKind}</dd>
+      {jobDetailOpen && selectedJob ? (
+        <Modal
+          title={i18n._({ id: 'Job Details', message: 'Job Details' })}
+          description={selectedJob.name}
+          onClose={closeJobDetails}
+          maxWidth="min(1080px, calc(100vw - 40px))"
+          className="jobs-page__detail-modal"
+          footer={
+            <Button intent="ghost" onClick={closeJobDetails}>
+              {i18n._({ id: 'Close', message: 'Close' })}
+            </Button>
+          }
+        >
+          <div className="jobs-page__detail-drawer">
+            <section className="jobs-page__detail-hero">
+              <div className="jobs-page__detail-hero-main">
+                <span className="mode-strip__eyebrow">{i18n._({ id: 'Selected Job', message: 'Selected Job' })}</span>
+                <div className="jobs-page__detail-title-row">
+                  <h3>{selectedJob.name}</h3>
+                  <StatusPill status={selectedJobStatus} />
                 </div>
-                <div>
-                  <dt>{i18n._({ id: 'Last Run', message: 'Last Run' })}</dt>
-                  <dd>{formatDateTime(selectedJob.lastRunAt) || i18n._({ id: 'Never', message: 'Never' })}</dd>
-                </div>
-                <div>
-                  <dt>{i18n._({ id: 'Last Status', message: 'Last Status' })}</dt>
-                  <dd>{selectedJob.lastRunStatus || i18n._({ id: 'Idle', message: 'Idle' })}</dd>
-                </div>
-                <div>
-                  <dt>{i18n._({ id: 'Last Error', message: 'Last Error' })}</dt>
-                  <dd>{selectedJob.lastError || '—'}</dd>
-                </div>
-                <div>
-                  <dt>{i18n._({ id: 'Managed Source', message: 'Managed Source' })}</dt>
-                  <dd>
+                <p>
+                  {selectedJob.description ||
+                    i18n._({ id: 'No description provided.', message: 'No description provided.' })}
+                </p>
+                <div className="jobs-page__detail-meta">
+                  <span className="meta-pill">{selectedJob.workspaceName}</span>
+                  <span className="meta-pill">{selectedJob.executorKind}</span>
+                  <span className="meta-pill">
+                    {selectedJob.scheduleLabel || i18n._({ id: 'Manual only', message: 'Manual only' })}
+                  </span>
+                  <span className="meta-pill">
                     {selectedJob.sourceType && selectedJob.sourceRefId
                       ? `${selectedJob.sourceType} · ${selectedJob.sourceRefId}`
                       : i18n._({ id: 'Standalone job', message: 'Standalone job' })}
-                  </dd>
+                  </span>
                 </div>
-              </dl>
-
-              {runsQuery.error ? (
-                <InlineNotice tone="error" title={i18n._({ id: 'Failed To Load Run Data', message: 'Failed To Load Run Data' })}>
-                  {getErrorMessage(runsQuery.error)}
-                </InlineNotice>
-              ) : null}
-
-              <div className="timeline-list">
-                {selectedRuns.length ? (
-                  selectedRuns.map((run) => (
-                    <article
-                      key={run.id}
-                      className={`timeline-card ${selectedRunId === run.id ? 'timeline-card--selected' : ''}`}
-                      onClick={() => setSelectedRunId(run.id)}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div className="timeline-card__header">
-                        <strong>{run.trigger}</strong>
-                        <StatusPill status={run.status} />
-                      </div>
-                      <p>{run.summary || run.error || '—'}</p>
-                      <small>
-                        {formatDateTime(run.startedAt)}{' '}
-                        {run.finishedAt ? `→ ${formatDateTime(run.finishedAt)}` : ''}
-                      </small>
-                    </article>
-                  ))
-                ) : runsQuery.isLoading ? (
-                  <div className="notice">
-                    {i18n._({ id: 'Loading run history…', message: 'Loading run history…' })}
-                  </div>
-                ) : (
-                  <div className="notice">
-                    {i18n._({ id: 'No runs yet.', message: 'No runs yet.' })}
-                  </div>
-                )}
               </div>
+              <div className="jobs-page__action-cluster">
+                <Button
+                  intent="secondary"
+                  onClick={() => runMutation.mutate(selectedJob.id)}
+                  disabled={runMutation.isPending}
+                >
+                  {i18n._({ id: 'Run Now', message: 'Run Now' })}
+                </Button>
+                <Button intent="ghost" onClick={() => openEditModal(selectedJob)}>
+                  {i18n._({ id: 'Edit', message: 'Edit' })}
+                </Button>
+                {selectedJob.status === 'paused' ? (
+                  <Button intent="secondary" onClick={() => resumeMutation.mutate(selectedJob.id)}>
+                    {i18n._({ id: 'Resume', message: 'Resume' })}
+                  </Button>
+                ) : (
+                  <Button intent="secondary" onClick={() => pauseMutation.mutate(selectedJob.id)}>
+                    {i18n._({ id: 'Pause', message: 'Pause' })}
+                  </Button>
+                )}
+                <Button intent="ghost" onClick={() => setConfirmDelete(selectedJob)}>
+                  {i18n._({ id: 'Delete', message: 'Delete' })}
+                </Button>
+              </div>
+            </section>
 
-              {selectedRun ? (
-                <div className="settings-card">
+            <div className="jobs-page__detail-grid">
+              <div className="jobs-page__detail-column">
+                <section className="settings-card jobs-page__detail-card jobs-page__job-overview">
                   <header className="section-header">
                     <div>
-                      <h3>{i18n._({ id: 'Run Detail', message: 'Run Detail' })}</h3>
+                      <h3>{i18n._({ id: 'Job Overview', message: 'Job Overview' })}</h3>
+                      <p>
+                        {i18n._({
+                          id: 'Review the current job configuration, schedule, and latest execution state.',
+                          message: 'Review the current job configuration, schedule, and latest execution state.',
+                        })}
+                      </p>
                     </div>
+                    <StatusPill status={selectedJobStatus} />
                   </header>
                   <dl className="definition-grid">
                     <div>
-                      <dt>{i18n._({ id: 'Status', message: 'Status' })}</dt>
-                      <dd>{selectedRun.status}</dd>
+                      <dt>{i18n._({ id: 'Workspace', message: 'Workspace' })}</dt>
+                      <dd>{selectedJob.workspaceName}</dd>
                     </div>
                     <div>
-                      <dt>{i18n._({ id: 'Trigger', message: 'Trigger' })}</dt>
-                      <dd>{selectedRun.trigger}</dd>
+                      <dt>{i18n._({ id: 'Executor', message: 'Executor' })}</dt>
+                      <dd>{selectedJob.executorKind}</dd>
                     </div>
                     <div>
-                      <dt>{i18n._({ id: 'Summary', message: 'Summary' })}</dt>
-                      <dd>{selectedRun.summary || '—'}</dd>
+                      <dt>{i18n._({ id: 'Schedule', message: 'Schedule' })}</dt>
+                      <dd>{selectedJob.scheduleLabel || i18n._({ id: 'Manual only', message: 'Manual only' })}</dd>
                     </div>
                     <div>
-                      <dt>{i18n._({ id: 'Error', message: 'Error' })}</dt>
-                      <dd>{selectedRun.error || '—'}</dd>
+                      <dt>{i18n._({ id: 'Next Run', message: 'Next Run' })}</dt>
+                      <dd>{formatDateTime(selectedJob.nextRunAt) || i18n._({ id: 'Not scheduled', message: 'Not scheduled' })}</dd>
+                    </div>
+                    <div>
+                      <dt>{i18n._({ id: 'Last Run', message: 'Last Run' })}</dt>
+                      <dd>{formatDateTime(selectedJob.lastRunAt) || i18n._({ id: 'Never', message: 'Never' })}</dd>
+                    </div>
+                    <div>
+                      <dt>{i18n._({ id: 'Last Status', message: 'Last Status' })}</dt>
+                      <dd>
+                        {selectedJob.lastRunStatus ? (
+                          <StatusPill status={selectedJob.lastRunStatus} />
+                        ) : (
+                          i18n._({ id: 'Idle', message: 'Idle' })
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{i18n._({ id: 'Created', message: 'Created' })}</dt>
+                      <dd>{formatDateTime(selectedJob.createdAt) || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt>{i18n._({ id: 'Updated', message: 'Updated' })}</dt>
+                      <dd>{formatDateTime(selectedJob.updatedAt) || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt>{i18n._({ id: 'Managed Source', message: 'Managed Source' })}</dt>
+                      <dd>
+                        {selectedJob.sourceType && selectedJob.sourceRefId
+                          ? `${selectedJob.sourceType} · ${selectedJob.sourceRefId}`
+                          : i18n._({ id: 'Standalone job', message: 'Standalone job' })}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{i18n._({ id: 'Last Error', message: 'Last Error' })}</dt>
+                      <dd>{selectedJobFailure?.message || '—'}</dd>
                     </div>
                   </dl>
-                  <div className="modal-card__footer">
-                    <Button
-                      intent="secondary"
-                      onClick={() => retryRunMutation.mutate(selectedRun.id)}
-                      disabled={retryRunMutation.isPending}
+                  {selectedJobFailure ? (
+                    <InlineNotice
+                      tone="error"
+                      title={i18n._({ id: 'Latest Failure', message: 'Latest Failure' })}
+                      details={selectedJobFailure.details.join('\n')}
                     >
-                      {i18n._({ id: 'Retry Run', message: 'Retry Run' })}
-                    </Button>
-                    <Button
-                      intent="ghost"
-                      onClick={() => cancelRunMutation.mutate(selectedRun.id)}
-                      disabled={
-                        cancelRunMutation.isPending ||
-                        !['queued', 'running'].includes(selectedRun.status.trim().toLowerCase())
-                      }
+                      {selectedJobFailure.message}
+                    </InlineNotice>
+                  ) : null}
+                  {runMutation.error ? (
+                    <InlineNotice
+                      tone="error"
+                      title={i18n._({ id: 'Failed To Start Job Run', message: 'Failed To Start Job Run' })}
+                      details={getJobFailurePresentation(runMutation.error).details.join('\n')}
                     >
-                      {i18n._({ id: 'Cancel Run', message: 'Cancel Run' })}
-                    </Button>
+                      {getJobFailurePresentation(runMutation.error).message}
+                    </InlineNotice>
+                  ) : null}
+                </section>
+
+                <section className="settings-card jobs-page__detail-card">
+                  <header className="section-header">
+                    <div>
+                      <h3>{i18n._({ id: 'Recent Runs', message: 'Recent Runs' })}</h3>
+                      <p>
+                        {i18n._({
+                          id: 'Review the latest activity for this job and pick one run to inspect in detail.',
+                          message: 'Review the latest activity for this job and pick one run to inspect in detail.',
+                        })}
+                      </p>
+                    </div>
+                    <div className="section-header__meta">{selectedRuns.length}</div>
+                  </header>
+
+                  {runsQuery.error ? (
+                    <InlineNotice tone="error" title={i18n._({ id: 'Failed To Load Run Data', message: 'Failed To Load Run Data' })}>
+                      {getErrorMessage(runsQuery.error)}
+                    </InlineNotice>
+                  ) : null}
+
+                  <div className="timeline-list jobs-page__timeline-list">
+                    {selectedRuns.length ? (
+                      selectedRuns.map((run) => (
+                        <button
+                          key={run.id}
+                          type="button"
+                          className={`timeline-card ${selectedRunId === run.id ? 'timeline-card--selected' : ''}`}
+                          onClick={() => setSelectedRunId(run.id)}
+                        >
+                          <div className="timeline-card__header">
+                            <strong>{run.trigger}</strong>
+                            <StatusPill status={run.status} />
+                          </div>
+                          <p>{run.summary || (hasJobFailure(run) ? getJobFailurePresentation(run).message : '—')}</p>
+                          <small>
+                            {formatDateTime(run.startedAt)}{' '}
+                            {run.finishedAt ? `→ ${formatDateTime(run.finishedAt)}` : ''}
+                          </small>
+                        </button>
+                      ))
+                    ) : runsQuery.isLoading ? (
+                      <div className="notice">
+                        {i18n._({ id: 'Loading run history…', message: 'Loading run history…' })}
+                      </div>
+                    ) : (
+                      <div className="notice">
+                        {i18n._({ id: 'No runs yet.', message: 'No runs yet.' })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="notice">
-              {i18n._({ id: 'Select a job to inspect its run history.', message: 'Select a job to inspect its run history.' })}
+                </section>
+              </div>
+
+              <div className="jobs-page__detail-column">
+                <section className="settings-card jobs-page__detail-card jobs-page__detail-card--run-detail">
+                  <header className="section-header">
+                    <div>
+                      <h3>{i18n._({ id: 'Run Detail', message: 'Run Detail' })}</h3>
+                      <p>
+                        {selectedRun
+                          ? i18n._({
+                              id: 'Inspect the selected run summary, output, and execution log.',
+                              message: 'Inspect the selected run summary, output, and execution log.',
+                            })
+                          : i18n._({
+                              id: 'Choose one run from Recent Runs to inspect its summary, output, and execution log.',
+                              message: 'Choose one run from Recent Runs to inspect its summary, output, and execution log.',
+                            })}
+                      </p>
+                    </div>
+                    {selectedRun ? <StatusPill status={selectedRun.status} /> : null}
+                  </header>
+
+                  {selectedRun ? (
+                    <>
+                      <dl className="definition-grid">
+                        <div>
+                          <dt>{i18n._({ id: 'Status', message: 'Status' })}</dt>
+                          <dd>
+                            <StatusPill status={selectedRun.status} />
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{i18n._({ id: 'Trigger', message: 'Trigger' })}</dt>
+                          <dd>{selectedRun.trigger}</dd>
+                        </div>
+                        <div>
+                          <dt>{i18n._({ id: 'Started At', message: 'Started At' })}</dt>
+                          <dd>{formatDateTime(selectedRun.startedAt) || '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>{i18n._({ id: 'Finished At', message: 'Finished At' })}</dt>
+                          <dd>{formatDateTime(selectedRun.finishedAt) || i18n._({ id: 'Still running', message: 'Still running' })}</dd>
+                        </div>
+                        <div>
+                          <dt>{i18n._({ id: 'Summary', message: 'Summary' })}</dt>
+                          <dd>{selectedRun.summary || '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>{i18n._({ id: 'Error', message: 'Error' })}</dt>
+                          <dd>{selectedRunFailure?.message || '—'}</dd>
+                        </div>
+                      </dl>
+
+                      {selectedRunFailure ? (
+                        <InlineNotice
+                          tone="error"
+                          title={i18n._({ id: 'Failure Details', message: 'Failure Details' })}
+                          details={selectedRunFailure.details.join('\n')}
+                        >
+                          {selectedRunFailure.message}
+                        </InlineNotice>
+                      ) : null}
+                      {!canRetrySelectedRun && retryBlockedMessage ? (
+                        <InlineNotice tone="info" title={i18n._({ id: 'Retry Unavailable', message: 'Retry Unavailable' })}>
+                          {retryBlockedMessage}
+                        </InlineNotice>
+                      ) : null}
+                      {retryRunMutation.error ? (
+                        <InlineNotice
+                          tone="error"
+                          title={i18n._({ id: 'Failed To Retry Run', message: 'Failed To Retry Run' })}
+                          details={getJobFailurePresentation(retryRunMutation.error).details.join('\n')}
+                        >
+                          {getJobFailurePresentation(retryRunMutation.error).message}
+                        </InlineNotice>
+                      ) : null}
+                      {cancelRunMutation.error ? (
+                        <InlineNotice
+                          tone="error"
+                          title={i18n._({ id: 'Failed To Cancel Run', message: 'Failed To Cancel Run' })}
+                          details={getJobFailurePresentation(cancelRunMutation.error).details.join('\n')}
+                        >
+                          {getJobFailurePresentation(cancelRunMutation.error).message}
+                        </InlineNotice>
+                      ) : null}
+
+                      <div className="jobs-page__action-cluster jobs-page__action-cluster--muted jobs-page__detail-run-actions">
+                        <Button
+                          intent="secondary"
+                          onClick={() => retryRunMutation.mutate(selectedRun.id)}
+                          disabled={retryRunMutation.isPending || !canRetrySelectedRun}
+                        >
+                          {i18n._({ id: 'Retry Run', message: 'Retry Run' })}
+                        </Button>
+                        <Button
+                          intent="ghost"
+                          onClick={() => cancelRunMutation.mutate(selectedRun.id)}
+                          disabled={cancelRunMutation.isPending || !canCancelSelectedRun}
+                        >
+                          {i18n._({ id: 'Cancel Run', message: 'Cancel Run' })}
+                        </Button>
+                      </div>
+
+                      <JobRunOutputBlock run={selectedRun} />
+
+                      {selectedRun.logs.length ? (
+                        <div className="jobs-page__detail-block">
+                          <div className="jobs-page__detail-block-header">
+                            <h4>{i18n._({ id: 'Logs', message: 'Logs' })}</h4>
+                            <span className="section-header__meta">{selectedRun.logs.length}</span>
+                          </div>
+                          <div className="jobs-page__log-list">
+                            {selectedRun.logs.map((entry) => (
+                              <article className="jobs-page__log-entry" key={entry.id}>
+                                <div className="jobs-page__log-entry-head">
+                                  <div className="jobs-page__log-entry-meta">
+                                    <span className="meta-pill">{entry.level}</span>
+                                    {entry.eventType ? <span className="meta-pill">{entry.eventType}</span> : null}
+                                  </div>
+                                  <time>{formatDateTime(entry.ts) || entry.ts}</time>
+                                </div>
+                                <p>{entry.message}</p>
+                              </article>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="jobs-page__detail-empty">
+                      {i18n._({
+                        id: 'Choose one run from Recent Runs to inspect its summary, output, and execution log.',
+                        message: 'Choose one run from Recent Runs to inspect its summary, output, and execution log.',
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
             </div>
-          )}
-        </aside>
-      </div>
+          </div>
+        </Modal>
+      ) : null}
 
       {modalOpen ? (
         <Modal
@@ -802,7 +1330,10 @@ export function JobsPage() {
               setDraft={setDraft}
               workspaces={workspacesQuery.data ?? []}
               executors={executorsQuery.data ?? []}
+              automations={automationsQuery.data ?? []}
               currentExecutor={currentExecutor}
+              sourceType={editingJob?.sourceType}
+              sourceRefId={editingJob?.sourceRefId}
             />
             <ScheduleEditor
               schedule={draft.schedule}
@@ -816,11 +1347,11 @@ export function JobsPage() {
               title={i18n._({ id: 'Invalid Form Data', message: 'Invalid Form Data' })}
             />
             <FormErrorNotice
-              error={createMutation.error ? getErrorMessage(createMutation.error) : ''}
+              error={createMutation.error ? getJobFailurePresentation(createMutation.error).message : ''}
               title={i18n._({ id: 'Failed To Create Job', message: 'Failed To Create Job' })}
             />
             <FormErrorNotice
-              error={updateMutation.error ? getErrorMessage(updateMutation.error) : ''}
+              error={updateMutation.error ? getJobFailurePresentation(updateMutation.error).message : ''}
               title={i18n._({ id: 'Failed To Update Job', message: 'Failed To Update Job' })}
             />
           </div>
@@ -956,7 +1487,7 @@ export function JobsPage() {
           {availableManagedToolNames.length ? (
             <>
               <div className="feishu-tool-selector-table__viewport">
-                <table className="feishu-tool-selector-table feishu-tool-selector-table--auto-layout">
+                <table className="feishu-tool-selector-table">
                   <colgroup>
                     <col className="feishu-tool-selector-table__col feishu-tool-selector-table__col--toggle" />
                     <col className="feishu-tool-selector-table__col feishu-tool-selector-table__col--tool" />
@@ -1085,6 +1616,49 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString()
 }
 
+function isRunRetryAllowed(run: BackgroundJobRun) {
+  const normalizedStatus = run.status.trim().toLowerCase()
+  if (normalizedStatus === 'queued' || normalizedStatus === 'running') {
+    return false
+  }
+  return isBackgroundJobRunRetryable(run)
+}
+
+function isRunCancelable(run: BackgroundJobRun) {
+  const normalizedStatus = run.status.trim().toLowerCase()
+  return normalizedStatus === 'queued' || normalizedStatus === 'running'
+}
+
+function hasJobFailure(value: {
+  error?: string | null
+  errorCode?: string | null
+  errorMeta?: { code?: string | null } | null
+  lastError?: string | null
+  lastErrorCode?: string | null
+  lastErrorMeta?: { code?: string | null } | null
+}) {
+  return Boolean(
+    value.error?.trim() ||
+      value.errorCode?.trim() ||
+      value.errorMeta?.code?.trim() ||
+      value.lastError?.trim() ||
+      value.lastErrorCode?.trim() ||
+      value.lastErrorMeta?.code?.trim(),
+  )
+}
+
+function selectDefaultBackgroundJobExecutor(executors: BackgroundJobExecutor[]) {
+  return executors
+    .slice()
+    .sort((left, right) => {
+      const priorityDiff = executorCreatePriority(right) - executorCreatePriority(left)
+      if (priorityDiff !== 0) {
+        return priorityDiff
+      }
+      return left.kind.localeCompare(right.kind)
+    })[0]
+}
+
 function normalizeManagedToolNames(values: string[]) {
   return Array.from(
     new Set(
@@ -1093,6 +1667,241 @@ function normalizeManagedToolNames(values: string[]) {
         .filter(Boolean),
     ),
   ).sort((left, right) => left.localeCompare(right))
+}
+
+function executorCreatePriority(executor: Pick<BackgroundJobExecutor, 'capabilities' | 'kind'>) {
+  const priority = executor.capabilities?.defaultCreatePriority
+  return typeof priority === 'number' && Number.isFinite(priority) ? priority : 0
+}
+
+function JobRunOutputBlock({ run }: { run: BackgroundJobRun }) {
+  const output = readJobRunOutputObject(run.output)
+  if (!output) {
+    return null
+  }
+
+  if (run.executorKind === 'prompt_run') {
+    const assistantText = readJobRunOutputString(output, 'assistantText')
+    const reasoningText = readJobRunOutputString(output, 'reasoningText')
+    const commandOutput = readJobRunOutputString(output, 'commandOutput')
+    const promptPreview = readJobRunOutputString(output, 'promptPreview')
+    const model = readJobRunOutputString(output, 'model')
+    const reasoning = readJobRunOutputString(output, 'reasoning')
+    const threadName = readJobRunOutputString(output, 'threadName')
+    const threadId = readJobRunOutputString(output, 'threadId')
+    const turnId = readJobRunOutputString(output, 'turnId')
+    const durationLabel = formatJobRunDuration(readJobRunOutputNumber(output, 'durationMs'))
+
+    return (
+      <div className="jobs-page__detail-block">
+        <div className="jobs-page__detail-block-header">
+          <h4>{i18n._({ id: 'Run Output', message: 'Run Output' })}</h4>
+        </div>
+
+        <dl className="definition-grid jobs-page__output-definition-grid">
+          {model ? (
+            <div>
+              <dt>{i18n._({ id: 'Model', message: 'Model' })}</dt>
+              <dd>{model}</dd>
+            </div>
+          ) : null}
+          {reasoning ? (
+            <div>
+              <dt>{i18n._({ id: 'Reasoning', message: 'Reasoning' })}</dt>
+              <dd>{reasoning}</dd>
+            </div>
+          ) : null}
+          {threadName ? (
+            <div>
+              <dt>{i18n._({ id: 'Thread Name', message: 'Thread Name' })}</dt>
+              <dd>{threadName}</dd>
+            </div>
+          ) : null}
+          {threadId ? (
+            <div>
+              <dt>{i18n._({ id: 'Thread ID', message: 'Thread ID' })}</dt>
+              <dd>
+                <Link
+                  className="jobs-page__output-link"
+                  rel="noreferrer"
+                  target="_blank"
+                  to={`/workspaces/${run.workspaceId}/threads/${threadId}`}
+                >
+                  {threadId}
+                </Link>
+              </dd>
+            </div>
+          ) : null}
+          {turnId ? (
+            <div>
+              <dt>{i18n._({ id: 'Turn ID', message: 'Turn ID' })}</dt>
+              <dd>
+                <code className="jobs-page__output-token">{turnId}</code>
+              </dd>
+            </div>
+          ) : null}
+          {durationLabel ? (
+            <div>
+              <dt>{i18n._({ id: 'Duration', message: 'Duration' })}</dt>
+              <dd>{durationLabel}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        <JobRunTextSection title={i18n._({ id: 'Prompt', message: 'Prompt' })} content={promptPreview} />
+        <JobRunTextSection
+          title={i18n._({ id: 'Assistant Response', message: 'Assistant Response' })}
+          content={assistantText}
+        />
+        <JobRunTextSection title={i18n._({ id: 'Reasoning', message: 'Reasoning' })} content={reasoningText} />
+        <JobRunTextSection title={i18n._({ id: 'Command Output', message: 'Command Output' })} content={commandOutput} />
+        <JobRunRawOutputDisclosure output={output} />
+      </div>
+    )
+  }
+
+  if (run.executorKind === 'shell_script') {
+    const shell = readJobRunOutputString(output, 'shell')
+    const workdir = readJobRunOutputString(output, 'workdir')
+    const stdout = readJobRunOutputString(output, 'stdout')
+    const stderr = readJobRunOutputString(output, 'stderr')
+    const stdoutTruncated = readJobRunOutputBoolean(output, 'stdoutTruncated')
+    const stderrTruncated = readJobRunOutputBoolean(output, 'stderrTruncated')
+    const exitCode = readJobRunOutputNumber(output, 'exitCode')
+    const durationLabel = formatJobRunDuration(readJobRunOutputNumber(output, 'durationMs'))
+
+    return (
+      <div className="jobs-page__detail-block">
+        <div className="jobs-page__detail-block-header">
+          <h4>{i18n._({ id: 'Run Output', message: 'Run Output' })}</h4>
+        </div>
+
+        <dl className="definition-grid jobs-page__output-definition-grid">
+          {shell ? (
+            <div>
+              <dt>{i18n._({ id: 'Shell', message: 'Shell' })}</dt>
+              <dd>{shell}</dd>
+            </div>
+          ) : null}
+          {workdir ? (
+            <div>
+              <dt>{i18n._({ id: 'Working Directory', message: 'Working Directory' })}</dt>
+              <dd>{workdir}</dd>
+            </div>
+          ) : null}
+          {typeof exitCode === 'number' ? (
+            <div>
+              <dt>{i18n._({ id: 'Exit Code', message: 'Exit Code' })}</dt>
+              <dd>{exitCode}</dd>
+            </div>
+          ) : null}
+          {durationLabel ? (
+            <div>
+              <dt>{i18n._({ id: 'Duration', message: 'Duration' })}</dt>
+              <dd>{durationLabel}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        <JobRunTextSection
+          badgeLabel={stdoutTruncated ? i18n._({ id: 'Truncated', message: 'Truncated' }) : ''}
+          content={stdout}
+          title={i18n._({ id: 'Stdout', message: 'Stdout' })}
+        />
+        <JobRunTextSection
+          badgeLabel={stderrTruncated ? i18n._({ id: 'Truncated', message: 'Truncated' }) : ''}
+          content={stderr}
+          title={i18n._({ id: 'Stderr', message: 'Stderr' })}
+          tone="danger"
+        />
+        <JobRunRawOutputDisclosure output={output} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="jobs-page__detail-block">
+      <div className="jobs-page__detail-block-header">
+        <h4>{i18n._({ id: 'Run Output', message: 'Run Output' })}</h4>
+      </div>
+      <pre className="code-block jobs-page__detail-code">{JSON.stringify(output, null, 2)}</pre>
+    </div>
+  )
+}
+
+function JobRunTextSection({
+  title,
+  content,
+  badgeLabel = '',
+  tone = 'default',
+}: {
+  title: string
+  content: string
+  badgeLabel?: string
+  tone?: 'default' | 'danger'
+}) {
+  if (!content) {
+    return null
+  }
+
+  return (
+    <div className={`jobs-page__output-section${tone === 'danger' ? ' jobs-page__output-section--danger' : ''}`}>
+      <div className="jobs-page__output-section-header">
+        <h5>{title}</h5>
+        {badgeLabel ? (
+          <span className={`meta-pill${tone === 'danger' ? ' meta-pill--danger' : ' meta-pill--warning'}`}>
+            {badgeLabel}
+          </span>
+        ) : null}
+      </div>
+      <pre className="code-block jobs-page__detail-code jobs-page__output-code">{content}</pre>
+    </div>
+  )
+}
+
+function JobRunRawOutputDisclosure({ output }: { output: Record<string, unknown> }) {
+  return (
+    <details className="jobs-page__raw-output">
+      <summary>{i18n._({ id: 'Raw Output JSON', message: 'Raw Output JSON' })}</summary>
+      <pre className="code-block jobs-page__detail-code jobs-page__output-code">{JSON.stringify(output, null, 2)}</pre>
+    </details>
+  )
+}
+
+function readJobRunOutputObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function readJobRunOutputString(output: Record<string, unknown>, key: string) {
+  const value = output[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function readJobRunOutputNumber(output: Record<string, unknown>, key: string) {
+  const value = output[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readJobRunOutputBoolean(output: Record<string, unknown>, key: string) {
+  return output[key] === true
+}
+
+function formatJobRunDuration(durationMs: number | null) {
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) {
+    return ''
+  }
+  if (durationMs < 1000) {
+    return i18n._({
+      id: '{value} ms',
+      message: '{value} ms',
+      values: { value: Math.round(durationMs) },
+    })
+  }
+  return i18n._({
+    id: '{value}s',
+    message: '{value}s',
+    values: { value: (durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1) },
+  })
 }
 
 function describeManagedTool(toolName: string) {

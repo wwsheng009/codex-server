@@ -15,6 +15,8 @@ import { i18n } from '../../i18n/runtime'
 import { getErrorMessage } from '../../lib/error-utils'
 import type { UnarchiveThreadMutationInput } from './archivedThreadsSettingsPageTypes'
 
+const EMPTY_THREAD_LIST: Awaited<ReturnType<typeof listThreads>> = []
+
 export function ArchivedThreadsSettingsPage() {
   const queryClient = useQueryClient()
   const { workspaces } = useSettingsShellContext()
@@ -31,7 +33,7 @@ export function ArchivedThreadsSettingsPage() {
     () =>
       workspaces
         .flatMap((workspace, index) =>
-          (threadQueries[index]?.data ?? [])
+          (threadQueries[index]?.data ?? EMPTY_THREAD_LIST)
             .filter((thread) => thread.archived)
             .map((thread) => ({
               ...thread,

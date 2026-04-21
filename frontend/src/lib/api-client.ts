@@ -12,12 +12,14 @@ const ACCESS_UNAUTHORIZED_CODES = new Set([
 
 export class ApiClientError extends Error {
   code?: string
+  details?: Record<string, unknown>
   status: number
 
-  constructor(message: string, options: { code?: string; status: number }) {
+  constructor(message: string, options: { code?: string; status: number; details?: Record<string, unknown> }) {
     super(message)
     this.name = 'ApiClientError'
     this.code = options.code
+    this.details = options.details
     this.status = options.status
   }
 }
@@ -66,6 +68,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 
     throw new ApiClientError(payload?.error?.message ?? `Request failed with status ${response.status}`, {
       code: payload?.error?.code ?? undefined,
+      details: payload?.error && typeof payload.error === 'object' ? payload.error : undefined,
       status: response.status,
     })
   }

@@ -110,6 +110,10 @@ type WorkspaceHealthSummary = {
   workspaceId: string
 }
 
+const EMPTY_EVENT_HUB_SUBSCRIBERS: EventHubSubscriberDiagnostics[] = []
+const EMPTY_EVENT_HUB_WORKSPACES: EventHubWorkspaceDiagnostics[] = []
+const EMPTY_FRONTEND_WORKSPACE_STREAM_ENTRIES: FrontendWorkspaceStreamEntry[] = []
+
 function countBufferedEvents(subscribers: EventHubSubscriberDiagnostics[]) {
   return subscribers.reduce(
     (total, subscriber) => total + subscriber.queueLen + subscriber.outputBufferLen,
@@ -682,6 +686,11 @@ export function EnvironmentSettingsPage() {
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   })
+  const eventHubWorkspaces =
+    eventHubDiagnosticsQuery.data?.workspaces ?? EMPTY_EVENT_HUB_WORKSPACES
+  const eventHubGlobalSubscribers =
+    eventHubDiagnosticsQuery.data?.globalSubscribers ??
+    EMPTY_EVENT_HUB_SUBSCRIBERS
   useEffect(() => {
     const snapshot = eventHubDiagnosticsQuery.data
     if (!snapshot) {
@@ -793,12 +802,12 @@ export function EnvironmentSettingsPage() {
   const backendWorkspaceSubscribersByWorkspaceId = useMemo(
     () =>
       Object.fromEntries(
-        (eventHubDiagnosticsQuery.data?.workspaces ?? []).map((workspace) => [
+        eventHubWorkspaces.map((workspace) => [
           workspace.workspaceId,
           workspace.subscribers,
         ]),
       ),
-    [eventHubDiagnosticsQuery.data?.workspaces],
+    [eventHubWorkspaces],
   )
   const normalizedFrontendWorkspaceStreamFilter = normalizeFilterText(frontendWorkspaceStreamFilter)
   const frontendWorkspaceStreamEntries = useMemo<FrontendWorkspaceStreamEntry[]>(
@@ -806,11 +815,13 @@ export function EnvironmentSettingsPage() {
       frontendWorkspaceStreamDiagnostics.streams
         .map((stream) => {
           const sourceSubscriber = findBackendWorkspaceStreamSubscriberBySource(
-            backendWorkspaceSubscribersByWorkspaceId[stream.workspaceId] ?? [],
+            backendWorkspaceSubscribersByWorkspaceId[stream.workspaceId] ??
+              EMPTY_EVENT_HUB_SUBSCRIBERS,
             `api.workspace_stream:${stream.instanceId}`,
           )
           const matchingSubscriber = findMatchingBackendWorkspaceStreamSubscriber(
-            backendWorkspaceSubscribersByWorkspaceId[stream.workspaceId] ?? [],
+            backendWorkspaceSubscribersByWorkspaceId[stream.workspaceId] ??
+              EMPTY_EVENT_HUB_SUBSCRIBERS,
             stream,
           )
           const localAttentionReasons = buildFrontendWorkspaceStreamAttentionReasons(
@@ -1018,11 +1029,11 @@ export function EnvironmentSettingsPage() {
   }, [frontendWorkspaceStreamCorrelationAlerts])
   const eventHubWorkspaceSummaries = useMemo(
     () =>
-      (eventHubDiagnosticsQuery.data?.workspaces ?? []).map((workspace) => ({
+      eventHubWorkspaces.map((workspace) => ({
         workspace,
         ...buildEventHubWorkspaceSummary(workspace),
       })),
-    [eventHubDiagnosticsQuery.data?.workspaces],
+    [eventHubWorkspaces],
   )
   const eventHubWorkspaceSummaryById = useMemo(
     () =>
@@ -1043,7 +1054,9 @@ export function EnvironmentSettingsPage() {
     return workspaceIds
       .map((workspaceId) => {
         const backendSummary = eventHubWorkspaceSummaryById[workspaceId]
-        const frontendEntries = frontendWorkspaceStreamEntriesByWorkspaceId[workspaceId] ?? []
+        const frontendEntries =
+          frontendWorkspaceStreamEntriesByWorkspaceId[workspaceId] ??
+          EMPTY_FRONTEND_WORKSPACE_STREAM_ENTRIES
         const correlationAlerts = frontendWorkspaceStreamCorrelationAlerts.filter(
           (alert) => alert.stream.workspaceId === workspaceId,
         )
@@ -1211,16 +1224,20 @@ export function EnvironmentSettingsPage() {
     previousWorkspaceHealthSummariesRef.current = workspaceHealthSummaries
   }, [workspaceHealthSummaries])
   const attentionWorkspaceCount = eventHubWorkspaceSummaries.filter((item) => item.needsAttention).length
+  const previousEventHubWorkspaces =
+    eventHubPreviousSnapshot?.workspaces ?? EMPTY_EVENT_HUB_WORKSPACES
+  const previousEventHubGlobalSubscribers =
+    eventHubPreviousSnapshot?.globalSubscribers ?? EMPTY_EVENT_HUB_SUBSCRIBERS
   const previousEventHubWorkspaceByID = useMemo(
     () =>
       Object.fromEntries(
-        (eventHubPreviousSnapshot?.workspaces ?? []).map((workspace) => [workspace.workspaceId, workspace]),
+        previousEventHubWorkspaces.map((workspace) => [workspace.workspaceId, workspace]),
       ),
-    [eventHubPreviousSnapshot?.workspaces],
+    [previousEventHubWorkspaces],
   )
   const previousEventHubSubscriberByKey = useMemo(() => {
     const entries: Array<[string, EventHubSubscriberDiagnostics]> = []
-    for (const workspace of eventHubPreviousSnapshot?.workspaces ?? []) {
+    for (const workspace of previousEventHubWorkspaces) {
       for (const subscriber of workspace.subscribers) {
         entries.push([
           buildEventHubSubscriberEntryKey('workspace', workspace.workspaceId, subscriber.id),
@@ -1228,11 +1245,11 @@ export function EnvironmentSettingsPage() {
         ])
       }
     }
-    for (const subscriber of eventHubPreviousSnapshot?.globalSubscribers ?? []) {
+    for (const subscriber of previousEventHubGlobalSubscribers) {
       entries.push([buildEventHubSubscriberEntryKey('global', '', subscriber.id), subscriber])
     }
     return Object.fromEntries(entries)
-  }, [eventHubPreviousSnapshot])
+  }, [previousEventHubGlobalSubscribers, previousEventHubWorkspaces])
   const eventHubSummaryDelta = useMemo(() => {
     const current = eventHubDiagnosticsQuery.data
     const previous = eventHubPreviousSnapshot
@@ -1424,7 +1441,7 @@ export function EnvironmentSettingsPage() {
             subscriber.queueLen + subscriber.outputBufferLen > 0 || subscriber.droppedCount > 0,
         })),
       ),
-      ...(eventHubDiagnosticsQuery.data?.globalSubscribers ?? []).map((subscriber) => ({
+      ...eventHubGlobalSubscribers.map((subscriber) => ({
         kind: 'global' as const,
         workspaceId: '',
         workspaceName: i18n._({ id: 'Global', message: 'Global' }),
@@ -1531,7 +1548,7 @@ export function EnvironmentSettingsPage() {
     })
   }, [
     eventHubAttentionOnly,
-    eventHubDiagnosticsQuery.data?.globalSubscribers,
+    eventHubGlobalSubscribers,
     eventHubSubscriberSort,
     filteredEventHubWorkspaceSummaries,
     normalizedEventHubSubscriberFilter,

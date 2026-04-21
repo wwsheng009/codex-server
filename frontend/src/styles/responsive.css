@@ -16,6 +16,10 @@
   .resource-list--runtime {
     grid-template-columns: 1fr;
   }
+
+  .jobs-page__detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
@@ -795,6 +799,56 @@
   .workspace-compact-row__actions .divider-v,
   .automation-compact-row__actions .divider-v {
     display: none;
+  }
+
+  .jobs-page__management-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-page__mcp-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-page__compact-form {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-page__node-actions {
+    justify-content: flex-start;
+  }
+
+  .jobs-page__command-bar {
+    flex-direction: column;
+  }
+
+  .jobs-page__command-bar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .jobs-page__row-actions {
+    justify-content: flex-start;
+  }
+
+  .jobs-page__detail-modal {
+    width: min(100%, calc(100vw - 20px));
+    height: calc(100vh - 20px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .jobs-page__detail-hero,
+  .jobs-page__detail-title-row,
+  .jobs-page__log-entry-head,
+  .jobs-page__output-section-header,
+  .timeline-card__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .jobs-page__detail-hero .jobs-page__action-cluster,
+  .jobs-page__detail-run-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .automation-run-card__header,
