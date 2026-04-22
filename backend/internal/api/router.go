@@ -39,6 +39,7 @@ import (
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turnpolicies"
 	"codex-server/backend/internal/turns"
+	"codex-server/backend/internal/webui"
 	"codex-server/backend/internal/workspace"
 
 	"github.com/go-chi/chi/v5"
@@ -384,6 +385,11 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Post("/server-requests/{requestId}/respond", server.handleRespondServerRequest)
 		})
 	})
+
+	if webui.Enabled() {
+		uiHandler := webui.Handler()
+		router.NotFound(uiHandler.ServeHTTP)
+	}
 
 	return router
 }

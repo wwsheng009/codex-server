@@ -1,8 +1,8 @@
 import type { ApiResponse } from '../types/api'
 
-export const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? defaultApiBaseUrl()
-).replace(/\/$/, '')
+const API_PATH_PREFIX = '/api'
+
+export const API_BASE_URL = resolveApiBaseUrl()
 export const ACCESS_UNAUTHORIZED_EVENT = 'codex-server-access-unauthorized'
 
 const ACCESS_UNAUTHORIZED_CODES = new Set([
@@ -38,7 +38,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(buildApiUrl(path), {
       ...init,
       credentials: init?.credentials ?? 'include',
       headers,
@@ -83,16 +83,12 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 }
 
 export function buildApiWebSocketUrl(path: string) {
-  if (API_BASE_URL) {
-    return `${API_BASE_URL.replace(/^http/, 'ws')}${path}`
+  const webSocketBaseUrl = buildWebSocketBaseUrl(API_BASE_URL)
+  if (webSocketBaseUrl) {
+    return joinApiBasePath(webSocketBaseUrl, path)
   }
 
-  if (typeof window === 'undefined') {
-    return `ws://localhost:18080${path}`
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}${path}`
+  return `${currentWebSocketOrigin()}${normalizeApiPath(path)}`
 }
 
 async function readApiResponse<T>(response: Response) {
@@ -109,10 +105,77 @@ function isApiResponse<T>(value: unknown): value is ApiResponse<T> {
   return typeof value === 'object' && value !== null && ('data' in value || 'error' in value)
 }
 
+function resolveApiBaseUrl() {
+  const configuredBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
+  if (configuredBaseUrl !== null) {
+    return configuredBaseUrl
+  }
+
+  return defaultApiBaseUrl()
+}
+
+function normalizeApiBaseUrl(value: string | undefined) {
+  if (value === undefined) {
+    return null
+  }
+
+  return value.trim().replace(/\/$/, '')
+}
+
+function buildApiUrl(path: string) {
+  return joinApiBasePath(API_BASE_URL, path)
+}
+
+function joinApiBasePath(baseUrl: string, path: string) {
+  const normalizedPath = normalizeApiPath(path)
+  if (!baseUrl) {
+    return normalizedPath
+  }
+
+  if (baseUrl.endsWith(API_PATH_PREFIX) && isApiPath(normalizedPath)) {
+    return `${baseUrl}${normalizedPath.slice(API_PATH_PREFIX.length)}`
+  }
+
+  return `${baseUrl}${normalizedPath}`
+}
+
+function normalizeApiPath(path: string) {
+  return path.startsWith('/') ? path : `/${path}`
+}
+
+function isApiPath(path: string) {
+  return path === API_PATH_PREFIX || path.startsWith(`${API_PATH_PREFIX}/`)
+}
+
+function buildWebSocketBaseUrl(baseUrl: string) {
+  if (!baseUrl) {
+    return ''
+  }
+
+  if (baseUrl.startsWith('http://') || baseUrl.startsWith('https://')) {
+    return baseUrl.replace(/^http/, 'ws')
+  }
+
+  if (baseUrl.startsWith('/')) {
+    return `${currentWebSocketOrigin()}${baseUrl}`
+  }
+
+  return baseUrl
+}
+
+function currentWebSocketOrigin() {
+  if (typeof window === 'undefined') {
+    return 'ws://localhost:18080'
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}`
+}
+
 function defaultApiBaseUrl() {
   if (typeof window === 'undefined') {
     return 'http://localhost:18080'
   }
 
-  return `${window.location.protocol}//${window.location.hostname}:18080`
+  return ''
 }

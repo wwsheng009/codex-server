@@ -5385,8 +5385,8 @@ func TestConfigAndSearchRoutesValidateRequestBody(t *testing.T) {
 		"/api/workspaces/" + created.Data.ID + "/skills/remote/export",
 	} {
 		response := performJSONRequest(t, router, http.MethodPost, path, `{}`)
-		if response.Code != http.StatusNotFound {
-			t.Fatalf("expected 404 for removed route %s, got %d", path, response.Code)
+		if response.Code != http.StatusNotFound && response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected removed route %s to remain unavailable, got %d", path, response.Code)
 		}
 	}
 

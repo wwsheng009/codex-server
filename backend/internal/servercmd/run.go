@@ -40,6 +40,7 @@ import (
 	"codex-server/backend/internal/threads"
 	"codex-server/backend/internal/turnpolicies"
 	"codex-server/backend/internal/turns"
+	"codex-server/backend/internal/webui"
 	"codex-server/backend/internal/workspace"
 )
 
@@ -130,7 +131,8 @@ func runServer(cfg config.Config) error {
 	feishuToolsService := feishutools.NewService(configFSService, catalogService, authService, dataStore)
 	feishuToolsService.SetPublicBaseURL(cfg.PublicBaseURL)
 	feishuToolsService.SetRuntimeBaseURL(runtimeLoopbackBaseURL(cfg.Addr))
-	feishuToolsService.SetFrontendOrigin(cfg.FrontendOrigin)
+	servedFrontendOrigin := effectiveFrontendOrigin(cfg.FrontendOrigin, cfg.PublicBaseURL)
+	feishuToolsService.SetFrontendOrigin(servedFrontendOrigin)
 	feishuToolsService.SetEventPublisher(eventHub)
 	jobService := jobs.NewService(dataStore, eventHub)
 	jobsMCPService := jobsmcp.NewService(configFSService, jobService, dataStore)
@@ -159,7 +161,7 @@ func runServer(cfg config.Config) error {
 
 	shutdownRequestCh := make(chan string, 1)
 	handler := api.NewRouter(api.Dependencies{
-		FrontendOrigin:       cfg.FrontendOrigin,
+		FrontendOrigin:       servedFrontendOrigin,
 		EnableRequestLogging: cfg.EnableRequestLogging,
 		RequestShutdown: func(reason string) bool {
 			select {
@@ -304,6 +306,33 @@ func runtimeLoopbackBaseURL(addr string) string {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port)
+}
+
+func effectiveFrontendOrigin(frontendOrigin string, publicBaseURL string) string {
+	return resolveFrontendOriginForServing(frontendOrigin, publicBaseURL, webui.Enabled())
+}
+
+func resolveFrontendOriginForServing(frontendOrigin string, publicBaseURL string, embedded bool) string {
+	frontendOrigin = strings.TrimSpace(frontendOrigin)
+	if !embedded {
+		return frontendOrigin
+	}
+	if !isDefaultDevelopmentFrontendOrigin(frontendOrigin) {
+		return frontendOrigin
+	}
+	if baseURL := strings.TrimSpace(publicBaseURL); baseURL != "" {
+		return baseURL
+	}
+	return ""
+}
+
+func isDefaultDevelopmentFrontendOrigin(frontendOrigin string) bool {
+	switch strings.TrimRight(strings.ToLower(strings.TrimSpace(frontendOrigin)), "/") {
+	case "http://0.0.0.0:15173", "http://localhost:15173", "http://127.0.0.1:15173":
+		return true
+	default:
+		return false
+	}
 }
 
 func fallbackRuntimePreference(value string, fallback string) string {

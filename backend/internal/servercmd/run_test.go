@@ -55,6 +55,56 @@ func TestClassifyListenFailureRecognizesExistingBackend(t *testing.T) {
 	}
 }
 
+func TestResolveFrontendOriginForServing(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name           string
+		frontendOrigin string
+		publicBaseURL  string
+		embedded       bool
+		want           string
+	}{
+		{
+			name:           "development mode preserves configured origin",
+			frontendOrigin: "http://0.0.0.0:15173",
+			publicBaseURL:  "https://app.example.com",
+			embedded:       false,
+			want:           "http://0.0.0.0:15173",
+		},
+		{
+			name:           "embedded mode drops default dev origin without public base URL",
+			frontendOrigin: "http://0.0.0.0:15173",
+			embedded:       true,
+			want:           "",
+		},
+		{
+			name:           "embedded mode rewrites default dev origin to public base URL",
+			frontendOrigin: "http://localhost:15173",
+			publicBaseURL:  "https://app.example.com",
+			embedded:       true,
+			want:           "https://app.example.com",
+		},
+		{
+			name:           "embedded mode keeps explicit custom frontend origin",
+			frontendOrigin: "https://ui.example.com",
+			publicBaseURL:  "https://app.example.com",
+			embedded:       true,
+			want:           "https://ui.example.com",
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := resolveFrontendOriginForServing(tc.frontendOrigin, tc.publicBaseURL, tc.embedded)
+			if got != tc.want {
+				t.Fatalf("resolveFrontendOriginForServing() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func newLoopbackTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
 
