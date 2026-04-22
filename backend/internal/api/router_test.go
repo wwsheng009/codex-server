@@ -111,6 +111,9 @@ func TestExtendedFSRoutesValidateRequestBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPersistentStore() error = %v", err)
 	}
+	t.Cleanup(func() {
+		_ = dataStore.Close()
+	})
 
 	router := newTestRouter(dataStore)
 	createResponse := performJSONRequest(
@@ -150,6 +153,9 @@ func TestDeleteWorkspaceRouteRemovesWorkspaceMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPersistentStore() error = %v", err)
 	}
+	t.Cleanup(func() {
+		_ = dataStore.Close()
+	})
 
 	router := newTestRouter(dataStore)
 	createResponse := performJSONRequest(
@@ -5539,6 +5545,9 @@ func TestFeishuToolsMCPRouteRequiresManagedTokenAndServesJSONRPC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPersistentStore() error = %v", err)
 	}
+	t.Cleanup(func() {
+		_ = dataStore.Close()
+	})
 
 	workspace := dataStore.CreateWorkspace("Workspace A", t.TempDir())
 	if _, err := dataStore.SetFeishuToolsConfig(store.FeishuToolsConfig{
@@ -5590,6 +5599,9 @@ func TestJobsMCPRouteRequiresManagedTokenAndRejectsGET(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPersistentStore() error = %v", err)
 	}
+	t.Cleanup(func() {
+		_ = dataStore.Close()
+	})
 
 	workspace := dataStore.CreateWorkspace("Workspace A", t.TempDir())
 	if _, err := dataStore.SetJobMCPConfig(store.JobMCPConfig{
@@ -5706,6 +5718,59 @@ func TestWriteStoreErrorMapsAuthenticationFailures(t *testing.T) {
 
 	if payload.Error.Code != "requires_openai_auth" {
 		t.Fatalf("expected requires_openai_auth error code, got %q", payload.Error.Code)
+	}
+}
+
+func TestWriteStoreErrorMapsBackgroundJobActiveRunConflicts(t *testing.T) {
+	t.Parallel()
+
+	server := &Server{}
+	recorder := httptest.NewRecorder()
+	retryable := true
+
+	server.writeStoreError(
+		recorder,
+		jobs.NewClassifiedError(
+			jobs.ErrJobHasActiveRuns,
+			"Cancel or wait for active runs before deleting this job.",
+			store.ErrorMetadata{
+				Code:      "background_job_has_active_runs",
+				Category:  "state",
+				Retryable: &retryable,
+				Details: map[string]string{
+					"jobId":  "job_1",
+					"runId":  "jobrun_1",
+					"status": "running",
+				},
+			},
+		),
+	)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for active background job run conflict, got %d", recorder.Code)
+	}
+
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				ErrorMeta struct {
+					Code    string            `json:"code"`
+					Details map[string]string `json:"details"`
+				} `json:"errorMeta"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, recorder, &payload)
+
+	if payload.Error.Code != "background_job_has_active_runs" {
+		t.Fatalf("expected background_job_has_active_runs error code, got %#v", payload.Error)
+	}
+	if payload.Error.Details.ErrorMeta.Code != "background_job_has_active_runs" {
+		t.Fatalf("expected structured error metadata, got %#v", payload.Error.Details)
+	}
+	if payload.Error.Details.ErrorMeta.Details["status"] != "running" {
+		t.Fatalf("expected active run status in structured metadata, got %#v", payload.Error.Details.ErrorMeta.Details)
 	}
 }
 

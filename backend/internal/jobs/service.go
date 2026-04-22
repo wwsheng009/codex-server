@@ -19,6 +19,7 @@ var (
 	ErrInvalidInput       = errors.New("invalid background job input")
 	ErrExecutorNotFound   = errors.New("background job executor not found")
 	ErrJobAlreadyRunning  = errors.New("background job is already running")
+	ErrJobHasActiveRuns   = errors.New("background job has active runs")
 	ErrJobRunNotActive    = errors.New("background job run is not active")
 	ErrJobRunNotRetryable = errors.New("background job run is not retryable")
 )
@@ -411,6 +412,9 @@ func (s *Service) Delete(jobID string) error {
 	if !ok {
 		return store.ErrBackgroundJobNotFound
 	}
+	if activeRun, ok := s.findActiveRun(jobID); ok {
+		return newJobHasActiveRunsError(jobID, activeRun)
+	}
 	if err := s.store.DeleteBackgroundJob(jobID); err != nil {
 		return err
 	}
@@ -448,6 +452,7 @@ func (s *Service) Trigger(ctx context.Context, jobID string, trigger string) (st
 		current.LastRunID = run.ID
 		current.LastRunStatus = "queued"
 		current.LastError = ""
+		current.LastErrorMeta = nil
 		if strings.EqualFold(strings.TrimSpace(trigger), "schedule") {
 			current.NextRunAt = scheduleutil.NextRunAt(s.now(), current.Schedule, s.location)
 		}
@@ -501,9 +506,11 @@ func (s *Service) CancelRun(runID string) (store.BackgroundJobRun, error) {
 	}
 	s.cancelRunContext(runID)
 	now := s.now()
+	errorMeta := newCanceledRunErrorMetadata(run)
 	run, err := s.store.UpdateBackgroundJobRun(runID, func(current store.BackgroundJobRun) store.BackgroundJobRun {
 		current.Status = "canceled"
 		current.Error = "Background job canceled"
+		current.ErrorMeta = ptrErrorMetadata(errorMeta)
 		current.FinishedAt = &now
 		return current
 	})
@@ -514,6 +521,7 @@ func (s *Service) CancelRun(runID string) (store.BackgroundJobRun, error) {
 		current.LastRunID = run.ID
 		current.LastRunStatus = "canceled"
 		current.LastError = "Background job canceled"
+		current.LastErrorMeta = ptrErrorMetadata(errorMeta)
 		current.LastRunAt = &now
 		if current.Status == "active" {
 			current.NextRunAt = scheduleutil.NextRunAt(now, current.Schedule, s.location)
@@ -596,6 +604,16 @@ func (s *Service) processRun(ctx context.Context, queued queuedRun) {
 	runCtx, cancel := context.WithCancel(ctx)
 	s.registerRunCancel(run.ID, cancel)
 	defer s.clearRunCancel(run.ID)
+	if latestRun, ok := s.store.GetBackgroundJobRun(run.ID); !ok {
+		return
+	} else {
+		run = latestRun
+	}
+	switch strings.TrimSpace(run.Status) {
+	case "queued", "running":
+	default:
+		return
+	}
 
 	runner, ok := s.lookupRunner(job.ExecutorKind)
 	if !ok {
@@ -611,6 +629,7 @@ func (s *Service) processRun(ctx context.Context, queued queuedRun) {
 		current.LastRunID = run.ID
 		current.LastRunStatus = "running"
 		current.LastError = ""
+		current.LastErrorMeta = nil
 		current.LastRunAt = ptrTime(run.StartedAt)
 		return current
 	})
@@ -627,6 +646,11 @@ func (s *Service) processRun(ctx context.Context, queued queuedRun) {
 		Run:         run,
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			if canceledRun, ok := s.store.GetBackgroundJobRun(run.ID); ok && strings.TrimSpace(canceledRun.Status) == "canceled" {
+				return
+			}
+		}
 		s.failRun(job, run, err)
 		return
 	}
@@ -637,6 +661,7 @@ func (s *Service) processRun(ctx context.Context, queued queuedRun) {
 		current.Output = output
 		current.Summary = summarizeOutput(output)
 		current.Error = ""
+		current.ErrorMeta = nil
 		current.FinishedAt = &now
 		return current
 	})
@@ -644,6 +669,7 @@ func (s *Service) processRun(ctx context.Context, queued queuedRun) {
 		current.LastRunID = run.ID
 		current.LastRunStatus = run.Status
 		current.LastError = ""
+		current.LastErrorMeta = nil
 		current.LastRunAt = &now
 		if current.Status == "active" {
 			current.NextRunAt = scheduleutil.NextRunAt(now, current.Schedule, s.location)
@@ -678,6 +704,7 @@ func (s *Service) failRun(job store.BackgroundJob, run store.BackgroundJobRun, e
 		current.LastRunID = run.ID
 		current.LastRunStatus = "failed"
 		current.LastError = message
+		current.LastErrorMeta = ptrErrorMetadata(*errorMeta)
 		current.LastRunAt = &now
 		if current.Status == "active" {
 			current.NextRunAt = scheduleutil.NextRunAt(now, current.Schedule, s.location)
@@ -712,6 +739,16 @@ func (s *Service) isRunning(jobID string) bool {
 	defer s.mu.Unlock()
 	_, ok := s.runningJobs[jobID]
 	return ok
+}
+
+func (s *Service) findActiveRun(jobID string) (store.BackgroundJobRun, bool) {
+	for _, run := range s.store.ListBackgroundJobRuns(strings.TrimSpace(jobID)) {
+		switch strings.TrimSpace(run.Status) {
+		case "queued", "running":
+			return run, true
+		}
+	}
+	return store.BackgroundJobRun{}, false
 }
 
 func (s *Service) markRunning(jobID string, runID string) bool {
@@ -939,6 +976,36 @@ func ptrBool(value bool) *bool {
 
 func ptrInt(value int) *int {
 	return &value
+}
+
+func newJobHasActiveRunsError(jobID string, run store.BackgroundJobRun) error {
+	meta := store.ErrorMetadata{
+		Code:      "background_job_has_active_runs",
+		Category:  "state",
+		Retryable: ptrBool(true),
+		Details: map[string]string{
+			"jobId":  strings.TrimSpace(jobID),
+			"runId":  strings.TrimSpace(run.ID),
+			"status": strings.TrimSpace(run.Status),
+		},
+	}
+	return newClassifiedError(ErrJobHasActiveRuns, "Cancel or wait for active runs before deleting this job.", meta)
+}
+
+func newCanceledRunErrorMetadata(run store.BackgroundJobRun) store.ErrorMetadata {
+	meta := store.ErrorMetadata{
+		Code:      "background_job_canceled",
+		Category:  "canceled",
+		Retryable: ptrBool(true),
+		Details: map[string]string{
+			"runId": strings.TrimSpace(run.ID),
+			"jobId": strings.TrimSpace(run.JobID),
+		},
+	}
+	if executorKind := strings.TrimSpace(run.ExecutorKind); executorKind != "" {
+		meta.Details["executorKind"] = executorKind
+	}
+	return meta
 }
 
 func errorMetaCode(meta *store.ErrorMetadata) string {

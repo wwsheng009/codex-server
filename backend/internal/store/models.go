@@ -285,6 +285,7 @@ type BackgroundJob struct {
 	LastRunID     string         `json:"lastRunId,omitempty"`
 	LastRunStatus string         `json:"lastRunStatus,omitempty"`
 	LastError     string         `json:"lastError,omitempty"`
+	LastErrorMeta *ErrorMetadata `json:"lastErrorMeta,omitempty"`
 	LastRunAt     *time.Time     `json:"lastRunAt,omitempty"`
 	NextRunAt     *time.Time     `json:"nextRunAt,omitempty"`
 	CreatedAt     time.Time      `json:"createdAt"`

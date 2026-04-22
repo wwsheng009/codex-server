@@ -1371,7 +1371,13 @@ export function JobsPage() {
               : ''
           }
           confirmLabel={i18n._({ id: 'Delete', message: 'Delete' })}
-          onClose={() => setConfirmDelete(null)}
+          error={deleteMutation.error ? getJobFailurePresentation(deleteMutation.error).message : null}
+          onClose={() => {
+            if (!deleteMutation.isPending) {
+              setConfirmDelete(null)
+              deleteMutation.reset()
+            }
+          }}
           onConfirm={() => {
             if (confirmDelete) {
               deleteMutation.mutate(confirmDelete.id)

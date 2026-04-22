@@ -4560,6 +4560,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeStructuredError(w, http.StatusBadRequest, "validation_error", err)
 	case errors.Is(err, jobs.ErrJobAlreadyRunning):
 		writeError(w, http.StatusConflict, "background_job_already_running", err.Error())
+	case errors.Is(err, jobs.ErrJobHasActiveRuns):
+		writeStructuredError(w, http.StatusConflict, "background_job_has_active_runs", err)
 	case errors.Is(err, jobs.ErrJobRunNotActive):
 		writeError(w, http.StatusConflict, "background_job_run_not_active", err.Error())
 	case errors.Is(err, jobs.ErrJobRunNotRetryable):

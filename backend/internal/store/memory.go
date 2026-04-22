@@ -6492,6 +6492,7 @@ func cloneBackgroundJob(job BackgroundJob) BackgroundJob {
 	next.LastRunID = strings.TrimSpace(job.LastRunID)
 	next.LastRunStatus = strings.TrimSpace(job.LastRunStatus)
 	next.LastError = strings.TrimSpace(job.LastError)
+	next.LastErrorMeta = cloneErrorMetadata(job.LastErrorMeta)
 	return next
 }
 

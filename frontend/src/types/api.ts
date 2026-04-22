@@ -112,6 +112,7 @@ export type BackgroundJob = {
   lastRunId?: string;
   lastRunStatus?: string;
   lastError?: string;
+  lastErrorMeta?: ErrorMetadata | null;
   lastErrorCode?: string;
   lastErrorRetryable?: boolean;
   lastErrorResourceId?: string;

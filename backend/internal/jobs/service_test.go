@@ -311,6 +311,166 @@ func TestUpdateAndCancelRun(t *testing.T) {
 	}
 }
 
+func TestCancelRunPreservesCanceledStatusDuringExecution(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	service := NewService(dataStore, nil)
+	service.RegisterRunner(testExecutor{
+		definition: ExecutorDefinition{
+			Kind:             "blocking",
+			Title:            "Blocking",
+			SupportsSchedule: true,
+		},
+		execute: func(ctx context.Context, _ ExecutionRequest) (map[string]any, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	})
+
+	job, err := service.Create(CreateInput{
+		Name:         "Blocking Job",
+		WorkspaceID:  workspace.ID,
+		ExecutorKind: "blocking",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	run, err := service.Trigger(context.Background(), job.ID, "manual")
+	if err != nil {
+		t.Fatalf("Trigger() error = %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.processRun(context.Background(), queuedRun{jobID: job.ID, runID: run.ID, trigger: "manual"})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		current, getErr := service.GetRun(run.ID)
+		if getErr == nil && current.Status == "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected run to reach running state, got %#v err=%v", current, getErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	canceled, err := service.CancelRun(run.ID)
+	if err != nil {
+		t.Fatalf("CancelRun() error = %v", err)
+	}
+	if canceled.Status != "canceled" {
+		t.Fatalf("expected canceled status from CancelRun(), got %#v", canceled)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected processRun to return after cancellation")
+	}
+
+	storedRun, err := service.GetRun(run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if storedRun.Status != "canceled" {
+		t.Fatalf("expected canceled run to stay canceled, got %#v", storedRun)
+	}
+	if storedRun.ErrorMeta == nil || storedRun.ErrorMeta.Code != "background_job_canceled" {
+		t.Fatalf("expected background_job_canceled metadata, got %#v", storedRun.ErrorMeta)
+	}
+
+	storedJob, err := service.Get(job.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if storedJob.LastRunStatus != "canceled" {
+		t.Fatalf("expected job last run status canceled, got %#v", storedJob)
+	}
+	if storedJob.LastErrorMeta == nil || storedJob.LastErrorMeta.Code != "background_job_canceled" {
+		t.Fatalf("expected job last error metadata to record cancellation, got %#v", storedJob.LastErrorMeta)
+	}
+}
+
+func TestDeleteBlocksActiveRunsUntilTheyFinish(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspace := dataStore.CreateWorkspace("Workspace A", "E:/projects/ai/codex-server")
+	service := NewService(dataStore, nil)
+	service.RegisterRunner(testExecutor{
+		definition: ExecutorDefinition{
+			Kind:             "blocking",
+			Title:            "Blocking",
+			SupportsSchedule: true,
+		},
+		execute: func(ctx context.Context, _ ExecutionRequest) (map[string]any, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	})
+
+	job, err := service.Create(CreateInput{
+		Name:         "Delete Guard Job",
+		WorkspaceID:  workspace.ID,
+		ExecutorKind: "blocking",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	run, err := service.Trigger(context.Background(), job.ID, "manual")
+	if err != nil {
+		t.Fatalf("Trigger() error = %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.processRun(context.Background(), queuedRun{jobID: job.ID, runID: run.ID, trigger: "manual"})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		current, getErr := service.GetRun(run.ID)
+		if getErr == nil && current.Status == "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected run to reach running state, got %#v err=%v", current, getErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	err = service.Delete(job.ID)
+	if !errors.Is(err, ErrJobHasActiveRuns) {
+		t.Fatalf("expected ErrJobHasActiveRuns, got %v", err)
+	}
+	meta, ok := ExtractErrorMetadata(err)
+	if !ok || meta.Code != "background_job_has_active_runs" || meta.Details["runId"] != run.ID {
+		t.Fatalf("expected structured active-run delete metadata, got %#v", meta)
+	}
+
+	if _, err := service.CancelRun(run.ID); err != nil {
+		t.Fatalf("CancelRun() error = %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected processRun to finish after cancellation")
+	}
+
+	if err := service.Delete(job.ID); err != nil {
+		t.Fatalf("expected Delete() to succeed after cancel, got %v", err)
+	}
+}
+
 func TestCreateSupportsAutomationStyleSchedules(t *testing.T) {
 	t.Parallel()
 
@@ -649,6 +809,17 @@ func TestFailRunStoresFailureOutput(t *testing.T) {
 	}
 	if storedRun.Summary != "Shell script exited with code 2." {
 		t.Fatalf("expected summary from failure output, got %q", storedRun.Summary)
+	}
+
+	storedJob, err := service.Get(job.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if storedJob.LastRunStatus != "failed" {
+		t.Fatalf("expected failed job last run status, got %#v", storedJob)
+	}
+	if storedJob.LastErrorMeta == nil || storedJob.LastErrorMeta.Code != "shell_script_exit_non_zero" {
+		t.Fatalf("expected job last error metadata, got %#v", storedJob.LastErrorMeta)
 	}
 }
 
