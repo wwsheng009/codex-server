@@ -10,6 +10,8 @@ backend/internal/webui/dist/
 frontend/test-results/
 frontend/tmp-tests/
 frontend_backup_*/
+backups/
+data/
 tmp/
 logs/
 *.log
