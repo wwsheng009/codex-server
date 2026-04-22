@@ -690,20 +690,11 @@ func (s *Service) readConfig(ctx context.Context, workspaceID string) (Config, e
 	if s.store != nil {
 		if storedConfig, ok := s.store.GetFeishuToolsConfig(workspaceID); ok {
 			config := configFromStore(storedConfig)
-			if s.configfs == nil {
-				return config, nil
-			}
-
-			result, err := s.configfs.ReadConfig(ctx, workspaceID, true)
-			if err != nil {
-				return config, nil
-			}
-
 			return s.overlayStoreConfigWithManagedMcpServerCompat(
 				workspaceID,
 				config,
 				storedConfig,
-				mergeConfigLayers(result.Config, result.Layers),
+				s.readWorkspaceConfigFile(workspaceID),
 			), nil
 		}
 	}

@@ -903,6 +903,21 @@ func TestReadConfigKeepsGeneratedEndpointUnlessStoreExplicitlyOverrides(t *testi
 	t.Cleanup(func() {
 		runtimeManager.Remove(workspace.ID)
 	})
+	configPath := filepath.Join(rootPath, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	encodedManagedConfig, err := toml.Marshal(map[string]any{
+		"mcp_servers": map[string]any{
+			managedMCPServerName: managedEntry,
+		},
+	})
+	if err != nil {
+		t.Fatalf("toml.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(configPath, encodedManagedConfig, 0o644); err != nil {
+		t.Fatalf("WriteFile(config.toml) error = %v", err)
+	}
 
 	if _, err := dataStore.SetFeishuToolsConfig(store.FeishuToolsConfig{
 		WorkspaceID:         workspace.ID,
