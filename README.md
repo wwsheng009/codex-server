@@ -48,6 +48,61 @@
 - 线程侧栏支持键盘导航：`/` 聚焦搜索，`↑/↓` 切换线程，`Esc` 退出重命名或搜索焦点
 - 前端会恢复上次的 workspace/thread 选择、审批抽屉状态和线程侧栏筛选条件
 
+## 开发
+
+开发相关的完整说明见：
+
+- [docs/development/build-package-backup-restore-guide-2026-04-23.md](docs/development/build-package-backup-restore-guide-2026-04-23.md)
+
+推荐开发流程：
+
+1. 启动后端
+
+```powershell
+pwsh -File .\scripts\start-backend.ps1
+```
+
+2. 启动前端
+
+```powershell
+cd .\frontend
+npm install
+npm run dev
+```
+
+3. 提交前执行基础校验
+
+```powershell
+cd .\backend
+go test ./...
+
+cd ..\frontend
+npm run build
+npm run i18n:check
+```
+
+如果需要生成单二进制发布产物：
+
+```powershell
+pwsh -File .\scripts\build-embedded-backend.ps1
+```
+
+如果需要迁移当前配置或在升级前留存快照：
+
+```powershell
+pwsh -File .\scripts\backup-codex-server-config.ps1 `
+  -OutputPath E:\backups\codex-server-config `
+  -Force
+```
+
+恢复配置：
+
+```powershell
+pwsh -File .\scripts\restore-codex-server-config.ps1 `
+  -BackupPath E:\backups\codex-server-config `
+  -Force
+```
+
 ## 启动方式
 
 ### 后端
@@ -110,7 +165,7 @@ npm run test:e2e
 
 默认地址：`http://localhost:15173`
 
-开发环境下，前端默认会直接请求当前主机的 `:18080`，例如 `http://localhost:15173` 会请求 `http://localhost:18080`。
+开发环境下，前端默认走同源 `/api` 与 WebSocket 路径，再由 Vite 代理到 `http://localhost:18080`。
 
 Vite 仍然保留了 `/api` 和 WebSocket 代理能力，默认目标是 `http://localhost:18080`，可用于特殊调试场景。
 
@@ -143,8 +198,40 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173 npm run test:e2e
 
 如果未设置 `VITE_API_BASE_URL`：
 
-- 开发环境会按当前访问主机拼接 `:18080`，例如 `http://localhost:15173` 会请求 `http://localhost:18080`
-- 非开发环境也会按当前访问主机拼接 `:18080`，例如 `http://192.168.1.20:15173` 会请求 `http://192.168.1.20:18080`
+- 开发环境默认请求同源 `/api`，由 Vite 代理到后端 `:18080`
+- 非开发环境默认也请求当前 origin 下的 `/api`，适合和后端同域部署
+
+### 发布态内嵌前端
+
+当前仓库已支持把 `frontend/dist` 复制到 `backend/internal/webui/dist`，并通过 `go build -tags embed_frontend` 打进后端二进制。
+
+PowerShell：
+
+```powershell
+pwsh -File .\scripts\build-embedded-backend.ps1
+```
+
+Shell：
+
+```bash
+./scripts/build-embedded-backend.sh
+```
+
+默认产物：
+
+- Windows：`backend/bin/codex-server-embedded.exe`
+- 其他平台：`backend/bin/codex-server-embedded`
+
+可选参数：
+
+- PowerShell：`-PackageManager auto|npm|pnpm`、`-GoBuildTags embed_frontend`、`-OutputPath <path>`
+- Shell：`PACKAGE_MANAGER=auto|npm|pnpm`、`GO_BUILD_TAGS=embed_frontend`、`OUTPUT_PATH=<path>`、`PYTHON_BIN=python3`
+
+发布态启用内嵌前端后：
+
+- 浏览器默认访问后端同一个 origin，例如 `http://localhost:18080/`
+- SPA 路由会由后端 fallback 到 `index.html`
+- 如未显式配置 `CODEX_FRONTEND_ORIGIN`，内嵌模式会优先使用同源或 `CODEX_SERVER_PUBLIC_BASE_URL`，避免 OAuth/回跳地址继续指向开发期 `15173`
 
 ## 启用 LocalShell
 
@@ -237,7 +324,8 @@ codex app-server --listen stdio:// --config "model_catalog_json=E:/generated/cat
 ## 当前验证
 
 - 后端：`go test ./...`
-- 前端：`npm test`、`npm run build`
+- 前端：`npm test`、`npm run build`、`npm run i18n:check`
 - 前端 E2E：`npm run test:e2e`
+- 发布态内嵌构建：`pwsh -File .\scripts\build-embedded-backend.ps1`
 - 已覆盖前端关键纯逻辑：live timeline delta 聚合、thread render helper
 - 已覆盖后端关键基础链路：workspace 元数据持久化、历史线程归属判断、扩展路由请求体验证
