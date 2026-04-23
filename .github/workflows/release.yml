@@ -211,6 +211,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
 
       - name: Install frontend dependencies
         run: npm ci
@@ -232,9 +233,14 @@ jobs:
           mkdir -p backend/internal/webui/dist
           cp -a frontend/dist/. backend/internal/webui/dist/
 
-      - name: Validate embedded backend packages
-        run: go test -tags embed_frontend ./internal/api ./internal/servercmd ./internal/webui
+      - name: Validate embedded backend integration
+        shell: bash
         working-directory: backend
+        run: |
+          set -euo pipefail
+          go test -count=1 -tags "$GO_BUILD_TAGS" ./internal/webui
+          go test -count=1 -tags "$GO_BUILD_TAGS" ./internal/api -run 'Test(ConfigAndSearchRoutesValidateRequestBody|EmbeddedRouter.*)'
+          go build -trimpath -tags "$GO_BUILD_TAGS" ./cmd/server
 
       - uses: actions/upload-artifact@v4
         with:
@@ -258,6 +264,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
 
       - uses: actions/download-artifact@v4
         with:
