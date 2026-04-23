@@ -4,12 +4,15 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - "Makefile"
       - ".github/workflows/embedded-frontend.yml"
       - "scripts/build-embedded-backend.ps1"
       - "scripts/build-embedded-backend.sh"
+      - "scripts/resolve-go-build-metadata.mjs"
       - "backend/go.mod"
       - "backend/go.sum"
       - "backend/cmd/server/**"
+      - "backend/internal/buildinfo/**"
       - "backend/internal/api/router.go"
       - "backend/internal/api/router*_test.go"
       - "backend/internal/servercmd/run.go"
@@ -33,12 +36,15 @@ on:
     branches:
       - main
     paths:
+      - "Makefile"
       - ".github/workflows/embedded-frontend.yml"
       - "scripts/build-embedded-backend.ps1"
       - "scripts/build-embedded-backend.sh"
+      - "scripts/resolve-go-build-metadata.mjs"
       - "backend/go.mod"
       - "backend/go.sum"
       - "backend/cmd/server/**"
+      - "backend/internal/buildinfo/**"
       - "backend/internal/api/router.go"
       - "backend/internal/api/router*_test.go"
       - "backend/internal/servercmd/run.go"
@@ -107,7 +113,7 @@ jobs:
         working-directory: backend
 
       - name: Build embedded backend
-        run: pwsh -File .\scripts\build-embedded-backend.ps1 -OutputPath .\backend\bin\codex-server-embedded.exe
+        run: pwsh -File .\scripts\build-embedded-backend.ps1 -SkipFrontendBuild -OutputPath .\backend\bin\codex-server-embedded.exe
 
   linux-embedded-build:
     runs-on: ubuntu-latest
@@ -131,12 +137,5 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Validate shell script syntax
-        run: bash -n ./scripts/build-embedded-backend.sh
-
-      - name: Build embedded backend via shell script
-        env:
-          OUTPUT_PATH: ./backend/bin/codex-server-embedded
-        run: |
-          chmod +x ./scripts/build-embedded-backend.sh
-          ./scripts/build-embedded-backend.sh
+      - name: Run embedded build check
+        run: make embedded-build-check FRONTEND_PACKAGE_MANAGER=npm OUTPUT_PATH=./backend/bin/codex-server-embedded

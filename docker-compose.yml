@@ -1,0 +1,32 @@
+services:
+  codex-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        CODEX_SERVER_BUILD_VERSION: ${CODEX_SERVER_BUILD_VERSION:-dev}
+        CODEX_SERVER_BUILD_COMMIT: ${CODEX_SERVER_BUILD_COMMIT:-unknown}
+        CODEX_SERVER_BUILD_TIME: ${CODEX_SERVER_BUILD_TIME:-}
+    image: codex-server:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${CODEX_SERVER_PORT:-18080}:18080"
+    environment:
+      CODEX_SERVER_ADDR: 0.0.0.0:18080
+      CODEX_SERVER_PUBLIC_BASE_URL: ${CODEX_SERVER_PUBLIC_BASE_URL:-http://localhost:18080}
+      CODEX_SERVER_STORE_PATH: /data/metadata.json
+      CODEX_SERVER_ALLOW_REMOTE_ACCESS: ${CODEX_SERVER_ALLOW_REMOTE_ACCESS:-true}
+      CODEX_SERVER_REQUEST_LOGGING: ${CODEX_SERVER_REQUEST_LOGGING:-false}
+      CODEX_APP_SERVER_COMMAND: ${CODEX_APP_SERVER_COMMAND:-codex app-server --listen stdio://}
+      CODEX_MODEL_CATALOG_JSON: ${CODEX_MODEL_CATALOG_JSON:-}
+      CODEX_LOCAL_SHELL_MODELS: ${CODEX_LOCAL_SHELL_MODELS:-}
+    volumes:
+      - codex_server_data:/data
+      - codex_server_home:/root/.codex
+      - ./:/workspace/current
+    working_dir: /workspace/current
+
+volumes:
+  codex_server_data:
+  codex_server_home:

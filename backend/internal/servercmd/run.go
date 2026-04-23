@@ -19,6 +19,7 @@ import (
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/automations"
 	"codex-server/backend/internal/bots"
+	"codex-server/backend/internal/buildinfo"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/config"
 	"codex-server/backend/internal/configfs"
@@ -202,7 +203,18 @@ func runServer(cfg config.Config) error {
 		runtimePrefsState.EffectiveBackendThreadTraceWorkspaceID,
 		runtimePrefsState.EffectiveBackendThreadTraceThreadID,
 	)
-	logger.Info("starting codex-server backend", "addr", cfg.Addr)
+	buildMetadata := buildinfo.Current()
+	logger.Info(
+		"starting codex-server backend",
+		"addr",
+		cfg.Addr,
+		"version",
+		buildMetadata.Version,
+		"commit",
+		buildMetadata.Commit,
+		"buildTime",
+		buildMetadata.BuildTime,
+	)
 	if runtimePrefsState.EffectiveBackendThreadTraceEnabled {
 		logger.Info(
 			"thread pipeline trace logging enabled",

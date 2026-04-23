@@ -3,7 +3,11 @@ param(
   [ValidateSet('auto', 'npm', 'pnpm')]
   [string]$PackageManager = 'auto',
   [string]$GoBuildTags = 'embed_frontend',
-  [string]$OutputPath
+  [string]$OutputPath,
+  [switch]$SkipFrontendBuild,
+  [string]$BuildVersion = $env:CODEX_SERVER_BUILD_VERSION,
+  [string]$BuildCommit = $env:CODEX_SERVER_BUILD_COMMIT,
+  [string]$BuildTime = $env:CODEX_SERVER_BUILD_TIME
 )
 
 Set-StrictMode -Version Latest
@@ -97,12 +101,32 @@ function Invoke-NativeCommand {
   }
 }
 
+function Invoke-BuildMetadataField {
+  param(
+    [Parameter(Mandatory)]
+    [string]$NodeCommand,
+    [Parameter(Mandatory)]
+    [string]$ScriptPath,
+    [Parameter(Mandatory)]
+    [string]$Field
+  )
+
+  $output = & $NodeCommand $ScriptPath '--field' $Field
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) {
+    throw "Build metadata helper failed for field '$Field' (exit code $exitCode)."
+  }
+
+  return ($output | Out-String).Trim()
+}
+
 $repoRoot = Get-NormalizedPath -Path (Join-Path $PSScriptRoot '..')
 $frontendDir = Join-Path $repoRoot 'frontend'
 $frontendDistDir = Join-Path $frontendDir 'dist'
 $backendDir = Join-Path $repoRoot 'backend'
 $backendWebUiDir = Join-Path $backendDir 'internal\webui'
 $embeddedDistDir = Join-Path $backendWebUiDir 'dist'
+$buildMetadataScript = Join-Path $repoRoot 'scripts\resolve-go-build-metadata.mjs'
 $outputDir = Join-Path $backendDir 'bin'
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -145,19 +169,48 @@ $resolvedPackageManager = switch ($PackageManager) {
   }
 }
 
-$packageManagerCommand = Resolve-RequiredCommand -Name $resolvedPackageManager
 $goCommand = Resolve-RequiredCommand -Name 'go'
+$nodeCommand = Resolve-RequiredCommand -Name 'node'
+$packageManagerCommand = $null
+
+if (-not $SkipFrontendBuild.IsPresent) {
+  $packageManagerCommand = Resolve-RequiredCommand -Name $resolvedPackageManager
+}
+
+if (-not (Test-Path -LiteralPath $buildMetadataScript -PathType Leaf)) {
+  throw "Build metadata helper not found: $buildMetadataScript"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($BuildVersion)) {
+  $env:CODEX_SERVER_BUILD_VERSION = $BuildVersion
+}
+if (-not [string]::IsNullOrWhiteSpace($BuildCommit)) {
+  $env:CODEX_SERVER_BUILD_COMMIT = $BuildCommit
+}
+if (-not [string]::IsNullOrWhiteSpace($BuildTime)) {
+  $env:CODEX_SERVER_BUILD_TIME = $BuildTime
+}
+
+$resolvedBuildVersion = Invoke-BuildMetadataField -NodeCommand $nodeCommand -ScriptPath $buildMetadataScript -Field 'version'
+$resolvedBuildCommit = Invoke-BuildMetadataField -NodeCommand $nodeCommand -ScriptPath $buildMetadataScript -Field 'commit'
+$resolvedBuildTime = Invoke-BuildMetadataField -NodeCommand $nodeCommand -ScriptPath $buildMetadataScript -Field 'buildTime'
+$goLdflags = Invoke-BuildMetadataField -NodeCommand $nodeCommand -ScriptPath $buildMetadataScript -Field 'ldflags'
 
 Write-Host "Repository root: $repoRoot"
 Write-Host "Frontend builder: $resolvedPackageManager"
 Write-Host "Embedded dist target: $embeddedDistDir"
 Write-Host "Binary output: $outputPathFull"
+Write-Host "Build metadata: version=$resolvedBuildVersion commit=$resolvedBuildCommit buildTime=$resolvedBuildTime"
 
-Invoke-NativeCommand `
-  -FilePath $packageManagerCommand `
-  -ArgumentList @('run', 'build') `
-  -WorkingDirectory $frontendDir `
-  -FailureMessage 'Frontend build failed'
+if ($SkipFrontendBuild.IsPresent) {
+  Write-Host 'Skipping frontend build because -SkipFrontendBuild was provided.'
+} else {
+  Invoke-NativeCommand `
+    -FilePath $packageManagerCommand `
+    -ArgumentList @('run', 'build') `
+    -WorkingDirectory $frontendDir `
+    -FailureMessage 'Frontend build failed'
+}
 
 if (-not (Test-Path -LiteralPath $frontendDistDir -PathType Container)) {
   throw "Frontend build completed without producing dist output: $frontendDistDir"
@@ -194,7 +247,7 @@ if (-not (Test-Path -LiteralPath $outputParent -PathType Container)) {
 
 Invoke-NativeCommand `
   -FilePath $goCommand `
-  -ArgumentList @('build', '-tags', $GoBuildTags, '-o', $outputPathFull, './cmd/server') `
+  -ArgumentList @('build', '-trimpath', '-tags', $GoBuildTags, '-ldflags', $goLdflags, '-o', $outputPathFull, './cmd/server') `
   -WorkingDirectory $backendDir `
   -FailureMessage 'Go build failed'
 

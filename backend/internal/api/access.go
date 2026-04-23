@@ -62,7 +62,7 @@ func (s *Server) handleAccessBootstrap(w http.ResponseWriter, r *http.Request) {
 			"authenticated":                    true,
 			"loginRequired":                    false,
 			"allowRemoteAccess":                true,
-			"allowLocalhostWithoutAccessToken": false,
+			"allowLocalhostWithoutAccessToken": accesscontrol.DefaultAllowLocalhostWithoutAccessToken,
 			"configuredTokenCount":             0,
 			"activeTokenCount":                 0,
 		})
@@ -109,7 +109,7 @@ func (s *Server) handleAccessLogin(w http.ResponseWriter, r *http.Request) {
 			"authenticated":                    true,
 			"loginRequired":                    false,
 			"allowRemoteAccess":                true,
-			"allowLocalhostWithoutAccessToken": false,
+			"allowLocalhostWithoutAccessToken": accesscontrol.DefaultAllowLocalhostWithoutAccessToken,
 			"configuredTokenCount":             0,
 			"activeTokenCount":                 0,
 		})

@@ -105,6 +105,37 @@ func TestWorkspacePersistenceAcrossRouterRestart(t *testing.T) {
 	}
 }
 
+func TestHealthRouteIncludesBuildMetadata(t *testing.T) {
+	t.Parallel()
+
+	router := newTestRouter(store.NewMemoryStore())
+	response := performJSONRequest(t, router, http.MethodGet, "/healthz", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200 from healthz, got %d", response.Code)
+	}
+
+	var payload struct {
+		Data struct {
+			Status    string `json:"status"`
+			TS        string `json:"ts"`
+			Version   string `json:"version"`
+			Commit    string `json:"commit"`
+			BuildTime string `json:"buildTime"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, response, &payload)
+
+	if payload.Data.Status != "ok" {
+		t.Fatalf("status = %q, want %q", payload.Data.Status, "ok")
+	}
+	if payload.Data.TS == "" {
+		t.Fatal("expected timestamp in health response")
+	}
+	if payload.Data.Version == "" {
+		t.Fatal("expected version in health response")
+	}
+}
+
 func TestExtendedFSRoutesValidateRequestBody(t *testing.T) {
 	t.Parallel()
 
@@ -388,7 +419,7 @@ func TestProtectedRoutesRequireAccessLoginWhenTokensConfigured(t *testing.T) {
 	}
 }
 
-func TestLoopbackRequestsCanBypassAccessLoginWhenConfigured(t *testing.T) {
+func TestLoopbackRequestsBypassAccessLoginByDefault(t *testing.T) {
 	t.Parallel()
 
 	storePath := filepath.Join(t.TempDir(), "metadata.json")
@@ -407,10 +438,8 @@ func TestLoopbackRequestsCanBypassAccessLoginWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyTokenInputs() error = %v", err)
 	}
-	enabled := true
 	dataStore.SetRuntimePreferences(store.RuntimePreferences{
-		AllowLocalhostWithoutAccessToken: &enabled,
-		AccessTokens:                     tokens,
+		AccessTokens: tokens,
 	})
 
 	router := newTestRouter(dataStore)
@@ -465,6 +494,77 @@ func TestLoopbackRequestsCanBypassAccessLoginWhenConfigured(t *testing.T) {
 	decodeResponseBody(t, remoteProtectedRecorder, &remoteUnauthorizedPayload)
 	if remoteUnauthorizedPayload.Error.Code != "access_login_required" {
 		t.Fatalf("expected access_login_required for remote request, got %q", remoteUnauthorizedPayload.Error.Code)
+	}
+}
+
+func TestLoopbackRequestsRequireAccessLoginWhenExplicitlyDisabled(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() error = %v", err)
+	}
+
+	tokens, err := accesscontrol.ApplyTokenInputs(nil, []accesscontrol.TokenInput{
+		{
+			Label:     "Primary",
+			Token:     "super-secret-token",
+			Permanent: true,
+		},
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("ApplyTokenInputs() error = %v", err)
+	}
+	disabled := false
+	dataStore.SetRuntimePreferences(store.RuntimePreferences{
+		AllowLocalhostWithoutAccessToken: &disabled,
+		AccessTokens:                     tokens,
+	})
+
+	router := newTestRouter(dataStore)
+
+	loopbackBootstrapRequest := httptest.NewRequest(http.MethodGet, "/api/access/bootstrap", nil)
+	loopbackBootstrapRequest.RemoteAddr = "127.0.0.1:41000"
+	loopbackBootstrapRecorder := httptest.NewRecorder()
+	router.ServeHTTP(loopbackBootstrapRecorder, loopbackBootstrapRequest)
+
+	if loopbackBootstrapRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 from loopback bootstrap with localhost bypass disabled, got %d", loopbackBootstrapRecorder.Code)
+	}
+
+	var loopbackBootstrapPayload struct {
+		Data struct {
+			Authenticated                    bool `json:"authenticated"`
+			LoginRequired                    bool `json:"loginRequired"`
+			AllowLocalhostWithoutAccessToken bool `json:"allowLocalhostWithoutAccessToken"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, loopbackBootstrapRecorder, &loopbackBootstrapPayload)
+	if loopbackBootstrapPayload.Data.Authenticated || !loopbackBootstrapPayload.Data.LoginRequired {
+		t.Fatalf("expected loopback bootstrap to require login when localhost bypass is disabled, got %#v", loopbackBootstrapPayload.Data)
+	}
+	if loopbackBootstrapPayload.Data.AllowLocalhostWithoutAccessToken {
+		t.Fatalf("expected loopback bootstrap to expose disabled localhost bypass state, got %#v", loopbackBootstrapPayload.Data)
+	}
+
+	loopbackProtectedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	loopbackProtectedRequest.RemoteAddr = "127.0.0.1:41000"
+	loopbackProtectedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(loopbackProtectedRecorder, loopbackProtectedRequest)
+
+	if loopbackProtectedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 from loopback protected route without session when localhost bypass is disabled, got %d", loopbackProtectedRecorder.Code)
+	}
+
+	var unauthorizedPayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, loopbackProtectedRecorder, &unauthorizedPayload)
+	if unauthorizedPayload.Error.Code != "access_login_required" {
+		t.Fatalf("expected access_login_required for loopback request with localhost bypass disabled, got %q", unauthorizedPayload.Error.Code)
 	}
 }
 

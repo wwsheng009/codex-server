@@ -23,7 +23,7 @@ const (
 	tokenHashPrefixLength                   = 4
 	tokenHashSuffixLength                   = 4
 	tokenPreviewFallback                    = "****"
-	DefaultAllowLocalhostWithoutAccessToken = false
+	DefaultAllowLocalhostWithoutAccessToken = true
 )
 
 var (

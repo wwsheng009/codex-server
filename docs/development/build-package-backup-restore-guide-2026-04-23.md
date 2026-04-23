@@ -180,7 +180,10 @@ Linux/macOS：
 pwsh -File .\scripts\build-embedded-backend.ps1 `
   -PackageManager auto `
   -GoBuildTags embed_frontend `
-  -OutputPath .\backend\bin\my-release.exe
+  -OutputPath .\backend\bin\my-release.exe `
+  -BuildVersion v0.1.0 `
+  -BuildCommit 0123456789abcdef `
+  -BuildTime 2026-04-23T08:00:00Z
 ```
 
 参数含义：
@@ -198,12 +201,24 @@ pwsh -File .\scripts\build-embedded-backend.ps1 `
 - `-OutputPath`
   - 控制最终二进制输出路径
 
+- `-SkipFrontendBuild`
+  - 跳过 `npm run build` / `pnpm run build`
+  - 适合 CI 已经准备好 `frontend/dist` 的场景
+
+- `-BuildVersion` / `-BuildCommit` / `-BuildTime`
+  - 用于把版本号、提交 SHA 和构建时间通过 `-ldflags` 注入 Go 二进制
+  - `-BuildTime` 需要传 RFC3339 时间
+  - 如果不显式传参，脚本会优先读取 `CODEX_SERVER_BUILD_*` 环境变量，再回退到当前 git 信息和当前 UTC 时间
+
 ### 3.4 Shell 打包脚本支持的环境变量
 
 ```bash
 PACKAGE_MANAGER=pnpm \
 GO_BUILD_TAGS=embed_frontend \
 OUTPUT_PATH=./backend/bin/codex-server-embedded \
+CODEX_SERVER_BUILD_VERSION=v0.1.0 \
+CODEX_SERVER_BUILD_COMMIT=0123456789abcdef \
+CODEX_SERVER_BUILD_TIME=2026-04-23T08:00:00Z \
 ./scripts/build-embedded-backend.sh
 ```
 
@@ -213,6 +228,10 @@ OUTPUT_PATH=./backend/bin/codex-server-embedded \
 - `GO_BUILD_TAGS=embed_frontend`
 - `OUTPUT_PATH=<path>`
 - `PYTHON_BIN=python3`
+- `SKIP_FRONTEND_BUILD=1`
+- `CODEX_SERVER_BUILD_VERSION=<value>`
+- `CODEX_SERVER_BUILD_COMMIT=<value>`
+- `CODEX_SERVER_BUILD_TIME=<rfc3339>`
 
 ### 3.5 内嵌打包脚本实际做了什么
 
@@ -220,19 +239,86 @@ OUTPUT_PATH=./backend/bin/codex-server-embedded \
 
 1. 解析仓库根目录、前端目录、后端目录和目标输出路径
 2. 选择包管理器
-3. 执行前端构建命令 `run build`
+3. 执行前端构建命令 `run build`（或在显式指定跳过前端构建时复用现有 `frontend/dist`）
 4. 检查 `frontend/dist` 是否存在且非空
 5. 清空并重建 `backend/internal/webui/dist`
 6. 把 `frontend/dist` 的内容完整复制到 `backend/internal/webui/dist`
-7. 执行：
+7. 解析构建元数据：`version`、`commit`、`buildTime`
+8. 执行：
 
 ```text
-go build -tags embed_frontend -o <output> ./cmd/server
+go build -trimpath -tags embed_frontend -ldflags "<build metadata>" -o <output> ./cmd/server
 ```
 
-8. 检查目标二进制是否已生成
+9. 检查目标二进制是否已生成
 
 换句话说，这个脚本不是“只编译后端”，而是把“前端构建 + 资源复制 + Go 编译”串成了一条发布流水线。
+
+构建完成后，可以通过：
+
+```text
+GET /healthz
+```
+
+确认响应里已经包含 `version`、`commit` 和 `buildTime`。
+
+### 3.6 Makefile 嵌入构建校验入口
+
+仓库根目录提供了以下目标：
+
+- `make embedded-build`
+  - 完整执行前端构建、前端资源复制和内嵌后端打包
+
+- `make embedded-build-from-dist`
+  - 假设 `frontend/dist` 已存在，只执行复制和 Go 构建
+
+- `make embedded-validate`
+  - 执行嵌入模式相关的 Go 校验
+
+- `make embedded-build-check`
+  - 执行 `frontend` 的 `i18n:check`
+  - 检查 shell 打包脚本语法
+  - 跑完整嵌入构建
+  - 跑嵌入校验
+
+Linux/macOS 或 CI 推荐入口：
+
+```bash
+make embedded-build-check FRONTEND_PACKAGE_MANAGER=npm
+```
+
+### 3.7 Docker / Compose 发布入口
+
+仓库根目录现在提供：
+
+- `Dockerfile`
+- `docker-compose.yml`
+
+默认行为：
+
+1. Docker 构建阶段会先生成 `frontend/dist`
+2. 再把前端资源复制到 `backend/internal/webui/dist`
+3. 使用同一套 `version` / `commit` / `buildTime` 变量打包后端
+4. 运行层会安装 `@openai/codex`
+
+最简命令：
+
+```bash
+docker compose up --build -d
+```
+
+compose 默认会：
+
+- 暴露 `18080`
+- 持久化 `/data`
+- 持久化 `/root/.codex`
+- 把当前仓库挂载到 `/workspace/current`
+
+首次使用容器时，可执行：
+
+```bash
+docker compose exec codex-server codex login
+```
 
 ## 4. 把前端资源集成到二进制里的技术原理
 
@@ -593,6 +679,18 @@ pwsh -File .\scripts\build-embedded-backend.ps1 `
   -PackageManager npm
 ```
 
+如果走 Linux/macOS / CI 发布链路，等价入口是：
+
+```bash
+make embedded-build-check FRONTEND_PACKAGE_MANAGER=npm
+```
+
+如果走容器发布链路，可以直接：
+
+```bash
+docker compose up --build -d
+```
+
 4. 部署新二进制
 5. 如需迁移机器或新目录，恢复配置
 
@@ -611,6 +709,7 @@ http://localhost:18080/
 ```
 
 如果你启动的是带内嵌前端的产物，那么根路径应该返回前端首页，而不是 404。
+同时建议访问 `http://localhost:18080/healthz`，确认返回的 `version` / `commit` / `buildTime` 符合本次发布。
 
 ## 9. 常见问题
 

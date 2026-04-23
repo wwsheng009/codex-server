@@ -87,6 +87,18 @@ npm run i18n:check
 pwsh -File .\scripts\build-embedded-backend.ps1
 ```
 
+如果需要在 Linux/macOS 或 CI 中复用统一入口：
+
+```bash
+make embedded-build-check FRONTEND_PACKAGE_MANAGER=npm
+```
+
+如果需要用容器方式启动发布态：
+
+```bash
+docker compose up --build -d
+```
+
 如果需要迁移当前配置或在升级前留存快照：
 
 ```powershell
@@ -279,14 +291,52 @@ Shell：
 
 可选参数：
 
-- PowerShell：`-PackageManager auto|npm|pnpm`、`-GoBuildTags embed_frontend`、`-OutputPath <path>`
-- Shell：`PACKAGE_MANAGER=auto|npm|pnpm`、`GO_BUILD_TAGS=embed_frontend`、`OUTPUT_PATH=<path>`、`PYTHON_BIN=python3`
+- PowerShell：`-PackageManager auto|npm|pnpm`、`-GoBuildTags embed_frontend`、`-OutputPath <path>`、`-SkipFrontendBuild`、`-BuildVersion <value>`、`-BuildCommit <value>`、`-BuildTime <rfc3339>`
+- Shell：`PACKAGE_MANAGER=auto|npm|pnpm`、`GO_BUILD_TAGS=embed_frontend`、`OUTPUT_PATH=<path>`、`PYTHON_BIN=python3`、`SKIP_FRONTEND_BUILD=1`、`CODEX_SERVER_BUILD_VERSION=<value>`、`CODEX_SERVER_BUILD_COMMIT=<value>`、`CODEX_SERVER_BUILD_TIME=<rfc3339>`
 
 发布态启用内嵌前端后：
 
 - 浏览器默认访问后端同一个 origin，例如 `http://localhost:18080/`
+- 当已配置 access token 时，`localhost` / `127.0.0.1` / `::1` 默认仍可直接打开 UI；如需本机也强制登录认证，可在运行时偏好里将 `allowLocalhostWithoutAccessToken` 显式设为 `false`
 - SPA 路由会由后端 fallback 到 `index.html`
 - 如未显式配置 `CODEX_FRONTEND_ORIGIN`，内嵌模式会优先使用同源或 `CODEX_SERVER_PUBLIC_BASE_URL`，避免 OAuth/回跳地址继续指向开发期 `15173`
+- `/healthz` 会返回当前二进制的 `version`、`commit` 和 `buildTime`，方便校验版本注入是否生效
+
+### Makefile 校验入口
+
+仓库根目录现在提供了统一的嵌入构建校验入口：
+
+```bash
+make embedded-build-check FRONTEND_PACKAGE_MANAGER=npm
+```
+
+常用目标：
+
+- `make embedded-build`：完整执行前端构建、资源复制和带版本元数据的 Go 内嵌打包
+- `make embedded-build-from-dist`：复用现有 `frontend/dist`，只做复制和 Go 构建
+- `make embedded-validate`：运行嵌入前后端相关 Go 校验
+- `make embedded-build-check`：执行 `i18n:check`、脚本语法检查、嵌入构建和嵌入校验
+
+### Docker / Compose 发布入口
+
+根目录现在提供：
+
+- `Dockerfile`
+- `docker-compose.yml`
+
+最简单的本地发布方式：
+
+```bash
+docker compose up --build -d
+```
+
+说明：
+
+- 镜像会构建内嵌前端版后端二进制，并在运行层安装 `@openai/codex`
+- compose 默认把当前仓库挂载到容器内的 `/workspace/current`，因此可以直接把这个仓库作为 workspace 使用
+- 服务数据持久化到命名卷 `codex_server_data`，Codex CLI 配置持久化到 `codex_server_home`
+- 首次使用容器时，可执行 `docker compose exec codex-server codex login`
+- 如需给镜像注入发布版本元数据，可在构建前设置 `CODEX_SERVER_BUILD_VERSION`、`CODEX_SERVER_BUILD_COMMIT`、`CODEX_SERVER_BUILD_TIME`
 
 ### GitHub Actions 发布
 

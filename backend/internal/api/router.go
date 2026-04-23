@@ -20,6 +20,7 @@ import (
 	"codex-server/backend/internal/auth"
 	"codex-server/backend/internal/automations"
 	"codex-server/backend/internal/bots"
+	"codex-server/backend/internal/buildinfo"
 	"codex-server/backend/internal/catalog"
 	"codex-server/backend/internal/configfs"
 	"codex-server/backend/internal/diagnostics"
@@ -395,9 +396,13 @@ func NewRouter(deps Dependencies) http.Handler {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	build := buildinfo.Current()
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": "ok",
-		"ts":     time.Now().UTC().Format(time.RFC3339),
+		"status":    "ok",
+		"ts":        time.Now().UTC().Format(time.RFC3339),
+		"version":   build.Version,
+		"commit":    build.Commit,
+		"buildTime": build.BuildTime,
 	})
 }
 

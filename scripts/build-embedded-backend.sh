@@ -5,6 +5,7 @@ PACKAGE_MANAGER="${PACKAGE_MANAGER:-auto}"
 GO_BUILD_TAGS="${GO_BUILD_TAGS:-embed_frontend}"
 OUTPUT_PATH="${OUTPUT_PATH:-}"
 PYTHON_BIN="${PYTHON_BIN:-}"
+SKIP_FRONTEND_BUILD="${SKIP_FRONTEND_BUILD:-0}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
@@ -13,6 +14,7 @@ FRONTEND_DIST_DIR="$FRONTEND_DIR/dist"
 BACKEND_DIR="$REPO_ROOT/backend"
 BACKEND_WEBUI_DIR="$BACKEND_DIR/internal/webui"
 EMBEDDED_DIST_DIR="$BACKEND_WEBUI_DIR/dist"
+BUILD_METADATA_SCRIPT="$SCRIPT_DIR/resolve-go-build-metadata.mjs"
 
 if [[ -z "$OUTPUT_PATH" ]]; then
   OUTPUT_PATH="$BACKEND_DIR/bin/codex-server-embedded"
@@ -50,6 +52,13 @@ require_command() {
     echo "Required command '$1' was not found in PATH." >&2
     exit 1
   fi
+}
+
+is_truthy() {
+  case "${1,,}" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 run_command() {
@@ -103,8 +112,12 @@ case "$PACKAGE_MANAGER" in
     ;;
 esac
 
-require_command "$PACKAGE_MANAGER"
 require_command go
+require_command node
+
+if ! is_truthy "$SKIP_FRONTEND_BUILD"; then
+  require_command "$PACKAGE_MANAGER"
+fi
 
 if [[ -z "$PYTHON_BIN" ]]; then
   if command -v python3 >/dev/null 2>&1; then
@@ -119,13 +132,28 @@ else
   require_command "$PYTHON_BIN"
 fi
 
+if [[ ! -f "$BUILD_METADATA_SCRIPT" ]]; then
+  echo "Build metadata helper not found: $BUILD_METADATA_SCRIPT" >&2
+  exit 1
+fi
+
+BUILD_VERSION="$(node "$BUILD_METADATA_SCRIPT" --field version)"
+BUILD_COMMIT="$(node "$BUILD_METADATA_SCRIPT" --field commit)"
+BUILD_TIME="$(node "$BUILD_METADATA_SCRIPT" --field buildTime)"
+GO_LDFLAGS="$(node "$BUILD_METADATA_SCRIPT" --field ldflags)"
+
 echo "Repository root: $REPO_ROOT"
 echo "Frontend builder: $PACKAGE_MANAGER"
 echo "Path normalizer: $PYTHON_BIN"
 echo "Embedded dist target: $EMBEDDED_DIST_DIR"
 echo "Binary output: $OUTPUT_PATH"
+echo "Build metadata: version=$BUILD_VERSION commit=$BUILD_COMMIT buildTime=$BUILD_TIME"
 
-run_command "$FRONTEND_DIR" "Frontend build failed" "$PACKAGE_MANAGER" run build
+if is_truthy "$SKIP_FRONTEND_BUILD"; then
+  echo "Skipping frontend build because SKIP_FRONTEND_BUILD=$SKIP_FRONTEND_BUILD"
+else
+  run_command "$FRONTEND_DIR" "Frontend build failed" "$PACKAGE_MANAGER" run build
+fi
 
 if [[ ! -d "$FRONTEND_DIST_DIR" ]]; then
   echo "Frontend build completed without producing dist output: $FRONTEND_DIST_DIR" >&2
@@ -148,7 +176,7 @@ if [[ ! -f "$EMBEDDED_DIST_DIR/index.html" ]]; then
 fi
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"
-run_command "$BACKEND_DIR" "Go build failed" go build -tags "$GO_BUILD_TAGS" -o "$OUTPUT_PATH" ./cmd/server
+run_command "$BACKEND_DIR" "Go build failed" go build -trimpath -tags "$GO_BUILD_TAGS" -ldflags "$GO_LDFLAGS" -o "$OUTPUT_PATH" ./cmd/server
 
 if [[ ! -f "$OUTPUT_PATH" ]]; then
   echo "Go build reported success but binary was not created: $OUTPUT_PATH" >&2

@@ -1116,16 +1116,15 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   })
 
   useEffect(() => {
-    const connections = connectionsQuery.data ?? []
-    if (!connections.length) {
-      if (selectedBotId || selectedConnectionId) {
-        setSelectionState({
-          selectedBotId: '',
-          selectedConnectionId: '',
-        })
-      }
+    if (!connectionsQuery.data || connectionsQuery.data.length > 0) {
+      return
     }
-  }, [connectionsQuery.data, selectedBotId, selectedConnectionId])
+    if (selectedConnectionId) {
+      setSelectionState({
+        selectedConnectionId: '',
+      })
+    }
+  }, [connectionsQuery.data, selectedConnectionId])
 
   useEffect(() => {
     if (selectionSyncOriginRef.current === 'local') {

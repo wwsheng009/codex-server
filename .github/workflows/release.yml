@@ -47,6 +47,7 @@ jobs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_name: ${{ steps.meta.outputs.release_name }}
       asset_version: ${{ steps.meta.outputs.asset_version }}
+      build_time: ${{ steps.meta.outputs.build_time }}
       draft: ${{ steps.meta.outputs.draft }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
       matrix: ${{ steps.meta.outputs.matrix }}
@@ -95,6 +96,7 @@ jobs:
           fi
 
           asset_version="$(printf '%s' "$release_tag" | sed 's/[^0-9A-Za-z._-]/-/g')"
+          build_time="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
           declare -A seen_targets=()
           matrix_items=()
@@ -154,6 +156,7 @@ jobs:
           printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
           printf 'release_name=%s\n' "$release_name" >> "$GITHUB_OUTPUT"
           printf 'asset_version=%s\n' "$asset_version" >> "$GITHUB_OUTPUT"
+          printf 'build_time=%s\n' "$build_time" >> "$GITHUB_OUTPUT"
           printf 'draft=%s\n' "$draft" >> "$GITHUB_OUTPUT"
           printf 'prerelease=%s\n' "$prerelease" >> "$GITHUB_OUTPUT"
           printf 'matrix=%s\n' "$matrix_json" >> "$GITHUB_OUTPUT"
@@ -235,12 +238,9 @@ jobs:
 
       - name: Validate embedded backend integration
         shell: bash
-        working-directory: backend
         run: |
           set -euo pipefail
-          go test -count=1 -tags "$GO_BUILD_TAGS" ./internal/webui
-          go test -count=1 -tags "$GO_BUILD_TAGS" ./internal/api -run 'Test(ConfigAndSearchRoutesValidateRequestBody|EmbeddedRouter.*)'
-          go build -trimpath -tags "$GO_BUILD_TAGS" ./cmd/server
+          make embedded-validate GO_BUILD_TAGS="$GO_BUILD_TAGS"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -266,18 +266,14 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: frontend/dist
-
-      - name: Copy embedded frontend dist
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf backend/internal/webui/dist
-          mkdir -p backend/internal/webui/dist
-          cp -a frontend/dist/. backend/internal/webui/dist/
 
       - name: Build release archive
         id: package
@@ -285,6 +281,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           ASSET_VERSION: ${{ needs.prepare.outputs.asset_version }}
+          BUILD_TIME: ${{ needs.prepare.outputs.build_time }}
           TARGET_ID: ${{ matrix.id }}
           TARGET_GOOS: ${{ matrix.goos }}
           TARGET_GOARCH: ${{ matrix.goarch }}
@@ -296,15 +293,21 @@ jobs:
           package_root="codex-server_${ASSET_VERSION}_${TARGET_GOOS}_${TARGET_GOARCH}"
           stage_root="$RUNNER_TEMP/$package_root"
           package_dir="$RUNNER_TEMP/release-packages"
+          binary_output="./backend/bin/$TARGET_BINARY_NAME"
 
           rm -rf "$stage_root" "$package_dir"
           mkdir -p "$stage_root/scripts" "$package_dir"
 
-          (
-            cd backend
-            CGO_ENABLED=0 GOOS="$TARGET_GOOS" GOARCH="$TARGET_GOARCH" \
-              go build -trimpath -tags "$GO_BUILD_TAGS" -o "$stage_root/$TARGET_BINARY_NAME" ./cmd/server
-          )
+          CGO_ENABLED=0 GOOS="$TARGET_GOOS" GOARCH="$TARGET_GOARCH" \
+            CODEX_SERVER_BUILD_VERSION="$RELEASE_TAG" \
+            CODEX_SERVER_BUILD_COMMIT="$GITHUB_SHA" \
+            CODEX_SERVER_BUILD_TIME="$BUILD_TIME" \
+            make embedded-build-from-dist \
+              FRONTEND_PACKAGE_MANAGER=npm \
+              GO_BUILD_TAGS="$GO_BUILD_TAGS" \
+              OUTPUT_PATH="$binary_output"
+
+          cp "$binary_output" "$stage_root/$TARGET_BINARY_NAME"
 
           cp README.md "$stage_root/"
           cp scripts/backup-codex-server-config.ps1 "$stage_root/scripts/"
