@@ -83,6 +83,36 @@ func TestParseCommandRecognizesDoctor(t *testing.T) {
 	}
 }
 
+func TestParseCommandRecognizesAccessTokenAdd(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"access-token", "add", "--label", "admin"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindAccessTokenAdd {
+		t.Fatalf("parseCommand() = %#v, want access-token add", command)
+	}
+	if command.accessTokenAddOptions.Label != "admin" {
+		t.Fatalf("accessTokenAddOptions.Label = %q, want %q", command.accessTokenAddOptions.Label, "admin")
+	}
+}
+
+func TestParseCommandRecognizesServerAccessTokenAdd(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"server", "access-token", "add", "--label", "admin"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindAccessTokenAdd {
+		t.Fatalf("parseCommand() = %#v, want server access-token add", command)
+	}
+	if command.accessTokenAddOptions.Label != "admin" {
+		t.Fatalf("accessTokenAddOptions.Label = %q, want %q", command.accessTokenAddOptions.Label, "admin")
+	}
+}
+
 func TestMainDoctorPrintsInstallHintWhenCodexMissing(t *testing.T) {
 	originalCheck := checkCodexCLIFunc
 	t.Cleanup(func() {

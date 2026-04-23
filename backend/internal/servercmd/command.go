@@ -16,24 +16,27 @@ type stopOutcome string
 type commandKind string
 
 type parsedCommand struct {
-	kind commandKind
+	kind                  commandKind
+	accessTokenAddOptions accessTokenAddOptions
 }
 
 const (
 	stopOutcomeRequested      stopOutcome = "requested"
 	stopOutcomeAlreadyStopped stopOutcome = "already_stopped"
 
-	commandKindServerStart commandKind = "server_start"
-	commandKindServerStop  commandKind = "server_stop"
-	commandKindDoctor      commandKind = "doctor"
-	commandKindHelp        commandKind = "help"
+	commandKindServerStart    commandKind = "server_start"
+	commandKindServerStop     commandKind = "server_stop"
+	commandKindDoctor         commandKind = "doctor"
+	commandKindAccessTokenAdd commandKind = "access_token_add"
+	commandKindHelp           commandKind = "help"
 )
 
 var (
-	configFromEnvFunc = config.FromEnv
-	runServerFunc     = runServer
-	stopServerFunc    = stopServer
-	checkCodexCLIFunc = checkCodexCLI
+	configFromEnvFunc  = config.FromEnv
+	runServerFunc      = runServer
+	stopServerFunc     = stopServer
+	checkCodexCLIFunc  = checkCodexCLI
+	addAccessTokenFunc = addAccessToken
 )
 
 func Main(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -55,6 +58,12 @@ func Main(args []string, stdout io.Writer, stderr io.Writer) int {
 			return 1
 		}
 		writeDoctorSuccess(stdout, report)
+		return 0
+	case commandKindAccessTokenAdd:
+		if err := addAccessTokenFunc(command.accessTokenAddOptions, stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		return 0
 	case commandKindServerStop:
 		addr := serverAddrFromEnv()
@@ -111,6 +120,29 @@ func parseCommand(args []string) (parsedCommand, error) {
 			return parsedCommand{}, fmt.Errorf("doctor does not accept additional arguments")
 		}
 		return parsedCommand{kind: commandKindDoctor}, nil
+	case "access-token", "token":
+		if len(args) == 1 {
+			return parsedCommand{}, fmt.Errorf("%s requires a subcommand", args[0])
+		}
+		subcommand := normalizeCommandToken(args[1])
+		switch subcommand {
+		case "add", "create":
+			options, err := parseAccessTokenAddArgs(args[2:])
+			if err != nil {
+				return parsedCommand{}, err
+			}
+			return parsedCommand{
+				kind:                  commandKindAccessTokenAdd,
+				accessTokenAddOptions: options,
+			}, nil
+		case "help", "-h", "--help":
+			if len(args) > 2 {
+				return parsedCommand{}, fmt.Errorf("%s help does not accept additional arguments", args[0])
+			}
+			return parsedCommand{kind: commandKindHelp}, nil
+		default:
+			return parsedCommand{}, fmt.Errorf("unknown %s subcommand %q", args[0], args[1])
+		}
 	case "server":
 		if len(args) == 1 {
 			return parsedCommand{kind: commandKindServerStart}, nil
@@ -132,6 +164,29 @@ func parseCommand(args []string) (parsedCommand, error) {
 				return parsedCommand{}, fmt.Errorf("server doctor does not accept additional arguments")
 			}
 			return parsedCommand{kind: commandKindDoctor}, nil
+		case "access-token", "token":
+			if len(args) < 3 {
+				return parsedCommand{}, fmt.Errorf("server %s requires a subcommand", args[1])
+			}
+			tokenSubcommand := normalizeCommandToken(args[2])
+			switch tokenSubcommand {
+			case "add", "create":
+				options, err := parseAccessTokenAddArgs(args[3:])
+				if err != nil {
+					return parsedCommand{}, err
+				}
+				return parsedCommand{
+					kind:                  commandKindAccessTokenAdd,
+					accessTokenAddOptions: options,
+				}, nil
+			case "help", "-h", "--help":
+				if len(args) > 3 {
+					return parsedCommand{}, fmt.Errorf("server %s help does not accept additional arguments", args[1])
+				}
+				return parsedCommand{kind: commandKindHelp}, nil
+			default:
+				return parsedCommand{}, fmt.Errorf("unknown server %s subcommand %q", args[1], args[2])
+			}
 		case "help", "-h", "--help":
 			if len(args) > 2 {
 				return parsedCommand{}, fmt.Errorf("server help does not accept additional arguments")
@@ -155,6 +210,7 @@ func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  main.exe server start")
 	fmt.Fprintln(w, "  main.exe server stop")
 	fmt.Fprintln(w, "  main.exe doctor")
+	fmt.Fprintln(w, "  main.exe access-token add [--label <name>] [--ttl <duration> | --expires-at <rfc3339>] [--store-path <path>] [--json | --quiet]")
 	fmt.Fprintln(w, "  main.exe start")
 	fmt.Fprintln(w, "  main.exe stop")
 	fmt.Fprintln(w, "  main.exe help")

@@ -126,6 +126,7 @@ cd .\backend
 .\main.exe server start
 .\main.exe server stop
 .\main.exe doctor
+.\main.exe access-token add --label admin --ttl 720h
 .\main.exe help
 ```
 
@@ -150,6 +151,39 @@ npm i -g @openai/codex
 cd .\backend
 go run ./cmd/server doctor
 ```
+
+如需通过 CLI 直接生成并持久化一个访问令牌：
+
+```powershell
+cd .\backend
+go run ./cmd/server access-token add --label bootstrap --ttl 720h
+```
+
+如果你要给脚本消费结果，可以用：
+
+```powershell
+go run ./cmd/server access-token add --quiet
+go run ./cmd/server access-token add --json
+```
+
+也兼容写成：
+
+```powershell
+go run ./cmd/server server access-token add --label bootstrap --ttl 720h
+```
+
+可选参数：
+
+- `--label`：给 token 加一个便于识别的标签
+- `--ttl`：按持续时间生成过期时间，例如 `24h`、`720h`
+- `--expires-at`：直接指定 RFC3339 过期时间，例如 `2026-05-01T00:00:00Z`
+- `--store-path`：覆盖默认 `CODEX_SERVER_STORE_PATH`
+- `--quiet`：只输出明文 token，适合脚本取值
+- `--json`：输出结构化 JSON，包含 `id`、`token`、`preview`、`expiresAt`、`storePath`
+
+`--quiet` 和 `--json` 不能同时使用。
+
+命令会把 token 写入元数据文件里的 `runtimePreferences.accessTokens`，并仅在创建时输出一次明文 token。随后可用它调用 `POST /api/access/login` 建立访问会话。
 
 如果模型意外全部变成 `LocalShell`，可以清理服务级 shell override：
 
