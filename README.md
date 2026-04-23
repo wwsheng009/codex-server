@@ -123,12 +123,33 @@ pwsh -File .\scripts\start-backend.ps1
 
 ```powershell
 cd .\backend
-.\main.exe start
-.\main.exe stop
+.\main.exe server start
+.\main.exe server stop
+.\main.exe doctor
 .\main.exe help
 ```
 
-不带参数执行 `.\main.exe` 时，行为等同于 `.\main.exe start`。
+兼容旧命令：
+
+```powershell
+.\main.exe start
+.\main.exe stop
+```
+
+不带参数执行 `.\main.exe` 或 `.\main.exe server` 时，行为都等同于 `.\main.exe server start`。
+
+`server start` 启动前会先执行 Codex CLI 自检，确认当前环境可以运行 `codex -V`。如果未安装 `codex`，会提示执行：
+
+```powershell
+npm i -g @openai/codex
+```
+
+也可以单独运行自检命令：
+
+```powershell
+cd .\backend
+go run ./cmd/server doctor
+```
 
 如果模型意外全部变成 `LocalShell`，可以清理服务级 shell override：
 

@@ -2,10 +2,13 @@ package servercmd
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"reflect"
 	"strings"
 	"testing"
+
+	"codex-server/backend/internal/config"
 )
 
 func TestParseCommandDefaultsToStart(t *testing.T) {
@@ -15,8 +18,8 @@ func TestParseCommandDefaultsToStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseCommand() error = %v", err)
 	}
-	if command != "start" {
-		t.Fatalf("parseCommand() = %q, want %q", command, "start")
+	if command.kind != commandKindServerStart {
+		t.Fatalf("parseCommand() = %#v, want server start", command)
 	}
 }
 
@@ -27,8 +30,8 @@ func TestParseCommandRecognizesStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseCommand() error = %v", err)
 	}
-	if command != "start" {
-		t.Fatalf("parseCommand() = %q, want %q", command, "start")
+	if command.kind != commandKindServerStart {
+		t.Fatalf("parseCommand() = %#v, want server start", command)
 	}
 }
 
@@ -39,8 +42,153 @@ func TestParseCommandRecognizesStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseCommand() error = %v", err)
 	}
-	if command != "stop" {
-		t.Fatalf("parseCommand() = %q, want %q", command, "stop")
+	if command.kind != commandKindServerStop {
+		t.Fatalf("parseCommand() = %#v, want server stop", command)
+	}
+}
+
+func TestParseCommandRecognizesServerStart(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"server", "start"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindServerStart {
+		t.Fatalf("parseCommand() = %#v, want server start", command)
+	}
+}
+
+func TestParseCommandRecognizesServerStop(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"server", "stop"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindServerStop {
+		t.Fatalf("parseCommand() = %#v, want server stop", command)
+	}
+}
+
+func TestParseCommandRecognizesDoctor(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"doctor"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindDoctor {
+		t.Fatalf("parseCommand() = %#v, want doctor", command)
+	}
+}
+
+func TestMainDoctorPrintsInstallHintWhenCodexMissing(t *testing.T) {
+	originalCheck := checkCodexCLIFunc
+	t.Cleanup(func() {
+		checkCodexCLIFunc = originalCheck
+	})
+
+	checkCodexCLIFunc = func() (codexDoctorReport, error) {
+		return codexDoctorReport{}, &codexDoctorError{
+			message:     "codex CLI was not found in PATH",
+			installHint: codexInstallCommand,
+		}
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := Main([]string{"doctor"}, &stdout, &stderr)
+	if exitCode != 1 {
+		t.Fatalf("Main(doctor) exit code = %d, want 1", exitCode)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("Main(doctor) stdout = %q, want empty", stdout.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, codexInstallCommand) {
+		t.Fatalf("Main(doctor) stderr = %q, want install hint", got)
+	}
+}
+
+func TestMainServerStartRunsDoctorBeforeConfigAndServer(t *testing.T) {
+	originalCheck := checkCodexCLIFunc
+	originalConfig := configFromEnvFunc
+	originalRun := runServerFunc
+	t.Cleanup(func() {
+		checkCodexCLIFunc = originalCheck
+		configFromEnvFunc = originalConfig
+		runServerFunc = originalRun
+	})
+
+	callOrder := make([]string, 0, 3)
+	checkCodexCLIFunc = func() (codexDoctorReport, error) {
+		callOrder = append(callOrder, "doctor")
+		return codexDoctorReport{
+			ExecutablePath: "/usr/bin/codex",
+			Version:        "codex 0.1.0",
+		}, nil
+	}
+	configFromEnvFunc = func() (config.Config, error) {
+		callOrder = append(callOrder, "config")
+		return config.Config{}, nil
+	}
+	runServerFunc = func(config.Config) error {
+		callOrder = append(callOrder, "run")
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := Main([]string{"server", "start"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("Main(server start) exit code = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if got := stdout.String(); got != "" {
+		t.Fatalf("Main(server start) stdout = %q, want empty", got)
+	}
+	if got := stderr.String(); got != "" {
+		t.Fatalf("Main(server start) stderr = %q, want empty", got)
+	}
+
+	wantOrder := []string{"doctor", "config", "run"}
+	if !reflect.DeepEqual(callOrder, wantOrder) {
+		t.Fatalf("call order = %#v, want %#v", callOrder, wantOrder)
+	}
+}
+
+func TestMainServerStartStopsWhenDoctorFails(t *testing.T) {
+	originalCheck := checkCodexCLIFunc
+	originalConfig := configFromEnvFunc
+	originalRun := runServerFunc
+	t.Cleanup(func() {
+		checkCodexCLIFunc = originalCheck
+		configFromEnvFunc = originalConfig
+		runServerFunc = originalRun
+	})
+
+	checkCodexCLIFunc = func() (codexDoctorReport, error) {
+		return codexDoctorReport{}, errors.New("codex not available")
+	}
+	configFromEnvFunc = func() (config.Config, error) {
+		t.Fatal("configFromEnvFunc should not be called when doctor fails")
+		return config.Config{}, nil
+	}
+	runServerFunc = func(config.Config) error {
+		t.Fatal("runServerFunc should not be called when doctor fails")
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := Main([]string{"start"}, &stdout, &stderr)
+	if exitCode != 1 {
+		t.Fatalf("Main(start) exit code = %d, want 1", exitCode)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("Main(start) stdout = %q, want empty", stdout.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "codex not available") {
+		t.Fatalf("Main(start) stderr = %q, want doctor failure", got)
 	}
 }
 
