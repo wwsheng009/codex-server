@@ -155,10 +155,6 @@ func runServer(cfg config.Config) error {
 	hookService.Start(serviceCtx)
 	turnPolicyService.Start(serviceCtx)
 
-	if len(workspaceService.List()) == 0 {
-		_, _ = workspaceService.Create("Demo Workspace", "E:/projects/ai/codex-server")
-	}
-
 	shutdownRequestCh := make(chan string, 1)
 	handler := api.NewRouter(api.Dependencies{
 		FrontendOrigin:       servedFrontendOrigin,

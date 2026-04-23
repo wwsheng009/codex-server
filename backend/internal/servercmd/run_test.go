@@ -1,12 +1,17 @@
 package servercmd
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"codex-server/backend/internal/config"
+	"codex-server/backend/internal/store"
 )
 
 func TestIdentifyCodexBackendRecognizesEnvelopedHealthzResponse(t *testing.T) {
@@ -105,6 +110,93 @@ func TestResolveFrontendOriginForServing(t *testing.T) {
 	}
 }
 
+func TestRunServerLeavesWorkspaceRegistryEmptyOnFirstStart(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	addr := reserveLoopbackAddr(t)
+	baseURL := "http://" + addr
+
+	cfg := config.Config{
+		Addr:              addr,
+		FrontendOrigin:    "http://127.0.0.1:15173",
+		BaseCodexCommand:  "codex app-server --listen stdio://",
+		CodexCommand:      "codex app-server --listen stdio://",
+		LogPath:           filepath.Join(t.TempDir(), "backend-runtime.log"),
+		AllowRemoteAccess: true,
+		StorePath:         storePath,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runServer(cfg)
+	}()
+
+	client := &http.Client{Timeout: time.Second}
+	waitForServerReady(t, client, baseURL+healthzPath)
+
+	workspacesRequest, err := http.NewRequest(http.MethodGet, baseURL+"/api/workspaces", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest(workspaces) error = %v", err)
+	}
+	workspacesResponse, err := client.Do(workspacesRequest)
+	if err != nil {
+		t.Fatalf("GET /api/workspaces error = %v", err)
+	}
+	defer workspacesResponse.Body.Close()
+
+	if workspacesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/workspaces status = %d, want %d", workspacesResponse.StatusCode, http.StatusOK)
+	}
+
+	var listPayload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(workspacesResponse.Body).Decode(&listPayload); err != nil {
+		t.Fatalf("decode workspaces response error = %v", err)
+	}
+	if len(listPayload.Data) != 0 {
+		t.Fatalf("expected no seeded workspaces on first start, got %d", len(listPayload.Data))
+	}
+
+	stopRequest, err := http.NewRequest(http.MethodPost, baseURL+stopEndpointPath, nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest(stop) error = %v", err)
+	}
+	stopRequest.Header.Set("X-Codex-Server-Action", "stop")
+
+	stopResponse, err := client.Do(stopRequest)
+	if err != nil {
+		t.Fatalf("POST %s error = %v", stopEndpointPath, err)
+	}
+	defer stopResponse.Body.Close()
+
+	if stopResponse.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST %s status = %d, want %d", stopEndpointPath, stopResponse.StatusCode, http.StatusAccepted)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("runServer() error = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("runServer() did not shut down in time")
+	}
+
+	reloadedStore, err := store.NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("store.NewPersistentStore(%q) error = %v", storePath, err)
+	}
+	defer func() {
+		_ = reloadedStore.Close()
+	}()
+
+	if got := len(reloadedStore.ListWorkspaces()); got != 0 {
+		t.Fatalf("expected persisted workspace registry to remain empty, got %d entries", got)
+	}
+}
+
 func newLoopbackTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
 
@@ -117,4 +209,36 @@ func newLoopbackTestServer(t *testing.T, handler http.Handler) *httptest.Server 
 	server.Listener = listener
 	server.Start()
 	return server
+}
+
+func reserveLoopbackAddr(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("listener.Close() error = %v", err)
+	}
+	return addr
+}
+
+func waitForServerReady(t *testing.T, client *http.Client, url string) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		response, err := client.Get(url)
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Fatalf("server did not become ready at %s", url)
 }
