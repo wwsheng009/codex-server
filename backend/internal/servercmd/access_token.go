@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"codex-server/backend/internal/accesscontrol"
@@ -27,6 +28,17 @@ type accessTokenAddOptions struct {
 	Quiet     bool
 }
 
+type accessTokenListOptions struct {
+	StorePath string
+	JSON      bool
+}
+
+type accessTokenDeleteOptions struct {
+	ID        string
+	StorePath string
+	JSON      bool
+}
+
 type accessTokenAddResult struct {
 	ID            string     `json:"id"`
 	Label         string     `json:"label,omitempty"`
@@ -36,6 +48,37 @@ type accessTokenAddResult struct {
 	Permanent     bool       `json:"permanent"`
 	StorePath     string     `json:"storePath"`
 	LoginEndpoint string     `json:"loginEndpoint"`
+}
+
+type accessTokenListEntry struct {
+	ID        string     `json:"id"`
+	Label     string     `json:"label,omitempty"`
+	Preview   string     `json:"preview,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	Permanent bool       `json:"permanent"`
+	Status    string     `json:"status"`
+	Valid     bool       `json:"valid"`
+	CreatedAt time.Time  `json:"createdAt,omitempty"`
+	UpdatedAt time.Time  `json:"updatedAt,omitempty"`
+}
+
+type accessTokenListResult struct {
+	Count      int                    `json:"count"`
+	ValidCount int                    `json:"validCount"`
+	StorePath  string                 `json:"storePath"`
+	Tokens     []accessTokenListEntry `json:"tokens"`
+}
+
+type accessTokenDeleteResult struct {
+	ID             string     `json:"id"`
+	Label          string     `json:"label,omitempty"`
+	Preview        string     `json:"preview,omitempty"`
+	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
+	Permanent      bool       `json:"permanent"`
+	Status         string     `json:"status"`
+	Valid          bool       `json:"valid"`
+	RemainingCount int        `json:"remainingCount"`
+	StorePath      string     `json:"storePath"`
 }
 
 var openPersistentStoreFunc = store.NewPersistentStore
@@ -74,6 +117,61 @@ func parseAccessTokenAddArgs(args []string) (accessTokenAddOptions, error) {
 	return options, nil
 }
 
+func parseAccessTokenListArgs(args []string) (accessTokenListOptions, error) {
+	var options accessTokenListOptions
+
+	flags := flag.NewFlagSet("access-token list", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.StringVar(&options.StorePath, "store-path", "", "optional metadata store path override")
+	flags.BoolVar(&options.JSON, "json", false, "write JSON output")
+
+	if err := flags.Parse(args); err != nil {
+		return accessTokenListOptions{}, err
+	}
+	if flags.NArg() > 0 {
+		return accessTokenListOptions{}, fmt.Errorf("access-token list does not accept positional arguments")
+	}
+
+	options.StorePath = strings.TrimSpace(options.StorePath)
+	return options, nil
+}
+
+func parseAccessTokenDeleteArgs(args []string) (accessTokenDeleteOptions, error) {
+	var options accessTokenDeleteOptions
+	positional := make([]string, 0, 1)
+	for index := 0; index < len(args); index++ {
+		arg := strings.TrimSpace(args[index])
+		switch {
+		case arg == "":
+			continue
+		case arg == "--json":
+			options.JSON = true
+		case arg == "--store-path":
+			index++
+			if index >= len(args) {
+				return accessTokenDeleteOptions{}, fmt.Errorf("access-token delete requires a value for --store-path")
+			}
+			options.StorePath = strings.TrimSpace(args[index])
+		case strings.HasPrefix(arg, "--store-path="):
+			options.StorePath = strings.TrimSpace(strings.TrimPrefix(arg, "--store-path="))
+		case strings.HasPrefix(arg, "-"):
+			return accessTokenDeleteOptions{}, fmt.Errorf("access-token delete does not recognize %q", arg)
+		default:
+			positional = append(positional, arg)
+		}
+	}
+	if len(positional) != 1 {
+		return accessTokenDeleteOptions{}, fmt.Errorf("access-token delete requires exactly 1 token id")
+	}
+
+	options.ID = strings.TrimSpace(positional[0])
+	options.StorePath = strings.TrimSpace(options.StorePath)
+	if options.ID == "" {
+		return accessTokenDeleteOptions{}, fmt.Errorf("access-token delete requires a non-empty token id")
+	}
+	return options, nil
+}
+
 func addAccessToken(options accessTokenAddOptions, stdout io.Writer) error {
 	storePath := accessTokenStorePathFromEnv(options.StorePath)
 	dataStore, err := openPersistentStoreFunc(storePath)
@@ -109,20 +207,16 @@ func addAccessToken(options accessTokenAddOptions, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	createdTokens, err := accesscontrol.ApplyTokenInputs(nil, []accesscontrol.TokenInput{newInput}, now)
+	nextInputs := append(existingAccessTokenInputs(normalizedExisting), newInput)
+	nextTokens, err := accesscontrol.ApplyTokenInputs(normalizedExisting, nextInputs, now)
 	if err != nil {
 		return err
 	}
-	if len(createdTokens) == 0 {
+	if len(nextTokens) <= len(normalizedExisting) {
 		return fmt.Errorf("access token was not created")
 	}
 
-	createdToken := createdTokens[0]
-	nextTokens := append(append([]store.AccessToken(nil), normalizedExisting...), createdToken)
-	if _, err := accesscontrol.NormalizeConfiguredTokens(nextTokens, now); err != nil {
-		return err
-	}
-
+	createdToken := nextTokens[len(nextTokens)-1]
 	prefs.AccessTokens = nextTokens
 	dataStore.SetRuntimePreferences(prefs)
 
@@ -146,6 +240,108 @@ func addAccessToken(options accessTokenAddOptions, stdout io.Writer) error {
 	}
 
 	return nil
+}
+
+func listAccessTokens(options accessTokenListOptions, stdout io.Writer) error {
+	storePath := accessTokenStorePathFromEnv(options.StorePath)
+	dataStore, err := openPersistentStoreFunc(storePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = dataStore.Close()
+	}()
+
+	now := time.Now().UTC()
+	prefs := dataStore.GetRuntimePreferences()
+	normalizedTokens, err := accesscontrol.NormalizeConfiguredTokens(prefs.AccessTokens, now)
+	if err != nil {
+		return err
+	}
+
+	resolvedStorePath, pathErr := filepath.Abs(storePath)
+	if pathErr != nil {
+		resolvedStorePath = storePath
+	}
+
+	descriptors := accesscontrol.DescribeTokens(normalizedTokens, now)
+	result := accessTokenListResult{
+		Count:      len(descriptors),
+		ValidCount: accesscontrol.CountActiveTokens(normalizedTokens, now),
+		StorePath:  resolvedStorePath,
+		Tokens:     make([]accessTokenListEntry, 0, len(descriptors)),
+	}
+	for _, descriptor := range descriptors {
+		result.Tokens = append(result.Tokens, accessTokenListEntry{
+			ID:        descriptor.ID,
+			Label:     descriptor.Label,
+			Preview:   descriptor.TokenPreview,
+			ExpiresAt: cloneOptionalAccessTokenTime(descriptor.ExpiresAt),
+			Permanent: descriptor.Permanent,
+			Status:    descriptor.Status,
+			Valid:     descriptor.Status == "active",
+			CreatedAt: descriptor.CreatedAt,
+			UpdatedAt: descriptor.UpdatedAt,
+		})
+	}
+
+	return writeAccessTokenListResult(stdout, result, options)
+}
+
+func deleteAccessToken(options accessTokenDeleteOptions, stdout io.Writer) error {
+	storePath := accessTokenStorePathFromEnv(options.StorePath)
+	dataStore, err := openPersistentStoreFunc(storePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = dataStore.Close()
+	}()
+
+	now := time.Now().UTC()
+	prefs := dataStore.GetRuntimePreferences()
+	normalizedTokens, err := accesscontrol.NormalizeConfiguredTokens(prefs.AccessTokens, now)
+	if err != nil {
+		return err
+	}
+
+	var deleted store.AccessToken
+	nextTokens := make([]store.AccessToken, 0, max(len(normalizedTokens)-1, 0))
+	found := false
+	for _, token := range normalizedTokens {
+		if token.ID == options.ID {
+			deleted = token
+			found = true
+			continue
+		}
+		nextTokens = append(nextTokens, token)
+	}
+	if !found {
+		return fmt.Errorf("access token %q was not found", options.ID)
+	}
+
+	prefs.AccessTokens = nextTokens
+	dataStore.SetRuntimePreferences(prefs)
+
+	resolvedStorePath, pathErr := filepath.Abs(storePath)
+	if pathErr != nil {
+		resolvedStorePath = storePath
+	}
+
+	status := accessTokenStatus(deleted, now)
+	result := accessTokenDeleteResult{
+		ID:             deleted.ID,
+		Label:          deleted.Label,
+		Preview:        deleted.TokenPreview,
+		ExpiresAt:      cloneOptionalAccessTokenTime(deleted.ExpiresAt),
+		Permanent:      deleted.ExpiresAt == nil,
+		Status:         status,
+		Valid:          status == "active",
+		RemainingCount: len(nextTokens),
+		StorePath:      resolvedStorePath,
+	}
+
+	return writeAccessTokenDeleteResult(stdout, result, options)
 }
 
 func resolveAccessTokenExpiry(options accessTokenAddOptions, now time.Time) (*time.Time, error) {
@@ -196,6 +392,27 @@ func accessTokenStorePathFromEnv(explicitPath string) string {
 	return storePath
 }
 
+func existingAccessTokenInputs(tokens []store.AccessToken) []accesscontrol.TokenInput {
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	inputs := make([]accesscontrol.TokenInput, 0, len(tokens))
+	for _, token := range tokens {
+		input := accesscontrol.TokenInput{
+			ID:    token.ID,
+			Label: token.Label,
+		}
+		if token.ExpiresAt == nil {
+			input.Permanent = true
+		} else {
+			input.ExpiresAt = token.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+		inputs = append(inputs, input)
+	}
+	return inputs
+}
+
 func writeAccessTokenAddResult(stdout io.Writer, result accessTokenAddResult, options accessTokenAddOptions) error {
 	switch {
 	case options.Quiet:
@@ -222,6 +439,96 @@ func writeAccessTokenAddResult(stdout io.Writer, result accessTokenAddResult, op
 		fmt.Fprintf(stdout, "login: POST %s with {\"token\":\"<token>\"}\n", result.LoginEndpoint)
 		return nil
 	}
+}
+
+func writeAccessTokenListResult(stdout io.Writer, result accessTokenListResult, options accessTokenListOptions) error {
+	if options.JSON {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	if result.Count == 0 {
+		fmt.Fprintln(stdout, "no access tokens configured")
+		fmt.Fprintf(stdout, "storePath: %s\n", result.StorePath)
+		return nil
+	}
+
+	fmt.Fprintln(stdout, "access tokens")
+	fmt.Fprintf(stdout, "count: %d\n", result.Count)
+	fmt.Fprintf(stdout, "valid: %d\n", result.ValidCount)
+	fmt.Fprintf(stdout, "storePath: %s\n", result.StorePath)
+
+	writer := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tLABEL\tPREVIEW\tVALID\tSTATUS\tEXPIRES AT")
+	for _, token := range result.Tokens {
+		label := token.Label
+		if label == "" {
+			label = "-"
+		}
+		preview := token.Preview
+		if preview == "" {
+			preview = "-"
+		}
+		expiresAt := "permanent"
+		if token.ExpiresAt != nil {
+			expiresAt = token.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+
+		fmt.Fprintf(
+			writer,
+			"%s\t%s\t%s\t%s\t%s\t%s\n",
+			token.ID,
+			label,
+			preview,
+			boolText(token.Valid),
+			token.Status,
+			expiresAt,
+		)
+	}
+	return writer.Flush()
+}
+
+func writeAccessTokenDeleteResult(stdout io.Writer, result accessTokenDeleteResult, options accessTokenDeleteOptions) error {
+	if options.JSON {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	fmt.Fprintln(stdout, "access token deleted")
+	fmt.Fprintf(stdout, "id: %s\n", result.ID)
+	if result.Label != "" {
+		fmt.Fprintf(stdout, "label: %s\n", result.Label)
+	}
+	if result.Preview != "" {
+		fmt.Fprintf(stdout, "preview: %s\n", result.Preview)
+	}
+	fmt.Fprintf(stdout, "valid: %s\n", boolText(result.Valid))
+	fmt.Fprintf(stdout, "status: %s\n", result.Status)
+	if result.Permanent || result.ExpiresAt == nil {
+		fmt.Fprintln(stdout, "expiresAt: permanent")
+	} else {
+		fmt.Fprintf(stdout, "expiresAt: %s\n", result.ExpiresAt.UTC().Format(time.RFC3339))
+	}
+	fmt.Fprintf(stdout, "remaining: %d\n", result.RemainingCount)
+	fmt.Fprintf(stdout, "storePath: %s\n", result.StorePath)
+	return nil
+}
+
+func boolText(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func accessTokenStatus(token store.AccessToken, now time.Time) string {
+	descriptors := accesscontrol.DescribeTokens([]store.AccessToken{token}, now)
+	if len(descriptors) == 0 {
+		return ""
+	}
+	return descriptors[0].Status
 }
 
 func cloneOptionalAccessTokenTime(value *time.Time) *time.Time {

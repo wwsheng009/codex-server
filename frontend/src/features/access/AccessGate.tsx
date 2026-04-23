@@ -1,15 +1,65 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 
 import { Input } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
 import { InlineNotice } from '../../components/ui/InlineNotice'
+import { SelectControl } from '../../components/ui/SelectControl'
+import { localeLabels } from '../../i18n/config'
+import type { AppLocale } from '../../i18n/configTypes'
 import { i18n } from '../../i18n/runtime'
 import { ApiClientError, ACCESS_UNAUTHORIZED_EVENT } from '../../lib/api-client'
 import { getErrorMessage } from '../../lib/error-utils'
 import { loginAccess, readAccessBootstrap } from '../settings/api'
+import { useSettingsLocalStore } from '../settings/local-store'
 import type { ProvidersProps } from '../../app/providersTypes'
+
+function AccessShellFrame({ children }: { children: ReactNode }) {
+  return (
+    <section className="screen screen--centered access-shell">
+      <div className="access-shell__content">{children}</div>
+    </section>
+  )
+}
+
+function AccessCardHeader() {
+  const locale = useSettingsLocalStore((state) => state.locale)
+  const setLocale = useSettingsLocalStore((state) => state.setLocale)
+  const interfaceLanguageTitle = i18n._({
+    id: 'Interface language',
+    message: 'Interface language',
+  })
+  const availableLanguagesLabel = i18n._({
+    id: 'Available languages',
+    message: 'Available languages',
+  })
+
+  return (
+    <div className="access-card__header">
+      <p className="access-card__eyebrow">
+        {i18n._({ id: 'Access Control', message: 'Access Control' })}
+      </p>
+      <SelectControl
+        ariaLabel={interfaceLanguageTitle}
+        className="access-shell__language-select"
+        menuLabel={availableLanguagesLabel}
+        onChange={(value) => setLocale(value as AppLocale)}
+        options={(Object.entries(localeLabels) as Array<[AppLocale, (typeof localeLabels)[AppLocale]]>).map(
+          ([value, labels]) => ({
+            value,
+            label:
+              labels.nativeLabel === labels.label
+                ? labels.label
+                : `${labels.nativeLabel} · ${labels.label}`,
+            triggerLabel: labels.shortLabel,
+          }),
+        )}
+        value={locale}
+      />
+    </div>
+  )
+}
 
 export function AccessGate({ children }: ProvidersProps) {
   const queryClient = useQueryClient()
@@ -55,11 +105,9 @@ export function AccessGate({ children }: ProvidersProps) {
 
   if (bootstrapQuery.isLoading) {
     return (
-      <section className="screen screen--centered access-shell">
+      <AccessShellFrame>
         <div className="access-card access-card--loading">
-          <p className="access-card__eyebrow">
-            {i18n._({ id: 'Access Control', message: 'Access Control' })}
-          </p>
+          <AccessCardHeader />
           <h1 className="access-card__title">
             {i18n._({ id: 'Checking backend access…', message: 'Checking backend access…' })}
           </h1>
@@ -71,7 +119,7 @@ export function AccessGate({ children }: ProvidersProps) {
             })}
           </p>
         </div>
-      </section>
+      </AccessShellFrame>
     )
   }
 
@@ -84,11 +132,9 @@ export function AccessGate({ children }: ProvidersProps) {
       bootstrapQuery.error.code === 'remote_access_requires_active_token'
 
     return (
-      <section className="screen screen--centered access-shell">
+      <AccessShellFrame>
         <div className="access-card">
-          <p className="access-card__eyebrow">
-            {i18n._({ id: 'Access Control', message: 'Access Control' })}
-          </p>
+          <AccessCardHeader />
           <h1 className="access-card__title">
             {isRemoteDisabled
               ? i18n._({
@@ -133,7 +179,7 @@ export function AccessGate({ children }: ProvidersProps) {
             </div>
           ) : null}
         </div>
-      </section>
+      </AccessShellFrame>
     )
   }
 
@@ -154,24 +200,15 @@ export function AccessGate({ children }: ProvidersProps) {
   }
 
   return (
-    <section className="screen screen--centered access-shell">
+    <AccessShellFrame>
       <form className="access-card" onSubmit={handleSubmit}>
-        <p className="access-card__eyebrow">
-          {i18n._({ id: 'Access Control', message: 'Access Control' })}
-        </p>
+        <AccessCardHeader />
         <h1 className="access-card__title">
           {i18n._({
             id: 'Sign in with access token',
             message: 'Sign in with access token',
           })}
         </h1>
-        <p className="access-card__copy">
-          {i18n._({
-            id: 'This codex-server backend is protected. Enter a valid access token before opening the workspace UI.',
-            message:
-              'This codex-server backend is protected. Enter a valid access token before opening the workspace UI.',
-          })}
-        </p>
 
         {isWaitingForLocalTokenSetup ? (
           <InlineNotice
@@ -208,32 +245,20 @@ export function AccessGate({ children }: ProvidersProps) {
           </InlineNotice>
         ) : null}
 
-        <div className="access-card__meta">
-          <span className="meta-pill">
-            {i18n._({
-              id: '{count} active token(s)',
-              message: '{count} active token(s)',
-              values: { count: bootstrap.activeTokenCount },
-            })}
-          </span>
-          {!bootstrap.allowRemoteAccess ? (
+        {!bootstrap.allowRemoteAccess ? (
+          <div className="access-card__meta">
             <span className="meta-pill meta-pill--warning">
               {i18n._({
                 id: 'localhost only',
                 message: 'localhost only',
               })}
             </span>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
 
         <Input
+          aria-label={i18n._({ id: 'Access Token', message: 'Access Token' })}
           autoComplete="current-password"
-          hint={i18n._({
-            id: 'The token is sent to the backend once for validation. The browser then keeps an HttpOnly session cookie.',
-            message:
-              'The token is sent to the backend once for validation. The browser then keeps an HttpOnly session cookie.',
-          })}
-          label={i18n._({ id: 'Access Token', message: 'Access Token' })}
           onChange={(event) => setToken(event.target.value)}
           placeholder={i18n._({
             id: 'Paste access token',
@@ -253,7 +278,7 @@ export function AccessGate({ children }: ProvidersProps) {
           </InlineNotice>
         ) : null}
 
-        <div className="access-card__actions">
+        <div className="access-card__actions access-card__actions--centered">
           <Button
             isLoading={loginMutation.isPending}
             type="submit"
@@ -262,6 +287,6 @@ export function AccessGate({ children }: ProvidersProps) {
           </Button>
         </div>
       </form>
-    </section>
+    </AccessShellFrame>
   )
 }

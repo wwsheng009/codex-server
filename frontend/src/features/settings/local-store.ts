@@ -17,7 +17,7 @@ import {
   resetThemeColorCustomization,
   withThemeColorCustomization,
 } from './appearance'
-import { sourceLocale } from '../../i18n/config'
+import { normalizeLocale, sourceLocale } from '../../i18n/config'
 import type {
   CustomThemeDefinition,
   ThemeColorCustomizations,
@@ -48,6 +48,19 @@ function createCustomThemeId() {
   }
 
   return `custom-theme-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function resolveInitialLocale() {
+  if (typeof navigator === 'undefined') {
+    return sourceLocale
+  }
+
+  const preferredLocale =
+    (Array.isArray(navigator.languages)
+      ? navigator.languages.find((value) => typeof value === 'string' && value.trim().length > 0)
+      : null) ?? navigator.language
+
+  return normalizeLocale(preferredLocale)
 }
 
 function buildCustomThemeName(customThemes: CustomThemeDefinition[]) {
@@ -161,7 +174,11 @@ function resolvePersistedThemeColorCustomizations(state: LegacyPersistedSettings
 function normalizePersistedSettingsState(
   persistedState: LegacyPersistedSettingsState | undefined,
 ): Partial<SettingsLocalValues> {
-  const state = persistedState ?? {}
+  if (!persistedState) {
+    return {}
+  }
+
+  const state = persistedState
   const {
     accentColorLight: _accentColorLight,
     accentColorDark: _accentColorDark,
@@ -169,6 +186,7 @@ function normalizePersistedSettingsState(
     backgroundColorDark: _backgroundColorDark,
     foregroundColorLight: _foregroundColorLight,
     foregroundColorDark: _foregroundColorDark,
+    locale: _locale,
     reduceMotion: _reduceMotion,
     themeColorCustomizations: _themeColorCustomizations,
     ...rest
@@ -186,6 +204,11 @@ function normalizePersistedSettingsState(
 
   return {
     ...rest,
+    ...(typeof state.locale === 'string'
+      ? {
+          locale: normalizeLocale(state.locale),
+        }
+      : {}),
     theme: normalizeAppearanceTheme(state.theme),
     motionPreference: normalizeMotionPreference(
       state.motionPreference ?? (state.reduceMotion === true ? 'reduce' : 'system'),
@@ -207,7 +230,7 @@ export const useSettingsLocalStore = create<SettingsLocalState>()(
       const initialCustomTheme = createCustomThemeDefinition(createCustomThemeId(), 'Custom Theme 1')
 
       return {
-        locale: sourceLocale,
+        locale: resolveInitialLocale(),
         theme: 'system',
         density: 'comfortable',
         motionPreference: 'system',

@@ -4542,6 +4542,9 @@ func (s *MemoryStore) load() error {
 			}
 			if prefs != nil {
 				s.runtimePrefs = normalizeLoadedRuntimePreferences(*prefs)
+				for _, token := range s.runtimePrefs.AccessTokens {
+					updateLoadedMaxID(&maxID, token.ID)
+				}
 			}
 		case "jobMcpConfigs":
 			if err := decodeJSONArray(decoder, func(decoder *json.Decoder) error {

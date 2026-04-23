@@ -98,6 +98,36 @@ func TestParseCommandRecognizesAccessTokenAdd(t *testing.T) {
 	}
 }
 
+func TestParseCommandRecognizesAccessTokenList(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"access-token", "list", "--json"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindAccessTokenList {
+		t.Fatalf("parseCommand() = %#v, want access-token list", command)
+	}
+	if !command.accessTokenListOptions.JSON {
+		t.Fatal("accessTokenListOptions.JSON = false, want true")
+	}
+}
+
+func TestParseCommandRecognizesAccessTokenDelete(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"access-token", "delete", "atk_000001"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindAccessTokenDelete {
+		t.Fatalf("parseCommand() = %#v, want access-token delete", command)
+	}
+	if command.accessTokenDeleteOptions.ID != "atk_000001" {
+		t.Fatalf("accessTokenDeleteOptions.ID = %q, want %q", command.accessTokenDeleteOptions.ID, "atk_000001")
+	}
+}
+
 func TestParseCommandRecognizesServerAccessTokenAdd(t *testing.T) {
 	t.Parallel()
 
@@ -110,6 +140,39 @@ func TestParseCommandRecognizesServerAccessTokenAdd(t *testing.T) {
 	}
 	if command.accessTokenAddOptions.Label != "admin" {
 		t.Fatalf("accessTokenAddOptions.Label = %q, want %q", command.accessTokenAddOptions.Label, "admin")
+	}
+}
+
+func TestParseCommandRecognizesServerAccessTokenList(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"server", "access-token", "list", "--store-path", "metadata.json"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindAccessTokenList {
+		t.Fatalf("parseCommand() = %#v, want server access-token list", command)
+	}
+	if command.accessTokenListOptions.StorePath != "metadata.json" {
+		t.Fatalf("accessTokenListOptions.StorePath = %q, want %q", command.accessTokenListOptions.StorePath, "metadata.json")
+	}
+}
+
+func TestParseCommandRecognizesServerAccessTokenDelete(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"server", "access-token", "delete", "atk_000001", "--json"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindAccessTokenDelete {
+		t.Fatalf("parseCommand() = %#v, want server access-token delete", command)
+	}
+	if command.accessTokenDeleteOptions.ID != "atk_000001" {
+		t.Fatalf("accessTokenDeleteOptions.ID = %q, want %q", command.accessTokenDeleteOptions.ID, "atk_000001")
+	}
+	if !command.accessTokenDeleteOptions.JSON {
+		t.Fatal("accessTokenDeleteOptions.JSON = false, want true")
 	}
 }
 

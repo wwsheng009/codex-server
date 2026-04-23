@@ -351,6 +351,7 @@ func ApplyTokenInputs(
 
 		tokenID := existingToken.ID
 		if tokenID == "" {
+			store.SeedIDCounter(maxConfiguredTokenIDSuffix(normalizedExisting, next))
 			tokenID = store.NewID("atk")
 		}
 
@@ -375,6 +376,18 @@ func ApplyTokenInputs(
 	}
 
 	return next, nil
+}
+
+func maxConfiguredTokenIDSuffix(groups ...[]store.AccessToken) uint64 {
+	var maxID uint64
+	for _, group := range groups {
+		for _, token := range group {
+			if value := store.NumericIDSuffix(token.ID); value > maxID {
+				maxID = value
+			}
+		}
+	}
+	return maxID
 }
 
 func DescribeTokens(tokens []store.AccessToken, now time.Time) []TokenDescriptor {

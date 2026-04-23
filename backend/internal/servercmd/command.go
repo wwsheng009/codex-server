@@ -16,27 +16,33 @@ type stopOutcome string
 type commandKind string
 
 type parsedCommand struct {
-	kind                  commandKind
-	accessTokenAddOptions accessTokenAddOptions
+	kind                     commandKind
+	accessTokenAddOptions    accessTokenAddOptions
+	accessTokenDeleteOptions accessTokenDeleteOptions
+	accessTokenListOptions   accessTokenListOptions
 }
 
 const (
 	stopOutcomeRequested      stopOutcome = "requested"
 	stopOutcomeAlreadyStopped stopOutcome = "already_stopped"
 
-	commandKindServerStart    commandKind = "server_start"
-	commandKindServerStop     commandKind = "server_stop"
-	commandKindDoctor         commandKind = "doctor"
-	commandKindAccessTokenAdd commandKind = "access_token_add"
-	commandKindHelp           commandKind = "help"
+	commandKindServerStart       commandKind = "server_start"
+	commandKindServerStop        commandKind = "server_stop"
+	commandKindDoctor            commandKind = "doctor"
+	commandKindAccessTokenAdd    commandKind = "access_token_add"
+	commandKindAccessTokenDelete commandKind = "access_token_delete"
+	commandKindAccessTokenList   commandKind = "access_token_list"
+	commandKindHelp              commandKind = "help"
 )
 
 var (
-	configFromEnvFunc  = config.FromEnv
-	runServerFunc      = runServer
-	stopServerFunc     = stopServer
-	checkCodexCLIFunc  = checkCodexCLI
-	addAccessTokenFunc = addAccessToken
+	configFromEnvFunc     = config.FromEnv
+	runServerFunc         = runServer
+	stopServerFunc        = stopServer
+	checkCodexCLIFunc     = checkCodexCLI
+	addAccessTokenFunc    = addAccessToken
+	deleteAccessTokenFunc = deleteAccessToken
+	listAccessTokensFunc  = listAccessTokens
 )
 
 func Main(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -61,6 +67,18 @@ func Main(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 0
 	case commandKindAccessTokenAdd:
 		if err := addAccessTokenFunc(command.accessTokenAddOptions, stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	case commandKindAccessTokenDelete:
+		if err := deleteAccessTokenFunc(command.accessTokenDeleteOptions, stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	case commandKindAccessTokenList:
+		if err := listAccessTokensFunc(command.accessTokenListOptions, stdout); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -135,6 +153,24 @@ func parseCommand(args []string) (parsedCommand, error) {
 				kind:                  commandKindAccessTokenAdd,
 				accessTokenAddOptions: options,
 			}, nil
+		case "delete", "remove", "rm":
+			options, err := parseAccessTokenDeleteArgs(args[2:])
+			if err != nil {
+				return parsedCommand{}, err
+			}
+			return parsedCommand{
+				kind:                     commandKindAccessTokenDelete,
+				accessTokenDeleteOptions: options,
+			}, nil
+		case "list", "ls":
+			options, err := parseAccessTokenListArgs(args[2:])
+			if err != nil {
+				return parsedCommand{}, err
+			}
+			return parsedCommand{
+				kind:                   commandKindAccessTokenList,
+				accessTokenListOptions: options,
+			}, nil
 		case "help", "-h", "--help":
 			if len(args) > 2 {
 				return parsedCommand{}, fmt.Errorf("%s help does not accept additional arguments", args[0])
@@ -179,6 +215,24 @@ func parseCommand(args []string) (parsedCommand, error) {
 					kind:                  commandKindAccessTokenAdd,
 					accessTokenAddOptions: options,
 				}, nil
+			case "delete", "remove", "rm":
+				options, err := parseAccessTokenDeleteArgs(args[3:])
+				if err != nil {
+					return parsedCommand{}, err
+				}
+				return parsedCommand{
+					kind:                     commandKindAccessTokenDelete,
+					accessTokenDeleteOptions: options,
+				}, nil
+			case "list", "ls":
+				options, err := parseAccessTokenListArgs(args[3:])
+				if err != nil {
+					return parsedCommand{}, err
+				}
+				return parsedCommand{
+					kind:                   commandKindAccessTokenList,
+					accessTokenListOptions: options,
+				}, nil
 			case "help", "-h", "--help":
 				if len(args) > 3 {
 					return parsedCommand{}, fmt.Errorf("server %s help does not accept additional arguments", args[1])
@@ -211,6 +265,8 @@ func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  main.exe server stop")
 	fmt.Fprintln(w, "  main.exe doctor")
 	fmt.Fprintln(w, "  main.exe access-token add [--label <name>] [--ttl <duration> | --expires-at <rfc3339>] [--store-path <path>] [--json | --quiet]")
+	fmt.Fprintln(w, "  main.exe access-token delete <id> [--store-path <path>] [--json]")
+	fmt.Fprintln(w, "  main.exe access-token list [--store-path <path>] [--json]")
 	fmt.Fprintln(w, "  main.exe start")
 	fmt.Fprintln(w, "  main.exe stop")
 	fmt.Fprintln(w, "  main.exe help")

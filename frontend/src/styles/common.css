@@ -19,6 +19,41 @@
     linear-gradient(180deg, color-mix(in srgb, var(--surface-pane) 88%, transparent), transparent 72%);
 }
 
+.access-shell__content {
+  width: min(100%, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.access-shell__language-select {
+  min-width: 0;
+}
+
+.access-shell__language-select .custom-select__trigger {
+  width: auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--border-subtle) 82%, transparent);
+  background: color-mix(in srgb, var(--surface-pane-strong) 72%, transparent);
+  box-shadow: none;
+}
+
+.access-shell__language-select .custom-select__value {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.access-shell__language-select .custom-select__caret {
+  width: 10px;
+  height: 10px;
+}
+
 .access-card {
   width: min(100%, 520px);
   display: flex;
@@ -34,6 +69,13 @@
 }
 
 .access-card--loading {
+  align-items: flex-start;
+}
+
+.access-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
   align-items: flex-start;
 }
 
@@ -70,6 +112,16 @@
 
 .access-card__actions .ide-button {
   min-width: 148px;
+}
+
+.access-card__actions--centered {
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .access-shell__language-select {
+    min-width: 0;
+  }
 }
 
 .page-header {
