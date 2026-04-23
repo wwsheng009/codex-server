@@ -1,0 +1,389 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish, for example v0.1.0"
+        required: true
+        type: string
+      release_name:
+        description: "Optional GitHub Release title"
+        required: false
+        type: string
+      targets:
+        description: "Comma-separated targets: windows-amd64,windows-arm64,linux-amd64,linux-arm64,darwin-amd64,darwin-arm64"
+        required: false
+        default: "windows-amd64,windows-arm64,linux-amd64,linux-arm64,darwin-amd64,darwin-arm64"
+        type: string
+      draft:
+        description: "Publish as draft"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Publish as prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.event.inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GO_BUILD_TAGS: embed_frontend
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      asset_version: ${{ steps.meta.outputs.asset_version }}
+      draft: ${{ steps.meta.outputs.draft }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      matrix: ${{ steps.meta.outputs.matrix }}
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          INPUT_RELEASE_NAME: ${{ github.event.inputs.release_name }}
+          INPUT_TARGETS: ${{ github.event.inputs.targets }}
+          INPUT_DRAFT: ${{ github.event.inputs.draft }}
+          INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          default_targets="windows-amd64,windows-arm64,linux-amd64,linux-arm64,darwin-amd64,darwin-arm64"
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            release_tag="$REF_NAME"
+            release_name="codex-server $release_tag"
+            targets="$default_targets"
+            draft="false"
+            prerelease="false"
+          else
+            release_tag="$(printf '%s' "${INPUT_RELEASE_TAG:-}" | tr -d '[:space:]')"
+            release_name="${INPUT_RELEASE_NAME:-}"
+            targets="${INPUT_TARGETS:-$default_targets}"
+            draft="${INPUT_DRAFT:-false}"
+            prerelease="${INPUT_PRERELEASE:-false}"
+          fi
+
+          if [[ -z "$release_tag" ]]; then
+            echo "Release tag is required." >&2
+            exit 1
+          fi
+
+          if [[ -z "$release_name" ]]; then
+            release_name="codex-server $release_tag"
+          fi
+
+          if [[ "$release_tag" == *-* ]]; then
+            prerelease="true"
+          fi
+
+          asset_version="$(printf '%s' "$release_tag" | sed 's/[^0-9A-Za-z._-]/-/g')"
+
+          matrix_json="$(
+            TARGETS="$targets" python3 - <<'PY'
+            import json
+            import os
+
+            supported = {
+                "windows-amd64": {
+                    "id": "windows-amd64",
+                    "goos": "windows",
+                    "goarch": "amd64",
+                    "binary_name": "codex-server-embedded.exe",
+                    "archive_format": "zip",
+                },
+                "windows-arm64": {
+                    "id": "windows-arm64",
+                    "goos": "windows",
+                    "goarch": "arm64",
+                    "binary_name": "codex-server-embedded.exe",
+                    "archive_format": "zip",
+                },
+                "linux-amd64": {
+                    "id": "linux-amd64",
+                    "goos": "linux",
+                    "goarch": "amd64",
+                    "binary_name": "codex-server-embedded",
+                    "archive_format": "tar.gz",
+                },
+                "linux-arm64": {
+                    "id": "linux-arm64",
+                    "goos": "linux",
+                    "goarch": "arm64",
+                    "binary_name": "codex-server-embedded",
+                    "archive_format": "tar.gz",
+                },
+                "darwin-amd64": {
+                    "id": "darwin-amd64",
+                    "goos": "darwin",
+                    "goarch": "amd64",
+                    "binary_name": "codex-server-embedded",
+                    "archive_format": "tar.gz",
+                },
+                "darwin-arm64": {
+                    "id": "darwin-arm64",
+                    "goos": "darwin",
+                    "goarch": "arm64",
+                    "binary_name": "codex-server-embedded",
+                    "archive_format": "tar.gz",
+                },
+            }
+
+            targets = os.environ["TARGETS"]
+            include = []
+            seen = set()
+
+            for raw_target in targets.split(","):
+                target = raw_target.strip()
+                if not target:
+                    continue
+                if target not in supported:
+                    supported_list = ", ".join(sorted(supported))
+                    raise SystemExit(f"Unsupported target '{target}'. Supported targets: {supported_list}")
+                if target in seen:
+                    continue
+                seen.add(target)
+                include.append(supported[target])
+
+            if not include:
+                raise SystemExit("No release targets selected.")
+
+            print(json.dumps({"include": include}, separators=(",", ":")))
+          PY
+          )"
+
+          printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'release_name=%s\n' "$release_name" >> "$GITHUB_OUTPUT"
+          printf 'asset_version=%s\n' "$asset_version" >> "$GITHUB_OUTPUT"
+          printf 'draft=%s\n' "$draft" >> "$GITHUB_OUTPUT"
+          printf 'prerelease=%s\n' "$prerelease" >> "$GITHUB_OUTPUT"
+          printf 'matrix=%s\n' "$matrix_json" >> "$GITHUB_OUTPUT"
+
+  ensure-tag:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tag already exists for tag-triggered release
+        if: github.event_name != 'workflow_dispatch'
+        run: echo "Release tag already exists because the workflow was triggered by tag push."
+
+      - name: Checkout repository
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create annotated tag when missing
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+
+          if git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+            echo "Release tag already exists: $RELEASE_TAG"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+  frontend-dist:
+    needs:
+      - prepare
+      - ensure-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.release_tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Check frontend i18n coverage
+        run: npm run i18n:check
+        working-directory: frontend
+
+      - name: Copy embedded frontend dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backend/internal/webui/dist
+          mkdir -p backend/internal/webui/dist
+          cp -a frontend/dist/. backend/internal/webui/dist/
+
+      - name: Validate embedded backend packages
+        run: go test -tags embed_frontend ./internal/api ./internal/servercmd ./internal/webui
+        working-directory: backend
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  build-artifacts:
+    needs:
+      - prepare
+      - frontend-dist
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.release_tag }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Copy embedded frontend dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backend/internal/webui/dist
+          mkdir -p backend/internal/webui/dist
+          cp -a frontend/dist/. backend/internal/webui/dist/
+
+      - name: Build release archive
+        id: package
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          ASSET_VERSION: ${{ needs.prepare.outputs.asset_version }}
+          TARGET_ID: ${{ matrix.id }}
+          TARGET_GOOS: ${{ matrix.goos }}
+          TARGET_GOARCH: ${{ matrix.goarch }}
+          TARGET_BINARY_NAME: ${{ matrix.binary_name }}
+          TARGET_ARCHIVE_FORMAT: ${{ matrix.archive_format }}
+        run: |
+          set -euo pipefail
+
+          package_root="codex-server_${ASSET_VERSION}_${TARGET_GOOS}_${TARGET_GOARCH}"
+          stage_root="$RUNNER_TEMP/$package_root"
+          package_dir="$RUNNER_TEMP/release-packages"
+
+          rm -rf "$stage_root" "$package_dir"
+          mkdir -p "$stage_root/scripts" "$package_dir"
+
+          (
+            cd backend
+            CGO_ENABLED=0 GOOS="$TARGET_GOOS" GOARCH="$TARGET_GOARCH" \
+              go build -trimpath -tags "$GO_BUILD_TAGS" -o "$stage_root/$TARGET_BINARY_NAME" ./cmd/server
+          )
+
+          cp README.md "$stage_root/"
+          cp scripts/backup-codex-server-config.ps1 "$stage_root/scripts/"
+          cp scripts/restore-codex-server-config.ps1 "$stage_root/scripts/"
+
+          case "$TARGET_ARCHIVE_FORMAT" in
+            zip)
+              archive_path="$package_dir/${package_root}.zip"
+              (
+                cd "$RUNNER_TEMP"
+                zip -q -r "$archive_path" "$package_root"
+              )
+              ;;
+            tar.gz)
+              archive_path="$package_dir/${package_root}.tar.gz"
+              tar -C "$RUNNER_TEMP" -czf "$archive_path" "$package_root"
+              ;;
+            *)
+              echo "Unsupported archive format: $TARGET_ARCHIVE_FORMAT" >&2
+              exit 1
+              ;;
+          esac
+
+          printf 'archive_path=%s\n' "$archive_path" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.id }}
+          path: ${{ steps.package.outputs.archive_path }}
+          if-no-files-found: error
+
+  publish-release:
+    needs:
+      - prepare
+      - build-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+
+          shopt -s nullglob
+          packages=( *.zip *.tar.gz )
+
+          if [[ ${#packages[@]} -eq 0 ]]; then
+            echo "No release packages were produced." >&2
+            exit 1
+          fi
+
+          sha256sum "${packages[@]}" > checksums.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          name: ${{ needs.prepare.outputs.release_name }}
+          draft: ${{ needs.prepare.outputs.draft == 'true' }}
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/checksums.txt

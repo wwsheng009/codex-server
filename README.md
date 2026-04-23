@@ -233,6 +233,29 @@ Shell：
 - SPA 路由会由后端 fallback 到 `index.html`
 - 如未显式配置 `CODEX_FRONTEND_ORIGIN`，内嵌模式会优先使用同源或 `CODEX_SERVER_PUBLIC_BASE_URL`，避免 OAuth/回跳地址继续指向开发期 `15173`
 
+### GitHub Actions 发布
+
+仓库已提供 GitHub Release 工作流：
+
+- 工作流文件：`.github/workflows/release.yml`
+- 触发方式 1：push `v*` tag，例如 `v0.1.0`
+- 触发方式 2：在 GitHub Actions 页面手动触发 `Release`
+
+手动触发时支持输入：
+
+- `release_tag`：要发布的版本 tag；如果远端还不存在，workflow 会自动创建并推送该 tag
+- `release_name`：GitHub Release 标题，可留空
+- `targets`：要构建的平台列表，默认是 `windows-amd64,windows-arm64,linux-amd64,linux-arm64,darwin-amd64,darwin-arm64`
+- `draft`：是否先创建草稿 release
+- `prerelease`：是否标记为预发布；如果 tag 本身带 `-`，例如 `v0.2.0-rc1`，也会自动按预发布处理
+
+该工作流会：
+
+- 构建一次前端并执行 `npm run i18n:check`
+- 以 `embed_frontend` 方式为目标平台交叉编译后端
+- 为每个平台生成 GitHub Release 资产包
+- 自动上传 `sha256` 校验清单 `checksums.txt`
+
 ## 启用 LocalShell
 
 `codex-server` 本身不直接决定是否暴露 `local_shell`。这个能力来自 Codex 模型元数据里的 `shell_type`，也就是 `ModelInfo.shell_type = "local"`。
