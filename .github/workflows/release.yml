@@ -96,78 +96,60 @@ jobs:
 
           asset_version="$(printf '%s' "$release_tag" | sed 's/[^0-9A-Za-z._-]/-/g')"
 
-          matrix_json="$(
-            TARGETS="$targets" python3 - <<'PY'
-            import json
-            import os
+          declare -A seen_targets=()
+          matrix_items=()
 
-            supported = {
-                "windows-amd64": {
-                    "id": "windows-amd64",
-                    "goos": "windows",
-                    "goarch": "amd64",
-                    "binary_name": "codex-server-embedded.exe",
-                    "archive_format": "zip",
-                },
-                "windows-arm64": {
-                    "id": "windows-arm64",
-                    "goos": "windows",
-                    "goarch": "arm64",
-                    "binary_name": "codex-server-embedded.exe",
-                    "archive_format": "zip",
-                },
-                "linux-amd64": {
-                    "id": "linux-amd64",
-                    "goos": "linux",
-                    "goarch": "amd64",
-                    "binary_name": "codex-server-embedded",
-                    "archive_format": "tar.gz",
-                },
-                "linux-arm64": {
-                    "id": "linux-arm64",
-                    "goos": "linux",
-                    "goarch": "arm64",
-                    "binary_name": "codex-server-embedded",
-                    "archive_format": "tar.gz",
-                },
-                "darwin-amd64": {
-                    "id": "darwin-amd64",
-                    "goos": "darwin",
-                    "goarch": "amd64",
-                    "binary_name": "codex-server-embedded",
-                    "archive_format": "tar.gz",
-                },
-                "darwin-arm64": {
-                    "id": "darwin-arm64",
-                    "goos": "darwin",
-                    "goarch": "arm64",
-                    "binary_name": "codex-server-embedded",
-                    "archive_format": "tar.gz",
-                },
-            }
+          IFS=',' read -r -a requested_targets <<< "$targets"
+          for raw_target in "${requested_targets[@]}"; do
+            target="$(printf '%s' "$raw_target" | xargs)"
+            if [[ -z "$target" ]]; then
+              continue
+            fi
 
-            targets = os.environ["TARGETS"]
-            include = []
-            seen = set()
+            if [[ -n "${seen_targets[$target]:-}" ]]; then
+              continue
+            fi
+            seen_targets[$target]=1
 
-            for raw_target in targets.split(","):
-                target = raw_target.strip()
-                if not target:
-                    continue
-                if target not in supported:
-                    supported_list = ", ".join(sorted(supported))
-                    raise SystemExit(f"Unsupported target '{target}'. Supported targets: {supported_list}")
-                if target in seen:
-                    continue
-                seen.add(target)
-                include.append(supported[target])
+            case "$target" in
+              windows-amd64)
+                matrix_items+=('{"id":"windows-amd64","goos":"windows","goarch":"amd64","binary_name":"codex-server-embedded.exe","archive_format":"zip"}')
+                ;;
+              windows-arm64)
+                matrix_items+=('{"id":"windows-arm64","goos":"windows","goarch":"arm64","binary_name":"codex-server-embedded.exe","archive_format":"zip"}')
+                ;;
+              linux-amd64)
+                matrix_items+=('{"id":"linux-amd64","goos":"linux","goarch":"amd64","binary_name":"codex-server-embedded","archive_format":"tar.gz"}')
+                ;;
+              linux-arm64)
+                matrix_items+=('{"id":"linux-arm64","goos":"linux","goarch":"arm64","binary_name":"codex-server-embedded","archive_format":"tar.gz"}')
+                ;;
+              darwin-amd64)
+                matrix_items+=('{"id":"darwin-amd64","goos":"darwin","goarch":"amd64","binary_name":"codex-server-embedded","archive_format":"tar.gz"}')
+                ;;
+              darwin-arm64)
+                matrix_items+=('{"id":"darwin-arm64","goos":"darwin","goarch":"arm64","binary_name":"codex-server-embedded","archive_format":"tar.gz"}')
+                ;;
+              *)
+                echo "Unsupported target '$target'. Supported targets: darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64" >&2
+                exit 1
+                ;;
+            esac
+          done
 
-            if not include:
-                raise SystemExit("No release targets selected.")
+          if [[ ${#matrix_items[@]} -eq 0 ]]; then
+            echo "No release targets selected." >&2
+            exit 1
+          fi
 
-            print(json.dumps({"include": include}, separators=(",", ":")))
-          PY
-          )"
+          matrix_json='{"include":['
+          for index in "${!matrix_items[@]}"; do
+            if [[ "$index" -gt 0 ]]; then
+              matrix_json+=','
+            fi
+            matrix_json+="${matrix_items[$index]}"
+          done
+          matrix_json+=']}'
 
           printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
           printf 'release_name=%s\n' "$release_name" >> "$GITHUB_OUTPUT"
