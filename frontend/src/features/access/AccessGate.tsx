@@ -146,6 +146,8 @@ export function AccessGate({ children }: ProvidersProps) {
     return <>{children}</>
   }
 
+  const isWaitingForLocalTokenSetup = bootstrap.activeTokenCount === 0
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     loginMutation.mutate()
@@ -170,6 +172,25 @@ export function AccessGate({ children }: ProvidersProps) {
               'This codex-server backend is protected. Enter a valid access token before opening the workspace UI.',
           })}
         </p>
+
+        {isWaitingForLocalTokenSetup ? (
+          <InlineNotice
+            onRetry={() => {
+              void bootstrapQuery.refetch()
+            }}
+            title={i18n._({
+              id: 'Token setup needed',
+              message: 'Token setup needed',
+            })}
+            tone="info"
+          >
+            {i18n._({
+              id: 'This backend only allows remote clients after a local administrator creates at least one active access token from localhost, 127.0.0.1, or ::1.',
+              message:
+                'This backend only allows remote clients after a local administrator creates at least one active access token from localhost, 127.0.0.1, or ::1.',
+            })}
+          </InlineNotice>
+        ) : null}
 
         {bootstrap.allowLocalhostWithoutAccessToken ? (
           <InlineNotice

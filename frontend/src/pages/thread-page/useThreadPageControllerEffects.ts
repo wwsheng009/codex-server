@@ -47,6 +47,7 @@ export function useThreadPageControllerEffects({
     streamState: controllerState.streamState,
     syncTitle: statusState.syncTitle,
     workspaceActivityEvents: dataState.workspaceActivityEvents,
+    workspaceError: dataState.workspaceQuery.error,
     workspaceId: controllerState.workspaceId,
   })
 }

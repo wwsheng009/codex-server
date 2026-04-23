@@ -28,8 +28,8 @@ func newOriginMatcher(configuredOrigins string) *originMatcher {
 	return matcher
 }
 
-func (m *originMatcher) AllowRequest(_ *http.Request, origin string) bool {
-	return m.Allow(origin)
+func (m *originMatcher) AllowRequest(r *http.Request, origin string) bool {
+	return m.Allow(origin) || requestOriginMatchesBaseURL(r, origin)
 }
 
 func (m *originMatcher) Allow(origin string) bool {
@@ -91,6 +91,38 @@ func (m *originMatcher) add(origin string) {
 
 func normalizeOrigin(origin string) string {
 	return strings.TrimRight(strings.TrimSpace(origin), "/")
+}
+
+func requestOriginMatchesBaseURL(r *http.Request, origin string) bool {
+	if r == nil {
+		return false
+	}
+
+	normalizedOrigin := normalizeOrigin(origin)
+	if normalizedOrigin == "" {
+		return false
+	}
+
+	parsedOrigin, err := url.Parse(normalizedOrigin)
+	if err != nil || parsedOrigin.Scheme == "" || parsedOrigin.Host == "" {
+		return false
+	}
+
+	scheme := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return false
+	}
+
+	return strings.EqualFold(parsedOrigin.Scheme, scheme) && strings.EqualFold(parsedOrigin.Host, host)
 }
 
 func isLoopbackHost(host string) bool {

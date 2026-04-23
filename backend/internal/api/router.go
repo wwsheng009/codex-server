@@ -4204,7 +4204,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			return origin == "" || s.originMatcher.Allow(origin)
+			return origin == "" || s.originMatcher.AllowRequest(r, origin)
 		},
 	}
 

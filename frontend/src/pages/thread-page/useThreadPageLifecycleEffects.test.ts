@@ -51,6 +51,24 @@ describe('resolveThreadPageLifecycleSelection', () => {
     })
   })
 
+  it('returns to the workspace list when the current workspace is confirmed absent', () => {
+    expect(
+      resolveThreadPageLifecycleSelection({
+        currentThreads: [],
+        isThreadDetailLoading: false,
+        isThreadsLoaded: false,
+        latestThreadDetailId: undefined,
+        routeThreadId: 'thread-route',
+        selectedThreadId: 'thread-route',
+        workspaceId: 'ws-missing',
+        workspaceMissing: true,
+      }),
+    ).toEqual({
+      navigateTo: '/workspaces',
+      nextThreadId: undefined,
+    })
+  })
+
   it('returns to the workspace root when the list is loaded and there are no threads', () => {
     expect(
       resolveThreadPageLifecycleSelection({

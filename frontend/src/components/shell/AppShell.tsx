@@ -50,7 +50,10 @@ import { deleteWorkspace, listWorkspaces, renameWorkspace, restartWorkspace } fr
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
-import { getSelectedThreadIdForWorkspace } from '../../stores/session-store-utils'
+import {
+  getSelectedThreadIdForWorkspace,
+  resolveMissingWorkspaceReferences,
+} from '../../stores/session-store-utils'
 import type {
   PendingApproval,
   Thread,
@@ -278,6 +281,39 @@ export function AppShell() {
       setIsMobileSidebarOpen(false)
     }
   }, [isMobileSidebarOpen, isMobileViewport])
+
+  useEffect(() => {
+    if (workspacesQuery.isLoading) {
+      return
+    }
+
+    const missingReferences = resolveMissingWorkspaceReferences({
+      pathname: location.pathname,
+      selectedWorkspaceId,
+      workspaceIds: (workspacesQuery.data ?? []).map((workspace) => workspace.id),
+    })
+
+    if (missingReferences.missingSelectedWorkspaceId) {
+      removeWorkspace(missingReferences.missingSelectedWorkspaceId)
+    }
+
+    if (missingReferences.missingRouteWorkspaceId) {
+      if (
+        missingReferences.missingRouteWorkspaceId !==
+        missingReferences.missingSelectedWorkspaceId
+      ) {
+        removeWorkspace(missingReferences.missingRouteWorkspaceId)
+      }
+      navigate('/workspaces', { replace: true })
+    }
+  }, [
+    location.pathname,
+    navigate,
+    removeWorkspace,
+    selectedWorkspaceId,
+    workspacesQuery.data,
+    workspacesQuery.isLoading,
+  ])
 
   useEffect(() => {
     if (isMobileViewport) {

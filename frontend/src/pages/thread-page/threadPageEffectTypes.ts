@@ -59,13 +59,14 @@ export type ThreadPageEffectsInput = {
   setMobileThreadChrome: (input: MobileThreadChromeInput) => void
   setMobileThreadToolsOpen: (value: boolean) => void
   setSelectedThread: (workspaceId: string, threadId?: string) => void
-  setSelectedWorkspace: (workspaceId: string) => void
+  setSelectedWorkspace: (workspaceId?: string) => void
   surfacePanelView: SurfacePanelView | null
   setSurfacePanelView: (value: SurfacePanelView | null) => void
   setSyncClock: (value: number) => void
   streamState: string
   syncTitle: string
   workspaceActivityEvents: ServerEvent[]
+  workspaceError?: unknown
   workspaceId: string
   chromeState: {
     statusLabel: string
@@ -92,7 +93,8 @@ export type ThreadPageLifecycleEffectsInput = {
   routeThreadId?: string
   selectedThreadId?: string
   setSelectedThread: (workspaceId: string, threadId?: string) => void
-  setSelectedWorkspace: (workspaceId: string) => void
+  setSelectedWorkspace: (workspaceId?: string) => void
+  workspaceError?: unknown
   workspaceId: string
 }
 

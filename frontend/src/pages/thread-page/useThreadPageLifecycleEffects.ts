@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect } from 'react'
 
+import { ApiClientError } from '../../lib/api-client'
 import { buildWorkspaceThreadRoute } from '../../lib/thread-routes'
 import type { ThreadPageLifecycleEffectsInput } from './threadPageEffectTypes'
 
@@ -10,6 +11,7 @@ export function resolveThreadPageLifecycleSelection({
   latestThreadDetailId,
   routeThreadId,
   selectedThreadId,
+  workspaceMissing,
   workspaceId,
 }: {
   currentThreads: Array<{ id: string }>
@@ -18,9 +20,21 @@ export function resolveThreadPageLifecycleSelection({
   latestThreadDetailId?: string
   routeThreadId?: string
   selectedThreadId?: string
+  workspaceMissing?: boolean
   workspaceId: string
 }) {
-  if (!workspaceId || !isThreadsLoaded) {
+  if (!workspaceId) {
+    return null
+  }
+
+  if (workspaceMissing) {
+    return {
+      navigateTo: '/workspaces',
+      nextThreadId: undefined,
+    }
+  }
+
+  if (!isThreadsLoaded) {
     return null
   }
 
@@ -72,6 +86,7 @@ export function useThreadPageLifecycleEffects({
   selectedThreadId,
   setSelectedThread,
   setSelectedWorkspace,
+  workspaceError,
   workspaceId,
 }: ThreadPageLifecycleEffectsInput) {
   useEffect(() => {
@@ -92,6 +107,7 @@ export function useThreadPageLifecycleEffects({
       latestThreadDetailId,
       routeThreadId,
       selectedThreadId,
+      workspaceMissing: isWorkspaceNotFoundError(workspaceError),
       workspaceId,
     })
     if (!resolution) {
@@ -101,6 +117,10 @@ export function useThreadPageLifecycleEffects({
     const { navigateTo, nextThreadId } = resolution
     if (nextThreadId !== selectedThreadId) {
       setSelectedThread(workspaceId, nextThreadId)
+    }
+
+    if (navigateTo === '/workspaces') {
+      setSelectedWorkspace(undefined)
     }
 
     if (navigateTo) {
@@ -116,6 +136,8 @@ export function useThreadPageLifecycleEffects({
     selectedThreadId,
     setSelectedThread,
     workspaceId,
+    workspaceError,
+    setSelectedWorkspace,
   ])
 
   useEffect(() => {
@@ -143,4 +165,8 @@ export function useThreadPageLifecycleEffects({
 
     return () => window.clearTimeout(timeoutId)
   }, [activePendingTurn, clearPendingTurn, liveThreadTurns, selectedThreadId])
+}
+
+function isWorkspaceNotFoundError(error: unknown) {
+  return error instanceof ApiClientError && error.status === 404 && error.code === 'workspace_not_found'
 }

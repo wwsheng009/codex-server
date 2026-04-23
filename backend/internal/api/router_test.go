@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,6 +43,7 @@ import (
 	"codex-server/backend/internal/workspace"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/websocket"
 )
 
 func TestWorkspacePersistenceAcrossRouterRestart(t *testing.T) {
@@ -506,18 +508,74 @@ func TestRemoteRequestsRequireLocalBootstrapWhenNoActiveTokensExist(t *testing.T
 	remoteRecorder := httptest.NewRecorder()
 	router.ServeHTTP(remoteRecorder, remoteRequest)
 
-	if remoteRecorder.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 when remote bootstrap has no active tokens available, got %d", remoteRecorder.Code)
+	if remoteRecorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 when remote bootstrap needs local token setup, got %d", remoteRecorder.Code)
 	}
 
 	var remotePayload struct {
+		Data struct {
+			Authenticated        bool `json:"authenticated"`
+			LoginRequired        bool `json:"loginRequired"`
+			AllowRemoteAccess    bool `json:"allowRemoteAccess"`
+			ConfiguredTokenCount int  `json:"configuredTokenCount"`
+			ActiveTokenCount     int  `json:"activeTokenCount"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, remoteRecorder, &remotePayload)
+	if remotePayload.Data.Authenticated {
+		t.Fatalf("expected remote bootstrap to stay unauthenticated, got %#v", remotePayload.Data)
+	}
+	if !remotePayload.Data.LoginRequired {
+		t.Fatalf("expected remote bootstrap to require login UI, got %#v", remotePayload.Data)
+	}
+	if !remotePayload.Data.AllowRemoteAccess {
+		t.Fatalf("expected remote bootstrap to preserve allowRemoteAccess state, got %#v", remotePayload.Data)
+	}
+	if remotePayload.Data.ConfiguredTokenCount != 0 || remotePayload.Data.ActiveTokenCount != 0 {
+		t.Fatalf("expected zero configured/active tokens, got %#v", remotePayload.Data)
+	}
+
+	remoteLoginRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/api/access/login",
+		strings.NewReader(`{"token":"super-secret-token"}`),
+	)
+	remoteLoginRequest.RemoteAddr = "192.168.1.20:48000"
+	remoteLoginRequest.Header.Set("Content-Type", "application/json")
+	remoteLoginRecorder := httptest.NewRecorder()
+	router.ServeHTTP(remoteLoginRecorder, remoteLoginRequest)
+
+	if remoteLoginRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when remote login has no active tokens available, got %d", remoteLoginRecorder.Code)
+	}
+
+	var remoteLoginPayload struct {
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`
 	}
-	decodeResponseBody(t, remoteRecorder, &remotePayload)
-	if remotePayload.Error.Code != "remote_access_requires_active_token" {
-		t.Fatalf("expected remote_access_requires_active_token, got %q", remotePayload.Error.Code)
+	decodeResponseBody(t, remoteLoginRecorder, &remoteLoginPayload)
+	if remoteLoginPayload.Error.Code != "remote_access_requires_active_token" {
+		t.Fatalf("expected remote_access_requires_active_token from remote login, got %q", remoteLoginPayload.Error.Code)
+	}
+
+	remoteProtectedRequest := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
+	remoteProtectedRequest.RemoteAddr = "192.168.1.20:48000"
+	remoteProtectedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(remoteProtectedRecorder, remoteProtectedRequest)
+
+	if remoteProtectedRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when protected remote route has no active tokens available, got %d", remoteProtectedRecorder.Code)
+	}
+
+	var remoteProtectedPayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, remoteProtectedRecorder, &remoteProtectedPayload)
+	if remoteProtectedPayload.Error.Code != "remote_access_requires_active_token" {
+		t.Fatalf("expected remote_access_requires_active_token from protected route, got %q", remoteProtectedPayload.Error.Code)
 	}
 }
 
@@ -554,6 +612,31 @@ func TestRemoteAccessDisabledRejectsNonLoopbackRequests(t *testing.T) {
 	decodeResponseBody(t, recorder, &payload)
 	if payload.Error.Code != "remote_access_disabled" {
 		t.Fatalf("expected remote_access_disabled, got %q", payload.Error.Code)
+	}
+
+	loginRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/api/access/login",
+		strings.NewReader(`{"token":"super-secret-token"}`),
+	)
+	loginRequest.RemoteAddr = "192.168.1.20:48000"
+	loginRequest.Header.Set("Content-Type", "application/json")
+
+	loginRecorder := httptest.NewRecorder()
+	router.ServeHTTP(loginRecorder, loginRequest)
+
+	if loginRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when remote login is disabled, got %d", loginRecorder.Code)
+	}
+
+	var loginPayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponseBody(t, loginRecorder, &loginPayload)
+	if loginPayload.Error.Code != "remote_access_disabled" {
+		t.Fatalf("expected remote_access_disabled from remote login, got %q", loginPayload.Error.Code)
 	}
 }
 
@@ -5694,6 +5777,43 @@ func TestCORSAllowsBindAllFrontendOriginFallback(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStreamAllowsSameOriginWebSocketWhenFrontendOriginIsUnset(t *testing.T) {
+	t.Parallel()
+
+	dataStore := store.NewMemoryStore()
+	workspaceRecord := dataStore.CreateWorkspace("Same-Origin Embedded", t.TempDir())
+
+	server := httptest.NewServer(newTestRouterWithFrontendOrigin(dataStore, ""))
+	defer server.Close()
+
+	socketURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/workspaces/" + workspaceRecord.ID + "/stream"
+	header := http.Header{}
+	header.Set("Origin", server.URL)
+
+	conn, response, err := websocket.DefaultDialer.Dial(socketURL, header)
+	if err != nil {
+		responseBody := ""
+		if response != nil && response.Body != nil {
+			body, readErr := io.ReadAll(response.Body)
+			if readErr == nil {
+				responseBody = string(body)
+			}
+		}
+		t.Fatalf("websocket dial error = %v, status = %v, body = %q", err, responseStatusCode(response), responseBody)
+	}
+	defer conn.Close()
+
+	var envelope struct {
+		Method string `json:"method"`
+	}
+	if err := conn.ReadJSON(&envelope); err != nil {
+		t.Fatalf("ReadJSON() error = %v", err)
+	}
+	if envelope.Method != "workspace/connected" {
+		t.Fatalf("expected first workspace stream event to be workspace/connected, got %q", envelope.Method)
+	}
+}
+
 func TestWriteStoreErrorMapsAuthenticationFailures(t *testing.T) {
 	t.Parallel()
 
@@ -7595,10 +7715,22 @@ func TestBackgroundJobExecutorsRouteReturnsStructuredFieldMetadata(t *testing.T)
 }
 
 func newTestRouter(dataStore *store.MemoryStore) http.Handler {
-	return newTestRouterWithShutdown(dataStore, nil)
+	return newTestRouterWithFrontendOriginAndShutdown(dataStore, "http://localhost:15173", nil)
 }
 
 func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown func(reason string) bool) http.Handler {
+	return newTestRouterWithFrontendOriginAndShutdown(dataStore, "http://localhost:15173", requestShutdown)
+}
+
+func newTestRouterWithFrontendOrigin(dataStore *store.MemoryStore, frontendOrigin string) http.Handler {
+	return newTestRouterWithFrontendOriginAndShutdown(dataStore, frontendOrigin, nil)
+}
+
+func newTestRouterWithFrontendOriginAndShutdown(
+	dataStore *store.MemoryStore,
+	frontendOrigin string,
+	requestShutdown func(reason string) bool,
+) http.Handler {
 	eventHub := events.NewHub()
 	eventHub.AttachStore(dataStore)
 	runtimeManager := runtime.NewManager("codex app-server --listen stdio://", eventHub)
@@ -7655,7 +7787,7 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 	accessControlService := accesscontrol.NewService(dataStore, true)
 
 	return NewRouter(Dependencies{
-		FrontendOrigin:     "http://localhost:15173",
+		FrontendOrigin:     frontendOrigin,
 		RequestShutdown:    requestShutdown,
 		Auth:               authService,
 		Workspaces:         workspaceService,
@@ -7680,6 +7812,14 @@ func newTestRouterWithShutdown(dataStore *store.MemoryStore, requestShutdown fun
 		MemoryDiagnostics:  memoryDiagService,
 		AccessControl:      accessControlService,
 	})
+}
+
+func responseStatusCode(response *http.Response) int {
+	if response == nil {
+		return 0
+	}
+
+	return response.StatusCode
 }
 
 func performJSONRequest(t *testing.T, handler http.Handler, method string, path string, body string) *httptest.ResponseRecorder {

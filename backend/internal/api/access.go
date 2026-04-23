@@ -20,7 +20,7 @@ func (s *Server) captureOriginalRemoteAddr(next http.Handler) http.Handler {
 
 func (s *Server) requireRemoteAccess(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || s.accessControl == nil {
+		if s.shouldBypassRemoteAccessCheck(r) || s.accessControl == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -31,22 +31,7 @@ func (s *Server) requireRemoteAccess(next http.Handler) http.Handler {
 			return
 		}
 
-		switch decision.Reason {
-		case accesscontrol.RemoteAccessReasonRequiresActiveToken:
-			writeError(
-				w,
-				http.StatusForbidden,
-				"remote_access_requires_active_token",
-				"remote access is blocked until an active access token is configured; use localhost to create one first",
-			)
-		default:
-			writeError(
-				w,
-				http.StatusForbidden,
-				"remote_access_disabled",
-				"remote access is disabled; only localhost may access this server",
-			)
-		}
+		writeRemoteAccessDeniedError(w, decision.Reason)
 	})
 }
 
@@ -84,10 +69,32 @@ func (s *Server) handleAccessBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	decision := s.accessControl.EvaluateRemoteAccess(originalRemoteAddrFromRequest(r))
+	if !decision.Allowed {
+		switch decision.Reason {
+		case accesscontrol.RemoteAccessReasonRequiresActiveToken:
+			result := s.accessControl.Bootstrap(r, originalRemoteAddrFromRequest(r))
+			result.Authenticated = false
+			result.LoginRequired = true
+			writeJSON(w, http.StatusOK, result)
+		default:
+			writeRemoteAccessDeniedError(w, decision.Reason)
+		}
+		return
+	}
+
 	writeJSON(w, http.StatusOK, s.accessControl.Bootstrap(r, originalRemoteAddrFromRequest(r)))
 }
 
 func (s *Server) handleAccessLogin(w http.ResponseWriter, r *http.Request) {
+	if s.accessControl != nil {
+		decision := s.accessControl.EvaluateRemoteAccess(originalRemoteAddrFromRequest(r))
+		if !decision.Allowed {
+			writeRemoteAccessDeniedError(w, decision.Reason)
+			return
+		}
+	}
+
 	var request struct {
 		Token string `json:"token"`
 	}
@@ -140,4 +147,69 @@ func originalRemoteAddrFromRequest(r *http.Request) string {
 	}
 
 	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func (s *Server) shouldBypassRemoteAccessCheck(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+
+	if r.URL.Path == "/healthz" || isAccessBootstrapRoute(r.URL.Path) {
+		return true
+	}
+
+	return isEmbeddedWebUIRequest(r)
+}
+
+func isAccessBootstrapRoute(path string) bool {
+	switch strings.TrimSpace(path) {
+	case "/api/access/bootstrap", "/api/access/login", "/api/access/logout":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEmbeddedWebUIRequest(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+
+	switch path := strings.TrimSpace(r.URL.Path); {
+	case path == "", path == "/":
+		return true
+	case path == "/api", strings.HasPrefix(path, "/api/"):
+		return false
+	case path == "/hooks", strings.HasPrefix(path, "/hooks/"):
+		return false
+	case path == "/__admin", strings.HasPrefix(path, "/__admin/"):
+		return false
+	case path == "/healthz":
+		return false
+	default:
+		return true
+	}
+}
+
+func writeRemoteAccessDeniedError(w http.ResponseWriter, reason string) {
+	switch reason {
+	case accesscontrol.RemoteAccessReasonRequiresActiveToken:
+		writeError(
+			w,
+			http.StatusForbidden,
+			"remote_access_requires_active_token",
+			"remote access is blocked until an active access token is configured; use localhost to create one first",
+		)
+	default:
+		writeError(
+			w,
+			http.StatusForbidden,
+			"remote_access_disabled",
+			"remote access is disabled; only localhost may access this server",
+		)
+	}
 }

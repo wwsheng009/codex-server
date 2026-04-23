@@ -30,6 +30,18 @@ func TestEmbeddedRouterServesIndexAtRoot(t *testing.T) {
 	}
 }
 
+func TestEmbeddedRouterServesIndexAtRootForRemoteRequestWithoutTokens(t *testing.T) {
+	t.Parallel()
+
+	recorder := performEmbeddedRouterRequestFromRemoteAddr(t, "/", http.MethodGet, "192.168.1.20:41000")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("expected html content type, got %q", got)
+	}
+}
+
 func TestEmbeddedRouterFallsBackForSPARoutes(t *testing.T) {
 	t.Parallel()
 
@@ -70,9 +82,20 @@ func TestEmbeddedRouterDoesNotInterceptAPIRoutes(t *testing.T) {
 func performEmbeddedRouterRequest(t *testing.T, target string, method string) *httptest.ResponseRecorder {
 	t.Helper()
 
+	return performEmbeddedRouterRequestFromRemoteAddr(t, target, method, "127.0.0.1:41000")
+}
+
+func performEmbeddedRouterRequestFromRemoteAddr(
+	t *testing.T,
+	target string,
+	method string,
+	remoteAddr string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
 	router := newTestRouter(store.NewMemoryStore())
 	request := httptest.NewRequest(method, target, nil)
-	request.RemoteAddr = "127.0.0.1:41000"
+	request.RemoteAddr = remoteAddr
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 	return recorder
