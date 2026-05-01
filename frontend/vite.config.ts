@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
     test: {
       include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
       exclude: ['playwright/**'],
+      setupFiles: ['src/test/vitest-setup.ts'],
     },
     server: {
       host: '0.0.0.0',

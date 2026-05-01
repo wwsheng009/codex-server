@@ -1,5 +1,5 @@
 import type { CreateBotConnectionInput, UpdateBotConnectionInput } from '../features/bots/api'
-import { formatLocalizedDateTime } from '../i18n/display'
+import { formatLocalizedDateTime, humanizeDisplayValue } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import type { BotConnection, BotConversation, BotMessageMedia, WeChatAccount } from '../types/api'
 
@@ -811,6 +811,45 @@ export function formatBotBackendLabel(backend: string) {
     default:
       return backend
   }
+}
+
+export function formatBotConnectionCapabilityLabel(capability?: string | null) {
+  switch ((capability ?? '').trim()) {
+    case 'supportsTextOutbound':
+      return i18n._({ id: 'Text outbound', message: 'Text outbound' })
+    case 'supportsMediaOutbound':
+      return i18n._({ id: 'Media outbound', message: 'Media outbound' })
+    case 'supportsMediaGroup':
+      return i18n._({ id: 'Media groups', message: 'Media groups' })
+    case 'supportsImageOutbound':
+      return i18n._({ id: 'Image outbound', message: 'Image outbound' })
+    case 'supportsVideoOutbound':
+      return i18n._({ id: 'Video outbound', message: 'Video outbound' })
+    case 'supportsVoiceOutbound':
+      return i18n._({ id: 'Voice outbound', message: 'Voice outbound' })
+    case 'supportsFileOutbound':
+      return i18n._({ id: 'File outbound', message: 'File outbound' })
+    case 'supportsRemoteMediaURLSource':
+      return i18n._({ id: 'Remote media URLs', message: 'Remote media URLs' })
+    case 'supportsLocalMediaPathSource':
+      return i18n._({ id: 'Local file uploads', message: 'Local file uploads' })
+    case 'supportsProactivePush':
+      return i18n._({ id: 'Proactive push', message: 'Proactive push' })
+    case 'supportsSessionlessPush':
+      return i18n._({ id: 'Sessionless push', message: 'Sessionless push' })
+    case 'requiresRouteState':
+      return i18n._({ id: 'Existing reply context required', message: 'Existing reply context required' })
+    default:
+      return humanizeDisplayValue(capability, i18n._({ id: 'Unknown', message: 'Unknown' }))
+  }
+}
+
+export function summarizeBotConnectionCapabilities(capabilities?: string[] | null) {
+  const values = (capabilities ?? []).map((capability) => formatBotConnectionCapabilityLabel(capability)).filter(Boolean)
+  if (!values.length) {
+    return i18n._({ id: 'none', message: 'none' })
+  }
+  return values.join(', ')
 }
 
 export function formatBotWorkspacePermissionPresetLabel(value: string | null | undefined) {
