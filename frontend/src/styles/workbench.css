@@ -1792,6 +1792,92 @@
   border-color: var(--border-success);
 }
 
+.command-execution-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-execution-group__entry {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-muted) 54%, transparent);
+  overflow: hidden;
+}
+
+.command-execution-group__summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 6px 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.command-execution-group__summary::-webkit-details-marker {
+  display: none;
+}
+
+.command-execution-group__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.command-execution-group__command {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-code-custom, var(--font-code, 'Cascadia Mono', 'SFMono-Regular', ui-monospace, monospace));
+  font-size: var(--text-code-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-execution-group__meta {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.command-execution-group__toggle {
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border-right: 1.5px solid var(--text-faint);
+  border-bottom: 1.5px solid var(--text-faint);
+  transform: rotate(45deg);
+  transition: transform 180ms ease;
+}
+
+.command-execution-group__entry[open] .command-execution-group__toggle {
+  transform: rotate(225deg);
+}
+
+.command-execution-group__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 8px 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
 .conversation-card--plan {
   border-color: var(--border-warning);
 }

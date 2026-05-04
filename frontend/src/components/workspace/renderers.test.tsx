@@ -465,6 +465,85 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Waiting for output.')
   })
 
+  it('folds consecutive command executions into one collapsed group', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-command-group',
+        status: 'completed',
+        items: [
+          {
+            id: 'cmd-1',
+            type: 'commandExecution',
+            command: 'git status --short',
+            status: 'completed',
+          },
+          {
+            id: 'cmd-2',
+            type: 'commandExecution',
+            command: 'npm run i18n:check',
+            status: 'completed',
+          },
+          {
+            id: 'cmd-3',
+            type: 'commandExecution',
+            command: 'npm test',
+            status: 'completed',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('Commands')
+    expect(html).toContain('3 commands')
+    expect(html).toContain('Latest: npm test')
+    expect(html).toContain('conversation-card--command-group')
+    expect(
+      (html.match(/conversation-card conversation-card--compact conversation-card--command/g) ?? [])
+        .length,
+    ).toBe(1)
+    expect(html).not.toContain('git status --short')
+  })
+
+  it('keeps non-consecutive command executions as separate timeline rows', () => {
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-command-separated',
+        status: 'completed',
+        items: [
+          {
+            id: 'cmd-1',
+            type: 'commandExecution',
+            command: 'git status --short',
+            status: 'completed',
+          },
+          {
+            id: 'agent-1',
+            type: 'agentMessage',
+            text: 'Reviewing the result.',
+          },
+          {
+            id: 'cmd-2',
+            type: 'commandExecution',
+            command: 'npm test',
+            status: 'completed',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).not.toContain('conversation-card--command-group')
+    expect(html).toContain('git status --short')
+    expect(html).toContain('npm test')
+    expect(
+      (html.match(/conversation-card conversation-card--compact conversation-card--command/g) ?? [])
+        .length,
+    ).toBe(2)
+  })
+
   it('renders plan placeholders before step content arrives', () => {
     const turns: ThreadTurn[] = [
       {

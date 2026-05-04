@@ -71,6 +71,8 @@ const STREAMING_TYPEWRITER_CHARACTERS_PER_SECOND = 90
 const STREAMING_TYPEWRITER_FALLBACK_FRAME_MS = 16
 const STREAMING_TYPEWRITER_MAX_STEP = 48
 const VIRTUALIZED_TIMELINE_ENTRY_THRESHOLD = 80
+const COMMAND_EXECUTION_GROUP_TYPE = 'commandExecutionGroup'
+const COMMAND_EXECUTION_GROUP_MIN_COUNT = 2
 const conversationEntriesCache = new WeakMap<ThreadTurn[], ConversationEntry[]>()
 const turnConversationEntriesCache = new WeakMap<ThreadTurn, ConversationEntry[]>()
 const itemRenderSuppressionDebugCache = new WeakMap<Record<string, unknown>, string>()
@@ -1545,114 +1547,25 @@ function TimelineItem({
       )
     }
     case 'commandExecution': {
-      const command = stringField(item.command)
-      const output = stringField(item.aggregatedOutput)
-      const outputContentMode = stringField(item.outputContentMode)
-      const outputStartLine = integerField(item.outputStartLine)
-      const outputEndLine = integerField(item.outputEndLine)
-      const outputTotalLength = integerField(item.outputTotalLength)
-      const outputLineCount = integerField(item.outputLineCount)
-      const status = stringField(item.status)
-      const showLoadLatestOutput =
-        summaryTruncated && outputContentMode === 'summary' && itemId
-      const showLoadFullOutput =
-        summaryTruncated && outputContentMode === 'tail' && itemId
-      const remainingOutputLines =
-        typeof outputStartLine === 'number' && outputStartLine > 0
-          ? outputStartLine
-          : 0
-      const loadedOutputLines =
-        typeof outputStartLine === 'number' &&
-        typeof outputEndLine === 'number' &&
-        outputEndLine >= outputStartLine
-          ? outputEndLine - outputStartLine
-          : outputLineCount ?? countOutputLines(output)
-
-      if (!command && !output && !status) {
-        logTimelinePlaceholderItem(item, turnId, 'commandExecution placeholder')
-        return (
-          <SystemTimelineCard
-            className="conversation-card--command"
-            meta={humanizeToolStatus('inProgress')}
-            statusTone={statusToneFromValue('inProgress')}
-            summary={i18n._({
-              id: 'renderers.commandExecution',
-              message: 'Command execution',
-            })}
-            title={i18n._({ id: "Command", message: "Command" })}
-          >
-            <div className="conversation-card__placeholder">
-              {i18n._({ id: "Waiting for output.", message: "Waiting for output." })}
-            </div>
-          </SystemTimelineCard>
-        )
-      }
-
       return (
-        <SystemTimelineCard
-          className="conversation-card--command"
-          deferDetailsUntilOpen
-          meta={outputLineLabel(output, outputLineCount) ?? undefined}
-          onReleaseFullContent={
-            summaryTruncated ? () => onReleaseFullTurn?.(turnId, itemId) : undefined
-          }
-          onRetainFullContent={
-            summaryTruncated ? () => onRetainFullTurn?.(turnId, itemId) : undefined
-          }
-          onRequestFullContent={
-            summaryTruncated ? () => onRequestFullTurn?.(turnId, itemId) : undefined
-          }
-          statusTone={statusToneFromValue(status)}
-          summaryTruncated={summaryTruncated}
-          summary={truncateMiddle(command || i18n._({ id: 'renderers.commandExecution', message: 'Command execution' }), 88)}
-          title={i18n._({ id: "Command", message: "Command" })}
-        >
-          {command ? <code className="conversation-card__command-line">{command}</code> : null}
-          {output ? (
-            <ThreadTerminalBlock
-              className="conversation-card__output conversation-card__output--terminal"
-              content={output}
-            />
-          ) : (
-            <div className="conversation-card__placeholder">{i18n._({ id: "Waiting for output.", message: "Waiting for output." })}</div>
-          )}
-          {showLoadLatestOutput ? (
-            <>
-              <div className="conversation-card__placeholder">
-                {i18n._({ id: "Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result.", message: "Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result." })}
-              </div>
-              <div className="conversation-tool-call__actions">
-                <button
-                  className="ide-button ide-button--secondary"
-                  onClick={() => onRequestFullTurn?.(turnId, itemId)}
-                  type="button"
-                >
-                  {i18n._({ id: "Load latest output", message: "Load latest output" })}
-                </button>
-              </div>
-            </>
-          ) : null}
-          {showLoadFullOutput ? (
-            <>
-              <div className="conversation-card__placeholder">
-                {remainingOutputLines > 0
-                  ? i18n._({ id: 'renderers.showingRecentLinesLoadEarlier', message: 'Showing {loadedLines} recent lines. Load earlier output to reveal {remainingLines} more lines.', values: { loadedLines: formatApproximateCount(loadedOutputLines), remainingLines: formatApproximateCount(remainingOutputLines) } })
-                  : outputTotalLength && output.length < outputTotalLength
-                    ? i18n._({ id: 'renderers.showingLatestLoadEarlier', message: 'Showing the latest output window. Load earlier output to reveal more command history.' })
-                    : i18n._({ id: 'renderers.showingLatestOutputWindow', message: 'Showing the latest output window.' })}
-              </div>
-              <div className="conversation-tool-call__actions">
-                <button
-                  className="ide-button ide-button--secondary"
-                  onClick={() => onRequestFullTurn?.(turnId, itemId)}
-                  type="button"
-                >
-                  {i18n._({ id: "Load earlier output", message: "Load earlier output" })}
-                </button>
-              </div>
-            </>
-          ) : null}
-        </SystemTimelineCard>
+        <CommandExecutionTimelineCard
+          item={item}
+          onReleaseFullTurn={onReleaseFullTurn}
+          onRetainFullTurn={onRetainFullTurn}
+          onRequestFullTurn={onRequestFullTurn}
+          turnId={turnId}
+        />
+      )
+    }
+    case COMMAND_EXECUTION_GROUP_TYPE: {
+      return (
+        <CommandExecutionGroupTimelineCard
+          item={item}
+          onReleaseFullTurn={onReleaseFullTurn}
+          onRetainFullTurn={onRetainFullTurn}
+          onRequestFullTurn={onRequestFullTurn}
+          turnId={turnId}
+        />
       )
     }
     case 'contextCompaction': {
@@ -1963,6 +1876,314 @@ const MemoTimelineItem = memo(TimelineItem, (previous, next) => {
     previous.turnId === next.turnId
   )
 })
+
+type CommandExecutionTimelineCardProps = Pick<
+  TimelineItemProps,
+  'item' | 'onReleaseFullTurn' | 'onRetainFullTurn' | 'onRequestFullTurn' | 'turnId'
+>
+
+function CommandExecutionTimelineCard({
+  item,
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
+  turnId,
+}: CommandExecutionTimelineCardProps) {
+  const display = readCommandExecutionDisplay(item)
+
+  if (!display.command && !display.output && !display.status) {
+    logTimelinePlaceholderItem(item, turnId, 'commandExecution placeholder')
+    return (
+      <SystemTimelineCard
+        className="conversation-card--command"
+        meta={humanizeToolStatus('inProgress')}
+        statusTone={statusToneFromValue('inProgress')}
+        summary={i18n._({
+          id: 'renderers.commandExecution',
+          message: 'Command execution',
+        })}
+        title={i18n._({ id: 'Command', message: 'Command' })}
+      >
+        <div className="conversation-card__placeholder">
+          {i18n._({ id: 'Waiting for output.', message: 'Waiting for output.' })}
+        </div>
+      </SystemTimelineCard>
+    )
+  }
+
+  return (
+    <SystemTimelineCard
+      className="conversation-card--command"
+      deferDetailsUntilOpen
+      meta={outputLineLabel(display.output, display.outputLineCount) ?? undefined}
+      onReleaseFullContent={
+        display.summaryTruncated ? () => onReleaseFullTurn?.(turnId, display.itemId) : undefined
+      }
+      onRetainFullContent={
+        display.summaryTruncated ? () => onRetainFullTurn?.(turnId, display.itemId) : undefined
+      }
+      onRequestFullContent={
+        display.summaryTruncated ? () => onRequestFullTurn?.(turnId, display.itemId) : undefined
+      }
+      statusTone={statusToneFromValue(display.status)}
+      summaryTruncated={display.summaryTruncated}
+      summary={truncateMiddle(display.command || commandExecutionFallbackLabel(), 88)}
+      title={i18n._({ id: 'Command', message: 'Command' })}
+    >
+      <CommandExecutionDetails
+        item={item}
+        onRequestFullTurn={onRequestFullTurn}
+        turnId={turnId}
+      />
+    </SystemTimelineCard>
+  )
+}
+
+function CommandExecutionGroupTimelineCard({
+  item,
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
+  turnId,
+}: CommandExecutionTimelineCardProps) {
+  const items = commandExecutionGroupItems(item)
+
+  if (items.length < COMMAND_EXECUTION_GROUP_MIN_COUNT) {
+    return (
+      <CommandExecutionTimelineCard
+        item={items[0] ?? item}
+        onReleaseFullTurn={onReleaseFullTurn}
+        onRetainFullTurn={onRetainFullTurn}
+        onRequestFullTurn={onRequestFullTurn}
+        turnId={turnId}
+      />
+    )
+  }
+
+  return (
+    <SystemTimelineCard
+      className="conversation-card--command conversation-card--command-group"
+      deferDetailsUntilOpen
+      statusTone={commandExecutionGroupStatusTone(items)}
+      summary={commandExecutionGroupSummary(items)}
+      title={i18n._({ id: 'Commands', message: 'Commands' })}
+    >
+      <ol className="command-execution-group">
+        {items.map((entry, index) => (
+          <CommandExecutionGroupEntry
+            item={entry}
+            itemIndex={index}
+            key={commandExecutionGroupEntryKey(entry, index)}
+            onReleaseFullTurn={onReleaseFullTurn}
+            onRetainFullTurn={onRetainFullTurn}
+            onRequestFullTurn={onRequestFullTurn}
+            turnId={turnId}
+          />
+        ))}
+      </ol>
+    </SystemTimelineCard>
+  )
+}
+
+function CommandExecutionGroupEntry({
+  item,
+  itemIndex,
+  onReleaseFullTurn,
+  onRetainFullTurn,
+  onRequestFullTurn,
+  turnId,
+}: CommandExecutionTimelineCardProps & { itemIndex: number }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const display = readCommandExecutionDisplay(item)
+  const requestedFullContentRef = useRef(false)
+  const summary = truncateMiddle(display.command || commandExecutionFallbackLabel(), 96)
+  const meta = commandExecutionEntryMeta(item)
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !display.summaryTruncated ||
+      !display.itemId ||
+      !onRequestFullTurn ||
+      requestedFullContentRef.current
+    ) {
+      return
+    }
+
+    requestedFullContentRef.current = true
+    onRetainFullTurn?.(turnId, display.itemId)
+    onRequestFullTurn(turnId, display.itemId)
+  }, [
+    display.itemId,
+    display.summaryTruncated,
+    isOpen,
+    onRequestFullTurn,
+    onRetainFullTurn,
+    turnId,
+  ])
+
+  useEffect(() => {
+    if (!display.summaryTruncated) {
+      requestedFullContentRef.current = false
+    }
+  }, [display.summaryTruncated])
+
+  useEffect(() => {
+    if (isOpen || !display.itemId || !onReleaseFullTurn || !requestedFullContentRef.current) {
+      return
+    }
+
+    requestedFullContentRef.current = false
+    onReleaseFullTurn(turnId, display.itemId)
+  }, [display.itemId, isOpen, onReleaseFullTurn, turnId])
+
+  useEffect(() => {
+    if (!isOpen || !display.itemId || !requestedFullContentRef.current) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      requestedFullContentRef.current = false
+      onReleaseFullTurn?.(turnId, display.itemId)
+      setIsOpen(false)
+    }, FULL_TURN_OVERRIDE_TTL_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [display.itemId, isOpen, onReleaseFullTurn, turnId])
+
+  useEffect(
+    () => () => {
+      if (!display.itemId || !requestedFullContentRef.current) {
+        return
+      }
+
+      requestedFullContentRef.current = false
+      onReleaseFullTurn?.(turnId, display.itemId)
+    },
+    [display.itemId, onReleaseFullTurn, turnId],
+  )
+
+  return (
+    <li className="command-execution-group__item">
+      <details
+        className="command-execution-group__entry"
+        onToggle={(event) => setIsOpen((event.currentTarget as HTMLDetailsElement).open)}
+        open={isOpen}
+      >
+        <summary className="command-execution-group__summary">
+          <span className="command-execution-group__index">{itemIndex + 1}</span>
+          <code className="command-execution-group__command">{summary}</code>
+          {meta ? <span className="command-execution-group__meta">{meta}</span> : null}
+          <span aria-hidden="true" className="command-execution-group__toggle" />
+        </summary>
+        {isOpen ? (
+          <div className="command-execution-group__details">
+            <CommandExecutionDetails
+              item={item}
+              onRequestFullTurn={onRequestFullTurn}
+              turnId={turnId}
+            />
+          </div>
+        ) : null}
+      </details>
+    </li>
+  )
+}
+
+function CommandExecutionDetails({
+  item,
+  onRequestFullTurn,
+  turnId,
+}: Pick<TimelineItemProps, 'item' | 'onRequestFullTurn' | 'turnId'>) {
+  const display = readCommandExecutionDisplay(item)
+  const showLoadLatestOutput =
+    display.summaryTruncated && display.outputContentMode === 'summary' && display.itemId
+  const showLoadFullOutput =
+    display.summaryTruncated && display.outputContentMode === 'tail' && display.itemId
+  const remainingOutputLines =
+    typeof display.outputStartLine === 'number' && display.outputStartLine > 0
+      ? display.outputStartLine
+      : 0
+  const loadedOutputLines =
+    typeof display.outputStartLine === 'number' &&
+    typeof display.outputEndLine === 'number' &&
+    display.outputEndLine >= display.outputStartLine
+      ? display.outputEndLine - display.outputStartLine
+      : display.outputLineCount ?? countOutputLines(display.output)
+
+  return (
+    <>
+      {display.command ? <code className="conversation-card__command-line">{display.command}</code> : null}
+      {display.output ? (
+        <ThreadTerminalBlock
+          className="conversation-card__output conversation-card__output--terminal"
+          content={display.output}
+        />
+      ) : (
+        <div className="conversation-card__placeholder">
+          {i18n._({ id: 'Waiting for output.', message: 'Waiting for output.' })}
+        </div>
+      )}
+      {showLoadLatestOutput ? (
+        <>
+          <div className="conversation-card__placeholder">
+            {i18n._({
+              id: 'Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result.',
+              message:
+                'Showing an expanded preview. Load the latest output window if you need more recent context without pulling the entire command result.',
+            })}
+          </div>
+          <div className="conversation-tool-call__actions">
+            <button
+              className="ide-button ide-button--secondary"
+              onClick={() => onRequestFullTurn?.(turnId, display.itemId)}
+              type="button"
+            >
+              {i18n._({ id: 'Load latest output', message: 'Load latest output' })}
+            </button>
+          </div>
+        </>
+      ) : null}
+      {showLoadFullOutput ? (
+        <>
+          <div className="conversation-card__placeholder">
+            {remainingOutputLines > 0
+              ? i18n._({
+                  id: 'renderers.showingRecentLinesLoadEarlier',
+                  message:
+                    'Showing {loadedLines} recent lines. Load earlier output to reveal {remainingLines} more lines.',
+                  values: {
+                    loadedLines: formatApproximateCount(loadedOutputLines),
+                    remainingLines: formatApproximateCount(remainingOutputLines),
+                  },
+                })
+              : display.outputTotalLength && display.output.length < display.outputTotalLength
+                ? i18n._({
+                    id: 'renderers.showingLatestLoadEarlier',
+                    message:
+                      'Showing the latest output window. Load earlier output to reveal more command history.',
+                  })
+                : i18n._({
+                    id: 'renderers.showingLatestOutputWindow',
+                    message: 'Showing the latest output window.',
+                  })}
+          </div>
+          <div className="conversation-tool-call__actions">
+            <button
+              className="ide-button ide-button--secondary"
+              onClick={() => onRequestFullTurn?.(turnId, display.itemId)}
+              type="button"
+            >
+              {i18n._({ id: 'Load earlier output', message: 'Load earlier output' })}
+            </button>
+          </div>
+        </>
+      ) : null}
+    </>
+  )
+}
 
 function SystemTimelineCard({
   className,
@@ -3024,6 +3245,130 @@ function outputLineLabel(output: string, lineCountOverride?: number | null) {
   return lineCountLabel(lineCount)
 }
 
+function readCommandExecutionDisplay(item: Record<string, unknown>) {
+  return {
+    itemId: stringField(item.id) || undefined,
+    command: stringField(item.command),
+    output: stringField(item.aggregatedOutput),
+    outputContentMode: stringField(item.outputContentMode),
+    outputStartLine: integerField(item.outputStartLine),
+    outputEndLine: integerField(item.outputEndLine),
+    outputTotalLength: integerField(item.outputTotalLength),
+    outputLineCount: integerField(item.outputLineCount),
+    status: stringField(item.status),
+    summaryTruncated: booleanField(item.summaryTruncated) === true,
+  }
+}
+
+function commandExecutionFallbackLabel() {
+  return i18n._({
+    id: 'renderers.commandExecution',
+    message: 'Command execution',
+  })
+}
+
+function commandExecutionCountLabel(count: number) {
+  return i18n._({
+    id: 'renderers.commandExecutionCount',
+    message: '{count, plural, one {# command} other {# commands}}',
+    values: { count },
+  })
+}
+
+function commandExecutionGroupItems(item: Record<string, unknown>) {
+  return Array.isArray(item.items)
+    ? item.items.filter(
+        (entry): entry is Record<string, unknown> =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          stringField((entry as Record<string, unknown>).type) === 'commandExecution',
+      )
+    : []
+}
+
+function commandExecutionGroupEntryKey(item: Record<string, unknown>, index: number) {
+  return stringField(item.id) || `index:${index}`
+}
+
+function commandExecutionEntryMeta(item: Record<string, unknown>) {
+  const display = readCommandExecutionDisplay(item)
+  return [
+    display.status ? humanizeToolStatus(display.status) : '',
+    outputLineLabel(display.output, display.outputLineCount) ?? '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function commandExecutionGroupStatusTone(items: Record<string, unknown>[]) {
+  let hasRunning = false
+  let hasSuccess = false
+
+  for (const item of items) {
+    const display = readCommandExecutionDisplay(item)
+    const effectiveStatus =
+      display.status || (!display.command && !display.output ? 'inProgress' : '')
+    const tone = statusToneFromValue(effectiveStatus)
+    if (tone === 'error') {
+      return 'error'
+    }
+    if (tone === 'running') {
+      hasRunning = true
+    }
+    if (tone === 'success') {
+      hasSuccess = true
+    }
+  }
+
+  if (hasRunning) {
+    return 'running'
+  }
+  if (hasSuccess && items.every((item) => statusToneFromValue(readCommandExecutionDisplay(item).status) === 'success')) {
+    return 'success'
+  }
+  return undefined
+}
+
+function commandExecutionGroupSummary(items: Record<string, unknown>[]) {
+  const countLabel = commandExecutionCountLabel(items.length)
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const command = readCommandExecutionDisplay(items[index]).command
+    if (command) {
+      return i18n._({
+        id: 'renderers.commandGroupLatestSummary',
+        message: '{count} · Latest: {command}',
+        values: {
+          count: countLabel,
+          command: truncateMiddle(command, 72),
+        },
+      })
+    }
+  }
+
+  return countLabel
+}
+
+function isCommandExecutionItem(item: Record<string, unknown>) {
+  return stringField(item.type) === 'commandExecution'
+}
+
+function createCommandExecutionGroupItem(items: Record<string, unknown>[]) {
+  return {
+    id: commandExecutionGroupId(items),
+    items,
+    type: COMMAND_EXECUTION_GROUP_TYPE,
+  }
+}
+
+function commandExecutionGroupId(items: Record<string, unknown>[]) {
+  const firstId = stringField(items[0]?.id)
+  const lastId = stringField(items[items.length - 1]?.id)
+  if (!firstId && !lastId) {
+    return ''
+  }
+  return `command-group:${items.length}:${firstId}:${lastId}`
+}
+
 function planCardSummary(steps: string[]) {
   if (!steps.length) {
     return i18n._({ id: 'No steps', message: 'No steps' })
@@ -3737,6 +4082,10 @@ function estimateConversationEntryHeight(entry: ConversationEntry) {
       const lineCount = integerField(entry.item.outputLineCount) ?? countOutputLines(output)
       return 140 + Math.min(lineCount, 12) * 18
     }
+    case COMMAND_EXECUTION_GROUP_TYPE: {
+      const items = commandExecutionGroupItems(entry.item)
+      return 92 + Math.min(items.length, 8) * 34
+    }
     case 'contextCompaction':
       return 116
     case 'turnPlan':
@@ -3873,6 +4222,30 @@ function collectTurnConversationEntries(turn: ThreadTurn) {
   const turnItems = Array.isArray(turn.items) ? turn.items : []
   for (let itemIndex = 0; itemIndex < turnItems.length; itemIndex += 1) {
     const item = turnItems[itemIndex]
+    if (isCommandExecutionItem(item)) {
+      const commandItems: Record<string, unknown>[] = [item]
+      let nextIndex = itemIndex + 1
+      while (
+        nextIndex < turnItems.length &&
+        isCommandExecutionItem(turnItems[nextIndex])
+      ) {
+        commandItems.push(turnItems[nextIndex])
+        nextIndex += 1
+      }
+
+      if (commandItems.length >= COMMAND_EXECUTION_GROUP_MIN_COUNT) {
+        const groupItem = createCommandExecutionGroupItem(commandItems)
+        entries.push({
+          kind: 'item',
+          key: buildConversationEntryItemKey(turn.id, groupItem, itemIndex),
+          item: groupItem,
+          turnId: turn.id,
+        })
+        itemIndex = nextIndex - 1
+        continue
+      }
+    }
+
     const omissionReason = conversationEntryOmissionReason(item)
     if (omissionReason) {
       if (threadTimelinePlaceholderFirst) {
