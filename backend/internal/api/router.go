@@ -2675,6 +2675,10 @@ func (s *Server) handleGetThreadBotBinding(w http.ResponseWriter, r *http.Reques
 
 	binding, err := s.bots.GetThreadBotBinding(workspaceID, threadID)
 	if err != nil {
+		if errors.Is(err, store.ErrThreadBotBindingNotFound) {
+			writeJSON(w, http.StatusOK, nil)
+			return
+		}
 		s.writeStoreError(w, err)
 		return
 	}

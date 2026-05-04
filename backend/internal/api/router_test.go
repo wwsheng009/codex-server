@@ -4486,15 +4486,23 @@ func TestThreadBotBindingRoutesSupportBindGetAndDelete(t *testing.T) {
 		t.Fatal("expected thread bot binding to be removed")
 	}
 
-	notFoundResponse := performJSONRequest(
+	emptyResponse := performJSONRequest(
 		t,
 		router,
 		http.MethodGet,
 		"/api/workspaces/"+workspaceRecord.ID+"/threads/"+thread.ID+"/bot-channel-binding",
 		"",
 	)
-	if notFoundResponse.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 after deleting thread bot binding, got %d", notFoundResponse.Code)
+	if emptyResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 after deleting thread bot binding, got %d", emptyResponse.Code)
+	}
+
+	var empty struct {
+		Data any `json:"data"`
+	}
+	decodeResponseBody(t, emptyResponse, &empty)
+	if empty.Data != nil {
+		t.Fatalf("expected empty binding response after deleting thread bot binding, got %#v", empty.Data)
 	}
 }
 
