@@ -21851,3 +21851,87 @@ msgstr ""
 "\n"
 "用户请求：\n"
 "{{user_request}}"
+
+#. js-lingui-explicit-id
+msgid "Active Endpoints"
+msgstr "Active Endpoints"
+
+#. js-lingui-explicit-id
+msgid "All bots"
+msgstr "All bots"
+
+#. js-lingui-explicit-id
+msgid "Bot ID"
+msgstr "Bot ID"
+
+#. js-lingui-explicit-id
+msgid "Connection Overview"
+msgstr "Connection Overview"
+
+#. js-lingui-explicit-id
+msgid "Current Bot"
+msgstr "Current Bot"
+
+#. js-lingui-explicit-id
+msgid "Detail"
+msgstr "Detail"
+
+#. js-lingui-explicit-id
+msgid "Endpoint Directory"
+msgstr "Endpoint Directory"
+
+#. js-lingui-explicit-id
+msgid "Inspect endpoint records from a dedicated list view, then jump into detail, overview, logs, or edit actions without folding them into the bot directory."
+msgstr "Inspect endpoint records from a dedicated list view, then jump into detail, overview, logs, or edit actions without folding them into the bot directory."
+
+#. js-lingui-explicit-id
+msgid "Inspect the endpoints attached to {botName}, then jump into detail, overview, logs, or edit actions without folding them into the bot directory."
+msgstr "Inspect the endpoints attached to {botName}, then jump into detail, overview, logs, or edit actions without folding them into the bot directory."
+
+#. js-lingui-explicit-id
+msgid "Manage saved WeChat accounts in Settings."
+msgstr "Manage saved WeChat accounts in Settings."
+
+#. js-lingui-explicit-id
+msgid "No endpoints for {botName} match the current search."
+msgstr "No endpoints for {botName} match the current search."
+
+#. js-lingui-explicit-id
+msgid "No endpoints match the current search."
+msgstr "No endpoints match the current search."
+
+#. js-lingui-explicit-id
+msgid "No endpoints with active status match the current search and filters."
+msgstr "No endpoints with active status match the current search and filters."
+
+#. js-lingui-explicit-id
+msgid "No endpoints yet. Create a bot first, then attach one or more endpoints to it."
+msgstr "No endpoints yet. Create a bot first, then attach one or more endpoints to it."
+
+#. js-lingui-explicit-id
+msgid "Restrict the list to active endpoints that can still be used for inspection, logs, and outbound operations."
+msgstr "Restrict the list to active endpoints that can still be used for inspection, logs, and outbound operations."
+
+#. js-lingui-explicit-id
+msgid "Search Endpoints"
+msgstr "Search Endpoints"
+
+#. js-lingui-explicit-id
+msgid "Search endpoints by endpoint name, bot name, provider, backend, status, or linked WeChat account metadata."
+msgstr "Search endpoints by endpoint name, bot name, provider, backend, status, or linked WeChat account metadata."
+
+#. js-lingui-explicit-id
+msgid "Search endpoints for {botName} by endpoint name, provider, backend, status, or linked WeChat account metadata."
+msgstr "Search endpoints for {botName} by endpoint name, provider, backend, status, or linked WeChat account metadata."
+
+#. js-lingui-explicit-id
+msgid "Selected"
+msgstr "Selected"
+
+#. js-lingui-explicit-id
+msgid "Telegram endpoint, workspace_thread, alerts, retry"
+msgstr "Telegram endpoint, workspace_thread, alerts, retry"
+
+#. js-lingui-explicit-id
+msgid "Unknown bot"
+msgstr "Unknown bot"

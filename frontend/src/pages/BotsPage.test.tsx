@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '../i18n/runtime'
@@ -14,7 +14,6 @@ const botsApiState = vi.hoisted(() => ({
   listBotBindings: vi.fn(),
   listBotDeliveryTargets: vi.fn(),
   listBotOutboundDeliveries: vi.fn(),
-  listBotTriggers: vi.fn(),
   listBotConversations: vi.fn(),
   listBotConnectionRecipientCandidates: vi.fn(),
 }))
@@ -42,7 +41,6 @@ vi.mock('../features/bots/api', async () => {
     listBotBindings: botsApiState.listBotBindings,
     listBotDeliveryTargets: botsApiState.listBotDeliveryTargets,
     listBotOutboundDeliveries: botsApiState.listBotOutboundDeliveries,
-    listBotTriggers: botsApiState.listBotTriggers,
     listBotConversations: botsApiState.listBotConversations,
     listBotConnectionRecipientCandidates: botsApiState.listBotConnectionRecipientCandidates,
   }
@@ -75,13 +73,14 @@ vi.mock('../hooks/useWorkspaceStream', async () => {
 
 describe('BotsPage', () => {
   let BotsPageComponent: Awaited<typeof import('./BotsPage')>['BotsPage']
+  let BotsEndpointsPageComponent: Awaited<typeof import('./BotsPage')>['BotsEndpointsPage']
 
   beforeAll(() => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
   })
 
   beforeAll(async () => {
-    ;({ BotsPage: BotsPageComponent } = await import('./BotsPage'))
+    ;({ BotsPage: BotsPageComponent, BotsEndpointsPage: BotsEndpointsPageComponent } = await import('./BotsPage'))
   })
 
   beforeEach(() => {
@@ -123,7 +122,6 @@ describe('BotsPage', () => {
     botsApiState.listBotBindings.mockResolvedValue([])
     botsApiState.listBotDeliveryTargets.mockResolvedValue([])
     botsApiState.listBotOutboundDeliveries.mockResolvedValue([])
-    botsApiState.listBotTriggers.mockResolvedValue([])
     botsApiState.listBotConversations.mockResolvedValue([])
     botsApiState.listBotConnectionRecipientCandidates.mockResolvedValue([])
 
@@ -176,10 +174,41 @@ describe('BotsPage', () => {
     expect(botsApiState.listBotBindings.mock.calls).toHaveLength(1)
     expect(botsApiState.listBotDeliveryTargets.mock.calls).toHaveLength(1)
     expect(botsApiState.listBotOutboundDeliveries.mock.calls).toHaveLength(1)
-    expect(botsApiState.listBotTriggers.mock.calls).toHaveLength(1)
   })
 
-  it('opens the configuration summary in a modal from the compact preview', async () => {
+  it('does not render a page-level endpoints directory', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/bots']}>
+          <BotsPageComponent />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Solo Bot').length).toBeGreaterThan(0)
+    })
+
+    expect(screen.queryByRole('button', { name: 'New Endpoint' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Select a bot first, then choose which endpoint you want to inspect.'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Selected Endpoint')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Detail' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Logs' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Overview' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Saved WeChat Accounts')).not.toBeInTheDocument()
+  })
+
+  it('opens the bot details modal from the info action', async () => {
     botsApiState.listAllBots.mockResolvedValue([
       {
         id: 'bot-1',
@@ -246,14 +275,387 @@ describe('BotsPage', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Open Details' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Info' })).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Details' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Info' }))
 
-    const dialog = await screen.findByRole('dialog', { name: 'Configuration Summary' })
-    expect(within(dialog).getByText('Endpoint ID')).toBeInTheDocument()
-    expect(within(dialog).getByText('Provider')).toBeInTheDocument()
-    expect(within(dialog).getByText('Delivery Mode')).toBeInTheDocument()
+    const dialog = await screen.findByRole('dialog', { name: 'Bot Details' })
+    expect(within(dialog).getByText('Bot Summary')).toBeInTheDocument()
+    expect(within(dialog).getByText('Primary Endpoint')).toBeInTheDocument()
+    expect(within(dialog).getByText('Telegram Endpoint')).toBeInTheDocument()
+  })
+
+  it('navigates to the endpoints page from the bot list action', async () => {
+    botsApiState.listAllBots.mockResolvedValue([
+      {
+        id: 'bot-1',
+        workspaceId: 'ws-1',
+        scope: 'workspace',
+        sharingMode: 'owner_only',
+        sharedWorkspaceIds: [],
+        name: 'Solo Bot',
+        description: 'Bot with one endpoint',
+        status: 'active',
+        defaultBindingId: null,
+        defaultBindingMode: null,
+        defaultTargetWorkspaceId: null,
+        defaultTargetThreadId: null,
+        endpointCount: 1,
+        conversationCount: 0,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+    botsApiState.listAllBotConnections.mockResolvedValue([
+      {
+        id: 'conn-1',
+        botId: 'bot-1',
+        workspaceId: 'ws-1',
+        provider: 'telegram',
+        name: 'Telegram Endpoint',
+        status: 'active',
+        aiBackend: 'workspace_thread',
+        aiConfig: {
+          permission_preset: 'default',
+        },
+        settings: {
+          telegram_delivery_mode: 'webhook',
+          runtime_mode: 'normal',
+          command_output_mode: 'brief',
+        },
+        capabilities: ['supportsTextOutbound', 'supportsSessionlessPush'],
+        secretKeys: ['telegram_bot_token'],
+        lastPollAt: null,
+        lastPollStatus: null,
+        lastPollMessage: null,
+        lastPollMessageKey: null,
+        lastPollMessageParams: null,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/bots']}>
+          <Routes>
+            <Route path="/bots" element={<BotsPageComponent />} />
+            <Route path="/bots/endpoints" element={<BotsEndpointsPageComponent />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Endpoints' })).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Solo Bot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(within(screen.getByText('Solo Bot').closest('tr') as HTMLElement).getByRole('button', { name: 'Endpoints' }))
+
+    expect(await screen.findByRole('heading', { name: 'Endpoint Directory' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'New Endpoint' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Detail' })).toBeInTheDocument()
+  })
+
+  it('opens the connection overview popup from the endpoint list action', async () => {
+    botsApiState.listAllBots.mockResolvedValue([
+      {
+        id: 'bot-1',
+        workspaceId: 'ws-1',
+        scope: 'workspace',
+        sharingMode: 'owner_only',
+        sharedWorkspaceIds: [],
+        name: 'Solo Bot',
+        description: 'Bot with one endpoint',
+        status: 'active',
+        defaultBindingId: null,
+        defaultBindingMode: null,
+        defaultTargetWorkspaceId: null,
+        defaultTargetThreadId: null,
+        endpointCount: 1,
+        conversationCount: 0,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+    botsApiState.listAllBotConnections.mockResolvedValue([
+      {
+        id: 'conn-1',
+        botId: 'bot-1',
+        workspaceId: 'ws-1',
+        provider: 'telegram',
+        name: 'Telegram Endpoint',
+        status: 'active',
+        aiBackend: 'workspace_thread',
+        aiConfig: {
+          permission_preset: 'default',
+        },
+        settings: {
+          telegram_delivery_mode: 'webhook',
+          runtime_mode: 'normal',
+          command_output_mode: 'brief',
+        },
+        capabilities: ['supportsTextOutbound', 'supportsSessionlessPush'],
+        secretKeys: ['telegram_bot_token'],
+        lastPollAt: null,
+        lastPollStatus: null,
+        lastPollMessage: null,
+        lastPollMessageKey: null,
+        lastPollMessageParams: null,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/bots']}>
+          <Routes>
+            <Route path="/bots" element={<BotsPageComponent />} />
+            <Route path="/bots/endpoints" element={<BotsEndpointsPageComponent />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Endpoints' })).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Solo Bot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(within(screen.getByText('Solo Bot').closest('tr') as HTMLElement).getByRole('button', { name: 'Endpoints' }))
+
+    await screen.findByRole('heading', { name: 'Endpoint Directory' })
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+
+    const overviewDialog = await screen.findByRole('dialog', { name: 'Connection Overview' })
+    expect(within(overviewDialog).getByText('Endpoint ID')).toBeInTheDocument()
+    expect(within(overviewDialog).getByText('conn-1')).toBeInTheDocument()
+  })
+
+  it('opens the new endpoint modal from the endpoints page header', async () => {
+    botsApiState.listAllBots.mockResolvedValue([
+      {
+        id: 'bot-1',
+        workspaceId: 'ws-1',
+        scope: 'workspace',
+        sharingMode: 'owner_only',
+        sharedWorkspaceIds: [],
+        name: 'Solo Bot',
+        description: 'Bot with one endpoint',
+        status: 'active',
+        defaultBindingId: null,
+        defaultBindingMode: null,
+        defaultTargetWorkspaceId: null,
+        defaultTargetThreadId: null,
+        endpointCount: 1,
+        conversationCount: 0,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+    botsApiState.listAllBotConnections.mockResolvedValue([
+      {
+        id: 'conn-1',
+        botId: 'bot-1',
+        workspaceId: 'ws-1',
+        provider: 'telegram',
+        name: 'Telegram Endpoint',
+        status: 'active',
+        aiBackend: 'workspace_thread',
+        aiConfig: {
+          permission_preset: 'default',
+        },
+        settings: {
+          telegram_delivery_mode: 'webhook',
+          runtime_mode: 'normal',
+          command_output_mode: 'brief',
+        },
+        capabilities: ['supportsTextOutbound', 'supportsSessionlessPush'],
+        secretKeys: ['telegram_bot_token'],
+        lastPollAt: null,
+        lastPollStatus: null,
+        lastPollMessage: null,
+        lastPollMessageKey: null,
+        lastPollMessageParams: null,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/bots/endpoints?workspaceId=ws-1&botId=bot-1&connectionId=conn-1']}>
+          <BotsEndpointsPageComponent />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByRole('button', { name: 'New Endpoint' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'New Endpoint' }))
+
+    expect(await screen.findByRole('dialog', { name: 'New Endpoint' })).toBeInTheDocument()
+  })
+
+  it('filters the endpoints page by bot id and shows the current bot context', async () => {
+    botsApiState.listAllBots.mockResolvedValue([
+      {
+        id: 'bot-1',
+        workspaceId: 'ws-1',
+        scope: 'workspace',
+        sharingMode: 'owner_only',
+        sharedWorkspaceIds: [],
+        name: 'Solo Bot',
+        description: 'Bot with one endpoint',
+        status: 'active',
+        defaultBindingId: null,
+        defaultBindingMode: null,
+        defaultTargetWorkspaceId: null,
+        defaultTargetThreadId: null,
+        endpointCount: 1,
+        conversationCount: 0,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+      {
+        id: 'bot-2',
+        workspaceId: 'ws-1',
+        scope: 'workspace',
+        sharingMode: 'owner_only',
+        sharedWorkspaceIds: [],
+        name: 'Ops Bot',
+        description: 'Bot with a different endpoint',
+        status: 'active',
+        defaultBindingId: null,
+        defaultBindingMode: null,
+        defaultTargetWorkspaceId: null,
+        defaultTargetThreadId: null,
+        endpointCount: 1,
+        conversationCount: 0,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+    botsApiState.listAllBotConnections.mockResolvedValue([
+      {
+        id: 'conn-1',
+        botId: 'bot-1',
+        workspaceId: 'ws-1',
+        provider: 'telegram',
+        name: 'Telegram Endpoint',
+        status: 'active',
+        aiBackend: 'workspace_thread',
+        aiConfig: {
+          permission_preset: 'default',
+        },
+        settings: {
+          telegram_delivery_mode: 'webhook',
+          runtime_mode: 'normal',
+          command_output_mode: 'brief',
+        },
+        capabilities: ['supportsTextOutbound', 'supportsSessionlessPush'],
+        secretKeys: ['telegram_bot_token'],
+        lastPollAt: null,
+        lastPollStatus: null,
+        lastPollMessage: null,
+        lastPollMessageKey: null,
+        lastPollMessageParams: null,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+      {
+        id: 'conn-2',
+        botId: 'bot-2',
+        workspaceId: 'ws-1',
+        provider: 'telegram',
+        name: 'Ops Endpoint',
+        status: 'active',
+        aiBackend: 'workspace_thread',
+        aiConfig: {
+          permission_preset: 'default',
+        },
+        settings: {
+          telegram_delivery_mode: 'webhook',
+          runtime_mode: 'normal',
+          command_output_mode: 'brief',
+        },
+        capabilities: ['supportsTextOutbound', 'supportsSessionlessPush'],
+        secretKeys: ['telegram_bot_token'],
+        lastPollAt: null,
+        lastPollStatus: null,
+        lastPollMessage: null,
+        lastPollMessageKey: null,
+        lastPollMessageParams: null,
+        createdAt: '2026-04-23T00:00:00.000Z',
+        updatedAt: '2026-04-23T00:00:00.000Z',
+      },
+    ])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/bots/endpoints?workspaceId=ws-1&botId=bot-1&connectionId=conn-1']}>
+          <BotsEndpointsPageComponent />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      const currentFilterStat = screen.getByText('Current Filter').closest('.detail-stat') as HTMLElement
+      expect(currentFilterStat).toBeInTheDocument()
+      expect(within(currentFilterStat).getByText('Alpha Workspace')).toBeInTheDocument()
+
+      const activeBotsStat = screen.getByText('Visible Active Bots').closest('.detail-stat') as HTMLElement
+      expect(activeBotsStat).toBeInTheDocument()
+      expect(within(activeBotsStat).getByText('2')).toBeInTheDocument()
+
+      const currentBotCard = screen.getByText('Current Bot').closest('.bots-page-filter-card') as HTMLElement
+      expect(currentBotCard).toBeInTheDocument()
+      expect(within(currentBotCard).getByText('Selected')).toBeInTheDocument()
+      expect(within(currentBotCard).getByText('Solo Bot')).toBeInTheDocument()
+      expect(within(currentBotCard).getByText('Bot ID')).toBeInTheDocument()
+      expect(within(currentBotCard).getByText('bot-1')).toBeInTheDocument()
+    })
+
+    expect(await screen.findByText('Telegram Endpoint')).toBeInTheDocument()
+    expect(screen.queryByText('Ops Endpoint')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ops Bot')).not.toBeInTheDocument()
   })
 })

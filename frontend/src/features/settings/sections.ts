@@ -39,6 +39,15 @@ export function getSettingsSections() {
       caption: i18n._({ id: 'settings.mcp.caption', message: 'Server authorization and integration setup.' }),
     },
     {
+      id: 'wechat-accounts',
+      to: '/settings/wechat-accounts',
+      label: i18n._({ id: 'WeChat Accounts', message: 'WeChat Accounts' }),
+      caption: i18n._({
+        id: 'settings.wechat_accounts.caption',
+        message: 'Saved QR logins and reusable account records.',
+      }),
+    },
+    {
       id: 'feishu-tools',
       to: '/settings/feishu-tools',
       label: i18n._({ id: 'Feishu Tools', message: 'Feishu Tools' }),

@@ -38,6 +38,7 @@ import {
   matchesWeChatAccountSearch,
   resolveBotConnectionPublicBaseUrl,
   resolveBotCommandOutputMode,
+  resolveBotDefaultBindingMode,
   resolveBotConversationBindingMode,
   resolveBotConversationThreadTarget,
   resolveFeishuStreamingPlainTextStrategy,
@@ -525,6 +526,12 @@ describe('botsPageUtils', () => {
     expect(formatFeishuStreamingPlainTextStrategyLabel(undefined, FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY)).toBe(
       'Update One Message',
     )
+  })
+
+  it('resolves the effective default binding mode from the primary backend', () => {
+    expect(resolveBotDefaultBindingMode(undefined, 'workspace_thread')).toBe('workspace_auto_thread')
+    expect(resolveBotDefaultBindingMode(undefined, 'openai_responses')).toBe('stateless')
+    expect(resolveBotDefaultBindingMode('fixed_thread', 'workspace_thread')).toBe('fixed_thread')
   })
 
   it('formats workspace thread permission presets with a safe default', () => {

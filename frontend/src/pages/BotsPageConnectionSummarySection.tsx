@@ -60,10 +60,13 @@ export type BotsPageConnectionSummarySectionProps = {
   connection: BotConnection
   latestOutboundDelivery: BotOutboundDelivery | null
   latestDeliveredOutboundDelivery: BotOutboundDelivery | null
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   providerSettings: BotsPageConnectionProviderSettings
   summaryCounts: BotsPageConnectionSummaryCounts
   summaryLabels: BotsPageConnectionSummaryLabels
   suppressionSummary: BotsPageConnectionSuppressionSummary
+  showCard?: boolean
   wechatAccount: WeChatAccount | null
 }
 
@@ -123,72 +126,88 @@ export function BotsPageConnectionSummarySection({
   connection,
   latestDeliveredOutboundDelivery,
   latestOutboundDelivery,
+  onOpenChange,
+  open,
   mode,
   providerSettings,
   summaryCounts,
   summaryLabels,
   suppressionSummary,
+  showCard = true,
   wechatAccount,
 }: BotsPageConnectionSummarySectionProps) {
-  const [summaryModalOpen, setSummaryModalOpen] = useState(false)
+  const [internalSummaryModalOpen, setInternalSummaryModalOpen] = useState(false)
+  const isControlled = open !== undefined
+  const summaryModalOpen = isControlled ? open : internalSummaryModalOpen
+
+  function setSummaryModalOpen(nextOpen: boolean) {
+    if (!isControlled) {
+      setInternalSummaryModalOpen(nextOpen)
+    }
+    onOpenChange?.(nextOpen)
+  }
 
   useEffect(() => {
-    setSummaryModalOpen(false)
-  }, [connection.id, mode])
+    if (!isControlled) {
+      setInternalSummaryModalOpen(false)
+    }
+  }, [connection.id, isControlled, mode])
 
   const provider = connection.provider.trim().toLowerCase()
   const providerLabel = formatBotProviderLabel(connection.provider)
   const backendLabel = formatBotBackendLabel(connection.aiBackend)
   const title =
     mode === 'config'
-      ? i18n._({ id: 'Configuration Summary', message: 'Configuration Summary' })
+      ? i18n._({ id: 'Connection Overview', message: 'Connection Overview' })
       : i18n._({ id: 'Outbound Summary', message: 'Outbound Summary' })
 
   return (
     <>
-      <div className="config-summary-card">
-        <div className="config-summary-card__header">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-            <span>{i18n._({ id: 'Endpoint ID', message: 'Endpoint ID' })}</span>
-            <strong dir="auto">{connection.id}</strong>
+      {showCard ? (
+        <div className="config-summary-card">
+          <div className="config-summary-card__header">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+              <span>{i18n._({ id: 'Endpoint ID', message: 'Endpoint ID' })}</span>
+              <strong dir="auto">{connection.id}</strong>
+            </div>
+            <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <StatusPill status={connection.status} />
+              <Button intent="secondary" onClick={() => setSummaryModalOpen(true)} size="sm" type="button">
+                {i18n._({ id: 'Overview', message: 'Overview' })}
+              </Button>
+            </div>
           </div>
-          <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            <StatusPill status={connection.status} />
-            <Button intent="secondary" onClick={() => setSummaryModalOpen(true)} size="sm" type="button">
-              {i18n._({ id: 'Open Details', message: 'Open Details' })}
-            </Button>
-          </div>
-        </div>
 
-        <div className="config-summary-card__grid">
-          {mode === 'config' ? (
-            <>
-              <SummaryTile label={i18n._({ id: 'Provider', message: 'Provider' })} tone="accent" value={providerLabel} />
-              <SummaryTile
-                label={i18n._({ id: 'Delivery Mode', message: 'Delivery Mode' })}
-                value={summaryLabels.deliveryModeLabel || i18n._({ id: 'None', message: 'None' })}
-              />
-              <SummaryTile label={i18n._({ id: 'AI Backend', message: 'AI Backend' })} value={backendLabel} />
-            </>
-          ) : (
-            <>
-              <SummaryTile
-                label={i18n._({ id: 'Recipients', message: 'Recipients' })}
-                tone="accent"
-                value={summaryCounts.deliveryTargetCount}
-              />
-              <SummaryTile
-                label={i18n._({ id: 'Outbound Deliveries', message: 'Outbound Deliveries' })}
-                value={summaryCounts.outboundDeliveryCount}
-              />
-              <SummaryTile
-                label={i18n._({ id: 'Conversation Records', message: 'Conversation Records' })}
-                value={summaryCounts.conversationCount}
-              />
-            </>
-          )}
+          <div className="config-summary-card__grid">
+            {mode === 'config' ? (
+              <>
+                <SummaryTile label={i18n._({ id: 'Provider', message: 'Provider' })} tone="accent" value={providerLabel} />
+                <SummaryTile
+                  label={i18n._({ id: 'Delivery Mode', message: 'Delivery Mode' })}
+                  value={summaryLabels.deliveryModeLabel || i18n._({ id: 'None', message: 'None' })}
+                />
+                <SummaryTile label={i18n._({ id: 'AI Backend', message: 'AI Backend' })} value={backendLabel} />
+              </>
+            ) : (
+              <>
+                <SummaryTile
+                  label={i18n._({ id: 'Recipients', message: 'Recipients' })}
+                  tone="accent"
+                  value={summaryCounts.deliveryTargetCount}
+                />
+                <SummaryTile
+                  label={i18n._({ id: 'Outbound Deliveries', message: 'Outbound Deliveries' })}
+                  value={summaryCounts.outboundDeliveryCount}
+                />
+                <SummaryTile
+                  label={i18n._({ id: 'Conversation Records', message: 'Conversation Records' })}
+                  value={summaryCounts.conversationCount}
+                />
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {summaryModalOpen ? (
         <Modal

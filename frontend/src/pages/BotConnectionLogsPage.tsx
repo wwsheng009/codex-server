@@ -19,6 +19,7 @@ import {
 import { formatLocalizedStatusLabel } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import { getErrorMessage } from '../lib/error-utils'
+import { buildBotEndpointsRoute } from '../lib/bot-routes'
 import {
   formatBotBackendLabel,
   formatBotCommandOutputModeLabel,
@@ -47,7 +48,12 @@ export function BotConnectionLogsPage() {
       navigate(-1)
       return
     }
-    navigate('/bots')
+    const connection = connectionQuery.data
+    if (connection) {
+      navigate(buildBotEndpointsRoute(connection.workspaceId, connection.botId ?? '', connection.id))
+      return
+    }
+    navigate('/bots/endpoints')
   }
 
   const connectionQuery = useQuery({
@@ -148,7 +154,7 @@ export function BotConnectionLogsPage() {
         </InlineNotice>
         <div className="header-actions">
           <Button intent="secondary" onClick={handleBack}>
-            {i18n._({ id: 'Back to Bots', message: 'Back to Bots' })}
+            {i18n._({ id: 'Back to Endpoints', message: 'Back to Endpoints' })}
           </Button>
         </div>
       </section>
@@ -166,7 +172,7 @@ export function BotConnectionLogsPage() {
         actions={
           <div className="header-actions">
             <Button intent="secondary" onClick={handleBack}>
-              {i18n._({ id: 'Back to Bots', message: 'Back to Bots' })}
+              {i18n._({ id: 'Back to Endpoints', message: 'Back to Endpoints' })}
             </Button>
           </div>
         }

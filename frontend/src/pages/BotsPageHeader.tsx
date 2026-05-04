@@ -8,11 +8,12 @@ type BotsPageHeaderProps = {
   currentMetricValue: number
   isConfigMode: boolean
   isOutboundMode: boolean
-  canOpenCreateConnection: boolean
+  isEndpointsMode: boolean
   onOpenCreateBot: () => void
-  onOpenCreateConnection: () => void
+  onOpenCreateEndpoint: () => void
   onSwitchToConfig: () => void
   onSwitchToOutbound: () => void
+  onSwitchToEndpoints: () => void
   pageDescription: string
   pageEyebrow: string
   pageTitle: string
@@ -23,13 +24,14 @@ export function BotsPageHeader({
   connectionsCount,
   currentMetricLabel,
   currentMetricValue,
-  canOpenCreateConnection,
   isConfigMode,
   isOutboundMode,
+  isEndpointsMode,
   onOpenCreateBot,
-  onOpenCreateConnection,
+  onOpenCreateEndpoint,
   onSwitchToConfig,
   onSwitchToOutbound,
+  onSwitchToEndpoints,
   pageDescription,
   pageEyebrow,
   pageTitle,
@@ -39,7 +41,7 @@ export function BotsPageHeader({
       <div className="mode-strip__copy">
         <div className="mode-strip__eyebrow">{pageEyebrow}</div>
         <div className="mode-strip__title-row">
-          <strong>{pageTitle}</strong>
+          <h1 className="mode-strip__title">{pageTitle}</h1>
         </div>
         <div className="mode-strip__description">{pageDescription}</div>
         <div className="segmented-control" style={{ marginTop: '14px', width: 'fit-content' }}>
@@ -60,6 +62,17 @@ export function BotsPageHeader({
             type="button"
           >
             {i18n._({ id: 'Outbound', message: 'Outbound' })}
+          </Button>
+          <Button
+            aria-pressed={isEndpointsMode}
+            className={
+              isEndpointsMode ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'
+            }
+            intent={isEndpointsMode ? 'secondary' : 'ghost'}
+            onClick={onSwitchToEndpoints}
+            type="button"
+          >
+            {i18n._({ id: 'Endpoints', message: 'Endpoints' })}
           </Button>
         </div>
       </div>
@@ -83,7 +96,10 @@ export function BotsPageHeader({
             <Button intent="secondary" onClick={onOpenCreateBot}>
               {i18n._({ id: 'New Bot', message: 'New Bot' })}
             </Button>
-            <Button disabled={!canOpenCreateConnection} onClick={onOpenCreateConnection}>
+          </div>
+        ) : isEndpointsMode ? (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button intent="secondary" onClick={onOpenCreateEndpoint}>
               {i18n._({ id: 'New Endpoint', message: 'New Endpoint' })}
             </Button>
           </div>

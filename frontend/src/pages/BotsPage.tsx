@@ -1,33 +1,23 @@
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toDataURL as toQRCodeDataURL } from 'qrcode'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
-import { Button } from '../components/ui/Button'
 import { InlineNotice } from '../components/ui/InlineNotice'
-import { Input } from '../components/ui/Input'
-import { LoadingState } from '../components/ui/LoadingState'
-import { Modal } from '../components/ui/Modal'
-import { SelectControl } from '../components/ui/SelectControl'
-import { StatusPill } from '../components/ui/StatusPill'
-import { Switch } from '../components/ui/Switch'
-import { TextArea } from '../components/ui/TextArea'
-import { Tooltip } from '../components/ui/Tooltip'
+import { BotsPageConnectionModal } from './BotsPageConnectionModal'
+import { BotsPageConnectionSummarySection } from './BotsPageConnectionSummarySection'
+import { BotsPageBotDetailsModal } from './BotsPageBotDetailsModal'
+import { BotsPageDirectorySection } from './BotsPageDirectorySection'
 import { BotsPageCreateBotModal } from './BotsPageCreateBotModal'
-import {
-  BotsPageConnectionSummarySection,
-  type BotsPageConnectionSummarySectionProps,
-} from './BotsPageConnectionSummarySection'
+import { BotsPageFilterSummarySection } from './BotsPageFilterSummarySection'
 import { BotsPageDialogs } from './BotsPageDialogs'
 import { BotsPageHeader } from './BotsPageHeader'
 import {
   clearBotConversationBinding,
   createBot,
-  createBotTrigger,
   createBotConnection,
   createBotConnectionForBot,
   deleteBotDeliveryTarget,
-  deleteBotTrigger,
   deleteWeChatAccount,
   deleteWeChatLogin,
   getWeChatLogin,
@@ -37,7 +27,6 @@ import {
   listBotDeliveryTargets,
   listBotConnectionRecipientCandidates,
   listBotOutboundDeliveries,
-  listBotTriggers,
   listAllBots,
   listAllBotConnections,
   listAllWeChatAccounts,
@@ -50,15 +39,11 @@ import {
   startWeChatLogin,
   upsertBotDeliveryTarget,
   updateBot,
-  updateBotTrigger,
   updateBotDeliveryTarget,
   updateBotConnection,
-  updateBotConnectionCommandOutputMode,
   updateBotConversationBinding,
-  updateBotConnectionRuntimeMode,
   updateBotDefaultBinding,
   updateWeChatAccount,
-  updateWeChatChannelTiming,
   type CreateBotInput,
   type UpdateBotInput,
   type UpdateBotDefaultBindingInput,
@@ -69,10 +54,14 @@ import {
 import { getThread, listThreadsPage } from '../features/threads/api'
 import { listWorkspaces } from '../features/workspaces/api'
 import { summarizeRecentBotConnectionSuppressions } from '../features/bots/logStreamUtils'
-import { formatLocalizedNumber, formatLocalizedStatusLabel, humanizeDisplayValue } from '../i18n/display'
+import { formatLocalizedNumber } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
 import { getBotOutboundErrorMessage, getErrorMessage } from '../lib/error-utils'
-import { buildWorkspaceThreadRoute } from '../lib/thread-routes'
+import {
+  buildBotConnectionDetailRoute,
+  buildBotConnectionLogsRoute,
+  buildBotEndpointsRoute,
+} from '../lib/bot-routes'
 import {
   BOT_OUTBOUND_MEDIA_KIND_ORDER,
   BOT_OUTBOUND_MEDIA_SOURCE_ORDER,
@@ -81,43 +70,28 @@ import {
   BOT_COMMAND_OUTPUT_MODE_FULL,
   BOT_COMMAND_OUTPUT_MODE_NONE,
   BOT_COMMAND_OUTPUT_MODE_SINGLE_LINE,
-  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
-  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE,
-  FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
   buildBotConnectionCreateInput,
   buildBotConnectionUpdateInput,
   buildBotsPageDraftFromConnection,
   collectBotOutboundMediaAdvisories,
-  countWeChatConnectionsForAccount,
   EMPTY_BOTS_PAGE_DRAFT,
-  formatBotBackendLabel,
   formatBotCommandOutputModeLabel,
-  formatBotConversationBindingModeLabel,
-  formatBotConversationBindingSourceLabel,
-  formatBotConversationTitle,
-  formatBotWorkspacePermissionPresetLabel,
-  formatBotProviderLabel,
   formatBotTimestamp,
   findWeChatAccountForConnection,
-  formatWeChatAccountLabel,
   isBotOutboundMediaKindSupported,
   isBotOutboundMediaSourceSupported,
   isBotWorkspacePermissionPresetFullAccess,
   listSupportedBotOutboundMediaKinds,
   listSupportedBotOutboundMediaSources,
-  listWeChatConnectionsForAccount,
   matchesBotConnectionSearch,
-  matchesWeChatAccountSearch,
   planBotOutboundMediaDelivery,
   planBotOutboundTextPlacement,
-  resolveBotBooleanSetting,
   resolveFeishuDeliveryMode,
-  resolveFeishuStreamingPlainTextStrategy,
   validateBotOutboundMediaLocation,
   resolveBotCommandOutputMode,
+  resolveBotBooleanSetting,
   resolveBotProvider,
   resolveBotConversationThreadTarget,
-  resolveWeChatChannelTimingEnabled,
   type BotsPageDraft,
   type BotOutboundMediaKind,
   type BotOutboundMediaSource,
@@ -131,38 +105,14 @@ import type {
   BotDeliveryTarget,
   BotMessageMedia,
   BotReplyMessage,
-  BotTrigger,
   Thread,
   WeChatAccount,
   WeChatLogin,
 } from '../types/api'
 import { useWorkspaceEventSubscription } from '../hooks/useWorkspaceStream'
 
-function HelpTooltip({ content }: { content: React.ReactNode }) {
-  return (
-    <Tooltip content={content}>
-      <span className="info-label__help">?</span>
-    </Tooltip>
-  )
-}
-
 function normalizeBotConversationDeliveryStatus(status?: string) {
   return status?.trim().toLowerCase() ?? ''
-}
-
-function botConversationDeliveryPillStatus(status?: string) {
-  switch (normalizeBotConversationDeliveryStatus(status)) {
-    case 'delivered':
-      return 'delivered'
-    case 'sending':
-      return 'sending'
-    case 'retrying':
-      return 'retrying'
-    case 'failed':
-      return 'failed'
-    default:
-      return ''
-  }
 }
 
 function formatWeChatLoginExpiresInLabel(expiresAt?: string, nowMs = Date.now()) {
@@ -216,72 +166,7 @@ function formatWeChatLoginExpiresInLabel(expiresAt?: string, nowMs = Date.now())
   return `${minutesLabel} ${secondsLabel}`
 }
 
-function summarizeBotConversationDeliveryError(error?: string) {
-  const trimmed = error?.trim() ?? ''
-  if (!trimmed) {
-    return ''
-  }
-  return trimmed.length > 180 ? `${trimmed.slice(0, 177).trimEnd()}...` : trimmed
-}
-
-function summarizeBotReplyMessages(messages?: BotReplyMessage[] | null) {
-  const items = messages ?? []
-  if (!items.length) {
-    return ''
-  }
-
-  const summary = items
-    .map((message) => {
-      const parts: string[] = []
-      const text = message.text?.trim() ?? ''
-      if (text) {
-        parts.push(text)
-      }
-      const mediaCount = message.media?.length ?? 0
-      if (mediaCount > 0) {
-        parts.push(
-          i18n._({
-            id: '{count} attachment(s)',
-            message: '{count} attachment(s)',
-            values: { count: mediaCount },
-          }),
-        )
-      }
-      return parts.join(' | ')
-    })
-    .filter(Boolean)
-    .join(' / ')
-
-  if (!summary) {
-    return ''
-  }
-
-  return summary.length > 220 ? `${summary.slice(0, 217).trimEnd()}...` : summary
-}
-
-function formatBotScopeLabel(scope?: string | null) {
-  switch (scope?.trim().toLowerCase()) {
-    case 'global':
-      return i18n._({ id: 'Global', message: 'Global' })
-    case 'workspace':
-    default:
-      return i18n._({ id: 'Workspace-scoped', message: 'Workspace-scoped' })
-  }
-}
-
-function formatBotSharingModeLabel(sharingMode?: string | null) {
-  switch (sharingMode?.trim().toLowerCase()) {
-    case 'all_workspaces':
-      return i18n._({ id: 'All workspaces', message: 'All workspaces' })
-    case 'selected_workspaces':
-      return i18n._({ id: 'Selected workspaces', message: 'Selected workspaces' })
-    case 'owner_only':
-    default:
-      return i18n._({ id: 'Owner workspace only', message: 'Owner workspace only' })
-  }
-}
-
-type BotsPageMode = 'config' | 'outbound'
+type BotsPageMode = 'config' | 'outbound' | 'endpoints'
 
 type OutboundComposerMediaDraft = {
   id: string
@@ -325,42 +210,6 @@ function toBotMessageMedia(draft: OutboundComposerMediaDraft): BotMessageMedia |
   }
 }
 
-function formatBotDeliveryTargetLabel(target: BotDeliveryTarget) {
-  const title = target.title?.trim()
-  if (title) {
-    return title
-  }
-  const routeKey = target.routeKey?.trim()
-  if (routeKey) {
-    return routeKey
-  }
-  const sessionId = target.sessionId?.trim()
-  if (sessionId) {
-    return sessionId
-  }
-  return target.id
-}
-
-function formatBotTriggerFilterSummary(trigger: BotTrigger) {
-  const filter = trigger.filter ?? {}
-  const parts = Object.entries(filter)
-    .map(([rawKey, rawValue]) => {
-      const key = rawKey.trim()
-      const value = typeof rawValue === 'string' ? rawValue.trim() : ''
-      if (!key || !value) {
-        return ''
-      }
-      return `${humanizeDisplayValue(key, key)}=${humanizeDisplayValue(value, value)}`
-    })
-    .filter(Boolean)
-
-  if (!parts.length) {
-    return i18n._({ id: 'All notifications', message: 'All notifications' })
-  }
-
-  return parts.join(' | ')
-}
-
 function formatOutboundComposerMediaKindLabel(kind: BotOutboundMediaKind) {
   switch (kind) {
     case 'image':
@@ -391,122 +240,12 @@ function truncateOutboundComposerPreviewValue(value?: string | null, maxLength =
   return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength - 3).trimEnd()}...` : trimmed
 }
 
-function formatBotDeliveryRouteLabel(routeType?: string | null) {
-  switch (routeType?.trim().toLowerCase()) {
-    case 'telegram_chat':
-      return i18n._({ id: 'Telegram Chat', message: 'Telegram Chat' })
-    case 'telegram_topic':
-      return i18n._({ id: 'Telegram Topic', message: 'Telegram Topic' })
-    case 'wechat_session':
-      return i18n._({ id: 'WeChat Recipient', message: 'WeChat Recipient' })
-    case 'feishu_chat':
-      return i18n._({ id: 'Feishu Chat', message: 'Feishu Chat' })
-    case 'feishu_thread':
-      return i18n._({ id: 'Feishu Thread', message: 'Feishu Thread' })
-    case 'qqbot_group':
-      return i18n._({ id: 'QQ Bot Group', message: 'QQ Bot Group' })
-    case 'qqbot_c2c':
-      return i18n._({ id: 'QQ Bot Direct Message', message: 'QQ Bot Direct Message' })
-    default:
-      return i18n._({ id: 'Derived route', message: 'Derived route' })
-  }
-}
-
-function formatBotDeliveryReadinessLabel(readiness?: string | null) {
-  switch (readiness?.trim().toLowerCase()) {
-    case 'waiting_for_context':
-      return i18n._({ id: 'Waiting for Context', message: 'Waiting for Context' })
-    case 'stale_context':
-      return i18n._({ id: 'Context Needs Refresh', message: 'Context Needs Refresh' })
-    case 'ready':
-    default:
-      return i18n._({ id: 'Ready', message: 'Ready' })
-  }
-}
-
 function isBotDeliveryTargetReady(target: BotDeliveryTarget) {
   return (target.deliveryReadiness?.trim().toLowerCase() ?? 'ready') === 'ready'
 }
 
 function isBotRecipientCandidateReady(candidate: BotRecipientCandidate) {
   return (candidate.deliveryReadiness?.trim().toLowerCase() ?? 'ready') === 'ready'
-}
-
-function parseTelegramRouteKey(routeType?: string | null, routeKey?: string | null) {
-  const normalizedRouteType = routeType?.trim().toLowerCase() ?? ''
-  const normalizedRouteKey = routeKey?.trim() ?? ''
-  if (!normalizedRouteKey) {
-    return { chatId: '', threadId: '' }
-  }
-
-  if (normalizedRouteType === 'telegram_topic') {
-    const withoutPrefix = normalizedRouteKey.startsWith('chat:') ? normalizedRouteKey.slice(5) : normalizedRouteKey
-    const [chatId = '', threadId = ''] = withoutPrefix.split(':thread:')
-    return { chatId: chatId.trim(), threadId: threadId.trim() }
-  }
-
-  const chatId = normalizedRouteKey.startsWith('chat:') ? normalizedRouteKey.slice(5) : normalizedRouteKey
-  return { chatId: chatId.trim(), threadId: '' }
-}
-
-function parseWeChatRouteKey(routeKey?: string | null) {
-  const normalizedRouteKey = routeKey?.trim() ?? ''
-  if (!normalizedRouteKey) {
-    return ''
-  }
-  if (normalizedRouteKey.startsWith('user:')) {
-    return normalizedRouteKey.slice(5).trim()
-  }
-  if (normalizedRouteKey.startsWith('chat:')) {
-    return normalizedRouteKey.slice(5).trim()
-  }
-  return normalizedRouteKey
-}
-
-function parseFeishuRouteKey(routeType?: string | null, routeKey?: string | null) {
-  const normalizedRouteType = routeType?.trim().toLowerCase() ?? ''
-  const normalizedRouteKey = routeKey?.trim() ?? ''
-  if (!normalizedRouteKey) {
-    return { chatId: '', threadId: '' }
-  }
-
-  if (normalizedRouteType === 'feishu_thread') {
-    const withoutPrefix = normalizedRouteKey.startsWith('chat:') ? normalizedRouteKey.slice(5) : normalizedRouteKey
-    const [chatId = '', threadId = ''] = withoutPrefix.split(':thread:')
-    return { chatId: chatId.trim(), threadId: threadId.trim() }
-  }
-
-  const chatId = normalizedRouteKey.startsWith('chat:') ? normalizedRouteKey.slice(5) : normalizedRouteKey
-  return { chatId: chatId.trim(), threadId: '' }
-}
-
-function parseQQBotRouteKey(routeType?: string | null, routeKey?: string | null) {
-  const normalizedRouteType = routeType?.trim().toLowerCase() ?? ''
-  const normalizedRouteKey = routeKey?.trim() ?? ''
-  if (!normalizedRouteKey) {
-    return ''
-  }
-  if (normalizedRouteType === 'qqbot_c2c' && normalizedRouteKey.startsWith('user:')) {
-    return normalizedRouteKey.slice(5).trim()
-  }
-  if (normalizedRouteType === 'qqbot_group' && normalizedRouteKey.startsWith('group:')) {
-    return normalizedRouteKey.slice(6).trim()
-  }
-  return normalizedRouteKey
-}
-
-function defaultRouteTargetTypeForProvider(provider?: string | null) {
-  switch (provider?.trim().toLowerCase()) {
-    case 'wechat':
-      return 'wechat_session'
-    case 'feishu':
-      return 'feishu_chat'
-    case 'qqbot':
-      return 'qqbot_group'
-    case 'telegram':
-    default:
-      return 'telegram_chat'
-  }
 }
 
 type RouteTargetRecipientMode = 'existing' | 'manual'
@@ -602,71 +341,11 @@ function findKnownRouteTargetOption(
   )
 }
 
-function isSavedBotDeliveryTarget(target?: BotDeliveryTarget | null) {
-  return (target?.targetType?.trim().toLowerCase() ?? '') === 'route_backed'
-}
-
-function buildBotDeliveryTargetRouteSignature(target?: Pick<BotDeliveryTarget, 'routeType' | 'routeKey'> | null) {
-  const routeType = target?.routeType?.trim().toLowerCase() ?? ''
-  const routeKey = target?.routeKey?.trim() ?? ''
-  if (!routeType || !routeKey) {
-    return ''
-  }
-  return `${routeType}:${routeKey}`
-}
-
-function stripManagedRouteTargetProviderState(
-  provider: string,
-  providerState?: Record<string, string> | null,
-) {
-  if (!providerState) {
-    return undefined
-  }
-
-  const normalizedProvider = provider.trim().toLowerCase()
-  const entries = Object.entries(providerState).filter(([rawKey]) => {
-    const key = rawKey.trim()
-    if (!key) {
-      return false
-    }
-    if (
-      normalizedProvider === 'wechat' &&
-      (
-        key === 'wechat_context_token' ||
-        key === 'wechat_session_id' ||
-        key === 'wechat_created_at_ms' ||
-        key === 'to_user_id' ||
-        key === 'external_chat_id'
-      )
-    ) {
-      return false
-    }
-    return true
-  })
-
-  if (!entries.length) {
-    return undefined
-  }
-
-  return Object.fromEntries(entries)
-}
-
 function splitCommaSeparatedValues(value: string) {
   return value
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean)
-}
-
-function formatCommaSeparatedValues(values?: string[] | null) {
-  return (values ?? []).join(', ')
-}
-
-function stringifyProviderState(providerState?: Record<string, string> | null) {
-  if (!providerState || Object.keys(providerState).length === 0) {
-    return ''
-  }
-  return JSON.stringify(providerState, null, 2)
 }
 
 const BOT_THREAD_PICKER_PAGE_LIMIT = 100
@@ -791,6 +470,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const queryClient = useQueryClient()
   const isConfigMode = mode === 'config'
   const isOutboundMode = mode === 'outbound'
+  const isEndpointsMode = mode === 'endpoints'
   const routeSelection = useMemo(() => {
     const params = new URLSearchParams(location.search)
     return {
@@ -821,12 +501,12 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const [deleteTarget, setDeleteTarget] = useState<BotConnection | null>(null)
   const [deleteWeChatAccountTarget, setDeleteWeChatAccountTarget] = useState<WeChatAccount | null>(null)
   const [editWeChatAccountTarget, setEditWeChatAccountTarget] = useState<WeChatAccount | null>(null)
+  const [botDetailsModalBotId, setBotDetailsModalBotId] = useState('')
+  const [connectionOverviewModalOpen, setConnectionOverviewModalOpen] = useState(false)
   const [wechatAccountAliasDraft, setWeChatAccountAliasDraft] = useState('')
   const [wechatAccountNoteDraft, setWeChatAccountNoteDraft] = useState('')
   const [connectionSearch, setConnectionSearch] = useState('')
   const [showFullAccessConnectionsOnly, setShowFullAccessConnectionsOnly] = useState(false)
-  const [wechatAccountSearch, setWeChatAccountSearch] = useState('')
-  const [showUnusedWeChatAccountsOnly, setShowUnusedWeChatAccountsOnly] = useState(false)
   const [draft, setDraft] = useState<BotsPageDraft>(EMPTY_BOTS_PAGE_DRAFT)
   const [formError, setFormError] = useState('')
   const [wechatLoginModalOpen, setWechatLoginModalOpen] = useState(false)
@@ -867,10 +547,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const [outboundComposerText, setOutboundComposerText] = useState('')
   const [outboundComposerMediaDrafts, setOutboundComposerMediaDrafts] = useState<OutboundComposerMediaDraft[]>([])
   const [outboundComposerFormError, setOutboundComposerFormError] = useState('')
-  const [notificationTriggerTargetId, setNotificationTriggerTargetId] = useState('')
-  const [notificationTriggerKind, setNotificationTriggerKind] = useState('automation_run_completed')
-  const [notificationTriggerLevel, setNotificationTriggerLevel] = useState('')
-  const [notificationTriggerEnabled, setNotificationTriggerEnabled] = useState(true)
 
   function setSelectionState(
     next: Partial<{
@@ -969,6 +645,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const bots = botsQuery.data ?? []
   const connections = connectionsQuery.data ?? []
   const selectedBot: Bot | null = bots.find((bot) => bot.id === selectedBotId) ?? null
+  const selectedBotFilterId = selectedBotId.trim()
   const selectedBotWorkspaceId = selectedBot?.workspaceId?.trim() ?? ''
   const selectedBotConnections = connections.filter((connection) => connection.botId === selectedBotId)
   const selectedConnection =
@@ -1090,19 +767,12 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     enabled: selectedBotWorkspaceId.length > 0 && selectedBotId.length > 0,
     staleTime: 5_000,
   })
-  const botTriggersQuery = useQuery({
-    queryKey: ['bot-triggers', selectedBotWorkspaceId, selectedBotId],
-    queryFn: () => listBotTriggers(selectedBotWorkspaceId, selectedBotId),
-    enabled: selectedBotWorkspaceId.length > 0 && selectedBotId.length > 0,
-    staleTime: 5_000,
-  })
 
   const conversations = conversationsQuery.data ?? []
   const recipientCandidates = recipientCandidatesQuery.data ?? []
   const selectedBotBindings = botBindingsQuery.data ?? []
   const botDeliveryTargets = botDeliveryTargetsQuery.data ?? []
   const botOutboundDeliveries = botOutboundDeliveriesQuery.data ?? []
-  const selectedBotTriggers = botTriggersQuery.data ?? []
   const selectedDefaultBinding: BotBinding | null =
     selectedBotBindings.find((binding) => binding.isDefault) ?? null
   const bindingCurrentTarget = bindingTarget
@@ -1609,52 +1279,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     },
   })
 
-  const createBotTriggerMutation = useMutation({
-    mutationFn: ({
-      workspaceId,
-      botId,
-      input,
-    }: {
-      workspaceId: string
-      botId: string
-      input: { deliveryTargetId: string; filter?: Record<string, string>; enabled: boolean }
-    }) =>
-      createBotTrigger(workspaceId, botId, {
-        type: 'notification',
-        deliveryTargetId: input.deliveryTargetId,
-        filter: input.filter,
-        enabled: input.enabled,
-      }),
-    onSuccess: async (_, variables) => {
-      await queryClient.invalidateQueries({ queryKey: ['bot-triggers', variables.workspaceId, variables.botId] })
-    },
-  })
-
-  const updateBotTriggerMutation = useMutation({
-    mutationFn: ({
-      workspaceId,
-      botId,
-      triggerId,
-      input,
-    }: {
-      workspaceId: string
-      botId: string
-      triggerId: string
-      input: { deliveryTargetId: string; filter?: Record<string, string>; enabled?: boolean }
-    }) => updateBotTrigger(workspaceId, botId, triggerId, input),
-    onSuccess: async (_, variables) => {
-      await queryClient.invalidateQueries({ queryKey: ['bot-triggers', variables.workspaceId, variables.botId] })
-    },
-  })
-
-  const deleteBotTriggerMutation = useMutation({
-    mutationFn: ({ workspaceId, botId, triggerId }: { workspaceId: string; botId: string; triggerId: string }) =>
-      deleteBotTrigger(workspaceId, botId, triggerId),
-    onSuccess: async (_, variables) => {
-      await queryClient.invalidateQueries({ queryKey: ['bot-triggers', variables.workspaceId, variables.botId] })
-    },
-  })
-
   const updateConversationBindingMutation = useMutation({
     mutationFn: ({
       workspaceId,
@@ -1765,51 +1389,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     },
   })
 
-  const runtimeModeMutation = useMutation({
-    mutationFn: ({
-      workspaceId,
-      connectionId,
-      runtimeMode,
-    }: {
-      workspaceId: string
-      connectionId: string
-      runtimeMode: string
-    }) => updateBotConnectionRuntimeMode(workspaceId, connectionId, { runtimeMode }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['bot-connections'] })
-    },
-  })
-
-  const commandOutputModeMutation = useMutation({
-    mutationFn: ({
-      workspaceId,
-      connectionId,
-      commandOutputMode,
-    }: {
-      workspaceId: string
-      connectionId: string
-      commandOutputMode: string
-    }) => updateBotConnectionCommandOutputMode(workspaceId, connectionId, { commandOutputMode }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['bot-connections'] })
-    },
-  })
-
-  const wechatChannelTimingMutation = useMutation({
-    mutationFn: ({
-      workspaceId,
-      connectionId,
-      enabled,
-    }: {
-      workspaceId: string
-      connectionId: string
-      enabled: boolean
-    }) => updateWeChatChannelTiming(workspaceId, connectionId, { enabled }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['bot-connections'] })
-    },
-  })
-
   const connectionLogQueries = useQueries({
     queries: connections.map((connection) => ({
       queryKey: ['bot-connection-logs-summary', connection.id],
@@ -1823,14 +1402,15 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     () => new Map(workspaces.map((workspace) => [workspace.id, workspace])),
     [workspaces],
   )
+  const botById = useMemo(
+    () => new Map(bots.map((bot) => [bot.id, bot])),
+    [bots],
+  )
   const createBotShareableWorkspaces = useMemo(
     () => workspaces.filter((workspace) => workspace.id !== createBotWorkspaceId),
     [createBotWorkspaceId, workspaces],
   )
   const selectedWorkspaceFilter = workspaceById.get(workspaceFilterId) ?? null
-  const selectedBotWorkspace = selectedBotWorkspaceId ? workspaceById.get(selectedBotWorkspaceId) ?? null : null
-  const selectedConnectionWorkspace =
-    selectedConnectionWorkspaceId ? workspaceById.get(selectedConnectionWorkspaceId) ?? null : null
   const connectionsByBotId = useMemo(() => {
     const next = new Map<string, BotConnection[]>()
     for (const connection of connections) {
@@ -1844,50 +1424,18 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     }
     return next
   }, [connections])
-  const conversationById = useMemo(
-    () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
-    [conversations],
-  )
   const selectedConnectionDeliveryTargets = selectedConnection
     ? botDeliveryTargets.filter((target) => target.endpointId === selectedConnection.id)
     : []
-  const selectedConnectionDeliveryTargetIDs = useMemo(
-    () => new Set(selectedConnectionDeliveryTargets.map((target) => target.id)),
-    [selectedConnectionDeliveryTargets],
-  )
-  const selectedConnectionTriggers = useMemo(
-    () =>
-      selectedBotTriggers.filter((trigger: BotTrigger) =>
-        selectedConnectionDeliveryTargetIDs.has(trigger.deliveryTargetId),
-      ),
-    [selectedBotTriggers, selectedConnectionDeliveryTargetIDs],
-  )
   const selectedConnectionOutboundDeliveries = selectedConnection
     ? botOutboundDeliveries.filter((delivery) => delivery.endpointId === selectedConnection.id)
     : []
-  const deliveryTargetByID = useMemo(() => new Map(botDeliveryTargets.map((target) => [target.id, target])), [botDeliveryTargets])
   const deliveryTargetByConversationId = useMemo(
     () =>
       new Map(
         selectedConnectionDeliveryTargets
           .filter((target) => target.targetType === 'session_backed' && (target.sessionId?.trim() ?? '') !== '')
           .map((target) => [target.sessionId?.trim() ?? '', target] as const),
-      ),
-    [selectedConnectionDeliveryTargets],
-  )
-  const savedDeliveryTargetByRouteSignature = useMemo(
-    () =>
-      new Map(
-        selectedConnectionDeliveryTargets.flatMap((target) => {
-          if (!isSavedBotDeliveryTarget(target)) {
-            return []
-          }
-          const signature = buildBotDeliveryTargetRouteSignature(target)
-          if (!signature) {
-            return []
-          }
-          return [[signature, target] as const]
-        }),
       ),
     [selectedConnectionDeliveryTargets],
   )
@@ -1956,19 +1504,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     currentDefaultBindingThreadQuery.isPending
 
   useEffect(() => {
-    if (!selectedConnectionDeliveryTargets.length) {
-      if (notificationTriggerTargetId) {
-        setNotificationTriggerTargetId('')
-      }
-      return
+    if (!selectedConnection) {
+      setConnectionOverviewModalOpen(false)
     }
-    if (
-      !notificationTriggerTargetId ||
-      !selectedConnectionDeliveryTargets.some((target) => target.id === notificationTriggerTargetId)
-    ) {
-      setNotificationTriggerTargetId(selectedConnectionDeliveryTargets[0].id)
-    }
-  }, [notificationTriggerTargetId, selectedConnectionDeliveryTargets])
+  }, [selectedConnection])
 
   const providerOptions = useMemo(
     () => [
@@ -2060,95 +1599,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       {
         value: BOT_COMMAND_OUTPUT_MODE_FULL,
         label: i18n._({ id: 'Full Output', message: 'Full Output' }),
-      },
-    ],
-    [],
-  )
-
-  const feishuStreamingPlainTextStrategyOptions = useMemo(
-    () => [
-      {
-        value: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_APPEND_DELTA,
-        label: i18n._({ id: 'Send New Text (Default)', message: 'Send New Text (Default)' }),
-      },
-      {
-        value: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_SMART_PRESERVE,
-        label: i18n._({ id: 'Send Completed Chunks', message: 'Send Completed Chunks' }),
-      },
-      {
-        value: FEISHU_STREAMING_PLAIN_TEXT_STRATEGY_UPDATE_ONLY,
-        label: i18n._({ id: 'Update One Message', message: 'Update One Message' }),
-      },
-    ],
-    [],
-  )
-
-  const wechatCredentialSourceOptions = useMemo(
-    () => [
-      {
-        value: 'saved',
-        label: i18n._({ id: 'Saved Account', message: 'Saved Account' }),
-      },
-      {
-        value: 'manual',
-        label: i18n._({ id: 'Manual Entry', message: 'Manual Entry' }),
-      },
-      {
-        value: 'qr',
-        label: i18n._({ id: 'QR Login', message: 'QR Login' }),
-      },
-    ],
-    [],
-  )
-
-  const notificationTriggerTargetOptions = useMemo(
-    () =>
-      selectedConnectionDeliveryTargets.map((target) => ({
-        value: target.id,
-        label: `${formatBotDeliveryTargetLabel(target)} | ${formatBotDeliveryRouteLabel(target.routeType)}`,
-      })),
-    [selectedConnectionDeliveryTargets],
-  )
-
-  const notificationTriggerKindOptions = useMemo(
-    () => [
-      {
-        value: '',
-        label: i18n._({ id: 'All notification kinds', message: 'All notification kinds' }),
-      },
-      {
-        value: 'automation_run_completed',
-        label: i18n._({ id: 'Automation Completed', message: 'Automation Completed' }),
-      },
-      {
-        value: 'automation_run_failed',
-        label: i18n._({ id: 'Automation Failed', message: 'Automation Failed' }),
-      },
-      {
-        value: 'automation_run_skipped',
-        label: i18n._({ id: 'Automation Skipped', message: 'Automation Skipped' }),
-      },
-    ],
-    [],
-  )
-
-  const notificationTriggerLevelOptions = useMemo(
-    () => [
-      {
-        value: '',
-        label: i18n._({ id: 'All levels', message: 'All levels' }),
-      },
-      {
-        value: 'success',
-        label: i18n._({ id: 'Success', message: 'Success' }),
-      },
-      {
-        value: 'warning',
-        label: i18n._({ id: 'Warning', message: 'Warning' }),
-      },
-      {
-        value: 'error',
-        label: i18n._({ id: 'Error', message: 'Error' }),
       },
     ],
     [],
@@ -2366,13 +1816,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   ).length
 
   const totalBotConversationCount = bots.reduce((count, bot) => count + bot.conversationCount, 0)
-  const selectedBotActiveConnectionsCount = selectedBotConnections.filter((connection) => connection.status === 'active').length
   const selectedConnectionReadyRecipientsCount = selectedConnectionDeliveryTargets.filter((target) =>
     isBotDeliveryTargetReady(target),
   ).length
   const selectedConnectionWaitingRecipientsCount =
     selectedConnectionDeliveryTargets.length - selectedConnectionReadyRecipientsCount
-  const selectedConnectionEnabledTriggerCount = selectedConnectionTriggers.filter((trigger) => trigger.enabled).length
   const selectedConnectionManualOutboundCount = selectedConnectionOutboundDeliveries.filter(
     (delivery) => delivery.sourceType?.trim().toLowerCase() === 'manual',
   ).length
@@ -2385,15 +1833,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const selectedConnectionDeliveredOutboundCount = selectedConnectionOutboundDeliveries.filter(
     (delivery) => normalizeBotConversationDeliveryStatus(delivery.status) === 'delivered',
   ).length
-  const selectedConnectionBoundConversationCount = conversations.filter(
-    (conversation) => resolveBotConversationThreadTarget(conversation).threadId.length > 0,
-  ).length
-  const selectedConnectionLatestOutboundDelivery = selectedConnectionOutboundDeliveries[0] ?? null
-  const selectedConnectionLatestDeliveredOutboundDelivery =
-    selectedConnectionOutboundDeliveries.find(
-      (delivery) => normalizeBotConversationDeliveryStatus(delivery.status) === 'delivered',
-    ) ?? null
-  const recentSelectedConnectionOutboundDeliveries = selectedConnectionOutboundDeliveries.slice(0, 12)
   const routeTargetRouteKeyPreview =
     routeTargetRouteType === 'telegram_topic' || routeTargetRouteType === 'feishu_thread'
       ? routeTargetChatId.trim() && routeTargetThreadId.trim()
@@ -2415,7 +1854,10 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         ? `chat:${routeTargetChatId.trim()}`
         : ''
   const selectedBotPrimaryBackend =
-    selectedDefaultBinding?.aiBackend?.trim() || selectedBotConnections[0]?.aiBackend?.trim() || ''
+    selectedDefaultBinding?.aiBackend?.trim() ||
+    selectedBotConnections.find((connection) => connection.status === 'active')?.aiBackend?.trim() ||
+    selectedBotConnections[0]?.aiBackend?.trim() ||
+    ''
   const selectedBotDefaultBindingMode =
     selectedDefaultBinding?.bindingMode?.trim() ||
     (selectedBotPrimaryBackend === 'openai_responses' ? 'stateless' : selectedBot?.defaultBindingMode?.trim() ?? '')
@@ -2429,13 +1871,13 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const canConfigureDefaultBinding =
     selectedBot !== null && selectedBotConnections.length > 0 && selectedBotPrimaryBackend === 'workspace_thread'
   const isEditingConnection = editTarget !== null
-  const connectionModalBot =
-    isEditingConnection && editTarget?.botId
-      ? bots.find((bot) => bot.id === editTarget.botId) ?? selectedBot
-      : selectedBot
+  const connectionModalBotId = isEditingConnection ? editTarget?.botId?.trim() ?? '' : selectedBotId.trim()
+  const connectionModalBot = connectionModalBotId ? bots.find((bot) => bot.id === connectionModalBotId) ?? null : null
   const connectionModalWorkspace = connectionModalBot
     ? workspaceById.get(connectionModalBot.workspaceId) ?? null
-    : selectedWorkspaceFilter
+    : draft.workspaceId.trim()
+      ? workspaceById.get(draft.workspaceId.trim()) ?? null
+      : null
   const connectionModalBaselineKey = connectionModalBaselineDraft ? serializeBotsPageDraft(connectionModalBaselineDraft) : ''
   const connectionModalDraftKey = serializeBotsPageDraft(draft)
   const isConnectionModalDirty = createModalOpen && connectionModalBaselineKey !== '' && connectionModalDraftKey !== connectionModalBaselineKey
@@ -2456,10 +1898,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       : ''
   const defaultBindingErrorMessage = updateBotDefaultBindingMutation.error
     ? getErrorMessage(updateBotDefaultBindingMutation.error)
-    : ''
-  const deliveryTargetsErrorMessage = botDeliveryTargetsQuery.error ? getErrorMessage(botDeliveryTargetsQuery.error) : ''
-  const outboundDeliveriesErrorMessage = botOutboundDeliveriesQuery.error
-    ? getErrorMessage(botOutboundDeliveriesQuery.error)
     : ''
   const routeTargetErrorMessage =
     routeTargetFormError ||
@@ -2510,30 +1948,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   const deleteWeChatAccountErrorMessage = deleteWeChatAccountMutation.error
     ? getErrorMessage(deleteWeChatAccountMutation.error)
     : ''
-  const botTriggersErrorMessage = botTriggersQuery.error ? getErrorMessage(botTriggersQuery.error) : ''
-  const createBotTriggerErrorMessage = createBotTriggerMutation.error
-    ? getErrorMessage(createBotTriggerMutation.error)
-    : ''
-  const updateBotTriggerErrorMessage = updateBotTriggerMutation.error
-    ? getErrorMessage(updateBotTriggerMutation.error)
-    : ''
-  const deleteBotTriggerErrorMessage = deleteBotTriggerMutation.error
-    ? getErrorMessage(deleteBotTriggerMutation.error)
-    : ''
-  const runtimeModeErrorMessage = runtimeModeMutation.error ? getErrorMessage(runtimeModeMutation.error) : ''
-  const commandOutputModeErrorMessage = commandOutputModeMutation.error
-    ? getErrorMessage(commandOutputModeMutation.error)
-    : ''
-  const wechatChannelTimingErrorMessage = wechatChannelTimingMutation.error
-    ? getErrorMessage(wechatChannelTimingMutation.error)
-    : ''
   const editingConnectionHasBotToken = editTarget?.secretKeys?.includes('bot_token') ?? false
   const editingConnectionHasFeishuAppSecret = editTarget?.secretKeys?.includes('feishu_app_secret') ?? false
   const editingConnectionHasQQBotAppSecret = editTarget?.secretKeys?.includes('qqbot_app_secret') ?? false
   const editingConnectionHasOpenAIApiKey = editTarget?.secretKeys?.includes('openai_api_key') ?? false
   const draftProvider = resolveBotProvider(draft.provider) || 'telegram'
-  const draftTelegramDeliveryMode = draft.telegramDeliveryMode.trim().toLowerCase() === 'polling' ? 'polling' : 'webhook'
-  const draftFeishuDeliveryMode = resolveFeishuDeliveryMode(draft.feishuDeliveryMode)
   const draftWeChatCredentialSource =
     draft.wechatCredentialSource.trim().toLowerCase() === 'saved'
       ? 'saved'
@@ -2593,23 +2012,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       ]),
     )
   }, [connectionLogQueries, connections])
-  const savedWeChatAccountConnections = useMemo(
-    () =>
-      new Map(
-        savedWeChatAccounts.map((account) => [account.id, listWeChatConnectionsForAccount(connections, account)]),
-      ),
-    [connections, savedWeChatAccounts],
-  )
-  const savedWeChatAccountConnectionCounts = useMemo(
-    () =>
-      new Map(
-        savedWeChatAccounts.map((account) => [
-          account.id,
-          savedWeChatAccountConnections.get(account.id)?.length ?? countWeChatConnectionsForAccount(connections, account),
-        ]),
-      ),
-    [connections, savedWeChatAccountConnections, savedWeChatAccounts],
-  )
   const outboundDirectoryStatsByConnectionID = useMemo(() => {
     const next = new Map<
       string,
@@ -2743,44 +2145,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
 
     return next
   }, [connections, outboundDirectoryStatsByConnectionID])
-  const filteredSavedWeChatAccounts = useMemo(
-    () =>
-      savedWeChatAccounts.filter((account) => {
-        if (workspaceFilterId.trim() && account.workspaceId !== workspaceFilterId.trim()) {
-          return false
-        }
-        if (!matchesWeChatAccountSearch(account, wechatAccountSearch)) {
-          return false
-        }
-        if (!showUnusedWeChatAccountsOnly) {
-          return true
-        }
-        return (savedWeChatAccountConnections.get(account.id) ?? []).length === 0
-      }),
-    [
-      savedWeChatAccountConnections,
-      savedWeChatAccounts,
-      showUnusedWeChatAccountsOnly,
-      wechatAccountSearch,
-      workspaceFilterId,
-    ],
-  )
-  const filteredBotConnections = useMemo(
-    () =>
-      selectedBotConnections.filter((connection) => {
-        if (!showFullAccessConnectionsOnly) {
-          return true
-        }
-        if (isOutboundMode) {
-          return connection.status === 'active'
-        }
-        return (
-          connection.aiBackend === 'workspace_thread' &&
-          isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
-        )
-      }),
-    [isOutboundMode, selectedBotConnections, showFullAccessConnectionsOnly],
-  )
   const filteredBots = useMemo(
     () =>
       bots.filter((bot) => {
@@ -2822,55 +2186,47 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       workspaceFilterId,
     ],
   )
-  const botDirectorySectionTitle = isConfigMode
-    ? i18n._({ id: 'Bots', message: 'Bots' })
-    : i18n._({ id: 'Outbound Bots', message: 'Outbound Bots' })
-  const botDirectorySectionDescription = isConfigMode
-    ? i18n._({
-        id: 'Search by bot name, endpoint name, provider, backend, status, or linked WeChat account metadata.',
-        message:
-          'Search by bot name, endpoint name, provider, backend, status, or linked WeChat account metadata.',
-      })
-    : i18n._({
-        id: 'Search the outbound directory by bot, endpoint, provider, or linked account metadata, then focus on bots that still have active send surfaces.',
-        message:
-          'Search the outbound directory by bot, endpoint, provider, or linked account metadata, then focus on bots that still have active send surfaces.',
-      })
-  const endpointDirectorySectionTitle = isConfigMode
-    ? i18n._({ id: 'Endpoints', message: 'Endpoints' })
-    : i18n._({ id: 'Outbound Endpoints', message: 'Outbound Endpoints' })
-  const endpointDirectorySectionDescription = isConfigMode
-    ? i18n._({
-        id: 'After selecting a bot, keep using endpoints as the execution units for provider delivery, runtime settings, logs, and conversations.',
-        message:
-          'After selecting a bot, keep using endpoints as the execution units for provider delivery, runtime settings, logs, and conversations.',
-      })
-    : i18n._({
-        id: 'After selecting a bot, choose the endpoint that should own recipients, delivery history, and manual proactive sends.',
-        message:
-          'After selecting a bot, choose the endpoint that should own recipients, delivery history, and manual proactive sends.',
-      })
-  const directoryFilterLabel = isConfigMode
-    ? i18n._({ id: 'Only Show Full Access', message: 'Only Show Full Access' })
-    : i18n._({ id: 'Only Show Active Endpoints', message: 'Only Show Active Endpoints' })
-  const directoryFilterDescription = isConfigMode
-    ? i18n._({
-        id: 'Restrict the bot list to entries that include at least one workspace-thread endpoint with full-access execution.',
-        message:
-          'Restrict the bot list to entries that include at least one workspace-thread endpoint with full-access execution.',
-      })
-    : i18n._({
-        id: 'Restrict both bot and endpoint directories to entries that still expose an active endpoint for outbound operations.',
-        message:
-          'Restrict both bot and endpoint directories to entries that still expose an active endpoint for outbound operations.',
-      })
+  const filteredConnections = useMemo(
+    () =>
+      connections.filter((connection) => {
+        if (workspaceFilterId.trim() && connection.workspaceId !== workspaceFilterId.trim()) {
+          return false
+        }
+        if (isEndpointsMode && selectedBotFilterId && connection.botId?.trim() !== selectedBotFilterId) {
+          return false
+        }
+        const search = connectionSearch.trim().toLowerCase()
+        const bot = botById.get(connection.botId?.trim() ?? '') ?? null
+        const linkedWeChatAccount = linkedWeChatAccountByConnectionID.get(connection.id) ?? null
+        const botNameSearch = (bot?.name ?? '').toLowerCase()
+        const botDescriptionSearch = (bot?.description ?? '').toLowerCase()
+        const matchesSearch =
+          !search ||
+          matchesBotConnectionSearch(connection, connectionSearch, linkedWeChatAccount) ||
+          botNameSearch.includes(search) ||
+          botDescriptionSearch.includes(search)
+        if (!matchesSearch) {
+          return false
+        }
+        if (!showFullAccessConnectionsOnly) {
+          return true
+        }
+        return connection.status === 'active'
+      }),
+    [
+      botById,
+      connectionSearch,
+      connections,
+      isEndpointsMode,
+      linkedWeChatAccountByConnectionID,
+      selectedBotFilterId,
+      showFullAccessConnectionsOnly,
+      workspaceFilterId,
+    ],
+  )
+  const selectedBotFilterLabel = selectedBot?.name?.trim() || selectedBotFilterId || i18n._({ id: 'All bots', message: 'All bots' })
   const activeBotsCount = filteredBots.filter((bot) => bot.status === 'active').length
-  const selectedSavedWeChatAccount =
-    savedWeChatAccounts.find((account) => account.id === draft.wechatSavedAccountId.trim()) ?? null
-  const selectedConnectionWeChatAccount =
-    selectedProvider === 'wechat'
-      ? findWeChatAccountForConnection(savedWeChatAccounts, selectedConnection)
-      : null
+  const activeConnectionsCount = filteredConnections.filter((connection) => connection.status === 'active').length
   const selectedConnectionSuppressionSummary =
     (selectedConnection && recentSuppressionSummaryByConnectionID.get(selectedConnection.id)) ?? {
       suppressedCount: 0,
@@ -2878,6 +2234,21 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       recoverySuppressedCount: 0,
       latestSuppressedAt: undefined,
     }
+  const selectedConnectionOutboundDeliveriesSorted = useMemo(
+    () =>
+      [...selectedConnectionOutboundDeliveries].sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt),
+      ),
+    [selectedConnectionOutboundDeliveries],
+  )
+  const selectedConnectionLatestOutboundDelivery = selectedConnectionOutboundDeliveriesSorted[0] ?? null
+  const selectedConnectionLatestDeliveredOutboundDelivery =
+    selectedConnectionOutboundDeliveriesSorted.find(
+      (delivery) => normalizeBotConversationDeliveryStatus(delivery.status) === 'delivered',
+    ) ?? null
+  const selectedConnectionBoundConversationCount = conversations.filter(
+    (conversation) => resolveBotConversationThreadTarget(conversation).threadId.length > 0,
+  ).length
   const selectedTelegramDeliveryMode =
     selectedProvider === 'telegram' && selectedConnection?.settings?.telegram_delivery_mode?.trim().toLowerCase() === 'polling'
       ? 'polling'
@@ -2894,75 +2265,61 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
           : selectedProvider === 'qqbot'
             ? 'gateway_websocket'
             : ''
-  const selectedConnectionUsesBackgroundRuntime =
-    selectedProvider === 'wechat' ||
-    (selectedProvider === 'feishu' && selectedFeishuDeliveryMode === 'websocket') ||
-    selectedProvider === 'qqbot' ||
-    (selectedProvider === 'telegram' && selectedDeliveryMode === 'polling')
-  const selectedRuntimeMode =
+  const selectedRuntimeMode: 'debug' | 'normal' =
     selectedConnection?.settings?.runtime_mode?.trim().toLowerCase() === 'debug' ? 'debug' : 'normal'
-  const selectedCommandOutputMode = resolveBotCommandOutputMode(selectedConnection?.settings?.command_output_mode)
-  const selectedWeChatChannelTimingEnabled =
-    selectedProvider === 'wechat'
-      ? resolveWeChatChannelTimingEnabled(selectedConnection?.settings, selectedRuntimeMode)
-      : false
-  const selectedFeishuGroupReplyAll =
-    selectedProvider === 'feishu' ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_group_reply_all) : false
-  const selectedFeishuEnableCards =
-    selectedProvider === 'feishu' ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_enable_cards) : false
-  const selectedFeishuThreadIsolation =
-    selectedProvider === 'feishu' ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_thread_isolation) : false
-  const selectedFeishuShareSessionInChannel =
-    selectedProvider === 'feishu'
-      ? resolveBotBooleanSetting(selectedConnection?.settings?.feishu_share_session_in_channel)
-      : false
-  const selectedQQBotSandbox =
-    selectedProvider === 'qqbot' ? resolveBotBooleanSetting(selectedConnection?.settings?.qqbot_sandbox) : false
-  const selectedQQBotShareSessionInChannel =
-    selectedProvider === 'qqbot'
-      ? resolveBotBooleanSetting(selectedConnection?.settings?.qqbot_share_session_in_channel)
-      : false
-  const selectedQQBotMarkdownSupport =
-    selectedProvider === 'qqbot' ? resolveBotBooleanSetting(selectedConnection?.settings?.qqbot_markdown_support) : false
-  const selectedDeliveryModeLabel =
+  const selectedConnectionDeliveryModeLabel =
     selectedDeliveryMode === 'gateway_websocket'
       ? i18n._({ id: 'Gateway WebSocket', message: 'Gateway WebSocket' })
       : selectedDeliveryMode === 'websocket'
         ? i18n._({ id: 'WebSocket', message: 'WebSocket' })
         : selectedDeliveryMode === 'polling'
-      ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
-      : selectedDeliveryMode === 'webhook'
-        ? i18n._({ id: 'Webhook', message: 'Webhook' })
-        : i18n._({ id: 'None', message: 'None' })
-  const selectedCommandOutputModeLabel = formatBotCommandOutputModeLabel(selectedCommandOutputMode)
-  const selectedBotDefaultBindingModeLabel =
-    selectedBotDefaultBindingMode === 'fixed_thread'
-      ? i18n._({ id: 'Fixed Thread', message: 'Fixed Thread' })
-      : selectedBotDefaultBindingMode === 'stateless'
-        ? i18n._({ id: 'Stateless', message: 'Stateless' })
-        : selectedBot
-          ? i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
-          : i18n._({ id: 'None', message: 'None' })
-  const selectedBotScopeLabel = formatBotScopeLabel(selectedBot?.scope)
-  const selectedBotSharingModeLabel = formatBotSharingModeLabel(selectedBot?.sharingMode)
-  const selectedBotSharedWorkspaceLabel = useMemo(() => {
-    if (!selectedBot) {
-      return i18n._({ id: 'None', message: 'None' })
-    }
-    if (selectedBot.scope?.trim().toLowerCase() !== 'global') {
-      return i18n._({ id: 'Owner workspace only', message: 'Owner workspace only' })
-    }
-    if (selectedBot.sharingMode?.trim().toLowerCase() === 'all_workspaces') {
-      return i18n._({ id: 'All registered workspaces', message: 'All registered workspaces' })
-    }
-    const names = (selectedBot.sharedWorkspaceIds ?? [])
-      .map((workspaceId) => workspaceById.get(workspaceId)?.name ?? workspaceId)
-      .filter(Boolean)
-    if (!names.length) {
-      return i18n._({ id: 'No shared workspace selected', message: 'No shared workspace selected' })
-    }
-    return names.join(', ')
-  }, [selectedBot, workspaceById])
+          ? i18n._({ id: 'Long Polling', message: 'Long Polling' })
+          : selectedDeliveryMode === 'webhook'
+            ? i18n._({ id: 'Webhook', message: 'Webhook' })
+            : i18n._({ id: 'None', message: 'None' })
+  const selectedConnectionUsesBackgroundRuntime =
+    selectedProvider === 'wechat' ||
+    (selectedProvider === 'feishu' && selectedDeliveryMode === 'websocket') ||
+    selectedProvider === 'qqbot' ||
+    (selectedProvider === 'telegram' && selectedDeliveryMode === 'polling')
+  const selectedConnectionSummary = selectedConnection
+    ? {
+        conversationCount: conversations.length,
+        deliveryTargetCount: selectedConnectionDeliveryTargets.length,
+        readyRecipientCount: selectedConnectionReadyRecipientsCount,
+        waitingRecipientCount: selectedConnectionWaitingRecipientsCount,
+        outboundDeliveryCount: selectedConnectionOutboundDeliveries.length,
+        deliveredOutboundCount: selectedConnectionDeliveredOutboundCount,
+        manualOutboundCount: selectedConnectionManualOutboundCount,
+        pendingOutboundCount: selectedConnectionPendingOutboundCount,
+        failedOutboundCount: selectedConnectionFailedOutboundCount,
+        boundConversationCount: selectedConnectionBoundConversationCount,
+      }
+    : null
+  const selectedConnectionLabels = selectedConnection
+    ? {
+        deliveryModeLabel: selectedConnectionDeliveryModeLabel,
+        runtimeMode: selectedRuntimeMode,
+        commandOutputModeLabel: formatBotCommandOutputModeLabel(
+          resolveBotCommandOutputMode(selectedConnection.settings?.command_output_mode),
+        ),
+        usesBackgroundRuntime: selectedConnectionUsesBackgroundRuntime,
+      }
+    : null
+  const selectedConnectionProviderSettings = selectedConnection
+    ? {
+        feishuEnableCards: resolveBotBooleanSetting(selectedConnection.settings?.feishu_enable_cards),
+        feishuGroupReplyAll: resolveBotBooleanSetting(selectedConnection.settings?.feishu_group_reply_all),
+        feishuThreadIsolation: resolveBotBooleanSetting(selectedConnection.settings?.feishu_thread_isolation),
+        feishuShareSessionInChannel: resolveBotBooleanSetting(selectedConnection.settings?.feishu_share_session_in_channel),
+        qqbotSandbox: resolveBotBooleanSetting(selectedConnection.settings?.qqbot_sandbox),
+        qqbotShareSessionInChannel: resolveBotBooleanSetting(selectedConnection.settings?.qqbot_share_session_in_channel),
+        qqbotMarkdownSupport: resolveBotBooleanSetting(selectedConnection.settings?.qqbot_markdown_support),
+      }
+    : null
+  const selectedConnectionWeChatAccount = selectedConnection
+    ? linkedWeChatAccountByConnectionID.get(selectedConnection.id) ?? null
+    : null
   const activeWeChatLogin: WeChatLogin | null = wechatLoginQuery.data ?? wechatLoginStartMutation.data ?? null
   const activeWeChatLoginStatus = activeWeChatLogin?.status?.trim().toLowerCase() ?? ''
   const [wechatLoginNow, setWechatLoginNow] = useState(() => Date.now())
@@ -2994,57 +2351,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       : wechatLoginCopyState === 'error'
         ? i18n._({ id: 'Copy failed', message: 'Copy failed' })
         : i18n._({ id: 'Copy payload', message: 'Copy payload' })
-  const wechatLoginEntryLabel = hasDraftWeChatCredentialBundle
-    ? i18n._({ id: 'Replace Credentials', message: 'Replace Credentials' })
-    : activeWeChatLogin?.credentialReady
-      ? i18n._({ id: 'Review Credentials', message: 'Review Credentials' })
-      : draft.wechatLoginSessionId
-        ? i18n._({ id: 'Continue QR Login', message: 'Continue QR Login' })
-        : i18n._({ id: 'Start QR Login', message: 'Start QR Login' })
-  const wechatDraftSessionIdLabel = draft.wechatLoginSessionId || i18n._({ id: 'Not started', message: 'Not started' })
-  const wechatDraftSessionStatusLabel = draft.wechatLoginStatus
-    ? formatLocalizedStatusLabel(draft.wechatLoginStatus)
-    : i18n._({ id: 'Not started', message: 'Not started' })
-  const wechatDraftPayloadLabel = draft.wechatQrCodeContent.trim()
-    ? i18n._({ id: 'Ready', message: 'Ready' })
-    : i18n._({ id: 'Not fetched', message: 'Not fetched' })
   const wechatLoginExpiresInLabel = shouldShowWeChatLoginExpiresIn
     ? formatWeChatLoginExpiresInLabel(activeWeChatLogin?.expiresAt, wechatLoginNow)
     : ''
-  const wechatDraftCredentialBundleLabel = hasDraftWeChatCredentialBundle
-    ? i18n._({ id: 'Applied to form', message: 'Applied to form' })
-    : hasDraftConfirmedWeChatLoginSession || activeWeChatLogin?.credentialReady
-      ? i18n._({ id: 'Ready to create', message: 'Ready to create' })
-      : draft.wechatLoginSessionId
-        ? i18n._({ id: 'Pending confirmation', message: 'Pending confirmation' })
-        : i18n._({ id: 'Not loaded', message: 'Not loaded' })
-  const wechatQrCredentialNotice = hasDraftWeChatCredentialBundle
-    ? ''
-    : hasDraftConfirmedWeChatLoginSession || activeWeChatLogin?.credentialReady
-      ? i18n._({
-          id: 'The remote service has already confirmed this login. You can create the connection directly now, or reopen the QR dialog and click Use Credentials to copy the bundle into the form.',
-          message:
-            'The remote service has already confirmed this login. You can create the connection directly now, or reopen the QR dialog and click Use Credentials to copy the bundle into the form.',
-        })
-      : draft.wechatLoginSessionId
-        ? i18n._({
-            id: 'A QR login session is already in progress. Reopen the dialog to continue polling until the credential bundle is confirmed.',
-            message:
-              'A QR login session is already in progress. Reopen the dialog to continue polling until the credential bundle is confirmed.',
-          })
-        : i18n._({
-            id: 'Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service.',
-            message:
-              'Start a QR login session to fetch the account ID, owner user ID, and bot token automatically from the remote WeChat service.',
-        })
-  const savedWeChatAccountOptions = useMemo(
-    () =>
-      savedWeChatAccounts.map((account: WeChatAccount) => ({
-        value: account.id,
-        label: formatWeChatAccountLabel(account),
-      })),
-    [savedWeChatAccounts],
-  )
   const wechatLoginAutoRefreshHandledLoginIdRef = useRef('')
   const wechatLoginRefreshReasonRef = useRef<'manual' | 'auto-expired'>('manual')
 
@@ -3158,8 +2467,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
 
   useEffect(() => {
     setConnectionSearch('')
-    setWeChatAccountSearch('')
-    setShowUnusedWeChatAccountsOnly(false)
     setEditWeChatAccountTarget(null)
     setWeChatAccountAliasDraft('')
     setWeChatAccountNoteDraft('')
@@ -3175,6 +2482,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   }, [workspaceFilterId, selectedBotId, selectedConnectionId])
 
   useEffect(() => {
+    if (botsQuery.isLoading) {
+      return
+    }
     if (!bots.length) {
       if (selectedBotId || selectedConnectionId) {
         setSelectionState({
@@ -3196,9 +2506,12 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     if (!selectedBotId || !filteredBots.some((bot) => bot.id === selectedBotId)) {
       setSelectionState({ selectedBotId: filteredBots[0].id })
     }
-  }, [filteredBots, bots.length, selectedBotId, selectedConnectionId])
+  }, [bots.length, botsQuery.isLoading, filteredBots, selectedBotId, selectedConnectionId])
 
   useEffect(() => {
+    if (connectionsQuery.isLoading) {
+      return
+    }
     if (!selectedBotId) {
       if (selectedConnectionId) {
         setSelectionState({ selectedConnectionId: '' })
@@ -3214,7 +2527,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     if (!selectedConnectionId || !selectedBotConnections.some((connection) => connection.id === selectedConnectionId)) {
       setSelectionState({ selectedConnectionId: selectedBotConnections[0].id })
     }
-  }, [selectedBotConnections, selectedBotId, selectedConnectionId])
+  }, [connectionsQuery.isLoading, selectedBotConnections, selectedBotId, selectedConnectionId])
 
   function selectBot(bot: Bot) {
     setSelectionState({
@@ -3228,6 +2541,37 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       selectedBotId: connection.botId?.trim() ?? '',
       selectedConnectionId: connection.id,
     })
+  }
+
+  function openBotDetailsModal(bot: Bot) {
+    selectBot(bot)
+    setBotDetailsModalBotId(bot.id)
+  }
+
+  function closeBotDetailsModal() {
+    setBotDetailsModalBotId('')
+  }
+
+  function openBotOutbound(bot: Bot) {
+    const botConnections = connectionsByBotId.get(bot.id) ?? []
+    const preferredConnection =
+      botConnections.find((connection) => connection.status === 'active') ?? botConnections[0] ?? null
+    const nextSearch = buildBotsPageSelectionSearch({
+      workspaceFilterId,
+      selectedBotId: bot.id,
+      selectedConnectionId: preferredConnection?.id ?? '',
+    })
+    navigate({
+      pathname: '/bots/outbound',
+      search: nextSearch ? `?${nextSearch}` : '',
+    })
+  }
+
+  function openBotEndpoints(bot: Bot) {
+    const botConnections = connectionsByBotId.get(bot.id) ?? []
+    const preferredConnection =
+      botConnections.find((connection) => connection.status === 'active') ?? botConnections[0] ?? null
+    navigate(buildBotEndpointsRoute(bot.workspaceId, bot.id, preferredConnection?.id))
   }
 
   function resetWeChatLoginState() {
@@ -3493,8 +2837,9 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setCreateBotModalOpen(true)
   }
 
-  function openEditBotModal() {
-    if (!selectedBot) {
+  function openEditBotModal(bot: Bot | null = selectedBot) {
+    const targetBot = bot ?? selectedBot
+    if (!targetBot) {
       setCreateBotFormError(
         i18n._({
           id: 'Select a bot before editing.',
@@ -3504,23 +2849,24 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       return
     }
 
+    selectBot(targetBot)
     createBotMutation.reset()
     updateBotMutation.reset()
-    setEditingBot(selectedBot)
+    setEditingBot(targetBot)
     setCreateBotFormError('')
-    setCreateBotWorkspaceId(selectedBot.workspaceId)
-    setCreateBotNameDraft(selectedBot.name ?? '')
-    setCreateBotDescriptionDraft(selectedBot.description ?? '')
-    setCreateBotScopeDraft(selectedBot.scope?.trim().toLowerCase() === 'global' ? 'global' : 'workspace')
+    setCreateBotWorkspaceId(targetBot.workspaceId)
+    setCreateBotNameDraft(targetBot.name ?? '')
+    setCreateBotDescriptionDraft(targetBot.description ?? '')
+    setCreateBotScopeDraft(targetBot.scope?.trim().toLowerCase() === 'global' ? 'global' : 'workspace')
     setCreateBotSharingModeDraft(
-      selectedBot.sharingMode?.trim().toLowerCase() === 'selected_workspaces'
+      targetBot.sharingMode?.trim().toLowerCase() === 'selected_workspaces'
         ? 'selected_workspaces'
-        : selectedBot.sharingMode?.trim().toLowerCase() === 'owner_only'
+        : targetBot.sharingMode?.trim().toLowerCase() === 'owner_only'
           ? 'owner_only'
           : 'all_workspaces',
     )
     setCreateBotSharedWorkspaceIdsDraft(
-      (selectedBot.sharedWorkspaceIds ?? []).filter((workspaceId) => workspaceId !== selectedBot.workspaceId),
+      (targetBot.sharedWorkspaceIds ?? []).filter((workspaceId) => workspaceId !== targetBot.workspaceId),
     )
     setCreateBotModalOpen(true)
   }
@@ -3602,7 +2948,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   }
 
   function openCreateModal() {
-    if (!selectedBot) {
+    if (!selectedBotId.trim()) {
       setFormError(
         i18n._({
           id: 'Select a bot before creating an endpoint.',
@@ -3618,44 +2964,11 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     resetWeChatLoginState()
     const nextDraft = {
       ...EMPTY_BOTS_PAGE_DRAFT,
-      workspaceId: selectedBot.workspaceId,
+      workspaceId: workspaceFilterId.trim() || selectedBotWorkspaceId || selectedConnectionWorkspaceId || workspaces[0]?.id || '',
       runtimeMode: draft.runtimeMode,
       telegramDeliveryMode: draft.telegramDeliveryMode,
       publicBaseUrl: draft.publicBaseUrl,
       wechatChannelTimingEnabled: draft.wechatChannelTimingEnabled,
-    }
-    setDraft(nextDraft)
-    setConnectionModalBaselineDraft(nextDraft)
-    setDiscardConnectionModalConfirmOpen(false)
-    setCreateModalOpen(true)
-  }
-
-  function openCreateModalWithSavedWeChatAccount(account: WeChatAccount) {
-    if (!selectedBot) {
-      setFormError(
-        i18n._({
-          id: 'Select a bot before creating an endpoint from a saved WeChat account.',
-          message: 'Select a bot before creating an endpoint from a saved WeChat account.',
-        }),
-      )
-      return
-    }
-    createMutation.reset()
-    updateMutation.reset()
-    setFormError('')
-    setEditTarget(null)
-    resetWeChatLoginState()
-    const nextDraft = {
-      ...EMPTY_BOTS_PAGE_DRAFT,
-      workspaceId: selectedBot.workspaceId,
-      provider: 'wechat',
-      runtimeMode: draft.runtimeMode,
-      telegramDeliveryMode: draft.telegramDeliveryMode,
-      publicBaseUrl: draft.publicBaseUrl,
-      wechatBaseUrl: account.baseUrl,
-      wechatChannelTimingEnabled: draft.wechatChannelTimingEnabled,
-      wechatCredentialSource: 'saved',
-      wechatSavedAccountId: account.id,
     }
     setDraft(nextDraft)
     setConnectionModalBaselineDraft(nextDraft)
@@ -3738,7 +3051,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       return
     }
 
-    if (!isEditingConnection && !connectionModalBot) {
+    if (!isEditingConnection && !connectionModalBotId) {
       setFormError(
         i18n._({
           id: 'Select a bot before creating an endpoint.',
@@ -3901,7 +3214,7 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     }
 
     createMutation.mutate({
-      botId: connectionModalBot?.id,
+      botId: connectionModalBotId,
       workspaceId,
       input: buildBotConnectionCreateInput(draft),
     })
@@ -3942,61 +3255,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     })
   }
 
-  function buildNotificationTriggerFilter() {
-    const filter: Record<string, string> = {}
-    if (notificationTriggerKind.trim()) {
-      filter.kind = notificationTriggerKind.trim()
-    }
-    if (notificationTriggerLevel.trim()) {
-      filter.level = notificationTriggerLevel.trim()
-    }
-    return Object.keys(filter).length ? filter : undefined
-  }
-
-  function handleCreateNotificationTrigger() {
-    if (!selectedBot || !selectedConnection || createBotTriggerMutation.isPending || !notificationTriggerTargetId.trim()) {
-      return
-    }
-
-    createBotTriggerMutation.mutate({
-      workspaceId: selectedBotWorkspaceId,
-      botId: selectedBot.id,
-      input: {
-        deliveryTargetId: notificationTriggerTargetId.trim(),
-        filter: buildNotificationTriggerFilter(),
-        enabled: notificationTriggerEnabled,
-      },
-    })
-  }
-
-  function handleToggleNotificationTrigger(trigger: BotTrigger) {
-    if (!selectedBot || updateBotTriggerMutation.isPending) {
-      return
-    }
-
-    updateBotTriggerMutation.mutate({
-      workspaceId: selectedBotWorkspaceId,
-      botId: selectedBot.id,
-      triggerId: trigger.id,
-      input: {
-        deliveryTargetId: trigger.deliveryTargetId,
-        enabled: !trigger.enabled,
-      },
-    })
-  }
-
-  function handleDeleteNotificationTrigger(trigger: BotTrigger) {
-    if (!selectedBot || deleteBotTriggerMutation.isPending) {
-      return
-    }
-
-    deleteBotTriggerMutation.mutate({
-      workspaceId: selectedBotWorkspaceId,
-      botId: selectedBot.id,
-      triggerId: trigger.id,
-    })
-  }
-
   function resetBindingModalState() {
     setBindingTarget(null)
     setBindingMode('existing')
@@ -4006,19 +3264,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setBindingTitle('')
     updateConversationBindingMutation.reset()
     clearConversationBindingMutation.reset()
-  }
-
-  function openBindingModal(conversation: BotConversation) {
-    updateConversationBindingMutation.reset()
-    clearConversationBindingMutation.reset()
-    const currentTarget = resolveBotConversationThreadTarget(conversation)
-    const currentThreadId = currentTarget.threadId.trim()
-    setBindingTarget(conversation)
-    setBindingMode(currentThreadId ? 'existing' : 'new')
-    setBindingWorkspaceId(currentTarget.workspaceId.trim() || conversation.workspaceId)
-    setBindingThreadId(currentThreadId)
-    setBindingThreadSearch('')
-    setBindingTitle('')
   }
 
   function closeBindingModal() {
@@ -4073,18 +3318,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     })
   }
 
-  function openDefaultBindingModal() {
-    if (!selectedBot || !canConfigureDefaultBinding) {
-      return
-    }
-    updateBotDefaultBindingMutation.reset()
-    setDefaultBindingMode(selectedDefaultBinding?.bindingMode === 'fixed_thread' ? 'fixed_thread' : 'workspace_auto_thread')
-    setDefaultBindingWorkspaceId(selectedDefaultBinding?.targetWorkspaceId?.trim() || selectedBot.workspaceId)
-    setDefaultBindingThreadId(selectedDefaultBinding?.targetThreadId?.trim() ?? '')
-    setDefaultBindingThreadSearch('')
-    setDefaultBindingModalOpen(true)
-  }
-
   function closeDefaultBindingModal() {
     if (isDefaultBindingMutationPending) {
       return
@@ -4115,67 +3348,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     })
   }
 
-  function openRouteTargetModal(target?: BotDeliveryTarget, mode?: RouteTargetModalMode) {
-    if (!selectedConnection || !selectedBot || !selectedConnectionSupportsRouteTargetConfig) {
-      return
-    }
-    upsertDeliveryTargetMutation.reset()
-    updateDeliveryTargetMutation.reset()
-    setRouteTargetFormError('')
-    const sourceTarget = target ?? null
-    const resolvedMode =
-      mode ?? (isSavedBotDeliveryTarget(sourceTarget) ? 'edit' : sourceTarget ? 'save_from_existing' : 'create')
-    const editableTarget = resolvedMode === 'edit' && isSavedBotDeliveryTarget(sourceTarget) ? sourceTarget : null
-    const sourceRouteType = sourceTarget?.routeType?.trim().toLowerCase() ?? ''
-    const telegramRouteFields = parseTelegramRouteKey(sourceTarget?.routeType, sourceTarget?.routeKey)
-    const feishuRouteFields = parseFeishuRouteKey(sourceTarget?.routeType, sourceTarget?.routeKey)
-    const nextRouteType =
-      sourceRouteType === 'telegram_topic' ||
-      sourceRouteType === 'wechat_session' ||
-      sourceRouteType === 'feishu_chat' ||
-      sourceRouteType === 'feishu_thread' ||
-      sourceRouteType === 'qqbot_group' ||
-      sourceRouteType === 'qqbot_c2c'
-        ? sourceRouteType
-        : defaultRouteTargetTypeForProvider(selectedProvider)
-    const nextChatId =
-      nextRouteType === 'wechat_session'
-        ? parseWeChatRouteKey(sourceTarget?.routeKey)
-        : nextRouteType === 'feishu_chat' || nextRouteType === 'feishu_thread'
-          ? feishuRouteFields.chatId
-          : nextRouteType === 'qqbot_group' || nextRouteType === 'qqbot_c2c'
-            ? parseQQBotRouteKey(sourceTarget?.routeType, sourceTarget?.routeKey)
-            : telegramRouteFields.chatId
-    const nextThreadId =
-      nextRouteType === 'telegram_topic' || nextRouteType === 'feishu_thread'
-        ? (nextRouteType === 'feishu_thread' ? feishuRouteFields.threadId : telegramRouteFields.threadId)
-        : ''
-    const advancedProviderState = stripManagedRouteTargetProviderState(selectedProvider, sourceTarget?.providerState)
-    const initialKnownRouteTargetOptions = buildKnownRouteTargetOptionsFromCandidates(nextRouteType, recipientCandidates)
-    const matchingKnownRouteTarget = findKnownRouteTargetOption(initialKnownRouteTargetOptions, nextChatId, nextThreadId)
-    setRouteTargetModalMode(resolvedMode)
-    setEditingRouteTarget(editableTarget)
-    setRouteTargetTitle(sourceTarget?.title?.trim() ?? '')
-    setRouteTargetRouteType(nextRouteType)
-    setRouteTargetRecipientMode(
-      matchingKnownRouteTarget || (!sourceTarget && initialKnownRouteTargetOptions.length > 0) ? 'existing' : 'manual',
-    )
-    setRouteTargetSuggestedRecipientValue(matchingKnownRouteTarget?.value ?? '')
-    setRouteTargetChatId(nextChatId)
-    setRouteTargetThreadId(nextThreadId)
-    setRouteTargetAdvancedOpen(
-      sourceTarget?.status?.trim() === 'paused' ||
-        Boolean(sourceTarget?.labels?.length) ||
-        Boolean(sourceTarget?.capabilities?.length) ||
-        Boolean(advancedProviderState && Object.keys(advancedProviderState).length > 0),
-    )
-    setRouteTargetStatus(sourceTarget?.status?.trim() === 'paused' ? 'paused' : 'active')
-    setRouteTargetLabelsDraft(formatCommaSeparatedValues(sourceTarget?.labels))
-    setRouteTargetCapabilitiesDraft(formatCommaSeparatedValues(sourceTarget?.capabilities))
-    setRouteTargetProviderStateDraft(stringifyProviderState(advancedProviderState))
-    setRouteTargetModalOpen(true)
-  }
-
   function closeRouteTargetModal(force = false) {
     if (!force && isRouteTargetMutationPending) {
       return
@@ -4184,7 +3356,15 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setRouteTargetModalMode('create')
     setEditingRouteTarget(null)
     setRouteTargetTitle('')
-    setRouteTargetRouteType(defaultRouteTargetTypeForProvider(selectedProvider))
+    setRouteTargetRouteType(
+      selectedProvider === 'wechat'
+        ? 'wechat_session'
+        : selectedProvider === 'feishu'
+          ? 'feishu_chat'
+          : selectedProvider === 'qqbot'
+            ? 'qqbot_group'
+            : 'telegram_chat',
+    )
     setRouteTargetRecipientMode('manual')
     setRouteTargetSuggestedRecipientValue('')
     setRouteTargetChatId('')
@@ -4197,18 +3377,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setRouteTargetFormError('')
     upsertDeliveryTargetMutation.reset()
     updateDeliveryTargetMutation.reset()
-  }
-
-  function openNewRouteTargetModal() {
-    openRouteTargetModal(undefined, 'create')
-  }
-
-  function openEditRouteTargetModal(target: BotDeliveryTarget) {
-    openRouteTargetModal(target, 'edit')
-  }
-
-  function openSaveRouteTargetModal(target: BotDeliveryTarget) {
-    openRouteTargetModal(target, 'save_from_existing')
   }
 
   function handleSubmitRouteTarget() {
@@ -4394,22 +3562,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     setOutboundComposerMediaDrafts((current) => current.filter((draft) => draft.id !== draftID))
   }
 
-  function openOutboundComposer(conversation: BotConversation) {
-    resetOutboundComposerFeedback()
-    setOutboundComposerDeliveryTarget(null)
-    setOutboundComposerTarget(conversation)
-    setOutboundComposerText('')
-    setOutboundComposerMediaDrafts([])
-  }
-
-  function openOutboundComposerForDeliveryTarget(target: BotDeliveryTarget) {
-    resetOutboundComposerFeedback()
-    setOutboundComposerTarget(null)
-    setOutboundComposerDeliveryTarget(target)
-    setOutboundComposerText('')
-    setOutboundComposerMediaDrafts([])
-  }
-
   function closeOutboundComposer(force = false) {
     if (!force && isSendOutboundMessagePending) {
       return
@@ -4496,23 +3648,6 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
       })
     }
   }
-
-  const createModalFooter = (
-    <>
-      <Button intent="secondary" onClick={closeCreateModal}>
-        {i18n._({ id: 'Cancel', message: 'Cancel' })}
-      </Button>
-      <Button
-        disabled={isSaveConnectionDisabled}
-        isLoading={isEditingConnection ? updateMutation.isPending : createMutation.isPending}
-        onClick={handleSubmitCreate}
-      >
-        {isEditingConnection
-          ? i18n._({ id: 'Save Changes', message: 'Save Changes' })
-          : i18n._({ id: 'Create Endpoint', message: 'Create Endpoint' })}
-      </Button>
-    </>
-  )
 
   const outboundComposerHasPreviewContent = Boolean(outboundComposerText.trim() || outboundComposerMedia.length > 0)
   const outboundComposerTextPlacement = planBotOutboundTextPlacement(
@@ -4616,21 +3751,38 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
 
   const pageEyebrow = isConfigMode
     ? i18n._({ id: 'Bots', message: 'Bots' })
-    : i18n._({ id: 'Bot Outbound', message: 'Bot Outbound' })
+    : isOutboundMode
+      ? i18n._({ id: 'Bot Outbound', message: 'Bot Outbound' })
+      : i18n._({ id: 'Endpoints', message: 'Endpoints' })
   const pageTitle = isConfigMode
     ? i18n._({ id: 'Bot Integrations', message: 'Bot Integrations' })
-    : i18n._({ id: 'Bot Outbound Operations', message: 'Bot Outbound Operations' })
+    : isOutboundMode
+      ? i18n._({ id: 'Bot Outbound Operations', message: 'Bot Outbound Operations' })
+      : i18n._({ id: 'Endpoint Directory', message: 'Endpoint Directory' })
   const pageDescription = isConfigMode
     ? i18n._({
         id: 'Connect Telegram, WeChat, Feishu, or QQ Bot endpoints, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
         message:
           'Connect Telegram, WeChat, Feishu, or QQ Bot endpoints, choose the right delivery posture for each provider, then route replies through Workspace Thread or OpenAI Responses.',
       })
-    : i18n._({
-        id: 'Review proactive recipients, send manual outbound messages, and inspect outbound delivery history without mixing those workflows into the bot configuration surface.',
-        message:
-          'Review proactive recipients, send manual outbound messages, and inspect outbound delivery history without mixing those workflows into the bot configuration surface.',
-      })
+    : isOutboundMode
+      ? i18n._({
+          id: 'Review proactive recipients, send manual outbound messages, and inspect outbound delivery history without mixing those workflows into the bot configuration surface.',
+          message:
+            'Review proactive recipients, send manual outbound messages, and inspect outbound delivery history without mixing those workflows into the bot configuration surface.',
+        })
+      : selectedBotFilterId
+        ? i18n._({
+            id: 'Inspect the endpoints attached to {botName}, then jump into detail, overview, logs, or edit actions without folding them into the bot directory.',
+            message:
+              'Inspect the endpoints attached to {botName}, then jump into detail, overview, logs, or edit actions without folding them into the bot directory.',
+            values: { botName: selectedBotFilterLabel },
+          })
+        : i18n._({
+            id: 'Inspect endpoint records from a dedicated list view, then jump into detail, overview, logs, or edit actions without folding them into the bot directory.',
+            message:
+              'Inspect endpoint records from a dedicated list view, then jump into detail, overview, logs, or edit actions without folding them into the bot directory.',
+          })
   const selectedPageQuery = buildBotsPageSelectionSearch({
     workspaceFilterId,
     selectedBotId,
@@ -4638,35 +3790,17 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
   })
   const configBotsPageRoute = selectedPageQuery ? `/bots?${selectedPageQuery}` : '/bots'
   const outboundBotsPageRoute = selectedPageQuery ? `/bots/outbound?${selectedPageQuery}` : '/bots/outbound'
-  const peerBotsPageRoute = isConfigMode ? outboundBotsPageRoute : configBotsPageRoute
-  const detailSectionTitle = isConfigMode
-    ? i18n._({ id: 'Endpoint Detail', message: 'Endpoint Detail' })
-    : i18n._({ id: 'Outbound Operations', message: 'Outbound Operations' })
-  const detailSectionDescription = isConfigMode
-    ? i18n._({
-        id: 'Select an endpoint to inspect provider status, delivery posture, AI backend settings, logs, and conversation bindings.',
-        message:
-          'Select an endpoint to inspect provider status, delivery posture, AI backend settings, logs, and conversation bindings.',
-      })
-    : i18n._({
-        id: 'Select an endpoint to manage recipients, review delivery readiness, inspect recent outbound history, and trigger manual sends.',
-        message:
-          'Select an endpoint to manage recipients, review delivery readiness, inspect recent outbound history, and trigger manual sends.',
-      })
-  const conversationSectionTitle = isConfigMode
-    ? i18n._({ id: 'Conversation Bindings', message: 'Conversation Bindings' })
-    : i18n._({ id: 'Recent Conversations', message: 'Recent Conversations' })
-  const conversationSectionDescription = isConfigMode
-    ? i18n._({
-        id: 'Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding.',
-        message:
-          'Each external chat keeps a conversation record with its last inbound and outbound message plus an optional internal thread binding.',
-      })
-    : i18n._({
-        id: 'Browse recent chats on this endpoint, inspect their latest inbound and outbound activity, and start a manual send without leaving the outbound workspace.',
-        message:
-          'Browse recent chats on this endpoint, inspect their latest inbound and outbound activity, and start a manual send without leaving the outbound workspace.',
-      })
+  const endpointsBotsPageRoute = selectedPageQuery ? `/bots/endpoints?${selectedPageQuery}` : '/bots/endpoints'
+  const currentMetricLabel = isConfigMode
+    ? i18n._({ id: 'Conversations', message: 'Conversations' })
+    : isOutboundMode
+      ? i18n._({ id: 'Recipients', message: 'Recipients' })
+      : i18n._({ id: 'Active Endpoints', message: 'Active Endpoints' })
+  const currentMetricValue = isConfigMode
+    ? totalBotConversationCount
+    : isOutboundMode
+      ? selectedConnectionDeliveryTargets.length
+      : activeConnectionsCount
 
   const botsPageDialogsProps = {
     shared: {
@@ -4931,349 +4065,57 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
     },
   }
 
-  const selectedConnectionSummarySectionProps: BotsPageConnectionSummarySectionProps = {
-    connection: selectedConnection!,
-    latestDeliveredOutboundDelivery: selectedConnectionLatestDeliveredOutboundDelivery,
-    latestOutboundDelivery: selectedConnectionLatestOutboundDelivery,
-    mode: isConfigMode ? 'config' : 'outbound',
-    providerSettings: {
-      feishuEnableCards: selectedFeishuEnableCards,
-      feishuGroupReplyAll: selectedFeishuGroupReplyAll,
-      feishuShareSessionInChannel: selectedFeishuShareSessionInChannel,
-      feishuThreadIsolation: selectedFeishuThreadIsolation,
-      qqbotMarkdownSupport: selectedQQBotMarkdownSupport,
-      qqbotSandbox: selectedQQBotSandbox,
-      qqbotShareSessionInChannel: selectedQQBotShareSessionInChannel,
-    },
-    summaryCounts: {
-      boundConversationCount: selectedConnectionBoundConversationCount,
-      conversationCount: conversations.length,
-      deliveredOutboundCount: selectedConnectionDeliveredOutboundCount,
-      deliveryTargetCount: selectedConnectionDeliveryTargets.length,
-      failedOutboundCount: selectedConnectionFailedOutboundCount,
-      manualOutboundCount: selectedConnectionManualOutboundCount,
-      outboundDeliveryCount: selectedConnectionOutboundDeliveries.length,
-      pendingOutboundCount: selectedConnectionPendingOutboundCount,
-      readyRecipientCount: selectedConnectionReadyRecipientsCount,
-      waitingRecipientCount: selectedConnectionWaitingRecipientsCount,
-    },
-    summaryLabels: {
-      commandOutputModeLabel: selectedCommandOutputModeLabel,
-      deliveryModeLabel: selectedDeliveryModeLabel,
-      runtimeMode: selectedRuntimeMode,
-      usesBackgroundRuntime: selectedConnectionUsesBackgroundRuntime,
-    },
-    suppressionSummary: selectedConnectionSuppressionSummary,
-    wechatAccount: selectedConnectionWeChatAccount,
-  }
+  const botDetailsModalBot = botDetailsModalBotId ? bots.find((bot) => bot.id === botDetailsModalBotId) ?? null : null
+  const botDetailsModalConnections = botDetailsModalBot
+    ? connections.filter((connection) => connection.botId === botDetailsModalBot.id)
+    : []
 
   return (
     <section className="screen">
       <BotsPageHeader
         botsCount={bots.length}
-        canOpenCreateConnection={Boolean(selectedBot)}
         connectionsCount={connections.length}
-        currentMetricLabel={
-          isConfigMode
-            ? i18n._({ id: 'Conversations', message: 'Conversations' })
-            : i18n._({ id: 'Recipients', message: 'Recipients' })
-        }
-        currentMetricValue={isConfigMode ? totalBotConversationCount : selectedConnectionDeliveryTargets.length}
+        currentMetricLabel={currentMetricLabel}
+        currentMetricValue={currentMetricValue}
         isConfigMode={isConfigMode}
         isOutboundMode={isOutboundMode}
+        isEndpointsMode={isEndpointsMode}
+        onOpenCreateEndpoint={openCreateModal}
         onOpenCreateBot={openCreateBotModal}
-        onOpenCreateConnection={openCreateModal}
         onSwitchToConfig={() => navigate(configBotsPageRoute)}
         onSwitchToOutbound={() => navigate(outboundBotsPageRoute)}
+        onSwitchToEndpoints={() => navigate(endpointsBotsPageRoute)}
         pageDescription={pageDescription}
         pageEyebrow={pageEyebrow}
         pageTitle={pageTitle}
       />
 
-      <div className="mode-layout">
-        <aside className="mode-rail">
-          <section className="mode-panel">
-            <div className="section-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h2>{i18n._({ id: 'Workspace Filter', message: 'Workspace Filter' })}</h2>
-                <HelpTooltip
-                  content={i18n._({
-                    id: 'Browse bots across all workspaces, then optionally narrow the directory to one owner workspace. Binding targets can still point at a different workspace.',
-                    message:
-                      'Browse bots across all workspaces, then optionally narrow the directory to one owner workspace. Binding targets can still point at a different workspace.',
-                  })}
-                />
-              </div>
-            </div>
-            <label className="field">
-              <span>{i18n._({ id: 'Owner Workspace', message: 'Owner Workspace' })}</span>
-              <SelectControl
-                ariaLabel={i18n._({ id: 'Owner Workspace', message: 'Owner Workspace' })}
-                fullWidth
-                onChange={(nextValue) => {
-                  setSelectionState({
-                    workspaceFilterId: nextValue,
-                    selectedBotId: '',
-                    selectedConnectionId: '',
-                  })
-                }}
-                options={[
-                  {
-                    value: '',
-                    label: i18n._({ id: 'All Workspaces', message: 'All Workspaces' }),
-                  },
-                  ...workspaces.map((workspace) => ({
-                    value: workspace.id,
-                    label: workspace.name,
-                  })),
-                ]}
-                value={workspaceFilterId}
-              />
-            </label>
-            <div className="detail-list">
-              <div className="detail-row">
-                <span>{i18n._({ id: 'Current Filter', message: 'Current Filter' })}</span>
-                <strong>{selectedWorkspaceFilter?.name ?? i18n._({ id: 'All workspaces', message: 'All workspaces' })}</strong>
-              </div>
-              <div className="detail-row">
-                <span>{i18n._({ id: 'Visible Active Bots', message: 'Visible Active Bots' })}</span>
-                <strong>{activeBotsCount}</strong>
-              </div>
-              <div className="detail-row">
-                <span>{i18n._({ id: 'Selected Bot', message: 'Selected Bot' })}</span>
-                <strong>{selectedBot?.name ?? i18n._({ id: 'None', message: 'None' })}</strong>
-              </div>
-            </div>
-          </section>
-
-          <section className="mode-panel">
-            <div className="section-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h2>
-                  {isConfigMode
-                    ? i18n._({ id: 'Selected Bot', message: 'Selected Bot' })
-                    : i18n._({ id: 'Outbound Focus', message: 'Outbound Focus' })}
-                </h2>
-                <HelpTooltip
-                  content={
-                    isConfigMode
-                      ? i18n._({
-                          id: 'Bots are the first routing layer. Each bot can own one or more endpoints and a default binding that decides how new conversations resolve internally.',
-                          message:
-                            'Bots are the first routing layer. Each bot can own one or more endpoints and a default binding that decides how new conversations resolve internally.',
-                        })
-                      : i18n._({
-                          id: 'Outbound mode keeps the same bot and endpoint selection, but this panel stays focused on recipient readiness, recent deliveries, and quick operational actions.',
-                          message:
-                            'Outbound mode keeps the same bot and endpoint selection, but this panel stays focused on recipient readiness, recent deliveries, and quick operational actions.',
-                        })
-                  }
-                />
-              </div>
-            </div>
-            {isConfigMode ? (
-              !selectedBot ? (
-                <div className="empty-state">
-                  {i18n._({
-                    id: 'Select a bot to inspect its default routing and endpoint coverage.',
-                    message: 'Select a bot to inspect its default routing and endpoint coverage.',
-                  })}
-                </div>
-              ) : (
-                <>
-                  <div
-                    style={{
-                      alignItems: 'start',
-                      display: 'flex',
-                      gap: '16px',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div style={{ display: 'grid', gap: '6px' }}>
-                      <strong dir="auto">{selectedBot.name}</strong>
-                      <span>{selectedBotWorkspace?.name ?? selectedBot.workspaceId}</span>
-                    </div>
-                    <div style={{ alignItems: 'center', display: 'flex', gap: '8px' }}>
-                      <StatusPill status={selectedBot.status} />
-                      <Button intent="secondary" onClick={openEditBotModal} type="button">
-                        {i18n._({ id: 'Edit Bot', message: 'Edit Bot' })}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="mode-metrics">
-                    <div className="mode-metric">
-                      <span>{i18n._({ id: 'Endpoints', message: 'Endpoints' })}</span>
-                      <strong>{selectedBotConnections.length}</strong>
-                    </div>
-                    <div className="mode-metric">
-                      <span>{i18n._({ id: 'Active', message: 'Active' })}</span>
-                      <strong>{selectedBotActiveConnectionsCount}</strong>
-                    </div>
-                    <div className="mode-metric">
-                      <span>{i18n._({ id: 'Conversations', message: 'Conversations' })}</span>
-                      <strong>{selectedBot.conversationCount}</strong>
-                    </div>
-                  </div>
-                  <div className="detail-list">
-                    <div className="detail-row">
-                      <span>{i18n._({ id: 'Scope', message: 'Scope' })}</span>
-                      <strong>{selectedBotScopeLabel}</strong>
-                    </div>
-                    <div className="detail-row">
-                      <span>{i18n._({ id: 'Sharing', message: 'Sharing' })}</span>
-                      <strong>{selectedBotSharingModeLabel}</strong>
-                    </div>
-                    <div className="detail-row">
-                      <span>{i18n._({ id: 'Shared Workspaces', message: 'Shared Workspaces' })}</span>
-                      <strong>{selectedBotSharedWorkspaceLabel}</strong>
-                    </div>
-                    <div className="detail-row">
-                      <span>{i18n._({ id: 'Default Binding', message: 'Default Binding' })}</span>
-                      <strong>{selectedBotDefaultBindingModeLabel}</strong>
-                    </div>
-                    <div className="detail-row">
-                      <span>{i18n._({ id: 'Target Workspace', message: 'Target Workspace' })}</span>
-                      <strong>
-                        {selectedBotDefaultBindingMode === 'stateless'
-                          ? i18n._({ id: 'No workspace thread target', message: 'No workspace thread target' })
-                          : selectedBotDefaultBindingWorkspaceId}
-                      </strong>
-                    </div>
-                    <div className="detail-row">
-                      <span>{i18n._({ id: 'Binding Target', message: 'Binding Target' })}</span>
-                      <strong>
-                        {selectedBotDefaultBindingMode === 'fixed_thread' && selectedBotDefaultBindingThreadId ? (
-                          <Link
-                            to={buildWorkspaceThreadRoute(
-                              selectedBotDefaultBindingWorkspaceId,
-                              selectedBotDefaultBindingThreadId,
-                            )}
-                          >
-                            {selectedBotDefaultBindingWorkspaceId !== selectedBot.workspaceId
-                              ? `${selectedBotDefaultBindingWorkspaceId} / ${selectedBotDefaultBindingThreadId}`
-                              : selectedBotDefaultBindingThreadId}
-                          </Link>
-                        ) : selectedBotDefaultBindingMode === 'stateless' ? (
-                          i18n._({ id: 'No workspace thread target', message: 'No workspace thread target' })
-                        ) : (
-                          i18n._({
-                            id: 'Resolve a workspace thread from conversation context',
-                            message: 'Resolve a workspace thread from conversation context',
-                          })
-                        )}
-                      </strong>
-                    </div>
-                    <div className="detail-row">
-                      <span>{i18n._({ id: 'Updated', message: 'Updated' })}</span>
-                      <strong>{formatBotTimestamp(selectedBot.updatedAt)}</strong>
-                    </div>
-                  </div>
-                  {botBindingsQuery.error ? (
-                    <InlineNotice
-                      dismissible
-                      noticeKey={`bot-bindings-${selectedBot.id}-${getErrorMessage(botBindingsQuery.error)}`}
-                      onRetry={() => void botBindingsQuery.refetch()}
-                      title={i18n._({ id: 'Failed To Load Bot Bindings', message: 'Failed To Load Bot Bindings' })}
-                      tone="error"
-                    >
-                      {getErrorMessage(botBindingsQuery.error)}
-                    </InlineNotice>
-                  ) : null}
-                  {selectedBotPrimaryBackend === 'openai_responses' ? (
-                    <div className="notice">
-                      {i18n._({
-                        id: 'This bot currently resolves through OpenAI Responses endpoints, so its default binding stays stateless and does not target a workspace thread.',
-                        message:
-                          'This bot currently resolves through OpenAI Responses endpoints, so its default binding stays stateless and does not target a workspace thread.',
-                      })}
-                    </div>
-                  ) : null}
-                  {botBindingsQuery.isLoading ? (
-                    <div className="notice">
-                      {i18n._({ id: 'Loading bot bindings...', message: 'Loading bot bindings...' })}
-                    </div>
-                  ) : null}
-                  <Button
-                    disabled={!canConfigureDefaultBinding}
-                    intent="secondary"
-                    onClick={openDefaultBindingModal}
-                    type="button"
-                  >
-                    {i18n._({ id: 'Manage Default Binding', message: 'Manage Default Binding' })}
-                  </Button>
-                </>
-              )
-            ) : !selectedConnection ? (
-              <div className="empty-state">
-                {i18n._({
-                  id: 'Select an endpoint to review recipient readiness, recent manual sends, and delivery history.',
-                  message: 'Select an endpoint to review recipient readiness, recent manual sends, and delivery history.',
-                })}
-              </div>
-            ) : (
-              <>
-                <div
-                  style={{
-                    alignItems: 'start',
-                    display: 'flex',
-                    gap: '16px',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div style={{ display: 'grid', gap: '6px' }}>
-                    <strong dir="auto">{selectedConnection.name}</strong>
-                    <span dir="auto">
-                      {selectedBot?.name ?? i18n._({ id: 'No bot selected', message: 'No bot selected' })}
-                    </span>
-                  </div>
-                  <StatusPill status={selectedConnection.status} />
-                </div>
-                <div className="mode-metrics">
-                  <div className="mode-metric">
-                    <span>{i18n._({ id: 'Recipients', message: 'Recipients' })}</span>
-                    <strong>{selectedConnectionDeliveryTargets.length}</strong>
-                  </div>
-                  <div className="mode-metric">
-                    <span>{i18n._({ id: 'Deliveries', message: 'Deliveries' })}</span>
-                    <strong>{selectedConnectionOutboundDeliveries.length}</strong>
-                  </div>
-                  <div className="mode-metric">
-                    <span>{i18n._({ id: 'Conversations', message: 'Conversations' })}</span>
-                    <strong>{conversations.length}</strong>
-                  </div>
-                </div>
-                <div className="detail-list">
-                  <div className="detail-row">
-                    <span>{i18n._({ id: 'Workspace', message: 'Workspace' })}</span>
-                    <strong>{selectedConnectionWorkspace?.name ?? selectedConnection.workspaceId}</strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>{i18n._({ id: 'Provider', message: 'Provider' })}</span>
-                    <strong>{formatBotProviderLabel(selectedConnection.provider)}</strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>{i18n._({ id: 'Ready Recipients', message: 'Ready Recipients' })}</span>
-                    <strong>{selectedConnectionReadyRecipientsCount}</strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>{i18n._({ id: 'Failed Deliveries', message: 'Failed Deliveries' })}</span>
-                    <strong>{selectedConnectionFailedOutboundCount}</strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>{i18n._({ id: 'Last Delivery', message: 'Last Delivery' })}</span>
-                    <strong>
-                      {selectedConnectionLatestOutboundDelivery
-                        ? formatBotTimestamp(selectedConnectionLatestOutboundDelivery.createdAt)
-                        : i18n._({ id: 'none', message: 'none' })}
-                    </strong>
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
-        </aside>
-
+      <div className="mode-layout mode-layout--bots-page">
         <div className="mode-stage stack-screen">
+          <BotsPageFilterSummarySection
+            activeBotsCount={activeBotsCount}
+            isEndpointsMode={isEndpointsMode}
+            onChangeWorkspaceFilterId={(nextValue) => {
+              setSelectionState({
+                workspaceFilterId: nextValue,
+                selectedBotId: '',
+                selectedConnectionId: '',
+              })
+            }}
+            onClearSelectedBotFilter={() => {
+              setSelectionState({
+                selectedBotId: '',
+                selectedConnectionId: '',
+              })
+            }}
+            selectedBotFilterId={selectedBotFilterId}
+            selectedBotFilterLabel={selectedBotFilterLabel}
+            selectedWorkspaceFilterName={
+              selectedWorkspaceFilter?.name ?? i18n._({ id: 'All workspaces', message: 'All workspaces' })
+            }
+            workspaceFilterId={workspaceFilterId}
+            workspaces={workspaces}
+          />
           {workspacesQuery.error ? (
             <InlineNotice
               dismissible
@@ -5346,1933 +4188,54 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
                 </InlineNotice>
               ) : null}
 
-              {runtimeModeErrorMessage ? (
-                <InlineNotice
-                  dismissible
-                  noticeKey={`bot-runtime-mode-${runtimeModeErrorMessage}`}
-                  title={i18n._({ id: 'Runtime Mode Update Failed', message: 'Runtime Mode Update Failed' })}
-                  tone="error"
-                >
-                  {runtimeModeErrorMessage}
-                </InlineNotice>
-              ) : null}
-
-              {commandOutputModeErrorMessage ? (
-                <InlineNotice
-                  dismissible
-                  noticeKey={`bot-command-output-mode-${commandOutputModeErrorMessage}`}
-                  title={i18n._({
-                    id: 'Command Output Mode Update Failed',
-                    message: 'Command Output Mode Update Failed',
-                  })}
-                  tone="error"
-                >
-                  {commandOutputModeErrorMessage}
-                </InlineNotice>
-              ) : null}
-
-              {wechatChannelTimingErrorMessage ? (
-                <InlineNotice
-                  dismissible
-                  noticeKey={`bot-wechat-channel-timing-${wechatChannelTimingErrorMessage}`}
-                  title={i18n._({
-                    id: 'WeChat Channel Timing Update Failed',
-                    message: 'WeChat Channel Timing Update Failed',
-                  })}
-                  tone="error"
-                >
-                  {wechatChannelTimingErrorMessage}
-                </InlineNotice>
-              ) : null}
-
-              <section className="content-section">
-                <div className="section-header section-header--inline">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2>{botDirectorySectionTitle}</h2>
-                    <HelpTooltip content={botDirectorySectionDescription} />
-                  </div>
-                  <div className="section-header__meta">{filteredBots.length}</div>
-                </div>
-
-                <Input
-                  label={i18n._({ id: 'Search Bots', message: 'Search Bots' })}
-                  onChange={(event) => setConnectionSearch(event.target.value)}
-                  placeholder={
-                    isConfigMode
-                      ? i18n._({
-                          id: 'Support bot, telegram, openai, support queue',
-                          message: 'Support bot, telegram, openai, support queue',
-                        })
-                      : i18n._({
-                          id: 'Ops bot, telegram, alerts endpoint',
-                          message: 'Ops bot, telegram, alerts endpoint',
-                        })
-                  }
-                  value={connectionSearch}
-                />
-
-                <Switch
-                  checked={showFullAccessConnectionsOnly}
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {directoryFilterLabel}
-                      <HelpTooltip content={directoryFilterDescription} />
-                    </div>
-                  }
-                  onChange={(event) => setShowFullAccessConnectionsOnly(event.target.checked)}
-                />
-
-                {botsQuery.isLoading || connectionsQuery.isLoading ? (
-                  <div className="notice">
-                    {i18n._({ id: 'Loading bots...', message: 'Loading bots...' })}
-                  </div>
-                ) : null}
-
-                {!botsQuery.isLoading && !connectionsQuery.isLoading && !bots.length ? (
-                  <div className="empty-state">
-                    {isConfigMode
-                      ? i18n._({
-                          id: 'No bots yet. Create a bot first, then attach one or more Telegram, WeChat, Feishu, or QQ Bot endpoints to it.',
-                          message:
-                            'No bots yet. Create a bot first, then attach one or more Telegram, WeChat, Feishu, or QQ Bot endpoints to it.',
-                        })
-                      : i18n._({
-                          id: 'No outbound bots are ready yet. Create a bot, attach an endpoint, then return here to manage recipients and deliveries.',
-                          message:
-                            'No outbound bots are ready yet. Create a bot, attach an endpoint, then return here to manage recipients and deliveries.',
-                        })}
-                  </div>
-                ) : null}
-
-                {!botsQuery.isLoading && !connectionsQuery.isLoading && bots.length > 0 && !filteredBots.length ? (
-                  <div className="empty-state">
-                    {showFullAccessConnectionsOnly
-                      ? isConfigMode
-                        ? i18n._({
-                            id: 'No bots with full-access endpoints match the current search and filters.',
-                            message: 'No bots with full-access endpoints match the current search and filters.',
-                          })
-                        : i18n._({
-                            id: 'No bots with active endpoints match the current search and filters.',
-                            message: 'No bots with active endpoints match the current search and filters.',
-                          })
-                      : i18n._({
-                          id: 'No bots match the current search.',
-                          message: 'No bots match the current search.',
-                        })}
-                  </div>
-                ) : null}
-
-                <div className="automation-compact-list">
-                  {filteredBots.map((bot) => {
-                    const botConnections = connectionsByBotId.get(bot.id) ?? []
-                    const activeEndpointCount = botConnections.filter((connection) => connection.status === 'active').length
-                    const outboundBotStats = outboundDirectoryStatsByBotID.get(bot.id) ?? {
-                      endpointCount: botConnections.length,
-                      activeEndpointCount,
-                      deliveryTargetCount: 0,
-                      readyRecipientCount: 0,
-                      waitingRecipientCount: 0,
-                      outboundDeliveryCount: 0,
-                      manualOutboundCount: 0,
-                      failedOutboundCount: 0,
-                      latestOutboundCreatedAt: '',
-                    }
-                    const botUsesFullAccess = botConnections.some(
-                      (connection) =>
-                        connection.aiBackend === 'workspace_thread' &&
-                        isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset),
-                    )
-                    const botPrimaryBackend = botConnections[0]?.aiBackend?.trim() ?? ''
-                    const botDefaultBindingMode =
-                      bot.defaultBindingMode?.trim() || (botPrimaryBackend === 'openai_responses' ? 'stateless' : 'workspace_auto_thread')
-                    const botDefaultBindingLabel =
-                      botDefaultBindingMode === 'fixed_thread'
-                        ? i18n._({ id: 'Fixed Thread', message: 'Fixed Thread' })
-                        : botDefaultBindingMode === 'stateless'
-                          ? i18n._({ id: 'Stateless', message: 'Stateless' })
-                          : i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
-                    return (
-                      <div
-                        className={[
-                          'automation-compact-row',
-                          selectedBotId === bot.id ? 'automation-compact-row--active' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        key={bot.id}
-                      >
-                        <button
-                          aria-pressed={selectedBotId === bot.id}
-                          className="automation-compact-row__main"
-                          onClick={() => selectBot(bot)}
-                          style={{
-                            background: 'transparent',
-                            border: 0,
-                            cursor: 'pointer',
-                            flex: 1,
-                            minWidth: 0,
-                            padding: 0,
-                            textAlign: 'left',
-                          }}
-                          type="button"
-                        >
-                          <strong dir="auto">{bot.name}</strong>
-                          {isConfigMode ? (
-                            <span>
-                              {i18n._({
-                                id: '{count} endpoint(s) | {conversationCount} conversation(s) | {bindingLabel}',
-                                message: '{count} endpoint(s) | {conversationCount} conversation(s) | {bindingLabel}',
-                                values: {
-                                  count: botConnections.length,
-                                  conversationCount: bot.conversationCount,
-                                  bindingLabel: botDefaultBindingLabel,
-                                },
-                              })}
-                            </span>
-                          ) : (
-                            <span>
-                              {i18n._({
-                                id: '{count} endpoint(s) | {recipientCount} recipient(s) | {deliveryCount} delivery(ies)',
-                                message: '{count} endpoint(s) | {recipientCount} recipient(s) | {deliveryCount} delivery(ies)',
-                                values: {
-                                  count: botConnections.length,
-                                  recipientCount: outboundBotStats.deliveryTargetCount,
-                                  deliveryCount: outboundBotStats.outboundDeliveryCount,
-                                },
-                              })}
-                            </span>
-                          )}
-                          {bot.description?.trim() ? <span>{bot.description.trim()}</span> : null}
-                          {botConnections[0] ? (
-                            isConfigMode ? (
-                              <span>
-                                {workspaceById.get(bot.workspaceId)?.name ?? bot.workspaceId} |{' '}
-                                {formatBotProviderLabel(botConnections[0].provider)} |{' '}
-                                {formatBotBackendLabel(botConnections[0].aiBackend)} |{' '}
-                                {formatBotTimestamp(bot.updatedAt)}
-                              </span>
-                            ) : (
-                              <span>
-                                {workspaceById.get(bot.workspaceId)?.name ?? bot.workspaceId} |{' '}
-                                {i18n._({
-                                  id: 'Active endpoints: {count}',
-                                  message: 'Active endpoints: {count}',
-                                  values: { count: outboundBotStats.activeEndpointCount },
-                                })}{' '}
-                                |{' '}
-                                {outboundBotStats.latestOutboundCreatedAt
-                                  ? formatBotTimestamp(outboundBotStats.latestOutboundCreatedAt)
-                                  : i18n._({ id: 'No deliveries yet', message: 'No deliveries yet' })}
-                              </span>
-                            )
-                          ) : null}
-                          {isConfigMode && botUsesFullAccess ? (
-                            <div className="automation-compact-row__meta">
-                              <span className="meta-pill meta-pill--danger">
-                                {i18n._({ id: 'Has Full Access Endpoint', message: 'Has Full Access Endpoint' })}
-                              </span>
-                              <span className="meta-pill">
-                                {i18n._({
-                                  id: 'Active Endpoints: {count}',
-                                  message: 'Active Endpoints: {count}',
-                                  values: { count: activeEndpointCount },
-                                })}
-                              </span>
-                            </div>
-                          ) : null}
-                          {isOutboundMode &&
-                          (outboundBotStats.readyRecipientCount > 0 ||
-                            outboundBotStats.failedOutboundCount > 0 ||
-                            outboundBotStats.manualOutboundCount > 0) ? (
-                            <div className="automation-compact-row__meta">
-                              <span className="meta-pill">
-                                {i18n._({
-                                  id: 'Ready recipients: {count}',
-                                  message: 'Ready recipients: {count}',
-                                  values: { count: outboundBotStats.readyRecipientCount },
-                                })}
-                              </span>
-                              {outboundBotStats.manualOutboundCount > 0 ? (
-                                <span className="meta-pill">
-                                  {i18n._({
-                                    id: 'Manual sends: {count}',
-                                    message: 'Manual sends: {count}',
-                                    values: { count: outboundBotStats.manualOutboundCount },
-                                  })}
-                                </span>
-                              ) : null}
-                              {outboundBotStats.failedOutboundCount > 0 ? (
-                                <span className="meta-pill meta-pill--warning">
-                                  {i18n._({
-                                    id: 'Failed deliveries: {count}',
-                                    message: 'Failed deliveries: {count}',
-                                    values: { count: outboundBotStats.failedOutboundCount },
-                                  })}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </button>
-                        <div className="automation-compact-row__actions">
-                          <StatusPill status={bot.status} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </section>
-
-              <section className="content-section">
-                <div className="section-header section-header--inline">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2>{endpointDirectorySectionTitle}</h2>
-                    <HelpTooltip content={endpointDirectorySectionDescription} />
-                  </div>
-                  <div style={{ alignItems: 'center', display: 'flex', gap: '12px' }}>
-                    <div className="section-header__meta">{filteredBotConnections.length}</div>
-                    {isConfigMode ? (
-                      <Button disabled={!selectedBot} onClick={openCreateModal} size="sm" type="button">
-                        {i18n._({ id: 'New Endpoint', message: 'New Endpoint' })}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-
-                {!selectedBot ? (
-                  <div className="empty-state">
-                    {i18n._({
-                      id: 'Select a bot first, then choose which endpoint you want to inspect.',
-                      message: 'Select a bot first, then choose which endpoint you want to inspect.',
-                    })}
-                  </div>
-                ) : null}
-
-                {selectedBot && !selectedBotConnections.length ? (
-                  <div className="empty-state">
-                    {i18n._({
-                      id: 'This bot does not have any endpoints yet.',
-                      message: 'This bot does not have any endpoints yet.',
-                    })}
-                  </div>
-                ) : null}
-
-                {selectedBotConnections.length > 0 && !filteredBotConnections.length ? (
-                  <div className="empty-state">
-                    {showFullAccessConnectionsOnly
-                      ? isConfigMode
-                        ? i18n._({
-                            id: 'No full-access endpoints match the current filters for this bot.',
-                            message: 'No full-access endpoints match the current filters for this bot.',
-                          })
-                        : i18n._({
-                            id: 'No active endpoints match the current filters for this bot.',
-                            message: 'No active endpoints match the current filters for this bot.',
-                          })
-                      : i18n._({
-                          id: 'No endpoints match the current filters for this bot.',
-                          message: 'No endpoints match the current filters for this bot.',
-                        })}
-                  </div>
-                ) : null}
-
-                {filteredBotConnections.length ? (
-                  <div className="automation-compact-list">
-                    {filteredBotConnections.map((connection) => {
-                      const linkedWeChatAccount = linkedWeChatAccountByConnectionID.get(connection.id) ?? null
-                      const outboundConnectionStats = outboundDirectoryStatsByConnectionID.get(connection.id) ?? {
-                        deliveryTargetCount: 0,
-                        readyRecipientCount: 0,
-                        waitingRecipientCount: 0,
-                        outboundDeliveryCount: 0,
-                        manualOutboundCount: 0,
-                        failedOutboundCount: 0,
-                        latestOutboundCreatedAt: '',
-                      }
-                      const connectionUsesFullAccess =
-                        connection.aiBackend === 'workspace_thread' &&
-                        isBotWorkspacePermissionPresetFullAccess(connection.aiConfig?.permission_preset)
-                      const recentSuppressionSummary = recentSuppressionSummaryByConnectionID.get(connection.id) ?? {
-                        suppressedCount: 0,
-                        duplicateSuppressedCount: 0,
-                        recoverySuppressedCount: 0,
-                        latestSuppressedAt: undefined,
-                      }
-                      return (
-                        <div
-                          className={[
-                            'automation-compact-row',
-                            selectedConnectionId === connection.id ? 'automation-compact-row--active' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          key={connection.id}
-                        >
-                          <button
-                            aria-pressed={selectedConnectionId === connection.id}
-                            className="automation-compact-row__main"
-                            onClick={() => selectConnection(connection)}
-                            style={{
-                              background: 'transparent',
-                              border: 0,
-                              cursor: 'pointer',
-                              flex: 1,
-                              minWidth: 0,
-                              padding: 0,
-                              textAlign: 'left',
-                            }}
-                            type="button"
-                          >
-                            <strong dir="auto">{connection.name}</strong>
-                            {isConfigMode ? (
-                              <span>
-                                {formatBotProviderLabel(connection.provider)} | {formatBotBackendLabel(connection.aiBackend)} |{' '}
-                                {formatBotTimestamp(connection.updatedAt)}
-                              </span>
-                            ) : (
-                              <span>
-                                {formatBotProviderLabel(connection.provider)} |{' '}
-                                {outboundConnectionStats.deliveryTargetCount > 0 ||
-                                outboundConnectionStats.outboundDeliveryCount > 0
-                                  ? i18n._({
-                                      id: '{readyCount}/{recipientCount} recipient(s) ready | {manualCount} manual send(s) | {deliveryCount} delivery(ies)',
-                                      message:
-                                        '{readyCount}/{recipientCount} recipient(s) ready | {manualCount} manual send(s) | {deliveryCount} delivery(ies)',
-                                      values: {
-                                        readyCount: outboundConnectionStats.readyRecipientCount,
-                                        recipientCount: outboundConnectionStats.deliveryTargetCount,
-                                        manualCount: outboundConnectionStats.manualOutboundCount,
-                                        deliveryCount: outboundConnectionStats.outboundDeliveryCount,
-                                      },
-                                    })
-                                  : i18n._({
-                                      id: 'No recipients or proactive deliveries recorded yet.',
-                                      message: 'No recipients or proactive deliveries recorded yet.',
-                                    })}
-                              </span>
-                            )}
-                            {linkedWeChatAccount ? (
-                              <span>
-                                {i18n._({ id: 'Saved Account', message: 'Saved Account' })}:{' '}
-                                {formatWeChatAccountLabel(linkedWeChatAccount)}
-                                {linkedWeChatAccount.note?.trim() ? ` | ${linkedWeChatAccount.note.trim()}` : ''}
-                              </span>
-                            ) : null}
-                            {isConfigMode && (connectionUsesFullAccess || recentSuppressionSummary.suppressedCount > 0) ? (
-                              <div className="automation-compact-row__meta">
-                                {connectionUsesFullAccess ? (
-                                  <span className="meta-pill meta-pill--danger">
-                                    {formatBotWorkspacePermissionPresetLabel(connection.aiConfig?.permission_preset)}
-                                  </span>
-                                ) : null}
-                                {recentSuppressionSummary.suppressedCount > 0 ? (
-                                  <span className="meta-pill meta-pill--warning">
-                                    {i18n._({
-                                      id: 'Suppressed 24h: {count}',
-                                      message: 'Suppressed 24h: {count}',
-                                      values: { count: recentSuppressionSummary.suppressedCount },
-                                    })}
-                                  </span>
-                                ) : null}
-                                {recentSuppressionSummary.duplicateSuppressedCount > 0 ? (
-                                  <span className="meta-pill meta-pill--warning">
-                                    {i18n._({
-                                      id: 'Duplicate: {count}',
-                                      message: 'Duplicate: {count}',
-                                      values: { count: recentSuppressionSummary.duplicateSuppressedCount },
-                                    })}
-                                  </span>
-                                ) : null}
-                                {recentSuppressionSummary.recoverySuppressedCount > 0 ? (
-                                  <span className="meta-pill meta-pill--warning">
-                                    {i18n._({
-                                      id: 'Restart: {count}',
-                                      message: 'Restart: {count}',
-                                      values: { count: recentSuppressionSummary.recoverySuppressedCount },
-                                    })}
-                                  </span>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            {isOutboundMode &&
-                            (outboundConnectionStats.deliveryTargetCount > 0 ||
-                              outboundConnectionStats.failedOutboundCount > 0 ||
-                              outboundConnectionStats.latestOutboundCreatedAt) ? (
-                              <div className="automation-compact-row__meta">
-                                <span className="meta-pill">
-                                  {i18n._({
-                                    id: 'Ready: {readyCount}/{recipientCount}',
-                                    message: 'Ready: {readyCount}/{recipientCount}',
-                                    values: {
-                                      readyCount: outboundConnectionStats.readyRecipientCount,
-                                      recipientCount: outboundConnectionStats.deliveryTargetCount,
-                                    },
-                                  })}
-                                </span>
-                                {outboundConnectionStats.waitingRecipientCount > 0 ? (
-                                  <span className="meta-pill">
-                                    {i18n._({
-                                      id: 'Waiting: {count}',
-                                      message: 'Waiting: {count}',
-                                      values: { count: outboundConnectionStats.waitingRecipientCount },
-                                    })}
-                                  </span>
-                                ) : null}
-                                {outboundConnectionStats.failedOutboundCount > 0 ? (
-                                  <span className="meta-pill meta-pill--warning">
-                                    {i18n._({
-                                      id: 'Failed: {count}',
-                                      message: 'Failed: {count}',
-                                      values: { count: outboundConnectionStats.failedOutboundCount },
-                                    })}
-                                  </span>
-                                ) : null}
-                                {outboundConnectionStats.latestOutboundCreatedAt ? (
-                                  <span className="meta-pill">
-                                    {formatBotTimestamp(outboundConnectionStats.latestOutboundCreatedAt)}
-                                  </span>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </button>
-                          <div className="automation-compact-row__actions">
-                            <StatusPill status={connection.status} />
-                            {isConfigMode ? (
-                              <Button intent="ghost" onClick={() => openEditModal(connection)} type="button">
-                                {i18n._({ id: 'Edit', message: 'Edit' })}
-                              </Button>
-                            ) : null}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null}
-              </section>
-
-              {isConfigMode ? (
-                <section className="content-section">
-                  <div className="section-header section-header--inline">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2>{i18n._({ id: 'Saved WeChat Accounts', message: 'Saved WeChat Accounts' })}</h2>
-                    <HelpTooltip
-                      content={i18n._({
-                        id: 'Confirmed WeChat QR logins remain workspace-owned, but this directory shows every saved account and can be narrowed with the workspace filter.',
-                        message:
-                          'Confirmed WeChat QR logins remain workspace-owned, but this directory shows every saved account and can be narrowed with the workspace filter.',
-                      })}
-                    />
-                  </div>
-                  <div className="section-header__meta">{filteredSavedWeChatAccounts.length}</div>
-                </div>
-
-                <Input
-                  label={i18n._({ id: 'Search Saved Accounts', message: 'Search Saved Accounts' })}
-                  onChange={(event) => setWeChatAccountSearch(event.target.value)}
-                  placeholder={i18n._({ id: 'Support, acct_123, wechat.example.com', message: 'Support, acct_123, wechat.example.com' })}
-                  value={wechatAccountSearch}
-                />
-
-                <Switch
-                  checked={showUnusedWeChatAccountsOnly}
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({ id: 'Only Show Unbound Accounts', message: 'Only Show Unbound Accounts' })}
-                      <HelpTooltip
-                        content={i18n._({
-                          id: 'Show only saved WeChat accounts that are not currently linked to any visible bot connection.',
-                          message:
-                            'Show only saved WeChat accounts that are not currently linked to any visible bot connection.',
-                        })}
-                      />
-                    </div>
-                  }
-                  onChange={(event) => setShowUnusedWeChatAccountsOnly(event.target.checked)}
-                />
-
-                {wechatAccountsErrorMessage ? (
-                  <InlineNotice
-                    dismissible
-                    noticeKey={`saved-wechat-accounts-${wechatAccountsErrorMessage}`}
-                    onRetry={() => void wechatAccountsQuery.refetch()}
-                    title={i18n._({
-                      id: 'Failed To Load Saved WeChat Accounts',
-                      message: 'Failed To Load Saved WeChat Accounts',
-                    })}
-                    tone="error"
-                  >
-                    {wechatAccountsErrorMessage}
-                  </InlineNotice>
-                ) : null}
-
-                {wechatAccountsQuery.isLoading ? (
-                  <div className="notice">
-                    {i18n._({ id: 'Loading saved WeChat accounts...', message: 'Loading saved WeChat accounts...' })}
-                  </div>
-                ) : null}
-
-                {!wechatAccountsQuery.isLoading && !savedWeChatAccounts.length ? (
-                  <div className="empty-state">
-                    {i18n._({
-                      id: 'No saved WeChat accounts yet. Complete one confirmed QR login to save an account for reuse.',
-                      message:
-                        'No saved WeChat accounts yet. Complete one confirmed QR login to save an account for reuse.',
-                    })}
-                  </div>
-                ) : null}
-
-                {!wechatAccountsQuery.isLoading && savedWeChatAccounts.length > 0 && !filteredSavedWeChatAccounts.length ? (
-                  <div className="empty-state">
-                    {i18n._({
-                      id: 'No saved WeChat accounts match the current filters.',
-                      message: 'No saved WeChat accounts match the current filters.',
-                    })}
-                  </div>
-                ) : null}
-
-                  {filteredSavedWeChatAccounts.length ? (
-                    <div className="directory-list">
-                      {filteredSavedWeChatAccounts.map((account) => (
-                        <article className="directory-item" key={account.id}>
-                        <div className="directory-item__icon">{i18n._({ id: 'WX', message: 'WX' })}</div>
-                        <div className="directory-item__body">
-                          <strong>{formatWeChatAccountLabel(account)}</strong>
-                          {account.alias?.trim() ? (
-                            <p>
-                              {i18n._({ id: 'Alias', message: 'Alias' })}: {account.alias}
-                            </p>
-                          ) : null}
-                          <p>
-                            {i18n._({ id: 'Base URL', message: 'Base URL' })}: {account.baseUrl}
-                          </p>
-                          <p>
-                            {i18n._({ id: 'Last Confirmed', message: 'Last Confirmed' })}:{' '}
-                            {formatBotTimestamp(account.lastConfirmedAt)}
-                          </p>
-                          {account.note?.trim() ? <p>{account.note}</p> : null}
-                          {(savedWeChatAccountConnections.get(account.id) ?? []).length ? (
-                            <div style={{ display: 'grid', gap: '8px', marginTop: '12px' }}>
-                              <strong>{i18n._({ id: 'Linked Connections', message: 'Linked Connections' })}</strong>
-                              <div style={{ display: 'grid', gap: '8px' }}>
-                                {(savedWeChatAccountConnections.get(account.id) ?? []).map((connection) => (
-                                  <div
-                                    key={connection.id}
-                                    style={{
-                                      alignItems: 'center',
-                                      display: 'flex',
-                                      flexWrap: 'wrap',
-                                      gap: '8px',
-                                      justifyContent: 'space-between',
-                                    }}
-                                  >
-                                    <div style={{ display: 'grid', gap: '4px' }}>
-                                      <strong dir="auto">{connection.name}</strong>
-                                      <span>
-                                        {formatBotBackendLabel(connection.aiBackend)} | {formatBotTimestamp(connection.updatedAt)}
-                                      </span>
-                                    </div>
-                                    <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                      <StatusPill status={connection.status} />
-                                      <Button intent="ghost" onClick={() => openEditModal(connection)} type="button">
-                                        {i18n._({ id: 'Edit', message: 'Edit' })}
-                                      </Button>
-                                      <Button
-                                        intent="ghost"
-                                        onClick={() => selectConnection(connection)}
-                                        type="button"
-                                      >
-                                        {i18n._({ id: 'Open Connection', message: 'Open Connection' })}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            <p>
-                              {i18n._({
-                                id: 'Not used by any bot connection yet.',
-                                message: 'Not used by any bot connection yet.',
-                              })}
-                            </p>
-                          )}
-                        </div>
-                        <div
-                          className="directory-item__meta"
-                          style={{ alignItems: 'end', display: 'grid', gap: '8px', justifyItems: 'end' }}
-                        >
-                          <span className="meta-pill">
-                            {i18n._({ id: 'Connections', message: 'Connections' })}:{' '}
-                            {savedWeChatAccountConnectionCounts.get(account.id) ?? 0}
-                          </span>
-                          <span className="meta-pill">{formatBotTimestamp(account.updatedAt)}</span>
-                          <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            <Button
-                              disabled={!selectedBot}
-                              intent="secondary"
-                              onClick={() => openCreateModalWithSavedWeChatAccount(account)}
-                              type="button"
-                            >
-                              {i18n._({ id: 'Use For New Endpoint', message: 'Use For New Endpoint' })}
-                            </Button>
-                            <Button intent="ghost" onClick={() => openWeChatAccountEditModal(account)} type="button">
-                              {i18n._({ id: 'Edit Details', message: 'Edit Details' })}
-                            </Button>
-                            <Button
-                              className="ide-button--ghost-danger"
-                              intent="ghost"
-                              onClick={() => setDeleteWeChatAccountTarget(account)}
-                              type="button"
-                            >
-                              {i18n._({ id: 'Delete', message: 'Delete' })}
-                            </Button>
-                          </div>
-                        </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-
-              <section className="content-section">
-                <div className="section-header section-header--inline">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2>{detailSectionTitle}</h2>
-                    <HelpTooltip content={detailSectionDescription} />
-                  </div>
-                </div>
-
-                {!selectedConnection ? (
-                  <div className="empty-state">
-                    {i18n._({
-                      id: 'No endpoint selected.',
-                      message: 'No endpoint selected.',
-                    })}
-                  </div>
-                ) : (
-                  <div className="stack-screen">
-                    {isConfigMode ? (
-                      <section className="mode-panel">
-                        <div
-                          style={{
-                            alignItems: 'start',
-                            display: 'flex',
-                            gap: '16px',
-                            justifyContent: 'space-between',
-                          }}
-                        >
-                          <div style={{ display: 'grid', gap: '6px' }}>
-                            <strong dir="auto">{selectedConnection.name}</strong>
-                            <span>
-                              {selectedConnectionWorkspace?.name ?? selectedConnection.workspaceId} |{' '}
-                              {formatBotProviderLabel(selectedConnection.provider)} |{' '}
-                              {formatBotBackendLabel(selectedConnection.aiBackend)}
-                            </span>
-                          </div>
-                          <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            <StatusPill status={selectedConnection.status} />
-                            {selectedConnection.aiBackend === 'workspace_thread' &&
-                            isBotWorkspacePermissionPresetFullAccess(selectedConnection.aiConfig?.permission_preset) ? (
-                              <span className="meta-pill meta-pill--danger">
-                                {formatBotWorkspacePermissionPresetLabel(
-                                  selectedConnection.aiConfig?.permission_preset,
-                                )}
-                              </span>
-                            ) : null}
-                            <Button intent="secondary" onClick={() => openEditModal(selectedConnection)} type="button">
-                              {i18n._({ id: 'Edit', message: 'Edit' })}
-                            </Button>
-                            <Button
-                              intent="secondary"
-                              onClick={() => navigate(`/bots/${selectedConnection.id}/logs`)}
-                              type="button"
-                            >
-                              {i18n._({ id: 'View Logs', message: 'View Logs' })}
-                            </Button>
-                            <Button
-                              intent="ghost"
-                              isLoading={
-                                actionMutation.isPending && actionMutation.variables?.connection.id === selectedConnection.id
-                              }
-                              onClick={() =>
-                                actionMutation.mutate({
-                                  workspaceId: selectedConnection.workspaceId,
-                                  connection: selectedConnection,
-                                })
-                              }
-                              type="button"
-                            >
-                              {selectedConnection.status === 'active'
-                                ? i18n._({ id: 'Pause', message: 'Pause' })
-                                : i18n._({ id: 'Resume', message: 'Resume' })}
-                            </Button>
-                            <Button
-                              className="ide-button--ghost-danger"
-                              intent="ghost"
-                              onClick={() => setDeleteTarget(selectedConnection)}
-                              type="button"
-                            >
-                              {i18n._({ id: 'Delete', message: 'Delete' })}
-                            </Button>
-                          </div>
-                        </div>
-                      </section>
-                    ) : null}
-
-                    {selectedConnection.lastError ? (
-                      <InlineNotice
-                        dismissible
-                        noticeKey={`bot-last-error-${selectedConnection.id}-${selectedConnection.lastError}`}
-                        title={i18n._({ id: 'Last Bot Error', message: 'Last Bot Error' })}
-                        tone="error"
-                      >
-                        {selectedConnection.lastError}
-                      </InlineNotice>
-                    ) : null}
-
-                    {selectedConnectionSuppressionSummary.suppressedCount > 0 ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-suppression-summary-${selectedConnection.id}-${selectedConnectionSuppressionSummary.suppressedCount}-${selectedConnectionSuppressionSummary.latestSuppressedAt ?? 'none'}`}
-                        title={i18n._({
-                          id: 'Replay Suppressions Recorded',
-                          message: 'Replay Suppressions Recorded',
-                        })}
-                        >
-                          {i18n._({
-                            id: 'The backend suppressed {count} replay attempt(s) for this endpoint in the last 24 hours to avoid duplicating previously sent content.',
-                            message:
-                              'The backend suppressed {count} replay attempt(s) for this endpoint in the last 24 hours to avoid duplicating previously sent content.',
-                            values: { count: selectedConnectionSuppressionSummary.suppressedCount },
-                          })}
-                        </InlineNotice>
-                    ) : null}
-
-                    {isOutboundMode && selectedConnection.status !== 'active' ? (
-                      <InlineNotice
-                        dismissible
-                        noticeKey={`bot-outbound-paused-${selectedConnection.id}-${selectedConnection.status}`}
-                        title={i18n._({ id: 'Outbound Sending Paused', message: 'Outbound Sending Paused' })}
-                      >
-                        {i18n._({
-                          id: 'This endpoint is not active, so manual proactive sends stay disabled until you resume it from the Configuration tab.',
-                          message:
-                            'This endpoint is not active, so manual proactive sends stay disabled until you resume it from the Configuration tab.',
-                        })}
-                      </InlineNotice>
-                    ) : null}
-
-                    <section
-                      className={isConfigMode ? 'mode-panel' : 'mode-panel mode-panel--compact'}
-                      style={isOutboundMode ? { order: 40 } : undefined}
-                    >
-                      <div className={isConfigMode ? 'section-header' : 'section-header section-header--inline'}>
-                        <div>
-                          <h2>
-                            {isConfigMode
-                              ? i18n._({ id: 'Configuration Summary', message: 'Configuration Summary' })
-                              : i18n._({ id: 'Outbound Summary', message: 'Outbound Summary' })}
-                          </h2>
-                          {isOutboundMode ? (
-                            <p dir="auto">
-                              {selectedConnection.name} | {selectedConnectionWorkspace?.name ?? selectedConnection.workspaceId}
-                            </p>
-                          ) : null}
-                        </div>
-                        {isOutboundMode ? (
-                          <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            <StatusPill status={selectedConnection.status} />
-                            <Button
-                              intent="secondary"
-                              onClick={() => navigate(`/bots/${selectedConnection.id}/logs`)}
-                              size="sm"
-                              type="button"
-                            >
-                              {i18n._({ id: 'View Logs', message: 'View Logs' })}
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                      <BotsPageConnectionSummarySection {...selectedConnectionSummarySectionProps} />
-                    </section>
-
-                    {isConfigMode ? (
-                      <section className="mode-panel">
-                        <div className="section-header section-header--inline">
-                          <div>
-                            <h2>{i18n._({ id: 'Default Bot Binding', message: 'Default Bot Binding' })}</h2>
-                            <p dir="auto">{selectedBot?.name ?? i18n._({ id: 'None', message: 'None' })}</p>
-                          </div>
-                          {canConfigureDefaultBinding ? (
-                            <Button intent="secondary" onClick={openDefaultBindingModal} type="button">
-                              {i18n._({ id: 'Edit', message: 'Edit' })}
-                            </Button>
-                          ) : null}
-                        </div>
-                        <div className="detail-list">
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Scope', message: 'Scope' })}</span>
-                            <strong>{selectedBotScopeLabel}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Sharing', message: 'Sharing' })}</span>
-                            <strong>{selectedBotSharingModeLabel}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Shared Workspaces', message: 'Shared Workspaces' })}</span>
-                            <strong>{selectedBotSharedWorkspaceLabel}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Connections', message: 'Connections' })}</span>
-                            <strong>{selectedBotConnections.length}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Active', message: 'Active' })}</span>
-                            <strong>{selectedBotActiveConnectionsCount}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Backend', message: 'Backend' })}</span>
-                            <strong>
-                              {selectedBotPrimaryBackend
-                                ? formatBotBackendLabel(selectedBotPrimaryBackend)
-                                : i18n._({ id: 'None', message: 'None' })}
-                            </strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Binding Mode', message: 'Binding Mode' })}</span>
-                            <strong>{selectedBotDefaultBindingModeLabel}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Workspace Thread', message: 'Workspace Thread' })}</span>
-                            <strong>
-                              {selectedBotDefaultBindingMode === 'fixed_thread' && selectedBotDefaultBindingThreadId ? (
-                                <Link
-                                  to={buildWorkspaceThreadRoute(
-                                    selectedBotDefaultBindingWorkspaceId,
-                                    selectedBotDefaultBindingThreadId,
-                                  )}
-                                >
-                                  {selectedBotDefaultBindingWorkspaceId !== (selectedBot?.workspaceId ?? '')
-                                    ? `${selectedBotDefaultBindingWorkspaceId} / ${selectedBotDefaultBindingThreadId}`
-                                    : selectedBotDefaultBindingThreadId}
-                                </Link>
-                              ) : selectedBotDefaultBindingMode === 'fixed_thread' ? (
-                                i18n._({ id: 'No thread selected', message: 'No thread selected' })
-                              ) : selectedBotDefaultBindingMode === 'stateless' ? (
-                                i18n._({ id: 'Stateless', message: 'Stateless' })
-                              ) : selectedBot ? (
-                                i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
-                              ) : (
-                                i18n._({ id: 'None', message: 'None' })
-                              )}
-                            </strong>
-                          </div>
-                        </div>
-                      </section>
-                    ) : null}
-
-                    {isOutboundMode ? (
-                      <section className="mode-panel mode-panel--flush">
-                      <div className="mode-panel__body">
-                        <div className="section-header section-header--inline">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h2>{i18n._({ id: 'Recipients', message: 'Recipients' })}</h2>
-                            <HelpTooltip
-                              content={i18n._({
-                                id: 'Recipients are the proactive send destinations for this endpoint. Known contacts from conversations and saved routes appear here automatically.',
-                                message:
-                                  'Recipients are the proactive send destinations for this endpoint. Known contacts from conversations and saved routes appear here automatically.',
-                              })}
-                            />
-                          </div>
-                          <div style={{ alignItems: 'center', display: 'flex', gap: '12px' }}>
-                            <div className="section-header__meta">{selectedConnectionDeliveryTargets.length}</div>
-                            {selectedConnectionSupportsRouteTargetConfig ? (
-                              <Button intent="secondary" onClick={openNewRouteTargetModal} size="sm" type="button">
-                                {i18n._({ id: 'New Saved Contact', message: 'New Saved Contact' })}
-                              </Button>
-                            ) : null}
-                          </div>
-                        </div>
-                        {selectedConnectionDeliveryTargets.length ? (
-                          <div className="mode-metrics">
-                            <div className="mode-metric">
-                              <span>{i18n._({ id: 'Ready', message: 'Ready' })}</span>
-                              <strong>{selectedConnectionReadyRecipientsCount}</strong>
-                            </div>
-                            <div className="mode-metric">
-                              <span>{i18n._({ id: 'Waiting', message: 'Waiting' })}</span>
-                              <strong>{selectedConnectionWaitingRecipientsCount}</strong>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {deliveryTargetsErrorMessage ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-delivery-targets-${deliveryTargetsErrorMessage}`}
-                          onRetry={() => void botDeliveryTargetsQuery.refetch()}
-                          title={i18n._({
-                            id: 'Failed To Load Recipients',
-                            message: 'Failed To Load Recipients',
-                          })}
-                          tone="error"
-                        >
-                          {deliveryTargetsErrorMessage}
-                        </InlineNotice>
-                      ) : null}
-
-                      {deleteDeliveryTargetErrorMessage ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-delete-delivery-target-${deleteDeliveryTargetErrorMessage}`}
-                          title={i18n._({
-                            id: 'Remove Saved Contact Failed',
-                            message: 'Remove Saved Contact Failed',
-                          })}
-                          tone="error"
-                        >
-                          {deleteDeliveryTargetErrorMessage}
-                        </InlineNotice>
-                      ) : null}
-
-                      {botDeliveryTargetsQuery.isLoading && !selectedConnectionDeliveryTargets.length ? (
-                        <LoadingState
-                          fill={false}
-                          message={i18n._({
-                            id: 'Loading recipients...',
-                            message: 'Loading recipients...',
-                          })}
-                        />
-                      ) : null}
-
-                      {!botDeliveryTargetsQuery.isLoading && !selectedConnectionDeliveryTargets.length ? (
-                        <div className="empty-state">
-                          {i18n._({
-                            id: 'No proactive recipients exist for this endpoint yet. Known contacts will appear after conversations or saved routes become available.',
-                            message:
-                              'No proactive recipients exist for this endpoint yet. Known contacts will appear after conversations or saved routes become available.',
-                          })}
-                        </div>
-                      ) : null}
-
-                      <div className="directory-list">
-                        {selectedConnectionDeliveryTargets.map((target) => {
-                          const targetConversation =
-                            target.sessionId?.trim() ? conversationById.get(target.sessionId.trim()) ?? null : null
-                          const targetThread = targetConversation
-                            ? resolveBotConversationThreadTarget(targetConversation)
-                            : { workspaceId: '', threadId: '' }
-                          const savedContactRouteSignature = buildBotDeliveryTargetRouteSignature(target)
-                          const linkedSavedContact =
-                            isSavedBotDeliveryTarget(target)
-                              ? target
-                              : savedContactRouteSignature
-                                ? savedDeliveryTargetByRouteSignature.get(savedContactRouteSignature) ?? null
-                                : null
-                          const isSavedContact = Boolean(linkedSavedContact)
-                          const deliveryReadinessLabel = formatBotDeliveryReadinessLabel(target.deliveryReadiness)
-                          const targetReadyForSend = isBotDeliveryTargetReady(target)
-                          const sendDisabledReason =
-                            !targetReadyForSend && target.deliveryReadinessMessage?.trim()
-                              ? target.deliveryReadinessMessage.trim()
-                              : undefined
-
-                          return (
-                            <article className="directory-item" key={target.id}>
-                              <div className="directory-item__icon">{i18n._({ id: 'DT', message: 'DT' })}</div>
-                              <div className="directory-item__body">
-                                <strong>{formatBotDeliveryTargetLabel(target)}</strong>
-                                <p>
-                                  {i18n._({ id: 'Channel', message: 'Channel' })}: {formatBotDeliveryRouteLabel(target.routeType)}
-                                </p>
-                                <p>
-                                  {i18n._({ id: 'Recipient ID', message: 'Recipient ID' })}:{' '}
-                                  {target.routeKey?.trim() || i18n._({ id: 'Not persisted', message: 'Not persisted' })}
-                                </p>
-                                <p>
-                                  {i18n._({ id: 'Delivery readiness', message: 'Delivery readiness' })}: {deliveryReadinessLabel}
-                                </p>
-                                <p>
-                                  {i18n._({ id: 'Contact status', message: 'Contact status' })}:{' '}
-                                  {isSavedContact
-                                    ? i18n._({ id: 'Saved contact', message: 'Saved contact' })
-                                    : i18n._({ id: 'Not saved yet', message: 'Not saved yet' })}
-                                </p>
-                                {target.capabilities?.length ? (
-                                  <p>
-                                    {i18n._({ id: 'Capabilities', message: 'Capabilities' })}:{' '}
-                                    {target.capabilities.join(', ')}
-                                  </p>
-                                ) : null}
-                                {target.labels?.length ? (
-                                  <p>
-                                    {i18n._({ id: 'Labels', message: 'Labels' })}: {target.labels.join(', ')}
-                                  </p>
-                                ) : null}
-                                  {target.deliveryReadiness?.trim().toLowerCase() !== 'ready' &&
-                                  target.deliveryReadinessMessage?.trim() ? (
-                                    <p>
-                                      {target.deliveryReadinessMessage}
-                                    </p>
-                                  ) : null}
-                                  {targetReadyForSend ? (
-                                    <p>
-                                      {i18n._({
-                                        id: 'This target is ready to be selected in Notification Center for bot subscriptions.',
-                                        message:
-                                          'This target is ready to be selected in Notification Center for bot subscriptions.',
-                                      })}{' '}
-                                      <Link to="/notification-center">
-                                        {i18n._({
-                                          id: 'Open Notification Center',
-                                          message: 'Open Notification Center',
-                                        })}
-                                      </Link>
-                                    </p>
-                                  ) : target.deliveryReadiness?.trim().toLowerCase() === 'waiting_for_context' ? (
-                                    <p>
-                                      {i18n._({
-                                        id: 'This target will appear in Notification Center after the recipient sends a message to this bot and a reply context is available.',
-                                        message:
-                                          'This target will appear in Notification Center after the recipient sends a message to this bot and a reply context is available.',
-                                      })}
-                                    </p>
-                                  ) : null}
-                                  {target.lastContextSeenAt ? (
-                                    <p>
-                                      {i18n._({ id: 'Last context seen', message: 'Last context seen' })}:{' '}
-                                      {formatBotTimestamp(target.lastContextSeenAt)}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <div
-                                className="directory-item__meta"
-                                style={{ alignItems: 'end', display: 'grid', gap: '8px' }}
-                              >
-                                <span className="meta-pill">{formatBotTimestamp(target.updatedAt)}</span>
-                                <span className="meta-pill" title={sendDisabledReason}>
-                                  {deliveryReadinessLabel}
-                                </span>
-                                <StatusPill status={target.status} />
-                                <Button
-                                  disabled={selectedConnection?.status !== 'active' || target.status !== 'active' || !targetReadyForSend}
-                                  intent="secondary"
-                                  onClick={() => openOutboundComposerForDeliveryTarget(target)}
-                                  size="sm"
-                                  title={sendDisabledReason}
-                                  type="button"
-                                >
-                                  {i18n._({ id: 'Send Message', message: 'Send Message' })}
-                                </Button>
-                                {isSavedBotDeliveryTarget(target) ? (
-                                  <Button intent="ghost" onClick={() => openEditRouteTargetModal(target)} size="sm" type="button">
-                                    {i18n._({ id: 'Edit Contact', message: 'Edit Contact' })}
-                                  </Button>
-                                ) : linkedSavedContact ? (
-                                  <Button
-                                    intent="ghost"
-                                    onClick={() => openEditRouteTargetModal(linkedSavedContact)}
-                                    size="sm"
-                                    type="button"
-                                  >
-                                    {i18n._({ id: 'Edit Saved Contact', message: 'Edit Saved Contact' })}
-                                  </Button>
-                                ) : selectedConnectionSupportsRouteTargetConfig ? (
-                                  <Button intent="ghost" onClick={() => openSaveRouteTargetModal(target)} size="sm" type="button">
-                                    {i18n._({ id: 'Save Contact', message: 'Save Contact' })}
-                                  </Button>
-                                ) : null}
-                                {isSavedBotDeliveryTarget(target) ? (
-                                  <Button
-                                    className="ide-button--ghost-danger"
-                                    intent="ghost"
-                                    onClick={() => setDeleteDeliveryTarget(target)}
-                                    size="sm"
-                                    type="button"
-                                  >
-                                    {i18n._({ id: 'Remove Saved Contact', message: 'Remove Saved Contact' })}
-                                  </Button>
-                                ) : null}
-                                {targetThread.threadId ? (
-                                  <Link to={buildWorkspaceThreadRoute(targetThread.workspaceId, targetThread.threadId)}>
-                                    {i18n._({ id: 'Open Thread', message: 'Open Thread' })}
-                                  </Link>
-                                ) : null}
-                              </div>
-                            </article>
-                          )
-                        })}
-                      </div>
-                      </section>
-                    ) : null}
-
-                    {isConfigMode ? (
-                      <section className="mode-panel mode-panel--flush">
-                      <div className="mode-panel__body">
-                        <div className="section-header section-header--inline">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h2>{i18n._({ id: 'Notification Triggers', message: 'Notification Triggers' })}</h2>
-                            <HelpTooltip
-                              content={i18n._({
-                                id: 'This panel is a compatibility view over Notification Center rules for the legacy system.notification.created topic.',
-                                message:
-                                  'This panel is a compatibility view over Notification Center rules for the legacy system.notification.created topic.',
-                              })}
-                            />
-                          </div>
-                          <div style={{ alignItems: 'center', display: 'flex', gap: '12px' }}>
-                            <div className="section-header__meta">{selectedConnectionTriggers.length}</div>
-                            <div className="section-header__meta">
-                              {i18n._({
-                                id: '{count} enabled',
-                                message: '{count} enabled',
-                                values: { count: selectedConnectionEnabledTriggerCount },
-                              })}
-                            </div>
-                            <Button intent="secondary" onClick={() => navigate(peerBotsPageRoute)} size="sm" type="button">
-                              {i18n._({ id: 'Manage Recipients', message: 'Manage Recipients' })}
-                            </Button>
-                          </div>
-                        </div>
-
-                        <InlineNotice
-                          dismissible={false}
-                          noticeKey="bot-trigger-compat-view"
-                          title={i18n._({
-                            id: 'Notification Center manages these trigger rules',
-                            message: 'Notification Center manages these trigger rules',
-                          })}
-                        >
-                          <span>
-                            {i18n._({
-                              id: 'Use this panel for the legacy notification topic only. New hook, automation, bot failure, and email routing should be configured in Notification Center.',
-                              message:
-                                'Use this panel for the legacy notification topic only. New hook, automation, bot failure, and email routing should be configured in Notification Center.',
-                            })}
-                          </span>{' '}
-                          <Button
-                            intent="secondary"
-                            onClick={() => navigate('/notification-center')}
-                            size="sm"
-                            type="button"
-                          >
-                            {i18n._({
-                              id: 'Open Notification Center',
-                              message: 'Open Notification Center',
-                            })}
-                          </Button>
-                        </InlineNotice>
-
-                        <div className="form-row">
-                          <label className="field">
-                            <span>{i18n._({ id: 'Recipient', message: 'Recipient' })}</span>
-                            <SelectControl
-                              ariaLabel={i18n._({ id: 'Notification Trigger Recipient', message: 'Notification Trigger Recipient' })}
-                              fullWidth
-                              onChange={(nextValue) => setNotificationTriggerTargetId(nextValue)}
-                              options={
-                                notificationTriggerTargetOptions.length
-                                  ? notificationTriggerTargetOptions
-                                  : [
-                                      {
-                                        value: '',
-                                        label: i18n._({
-                                          id: 'No recipients available',
-                                          message: 'No recipients available',
-                                        }),
-                                        disabled: true,
-                                      },
-                                    ]
-                              }
-                              value={notificationTriggerTargetId}
-                            />
-                          </label>
-                          <label className="field">
-                            <span>{i18n._({ id: 'Kind Filter', message: 'Kind Filter' })}</span>
-                            <SelectControl
-                              ariaLabel={i18n._({ id: 'Notification Trigger Kind Filter', message: 'Notification Trigger Kind Filter' })}
-                              fullWidth
-                              onChange={(nextValue) => setNotificationTriggerKind(nextValue)}
-                              options={notificationTriggerKindOptions}
-                              value={notificationTriggerKind}
-                            />
-                          </label>
-                          <label className="field">
-                            <span>{i18n._({ id: 'Level Filter', message: 'Level Filter' })}</span>
-                            <SelectControl
-                              ariaLabel={i18n._({ id: 'Notification Trigger Level Filter', message: 'Notification Trigger Level Filter' })}
-                              fullWidth
-                              onChange={(nextValue) => setNotificationTriggerLevel(nextValue)}
-                              options={notificationTriggerLevelOptions}
-                              value={notificationTriggerLevel}
-                            />
-                          </label>
-                        </div>
-
-                        <div
-                          style={{
-                            alignItems: 'center',
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: '12px',
-                            justifyContent: 'space-between',
-                          }}
-                        >
-                          <Switch
-                            checked={notificationTriggerEnabled}
-                            label={i18n._({ id: 'Enable on create', message: 'Enable on create' })}
-                            onChange={(event) => setNotificationTriggerEnabled(event.target.checked)}
-                          />
-                          <Button
-                            disabled={!notificationTriggerTargetId.trim() || createBotTriggerMutation.isPending}
-                            isLoading={createBotTriggerMutation.isPending}
-                            onClick={handleCreateNotificationTrigger}
-                            type="button"
-                          >
-                            {i18n._({ id: 'Add Trigger', message: 'Add Trigger' })}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {botTriggersErrorMessage ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-triggers-${botTriggersErrorMessage}`}
-                          onRetry={() => void botTriggersQuery.refetch()}
-                          title={i18n._({
-                            id: 'Failed To Load Notification Triggers',
-                            message: 'Failed To Load Notification Triggers',
-                          })}
-                          tone="error"
-                        >
-                          {botTriggersErrorMessage}
-                        </InlineNotice>
-                      ) : null}
-
-                      {createBotTriggerErrorMessage ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-trigger-create-${createBotTriggerErrorMessage}`}
-                          title={i18n._({
-                            id: 'Create Trigger Failed',
-                            message: 'Create Trigger Failed',
-                          })}
-                          tone="error"
-                        >
-                          {createBotTriggerErrorMessage}
-                        </InlineNotice>
-                      ) : null}
-
-                      {updateBotTriggerErrorMessage ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-trigger-update-${updateBotTriggerErrorMessage}`}
-                          title={i18n._({
-                            id: 'Update Trigger Failed',
-                            message: 'Update Trigger Failed',
-                          })}
-                          tone="error"
-                        >
-                          {updateBotTriggerErrorMessage}
-                        </InlineNotice>
-                      ) : null}
-
-                      {deleteBotTriggerErrorMessage ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-trigger-delete-${deleteBotTriggerErrorMessage}`}
-                          title={i18n._({
-                            id: 'Delete Trigger Failed',
-                            message: 'Delete Trigger Failed',
-                          })}
-                          tone="error"
-                        >
-                          {deleteBotTriggerErrorMessage}
-                        </InlineNotice>
-                      ) : null}
-
-                      {botTriggersQuery.isLoading && !selectedConnectionTriggers.length ? (
-                        <LoadingState
-                          fill={false}
-                          message={i18n._({
-                            id: 'Loading notification triggers...',
-                            message: 'Loading notification triggers...',
-                          })}
-                        />
-                      ) : null}
-
-                      {!botTriggersQuery.isLoading &&
-                      !selectedConnectionTriggers.length &&
-                      !selectedConnectionDeliveryTargets.length ? (
-                        <div className="empty-state">
-                          {i18n._({
-                            id: 'Create a recipient first, then attach notification triggers to it.',
-                            message: 'Create a recipient first, then attach notification triggers to it.',
-                          })}
-                        </div>
-                      ) : null}
-
-                      {!botTriggersQuery.isLoading &&
-                      !selectedConnectionTriggers.length &&
-                      selectedConnectionDeliveryTargets.length ? (
-                        <div className="empty-state">
-                          {i18n._({
-                            id: 'No notification triggers are configured for this endpoint yet.',
-                            message: 'No notification triggers are configured for this endpoint yet.',
-                          })}
-                        </div>
-                      ) : null}
-
-                      <div className="directory-list">
-                        {selectedConnectionTriggers.map((trigger) => {
-                          const target = deliveryTargetByID.get(trigger.deliveryTargetId) ?? null
-                          return (
-                            <article className="directory-item" key={trigger.id}>
-                              <div className="directory-item__icon">{i18n._({ id: 'NT', message: 'NT' })}</div>
-                              <div className="directory-item__body">
-                                <strong>
-                                  {target
-                                    ? formatBotDeliveryTargetLabel(target)
-                                    : trigger.deliveryTargetId}
-                                </strong>
-                                <p>
-                                  {i18n._({ id: 'Type', message: 'Type' })}:{' '}
-                                  {humanizeDisplayValue(trigger.type, trigger.type)}
-                                </p>
-                                <p>
-                                  {i18n._({ id: 'Filters', message: 'Filters' })}: {formatBotTriggerFilterSummary(trigger)}
-                                </p>
-                                {target ? (
-                                  <p>
-                                    {i18n._({ id: 'Route', message: 'Route' })}:{' '}
-                                    {formatBotDeliveryRouteLabel(target.routeType)} | {target.routeKey?.trim() || target.id}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <div
-                                className="directory-item__meta"
-                                style={{ alignItems: 'end', display: 'grid', gap: '8px' }}
-                              >
-                                <span className="meta-pill">{formatBotTimestamp(trigger.updatedAt)}</span>
-                                <StatusPill status={trigger.enabled ? 'active' : 'paused'} />
-                                <Button
-                                  disabled={updateBotTriggerMutation.isPending}
-                                  intent="secondary"
-                                  onClick={() => handleToggleNotificationTrigger(trigger)}
-                                  size="sm"
-                                  type="button"
-                                >
-                                  {trigger.enabled
-                                    ? i18n._({ id: 'Pause', message: 'Pause' })
-                                    : i18n._({ id: 'Enable', message: 'Enable' })}
-                                </Button>
-                                <Button
-                                  className="ide-button--ghost-danger"
-                                  disabled={deleteBotTriggerMutation.isPending}
-                                  intent="ghost"
-                                  onClick={() => handleDeleteNotificationTrigger(trigger)}
-                                  size="sm"
-                                  type="button"
-                                >
-                                  {i18n._({ id: 'Delete', message: 'Delete' })}
-                                </Button>
-                              </div>
-                            </article>
-                          )
-                        })}
-                      </div>
-                      </section>
-                    ) : null}
-
-                    {isOutboundMode ? (
-                      <section className="mode-panel mode-panel--flush">
-                      <div className="mode-panel__body">
-                        <div className="section-header section-header--inline">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h2>{i18n._({ id: 'Outbound Deliveries', message: 'Outbound Deliveries' })}</h2>
-                            <HelpTooltip
-                              content={i18n._({
-                                id: 'This feed records proactive sends created by manual actions, notifications, or future automation runs. It is separate from normal inbound reply delivery.',
-                                message:
-                                  'This feed records proactive sends created by manual actions, notifications, or future automation runs. It is separate from normal inbound reply delivery.',
-                              })}
-                            />
-                          </div>
-                          <div className="section-header__meta">{selectedConnectionOutboundDeliveries.length}</div>
-                        </div>
-                        {selectedConnectionOutboundDeliveries.length ? (
-                          <div className="mode-metrics">
-                            <div className="mode-metric">
-                              <span>{i18n._({ id: 'Delivered', message: 'Delivered' })}</span>
-                              <strong>{selectedConnectionDeliveredOutboundCount}</strong>
-                            </div>
-                            <div className="mode-metric">
-                              <span>{i18n._({ id: 'In Flight', message: 'In Flight' })}</span>
-                              <strong>{selectedConnectionPendingOutboundCount}</strong>
-                            </div>
-                            <div className="mode-metric">
-                              <span>{i18n._({ id: 'Failed', message: 'Failed' })}</span>
-                              <strong>{selectedConnectionFailedOutboundCount}</strong>
-                            </div>
-                            <div className="mode-metric">
-                              <span>{i18n._({ id: 'Manual', message: 'Manual' })}</span>
-                              <strong>{selectedConnectionManualOutboundCount}</strong>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {outboundDeliveriesErrorMessage ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-outbound-deliveries-${outboundDeliveriesErrorMessage}`}
-                          onRetry={() => void botOutboundDeliveriesQuery.refetch()}
-                          title={i18n._({
-                            id: 'Failed To Load Outbound Deliveries',
-                            message: 'Failed To Load Outbound Deliveries',
-                          })}
-                          tone="error"
-                        >
-                          {outboundDeliveriesErrorMessage}
-                        </InlineNotice>
-                      ) : null}
-
-                      {botOutboundDeliveriesQuery.isLoading && !selectedConnectionOutboundDeliveries.length ? (
-                        <LoadingState
-                          fill={false}
-                          message={i18n._({
-                            id: 'Loading outbound deliveries...',
-                            message: 'Loading outbound deliveries...',
-                          })}
-                        />
-                      ) : null}
-
-                      {!botOutboundDeliveriesQuery.isLoading && !selectedConnectionOutboundDeliveries.length ? (
-                        <div className="empty-state">
-                          {i18n._({
-                            id: 'No proactive outbound deliveries have been recorded for this endpoint yet.',
-                            message: 'No proactive outbound deliveries have been recorded for this endpoint yet.',
-                          })}
-                        </div>
-                      ) : null}
-
-                      <div className="directory-list">
-                        {recentSelectedConnectionOutboundDeliveries.map((delivery) => {
-                          const deliverySummary =
-                            summarizeBotReplyMessages(delivery.messages) ||
-                            i18n._({ id: 'No outbound payload recorded.', message: 'No outbound payload recorded.' })
-                          const deliveryTarget = delivery.deliveryTargetId
-                            ? selectedConnectionDeliveryTargets.find((target) => target.id === delivery.deliveryTargetId) ?? null
-                            : null
-
-                          return (
-                            <article className="directory-item" key={delivery.id}>
-                              <div className="directory-item__icon">{i18n._({ id: 'OD', message: 'OD' })}</div>
-                              <div className="directory-item__body">
-                                <strong>{deliverySummary}</strong>
-                                <p>
-                                  {i18n._({ id: 'Source', message: 'Source' })}:{' '}
-                                  {delivery.sourceType?.trim() || i18n._({ id: 'manual', message: 'manual' })}
-                                </p>
-                                {deliveryTarget ? (
-                                  <p>
-                                    {i18n._({ id: 'Delivery target', message: 'Delivery target' })}:{' '}
-                                    {formatBotDeliveryTargetLabel(deliveryTarget)}
-                                  </p>
-                                ) : null}
-                                {delivery.lastError ? (
-                                  <p>
-                                    {i18n._({ id: 'Last error', message: 'Last error' })}:{' '}
-                                    {summarizeBotConversationDeliveryError(delivery.lastError)}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <div
-                                className="directory-item__meta"
-                                style={{ alignItems: 'end', display: 'grid', gap: '8px' }}
-                              >
-                                <span className="meta-pill">{formatBotTimestamp(delivery.createdAt)}</span>
-                                <StatusPill status={delivery.status} />
-                                {delivery.deliveredAt ? (
-                                  <span className="meta-pill">{formatBotTimestamp(delivery.deliveredAt)}</span>
-                                ) : null}
-                                {delivery.originWorkspaceId && delivery.originThreadId ? (
-                                  <Link to={buildWorkspaceThreadRoute(delivery.originWorkspaceId, delivery.originThreadId)}>
-                                    {i18n._({ id: 'Open Origin Thread', message: 'Open Origin Thread' })}
-                                  </Link>
-                                ) : null}
-                              </div>
-                            </article>
-                          )
-                        })}
-                      </div>
-                      </section>
-                    ) : null}
-
-                    {isConfigMode ? (
-                      <section className="mode-panel">
-                      <div className="section-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <h2>{i18n._({ id: 'Runtime Diagnostics', message: 'Runtime Diagnostics' })}</h2>
-                          <HelpTooltip
-                            content={i18n._({
-                              id: 'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations.',
-                              message:
-                                'Debug mode adds detailed backend logs for inbound processing, AI execution, streaming updates, and provider delivery operations.',
-                            })}
-                          />
-                        </div>
-                      </div>
-                      <Switch
-                        checked={selectedRuntimeMode === 'debug'}
-                        disabled={runtimeModeMutation.isPending}
-                        label={
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {i18n._({ id: 'Enable Backend Debug Logging', message: 'Enable Backend Debug Logging' })}
-                            <HelpTooltip
-                              content={i18n._({
-                                id: 'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
-                                message:
-                                  'Use normal mode in routine operation. Enable debug mode temporarily while diagnosing missing output, truncation, or delivery failures.',
-                              })}
-                            />
-                          </div>
-                        }
-                        onChange={(event) =>
-                          runtimeModeMutation.mutate({
-                            workspaceId: selectedConnection.workspaceId,
-                            connectionId: selectedConnection.id,
-                            runtimeMode: event.target.checked ? 'debug' : 'normal',
-                          })
-                        }
-                      />
-                      </section>
-                    ) : null}
-
-                    {isConfigMode ? (
-                      <section className="mode-panel">
-                      <div className="section-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <h2>{i18n._({ id: 'Reply Formatting', message: 'Reply Formatting' })}</h2>
-                            <HelpTooltip
-                              content={i18n._({
-                                id: 'Control how workspace command items are summarized when replies are mirrored back into each bot provider.',
-                                message:
-                                  'Control how workspace command items are summarized when replies are mirrored back into each bot provider.',
-                              })}
-                            />
-                        </div>
-                      </div>
-                      <label className="field">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
-                          <HelpTooltip
-                            content={
-                              <>
-                                {i18n._({
-                                  id: 'No Command Output omits command items entirely.',
-                                  message: 'No Command Output omits command items entirely.',
-                                })}{' '}
-                                {i18n._({
-                                  id: 'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
-                                  message:
-                                    'Brief keeps command excerpts to roughly 3-5 lines and is the default for new bot connections. Full Output forwards the entire command transcript.',
-                                })}
-                              </>
-                            }
-                          />
-                        </div>
-                        <SelectControl
-                          ariaLabel={i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}
-                          disabled={commandOutputModeMutation.isPending}
-                          fullWidth
-                          onChange={(nextValue) =>
-                            commandOutputModeMutation.mutate({
-                              workspaceId: selectedConnection.workspaceId,
-                              connectionId: selectedConnection.id,
-                              commandOutputMode: nextValue,
-                            })
-                          }
-                          options={commandOutputModeOptions}
-                          value={selectedCommandOutputMode}
-                        />
-                      </label>
-                      {selectedProvider === 'wechat' ? (
-                        <Switch
-                          checked={selectedWeChatChannelTimingEnabled}
-                          disabled={wechatChannelTimingMutation.isPending}
-                          label={
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              {i18n._({
-                                id: 'Append WeChat Channel Timing',
-                                message: 'Append WeChat Channel Timing',
-                              })}
-                              <HelpTooltip
-                                content={i18n._({
-                                  id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
-                                  message:
-                                    'Append the WeChat Channel timing block to final replies. This is independent from backend debug logging; existing connections still inherit debug mode until you change this switch.',
-                                })}
-                              />
-                            </div>
-                          }
-                          onChange={(event) =>
-                            wechatChannelTimingMutation.mutate({
-                              workspaceId: selectedConnection.workspaceId,
-                              connectionId: selectedConnection.id,
-                              enabled: event.target.checked,
-                            })
-                          }
-                        />
-                      ) : null}
-                      </section>
-                    ) : null}
-
-                    <section className="mode-panel mode-panel--flush">
-                      <div className="mode-panel__body">
-                        <div className="section-header section-header--inline">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h2>{conversationSectionTitle}</h2>
-                            <HelpTooltip content={conversationSectionDescription} />
-                          </div>
-                          <div className="section-header__meta">{conversations.length}</div>
-                        </div>
-                      </div>
-
-                      {conversationsQuery.error ? (
-                        <InlineNotice
-                          dismissible
-                          noticeKey={`bot-conversations-${getErrorMessage(conversationsQuery.error)}`}
-                          onRetry={() => void conversationsQuery.refetch()}
-                          title={i18n._({
-                            id: 'Failed To Load Bot Conversations',
-                            message: 'Failed To Load Bot Conversations',
-                          })}
-                          tone="error"
-                        >
-                          {getErrorMessage(conversationsQuery.error)}
-                        </InlineNotice>
-                      ) : null}
-
-                      {conversationsQuery.isLoading ? (
-                        <div className="notice">
-                          {i18n._({ id: 'Loading conversations...', message: 'Loading conversations...' })}
-                        </div>
-                      ) : null}
-
-                      {!conversationsQuery.isLoading && !conversations.length ? (
-                        <div className="empty-state">
-                          {i18n._({
-                            id: 'No conversations have been mapped yet. The first inbound bot message will create one.',
-                            message: 'No conversations have been mapped yet. The first inbound bot message will create one.',
-                          })}
-                        </div>
-                      ) : null}
-
-                      <div className="directory-list">
-                        {conversations.map((conversation) => {
-                          const effectiveThreadTarget = resolveBotConversationThreadTarget(conversation)
-                          const hasEffectiveThreadTarget = effectiveThreadTarget.threadId.length > 0
-                          const bindingSourceLabel = formatBotConversationBindingSourceLabel(conversation)
-                          const bindingModeLabel = formatBotConversationBindingModeLabel(conversation)
-                          const sessionDeliveryTarget = deliveryTargetByConversationId.get(conversation.id) ?? null
-                          const bindingTargetLabel = hasEffectiveThreadTarget
-                            ? effectiveThreadTarget.workspaceId !== conversation.workspaceId
-                              ? `${effectiveThreadTarget.workspaceId} / ${effectiveThreadTarget.threadId}`
-                              : effectiveThreadTarget.threadId
-                            : ''
-
-                          return (
-                            <article className="directory-item" key={conversation.id}>
-                              <div className="directory-item__icon">{i18n._({ id: 'BT', message: 'BT' })}</div>
-                              <div className="directory-item__body">
-                                <strong>{formatBotConversationTitle(conversation)}</strong>
-                                {isConfigMode ? (
-                                  <>
-                                    <p>
-                                      {conversation.lastInboundText ||
-                                        i18n._({
-                                          id: 'No inbound message recorded yet.',
-                                          message: 'No inbound message recorded yet.',
-                                        })}
-                                    </p>
-                                    <p>
-                                      {i18n._({ id: 'Binding', message: 'Binding' })}: {bindingSourceLabel} | {bindingModeLabel}
-                                    </p>
-                                    {bindingTargetLabel ? (
-                                      <p>
-                                        {i18n._({ id: 'Binding target', message: 'Binding target' })}: {bindingTargetLabel}
-                                      </p>
-                                    ) : null}
-                                    {conversation.lastOutboundText ? (
-                                      <p>
-                                        {i18n._({ id: 'Last reply', message: 'Last reply' })}:{' '}
-                                        {conversation.lastOutboundText}
-                                      </p>
-                                    ) : null}
-                                    {sessionDeliveryTarget ? (
-                                      <p>
-                                        {i18n._({ id: 'Delivery target', message: 'Delivery target' })}:{' '}
-                                        {formatBotDeliveryTargetLabel(sessionDeliveryTarget)} |{' '}
-                                        {formatLocalizedStatusLabel(sessionDeliveryTarget.status)}
-                                      </p>
-                                    ) : null}
-                                  </>
-                                ) : (
-                                  <>
-                                    <p>
-                                      {i18n._({ id: 'Last inbound', message: 'Last inbound' })}:{' '}
-                                      {conversation.lastInboundText ||
-                                        i18n._({
-                                          id: 'No inbound message recorded yet.',
-                                          message: 'No inbound message recorded yet.',
-                                        })}
-                                    </p>
-                                    {conversation.lastOutboundText ? (
-                                      <p>
-                                        {i18n._({ id: 'Last outbound', message: 'Last outbound' })}:{' '}
-                                        {conversation.lastOutboundText}
-                                      </p>
-                                    ) : null}
-                                    {sessionDeliveryTarget ? (
-                                      <p>
-                                        {i18n._({ id: 'Recipient', message: 'Recipient' })}:{' '}
-                                        {formatBotDeliveryTargetLabel(sessionDeliveryTarget)} |{' '}
-                                        {formatLocalizedStatusLabel(sessionDeliveryTarget.status)}
-                                      </p>
-                                    ) : null}
-                                    {bindingTargetLabel ? (
-                                      <p>
-                                        {i18n._({ id: 'Workspace Thread', message: 'Workspace Thread' })}:{' '}
-                                        {bindingTargetLabel}
-                                      </p>
-                                    ) : null}
-                                  </>
-                                )}
-                              {botConversationDeliveryPillStatus(conversation.lastOutboundDeliveryStatus) ? (
-                                <div
-                                  style={{
-                                    alignItems: 'center',
-                                    display: 'flex',
-                                    flexWrap: 'wrap',
-                                    gap: '8px',
-                                  }}
-                                >
-                                  <span>{i18n._({ id: 'Reply delivery', message: 'Reply delivery' })}:</span>
-                                  <StatusPill
-                                    status={botConversationDeliveryPillStatus(
-                                      conversation.lastOutboundDeliveryStatus,
-                                    )}
-                                  />
-                                  {conversation.lastOutboundDeliveryAttemptCount &&
-                                  conversation.lastOutboundDeliveryAttemptCount > 1 ? (
-                                    <span>
-                                      {i18n._({
-                                        id: 'Attempts: {count}',
-                                        message: 'Attempts: {count}',
-                                        values: { count: conversation.lastOutboundDeliveryAttemptCount },
-                                      })}
-                                    </span>
-                                  ) : null}
-                                  {conversation.lastOutboundDeliveredAt ? (
-                                    <span>{formatBotTimestamp(conversation.lastOutboundDeliveredAt)}</span>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                              {['retrying', 'failed'].includes(
-                                normalizeBotConversationDeliveryStatus(
-                                  conversation.lastOutboundDeliveryStatus,
-                                ),
-                              ) && conversation.lastOutboundDeliveryError ? (
-                                <p>
-                                  {normalizeBotConversationDeliveryStatus(
-                                    conversation.lastOutboundDeliveryStatus,
-                                  ) === 'retrying'
-                                    ? i18n._({
-                                        id: 'Latest delivery error',
-                                        message: 'Latest delivery error',
-                                      })
-                                    : i18n._({ id: 'Delivery error', message: 'Delivery error' })}
-                                  :{' '}
-                                  {summarizeBotConversationDeliveryError(
-                                    conversation.lastOutboundDeliveryError,
-                                  )}
-                                </p>
-                                ) : null}
-                              </div>
-                              <div
-                                className="directory-item__meta"
-                                style={{ alignItems: 'end', display: 'grid', gap: '8px' }}
-                              >
-                                <span className="meta-pill">{formatBotTimestamp(conversation.updatedAt)}</span>
-                                {isConfigMode && selectedConnection?.aiBackend === 'workspace_thread' ? (
-                                  <Button
-                                    intent="secondary"
-                                    onClick={() => openBindingModal(conversation)}
-                                    size="sm"
-                                    type="button"
-                                  >
-                                    {i18n._({ id: 'Manage Binding', message: 'Manage Binding' })}
-                                  </Button>
-                                ) : null}
-                                {isOutboundMode ? (
-                                  <Button
-                                    intent="secondary"
-                                    onClick={() => openOutboundComposer(conversation)}
-                                    size="sm"
-                                    type="button"
-                                    disabled={selectedConnection?.status !== 'active'}
-                                  >
-                                    {i18n._({ id: 'Send Message', message: 'Send Message' })}
-                                  </Button>
-                                ) : null}
-                                {normalizeBotConversationDeliveryStatus(conversation.lastOutboundDeliveryStatus) ===
-                                'failed' ? (
-                                  <Button
-                                    intent="secondary"
-                                    isLoading={
-                                      replayFailedReplyMutation.isPending &&
-                                      replayFailedReplyMutation.variables?.conversationId === conversation.id
-                                    }
-                                    onClick={() =>
-                                      replayFailedReplyMutation.mutate({
-                                        workspaceId: conversation.workspaceId,
-                                        connectionId: conversation.connectionId,
-                                        conversationId: conversation.id,
-                                      })
-                                    }
-                                    size="sm"
-                                    disabled={selectedConnection?.status !== 'active'}
-                                  >
-                                    {i18n._({ id: 'Redeliver Reply', message: 'Redeliver Reply' })}
-                                  </Button>
-                                ) : null}
-                                {hasEffectiveThreadTarget ? (
-                                  <Link
-                                    to={buildWorkspaceThreadRoute(
-                                      effectiveThreadTarget.workspaceId,
-                                      effectiveThreadTarget.threadId,
-                                    )}
-                                  >
-                                    {i18n._({ id: 'Open Thread', message: 'Open Thread' })}
-                                  </Link>
-                                ) : (
-                                  <span className="meta-pill">
-                                    {i18n._({ id: 'Thread pending', message: 'Thread pending' })}
-                                  </span>
-                                )}
-                              </div>
-                            </article>
-                          )
-                        })}
-                      </div>
-                    </section>
-                  </div>
-                )}
-              </section>
+              <BotsPageDirectorySection
+                actionErrorMessage={actionErrorMessage}
+                botById={botById}
+                bots={bots}
+                botsQueryError={botsQuery.error}
+                botsQueryIsLoading={botsQuery.isLoading}
+                connectionSearch={connectionSearch}
+                connections={connections}
+                connectionsByBotId={connectionsByBotId}
+                connectionsQueryError={connectionsQuery.error}
+                connectionsQueryIsLoading={connectionsQuery.isLoading}
+                filteredBots={filteredBots}
+                filteredConnections={filteredConnections}
+                hasWorkspaces={Boolean(workspaces.length)}
+                mode={mode}
+                onChangeConnectionSearch={(nextValue) => setConnectionSearch(nextValue)}
+                onEditConnection={openEditModal}
+                onOpenBotEdit={openEditBotModal}
+                onOpenBotEndpoints={openBotEndpoints}
+                onOpenBotInfo={openBotDetailsModal}
+                onOpenBotOutbound={openBotOutbound}
+                onOpenConnectionDetail={(connection) =>
+                  navigate(buildBotConnectionDetailRoute(connection.workspaceId, connection.id))
+                }
+                onOpenConnectionLogs={(connection) =>
+                  navigate(buildBotConnectionLogsRoute(connection.workspaceId, connection.id))
+                }
+                onOpenConnectionOverview={(connection) => {
+                  selectConnection(connection)
+                  setConnectionOverviewModalOpen(true)
+                }}
+                onRetryBots={() => void botsQuery.refetch()}
+                onRetryConnections={() => void connectionsQuery.refetch()}
+                onRetryWorkspaces={() => void workspacesQuery.refetch()}
+                onSelectBot={selectBot}
+                onSelectConnection={selectConnection}
+                onToggleShowFullAccessConnectionsOnly={(nextValue) => setShowFullAccessConnectionsOnly(nextValue)}
+                replayFailedReplyErrorMessage={replayFailedReplyErrorMessage}
+                selectedBotFilterId={selectedBotFilterId}
+                selectedBotFilterLabel={selectedBotFilterLabel}
+                selectedBotId={selectedBotId}
+                selectedConnectionId={selectedConnectionId}
+                showFullAccessConnectionsOnly={showFullAccessConnectionsOnly}
+                workspaceById={workspaceById}
+                workspacesQueryError={workspacesQuery.error}
+                workspacesQueryIsLoading={workspacesQuery.isLoading}
+                outboundStatsByBotId={outboundDirectoryStatsByBotID}
+              />
             </>
           ) : null}
         </div>
@@ -7334,945 +4297,64 @@ function BotsPageScreen({ mode }: { mode: BotsPageMode }) {
         }}
         workspaces={workspaces}
       />
+      <BotsPageConnectionModal
+        activeWeChatLoginCredentialReady={Boolean(activeWeChatLogin?.credentialReady)}
+        aiBackendOptions={aiBackendOptions}
+        collaborationOptions={collaborationOptions}
+        closeCreateModal={closeCreateModal}
+        commandOutputModeOptions={commandOutputModeOptions}
+        connectionModalBot={connectionModalBot}
+        connectionModalBotId={connectionModalBotId}
+        connectionModalWorkspace={connectionModalWorkspace}
+        createModalOpen={createModalOpen}
+        draft={draft}
+        feishuDeliveryModeOptions={feishuDeliveryModeOptions}
+        formErrorMessage={formErrorMessage}
+        handleDraftProviderChange={handleDraftProviderChange}
+        handleSubmitCreate={handleSubmitCreate}
+        handleWeChatCredentialSourceChange={handleWeChatCredentialSourceChange}
+        isCreateOrUpdatePending={createMutation.isPending || updateMutation.isPending}
+        isEditingConnection={isEditingConnection}
+        isSaveConnectionDisabled={isSaveConnectionDisabled}
+        openWeChatAccountEditModal={openWeChatAccountEditModal}
+        openWeChatLoginModal={openWeChatLoginModal}
+        permissionPresetOptions={permissionPresetOptions}
+        providerOptions={providerOptions}
+        reasoningOptions={reasoningOptions}
+        savedWeChatAccounts={savedWeChatAccounts}
+        setDeleteWeChatAccountTarget={setDeleteWeChatAccountTarget}
+        setDraft={setDraft}
+        telegramDeliveryModeOptions={telegramDeliveryModeOptions}
+        wechatAccountsErrorMessage={wechatAccountsErrorMessage}
+        wechatAccountsQueryIsLoading={wechatAccountsQuery.isLoading}
+      />
 
-      {createModalOpen ? (
-        <Modal
-          description={
-            isEditingConnection
-              ? i18n._({
-                  id: 'Update the provider delivery settings, credentials, and AI backend binding for this existing endpoint.',
-                  message:
-                    'Update the provider delivery settings, credentials, and AI backend binding for this existing endpoint.',
-                })
-              : i18n._({
-                  id: 'Create a provider endpoint under the selected bot, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
-                  message:
-                    'Create a provider endpoint under the selected bot, configure the provider-specific delivery settings, and bind it to an AI execution backend.',
-                })
-          }
-          footer={createModalFooter}
-          onClose={closeCreateModal}
-          title={
-            isEditingConnection
-              ? i18n._({ id: 'Edit Endpoint', message: 'Edit Endpoint' })
-              : i18n._({ id: 'New Endpoint', message: 'New Endpoint' })
-          }
-        >
-          <form
-            className="form-stack"
-            onSubmit={(event) => {
-              event.preventDefault()
-              handleSubmitCreate()
-            }}
-          >
-            {formErrorMessage ? (
-              <InlineNotice
-                dismissible
-                noticeKey={`${isEditingConnection ? 'edit' : 'create'}-bot-connection-${formErrorMessage}`}
-                title={
-                  isEditingConnection
-                    ? i18n._({ id: 'Update Endpoint Failed', message: 'Update Endpoint Failed' })
-                    : i18n._({ id: 'Create Endpoint Failed', message: 'Create Endpoint Failed' })
-                }
-                tone="error"
-              >
-                {formErrorMessage}
-              </InlineNotice>
-            ) : null}
+      <BotsPageBotDetailsModal
+        bot={botDetailsModalBot}
+        connections={botDetailsModalConnections}
+        onClose={closeBotDetailsModal}
+        workspaceById={workspaceById}
+      />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-              <p className="config-inline-note" style={{ margin: 0 }}>
-                {i18n._({
-                  id: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
-                  message: 'Outbound proxy is configured globally in Settings > Config > Runtime.',
-                })}
-              </p>
-              <Link to="/settings/config">
-                {i18n._({ id: 'Open Settings', message: 'Open Settings' })}
-              </Link>
-            </div>
-
-            <div className="form-row">
-              <Input
-                disabled
-                label={i18n._({ id: 'Workspace', message: 'Workspace' })}
-                value={connectionModalWorkspace?.name ?? draft.workspaceId}
-              />
-              <Input
-                disabled
-                label={i18n._({ id: 'Bot', message: 'Bot' })}
-                value={connectionModalBot?.name ?? ''}
-              />
-            </div>
-
-            <label className="field">
-              <span>{i18n._({ id: 'Provider', message: 'Provider' })}</span>
-              <SelectControl
-                ariaLabel={i18n._({ id: 'Provider', message: 'Provider' })}
-                disabled={isEditingConnection}
-                fullWidth
-                onChange={handleDraftProviderChange}
-                options={providerOptions}
-                value={draft.provider}
-              />
-            </label>
-
-            <div className="form-row">
-              {draftProvider === 'telegram' ? (
-                <label className="field">
-                  <span>{i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}</span>
-                  <SelectControl
-                    ariaLabel={i18n._({ id: 'Telegram Delivery Mode', message: 'Telegram Delivery Mode' })}
-                    fullWidth
-                    onChange={(nextValue) => setDraft((current) => ({ ...current, telegramDeliveryMode: nextValue }))}
-                    options={telegramDeliveryModeOptions}
-                    value={draft.telegramDeliveryMode}
-                  />
-                </label>
-              ) : draftProvider === 'wechat' ? (
-                <Input
-                  disabled
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({ id: 'WeChat Delivery Mode', message: 'WeChat Delivery Mode' })}
-                      <HelpTooltip
-                        content={i18n._({
-                          id: 'WeChat currently uses polling-only intake in this phase.',
-                          message: 'WeChat currently uses polling-only intake in this phase.',
-                        })}
-                      />
-                    </div>
-                  }
-                  value={i18n._({ id: 'Long Polling only', message: 'Long Polling only' })}
-                />
-              ) : draftProvider === 'feishu' ? (
-                <label className="field">
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {i18n._({ id: 'Feishu Delivery Mode', message: 'Feishu Delivery Mode' })}
-                    <HelpTooltip
-                      content={i18n._({
-                        id: 'Select WebSocket for a persistent runtime connection, or Webhook for callback delivery and verification.',
-                        message: 'Select WebSocket for a persistent runtime connection, or Webhook for callback delivery and verification.',
-                      })}
-                    />
-                  </span>
-                  <SelectControl
-                    ariaLabel={i18n._({ id: 'Feishu Delivery Mode', message: 'Feishu Delivery Mode' })}
-                    fullWidth
-                    onChange={(nextValue) => setDraft((current) => ({ ...current, feishuDeliveryMode: nextValue }))}
-                    options={feishuDeliveryModeOptions}
-                    value={draftFeishuDeliveryMode}
-                  />
-                </label>
-              ) : (
-                <Input
-                  disabled
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({ id: 'QQ Bot Delivery Mode', message: 'QQ Bot Delivery Mode' })}
-                      <HelpTooltip
-                        content={i18n._({
-                          id: 'QQ Bot currently uses the official Gateway WebSocket connection in this phase.',
-                          message: 'QQ Bot currently uses the official Gateway WebSocket connection in this phase.',
-                        })}
-                      />
-                    </div>
-                  }
-                  value={i18n._({ id: 'Gateway WebSocket only', message: 'Gateway WebSocket only' })}
-                />
-              )}
-              <label className="field">
-                <span>{i18n._({ id: 'AI Backend', message: 'AI Backend' })}</span>
-                <SelectControl
-                  ariaLabel={i18n._({ id: 'AI Backend', message: 'AI Backend' })}
-                  fullWidth
-                  onChange={(nextValue) => setDraft((current) => ({ ...current, aiBackend: nextValue }))}
-                  options={aiBackendOptions}
-                  value={draft.aiBackend}
-                />
-              </label>
-            </div>
-
-            <div className="form-row">
-              <Input
-                label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {i18n._({ id: 'Endpoint Name', message: 'Endpoint Name' })}
-                    <HelpTooltip
-                      content={i18n._({
-                        id: 'Optional. Defaults to a provider-specific endpoint name.',
-                        message: 'Optional. Defaults to a provider-specific endpoint name.',
-                      })}
-                    />
-                  </div>
-                }
-                onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                placeholder={i18n._({ id: 'Support Bot', message: 'Support Bot' })}
-                value={draft.name}
-              />
-            </div>
-
-            <Switch
-              checked={draft.runtimeMode === 'debug'}
-              label={
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {i18n._({ id: 'Enable Backend Debug Mode', message: 'Enable Backend Debug Mode' })}
-                  <HelpTooltip
-                    content={i18n._({
-                      id: 'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
-                      message:
-                        'Debug mode records detailed backend logs for this bot connection, including inbound processing, AI execution, and provider delivery steps.',
-                    })}
-                  />
-                </div>
-              }
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, runtimeMode: event.target.checked ? 'debug' : 'normal' }))
-              }
-            />
-
-            <label className="field">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>{i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}</span>
-                <HelpTooltip
-                  content={
-                    <>
-                      {i18n._({
-                        id: 'No Command Output omits command items entirely.',
-                        message: 'No Command Output omits command items entirely.',
-                      })}{' '}
-                      {i18n._({
-                        id: 'Controls how command items are summarized in bot replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
-                        message:
-                          'Controls how command items are summarized in bot replies. Brief keeps the command excerpt within about 3-5 lines and is the default.',
-                      })}
-                    </>
-                  }
-                />
-              </div>
-              <SelectControl
-                ariaLabel={i18n._({ id: 'Command Output In Replies', message: 'Command Output In Replies' })}
-                fullWidth
-                onChange={(nextValue) => setDraft((current) => ({ ...current, commandOutputMode: nextValue }))}
-                options={commandOutputModeOptions}
-                value={resolveBotCommandOutputMode(draft.commandOutputMode)}
-              />
-            </label>
-
-            {draftProvider === 'telegram' ? (
-              <>
-                {draftTelegramDeliveryMode === 'webhook' ? (
-                  <Input
-                    label={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
-                        <HelpTooltip
-                          content={i18n._({
-                            id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                            message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                          })}
-                        />
-                      </div>
-                    }
-                    onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
-                    placeholder="https://bots.example.com"
-                    value={draft.publicBaseUrl}
-                  />
-                ) : null}
-
-                <Input
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({ id: 'Telegram Bot Token', message: 'Telegram Bot Token' })}
-                      {isEditingConnection && (
-                        <HelpTooltip
-                          content={i18n._({
-                            id: 'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
-                            message:
-                              'Leave blank to keep the current Telegram bot token. Enter a new token only when rotating credentials.',
-                          })}
-                        />
-                      )}
-                    </div>
-                  }
-                  onChange={(event) => setDraft((current) => ({ ...current, telegramBotToken: event.target.value }))}
-                  placeholder={i18n._({ id: '123456:ABCDEF...', message: '123456:ABCDEF...' })}
-                  type="password"
-                  value={draft.telegramBotToken}
-                />
-              </>
-            ) : draftProvider === 'wechat' ? (
-              <>
-                <div className="form-row">
-                  <Input
-                    label={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {i18n._({ id: 'WeChat Base URL', message: 'WeChat Base URL' })}
-                        <HelpTooltip
-                          content={i18n._({
-                            id: 'Required. Use the iLink channel base URL for this WeChat account.',
-                            message: 'Required. Use the iLink channel base URL for this WeChat account.',
-                          })}
-                        />
-                      </div>
-                    }
-                    onChange={(event) => setDraft((current) => ({ ...current, wechatBaseUrl: event.target.value }))}
-                    placeholder="https://wechat.example.com"
-                    value={draft.wechatBaseUrl}
-                  />
-                  <label className="field">
-                    <span>{i18n._({ id: 'Credential Source', message: 'Credential Source' })}</span>
-                    <SelectControl
-                      ariaLabel={i18n._({ id: 'Credential Source', message: 'Credential Source' })}
-                      fullWidth
-                      onChange={handleWeChatCredentialSourceChange}
-                      options={wechatCredentialSourceOptions}
-                      value={draftWeChatCredentialSource}
-                    />
-                  </label>
-                </div>
-
-                <Input
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({ id: 'WeChat Route Tag', message: 'WeChat Route Tag' })}
-                      <HelpTooltip
-                        content={i18n._({
-                          id: 'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
-                          message:
-                            'Optional. Adds the SKRouteTag header for WeChat API requests when your iLink deployment requires route pinning.',
-                        })}
-                      />
-                    </div>
-                  }
-                  onChange={(event) => setDraft((current) => ({ ...current, wechatRouteTag: event.target.value }))}
-                  placeholder={i18n._({ id: 'route-tag-1', message: 'route-tag-1' })}
-                  value={draft.wechatRouteTag}
-                />
-
-                <Switch
-                  checked={draft.wechatChannelTimingEnabled}
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({
-                        id: 'Append WeChat Channel Timing',
-                        message: 'Append WeChat Channel Timing',
-                      })}
-                      <HelpTooltip
-                        content={i18n._({
-                          id: 'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
-                          message:
-                            'Append the WeChat Channel timing block to final replies. This is independent from backend debug mode and defaults to disabled for new connections.',
-                        })}
-                      />
-                    </div>
-                  }
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, wechatChannelTimingEnabled: event.target.checked }))
-                  }
-                />
-
-                {draftWeChatCredentialSource === 'saved' ? (
-                  <>
-                    <label className="field">
-                      <span>{i18n._({ id: 'Saved WeChat Account', message: 'Saved WeChat Account' })}</span>
-                      <SelectControl
-                        ariaLabel={i18n._({ id: 'Saved WeChat Account', message: 'Saved WeChat Account' })}
-                        fullWidth
-                        onChange={(nextValue) =>
-                          setDraft((current) => ({
-                            ...current,
-                            wechatBaseUrl:
-                              savedWeChatAccounts.find((account) => account.id === nextValue)?.baseUrl ?? current.wechatBaseUrl,
-                            wechatSavedAccountId: nextValue,
-                          }))
-                        }
-                        options={savedWeChatAccountOptions}
-                        value={draft.wechatSavedAccountId}
-                      />
-                    </label>
-
-                    {wechatAccountsErrorMessage ? (
-                      <InlineNotice
-                        dismissible={false}
-                        noticeKey={`wechat-accounts-error-${wechatAccountsErrorMessage}`}
-                        title={i18n._({ id: 'Saved Account Lookup Failed', message: 'Saved Account Lookup Failed' })}
-                      >
-                        {wechatAccountsErrorMessage}
-                      </InlineNotice>
-                    ) : null}
-
-                    {!savedWeChatAccounts.length ? (
-                      <InlineNotice
-                        dismissible={false}
-                        noticeKey="wechat-saved-accounts-empty"
-                        title={i18n._({ id: 'No Saved Accounts Yet', message: 'No Saved Accounts Yet' })}
-                      >
-                        {i18n._({
-                          id: 'Complete one WeChat QR login first. Confirmed accounts are saved automatically.',
-                          message:
-                            'Complete one WeChat QR login first. Confirmed accounts are saved automatically.',
-                        })}
-                      </InlineNotice>
-                    ) : selectedSavedWeChatAccount ? (
-                      <>
-                        <div
-                          style={{
-                            alignItems: 'center',
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: '8px',
-                            justifyContent: 'space-between',
-                          }}
-                        >
-                          <strong>{i18n._({ id: 'Saved Account Detail', message: 'Saved Account Detail' })}</strong>
-                          <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            <Button intent="ghost" onClick={() => openWeChatAccountEditModal(selectedSavedWeChatAccount)} type="button">
-                              {i18n._({ id: 'Edit Details', message: 'Edit Details' })}
-                            </Button>
-                            <Button
-                              className="ide-button--ghost-danger"
-                              intent="ghost"
-                              onClick={() => setDeleteWeChatAccountTarget(selectedSavedWeChatAccount)}
-                              type="button"
-                            >
-                              {i18n._({ id: 'Delete Saved Account', message: 'Delete Saved Account' })}
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="detail-list">
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Label', message: 'Label' })}</span>
-                            <strong>{formatWeChatAccountLabel(selectedSavedWeChatAccount)}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Alias', message: 'Alias' })}</span>
-                            <strong>{selectedSavedWeChatAccount.alias?.trim() || i18n._({ id: 'none', message: 'none' })}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Account ID', message: 'Account ID' })}</span>
-                            <strong>{selectedSavedWeChatAccount.accountId}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Owner User ID', message: 'Owner User ID' })}</span>
-                            <strong>{selectedSavedWeChatAccount.userId}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Resolved Base URL', message: 'Resolved Base URL' })}</span>
-                            <strong>{selectedSavedWeChatAccount.baseUrl}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Last Confirmed', message: 'Last Confirmed' })}</span>
-                            <strong>{formatBotTimestamp(selectedSavedWeChatAccount.lastConfirmedAt)}</strong>
-                          </div>
-                          <div className="detail-row">
-                            <span>{i18n._({ id: 'Notes', message: 'Notes' })}</span>
-                            <strong>{selectedSavedWeChatAccount.note?.trim() || i18n._({ id: 'none', message: 'none' })}</strong>
-                          </div>
-                        </div>
-                      </>
-                    ) : null}
-                  </>
-                ) : draftWeChatCredentialSource === 'manual' ? (
-                  <>
-                    <div className="form-row">
-                      <Input
-                        label={i18n._({ id: 'WeChat Account ID', message: 'WeChat Account ID' })}
-                        onChange={(event) => setDraft((current) => ({ ...current, wechatAccountId: event.target.value }))}
-                        placeholder={i18n._({ id: 'wechat-account-1', message: 'wechat-account-1' })}
-                        value={draft.wechatAccountId}
-                      />
-                      <Input
-                        label={
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {i18n._({ id: 'WeChat Owner User ID', message: 'WeChat Owner User ID' })}
-                            <HelpTooltip
-                              content={i18n._({
-                                id: 'Required. This maps to wechat_owner_user_id on the backend.',
-                                message: 'Required. This maps to wechat_owner_user_id on the backend.',
-                              })}
-                            />
-                          </div>
-                        }
-                        onChange={(event) => setDraft((current) => ({ ...current, wechatUserId: event.target.value }))}
-                        placeholder={i18n._({ id: 'wechat-owner-1', message: 'wechat-owner-1' })}
-                        value={draft.wechatUserId}
-                      />
-                    </div>
-
-                    <Input
-                      label={
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
-                          <HelpTooltip
-                            content={
-                              isEditingConnection
-                                ? i18n._({
-                                    id: 'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
-                                    message:
-                                      'Leave blank to keep the current WeChat bot token. Enter a new token only when rotating credentials.',
-                                  })
-                                : i18n._({
-                                    id: 'Enter the bot token issued by the WeChat iLink backend for this account.',
-                                    message: 'Enter the bot token issued by the WeChat iLink backend for this account.',
-                                  })
-                            }
-                          />
-                        </div>
-                      }
-                      onChange={(event) => setDraft((current) => ({ ...current, wechatBotToken: event.target.value }))}
-                      placeholder={i18n._({ id: 'wechat-token-1', message: 'wechat-token-1' })}
-                      type="password"
-                      value={draft.wechatBotToken}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <section className="mode-panel">
-                      <div
-                        style={{
-                          alignItems: 'start',
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '16px',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <div style={{ display: 'grid', gap: '6px' }}>
-                          <strong>{i18n._({ id: 'WeChat QR Login', message: 'WeChat QR Login' })}</strong>
-                          <span>
-                            {i18n._({
-                              id: 'Fetch the WeChat credential bundle from the remote iLink service, then apply it back into this form without manual secret entry.',
-                              message:
-                                'Fetch the WeChat credential bundle from the remote iLink service, then apply it back into this form without manual secret entry.',
-                            })}
-                          </span>
-                        </div>
-                        <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {draft.wechatLoginStatus ? <StatusPill status={draft.wechatLoginStatus} /> : null}
-                          <Button intent="secondary" onClick={openWeChatLoginModal} type="button">
-                            {wechatLoginEntryLabel}
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="detail-list" style={{ marginTop: '16px' }}>
-                        <div className="detail-row">
-                          <span>{i18n._({ id: 'Login Session', message: 'Login Session' })}</span>
-                          <strong>{wechatDraftSessionIdLabel}</strong>
-                        </div>
-                        <div className="detail-row">
-                          <span>{i18n._({ id: 'Session Status', message: 'Session Status' })}</span>
-                          <strong>{wechatDraftSessionStatusLabel}</strong>
-                        </div>
-                        <div className="detail-row">
-                          <span>{i18n._({ id: 'QR Payload', message: 'QR Payload' })}</span>
-                          <strong>{wechatDraftPayloadLabel}</strong>
-                        </div>
-                        <div className="detail-row">
-                          <span>{i18n._({ id: 'Credential Bundle', message: 'Credential Bundle' })}</span>
-                          <strong>{wechatDraftCredentialBundleLabel}</strong>
-                        </div>
-                      </div>
-                    </section>
-
-                    {!hasDraftWeChatCredentialBundle ? (
-                      <InlineNotice
-                        dismissible={false}
-                        noticeKey={`wechat-qr-credential-${draft.wechatLoginSessionId || 'idle'}-${draft.wechatLoginStatus || 'none'}`}
-                        title={
-                          hasDraftConfirmedWeChatLoginSession
-                            ? i18n._({ id: 'QR Session Ready', message: 'QR Session Ready' })
-                            : i18n._({ id: 'QR Credentials Required', message: 'QR Credentials Required' })
-                        }
-                      >
-                        {wechatQrCredentialNotice}
-                      </InlineNotice>
-                    ) : (
-                      <>
-                        <div className="form-row">
-                          <Input
-                            hint={i18n._({
-                              id: 'Applied from the confirmed QR login session. Switch back to Manual Entry if you need to override it manually.',
-                              message:
-                                'Applied from the confirmed QR login session. Switch back to Manual Entry if you need to override it manually.',
-                            })}
-                            label={i18n._({ id: 'WeChat Account ID', message: 'WeChat Account ID' })}
-                            readOnly
-                            value={draft.wechatAccountId}
-                          />
-                          <Input
-                            hint={i18n._({
-                              id: 'Read-only while QR Login is selected.',
-                              message: 'Read-only while QR Login is selected.',
-                            })}
-                            label={i18n._({ id: 'WeChat Owner User ID', message: 'WeChat Owner User ID' })}
-                            readOnly
-                            value={draft.wechatUserId}
-                          />
-                        </div>
-
-                        <Input
-                          hint={i18n._({
-                            id: 'Stored in the form and submitted on create. Start a new QR login if you need to rotate it.',
-                            message:
-                              'Stored in the form and submitted on create. Start a new QR login if you need to rotate it.',
-                          })}
-                          label={i18n._({ id: 'WeChat Bot Token', message: 'WeChat Bot Token' })}
-                          readOnly
-                          type="password"
-                          value={draft.wechatBotToken}
-                        />
-                      </>
-                    )}
-                  </>
-                )}
-              </>
-            ) : draftProvider === 'feishu' ? (
-              <>
-                {draftFeishuDeliveryMode === 'webhook' ? (
-                  <Input
-                    label={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {i18n._({ id: 'Public Base URL', message: 'Public Base URL' })}
-                        <HelpTooltip
-                          content={i18n._({
-                            id: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                            message: 'Required unless the backend already provides CODEX_SERVER_PUBLIC_BASE_URL.',
-                          })}
-                        />
-                      </div>
-                    }
-                    onChange={(event) => setDraft((current) => ({ ...current, publicBaseUrl: event.target.value }))}
-                    placeholder="https://bots.example.com"
-                    value={draft.publicBaseUrl}
-                  />
-                ) : null}
-
-                <div className="form-row">
-                  <Input
-                    label={i18n._({ id: 'Feishu App ID', message: 'Feishu App ID' })}
-                    onChange={(event) => setDraft((current) => ({ ...current, feishuAppId: event.target.value }))}
-                    placeholder={i18n._({ id: 'cli_a1b2c3d4e5f6', message: 'cli_a1b2c3d4e5f6' })}
-                    value={draft.feishuAppId}
-                  />
-                  <Input
-                    hint={
-                      isEditingConnection
-                        ? i18n._({
-                            id: 'Leave blank to keep the current Feishu App Secret. Enter a new secret only when rotating credentials.',
-                            message:
-                              'Leave blank to keep the current Feishu App Secret. Enter a new secret only when rotating credentials.',
-                          })
-                        : i18n._({
-                            id: 'Required. Enter the App Secret issued for this Feishu bot.',
-                            message: 'Required. Enter the App Secret issued for this Feishu bot.',
-                          })
-                    }
-                    label={i18n._({ id: 'Feishu App Secret', message: 'Feishu App Secret' })}
-                    onChange={(event) => setDraft((current) => ({ ...current, feishuAppSecret: event.target.value }))}
-                    placeholder={i18n._({ id: 'cli_secret_xxx', message: 'cli_secret_xxx' })}
-                    type="password"
-                    value={draft.feishuAppSecret}
-                  />
-                </div>
-
-                <Input
-                  hint={i18n._({
-                    id: 'Optional. Leave blank to use the default https://open.feishu.cn endpoint.',
-                    message: 'Optional. Leave blank to use the default https://open.feishu.cn endpoint.',
-                  })}
-                  label={i18n._({ id: 'Feishu Domain', message: 'Feishu Domain' })}
-                  onChange={(event) => setDraft((current) => ({ ...current, feishuDomain: event.target.value }))}
-                  placeholder="https://open.feishu.cn"
-                  value={draft.feishuDomain}
-                />
-
-                <label className="field">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>{i18n._({ id: 'Streaming Plain Text', message: 'Streaming Plain Text' })}</span>
-                    <HelpTooltip
-                      content={i18n._({
-                        id: 'Default: Send New Text sends each newly appended plain-text segment as a separate Feishu reply, while plans and tool progress continue updating one message. Send Completed Chunks keeps finished text blocks as separate replies. Update One Message keeps the chat shorter, but only the latest plain-text snapshot remains visible.',
-                        message:
-                          'Default: Send New Text sends each newly appended plain-text segment as a separate Feishu reply, while plans and tool progress continue updating one message. Send Completed Chunks keeps finished text blocks as separate replies. Update One Message keeps the chat shorter, but only the latest plain-text snapshot remains visible.',
-                      })}
-                    />
-                  </div>
-                  <SelectControl
-                    ariaLabel={i18n._({ id: 'Streaming Plain Text', message: 'Streaming Plain Text' })}
-                    fullWidth
-                    onChange={(nextValue) =>
-                      setDraft((current) => ({ ...current, feishuStreamingPlainTextStrategy: nextValue }))
-                    }
-                    options={feishuStreamingPlainTextStrategyOptions}
-                    value={resolveFeishuStreamingPlainTextStrategy(draft.feishuStreamingPlainTextStrategy)}
-                  />
-                </label>
-
-                <Switch
-                  checked={draft.feishuEnableCards}
-                  label={i18n._({ id: 'Interactive Card', message: 'Interactive Card' })}
-                  onChange={(event) => setDraft((current) => ({ ...current, feishuEnableCards: event.target.checked }))}
-                />
-
-                <Switch
-                  checked={draft.feishuGroupReplyAll}
-                  label={i18n._({ id: 'Group Reply All', message: 'Group Reply All' })}
-                  onChange={(event) => setDraft((current) => ({ ...current, feishuGroupReplyAll: event.target.checked }))}
-                />
-
-                <Switch
-                  checked={draft.feishuThreadIsolation}
-                  label={i18n._({ id: 'Thread Isolation', message: 'Thread Isolation' })}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, feishuThreadIsolation: event.target.checked }))
-                  }
-                />
-
-                <Switch
-                  checked={draft.feishuShareSessionInChannel}
-                  label={i18n._({ id: 'Share Session In Channel', message: 'Share Session In Channel' })}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, feishuShareSessionInChannel: event.target.checked }))
-                  }
-                />
-              </>
-            ) : (
-              <>
-                <div className="form-row">
-                  <Input
-                    label={i18n._({ id: 'QQ Bot App ID', message: 'QQ Bot App ID' })}
-                    onChange={(event) => setDraft((current) => ({ ...current, qqbotAppId: event.target.value }))}
-                    placeholder={i18n._({ id: '102345678', message: '102345678' })}
-                    value={draft.qqbotAppId}
-                  />
-                  <Input
-                    hint={
-                      isEditingConnection
-                        ? i18n._({
-                            id: 'Leave blank to keep the current QQ Bot App Secret. Enter a new secret only when rotating credentials.',
-                            message:
-                              'Leave blank to keep the current QQ Bot App Secret. Enter a new secret only when rotating credentials.',
-                          })
-                        : i18n._({
-                            id: 'Required. Enter the App Secret issued for this QQ Bot.',
-                            message: 'Required. Enter the App Secret issued for this QQ Bot.',
-                          })
-                    }
-                    label={i18n._({ id: 'QQ Bot App Secret', message: 'QQ Bot App Secret' })}
-                    onChange={(event) => setDraft((current) => ({ ...current, qqbotAppSecret: event.target.value }))}
-                    placeholder={i18n._({ id: 'qqbot-secret-1', message: 'qqbot-secret-1' })}
-                    type="password"
-                    value={draft.qqbotAppSecret}
-                  />
-                </div>
-
-                <Input
-                  hint={i18n._({
-                    id: 'Optional. Provide custom Gateway intents only when the backend should override the recommended default set.',
-                    message:
-                      'Optional. Provide custom Gateway intents only when the backend should override the recommended default set.',
-                  })}
-                  label={i18n._({ id: 'QQ Bot Intents', message: 'QQ Bot Intents' })}
-                  onChange={(event) => setDraft((current) => ({ ...current, qqbotIntents: event.target.value }))}
-                  placeholder={i18n._({
-                    id: 'PUBLIC_GUILD_MESSAGES,GUILD_MESSAGES,DIRECT_MESSAGE',
-                    message: 'PUBLIC_GUILD_MESSAGES,GUILD_MESSAGES,DIRECT_MESSAGE',
-                  })}
-                  value={draft.qqbotIntents}
-                />
-
-                <Switch
-                  checked={draft.qqbotSandbox}
-                  label={i18n._({ id: 'Sandbox', message: 'Sandbox' })}
-                  onChange={(event) => setDraft((current) => ({ ...current, qqbotSandbox: event.target.checked }))}
-                />
-
-                <Switch
-                  checked={draft.qqbotShareSessionInChannel}
-                  label={i18n._({ id: 'Share Session In Channel', message: 'Share Session In Channel' })}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, qqbotShareSessionInChannel: event.target.checked }))
-                  }
-                />
-
-                <Switch
-                  checked={draft.qqbotMarkdownSupport}
-                  label={i18n._({ id: 'Markdown Support', message: 'Markdown Support' })}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, qqbotMarkdownSupport: event.target.checked }))
-                  }
-                />
-              </>
-            )}
-
-            {draft.aiBackend === 'workspace_thread' ? (
-              <>
-                <div className="form-row">
-                  <Input
-                    label={i18n._({ id: 'Workspace Model', message: 'Workspace Model' })}
-                    onChange={(event) => setDraft((current) => ({ ...current, workspaceModel: event.target.value }))}
-                    placeholder="gpt-5.4"
-                    value={draft.workspaceModel}
-                  />
-                  <label className="field">
-                    <span>{i18n._({ id: 'Reasoning Effort', message: 'Reasoning Effort' })}</span>
-                    <SelectControl
-                      ariaLabel={i18n._({ id: 'Reasoning Effort', message: 'Reasoning Effort' })}
-                      fullWidth
-                      onChange={(nextValue) => setDraft((current) => ({ ...current, workspaceReasoning: nextValue }))}
-                      options={reasoningOptions}
-                      value={draft.workspaceReasoning}
-                    />
-                  </label>
-                </div>
-
-                <label className="field">
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {i18n._({ id: 'Permission Preset', message: 'Permission Preset' })}
-                    <HelpTooltip
-                      content={i18n._({
-                        id: 'Matches the workspace composer permission preset. Full access sends approvalPolicy=never and a danger-full-access sandbox to app-server so bot turns can avoid interactive approval prompts.',
-                        message:
-                          'Matches the workspace composer permission preset. Full access sends approvalPolicy=never and a danger-full-access sandbox to app-server so bot turns can avoid interactive approval prompts.',
-                      })}
-                    />
-                  </span>
-                  <SelectControl
-                    ariaLabel={i18n._({ id: 'Permission Preset', message: 'Permission Preset' })}
-                    fullWidth
-                    onChange={(nextValue) =>
-                      setDraft((current) => ({ ...current, workspacePermissionPreset: nextValue }))
-                    }
-                    options={permissionPresetOptions}
-                    value={draft.workspacePermissionPreset}
-                  />
-                </label>
-
-                {draft.workspacePermissionPreset === 'full-access' ? (
-                  <InlineNotice
-                    dismissible={false}
-                    noticeKey="bot-workspace-thread-full-access"
-                    title={i18n._({ id: 'Full Access Enabled', message: 'Full Access Enabled' })}
-                  >
-                    {i18n._({
-                      id: 'New bot threads and turns will request full access from app-server with approval prompts disabled. Use this only for trusted bot workflows.',
-                      message:
-                        'New bot threads and turns will request full access from app-server with approval prompts disabled. Use this only for trusted bot workflows.',
-                    })}
-                  </InlineNotice>
-                ) : null}
-
-                <label className="field">
-                  <span>{i18n._({ id: 'Collaboration Mode', message: 'Collaboration Mode' })}</span>
-                  <SelectControl
-                    ariaLabel={i18n._({ id: 'Collaboration Mode', message: 'Collaboration Mode' })}
-                    fullWidth
-                    onChange={(nextValue) =>
-                      setDraft((current) => ({ ...current, workspaceCollaborationMode: nextValue }))
-                    }
-                    options={collaborationOptions}
-                    value={draft.workspaceCollaborationMode}
-                  />
-                </label>
-              </>
-            ) : (
-              <>
-                <div className="form-row">
-                  <Input
-                    label={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {i18n._({ id: 'OpenAI API Key', message: 'OpenAI API Key' })}
-                        {isEditingConnection && (
-                          <HelpTooltip
-                            content={i18n._({
-                              id: 'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
-                              message:
-                                'Leave blank to keep the current OpenAI API key. Enter a new key only when rotating credentials.',
-                            })}
-                          />
-                        )}
-                      </div>
-                    }
-                    onChange={(event) => setDraft((current) => ({ ...current, openAIApiKey: event.target.value }))}
-                    placeholder={i18n._({ id: 'sk-...', message: 'sk-...' })}
-                    type="password"
-                    value={draft.openAIApiKey}
-                  />
-                  <Input
-                    label={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {i18n._({ id: 'OpenAI Base URL', message: 'OpenAI Base URL' })}
-                        <HelpTooltip
-                          content={i18n._({
-                            id: 'Optional. Defaults to the standard Responses API endpoint.',
-                            message: 'Optional. Defaults to the standard Responses API endpoint.',
-                          })}
-                        />
-                      </div>
-                    }
-                    onChange={(event) => setDraft((current) => ({ ...current, openAIBaseUrl: event.target.value }))}
-                    placeholder="https://api.openai.com/v1/responses"
-                    value={draft.openAIBaseUrl}
-                  />
-                </div>
-
-                <div className="form-row">
-                  <Input
-                    label={i18n._({ id: 'OpenAI Model', message: 'OpenAI Model' })}
-                    onChange={(event) => setDraft((current) => ({ ...current, openAIModel: event.target.value }))}
-                    placeholder="gpt-5.4"
-                    value={draft.openAIModel}
-                  />
-                  <label className="field">
-                    <span>{i18n._({ id: 'Reasoning Effort', message: 'Reasoning Effort' })}</span>
-                    <SelectControl
-                      ariaLabel={i18n._({ id: 'Reasoning Effort', message: 'Reasoning Effort' })}
-                      fullWidth
-                      onChange={(nextValue) => setDraft((current) => ({ ...current, openAIReasoning: nextValue }))}
-                      options={reasoningOptions}
-                      value={draft.openAIReasoning}
-                    />
-                  </label>
-                </div>
-
-                <TextArea
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({ id: 'Instructions', message: 'Instructions' })}
-                      <HelpTooltip
-                        content={i18n._({
-                          id: 'Optional system instructions for the Responses backend.',
-                          message: 'Optional system instructions for the Responses backend.',
-                        })}
-                      />
-                    </div>
-                  }
-                  onChange={(event) => setDraft((current) => ({ ...current, openAIInstructions: event.target.value }))}
-                  rows={5}
-                  value={draft.openAIInstructions}
-                />
-
-                <Switch
-                  checked={draft.openAIStore}
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {i18n._({ id: 'Store OpenAI Response State', message: 'Store OpenAI Response State' })}
-                      <HelpTooltip
-                        content={i18n._({
-                          id: 'Persist conversation state in the OpenAI Responses API when supported.',
-                          message: 'Persist conversation state in the OpenAI Responses API when supported.',
-                        })}
-                      />
-                    </div>
-                  }
-                  onChange={(event) => setDraft((current) => ({ ...current, openAIStore: event.target.checked }))}
-                />
-              </>
-            )}
-          </form>
-        </Modal>
+      {connectionOverviewModalOpen &&
+      selectedConnection &&
+      selectedConnectionSummary &&
+      selectedConnectionLabels &&
+      selectedConnectionProviderSettings ? (
+        <BotsPageConnectionSummarySection
+          connection={selectedConnection}
+          latestDeliveredOutboundDelivery={selectedConnectionLatestDeliveredOutboundDelivery}
+          latestOutboundDelivery={selectedConnectionLatestOutboundDelivery}
+          mode="config"
+          onOpenChange={setConnectionOverviewModalOpen}
+          open={connectionOverviewModalOpen}
+          providerSettings={selectedConnectionProviderSettings}
+          showCard={false}
+          summaryCounts={selectedConnectionSummary}
+          summaryLabels={selectedConnectionLabels}
+          suppressionSummary={selectedConnectionSuppressionSummary}
+          wechatAccount={selectedConnectionWeChatAccount}
+        />
       ) : null}
 
       <BotsPageDialogs {...botsPageDialogsProps} />
@@ -8286,6 +4368,10 @@ export function BotsPage() {
 
 export function BotsOutboundPage() {
   return <BotsPageScreen mode="outbound" />
+}
+
+export function BotsEndpointsPage() {
+  return <BotsPageScreen mode="endpoints" />
 }
 
 function serializeBotsPageDraft(draft: BotsPageDraft) {
@@ -8337,3 +4423,4 @@ function serializeBotsPageDraft(draft: BotsPageDraft) {
     draft.openAIStore,
   ])
 }
+

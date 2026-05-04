@@ -520,7 +520,7 @@
     padding-bottom: 16px;
   }
 
-  .mode-strip__title-row strong {
+  .mode-strip__title {
     font-size: 1.25rem;
   }
 
@@ -799,6 +799,36 @@
   .workspace-compact-row__actions .divider-v,
   .automation-compact-row__actions .divider-v {
     display: none;
+  }
+
+  .bots-page-table {
+    min-width: 980px;
+  }
+
+  .bots-page-table--endpoints {
+    min-width: 1080px;
+  }
+
+  .bots-page-table thead th,
+  .bots-page-table td {
+    padding: 10px 12px;
+  }
+
+  .bots-page-table--endpoints thead th,
+  .bots-page-table--endpoints td {
+    padding: 8px 10px;
+  }
+
+  .bots-page-table__actions {
+    justify-content: flex-start;
+  }
+
+  .bots-page-table--endpoints .bots-page-table__actions {
+    gap: 6px;
+  }
+
+  .bots-page-filter-summary__controls {
+    grid-template-columns: 1fr;
   }
 
   .jobs-page__management-grid {

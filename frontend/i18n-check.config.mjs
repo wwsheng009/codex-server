@@ -328,6 +328,16 @@ export default {
       reason: 'Internal navigation path template',
     },
     {
+      filePattern: 'src/lib/bot-routes.ts',
+      text: '/bots/${…}/${…}',
+      reason: 'Internal navigation path template',
+    },
+    {
+      filePattern: 'src/lib/bot-routes.ts',
+      text: '/bots/${…}/${…}/logs',
+      reason: 'Internal navigation path template',
+    },
+    {
       filePattern: 'src/pages/BotsPage.tsx',
       text: 'opacity 180ms ease',
       reason: 'CSS transition value (technical)',

@@ -30,6 +30,10 @@ const BotsPage = lazy(async () => {
   const module = await import("../pages/BotsPage");
   return { default: module.BotsPage };
 });
+const BotsEndpointsPage = lazy(async () => {
+  const module = await import("../pages/BotsPage");
+  return { default: module.BotsEndpointsPage };
+});
 const JobsPage = lazy(async () => {
   const module = await import("../pages/JobsPage");
   return { default: module.JobsPage };
@@ -45,6 +49,10 @@ const BotsOutboundPage = lazy(async () => {
 const BotConnectionLogsPage = lazy(async () => {
   const module = await import("../pages/BotConnectionLogsPage");
   return { default: module.BotConnectionLogsPage };
+});
+const BotConnectionDetailPage = lazy(async () => {
+  const module = await import("../pages/BotConnectionDetailPage");
+  return { default: module.BotConnectionDetailPage };
 });
 const CatalogPage = lazy(async () => {
   const module = await import("../pages/CatalogPage");
@@ -114,6 +122,10 @@ const FeishuToolsSettingsPage = lazy(async () => {
   const module = await import("../pages/settings/FeishuToolsSettingsPage");
   return { default: module.FeishuToolsSettingsPage };
 });
+const WeChatAccountsPage = lazy(async () => {
+  const module = await import("../pages/settings/WeChatAccountsPage");
+  return { default: module.WeChatAccountsPage };
+});
 const PersonalizationSettingsPage = lazy(async () => {
   const module = await import("../pages/settings/PersonalizationSettingsPage");
   return { default: module.PersonalizationSettingsPage };
@@ -170,8 +182,13 @@ export const router = createBrowserRouter([
           { path: "automations", element: lazyElement(AutomationsPage) },
           { path: "jobs", element: lazyElement(JobsPage) },
           { path: "bots", element: lazyElement(BotsPage) },
+          { path: "bots/endpoints", element: lazyElement(BotsEndpointsPage) },
           { path: "notification-center", element: lazyElement(NotificationCenterPage) },
           { path: "bots/outbound", element: lazyElement(BotsOutboundPage) },
+          {
+            path: "bots/:workspaceId/:connectionId",
+            element: lazyElement(BotConnectionDetailPage),
+          },
           {
             path: "bots/:connectionId/logs",
             element: lazyElement(BotConnectionLogsPage),
@@ -216,6 +233,10 @@ export const router = createBrowserRouter([
                   {
                     path: "feishu-tools",
                     element: lazyElement(FeishuToolsSettingsPage),
+                  },
+                  {
+                    path: "wechat-accounts",
+                    element: lazyElement(WeChatAccountsPage),
                   },
                   { path: "git", element: lazyElement(GitSettingsPage) },
                   {

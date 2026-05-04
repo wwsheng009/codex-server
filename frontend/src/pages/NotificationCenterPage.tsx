@@ -88,9 +88,16 @@ type DispatchFilterState = {
   status: string
 }
 
+type DispatchPaginationState = {
+  scopeKey: string
+  page: number
+}
+
 type DeliveryTargetOption = BotDeliveryTarget & {
   botName: string
 }
+
+const DISPATCH_PAGE_SIZE = 10
 
 function isDeliveryTargetReady(target?: Pick<BotDeliveryTarget, 'deliveryReadiness'> | null) {
   return (target?.deliveryReadiness?.trim().toLowerCase() ?? 'ready') === 'ready'
@@ -402,6 +409,10 @@ export function NotificationCenterPage() {
     channel: '',
     status: '',
   })
+  const [dispatchPaginationState, setDispatchPaginationState] = useState<DispatchPaginationState>({
+    scopeKey: '',
+    page: 1,
+  })
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false)
   const [showMailServerDialog, setShowMailServerDialog] = useState(false)
   const [showEmailTargetDialog, setShowEmailTargetDialog] = useState(false)
@@ -502,6 +513,56 @@ export function NotificationCenterPage() {
     queryFn: () => listNotificationDispatches(workspaceId, dispatchFilters),
     enabled: Boolean(workspaceId),
   })
+
+  const dispatches = dispatchesQuery.data ?? []
+  const dispatchPageCount = Math.max(1, Math.ceil(dispatches.length / DISPATCH_PAGE_SIZE))
+  const dispatchPaginationScopeKey = `${workspaceId}\u0000${dispatchFilters.topic}\u0000${dispatchFilters.channel}\u0000${dispatchFilters.status}`
+  const currentDispatchPagination =
+    dispatchPaginationState.scopeKey === dispatchPaginationScopeKey
+      ? dispatchPaginationState
+      : { scopeKey: dispatchPaginationScopeKey, page: 1 }
+  const currentDispatchPage = Math.min(currentDispatchPagination.page, dispatchPageCount)
+  const visibleDispatches = useMemo(
+    () =>
+      dispatches.slice(
+        (currentDispatchPage - 1) * DISPATCH_PAGE_SIZE,
+        currentDispatchPage * DISPATCH_PAGE_SIZE,
+      ),
+    [currentDispatchPage, dispatches],
+  )
+  const showDispatchPagination = dispatches.length > DISPATCH_PAGE_SIZE
+
+  useEffect(() => {
+    setDispatchPaginationState((current) => {
+      if (current.scopeKey !== dispatchPaginationScopeKey) {
+        return { scopeKey: dispatchPaginationScopeKey, page: 1 }
+      }
+
+      const nextPage = Math.min(Math.max(current.page, 1), dispatchPageCount)
+      if (nextPage === current.page) {
+        return current
+      }
+
+      return {
+        scopeKey: dispatchPaginationScopeKey,
+        page: nextPage,
+      }
+    })
+  }, [dispatchPageCount, dispatchPaginationScopeKey])
+
+  const goToPreviousDispatchPage = () => {
+    setDispatchPaginationState({
+      scopeKey: dispatchPaginationScopeKey,
+      page: Math.max(1, currentDispatchPage - 1),
+    })
+  }
+
+  const goToNextDispatchPage = () => {
+    setDispatchPaginationState({
+      scopeKey: dispatchPaginationScopeKey,
+      page: Math.min(dispatchPageCount, currentDispatchPage + 1),
+    })
+  }
 
   useEffect(() => {
     setMailServerDraft(buildMailServerDraft(mailServerQuery.data))
@@ -826,7 +887,7 @@ export function NotificationCenterPage() {
               </span>
               <span>
                 {i18n._({ id: 'Dispatch records', message: 'Dispatch records' })}:{' '}
-                {formatLocaleNumber((dispatchesQuery.data ?? []).length)}
+                {formatLocaleNumber(dispatches.length)}
               </span>
             </div>
           }
@@ -1896,13 +1957,13 @@ export function NotificationCenterPage() {
               <div className="notification-center-panel__header">
                 <div>
                   <h3>{i18n._({ id: 'Current subscriptions', message: 'Current subscriptions' })}</h3>
-              <p>
-                {i18n._({
-                  id: 'These rules are the single configuration layer for hook, automation, turn policy, delivery failure, and legacy notification events.',
-                  message:
-                    'These rules are the single configuration layer for hook, automation, turn policy, delivery failure, and legacy notification events.',
-                })}
-              </p>
+                  <p>
+                    {i18n._({
+                      id: 'These rules are the single configuration layer for hook, automation, turn policy, delivery failure, and legacy notification events.',
+                      message:
+                        'These rules are the single configuration layer for hook, automation, turn policy, delivery failure, and legacy notification events.',
+                    })}
+                  </p>
                 </div>
               </div>
 
@@ -2048,7 +2109,7 @@ export function NotificationCenterPage() {
           </div>
 
           <div className="notification-center-table-wrap">
-            <table className="notification-center-table">
+            <table className="notification-center-table notification-center-table--dispatches">
               <thead>
                 <tr>
                   <th>{i18n._({ id: 'Created', message: 'Created' })}</th>
@@ -2060,8 +2121,8 @@ export function NotificationCenterPage() {
                 </tr>
               </thead>
               <tbody>
-                {(dispatchesQuery.data ?? []).length ? (
-                  (dispatchesQuery.data ?? []).map((dispatch) => (
+                {visibleDispatches.length ? (
+                  visibleDispatches.map((dispatch) => (
                     <tr key={dispatch.id}>
                       <td>{formatLocalizedDateTime(dispatch.createdAt)}</td>
                       <td>
@@ -2120,6 +2181,39 @@ export function NotificationCenterPage() {
               </tbody>
             </table>
           </div>
+          {showDispatchPagination ? (
+            <div className="feishu-tool-selector-pagination">
+              <span className="feishu-tool-selector-pagination__info">
+                {i18n._({
+                  id: '{start}–{end} of {total}',
+                  message: '{start}–{end} of {total}',
+                  values: {
+                    start: (currentDispatchPage - 1) * DISPATCH_PAGE_SIZE + 1,
+                    end: Math.min(currentDispatchPage * DISPATCH_PAGE_SIZE, dispatches.length),
+                    total: dispatches.length,
+                  },
+                })}
+              </span>
+              <div className="feishu-tool-selector-pagination__actions">
+                <Button
+                  intent="ghost"
+                  disabled={currentDispatchPage <= 1}
+                  onClick={goToPreviousDispatchPage}
+                  type="button"
+                >
+                  {i18n._({ id: 'Previous', message: 'Previous' })}
+                </Button>
+                <Button
+                  intent="ghost"
+                  disabled={currentDispatchPage * DISPATCH_PAGE_SIZE >= dispatches.length}
+                  onClick={goToNextDispatchPage}
+                  type="button"
+                >
+                  {i18n._({ id: 'Next', message: 'Next' })}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </section>
       </div>
     </section>

@@ -1,7 +1,7 @@
 import type { CreateBotConnectionInput, UpdateBotConnectionInput } from '../features/bots/api'
 import { formatLocalizedDateTime, humanizeDisplayValue } from '../i18n/display'
 import { i18n } from '../i18n/runtime'
-import type { BotConnection, BotConversation, BotMessageMedia, WeChatAccount } from '../types/api'
+import type { Bot, BotConnection, BotConversation, BotDeliveryTarget, BotMessageMedia, BotReplyMessage, BotTrigger, WeChatAccount, Workspace } from '../types/api'
 
 export const WECHAT_CHANNEL_TIMING_SETTING = 'wechat_channel_timing'
 export const WECHAT_CHANNEL_TIMING_ENABLED = 'enabled'
@@ -813,6 +813,60 @@ export function formatBotBackendLabel(backend: string) {
   }
 }
 
+export function formatBotScopeLabel(scope?: string | null) {
+  switch (scope?.trim().toLowerCase()) {
+    case 'global':
+      return i18n._({ id: 'Global', message: 'Global' })
+    case 'workspace':
+    default:
+      return i18n._({ id: 'Workspace-scoped', message: 'Workspace-scoped' })
+  }
+}
+
+export function formatBotSharingModeLabel(sharingMode?: string | null) {
+  switch (sharingMode?.trim().toLowerCase()) {
+    case 'all_workspaces':
+      return i18n._({ id: 'All workspaces', message: 'All workspaces' })
+    case 'selected_workspaces':
+      return i18n._({ id: 'Selected workspaces', message: 'Selected workspaces' })
+    case 'owner_only':
+    default:
+      return i18n._({ id: 'Owner workspace only', message: 'Owner workspace only' })
+  }
+}
+
+export function resolveBotDefaultBindingMode(
+  defaultBindingMode?: string | null,
+  primaryBackend?: string | null,
+) {
+  const normalizedMode = defaultBindingMode?.trim().toLowerCase() ?? ''
+  if (normalizedMode === 'fixed_thread' || normalizedMode === 'stateless' || normalizedMode === 'workspace_auto_thread') {
+    return normalizedMode
+  }
+
+  if (primaryBackend?.trim().toLowerCase() === 'openai_responses') {
+    return 'stateless'
+  }
+
+  return primaryBackend?.trim().toLowerCase() === 'workspace_thread' ? 'workspace_auto_thread' : normalizedMode
+}
+
+export function formatBotDefaultBindingModeLabel(
+  defaultBindingMode?: string | null,
+  primaryBackend?: string | null,
+) {
+  switch (resolveBotDefaultBindingMode(defaultBindingMode, primaryBackend)) {
+    case 'fixed_thread':
+      return i18n._({ id: 'Fixed Thread', message: 'Fixed Thread' })
+    case 'stateless':
+      return i18n._({ id: 'Stateless', message: 'Stateless' })
+    case 'workspace_auto_thread':
+      return i18n._({ id: 'Workspace Auto Thread', message: 'Workspace Auto Thread' })
+    default:
+      return i18n._({ id: 'None', message: 'None' })
+  }
+}
+
 export function formatBotConnectionCapabilityLabel(capability?: string | null) {
   switch ((capability ?? '').trim()) {
     case 'supportsTextOutbound':
@@ -897,6 +951,49 @@ export function formatBotTimestamp(value: string | undefined) {
   return formatLocalizedDateTime(value)
 }
 
+export function summarizeBotConversationDeliveryError(error?: string) {
+  const trimmed = error?.trim() ?? ''
+  if (!trimmed) {
+    return ''
+  }
+  return trimmed.length > 180 ? `${trimmed.slice(0, 177).trimEnd()}...` : trimmed
+}
+
+export function summarizeBotReplyMessages(messages?: BotReplyMessage[] | null) {
+  const items = messages ?? []
+  if (!items.length) {
+    return ''
+  }
+
+  const summary = items
+    .map((message) => {
+      const parts: string[] = []
+      const text = message.text?.trim() ?? ''
+      if (text) {
+        parts.push(text)
+      }
+      const mediaCount = message.media?.length ?? 0
+      if (mediaCount > 0) {
+        parts.push(
+          i18n._({
+            id: '{count} attachment(s)',
+            message: '{count} attachment(s)',
+            values: { count: mediaCount },
+          }),
+        )
+      }
+      return parts.join(' | ')
+    })
+    .filter(Boolean)
+    .join(' / ')
+
+  if (!summary) {
+    return ''
+  }
+
+  return summary.length > 220 ? `${summary.slice(0, 217).trimEnd()}...` : summary
+}
+
 export function summarizeBotMap(value: Record<string, string> | null | undefined) {
   if (!value || !Object.keys(value).length) {
     return i18n._({ id: 'none', message: 'none' })
@@ -973,11 +1070,17 @@ export function formatBotConversationBindingSourceLabel(
 }
 
 export function resolveBotConversationThreadTarget(
-  conversation: Pick<
-    BotConversation,
-    'workspaceId' | 'threadId' | 'resolvedTargetWorkspaceId' | 'resolvedTargetThreadId'
-  >,
+  conversation:
+    | Pick<BotConversation, 'workspaceId' | 'threadId' | 'resolvedTargetWorkspaceId' | 'resolvedTargetThreadId'>
+    | null
+    | undefined,
 ) {
+  if (!conversation) {
+    return {
+      workspaceId: '',
+      threadId: '',
+    }
+  }
   const threadId = conversation.resolvedTargetThreadId?.trim() || conversation.threadId?.trim() || ''
   const workspaceId = conversation.resolvedTargetWorkspaceId?.trim() || conversation.workspaceId.trim()
   return {
@@ -993,6 +1096,82 @@ export function formatWeChatAccountLabel(account: Pick<WeChatAccount, 'alias' | 
     return identity
   }
   return `${alias} · ${identity}`
+}
+
+export function formatBotSharedWorkspaceSummary(
+  bot: Pick<Bot, 'scope' | 'sharingMode' | 'sharedWorkspaceIds'>,
+  workspaceById: Map<string, Workspace>,
+) {
+  if (bot.scope?.trim().toLowerCase() !== 'global') {
+    return i18n._({ id: 'Owner workspace only', message: 'Owner workspace only' })
+  }
+  if (bot.sharingMode?.trim().toLowerCase() === 'all_workspaces') {
+    return i18n._({ id: 'All registered workspaces', message: 'All registered workspaces' })
+  }
+  const names = (bot.sharedWorkspaceIds ?? [])
+    .map((workspaceId) => workspaceById.get(workspaceId)?.name ?? workspaceId)
+    .filter(Boolean)
+  if (!names.length) {
+    return i18n._({ id: 'No shared workspace selected', message: 'No shared workspace selected' })
+  }
+  return names.join(', ')
+}
+
+export function formatBotDeliveryTargetLabel(target: BotDeliveryTarget) {
+  const title = target.title?.trim()
+  if (title) {
+    return title
+  }
+  const routeKey = target.routeKey?.trim()
+  if (routeKey) {
+    return routeKey
+  }
+  const sessionId = target.sessionId?.trim()
+  if (sessionId) {
+    return sessionId
+  }
+  return target.id
+}
+
+export function formatBotDeliveryRouteLabel(routeType?: string | null) {
+  switch (routeType?.trim().toLowerCase()) {
+    case 'telegram_chat':
+      return i18n._({ id: 'Telegram Chat', message: 'Telegram Chat' })
+    case 'telegram_topic':
+      return i18n._({ id: 'Telegram Topic', message: 'Telegram Topic' })
+    case 'wechat_session':
+      return i18n._({ id: 'WeChat Recipient', message: 'WeChat Recipient' })
+    case 'feishu_chat':
+      return i18n._({ id: 'Feishu Chat', message: 'Feishu Chat' })
+    case 'feishu_thread':
+      return i18n._({ id: 'Feishu Thread', message: 'Feishu Thread' })
+    case 'qqbot_group':
+      return i18n._({ id: 'QQ Bot Group', message: 'QQ Bot Group' })
+    case 'qqbot_c2c':
+      return i18n._({ id: 'QQ Bot Direct Message', message: 'QQ Bot Direct Message' })
+    default:
+      return i18n._({ id: 'Derived route', message: 'Derived route' })
+  }
+}
+
+export function formatBotTriggerFilterSummary(trigger: BotTrigger) {
+  const filter = trigger.filter ?? {}
+  const parts = Object.entries(filter)
+    .map(([rawKey, rawValue]) => {
+      const key = rawKey.trim()
+      const value = typeof rawValue === 'string' ? rawValue.trim() : ''
+      if (!key || !value) {
+        return ''
+      }
+      return `${humanizeDisplayValue(key, key)}=${humanizeDisplayValue(value, value)}`
+    })
+    .filter(Boolean)
+
+  if (!parts.length) {
+    return i18n._({ id: 'All notifications', message: 'All notifications' })
+  }
+
+  return parts.join(' | ')
 }
 
 export function matchesWeChatAccountSearch(

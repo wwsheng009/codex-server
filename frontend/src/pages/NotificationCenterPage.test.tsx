@@ -205,33 +205,33 @@ describe('NotificationCenterPage', () => {
       createdAt: '2026-04-16T08:00:00.000Z',
       updatedAt: '2026-04-16T08:00:00.000Z',
     })
-    notificationCenterApiState.listNotificationDispatches.mockResolvedValue([
-      {
-        id: 'dispatch-1',
+    notificationCenterApiState.listNotificationDispatches.mockResolvedValue(
+      Array.from({ length: 11 }, (_, index) => ({
+        id: `dispatch-${index + 1}`,
         workspaceId: 'ws-1',
         subscriptionId: 'sub-1',
-        eventKey: 'hook-run-1',
-        dedupKey: 'hook-run-1|bot|target-1',
+        eventKey: `hook-run-${index + 1}`,
+        dedupKey: `hook-run-${index + 1}|bot|target-1`,
         topic: 'hook.blocked',
         sourceType: 'hook',
         sourceRefType: 'hook_run',
-        sourceRefId: 'hook-run-1',
+        sourceRefId: `hook-run-${index + 1}`,
         channel: 'bot',
         targetRefType: 'bot_delivery_target',
         targetRefId: 'target-1',
-        title: 'Blocked command',
+        title: index === 10 ? 'Final dispatch' : 'Blocked command',
         message: 'A hook blocked the command.',
         level: 'warning',
-        status: 'failed',
-        error: 'provider unavailable',
+        status: index === 0 ? 'failed' : 'delivered',
+        error: index === 0 ? 'provider unavailable' : '',
         attemptCount: 1,
         notificationId: '',
         botOutboundDeliveryId: '',
-        createdAt: '2026-04-16T08:00:00.000Z',
-        updatedAt: '2026-04-16T08:00:00.000Z',
-        deliveredAt: null,
-      },
-    ])
+        createdAt: `2026-04-16T08:${String(10 - index).padStart(2, '0')}:00.000Z`,
+        updatedAt: `2026-04-16T08:${String(10 - index).padStart(2, '0')}:00.000Z`,
+        deliveredAt: index === 0 ? null : `2026-04-16T08:${String(index + 1).padStart(2, '0')}:30.000Z`,
+      })),
+    )
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -260,10 +260,19 @@ describe('NotificationCenterPage', () => {
     expect(screen.getByText('Delivery targets')).toBeTruthy()
     expect(screen.getByText('provider unavailable')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.getByText('1–10 of 11')).toBeTruthy()
+    expect(screen.queryByText('Final dispatch')).toBeNull()
     expect(botsApiState.listAvailableBots).toHaveBeenCalledTimes(1)
     await waitFor(() => {
       expect(botsApiState.listAvailableBotDeliveryTargets).toHaveBeenCalledWith('ws-1')
     })
+
+    screen.getByRole('button', { name: 'Next' }).click()
+
+    await waitFor(() => {
+      expect(screen.getByText('11–11 of 11')).toBeTruthy()
+    })
+    expect(screen.getByText('Final dispatch')).toBeTruthy()
 
     // Open the subscription dialog to verify template variables
     const createSubscriptionButton = screen.getByRole('button', { name: 'Create subscription' })

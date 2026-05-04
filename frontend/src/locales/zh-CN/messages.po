@@ -21756,3 +21756,87 @@ msgstr "SessionStart 模板占位符"
 #: src/pages/settings/GovernanceSettingsPage.tsx:1802
 msgid "SessionStart template override placeholder"
 msgstr "SessionStart 模板覆盖占位符"
+
+#. js-lingui-explicit-id
+msgid "Active Endpoints"
+msgstr "活动端点"
+
+#. js-lingui-explicit-id
+msgid "All bots"
+msgstr "所有机器人"
+
+#. js-lingui-explicit-id
+msgid "Bot ID"
+msgstr "机器人 ID"
+
+#. js-lingui-explicit-id
+msgid "Connection Overview"
+msgstr "端点概览"
+
+#. js-lingui-explicit-id
+msgid "Current Bot"
+msgstr "当前机器人"
+
+#. js-lingui-explicit-id
+msgid "Detail"
+msgstr "详情"
+
+#. js-lingui-explicit-id
+msgid "Endpoint Directory"
+msgstr "端点目录"
+
+#. js-lingui-explicit-id
+msgid "Inspect endpoint records from a dedicated list view, then jump into detail, overview, logs, or edit actions without folding them into the bot directory."
+msgstr "在独立列表视图中查看端点记录，然后直接进入详情、概览、日志或编辑操作，而无需把它们并入机器人目录。"
+
+#. js-lingui-explicit-id
+msgid "Inspect the endpoints attached to {botName}, then jump into detail, overview, logs, or edit actions without folding them into the bot directory."
+msgstr "查看附加到 {botName} 的端点，然后直接进入详情、概览、日志或编辑操作，而无需把它们并入机器人目录。"
+
+#. js-lingui-explicit-id
+msgid "Manage saved WeChat accounts in Settings."
+msgstr "在设置中管理已保存的微信账号。"
+
+#. js-lingui-explicit-id
+msgid "No endpoints for {botName} match the current search."
+msgstr "没有属于 {botName} 的端点与当前搜索相匹配。"
+
+#. js-lingui-explicit-id
+msgid "No endpoints match the current search."
+msgstr "没有端点与当前搜索相匹配。"
+
+#. js-lingui-explicit-id
+msgid "No endpoints with active status match the current search and filters."
+msgstr "没有活动状态的端点与当前搜索和筛选条件相匹配。"
+
+#. js-lingui-explicit-id
+msgid "No endpoints yet. Create a bot first, then attach one or more endpoints to it."
+msgstr "还没有端点。请先创建机器人，然后为其附加一个或多个端点。"
+
+#. js-lingui-explicit-id
+msgid "Restrict the list to active endpoints that can still be used for inspection, logs, and outbound operations."
+msgstr "仅显示仍可用于查看、日志和出站操作的活动端点。"
+
+#. js-lingui-explicit-id
+msgid "Search Endpoints"
+msgstr "搜索端点"
+
+#. js-lingui-explicit-id
+msgid "Search endpoints by endpoint name, bot name, provider, backend, status, or linked WeChat account metadata."
+msgstr "按端点名称、机器人名称、提供方、后端、状态或关联的微信账号元数据搜索端点。"
+
+#. js-lingui-explicit-id
+msgid "Search endpoints for {botName} by endpoint name, provider, backend, status, or linked WeChat account metadata."
+msgstr "为 {botName} 搜索端点，可按端点名称、提供方、后端、状态或关联的微信账号元数据筛选。"
+
+#. js-lingui-explicit-id
+msgid "Selected"
+msgstr "已选"
+
+#. js-lingui-explicit-id
+msgid "Telegram endpoint, workspace_thread, alerts, retry"
+msgstr "Telegram 端点、workspace_thread、alerts、retry"
+
+#. js-lingui-explicit-id
+msgid "Unknown bot"
+msgstr "未知机器人"
