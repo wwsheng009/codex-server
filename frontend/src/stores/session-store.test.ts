@@ -6,6 +6,7 @@ import type {
   ApplySessionEventsState,
   CommandRuntimeSession,
 } from './session-store-types'
+import { buildThreadStoreKey } from './session-store-utils'
 
 type SessionStoreModule = typeof import('./session-store')
 
@@ -262,6 +263,72 @@ describe('applySessionEvents seq replay dedupe', () => {
       }),
     ])
   })
+
+  it('skips non-replay live events with a known sequence gap', () => {
+    const nextState = sessionStoreModule.applySessionEvents(
+      {
+        ...createState(),
+        lastEventSeqByWorkspace: {
+          'ws-1': 5,
+        },
+      },
+      [
+        {
+          ...makeEvent(
+            'command/exec/completed',
+            {
+              processId: 'proc_001',
+              status: 'completed',
+            },
+            '2026-03-27T01:00:07.000Z',
+          ),
+          seq: 7,
+        },
+      ],
+    )
+
+    expect(nextState.lastEventSeqByWorkspace['ws-1']).toBe(5)
+    expect(nextState.commandSessionsByWorkspace['ws-1'].proc_001.status).toBe('running')
+    expect(nextState.workspaceEventsByWorkspace['ws-1']).toBeUndefined()
+  })
+
+  it('accepts coalesced live events whose coverage spans a known sequence gap', () => {
+    const nextState = sessionStoreModule.applySessionEvents(
+      {
+        ...createState(),
+        lastEventSeqByWorkspace: {
+          'ws-1': 5,
+        },
+      },
+      [
+        {
+          ...makeEvent(
+            'command/exec/completed',
+            {
+              processId: 'proc_001',
+              status: 'completed',
+            },
+            '2026-03-27T01:00:07.000Z',
+          ),
+          coalesced: true,
+          coversSeqFrom: 6,
+          coversSeqTo: 7,
+          seq: 7,
+        },
+      ],
+    )
+
+    expect(nextState.lastEventSeqByWorkspace['ws-1']).toBe(7)
+    expect(nextState.commandSessionsByWorkspace['ws-1'].proc_001.status).toBe('completed')
+    expect(nextState.workspaceEventsByWorkspace['ws-1']).toEqual([
+      expect.objectContaining({
+        coversSeqFrom: 6,
+        coversSeqTo: 7,
+        method: 'command/exec/completed',
+        seq: 7,
+      }),
+    ])
+  })
 })
 
 describe('applySessionEvents thread activity status', () => {
@@ -297,13 +364,67 @@ describe('applySessionEvents thread activity status', () => {
       ],
     )
 
-    expect(nextState.threadActivityByThread['thread-1']).toEqual({
+    expect(nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-1')]).toEqual({
       latestEventMethod: 'turn/completed',
       latestEventTs: '2026-03-27T01:00:07.000Z',
       latestStatus: 'completed',
       threadId: 'thread-1',
       workspaceId: 'ws-1',
     })
+  })
+
+  it('marks failed, interrupted, and cancelled turn events as terminal activity statuses', () => {
+    const nextState = sessionStoreModule.applySessionEvents(createState(), [
+      {
+        ...makeEvent(
+          'turn/failed',
+          {
+            turn: {
+              id: 'turn-1',
+            },
+          },
+          '2026-03-27T01:00:08.000Z',
+        ),
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      },
+      {
+        ...makeEvent(
+          'turn/interrupted',
+          {
+            turn: {
+              id: 'turn-2',
+            },
+          },
+          '2026-03-27T01:00:09.000Z',
+        ),
+        threadId: 'thread-2',
+        turnId: 'turn-2',
+      },
+      {
+        ...makeEvent(
+          'turn/canceled',
+          {
+            turn: {
+              id: 'turn-3',
+            },
+          },
+          '2026-03-27T01:00:10.000Z',
+        ),
+        threadId: 'thread-3',
+        turnId: 'turn-3',
+      },
+    ])
+
+    expect(
+      nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-1')]?.latestStatus,
+    ).toBe('failed')
+    expect(
+      nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-2')]?.latestStatus,
+    ).toBe('interrupted')
+    expect(
+      nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-3')]?.latestStatus,
+    ).toBe('cancelled')
   })
 })
 
@@ -353,7 +474,7 @@ describe('live thread detail projection', () => {
       ],
     )
 
-    expect(nextState.threadProjectionsById['thread-1']).toMatchObject({
+    expect(nextState.threadProjectionsById[buildThreadStoreKey('ws-1', 'thread-1')]).toMatchObject({
       clientLiveEventSeq: 11,
       clientProjectionAppliedSeq: 11,
       clientProjectionCompleteness: 'live-only',
@@ -414,7 +535,7 @@ describe('live thread detail projection', () => {
       },
     ])
 
-    expect(nextState.threadProjectionsById['thread-2']).toMatchObject({
+    expect(nextState.threadProjectionsById[buildThreadStoreKey('ws-1', 'thread-2')]).toMatchObject({
       clientLiveEventSeq: 21,
       clientProjectionAppliedSeq: 21,
       clientProjectionCompleteness: 'live-only',
@@ -434,6 +555,91 @@ describe('live thread detail projection', () => {
         },
       ],
       workspaceId: 'ws-1',
+    })
+  })
+
+  it('isolates live thread state for matching thread ids across workspaces', () => {
+    const nextState = sessionStoreModule.applySessionEvents(createState(), [
+      {
+        ...makeEvent(
+          'item/started',
+          {
+            item: {
+              id: 'msg-ws-1',
+              type: 'agentMessage',
+              text: '',
+            },
+            threadId: 'thread-shared',
+            turnId: 'turn-ws-1',
+          },
+          '2026-03-27T01:00:11.000Z',
+        ),
+        seq: 31,
+        threadId: 'thread-shared',
+        turnId: 'turn-ws-1',
+        workspaceId: 'ws-1',
+      },
+      {
+        ...makeEvent(
+          'item/started',
+          {
+            item: {
+              id: 'msg-ws-2',
+              type: 'agentMessage',
+              text: '',
+            },
+            threadId: 'thread-shared',
+            turnId: 'turn-ws-2',
+          },
+          '2026-03-27T01:00:12.000Z',
+        ),
+        seq: 1,
+        threadId: 'thread-shared',
+        turnId: 'turn-ws-2',
+        workspaceId: 'ws-2',
+      },
+    ])
+
+    const ws1Key = buildThreadStoreKey('ws-1', 'thread-shared')
+    const ws2Key = buildThreadStoreKey('ws-2', 'thread-shared')
+
+    expect(nextState.eventsByThread[ws1Key]).toEqual([
+      expect.objectContaining({
+        turnId: 'turn-ws-1',
+        workspaceId: 'ws-1',
+      }),
+    ])
+    expect(nextState.eventsByThread[ws2Key]).toEqual([
+      expect.objectContaining({
+        turnId: 'turn-ws-2',
+        workspaceId: 'ws-2',
+      }),
+    ])
+    expect(nextState.threadActivityByThread[ws1Key]).toMatchObject({
+      latestEventMethod: 'item/started',
+      threadId: 'thread-shared',
+      workspaceId: 'ws-1',
+    })
+    expect(nextState.threadActivityByThread[ws2Key]).toMatchObject({
+      latestEventMethod: 'item/started',
+      threadId: 'thread-shared',
+      workspaceId: 'ws-2',
+    })
+    expect(nextState.threadProjectionsById[ws1Key]).toMatchObject({
+      turns: [
+        {
+          id: 'turn-ws-1',
+        },
+      ],
+      workspaceId: 'ws-1',
+    })
+    expect(nextState.threadProjectionsById[ws2Key]).toMatchObject({
+      turns: [
+        {
+          id: 'turn-ws-2',
+        },
+      ],
+      workspaceId: 'ws-2',
     })
   })
 
@@ -472,7 +678,7 @@ describe('live thread detail projection', () => {
       ...state,
       threadProjectionsById: {
         ...state.threadProjectionsById,
-        'thread-1': currentDetail,
+        [buildThreadStoreKey('ws-1', 'thread-1')]: currentDetail,
       },
     }))
 
@@ -502,7 +708,9 @@ describe('live thread detail projection', () => {
       )
 
     expect(
-      sessionStoreModule.useSessionStore.getState().threadProjectionsById['thread-1'],
+      sessionStoreModule.useSessionStore.getState().threadProjectionsById[
+        buildThreadStoreKey('ws-1', 'thread-1')
+      ],
     ).toMatchObject({
       clientLiveEventSeq: 12,
       clientProjectionAppliedSeq: 12,

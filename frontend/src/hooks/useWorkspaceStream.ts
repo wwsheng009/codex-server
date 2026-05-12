@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
 import { buildApiWebSocketUrl } from '../lib/api-client'
 import {
@@ -16,6 +16,8 @@ import {
   type WorkspaceStreamBroadcastMessage,
 } from '../lib/workspace-stream-broadcast'
 import { recordConversationLiveDiagnosticEvent } from '../components/workspace/threadConversationProfiler'
+import { i18n } from '../i18n/runtime'
+import { dispatchWorkspaceStreamRecoveryRequired } from '../lib/workspace-stream-recovery'
 import { useSessionStore } from '../stores/session-store'
 import type { ServerEvent } from '../types/api'
 import type { ConversationLiveDiagnosticMetadata } from '../components/workspace/threadConversationProfilerTypes'
@@ -24,6 +26,7 @@ import type {
   WorkspaceStreamLifecycleEvent,
   WorkspaceStreamLocalDiagnostics,
   WorkspaceStreamManagerDiagnostics,
+  WorkspaceStreamRecoveryNotice,
   WorkspaceStream,
 } from './useWorkspaceStreamTypes'
 
@@ -37,15 +40,36 @@ const commandResumeTailLength = 512
 const workspaceIdListSeparator = '\u001f'
 const workspaceLeaderElectionDelayMs = 80
 const workspaceStreamLifecycleLimit = 24
+const workspaceFollowerRecoveryRequestCooldownMs = 1_000
+const workspaceStreamRecoveryProblemNoticeTtlMs = 2 * 60_000
+const workspaceStreamRecoverySnapshotNoticeTtlMs = 2 * 60_000
+const workspaceStreamRecoveryRecoveredNoticeTtlMs = 30_000
 let workspaceStreamDiagnosticsEmitScheduled = false
 let workspaceStreamDiagnosticsDirty = true
 let workspaceStreamDiagnosticsSnapshotCache: WorkspaceStreamManagerDiagnostics | null = null
 
+const workspaceStreamRecoveryProblemKinds = new Set([
+  'events-dropped',
+  'follower-recovery-accepted',
+  'follower-recovery-request-failed',
+  'follower-recovery-requested',
+  'reconnect-scheduled',
+  'replay-continuation-requested',
+  'replay-incomplete',
+  'replay-incomplete-stalled',
+  'seq-gap-detected',
+  'socket-closed',
+  'socket-error',
+])
+
+const workspaceStreamRecoveryStableKinds = new Set([
+  'replay-completed',
+  'socket-opened',
+])
+
 type WorkspaceStreamEventHandlers = {
-  flushDeferredEvents: (stream: WorkspaceStream) => void
   flushQueuedEvents: (stream: WorkspaceStream) => void
   ingestImmediateEvent: (event: ServerEvent) => void
-  scheduleDeferredFlush: (stream: WorkspaceStream) => void
   scheduleQueuedFlush: (stream: WorkspaceStream) => void
 }
 
@@ -78,6 +102,157 @@ export function getWorkspaceStreamManagerDiagnosticsSnapshot(): WorkspaceStreamM
   }
   workspaceStreamDiagnosticsDirty = false
   return workspaceStreamDiagnosticsSnapshotCache
+}
+
+export function buildWorkspaceStreamRecoveryNoticeFromDiagnostics(
+  diagnostics: WorkspaceStreamManagerDiagnostics,
+  workspaceId?: string,
+  nowMs: number = Date.now(),
+): WorkspaceStreamRecoveryNotice | null {
+  const normalizedWorkspaceId = workspaceId?.trim()
+  if (!normalizedWorkspaceId) {
+    return null
+  }
+
+  const stream = diagnostics.streams.find(
+    (candidate) => candidate.workspaceId === normalizedWorkspaceId,
+  )
+  if (!stream || stream.subscribers <= 0) {
+    return null
+  }
+
+  const recentEvents = stream.recentLifecycleEvents ?? []
+  const latestEvent = stream.latestLifecycleEvent ?? recentEvents.at(-1) ?? null
+  const latestProblemEvent = findLatestWorkspaceStreamLifecycleEvent(
+    recentEvents,
+    (event) => workspaceStreamRecoveryProblemKinds.has(event.kind),
+  )
+  const latestSnapshotEvent = findLatestWorkspaceStreamLifecycleEvent(
+    recentEvents,
+    (event) => event.kind === 'snapshot-fallback-requested',
+  )
+  const latestStableEvent = findLatestWorkspaceStreamLifecycleEvent(
+    recentEvents,
+    (event) => workspaceStreamRecoveryStableKinds.has(event.kind),
+  )
+
+  if (isWorkspaceStreamActivelyReconnecting(stream)) {
+    return buildWorkspaceStreamRecoveryNotice({
+      event: latestProblemEvent ?? latestEvent,
+      expiresAt: null,
+      message: i18n._({
+        id: 'workspace-stream.reconnecting.message',
+        message:
+          'Live updates paused briefly. The page is reconnecting and will replay missed workspace and thread events automatically.',
+      }),
+      reason: 'connection-reconnecting',
+      stream,
+      title: i18n._({
+        id: 'workspace-stream.reconnecting.title',
+        message: 'Realtime sync is reconnecting',
+      }),
+      tone: 'error',
+    })
+  }
+
+  const latestProblemTs = latestProblemEvent
+    ? parseWorkspaceStreamLifecycleEventTs(latestProblemEvent)
+    : null
+  const latestSnapshotTs = latestSnapshotEvent
+    ? parseWorkspaceStreamLifecycleEventTs(latestSnapshotEvent)
+    : null
+
+  if (
+    latestSnapshotEvent &&
+    latestSnapshotTs !== null &&
+    isWorkspaceStreamEventWithinTtl(
+      latestSnapshotEvent,
+      nowMs,
+      workspaceStreamRecoverySnapshotNoticeTtlMs,
+    )
+  ) {
+    return buildWorkspaceStreamRecoveryNotice({
+      event: latestSnapshotEvent,
+      expiresAt:
+        parseWorkspaceStreamLifecycleEventTs(latestSnapshotEvent) +
+        workspaceStreamRecoverySnapshotNoticeTtlMs,
+      message: i18n._({
+        id: 'workspace-stream.snapshotFallback.message',
+        message:
+          'Some live events could not be replayed, so workspace and thread snapshots were refreshed to catch up.',
+      }),
+      reason: 'snapshot-fallback',
+      stream,
+      title: i18n._({
+        id: 'workspace-stream.snapshotFallback.title',
+        message: 'Realtime sync refreshed from snapshots',
+      }),
+      tone: 'info',
+    })
+  }
+
+  if (latestProblemEvent && latestProblemTs !== null) {
+    const stableAfterProblem =
+      latestStableEvent &&
+      parseWorkspaceStreamLifecycleEventTs(latestStableEvent) >= latestProblemTs
+
+    if (
+      stableAfterProblem &&
+      isWorkspaceStreamEventWithinTtl(
+        latestStableEvent,
+        nowMs,
+        workspaceStreamRecoveryRecoveredNoticeTtlMs,
+      )
+    ) {
+      return buildWorkspaceStreamRecoveryNotice({
+        event: latestStableEvent,
+        expiresAt:
+          parseWorkspaceStreamLifecycleEventTs(latestStableEvent) +
+          workspaceStreamRecoveryRecoveredNoticeTtlMs,
+        message: i18n._({
+          id: 'workspace-stream.recovered.message',
+          message:
+            'Missed live events have been replayed or refreshed from snapshots. New user input and backend events should render normally.',
+        }),
+        reason: 'recovered',
+        stream,
+        title: i18n._({
+          id: 'workspace-stream.recovered.title',
+          message: 'Realtime sync recovered',
+        }),
+        tone: 'info',
+      })
+    }
+
+    if (
+      !stableAfterProblem &&
+      isWorkspaceStreamEventWithinTtl(
+        latestProblemEvent,
+        nowMs,
+        workspaceStreamRecoveryProblemNoticeTtlMs,
+      )
+    ) {
+      return buildWorkspaceStreamRecoveryNotice({
+        event: latestProblemEvent,
+        expiresAt:
+          latestProblemTs + workspaceStreamRecoveryProblemNoticeTtlMs,
+        message: i18n._({
+          id: 'workspace-stream.recovering.message',
+          message:
+            'Some live events arrived out of order or were dropped. The page is replaying missed workspace and thread events before applying newer updates.',
+        }),
+        reason: 'event-recovery',
+        stream,
+        title: i18n._({
+          id: 'workspace-stream.recovering.title',
+          message: 'Realtime sync is recovering',
+        }),
+        tone: 'error',
+      })
+    }
+  }
+
+  return null
 }
 
 function scheduleWorkspaceStreamDiagnosticsChanged() {
@@ -115,8 +290,6 @@ function buildWorkspaceStreamLocalDiagnostics(
     closeScheduled: stream.closeTimer !== undefined,
     coordinationActive: stream.activityTimer !== undefined,
     coordinationMode,
-    deferredEventCount: stream.deferredEvents.length,
-    deferredFlushScheduled: stream.deferredEventFlushHandle !== undefined,
     expectedBackendRole:
       coordinationMode === 'direct'
         ? 'workspace-stream-direct'
@@ -201,6 +374,114 @@ function countActiveWorkspaceStreamPeers(peerSeenAt: Record<string, number>) {
   return count
 }
 
+function findLatestWorkspaceStreamLifecycleEvent(
+  events: WorkspaceStreamLifecycleEvent[],
+  predicate: (event: WorkspaceStreamLifecycleEvent) => boolean,
+) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event && predicate(event)) {
+      return event
+    }
+  }
+
+  return null
+}
+
+function parseWorkspaceStreamLifecycleEventTs(event: WorkspaceStreamLifecycleEvent) {
+  const timestamp = Date.parse(event.ts)
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function isWorkspaceStreamEventWithinTtl(
+  event: WorkspaceStreamLifecycleEvent,
+  nowMs: number,
+  ttlMs: number,
+) {
+  const eventTs = parseWorkspaceStreamLifecycleEventTs(event)
+  if (eventTs <= 0) {
+    return false
+  }
+
+  return Math.max(0, nowMs - eventTs) <= ttlMs
+}
+
+function isWorkspaceStreamActivelyReconnecting(
+  stream: WorkspaceStreamLocalDiagnostics,
+) {
+  return (
+    stream.reconnectScheduled ||
+    stream.lastKnownConnectionState === 'closed' ||
+    stream.lastKnownConnectionState === 'error'
+  )
+}
+
+function buildWorkspaceStreamRecoveryNotice({
+  event,
+  expiresAt,
+  message,
+  reason,
+  stream,
+  title,
+  tone,
+}: {
+  event?: WorkspaceStreamLifecycleEvent | null
+  expiresAt?: number | null
+  message: string
+  reason: WorkspaceStreamRecoveryNotice['reason']
+  stream: WorkspaceStreamLocalDiagnostics
+  title: string
+  tone: WorkspaceStreamRecoveryNotice['tone']
+}): WorkspaceStreamRecoveryNotice {
+  const eventKey = event ? `${event.kind}-${event.ts}` : 'no-event'
+  return {
+    details: buildWorkspaceStreamRecoveryNoticeDetails(stream, reason, event),
+    expiresAt,
+    latestEventKind: event?.kind,
+    latestEventTs: event?.ts,
+    message,
+    noticeKey: `workspace-stream-${stream.workspaceId}-${reason}-${eventKey}-${stream.lastKnownConnectionState}-${stream.reconnectAttempt}`,
+    reason,
+    title,
+    tone,
+  }
+}
+
+function buildWorkspaceStreamRecoveryNoticeDetails(
+  stream: WorkspaceStreamLocalDiagnostics,
+  reason: WorkspaceStreamRecoveryNotice['reason'],
+  event?: WorkspaceStreamLifecycleEvent | null,
+) {
+  const lines = [
+    `Workspace ID: ${stream.workspaceId}`,
+    `Notice reason: ${reason}`,
+    `Connection state: ${stream.lastKnownConnectionState}`,
+    `Socket state: ${stream.socketState}`,
+    `Reconnect scheduled: ${stream.reconnectScheduled ? 'yes' : 'no'}`,
+    `Reconnect attempt: ${stream.reconnectAttempt}`,
+    `Coordination: ${stream.coordinationMode}${stream.isLeader ? ' leader' : ' follower'}`,
+    `Queue length: ${stream.queueLength}`,
+  ]
+
+  if (event) {
+    lines.push(
+      `Latest lifecycle event: ${event.kind}`,
+      `Latest lifecycle timestamp: ${event.ts}`,
+      `Latest lifecycle summary: ${event.summary}`,
+    )
+
+    if (event.metadata) {
+      try {
+        lines.push(`Latest lifecycle metadata: ${JSON.stringify(event.metadata, null, 2)}`)
+      } catch {
+        lines.push('Latest lifecycle metadata: [unserializable]')
+      }
+    }
+  }
+
+  return lines.join('\n')
+}
+
 export function useWorkspaceStream(workspaceId?: string) {
   const setConnectionState = useSessionStore((state) => state.setConnectionState)
 
@@ -215,6 +496,39 @@ export function useWorkspaceStream(workspaceId?: string) {
   return useSessionStore((state) =>
     workspaceId ? state.connectionByWorkspace[workspaceId] ?? 'idle' : 'idle',
   )
+}
+
+export function useWorkspaceStreamRecoveryNotice(workspaceId?: string) {
+  const diagnostics = useSyncExternalStore(
+    subscribeWorkspaceStreamManagerDiagnostics,
+    getWorkspaceStreamManagerDiagnosticsSnapshot,
+    getWorkspaceStreamManagerDiagnosticsSnapshot,
+  )
+  const [expiryTick, setExpiryTick] = useState(0)
+  const notice = useMemo(
+    () =>
+      buildWorkspaceStreamRecoveryNoticeFromDiagnostics(
+        diagnostics,
+        workspaceId,
+        Date.now(),
+      ),
+    [diagnostics, expiryTick, workspaceId],
+  )
+
+  useEffect(() => {
+    if (!notice?.expiresAt) {
+      return
+    }
+
+    const timeoutMs = Math.max(0, notice.expiresAt - Date.now() + 50)
+    const timeoutId = window.setTimeout(() => {
+      setExpiryTick((current) => current + 1)
+    }, timeoutMs)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [notice?.expiresAt, notice?.noticeKey])
+
+  return notice
 }
 
 export function useWorkspaceStreams(workspaceIds?: string[]) {
@@ -472,7 +786,6 @@ function getWorkspaceStream(workspaceId: string) {
   if (!stream) {
     stream = {
       channel: createWorkspaceStreamBroadcastChannel(workspaceId),
-      deferredEvents: [],
       eventQueue: [],
       instanceId: getWorkspaceStreamInstanceId(),
       lastKnownConnectionState: 'idle',
@@ -514,9 +827,10 @@ function openWorkspaceSocket(
     stream.reconnectTimer = undefined
   }
 
-  const socket = new WebSocket(
-    buildApiWebSocketUrl(buildWorkspaceStreamPath(workspaceId, stream)),
-  )
+  const replayAfterSeqOverride = stream.replayAfterSeqOverride
+  stream.replayAfterSeqOverride = undefined
+  const socketPath = buildWorkspaceStreamPath(workspaceId, stream, replayAfterSeqOverride)
+  const socket = new WebSocket(buildApiWebSocketUrl(socketPath))
   stream.socket = socket
   recordWorkspaceStreamLifecycleEvent(
     workspaceId,
@@ -528,7 +842,7 @@ function openWorkspaceSocket(
   scheduleWorkspaceStreamDiagnosticsChanged()
   frontendDebugLog('workspace-stream', 'opening websocket', {
     workspaceId,
-    path: buildWorkspaceStreamPath(workspaceId, stream),
+    path: socketPath,
   })
 
   setWorkspaceConnectionState(workspaceId, stream, setConnectionState, 'connecting')
@@ -574,8 +888,9 @@ function openWorkspaceSocket(
       threadId: event.threadId ?? null,
       turnId: diagnosticTarget.turnId,
     })
-    handleWorkspaceStreamEvent(stream, event)
-    broadcastWorkspaceStreamEvent(workspaceId, stream, event)
+    if (handleWorkspaceStreamEvent(stream, event)) {
+      broadcastWorkspaceStreamEvent(workspaceId, stream, event)
+    }
   }
 
   socket.onerror = () => {
@@ -601,15 +916,11 @@ function openWorkspaceSocket(
     }
     scheduleWorkspaceStreamDiagnosticsChanged()
 
-    if (stream.deferredEventFlushHandle) {
-      cancelDeferredWorkspaceEventFlush(stream)
-    }
     if (stream.flushTimer) {
       window.clearTimeout(stream.flushTimer)
       stream.flushTimer = undefined
     }
     flushWorkspaceStreamEvents(stream)
-    flushDeferredWorkspaceEvents(stream)
 
     if (stream.subscribers === 0) {
       setWorkspaceConnectionState(workspaceId, stream, setConnectionState, 'idle')
@@ -642,9 +953,16 @@ function openWorkspaceSocket(
   }
 }
 
-function buildWorkspaceStreamPath(workspaceId: string, stream?: WorkspaceStream) {
+function buildWorkspaceStreamPath(
+  workspaceId: string,
+  stream?: WorkspaceStream,
+  afterSeqOverride?: number,
+) {
   const params = new URLSearchParams()
-  const afterSeq = useSessionStore.getState().lastEventSeqByWorkspace[workspaceId]
+  const afterSeq =
+    typeof afterSeqOverride === 'number' && Number.isFinite(afterSeqOverride)
+      ? Math.max(0, Math.floor(afterSeqOverride))
+      : useSessionStore.getState().lastEventSeqByWorkspace[workspaceId]
   if (typeof afterSeq === 'number' && Number.isFinite(afterSeq) && afterSeq > 0) {
     params.set('afterSeq', String(afterSeq))
   }
@@ -715,7 +1033,11 @@ function scheduleReconnect(
     return
   }
 
-  const delay = reconnectDelaysMs[Math.min(stream.reconnectAttempt, reconnectDelaysMs.length - 1)]
+  const delay =
+    stream.reconnectDelayOverrideMs !== undefined
+      ? stream.reconnectDelayOverrideMs
+      : reconnectDelaysMs[Math.min(stream.reconnectAttempt, reconnectDelaysMs.length - 1)]
+  stream.reconnectDelayOverrideMs = undefined
   stream.reconnectAttempt += 1
   recordWorkspaceStreamLifecycleEvent(
     workspaceId,
@@ -757,12 +1079,8 @@ function disposeWorkspaceStream(
     window.clearTimeout(stream.flushTimer)
     stream.flushTimer = undefined
   }
-  if (stream.deferredEventFlushHandle) {
-    cancelDeferredWorkspaceEventFlush(stream)
-  }
 
   flushWorkspaceStreamEvents(stream)
-  flushDeferredWorkspaceEvents(stream)
   if (stream.isLeader) {
     broadcastWorkspaceStreamRelease(workspaceId, stream)
   }
@@ -963,72 +1281,149 @@ function bindWorkspaceStreamBroadcastChannel(workspaceId: string, stream: Worksp
   }
 
   stream.channel.onmessage = (message: MessageEvent<WorkspaceStreamBroadcastMessage>) => {
-    const payload = message.data
-    if (!payload || payload.workspaceId !== workspaceId || payload.instanceId === stream.instanceId) {
-      return
-    }
-
-    switch (payload.type) {
-      case 'presence':
-        stream.peerSeenAt[payload.instanceId] = payload.ts
-        scheduleWorkspaceStreamDiagnosticsChanged()
-        if (stream.isLeader) {
-          broadcastWorkspaceStreamHeartbeat(workspaceId, stream)
-        }
-        break
-      case 'heartbeat':
-        stream.peerSeenAt[payload.instanceId] = payload.ts
-        scheduleWorkspaceStreamDiagnosticsChanged()
-        if (stream.isLeader && shouldYieldWorkspaceStreamLeadership(stream.instanceId, payload.instanceId)) {
-          becomeWorkspaceStreamFollower(
-            workspaceId,
-            stream,
-            useSessionStore.getState().setConnectionState,
-            payload.instanceId,
-            payload.connectionState,
-          )
-          return
-        }
-        if (!stream.isLeader || payload.instanceId !== stream.instanceId) {
-          becomeWorkspaceStreamFollower(
-            workspaceId,
-            stream,
-            useSessionStore.getState().setConnectionState,
-            payload.instanceId,
-            payload.connectionState,
-          )
-        }
-        break
-      case 'release':
-        if (stream.leaderId === payload.instanceId) {
-          stream.leaderId = undefined
-          stream.lastLeaderHeartbeatAt = undefined
-          recordWorkspaceStreamLifecycleEvent(
-            workspaceId,
-            stream,
-            'leader-released',
-            `leader ${payload.instanceId} released coordination`,
-          )
-          scheduleWorkspaceStreamDiagnosticsChanged()
-          ensureWorkspaceStreamLeadership(
-            workspaceId,
-            stream,
-            useSessionStore.getState().setConnectionState,
-          )
-        }
-        break
-      case 'event':
-        if (!isServerEvent(payload.event)) {
-          return
-        }
-        frontendDebugLog('workspace-stream', 'event received via broadcast channel', {
-          workspaceId,
-          method: payload.event.method,
-        })
-        handleWorkspaceStreamEvent(stream, payload.event)
-        break
-    }
+    handleWorkspaceStreamBroadcastMessage(workspaceId, stream, message.data)
   }
+}
+
+export function handleWorkspaceStreamBroadcastMessage(
+  workspaceId: string,
+  stream: WorkspaceStream,
+  payload: WorkspaceStreamBroadcastMessage,
+  setConnectionState: ConnectionStateSetter = useSessionStore.getState().setConnectionState,
+) {
+  if (!payload || payload.workspaceId !== workspaceId || payload.instanceId === stream.instanceId) {
+    return
+  }
+
+  switch (payload.type) {
+    case 'presence':
+      stream.peerSeenAt[payload.instanceId] = payload.ts
+      scheduleWorkspaceStreamDiagnosticsChanged()
+      if (stream.isLeader) {
+        broadcastWorkspaceStreamHeartbeat(workspaceId, stream)
+      }
+      break
+    case 'heartbeat':
+      stream.peerSeenAt[payload.instanceId] = payload.ts
+      scheduleWorkspaceStreamDiagnosticsChanged()
+      if (stream.isLeader && shouldYieldWorkspaceStreamLeadership(stream.instanceId, payload.instanceId)) {
+        becomeWorkspaceStreamFollower(
+          workspaceId,
+          stream,
+          setConnectionState,
+          payload.instanceId,
+          payload.connectionState,
+        )
+        return
+      }
+      if (!stream.isLeader || payload.instanceId !== stream.instanceId) {
+        becomeWorkspaceStreamFollower(
+          workspaceId,
+          stream,
+          setConnectionState,
+          payload.instanceId,
+          payload.connectionState,
+        )
+      }
+      break
+    case 'release':
+      if (stream.leaderId === payload.instanceId) {
+        stream.leaderId = undefined
+        stream.lastLeaderHeartbeatAt = undefined
+        recordWorkspaceStreamLifecycleEvent(
+          workspaceId,
+          stream,
+          'leader-released',
+          `leader ${payload.instanceId} released coordination`,
+        )
+        scheduleWorkspaceStreamDiagnosticsChanged()
+        ensureWorkspaceStreamLeadership(workspaceId, stream, setConnectionState)
+      }
+      break
+    case 'event':
+      if (!isServerEvent(payload.event)) {
+        return
+      }
+      frontendDebugLog('workspace-stream', 'event received via broadcast channel', {
+        workspaceId,
+        method: payload.event.method,
+      })
+      handleWorkspaceStreamEvent(stream, payload.event)
+      break
+    case 'recovery-request':
+      stream.peerSeenAt[payload.instanceId] = payload.ts
+      scheduleWorkspaceStreamDiagnosticsChanged()
+      handleWorkspaceStreamFollowerRecoveryRequest(
+        workspaceId,
+        stream,
+        payload,
+        setConnectionState,
+      )
+      break
+  }
+}
+
+function handleWorkspaceStreamFollowerRecoveryRequest(
+  workspaceId: string,
+  stream: WorkspaceStream,
+  payload: Extract<WorkspaceStreamBroadcastMessage, { type: 'recovery-request' }>,
+  setConnectionState: ConnectionStateSetter,
+) {
+  if (!stream.isLeader) {
+    return
+  }
+
+  const requestedAfterSeq = finiteNonNegativeNumber(payload.afterSeq)
+  if (requestedAfterSeq === null) {
+    return
+  }
+
+  const currentOverride = finiteNonNegativeNumber(stream.replayAfterSeqOverride)
+  const replayAfterSeq =
+    currentOverride === null
+      ? requestedAfterSeq
+      : Math.min(currentOverride, requestedAfterSeq)
+  stream.replayAfterSeqOverride = replayAfterSeq
+  stream.reconnectDelayOverrideMs = 0
+
+  frontendDebugLog('workspace-stream', 'follower requested workspace replay recovery', {
+    afterSeq: requestedAfterSeq,
+    expectedSeq: payload.expectedSeq,
+    followerInstanceId: payload.instanceId,
+    method: payload.method,
+    receivedSeq: payload.receivedSeq,
+    replayAfterSeq,
+    workspaceId,
+  })
+  recordWorkspaceStreamLifecycleEvent(
+    workspaceId,
+    stream,
+    'follower-recovery-accepted',
+    `accepted follower replay recovery request after seq ${requestedAfterSeq}`,
+    {
+      afterSeq: requestedAfterSeq,
+      expectedSeq: payload.expectedSeq,
+      followerInstanceId: payload.instanceId,
+      method: payload.method ?? null,
+      receivedSeq: payload.receivedSeq,
+      replayAfterSeq,
+      threadId: payload.threadId ?? null,
+      turnId: payload.turnId ?? null,
+    },
+  )
+
+  if (stream.reconnectTimer) {
+    window.clearTimeout(stream.reconnectTimer)
+    stream.reconnectTimer = undefined
+  }
+
+  const socket = stream.socket
+  if (socket && socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED) {
+    socket.close()
+    return
+  }
+
+  scheduleReconnect(workspaceId, stream, setConnectionState)
 }
 
 function broadcastWorkspaceStreamPresence(workspaceId: string, stream: WorkspaceStream) {
@@ -1125,29 +1520,477 @@ export function handleWorkspaceStreamEvent(
   stream: WorkspaceStream,
   event: ServerEvent,
   handlers: WorkspaceStreamEventHandlers = {
-    flushDeferredEvents: flushDeferredWorkspaceEvents,
     flushQueuedEvents: flushWorkspaceStreamEvents,
     ingestImmediateEvent: (nextEvent) => useSessionStore.getState().ingestEvent(nextEvent),
-    scheduleDeferredFlush: scheduleDeferredWorkspaceEventFlush,
     scheduleQueuedFlush: scheduleWorkspaceStreamFlush,
   },
-) {
+): boolean {
   if (!isBatchableWorkspaceEvent(event.method)) {
     if (stream.eventQueue.length > 0) {
       handlers.flushQueuedEvents(stream)
     }
-    if (stream.deferredEvents.length > 0) {
-      handlers.flushDeferredEvents(stream)
+
+    if (event.method === 'workspace/replay/completed') {
+      handleWorkspaceReplayCompletedEvent(stream, event)
+      return false
+    }
+    if (event.method === 'workspace/events/dropped') {
+      handleWorkspaceEventsDroppedEvent(stream, event)
+      return false
+    }
+
+    const gap = detectWorkspaceSeqGapBeforeApply([event])
+    if (gap) {
+      requestWorkspaceStreamSeqRecovery(stream, event, gap)
+      return false
     }
 
     handlers.ingestImmediateEvent(event)
     emitWorkspaceStreamEvents([event])
-    return
+    return true
+  }
+
+  const { acceptedEvents, gap } = splitWorkspaceEventsAtSeqGap([...stream.eventQueue, event])
+  if (gap) {
+    stream.eventQueue = acceptedEvents
+    scheduleWorkspaceStreamDiagnosticsChanged()
+    if (acceptedEvents.length > 0) {
+      handlers.flushQueuedEvents(stream)
+    }
+    requestWorkspaceStreamSeqRecovery(stream, gap.event, gap)
+    return false
   }
 
   stream.eventQueue.push(event)
   scheduleWorkspaceStreamDiagnosticsChanged()
   handlers.scheduleQueuedFlush(stream)
+  return true
+}
+
+type WorkspaceSeqGap = {
+  event: ServerEvent
+  expectedSeq: number
+  receivedSeq: number
+  workspaceId: string
+}
+
+function splitWorkspaceEventsAtSeqGap(events: ServerEvent[]) {
+  const workingSeqByWorkspace = {
+    ...useSessionStore.getState().lastEventSeqByWorkspace,
+  }
+  const acceptedEvents: ServerEvent[] = []
+
+  for (const event of events) {
+    const gap = detectWorkspaceSeqGap(event, workingSeqByWorkspace)
+    if (gap) {
+      return { acceptedEvents, gap }
+    }
+
+    acceptedEvents.push(event)
+    updateWorkingWorkspaceSeq(event, workingSeqByWorkspace)
+  }
+
+  return { acceptedEvents, gap: null as WorkspaceSeqGap | null }
+}
+
+function detectWorkspaceSeqGapBeforeApply(events: ServerEvent[]) {
+  return splitWorkspaceEventsAtSeqGap(events).gap
+}
+
+function detectWorkspaceSeqGap(
+  event: ServerEvent,
+  workingSeqByWorkspace: Record<string, number>,
+): WorkspaceSeqGap | null {
+  if (event.replay) {
+    return null
+  }
+
+  const eventSeq = finitePositiveNumber(event.seq)
+  if (eventSeq === null) {
+    return null
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(workingSeqByWorkspace, event.workspaceId)) {
+    return null
+  }
+
+  const currentSeq = workingSeqByWorkspace[event.workspaceId] ?? 0
+  if (eventSeq <= currentSeq + 1) {
+    return null
+  }
+
+  if (eventCoversCurrentWorkspaceSeq(event, currentSeq)) {
+    return null
+  }
+
+  return {
+    event,
+    expectedSeq: currentSeq + 1,
+    receivedSeq: eventSeq,
+    workspaceId: event.workspaceId,
+  }
+}
+
+function updateWorkingWorkspaceSeq(
+  event: ServerEvent,
+  workingSeqByWorkspace: Record<string, number>,
+) {
+  const eventSeq = finitePositiveNumber(event.seq)
+  if (eventSeq === null) {
+    return
+  }
+
+  const currentSeq = workingSeqByWorkspace[event.workspaceId] ?? 0
+  if (eventSeq > currentSeq) {
+    workingSeqByWorkspace[event.workspaceId] = eventSeq
+  }
+}
+
+function eventCoversCurrentWorkspaceSeq(event: ServerEvent, currentSeq: number) {
+  const eventSeq = finitePositiveNumber(event.seq)
+  const coversSeqFrom = finitePositiveNumber(event.coversSeqFrom)
+  const coversSeqTo = finitePositiveNumber(event.coversSeqTo)
+  if (eventSeq === null || coversSeqFrom === null || coversSeqTo === null) {
+    return false
+  }
+
+  return coversSeqFrom <= currentSeq + 1 && coversSeqTo >= eventSeq
+}
+
+function finitePositiveNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : null
+}
+
+function finiteNonNegativeNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : null
+}
+
+function handleWorkspaceReplayCompletedEvent(stream: WorkspaceStream, event: ServerEvent) {
+  const payload = asObject(event.payload)
+  const afterSeq = finiteNonNegativeNumber(payload.afterSeq)
+  const fromSeq = finitePositiveNumber(payload.fromSeq)
+  const toSeq = finitePositiveNumber(payload.toSeq)
+  const headSeq = finitePositiveNumber(payload.headSeq)
+  const oldestSeq = finitePositiveNumber(payload.oldestSeq)
+  const nextAfterSeq = finitePositiveNumber(payload.nextAfterSeq) ?? toSeq
+  const replayed = finiteNonNegativeNumber(payload.replayed)
+  const limit = finitePositiveNumber(payload.limit)
+  const complete = payload.complete === true
+  const currentSeq = useSessionStore.getState().lastEventSeqByWorkspace[event.workspaceId] ?? 0
+  const retentionGap =
+    afterSeq !== null &&
+    oldestSeq !== null &&
+    afterSeq + 1 < oldestSeq
+
+  const metadata = {
+    afterSeq,
+    complete,
+    currentSeq,
+    fromSeq,
+    headSeq,
+    limit,
+    nextAfterSeq,
+    oldestSeq,
+    replayed,
+    retentionGap,
+    toSeq,
+  }
+
+  if (complete) {
+    recordWorkspaceStreamLifecycleEvent(
+      event.workspaceId,
+      stream,
+      'replay-completed',
+      'workspace replay completed',
+      metadata,
+    )
+    return
+  }
+
+  recordWorkspaceStreamLifecycleEvent(
+    event.workspaceId,
+    stream,
+    'replay-incomplete',
+    retentionGap
+      ? 'workspace replay incomplete because requested events are older than retention'
+      : 'workspace replay incomplete',
+    metadata,
+  )
+  if (retentionGap) {
+    requestWorkspaceStreamSnapshotFallback(
+      stream,
+      event,
+      'replay-retention-gap',
+      metadata,
+    )
+  }
+
+  const madeForwardProgress =
+    nextAfterSeq !== null &&
+    nextAfterSeq > (afterSeq ?? 0) &&
+    currentSeq >= nextAfterSeq
+  const canContinueReplay =
+    madeForwardProgress &&
+    (headSeq === null || currentSeq < headSeq)
+
+  if (!canContinueReplay) {
+    recordWorkspaceStreamLifecycleEvent(
+      event.workspaceId,
+      stream,
+      'replay-incomplete-stalled',
+      'workspace replay incomplete and no forward replay page is available',
+      metadata,
+    )
+    if (!retentionGap) {
+      requestWorkspaceStreamSnapshotFallback(
+        stream,
+        event,
+        'replay-incomplete-stalled',
+        metadata,
+      )
+    }
+    return
+  }
+
+  frontendDebugLog('workspace-stream', 'workspace replay incomplete; reconnecting to continue replay', {
+    currentSeq,
+    nextAfterSeq,
+    workspaceId: event.workspaceId,
+  })
+  recordWorkspaceStreamLifecycleEvent(
+    event.workspaceId,
+    stream,
+    'replay-continuation-requested',
+    `workspace replay continuation requested after seq ${currentSeq}`,
+    metadata,
+  )
+
+  stream.reconnectDelayOverrideMs = 0
+  const socket = stream.socket
+  if (socket && socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED) {
+    socket.close()
+  }
+}
+
+function requestWorkspaceStreamSnapshotFallback(
+  stream: WorkspaceStream,
+  event: ServerEvent,
+  reason: 'replay-incomplete-stalled' | 'replay-retention-gap',
+  metadata: {
+    afterSeq: number | null
+    currentSeq: number
+    fromSeq: number | null
+    headSeq: number | null
+    limit: number | null
+    nextAfterSeq: number | null
+    oldestSeq: number | null
+    replayed: number | null
+    toSeq: number | null
+  },
+) {
+  frontendDebugLog('workspace-stream', 'workspace stream snapshot fallback requested', {
+    reason,
+    workspaceId: event.workspaceId,
+    ...metadata,
+  })
+  recordWorkspaceStreamLifecycleEvent(
+    event.workspaceId,
+    stream,
+    'snapshot-fallback-requested',
+    reason === 'replay-retention-gap'
+      ? 'workspace replay retention gap detected; snapshot fallback requested'
+      : 'workspace replay stalled; snapshot fallback requested',
+    {
+      ...metadata,
+      reason,
+      threadId: event.threadId ?? null,
+      turnId: event.turnId ?? null,
+    },
+  )
+  dispatchWorkspaceStreamRecoveryRequired({
+    workspaceId: event.workspaceId,
+    reason,
+    afterSeq: metadata.afterSeq,
+    currentSeq: metadata.currentSeq,
+    fromSeq: metadata.fromSeq,
+    headSeq: metadata.headSeq,
+    limit: metadata.limit,
+    nextAfterSeq: metadata.nextAfterSeq,
+    oldestSeq: metadata.oldestSeq,
+    replayed: metadata.replayed,
+    threadId: event.threadId ?? null,
+    toSeq: metadata.toSeq,
+    turnId: event.turnId ?? null,
+  })
+}
+
+function handleWorkspaceEventsDroppedEvent(stream: WorkspaceStream, event: ServerEvent) {
+  const payload = asObject(event.payload)
+  const droppedMethod = stringField(payload.droppedMethod)
+  const reason = stringField(payload.reason)
+  const fromSeq = finitePositiveNumber(payload.fromSeq)
+  const toSeq = finitePositiveNumber(payload.toSeq)
+  const seq = finitePositiveNumber(payload.seq)
+  const currentSeq = useSessionStore.getState().lastEventSeqByWorkspace[event.workspaceId] ?? 0
+
+  frontendDebugLog('workspace-stream', 'workspace events dropped control event received; reconnecting stream', {
+    currentSeq,
+    droppedMethod,
+    fromSeq,
+    reason,
+    toSeq,
+    workspaceId: event.workspaceId,
+  })
+  recordWorkspaceStreamLifecycleEvent(
+    event.workspaceId,
+    stream,
+    'events-dropped',
+    'workspace events dropped by subscriber backpressure; reconnecting stream',
+    {
+      currentSeq,
+      droppedMethod: droppedMethod || null,
+      fromSeq,
+      reason: reason || null,
+      seq,
+      threadId: event.threadId ?? (stringField(payload.threadId) || null),
+      toSeq,
+      turnId: event.turnId ?? (stringField(payload.turnId) || null),
+    },
+  )
+
+  stream.reconnectDelayOverrideMs = 0
+  const socket = stream.socket
+  if (socket && socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED) {
+    socket.close()
+  }
+}
+
+function requestWorkspaceStreamSeqRecovery(
+  stream: WorkspaceStream,
+  event: ServerEvent,
+  gap: WorkspaceSeqGap,
+) {
+  frontendDebugLog('workspace-stream', 'workspace seq gap detected; reconnecting stream', {
+    expectedSeq: gap.expectedSeq,
+    method: event.method,
+    receivedSeq: gap.receivedSeq,
+    workspaceId: gap.workspaceId,
+  })
+  recordWorkspaceStreamLifecycleEvent(
+    gap.workspaceId,
+    stream,
+    'seq-gap-detected',
+    `workspace event seq gap detected: expected ${gap.expectedSeq}, received ${gap.receivedSeq}`,
+    {
+      expectedSeq: gap.expectedSeq,
+      method: event.method,
+      receivedSeq: gap.receivedSeq,
+      replay: Boolean(event.replay),
+      threadId: event.threadId ?? null,
+      turnId: event.turnId ?? null,
+    },
+  )
+
+  if (stream.flushTimer) {
+    window.clearTimeout(stream.flushTimer)
+    stream.flushTimer = undefined
+  }
+  stream.eventQueue = []
+  scheduleWorkspaceStreamDiagnosticsChanged()
+
+  if (!stream.isLeader && stream.channel) {
+    requestWorkspaceStreamFollowerRecovery(stream, event, gap)
+    return
+  }
+
+  stream.reconnectDelayOverrideMs = 0
+  const socket = stream.socket
+  if (socket && socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED) {
+    socket.close()
+  }
+}
+
+function requestWorkspaceStreamFollowerRecovery(
+  stream: WorkspaceStream,
+  event: ServerEvent,
+  gap: WorkspaceSeqGap,
+) {
+  const currentSeq = useSessionStore.getState().lastEventSeqByWorkspace[gap.workspaceId] ?? 0
+  const afterSeq = Math.max(0, Math.min(currentSeq, gap.expectedSeq - 1))
+  const now = Date.now()
+  const hasRecentMatchingRequest =
+    stream.lastFollowerRecoveryRequestAfterSeq === afterSeq &&
+    stream.lastFollowerRecoveryRequestAt !== undefined &&
+    now - stream.lastFollowerRecoveryRequestAt < workspaceFollowerRecoveryRequestCooldownMs
+
+  if (hasRecentMatchingRequest) {
+    frontendDebugLog('workspace-stream', 'follower recovery request suppressed by cooldown', {
+      afterSeq,
+      expectedSeq: gap.expectedSeq,
+      receivedSeq: gap.receivedSeq,
+      workspaceId: gap.workspaceId,
+    })
+    return
+  }
+
+  stream.lastFollowerRecoveryRequestAfterSeq = afterSeq
+  stream.lastFollowerRecoveryRequestAt = now
+  frontendDebugLog('workspace-stream', 'follower requesting replay recovery from leader', {
+    afterSeq,
+    expectedSeq: gap.expectedSeq,
+    method: event.method,
+    receivedSeq: gap.receivedSeq,
+    workspaceId: gap.workspaceId,
+  })
+  recordWorkspaceStreamLifecycleEvent(
+    gap.workspaceId,
+    stream,
+    'follower-recovery-requested',
+    `requested leader replay recovery after seq ${afterSeq}`,
+    {
+      afterSeq,
+      expectedSeq: gap.expectedSeq,
+      leaderId: stream.leaderId ?? null,
+      method: event.method,
+      receivedSeq: gap.receivedSeq,
+      threadId: event.threadId ?? null,
+      turnId: event.turnId ?? null,
+    },
+  )
+
+  try {
+    stream.channel?.postMessage({
+      type: 'recovery-request',
+      workspaceId: gap.workspaceId,
+      instanceId: stream.instanceId,
+      ts: now,
+      afterSeq,
+      expectedSeq: gap.expectedSeq,
+      receivedSeq: gap.receivedSeq,
+      method: event.method,
+      threadId: event.threadId ?? null,
+      turnId: event.turnId ?? null,
+    } satisfies WorkspaceStreamBroadcastMessage)
+  } catch (error) {
+    frontendDebugLog('workspace-stream', 'failed to post follower recovery request', {
+      error: error instanceof Error ? error.message : String(error),
+      workspaceId: gap.workspaceId,
+    })
+    recordWorkspaceStreamLifecycleEvent(
+      gap.workspaceId,
+      stream,
+      'follower-recovery-request-failed',
+      'failed to post follower replay recovery request',
+      {
+        afterSeq,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    )
+  }
 }
 
 function scheduleWorkspaceStreamFlush(stream: WorkspaceStream) {
@@ -1171,18 +2014,27 @@ function flushWorkspaceStreamEvents(stream: WorkspaceStream) {
   const queuedEvents = stream.eventQueue
   stream.eventQueue = []
   scheduleWorkspaceStreamDiagnosticsChanged()
-  const lastEvent = queuedEvents[queuedEvents.length - 1]
+  const { acceptedEvents, gap } = splitWorkspaceEventsAtSeqGap(queuedEvents)
+  if (acceptedEvents.length === 0 && gap) {
+    requestWorkspaceStreamSeqRecovery(stream, gap.event, gap)
+    return
+  }
+
+  const eventsToFlush = acceptedEvents
+  const lastEvent = eventsToFlush[eventsToFlush.length - 1]
   frontendDebugLog('workspace-stream', 'flushing queued delta events', {
-    count: queuedEvents.length,
-    methods: queuedEvents.map((event) => event.method),
+    count: eventsToFlush.length,
+    methods: eventsToFlush.map((event) => event.method),
+    seqRecoverySkippedCount: gap ? queuedEvents.length - eventsToFlush.length : 0,
     lastEvent: summarizeServerEventForDebug(lastEvent),
   })
   recordConversationLiveDiagnosticEvent({
     kind: 'stream-batch-flush',
     metadata: {
-      count: queuedEvents.length,
+      count: eventsToFlush.length,
       queuedCount: queuedEvents.length,
-      uniqueMethods: new Set(queuedEvents.map((event) => event.method)).size,
+      seqRecoverySkippedCount: gap ? queuedEvents.length - eventsToFlush.length : 0,
+      uniqueMethods: new Set(eventsToFlush.map((event) => event.method)).size,
     },
     method: lastEvent?.method,
     serverRequestId: lastEvent?.serverRequestId ?? null,
@@ -1194,88 +2046,19 @@ function flushWorkspaceStreamEvents(stream: WorkspaceStream) {
     lastEvent?.workspaceId ?? 'unknown',
     stream,
     'queued-events-flushed',
-    `flushed ${queuedEvents.length} queued delta events`,
+    `flushed ${eventsToFlush.length} queued delta events`,
     {
-      count: queuedEvents.length,
+      count: eventsToFlush.length,
       lastMethod: lastEvent?.method ?? null,
+      seqRecoverySkippedCount: gap ? queuedEvents.length - eventsToFlush.length : 0,
     },
   )
-  useSessionStore.getState().ingestEvents(queuedEvents)
-  emitWorkspaceStreamEvents(queuedEvents)
-}
+  useSessionStore.getState().ingestEvents(eventsToFlush)
+  emitWorkspaceStreamEvents(eventsToFlush)
 
-function scheduleDeferredWorkspaceEventFlush(stream: WorkspaceStream) {
-  if (stream.deferredEventFlushHandle) {
-    return
+  if (gap) {
+    requestWorkspaceStreamSeqRecovery(stream, gap.event, gap)
   }
-
-  const scheduleFrame =
-    typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
-      ? window.requestAnimationFrame.bind(window)
-      : (callback: FrameRequestCallback) =>
-          window.setTimeout(() => callback(Date.now()), 0)
-
-  stream.deferredEventFlushHandle = scheduleFrame(() => {
-    stream.deferredEventFlushHandle = undefined
-    scheduleWorkspaceStreamDiagnosticsChanged()
-    flushDeferredWorkspaceEvents(stream)
-  })
-  scheduleWorkspaceStreamDiagnosticsChanged()
-}
-
-function cancelDeferredWorkspaceEventFlush(stream: WorkspaceStream) {
-  if (!stream.deferredEventFlushHandle) {
-    return
-  }
-
-  if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
-    window.cancelAnimationFrame(stream.deferredEventFlushHandle)
-  } else {
-    window.clearTimeout(stream.deferredEventFlushHandle)
-  }
-  stream.deferredEventFlushHandle = undefined
-  scheduleWorkspaceStreamDiagnosticsChanged()
-}
-
-function flushDeferredWorkspaceEvents(stream: WorkspaceStream) {
-  if (!stream.deferredEvents.length) {
-    return
-  }
-
-  const deferredEvents = stream.deferredEvents
-  stream.deferredEvents = []
-  scheduleWorkspaceStreamDiagnosticsChanged()
-  const lastEvent = deferredEvents[deferredEvents.length - 1]
-  frontendDebugLog('workspace-stream', 'flushing deferred non-delta events', {
-    count: deferredEvents.length,
-    methods: deferredEvents.map((event) => event.method),
-    lastEvent: summarizeServerEventForDebug(lastEvent),
-  })
-  recordConversationLiveDiagnosticEvent({
-    kind: 'stream-deferred-flush',
-    metadata: {
-      count: deferredEvents.length,
-      deferredCount: deferredEvents.length,
-      uniqueMethods: new Set(deferredEvents.map((event) => event.method)).size,
-    },
-    method: lastEvent?.method,
-    serverRequestId: lastEvent?.serverRequestId ?? null,
-    source: 'workspace-stream',
-    threadId: lastEvent?.threadId ?? null,
-    turnId: lastEvent?.turnId ?? null,
-  })
-  recordWorkspaceStreamLifecycleEvent(
-    lastEvent?.workspaceId ?? 'unknown',
-    stream,
-    'deferred-events-flushed',
-    `flushed ${deferredEvents.length} deferred events`,
-    {
-      count: deferredEvents.length,
-      lastMethod: lastEvent?.method ?? null,
-    },
-  )
-  useSessionStore.getState().ingestEvents(deferredEvents)
-  emitWorkspaceStreamEvents(deferredEvents)
 }
 
 function isServerEvent(value: unknown): value is ServerEvent {

@@ -353,7 +353,11 @@ export function applyThreadEventToDetail(
       break
     }
     case 'turn/started':
-    case 'turn/completed': {
+    case 'turn/completed':
+    case 'turn/failed':
+    case 'turn/interrupted':
+    case 'turn/canceled':
+    case 'turn/cancelled': {
       const turn = asObject(payload.turn)
       const turnId = stringField(turn.id) || event.turnId
       if (!turnId) {
@@ -362,13 +366,17 @@ export function applyThreadEventToDetail(
       }
 
       const turnStatus =
-        stringField(turn.status) || (event.method === 'turn/completed' ? 'completed' : 'inProgress')
+        stringField(turn.status) || turnLifecycleStatusForMethod(event.method)
       const incomingItems = readTurnItems(turn.items, [])
+      const clientTurnRequestId =
+        stringField(turn.clientTurnRequestId) ||
+        stringField(payload.clientTurnRequestId)
 
       nextDetail = {
         ...detail,
         updatedAt: event.ts,
         turns: upsertTurn(detail.turns, turnId, (current) => ({
+          clientTurnRequestId: clientTurnRequestId || current?.clientTurnRequestId,
           id: turnId,
           status: turnStatus || current?.status || 'inProgress',
           items: reconcileTurnPlanItemsForTerminalTurnStatus(
@@ -632,6 +640,23 @@ function buildPendingUserMessageItem(localId: string, input: string) {
   }
 }
 
+function turnLifecycleStatusForMethod(method: string) {
+  switch (method) {
+    case 'turn/completed':
+      return 'completed'
+    case 'turn/failed':
+      return 'failed'
+    case 'turn/interrupted':
+      return 'interrupted'
+    case 'turn/canceled':
+    case 'turn/cancelled':
+      return 'cancelled'
+    case 'turn/started':
+    default:
+      return 'inProgress'
+  }
+}
+
 function withDetailUpdatedAt(detail: ThreadDetail, updatedAt: string) {
   if (!updatedAt || detail.updatedAt === updatedAt) {
     return detail
@@ -680,6 +705,7 @@ function updateTurnItem(
     ...detail,
     updatedAt,
     turns: upsertTurn(detail.turns, turnId, (turn) => ({
+      clientTurnRequestId: turn?.clientTurnRequestId,
       id: turnId,
       status: turn?.status || 'inProgress',
       items: upsertItem(turn?.items ?? [], itemId, buildItem),

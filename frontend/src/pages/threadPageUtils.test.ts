@@ -160,6 +160,10 @@ describe('threadPageUtils', () => {
   it('marks item deltas for thread detail refresh', () => {
     expect(shouldRefreshThreadDetailForEvent('item/agentMessage/delta')).toBe(true)
     expect(shouldRefreshThreadDetailForEvent('turn/plan/updated')).toBe(true)
+    expect(shouldRefreshThreadDetailForEvent('turn/failed')).toBe(true)
+    expect(shouldRefreshThreadDetailForEvent('turn/interrupted')).toBe(true)
+    expect(shouldRefreshThreadDetailForEvent('turn/cancelled')).toBe(true)
+    expect(shouldRefreshThreadDetailForEvent('turn/canceled')).toBe(true)
     expect(shouldRefreshThreadDetailForEvent('item/completed')).toBe(true)
     expect(shouldRefreshThreadDetailForEvent('workspace/connected')).toBe(false)
   })
@@ -185,6 +189,11 @@ describe('threadPageUtils', () => {
     expect(
       shouldRefreshThreadDetailDuringOpenStreamForEvent({
         method: 'item/commandExecution/outputDelta',
+      }),
+    ).toBe(true)
+    expect(
+      shouldRefreshThreadDetailDuringOpenStreamForEvent({
+        method: 'turn/interrupted',
       }),
     ).toBe(true)
     expect(

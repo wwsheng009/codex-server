@@ -317,7 +317,7 @@ function buildFrontendWorkspaceStreamAttentionReasons(
   matchingSubscriber: EventHubSubscriberDiagnostics | null,
 ) {
   const reasons: string[] = []
-  const queuedCount = stream.queueLength + stream.deferredEventCount
+  const queuedCount = stream.queueLength
   const lastHeartbeatAgeMs = stream.lastLeaderHeartbeatAt
     ? Date.now() - Date.parse(stream.lastLeaderHeartbeatAt)
     : null
@@ -909,7 +909,7 @@ export function EnvironmentSettingsPage() {
   const frontendWorkspaceStreamBufferedCount = useMemo(
     () =>
       frontendWorkspaceStreamEntries.filter(
-        (entry) => entry.stream.queueLength > 0 || entry.stream.deferredEventCount > 0,
+        (entry) => entry.stream.queueLength > 0,
       ).length,
     [frontendWorkspaceStreamEntries],
   )
@@ -2707,9 +2707,9 @@ export function EnvironmentSettingsPage() {
                             </span>
                           }
                           description={i18n._({
-                            id: '{mode} · subscribers {subscribers} · connection {connection} · socket {socket} · reconnect attempt {reconnectAttempt} · queued {queued} · deferred {deferred} · peers {peers} · leader heartbeat {leaderHeartbeat}',
+                            id: '{mode} · subscribers {subscribers} · connection {connection} · socket {socket} · reconnect attempt {reconnectAttempt} · queued {queued} · peers {peers} · leader heartbeat {leaderHeartbeat}',
                             message:
-                              '{mode} · subscribers {subscribers} · connection {connection} · socket {socket} · reconnect attempt {reconnectAttempt} · queued {queued} · deferred {deferred} · peers {peers} · leader heartbeat {leaderHeartbeat}',
+                              '{mode} · subscribers {subscribers} · connection {connection} · socket {socket} · reconnect attempt {reconnectAttempt} · queued {queued} · peers {peers} · leader heartbeat {leaderHeartbeat}',
                             values: {
                               mode: formatWorkspaceStreamCoordinationLabel(stream),
                               subscribers: stream.subscribers,
@@ -2717,7 +2717,6 @@ export function EnvironmentSettingsPage() {
                               socket: stream.socketState,
                               reconnectAttempt: stream.reconnectAttempt,
                               queued: stream.queueLength,
-                              deferred: stream.deferredEventCount,
                               peers: stream.activePeerCount,
                               leaderHeartbeat: leaderHeartbeatLabel,
                             },

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { AppearanceController } from './AppearanceController'
 import { WorkspaceApprovalsQuerySync } from '../features/approvals/WorkspaceApprovalsQuerySync'
+import { WorkspaceStreamRecoveryQuerySync } from '../features/workspace-stream/WorkspaceStreamRecoveryQuerySync'
 import { LinguiClientProvider } from '../i18n/LinguiClientProvider'
 import { ToastHost } from '../components/ui/ToastHost'
 import type { ProvidersProps } from './providersTypes'
@@ -22,6 +23,7 @@ export function Providers({ children }: ProvidersProps) {
       <LinguiClientProvider>
         <AppearanceController />
         <WorkspaceApprovalsQuerySync />
+        <WorkspaceStreamRecoveryQuerySync />
         <ToastHost />
         {children}
       </LinguiClientProvider>

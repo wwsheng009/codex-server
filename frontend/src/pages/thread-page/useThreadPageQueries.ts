@@ -115,7 +115,7 @@ export function useThreadPageQueries({
       listThreadsPage(workspaceId, {
         archived: false,
         limit: 200,
-        preferCached: true,
+        preferCached: false,
         sortKey: 'created_at',
       }).then((page) => page.data),
     enabled: Boolean(workspaceId),
@@ -163,6 +163,7 @@ export function useThreadPageQueries({
     queryFn: () =>
       getThread(workspaceId, resolvedSelectedThreadId ?? '', {
         contentMode: threadDetailContentMode,
+        preferCached: false,
         turnLimit,
       }),
     enabled: Boolean(workspaceId && resolvedSelectedThreadId),

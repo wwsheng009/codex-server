@@ -447,6 +447,105 @@ describe('threadLiveState', () => {
     })
   })
 
+  it('applies terminal turn lifecycle events beyond completed', () => {
+    const started = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('turn/started', {
+        turn: {
+          id: 'turn-1',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'msg-1',
+              type: 'agentMessage',
+              text: 'partial reply',
+            },
+          ],
+        },
+      }),
+    )
+
+    const failed = applyThreadEventToDetail(
+      started,
+      makeEvent('turn/failed', {
+        turn: {
+          id: 'turn-1',
+          error: {
+            message: 'tool failed',
+          },
+        },
+      }),
+    )
+
+    expect(failed?.turns[0]).toMatchObject({
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message: 'tool failed',
+      },
+      items: [
+        {
+          id: 'msg-1',
+          type: 'agentMessage',
+          text: 'partial reply',
+        },
+      ],
+    })
+
+    const interrupted = applyThreadEventToDetail(
+      started,
+      makeEvent('turn/interrupted', {
+        turn: {
+          id: 'turn-1',
+        },
+      }),
+    )
+
+    expect(interrupted?.turns[0]?.status).toBe('interrupted')
+
+    const cancelled = applyThreadEventToDetail(
+      started,
+      makeEvent('turn/canceled', {
+        turn: {
+          id: 'turn-1',
+        },
+      }),
+    )
+
+    expect(cancelled?.turns[0]?.status).toBe('cancelled')
+  })
+
+  it('preserves client turn request id from turn lifecycle events', () => {
+    const started = applyThreadEventToDetail(
+      makeDetail(),
+      makeEvent('turn/started', {
+        clientTurnRequestId: 'client-turn-1',
+        turn: {
+          clientTurnRequestId: 'client-turn-1',
+          id: 'turn-1',
+          status: 'inProgress',
+        },
+      }),
+    )
+
+    expect(started?.turns[0]?.clientTurnRequestId).toBe('client-turn-1')
+
+    const withItem = applyThreadEventToDetail(
+      started,
+      makeEvent('item/started', {
+        item: {
+          id: 'msg-1',
+          text: '',
+          type: 'agentMessage',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      }),
+    )
+
+    expect(withItem?.turns[0]?.clientTurnRequestId).toBe('client-turn-1')
+  })
+
   it('merges hook lifecycle events into the live thread detail', () => {
     const started = applyThreadEventToDetail(
       makeDetail(),

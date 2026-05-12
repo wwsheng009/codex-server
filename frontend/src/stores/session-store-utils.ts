@@ -7,6 +7,19 @@ export type ThreadSelectionSnapshot = {
 }
 
 const SESSION_STORE_STORAGE_KEY = 'codex-server-session-store'
+const THREAD_STORE_KEY_SEPARATOR = '\u001f'
+
+export function buildThreadStoreKey(workspaceId: string, threadId: string) {
+  return `${workspaceId}${THREAD_STORE_KEY_SEPARATOR}${threadId}`
+}
+
+export function isCompositeThreadStoreKey(key: string) {
+  return key.includes(THREAD_STORE_KEY_SEPARATOR)
+}
+
+export function isThreadStoreKeyForWorkspace(key: string, workspaceId: string) {
+  return key.startsWith(`${workspaceId}${THREAD_STORE_KEY_SEPARATOR}`)
+}
 
 export function getSelectedThreadIdForWorkspace(
   state: ThreadSelectionSnapshot,

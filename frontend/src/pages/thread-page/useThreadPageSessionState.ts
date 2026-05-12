@@ -8,6 +8,7 @@ import {
 import { reconcileLiveThreadDetailSnapshot } from '../threadLiveState'
 import { recordConversationLiveDiagnosticEvent } from '../../components/workspace/threadConversationProfiler'
 import { useSessionStore } from '../../stores/session-store'
+import { buildThreadStoreKey } from '../../stores/session-store-utils'
 import type { ServerEvent, ThreadDetail } from '../../types/api'
 import type { UseThreadPageSessionStateInput } from './threadPageRuntimeTypes'
 
@@ -26,14 +27,25 @@ export function useThreadPageSessionState({
   const selectedThreadEvents = useSessionStore((state) =>
     !isDocumentVisible || !selectedThreadId
       ? EMPTY_EVENTS
-      : state.eventsByThread[selectedThreadId] ?? EMPTY_EVENTS,
+      : state.eventsByThread[buildThreadStoreKey(workspaceId, selectedThreadId)] ??
+        readLegacyThreadEvents(state.eventsByThread, workspaceId, selectedThreadId) ??
+        EMPTY_EVENTS,
   )
   const selectedThreadTokenUsage = useSessionStore((state) =>
-    selectedThreadId ? state.tokenUsageByThread[selectedThreadId] ?? null : null,
+    selectedThreadId
+      ? state.tokenUsageByThread[buildThreadStoreKey(workspaceId, selectedThreadId)] ?? null
+      : null,
   )
   const threadProjection = useSessionStore((state) => {
     const projectionThreadId = selectedThreadId ?? threadDetail?.id
-    return projectionThreadId ? state.threadProjectionsById[projectionThreadId] : undefined
+    if (!projectionThreadId) {
+      return undefined
+    }
+
+    return (
+      state.threadProjectionsById[buildThreadStoreKey(workspaceId, projectionThreadId)] ??
+      readLegacyThreadProjection(state.threadProjectionsById, workspaceId, projectionThreadId)
+    )
   })
   const workspaceEvents = useSessionStore((state) =>
     !isDocumentVisible || !workspaceId
@@ -143,6 +155,30 @@ export function useThreadPageSessionState({
     workspaceActivityEvents,
     workspaceEvents,
   }
+}
+
+function readLegacyThreadEvents(
+  eventsByThread: Record<string, ServerEvent[]>,
+  workspaceId: string,
+  threadId: string,
+) {
+  const legacyEvents = eventsByThread[threadId]
+  if (!legacyEvents?.length) {
+    return undefined
+  }
+
+  return legacyEvents.every((event) => event.workspaceId === workspaceId)
+    ? legacyEvents
+    : undefined
+}
+
+function readLegacyThreadProjection(
+  projectionsById: Record<string, ThreadDetail>,
+  workspaceId: string,
+  threadId: string,
+) {
+  const legacyProjection = projectionsById[threadId]
+  return legacyProjection?.workspaceId === workspaceId ? legacyProjection : undefined
 }
 
 function compareCommandSessionsByPriority(

@@ -35,6 +35,18 @@ export type WorkspaceStreamBroadcastMessage =
       instanceId: string
       event: unknown
     }
+  | {
+      type: 'recovery-request'
+      workspaceId: string
+      instanceId: string
+      ts: number
+      afterSeq: number
+      expectedSeq: number
+      receivedSeq: number
+      method?: string | null
+      threadId?: string | null
+      turnId?: string | null
+    }
 
 let workspaceStreamInstanceId: string | undefined
 

@@ -26,9 +26,7 @@ export type WorkspaceStreamLocalDiagnostics = {
   reconnectAttempt: number
   reconnectScheduled: boolean
   queueLength: number
-  deferredEventCount: number
   flushScheduled: boolean
-  deferredFlushScheduled: boolean
   coordinationActive: boolean
   closeScheduled: boolean
   expectedBackendSource?: string | null
@@ -48,11 +46,25 @@ export type WorkspaceStreamManagerDiagnostics = {
   streams: WorkspaceStreamLocalDiagnostics[]
 }
 
+export type WorkspaceStreamRecoveryNotice = {
+  details: string
+  expiresAt?: number | null
+  latestEventKind?: string
+  latestEventTs?: string
+  message: string
+  noticeKey: string
+  reason:
+    | 'connection-reconnecting'
+    | 'event-recovery'
+    | 'snapshot-fallback'
+    | 'recovered'
+  title: string
+  tone: 'info' | 'error'
+}
+
 export type WorkspaceStream = {
   activityTimer?: number
   channel?: BroadcastChannel | null
-  deferredEventFlushHandle?: number
-  deferredEvents: ServerEvent[]
   eventQueue: ServerEvent[]
   flushTimer?: number
   instanceId: string
@@ -62,6 +74,10 @@ export type WorkspaceStream = {
   lastLeaderHeartbeatAt?: number
   lifecycleEvents: WorkspaceStreamLifecycleEvent[]
   peerSeenAt: Record<string, number>
+  lastFollowerRecoveryRequestAfterSeq?: number
+  lastFollowerRecoveryRequestAt?: number
+  reconnectDelayOverrideMs?: number
+  replayAfterSeqOverride?: number
   subscribers: number
   socket: WebSocket | null
   reconnectTimer?: number

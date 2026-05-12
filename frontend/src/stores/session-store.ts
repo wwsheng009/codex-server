@@ -8,7 +8,12 @@ import {
   applyThreadEventToDetail,
   reconcileLiveThreadDetailSnapshot,
 } from '../pages/threadLiveState'
-import { getSelectedThreadIdForWorkspace } from './session-store-utils'
+import {
+  buildThreadStoreKey,
+  getSelectedThreadIdForWorkspace,
+  isCompositeThreadStoreKey,
+  isThreadStoreKeyForWorkspace,
+} from './session-store-utils'
 import type {
   CommandSession,
   CommandSessionSnapshot,
@@ -171,20 +176,37 @@ export const useSessionStore = create<SessionState>()(
           const nextThreadProjectionsById = { ...current.threadProjectionsById }
           const nextTokenUsageByThread = { ...current.tokenUsageByThread }
 
-          for (const [threadId, summary] of Object.entries(current.threadActivityByThread)) {
-            if (summary.workspaceId !== workspaceId) {
-              continue
+          for (const [key, summary] of Object.entries(current.threadActivityByThread)) {
+            if (summary.workspaceId === workspaceId || isThreadStoreKeyForWorkspace(key, workspaceId)) {
+              delete nextThreadActivityByThread[key]
             }
+          }
 
-            delete nextThreadActivityByThread[threadId]
-            delete nextEventsByThread[threadId]
-            delete nextThreadProjectionsById[threadId]
-            delete nextTokenUsageByThread[threadId]
+          for (const [key, events] of Object.entries(current.eventsByThread)) {
+            if (
+              isThreadStoreKeyForWorkspace(key, workspaceId) ||
+              events.some((event) => event.workspaceId === workspaceId)
+            ) {
+              delete nextEventsByThread[key]
+            }
+          }
+
+          for (const [key, detail] of Object.entries(current.threadProjectionsById)) {
+            if (detail.workspaceId === workspaceId || isThreadStoreKeyForWorkspace(key, workspaceId)) {
+              delete nextThreadProjectionsById[key]
+            }
+          }
+
+          for (const key of Object.keys(current.tokenUsageByThread)) {
+            if (isThreadStoreKeyForWorkspace(key, workspaceId)) {
+              delete nextTokenUsageByThread[key]
+            }
           }
 
           if (removedSelectedThreadId) {
             delete nextEventsByThread[removedSelectedThreadId]
             delete nextThreadProjectionsById[removedSelectedThreadId]
+            delete nextThreadActivityByThread[removedSelectedThreadId]
             delete nextTokenUsageByThread[removedSelectedThreadId]
           }
 
@@ -212,16 +234,22 @@ export const useSessionStore = create<SessionState>()(
             delete nextSelectedThreadIdByWorkspace[workspaceId]
           }
 
+          const threadStoreKey = buildThreadStoreKey(workspaceId, threadId)
+
           const nextEventsByThread = { ...current.eventsByThread }
+          delete nextEventsByThread[threadStoreKey]
           delete nextEventsByThread[threadId]
 
           const nextThreadProjectionsById = { ...current.threadProjectionsById }
+          delete nextThreadProjectionsById[threadStoreKey]
           delete nextThreadProjectionsById[threadId]
 
           const nextThreadActivityByThread = { ...current.threadActivityByThread }
+          delete nextThreadActivityByThread[threadStoreKey]
           delete nextThreadActivityByThread[threadId]
 
           const nextTokenUsageByThread = { ...current.tokenUsageByThread }
+          delete nextTokenUsageByThread[threadStoreKey]
           delete nextTokenUsageByThread[threadId]
 
           return {
@@ -250,11 +278,50 @@ export const useSessionStore = create<SessionState>()(
         selectedThreadId: state.selectedThreadId,
         selectedThreadIdByWorkspace: state.selectedThreadIdByWorkspace,
         lastEventSeqByWorkspace: state.lastEventSeqByWorkspace,
-        tokenUsageByThread: state.tokenUsageByThread,
+        tokenUsageByThread: filterCompositeThreadStoreRecord(state.tokenUsageByThread),
       }),
+      migrate: (persistedState) => migrateSessionStorePersistedState(persistedState),
+      version: 2,
     },
   ),
 )
+
+function migrateSessionStorePersistedState(persistedState: unknown) {
+  if (!isRecord(persistedState)) {
+    return persistedState
+  }
+
+  return {
+    ...persistedState,
+    tokenUsageByThread: filterCompositeThreadStoreRecordFromUnknown(
+      persistedState.tokenUsageByThread,
+    ),
+  }
+}
+
+function filterCompositeThreadStoreRecord<T>(record: Record<string, T>) {
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => isCompositeThreadStoreKey(key)),
+  )
+}
+
+function filterCompositeThreadStoreRecordFromUnknown(value: unknown) {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  const nextRecord: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    if (isCompositeThreadStoreKey(key)) {
+      nextRecord[key] = entry
+    }
+  }
+  return nextRecord
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 export function applySessionEvents(
   current: ApplySessionEventsState,
@@ -289,26 +356,43 @@ export function applySessionEvents(
       pendingCommandOutputEvents,
     )
     for (const event of pendingCommandOutputEvents) {
+      const projectionKey = event.threadId
+        ? buildThreadStoreKey(event.workspaceId, event.threadId)
+        : ''
       const nextDetail = applyLiveThreadProjectionEvent(
-        nextThreadProjectionsById[event.threadId ?? ''],
+        event.threadId
+          ? readThreadProjectionForEvent(nextThreadProjectionsById, event)
+          : undefined,
         event,
       )
-      if (!nextDetail) {
+      if (!nextDetail || !projectionKey) {
         continue
       }
       if (!threadProjectionsCloned) {
         nextThreadProjectionsById = { ...nextThreadProjectionsById }
         threadProjectionsCloned = true
       }
-      nextThreadProjectionsById[event.threadId!] = nextDetail
+      nextThreadProjectionsById[projectionKey] = nextDetail
     }
     pendingCommandOutputEvents = []
   }
 
   for (const event of events) {
     if (typeof event.seq === 'number' && Number.isFinite(event.seq)) {
+      const hasKnownLastSeq = Object.prototype.hasOwnProperty.call(
+        nextLastEventSeqByWorkspace,
+        event.workspaceId,
+      )
       const currentLastSeq = nextLastEventSeqByWorkspace[event.workspaceId] ?? 0
       if (event.seq <= currentLastSeq) {
+        continue
+      }
+      if (
+        hasKnownLastSeq &&
+        event.seq > currentLastSeq + 1 &&
+        !event.replay &&
+        !eventCoversWorkspaceSeq(event, currentLastSeq)
+      ) {
         continue
       }
 
@@ -327,16 +411,21 @@ export function applySessionEvents(
     }
 
     const selectedThreadIdForWorkspace = current.selectedThreadIdByWorkspace[event.workspaceId]
+    const projectionKey = event.threadId
+      ? buildThreadStoreKey(event.workspaceId, event.threadId)
+      : ''
     const projectedDetail = applyLiveThreadProjectionEvent(
-      nextThreadProjectionsById[event.threadId ?? ''],
+      event.threadId
+        ? readThreadProjectionForEvent(nextThreadProjectionsById, event)
+        : undefined,
       event,
     )
-    if (projectedDetail && event.threadId) {
+    if (projectedDetail && projectionKey) {
       if (!threadProjectionsCloned) {
         nextThreadProjectionsById = { ...nextThreadProjectionsById }
         threadProjectionsCloned = true
       }
-      nextThreadProjectionsById[event.threadId] = projectedDetail
+      nextThreadProjectionsById[projectionKey] = projectedDetail
     }
 
     nextThreadActivity = applyThreadActivityEvent(nextThreadActivity, event)
@@ -374,8 +463,9 @@ export function applySessionEvents(
         ? ACTIVE_THREAD_EVENT_LIMIT
         : INACTIVE_THREAD_EVENT_LIMIT
 
-    nextEventsByThread[event.threadId] = appendEventWithLimit(
-      nextEventsByThread[event.threadId],
+    const threadStoreKey = buildThreadStoreKey(event.workspaceId, event.threadId)
+    nextEventsByThread[threadStoreKey] = appendEventWithLimit(
+      nextEventsByThread[threadStoreKey],
       event,
       eventLimit,
     )
@@ -395,6 +485,24 @@ export function applySessionEvents(
   }
 }
 
+function eventCoversWorkspaceSeq(event: ServerEvent, currentSeq: number) {
+  const coversSeqFrom =
+    typeof event.coversSeqFrom === 'number' && Number.isFinite(event.coversSeqFrom)
+      ? event.coversSeqFrom
+      : null
+  const coversSeqTo =
+    typeof event.coversSeqTo === 'number' && Number.isFinite(event.coversSeqTo)
+      ? event.coversSeqTo
+      : null
+
+  return (
+    coversSeqFrom !== null &&
+    coversSeqTo !== null &&
+    coversSeqFrom <= currentSeq + 1 &&
+    coversSeqTo >= (event.seq ?? 0)
+  )
+}
+
 function syncThreadProjectionSnapshot(
   current: SessionState,
   detail: ThreadDetail | undefined,
@@ -404,18 +512,44 @@ function syncThreadProjectionSnapshot(
     return current
   }
 
-  const currentDetail = current.threadProjectionsById[detail.id]
+  const threadStoreKey = buildThreadStoreKey(detail.workspaceId, detail.id)
+  const currentDetail =
+    current.threadProjectionsById[threadStoreKey] ??
+    readLegacyThreadProjection(current.threadProjectionsById, detail.workspaceId, detail.id)
   const nextDetail = reconcileLiveThreadDetailSnapshot(currentDetail, detail, metadata)
-  if (!nextDetail || nextDetail === currentDetail) {
+  if (!nextDetail || nextDetail === current.threadProjectionsById[threadStoreKey]) {
     return current
   }
 
   return {
     threadProjectionsById: {
       ...current.threadProjectionsById,
-      [detail.id]: nextDetail,
+      [threadStoreKey]: nextDetail,
     },
   }
+}
+
+function readThreadProjectionForEvent(
+  projectionsById: Record<string, ThreadDetail>,
+  event: ServerEvent,
+) {
+  if (!event.threadId) {
+    return undefined
+  }
+
+  return (
+    projectionsById[buildThreadStoreKey(event.workspaceId, event.threadId)] ??
+    readLegacyThreadProjection(projectionsById, event.workspaceId, event.threadId)
+  )
+}
+
+function readLegacyThreadProjection(
+  projectionsById: Record<string, ThreadDetail>,
+  workspaceId: string,
+  threadId: string,
+) {
+  const legacyProjection = projectionsById[threadId]
+  return legacyProjection?.workspaceId === workspaceId ? legacyProjection : undefined
 }
 
 function applyLiveThreadProjectionEvent(
@@ -531,11 +665,14 @@ function applyThreadActivityEvent(
   }
 
   const nextStatus = readThreadActivityStatus(event)
-  const current = threadActivityByThread[event.threadId]
+  const threadStoreKey = buildThreadStoreKey(event.workspaceId, event.threadId)
+  const current =
+    threadActivityByThread[threadStoreKey] ??
+    readLegacyThreadActivity(threadActivityByThread, event.workspaceId, event.threadId)
 
   return {
     ...threadActivityByThread,
-    [event.threadId]: {
+    [threadStoreKey]: {
       latestEventMethod: event.method,
       latestEventTs: event.ts,
       latestStatus: nextStatus || current?.latestStatus,
@@ -556,8 +693,17 @@ function applyTokenUsageEvent(
 
   return {
     ...tokenUsageByThread,
-    [parsed.threadId]: parsed.usage,
+    [buildThreadStoreKey(event.workspaceId, parsed.threadId)]: parsed.usage,
   }
+}
+
+function readLegacyThreadActivity(
+  threadActivityByThread: Record<string, ThreadActivitySummary>,
+  workspaceId: string,
+  threadId: string,
+) {
+  const legacyActivity = threadActivityByThread[threadId]
+  return legacyActivity?.workspaceId === workspaceId ? legacyActivity : undefined
 }
 
 function mergeCommandSession(
@@ -1296,6 +1442,13 @@ function readThreadActivityStatus(event: ServerEvent) {
       return readTurnLifecycleStatus(event.payload) || 'running'
     case 'turn/completed':
       return readTurnLifecycleStatus(event.payload) || 'completed'
+    case 'turn/failed':
+      return readTurnLifecycleStatus(event.payload) || 'failed'
+    case 'turn/interrupted':
+      return readTurnLifecycleStatus(event.payload) || 'interrupted'
+    case 'turn/canceled':
+    case 'turn/cancelled':
+      return readTurnLifecycleStatus(event.payload) || 'cancelled'
     default:
       return ''
   }

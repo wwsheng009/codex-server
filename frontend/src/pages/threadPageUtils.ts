@@ -32,9 +32,16 @@ const runtimeCatalogRefreshMethods = new Set([
 
 const hookRunRefreshMethods = new Set(['hook/started', 'hook/completed'])
 const turnPolicyGovernanceRefreshMethods = new Set(['hook/completed'])
+const terminalTurnLifecycleRefreshMethods = new Set([
+  'turn/failed',
+  'turn/interrupted',
+  'turn/canceled',
+  'turn/cancelled',
+])
 
 const threadDetailRefreshMethods = new Set([
   ...threadQueryRefreshMethods,
+  ...terminalTurnLifecycleRefreshMethods,
   'hook/started',
   'hook/completed',
   'item/started',
@@ -55,6 +62,7 @@ const threadDetailStreamingMethods = new Set([
 ])
 
 const openStreamRecoveryThreadDetailRefreshMethods = new Set([
+  ...terminalTurnLifecycleRefreshMethods,
   'thread/closed',
   'thread/compacted',
   'item/fileChange/outputDelta',
