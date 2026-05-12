@@ -22,6 +22,7 @@ export type ThreadPageEffectsInput = {
   activePendingTurn:
     | {
         turnId?: string
+        clientTurnRequestId?: string
         submittedAt: string
         phase: 'sending' | 'waiting'
       }
@@ -41,7 +42,7 @@ export type ThreadPageEffectsInput = {
   isThreadViewportInteracting: boolean
   isThreadsLoaded: boolean
   latestThreadDetailId?: string
-  liveThreadTurns?: Array<{ id: string }>
+  liveThreadTurns?: Array<{ clientTurnRequestId?: string; id: string }>
   mobileThreadToolsOpen: boolean
   navigate: NavigateFunction
   queryClient: ThreadPageEffectsQueryClient
@@ -79,6 +80,7 @@ export type ThreadPageLifecycleEffectsInput = {
   activePendingTurn:
     | {
         turnId?: string
+        clientTurnRequestId?: string
         submittedAt: string
         phase: 'sending' | 'waiting'
       }
@@ -88,7 +90,7 @@ export type ThreadPageLifecycleEffectsInput = {
   isThreadDetailLoading: boolean
   isThreadsLoaded: boolean
   latestThreadDetailId?: string
-  liveThreadTurns?: Array<{ id: string }>
+  liveThreadTurns?: Array<{ clientTurnRequestId?: string; id: string }>
   navigate: NavigateFunction
   routeThreadId?: string
   selectedThreadId?: string
@@ -102,6 +104,7 @@ export type ThreadPageRefreshEffectsInput = {
   activePendingTurn:
     | {
         turnId?: string
+        clientTurnRequestId?: string
         submittedAt: string
         phase: 'sending' | 'waiting'
       }

@@ -20,6 +20,7 @@ import type {
   WorkspaceRuntimeState,
 } from '../../types/api'
 import {
+  createClientTurnRequestId,
   createPendingTurn,
   shouldRetryTurnAfterResume,
   updateThreadStatusInList,
@@ -51,6 +52,7 @@ export function buildThreadPageThreadActions({
   fullTurnItemRetainCountById,
   fullTurnOverridesById,
   fullTurnRetainCountById,
+  getPendingTurn,
   historicalTurns,
   interruptTurnMutation,
   invalidateThreadQueries,
@@ -225,11 +227,17 @@ export function buildThreadPageThreadActions({
       }
     }
 
-    const optimisticTurn = createPendingTurn(selectedThreadId, trimmedInput)
+    const clientTurnRequestId = createClientTurnRequestId()
+    const optimisticTurn = createPendingTurn(
+      selectedThreadId,
+      trimmedInput,
+      clientTurnRequestId,
+    )
     const optimisticStatusUpdatedAt = new Date().toISOString()
     const startTurnInput = {
       threadId: selectedThreadId,
       input: trimmedInput,
+      clientTurnRequestId,
       model: composerPreferences.model || undefined,
       reasoningEffort: composerPreferences.reasoningEffort,
       permissionPreset: composerPreferences.permissionPreset,
@@ -308,6 +316,24 @@ export function buildThreadPageThreadActions({
       ])
       return true
     } catch (error) {
+      const optimisticTurnSettledByAnotherSource =
+        await waitForOptimisticTurnFailureConfirmation(
+          selectedThreadId,
+          optimisticTurn.localId,
+          getPendingTurn,
+        )
+      if (optimisticTurnSettledByAnotherSource) {
+        setAuthRecoveryRequestedAt(Date.now())
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: accountQueryKey(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: ['thread-detail', workspaceId, selectedThreadId] }),
+          queryClient.invalidateQueries({ queryKey: ['threads', workspaceId] }),
+          queryClient.invalidateQueries({ queryKey: ['shell-threads', workspaceId] }),
+          queryClient.invalidateQueries({ queryKey: ['loaded-threads', workspaceId] }),
+        ])
+        return true
+      }
+
       updatePendingTurn(selectedThreadId, (current) =>
         current?.localId === optimisticTurn.localId ? null : current,
       )
@@ -713,6 +739,21 @@ export function buildThreadPageThreadActions({
 
 function threadDetailPageSize() {
   return THREAD_TURN_WINDOW_INCREMENT
+}
+
+const OPTIMISTIC_TURN_FAILURE_CONFIRMATION_WINDOW_MS = 1_000
+
+async function waitForOptimisticTurnFailureConfirmation(
+  threadId: string,
+  optimisticTurnLocalId: string,
+  getPendingTurn: ThreadPageActionsInput['getPendingTurn'],
+) {
+  await new Promise((resolve) => {
+    setTimeout(resolve, OPTIMISTIC_TURN_FAILURE_CONFIRMATION_WINDOW_MS)
+  })
+
+  const currentPendingTurn = getPendingTurn(threadId)
+  return currentPendingTurn?.localId !== optimisticTurnLocalId
 }
 
 function mergeHistoricalTurns(nextTurns: ThreadTurn[], currentTurns: ThreadTurn[]) {

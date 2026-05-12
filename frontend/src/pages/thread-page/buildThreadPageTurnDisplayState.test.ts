@@ -746,6 +746,64 @@ describe('buildThreadPageTurnDisplayState', () => {
     expect(secondState.displayedTurns[0]).toBe(firstState.displayedTurns[0])
   })
 
+  it('injects the optimistic user message into a live turn matched by client request id', () => {
+    const threadProjection: ThreadDetail = {
+      id: 'thread-1',
+      workspaceId: 'ws-1',
+      name: 'Thread 1',
+      status: 'running',
+      archived: false,
+      createdAt: '2026-03-22T00:00:00.000Z',
+      updatedAt: '2026-03-22T00:00:01.000Z',
+      turnCount: 1,
+      messageCount: 1,
+      turns: [
+        {
+          clientTurnRequestId: 'client-turn-1',
+          id: 'turn-from-stream',
+          status: 'inProgress',
+          items: [
+            {
+              id: 'assistant-1',
+              phase: 'streaming',
+              text: '',
+              type: 'agentMessage',
+            },
+          ],
+        },
+      ],
+    }
+    const pendingTurn: PendingThreadTurn = {
+      clientTurnRequestId: 'client-turn-1',
+      input: 'hello',
+      localId: 'client-turn-1',
+      phase: 'sending',
+      submittedAt: '2026-03-22T00:00:00.000Z',
+      threadId: 'thread-1',
+    }
+
+    const state = buildThreadPageTurnDisplayState({
+      activePendingTurn: pendingTurn,
+      fullTurnItemContentOverridesById: {},
+      fullTurnItemOverridesById: {},
+      fullTurnOverridesById: {},
+      historicalTurns: [],
+      threadProjection,
+      selectedThreadId: 'thread-1',
+    })
+
+    expect(state.displayedTurns).toHaveLength(1)
+    expect(state.displayedTurns[0].id).toBe('turn-from-stream')
+    expect(state.displayedTurns[0].items[0]).toMatchObject({
+      id: 'pending-user-client-turn-1',
+      type: 'userMessage',
+    })
+    expect(state.displayedTurns[0].items[1]).toMatchObject({
+      id: 'assistant-1',
+      type: 'agentMessage',
+    })
+  })
+
   it('prefers live turns over overlapping historical turns so streamed updates stay visible', () => {
     const historicalTurns: ThreadDetail['turns'] = [
       {

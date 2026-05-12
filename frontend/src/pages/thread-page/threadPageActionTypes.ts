@@ -102,6 +102,7 @@ export type ThreadPageThreadActionsInput = {
   fullTurnOverridesById: Record<string, ThreadTurn>
   fullTurnRetainCountById: Record<string, number>
   historicalTurns: ThreadTurn[]
+  getPendingTurn: (threadId: string) => PendingThreadTurn | null
   interruptTurnMutation: {
     isPending: boolean
     mutate: () => void

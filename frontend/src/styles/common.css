@@ -2693,6 +2693,10 @@
   min-width: 0;
 }
 
+.wechat-accounts-section {
+  padding: 14px 16px 16px;
+}
+
 .feishu-tool-selector-card {
   display: flex;
   flex-direction: column;
@@ -3976,8 +3980,12 @@ button.workspace-overview-metric-tile:focus-visible {
 .input-action-floating {
   position: absolute;
   right: 8px;
-  top: 36px;
+  bottom: 6px;
   z-index: 10;
+}
+
+.input-with-action .field-input {
+  padding-right: 96px;
 }
 
 .field-group {
@@ -3997,6 +4005,46 @@ button.workspace-overview-metric-tile:focus-visible {
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.ide-tooltip.config-shell-type-tooltip-frame {
+  max-width: min(380px, calc(100vw - 24px));
+}
+
+.config-shell-type-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-shell-type-tooltip p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.config-shell-type-tooltip ul {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.config-shell-type-tooltip li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.config-shell-type-tooltip strong {
+  color: var(--text-strong);
+  font-size: 0.82rem;
+}
+
+.config-shell-type-tooltip span {
+  color: var(--text-muted);
 }
 
 .config-preview-grid {
@@ -4370,6 +4418,40 @@ button.workspace-overview-metric-tile:focus-visible {
   gap: 20px;
   align-items: center;
   flex-shrink: 0;
+}
+
+.mode-strip__action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mode-strip__action-buttons .ide-button {
+  white-space: nowrap;
+}
+
+.mode-strip--turn-policy-history {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.mode-strip--turn-policy-history .mode-strip__copy {
+  flex: 1 1 320px;
+  min-width: min(320px, 100%);
+}
+
+.mode-strip--turn-policy-history .mode-strip__actions {
+  flex: 1 1 560px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: min(560px, 100%);
+}
+
+.mode-strip--turn-policy-history .mode-metrics {
+  flex: 1 1 460px;
+  min-width: min(460px, 100%);
 }
 
 .jobs-page__management-grid {

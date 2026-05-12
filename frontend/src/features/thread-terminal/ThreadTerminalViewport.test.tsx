@@ -5,12 +5,15 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { cleanup, render } from '@testing-library/react'
 
 import { i18n } from '../../i18n/runtime'
-import { ThreadTerminalLauncherViewport } from './ThreadTerminalViewport'
+import {
+  ThreadTerminalLauncherViewport,
+  ThreadTerminalViewport,
+} from './ThreadTerminalViewport'
 
 const testState = vi.hoisted(() => ({
   animationFrames: new Map<number, FrameRequestCallback>(),
   nextAnimationFrameId: 1,
-  terminals: [] as Array<{ options: Record<string, unknown>; writes: string[] }>,
+  terminals: [] as Array<{ options: Record<string, unknown>; resets: number; writes: string[] }>,
 }))
 
 vi.mock('../settings/local-store', () => ({
@@ -54,6 +57,7 @@ vi.mock('@xterm/xterm', () => ({
     public cols = 80
     public rows = 24
     public options: Record<string, unknown>
+    public resets = 0
     public writes: string[] = []
 
     constructor(options: Record<string, unknown>) {
@@ -93,7 +97,9 @@ vi.mock('@xterm/xterm', () => ({
 
     refresh() {}
 
-    reset() {}
+    reset() {
+      this.resets += 1
+    }
 
     write(value: string) {
       this.writes.push(value)
@@ -214,5 +220,40 @@ describe('ThreadTerminalLauncherViewport', () => {
       foreground: '#182536',
       selectionBackground: 'rgba(0, 128, 255, 0.16)',
     })
+  })
+
+  it('resets the active viewport when content is cleared for the same session', () => {
+    const { rerender } = render(
+      <ThreadTerminalViewport
+        content="hello"
+        interactive={false}
+        onResize={() => undefined}
+        onWriteData={() => undefined}
+        sessionId="session-1"
+        visible
+      />,
+    )
+
+    flushAnimationFrames()
+
+    const latestTerminal = testState.terminals.at(-1)
+
+    expect(latestTerminal).toBeDefined()
+    expect(latestTerminal?.writes).toEqual(['hello'])
+    const resetsAfterInitialContent = latestTerminal?.resets ?? 0
+
+    rerender(
+      <ThreadTerminalViewport
+        content=""
+        interactive={false}
+        onResize={() => undefined}
+        onWriteData={() => undefined}
+        sessionId="session-1"
+        visible
+      />,
+    )
+
+    expect(latestTerminal?.resets).toBe(resetsAfterInitialContent + 1)
+    expect(latestTerminal?.options.disableStdin).toBe(true)
   })
 })

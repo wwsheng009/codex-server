@@ -88,6 +88,7 @@ export function buildThreadPageControllerSurfaceStateLayoutInput({
     threadLogStyle: viewportState.threadLogStyle,
     threadRuntimeNotice: statusState.threadRuntimeNotice,
     threadViewportRef: viewportState.threadViewportRef,
+    workspaceStreamRecoveryNotice: controllerState.workspaceStreamRecoveryNotice,
     workspaceName: dataState.workspaceQuery.data?.name,
     workspaceId: controllerState.workspaceId,
   }

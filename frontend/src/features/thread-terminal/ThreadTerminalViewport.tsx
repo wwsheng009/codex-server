@@ -483,6 +483,10 @@ export const ThreadTerminalViewport = forwardRef<
 
     if (!content) {
       clearQueuedWritesRef.current()
+      if (latestContentRef.current) {
+        terminal.reset()
+        terminal.options.disableStdin = !interactive
+      }
       latestContentRef.current = ''
       onSelectionChangeRef.current?.(false)
       return

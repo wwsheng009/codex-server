@@ -11,7 +11,9 @@ export type WorkspaceTreeThreadRowProps = {
   menuRef?: RefObject<HTMLDivElement | null>
   onDeleteThread: () => void
   onOpenThread: () => void
+  onRefreshThread?: () => void
   onRenameThread: () => void
   onToggleMenu: () => void
+  refreshInProgress?: boolean
   thread: Thread
 }

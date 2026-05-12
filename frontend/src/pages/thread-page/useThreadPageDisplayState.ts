@@ -33,6 +33,7 @@ export function useThreadPageDisplayState(input: ThreadPageDisplayStateInput) {
       input.selectedThreadEvents,
       input.selectedThreadId,
       input.selectedThreadTokenUsage,
+      input.surfacePanelView,
       input.workspaceEvents,
     ],
   )

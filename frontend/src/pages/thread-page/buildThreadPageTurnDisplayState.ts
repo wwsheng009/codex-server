@@ -424,8 +424,7 @@ function applyPendingTurnDisplay(
     return cached
   }
 
-  const turnIndex =
-    pendingTurn.turnId ? getTurnIndexById(turns).get(pendingTurn.turnId) : undefined
+  const turnIndex = findPendingTurnIndex(turns, pendingTurn)
   const result =
     typeof turnIndex === 'number'
       ? injectPendingUserMessageAtIndex(turns, turnIndex, pendingTurn)
@@ -433,6 +432,22 @@ function applyPendingTurnDisplay(
 
   cacheEntry.pendingTurnResults.set(pendingTurn, result)
   return result
+}
+
+function findPendingTurnIndex(turns: ThreadTurn[], pendingTurn: PendingThreadTurn) {
+  if (pendingTurn.turnId) {
+    return getTurnIndexById(turns).get(pendingTurn.turnId)
+  }
+
+  const clientTurnRequestId = pendingTurn.clientTurnRequestId
+  if (!clientTurnRequestId) {
+    return undefined
+  }
+
+  const index = turns.findIndex(
+    (turn) => turn.clientTurnRequestId === clientTurnRequestId,
+  )
+  return index >= 0 ? index : undefined
 }
 
 function buildCachedPendingThreadTurn(pendingTurn: PendingThreadTurn) {

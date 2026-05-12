@@ -34,7 +34,6 @@ import {
   RailIcon,
   RailIconButton,
   ResizeHandle,
-  SendIcon,
   SettingsIcon,
   SparkIcon,
   TerminalIcon,
@@ -107,12 +106,6 @@ function getPrimaryNavItems() {
       icon: FeedIcon,
     },
     {
-      section: 'bots-outbound',
-      to: '/bots/outbound',
-      label: i18n._({ id: 'Bot Outbound', message: 'Bot Outbound' }),
-      icon: SendIcon,
-    },
-    {
       section: 'skills',
       to: '/skills',
       label: i18n._({ id: 'Skills', message: 'Skills' }),
@@ -128,6 +121,11 @@ function getPrimaryNavItems() {
 }
 
 const DEFAULT_VISIBLE_THREADS = 8
+
+function threadRefreshKey(workspaceId: string, threadId: string) {
+  return `${workspaceId}:${threadId}`
+}
+
 function updateWorkspaceInList(current: Workspace[] | undefined, workspace: Workspace) {
   if (!current?.length) {
     return current
@@ -173,6 +171,7 @@ export function AppShell() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
   const [visibleThreadCountByWorkspace, setVisibleThreadCountByWorkspace] = useState<Record<string, number>>({})
   const [refreshingWorkspaceIds, setRefreshingWorkspaceIds] = useState<Set<string>>(new Set())
+  const [refreshingThreadKeys, setRefreshingThreadKeys] = useState<Set<string>>(new Set())
   const [areDeferredWorkspaceThreadQueriesEnabled, setAreDeferredWorkspaceThreadQueriesEnabled] =
     useState(() => !shouldDeferOffscreenWorkspaceThreadQueries)
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
@@ -199,7 +198,7 @@ export function AppShell() {
       const requestedThreadCount =
         visibleThreadCountByWorkspace[workspace.id] ?? DEFAULT_VISIBLE_THREADS
       const workspaceRouteActive = location.pathname.startsWith(`/workspaces/${workspace.id}`)
-      const preferCachedThreadPage = !refreshingWorkspaceIds.has(workspace.id)
+      const preferCachedThreadPage = false
       const shouldLoadWorkspaceThreads =
         !isSettingsRoute && (isWorkspaceGroupExpanded(workspace.id) || workspaceRouteActive)
       const shouldEnableThreadQuery =
@@ -681,6 +680,47 @@ export function AppShell() {
     }
   }
 
+  async function handleRefreshThread(workspaceId: string, thread: Thread) {
+    const refreshKey = threadRefreshKey(workspaceId, thread.id)
+    setOpenMenu(null)
+    setRefreshingThreadKeys((current) => new Set([...current, refreshKey]))
+    try {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['threads', workspaceId] }),
+        queryClient.refetchQueries({ queryKey: ['shell-threads', workspaceId] }),
+        queryClient.refetchQueries({
+          queryKey: ['thread-detail', workspaceId, thread.id],
+          type: 'all',
+        }),
+        queryClient.refetchQueries({
+          queryKey: ['hook-runs', workspaceId, thread.id],
+          type: 'all',
+        }),
+        queryClient.refetchQueries({
+          queryKey: ['turn-policy-decisions', workspaceId, thread.id],
+          type: 'all',
+        }),
+        queryClient.refetchQueries({
+          queryKey: ['turn-policy-metrics', workspaceId, thread.id],
+          type: 'all',
+        }),
+        refetchApprovalsQueryIfNeeded({
+          connectionState: connectionByWorkspace[workspaceId],
+          queryClient,
+          workspaceId,
+        }),
+      ])
+    } finally {
+      setTimeout(() => {
+        setRefreshingThreadKeys((current) => {
+          const next = new Set(current)
+          next.delete(refreshKey)
+          return next
+        })
+      }, 1000)
+    }
+  }
+
   function handleDeleteWorkspace(workspace: Workspace) {
     if (
       createThreadMutation.isPending ||
@@ -867,8 +907,6 @@ export function AppShell() {
       ? 'automations'
       : location.pathname.startsWith('/jobs')
         ? 'jobs'
-      : location.pathname.startsWith('/bots/outbound')
-        ? 'bots-outbound'
       : location.pathname.startsWith('/bots')
         ? 'bots'
       : location.pathname.startsWith('/skills')
@@ -938,7 +976,7 @@ export function AppShell() {
           message: 'Manage proactive recipients and outbound deliveries',
         }),
         keywords: ['bots', 'outbound', 'proactive', 'recipients', 'deliveries', 'operations'],
-        priority: currentSection === 'bots-outbound' ? 40 : 14,
+        priority: 14,
         onSelect: () => navigate('/bots/outbound'),
       },
       {
@@ -1565,6 +1603,7 @@ export function AppShell() {
                                   }
                                   navigate(buildWorkspaceThreadRoute(workspace.id, thread.id))
                                 }}
+                                onRefreshThread={() => void handleRefreshThread(workspace.id, thread)}
                                 onRenameThread={() => handleRenameThread(workspace.id, thread)}
                                 onToggleMenu={() =>
                                   setOpenMenu((current) =>
@@ -1579,6 +1618,9 @@ export function AppShell() {
                                         },
                                   )
                                 }
+                                refreshInProgress={refreshingThreadKeys.has(
+                                  threadRefreshKey(workspace.id, thread.id),
+                                )}
                                 thread={thread}
                               />
                             )

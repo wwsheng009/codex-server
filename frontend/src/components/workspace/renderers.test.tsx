@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { i18n } from '../../i18n/runtime'
 import type { ThreadTurn } from '../../types/api'
@@ -10,10 +10,15 @@ let nextStreamingRevealLength: typeof import('./renderers').nextStreamingRevealL
 let PlanStatusStack: typeof import('./renderers').PlanStatusStack
 let shouldVirtualizeTurnTimeline: typeof import('./renderers').shouldVirtualizeTurnTimeline
 let TurnTimeline: typeof import('./renderers').TurnTimeline
+let zhMessages: Record<string, string>
 
 describe('TurnTimeline', () => {
   beforeAll(async () => {
     i18n.loadAndActivate({ locale: 'en', messages: {} })
+    const [renderersModule, zhCatalog] = await Promise.all([
+      import('./renderers'),
+      import('../../locales/zh-CN/messages.po').then((module) => module.messages),
+    ])
     ;({
       areTurnTimelinePropsEqual,
       LiveFeed,
@@ -21,7 +26,12 @@ describe('TurnTimeline', () => {
       PlanStatusStack,
       shouldVirtualizeTurnTimeline,
       TurnTimeline,
-    } = await import('./renderers'))
+    } = renderersModule)
+    zhMessages = zhCatalog
+  })
+
+  beforeEach(() => {
+    i18n.loadAndActivate({ locale: 'en', messages: {} })
   })
 
   it('only enables virtualization for timelines that exceed the threshold with a viewport ref', () => {
@@ -379,7 +389,7 @@ describe('TurnTimeline', () => {
     expect(html).toContain('Compared websocket events with rendered entries.')
   })
 
-  it('renders an empty reasoning item as a lightweight placeholder instead of suppressing it', () => {
+  it('suppresses empty reasoning items instead of rendering placeholder cards', () => {
     const turns: ThreadTurn[] = [
       {
         id: 'turn-reasoning-empty',
@@ -388,8 +398,13 @@ describe('TurnTimeline', () => {
           {
             id: 'reasoning-empty-1',
             type: 'reasoning',
-            summary: [],
+            summary: ['   '],
             content: [],
+          },
+          {
+            id: 'agent-after-empty-reasoning',
+            type: 'agentMessage',
+            text: 'Visible reply after empty reasoning.',
           },
         ],
       },
@@ -397,9 +412,9 @@ describe('TurnTimeline', () => {
 
     const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
 
-    expect(html).toContain('Reasoning')
-    expect(html).toContain('Awaiting reasoning content')
-    expect(html).toContain('Thinking…')
+    expect(html).toContain('Visible reply after empty reasoning.')
+    expect(html).not.toContain('Reasoning')
+    expect(html).not.toContain('Awaiting reasoning content')
   })
 
   it('renders context compaction items even when they do not include text', () => {
@@ -504,6 +519,43 @@ describe('TurnTimeline', () => {
         .length,
     ).toBe(1)
     expect(html).not.toContain('git status --short')
+  })
+
+  it('renders localized command group counts and latest command placeholders', () => {
+    i18n.loadAndActivate({ locale: 'zh-CN', messages: zhMessages })
+    const turns: ThreadTurn[] = [
+      {
+        id: 'turn-command-group-zh',
+        status: 'completed',
+        items: [
+          {
+            id: 'cmd-1',
+            type: 'commandExecution',
+            command: 'git status --short',
+            status: 'completed',
+          },
+          {
+            id: 'cmd-2',
+            type: 'commandExecution',
+            command: 'npm run i18n:check',
+            status: 'completed',
+          },
+          {
+            id: 'cmd-3',
+            type: 'commandExecution',
+            command: 'npm test',
+            status: 'completed',
+          },
+        ],
+      },
+    ]
+
+    const html = renderToStaticMarkup(<TurnTimeline turns={turns} />)
+
+    expect(html).toContain('3 条命令')
+    expect(html).toContain('最新：npm test')
+    expect(html).not.toContain('{count}')
+    expect(html).not.toContain('{command}')
   })
 
   it('keeps non-consecutive command executions as separate timeline rows', () => {

@@ -1,15 +1,28 @@
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { i18n } from '../../i18n/runtime'
 import { buildThreadPageThreadActions } from './buildThreadPageThreadActions'
 
 describe('buildThreadPageThreadActions', () => {
   beforeEach(() => {
+    vi.useRealTimers()
+    i18n.loadAndActivate({ locale: 'en', messages: {} })
     vi.restoreAllMocks()
   })
 
   function createInput(overrides: Record<string, unknown> = {}) {
     const queryClient = new QueryClient()
+    const pendingTurnsByThread = new Map<string, any>()
+    const updatePendingTurn = vi.fn((threadId: string, updater: (current: any) => any) => {
+      const next = updater(pendingTurnsByThread.get(threadId) ?? null)
+      if (next) {
+        pendingTurnsByThread.set(threadId, next)
+      } else {
+        pendingTurnsByThread.delete(threadId)
+      }
+    })
+    const getPendingTurn = vi.fn((threadId: string) => pendingTurnsByThread.get(threadId) ?? null)
 
     return {
       archiveThreadMutation: { mutate: vi.fn() },
@@ -30,6 +43,7 @@ describe('buildThreadPageThreadActions', () => {
       fullTurnItemRetainCountById: {},
       fullTurnOverridesById: {},
       fullTurnRetainCountById: {},
+      getPendingTurn,
       historicalTurns: [],
       interruptTurnMutation: { isPending: false, mutate: vi.fn() },
       invalidateThreadQueries: vi.fn().mockResolvedValue(undefined),
@@ -84,7 +98,7 @@ describe('buildThreadPageThreadActions', () => {
         mutateAsync: vi.fn().mockResolvedValue({ status: 'ok' }),
       },
       unarchiveThreadMutation: { mutate: vi.fn() },
-      updatePendingTurn: vi.fn(),
+      updatePendingTurn,
       workspaceId: 'ws-1',
       workspaceRuntimeState: null,
       ...overrides,
@@ -103,6 +117,7 @@ describe('buildThreadPageThreadActions', () => {
     expect(input.startTurnMutation.mutateAsync).toHaveBeenCalledWith({
       threadId: 'thread-1',
       input: 'hello runtime',
+      clientTurnRequestId: expect.any(String),
       model: undefined,
       reasoningEffort: 'medium',
       permissionPreset: 'default',
@@ -125,6 +140,7 @@ describe('buildThreadPageThreadActions', () => {
     expect(input.startTurnMutation.mutateAsync).toHaveBeenCalledWith({
       threadId: 'thread-1',
       input: 'hello runtime',
+      clientTurnRequestId: expect.any(String),
       model: undefined,
       reasoningEffort: 'medium',
       permissionPreset: 'default',
@@ -172,6 +188,45 @@ describe('buildThreadPageThreadActions', () => {
     expect(input.setRecoverableSendInput).toHaveBeenCalledWith('hello runtime')
     expect(input.setSendError).toHaveBeenLastCalledWith('runtime exited unexpectedly')
     expect(queryClient.fetchQuery).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses one client turn request id for the optimistic turn and start request', async () => {
+    const input = createInput()
+    const actions = buildThreadPageThreadActions(input)
+
+    await actions.handleSendMessage({
+      preventDefault: vi.fn(),
+    } as any)
+
+    const startInput = input.startTurnMutation.mutateAsync.mock.calls[0][0]
+    const pendingUpdater = input.updatePendingTurn.mock.calls[0][1]
+    const pendingTurn = pendingUpdater(null)
+
+    expect(startInput.clientTurnRequestId).toEqual(expect.any(String))
+    expect(pendingTurn.clientTurnRequestId).toBe(startInput.clientTurnRequestId)
+    expect(pendingTurn.localId).toBe(startInput.clientTurnRequestId)
+  })
+
+  it('suppresses a stale HTTP send error when stream reconciliation already cleared the optimistic turn', async () => {
+    vi.useFakeTimers()
+    const input = createInput({
+      startTurnMutation: {
+        mutateAsync: vi.fn().mockRejectedValue(new Error('transport reset')),
+      },
+    })
+    const actions = buildThreadPageThreadActions(input)
+
+    const sendPromise = actions.handleSendMessage({
+      preventDefault: vi.fn(),
+    } as any)
+    input.updatePendingTurn('thread-1', () => null)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await sendPromise
+    vi.useRealTimers()
+
+    expect(input.setMessage).toHaveBeenCalledWith('')
+    expect(input.setSendError).toHaveBeenCalledWith(null)
+    expect(input.setRecoverableSendInput).not.toHaveBeenCalledWith('hello runtime')
   })
 
   it('captures a plain retry recovery marker after send failure when runtime says retry', async () => {

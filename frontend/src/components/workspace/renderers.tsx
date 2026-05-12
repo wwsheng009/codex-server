@@ -1794,21 +1794,8 @@ function TimelineItem({
       const contentText = reasoningContentText(item)
 
       if (!summaryText && !contentText) {
-        logTimelinePlaceholderItem(item, turnId, 'reasoning placeholder')
-        return (
-          <SystemTimelineCard
-            className="conversation-card--reasoning"
-            summary={i18n._({
-              id: 'Awaiting reasoning content',
-              message: 'Awaiting reasoning content',
-            })}
-            title={i18n._({ id: 'Reasoning', message: 'Reasoning' })}
-          >
-            <div className="conversation-card__placeholder">
-              {i18n._({ id: 'Thinking…', message: 'Thinking…' })}
-            </div>
-          </SystemTimelineCard>
-        )
+        logSuppressedTimelineItem(item, turnId, 'reasoning without content')
+        return null
       }
 
       return (
@@ -4194,8 +4181,9 @@ function conversationEntryOmissionReason(item: Record<string, unknown>) {
     case 'turnPlan':
     case 'plan':
     case 'fileChange':
-    case 'reasoning':
       return null
+    case 'reasoning':
+      return hasReasoningDisplayText(item) ? null : 'reasoning without content'
     case 'hookRun':
       return hookRunDisplayText(item) ? null : 'hookRun without message'
     case 'webSearch':
@@ -4248,7 +4236,8 @@ function collectTurnConversationEntries(turn: ThreadTurn) {
 
     const omissionReason = conversationEntryOmissionReason(item)
     if (omissionReason) {
-      if (threadTimelinePlaceholderFirst) {
+      const suppressesPlaceholder = shouldSuppressTimelinePlaceholder(item, omissionReason)
+      if (threadTimelinePlaceholderFirst && !suppressesPlaceholder) {
         logTimelinePlaceholderItem(
           item,
           turn.id,
@@ -4263,7 +4252,11 @@ function collectTurnConversationEntries(turn: ThreadTurn) {
         continue
       }
 
-      logSuppressedTimelineItem(item, turn.id, `conversation entry omitted: ${omissionReason}`)
+      logSuppressedTimelineItem(
+        item,
+        turn.id,
+        suppressesPlaceholder ? omissionReason : `conversation entry omitted: ${omissionReason}`,
+      )
       continue
     }
 
@@ -4298,6 +4291,17 @@ function buildConversationEntryItemKey(
   }
 
   return `${turnId}:index:${itemIndex}`
+}
+
+function hasReasoningDisplayText(item: Record<string, unknown>) {
+  return Boolean(reasoningSummaryText(item) || reasoningContentText(item))
+}
+
+function shouldSuppressTimelinePlaceholder(
+  item: Record<string, unknown>,
+  omissionReason: string,
+) {
+  return stringField(item.type) === 'reasoning' && omissionReason === 'reasoning without content'
 }
 
 function logSuppressedTimelineItem(

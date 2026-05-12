@@ -73,6 +73,7 @@ export function useThreadPageControllerActions({
     fullTurnOverridesById: controllerState.fullTurnOverridesById,
     fullTurnRetainCountById: controllerState.fullTurnRetainCountById,
     historicalTurns: controllerState.historicalTurns,
+    getPendingTurn: controllerState.getPendingTurn,
     interruptTurnMutation: mutationState.interruptTurnMutation,
     invalidateThreadQueries: mutationState.invalidateThreadQueries,
     isInterruptMode: statusState.isInterruptMode,

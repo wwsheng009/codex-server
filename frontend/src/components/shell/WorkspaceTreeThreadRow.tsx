@@ -3,6 +3,7 @@ import { formatRelativeTimeShort } from '../workspace/timeline-utils'
 import { formatLocalizedStatusLabel } from '../../i18n/display'
 import { i18n } from '../../i18n/runtime'
 import { useSessionStore } from '../../stores/session-store'
+import { buildThreadStoreKey } from '../../stores/session-store-utils'
 import type { ThreadActivitySummary } from '../../stores/session-store-types'
 import type { Thread } from '../../types/api'
 import type { WorkspaceTreeThreadRowProps } from './workspaceTreeThreadRowTypes'
@@ -62,11 +63,16 @@ export function WorkspaceTreeThreadRow({
   menuRef,
   onDeleteThread,
   onOpenThread,
+  onRefreshThread = () => undefined,
   onRenameThread,
   onToggleMenu,
+  refreshInProgress = false,
   thread,
 }: WorkspaceTreeThreadRowProps) {
-  const activity = useSessionStore((state) => state.threadActivityByThread[thread.id])
+  const activity = useSessionStore((state) =>
+    state.threadActivityByThread[buildThreadStoreKey(thread.workspaceId, thread.id)] ??
+    readLegacyThreadActivity(state.threadActivityByThread, thread),
+  )
   const threadIndicator = resolveThreadIndicator(thread, activity)
   const running =
     threadIndicator.kind === 'approval' ||
@@ -154,6 +160,16 @@ export function WorkspaceTreeThreadRow({
           <div className="workspace-tree__menu" role="menu">
             <button
               className="workspace-tree__menu-item"
+              disabled={refreshInProgress || isRenameOrDeletePending}
+              onClick={onRefreshThread}
+              type="button"
+            >
+              {refreshInProgress
+                ? i18n._({ id: 'Refreshing...', message: 'Refreshing...' })
+                : i18n._({ id: 'Refresh', message: 'Refresh' })}
+            </button>
+            <button
+              className="workspace-tree__menu-item"
               disabled={isRenameOrDeletePending}
               onClick={onRenameThread}
               type="button"
@@ -175,6 +191,14 @@ export function WorkspaceTreeThreadRow({
       </div>
     </div>
   )
+}
+
+function readLegacyThreadActivity(
+  threadActivityByThread: Record<string, ThreadActivitySummary>,
+  thread: Thread,
+) {
+  const legacyActivity = threadActivityByThread[thread.id]
+  return legacyActivity?.workspaceId === thread.workspaceId ? legacyActivity : undefined
 }
 
 function normalizeThreadStatusValue(value?: string) {

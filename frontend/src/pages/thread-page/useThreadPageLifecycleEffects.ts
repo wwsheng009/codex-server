@@ -4,6 +4,14 @@ import { ApiClientError } from '../../lib/api-client'
 import { buildWorkspaceThreadRoute } from '../../lib/thread-routes'
 import type { ThreadPageLifecycleEffectsInput } from './threadPageEffectTypes'
 
+type PendingTurnLifecycleMatchInput = NonNullable<
+  ThreadPageLifecycleEffectsInput['activePendingTurn']
+>
+
+type LiveThreadTurnLifecycleMatchInput = NonNullable<
+  ThreadPageLifecycleEffectsInput['liveThreadTurns']
+>[number]
+
 export function resolveThreadPageLifecycleSelection({
   currentThreads,
   isThreadDetailLoading,
@@ -71,6 +79,29 @@ export function resolveThreadPageLifecycleSelection({
         : undefined,
     nextThreadId,
   }
+}
+
+export function pendingTurnMatchesLiveTurn(
+  pendingTurn: PendingTurnLifecycleMatchInput,
+  liveTurn: LiveThreadTurnLifecycleMatchInput,
+) {
+  if (pendingTurn.turnId && liveTurn.id === pendingTurn.turnId) {
+    return true
+  }
+
+  return Boolean(
+    pendingTurn.clientTurnRequestId &&
+      liveTurn.clientTurnRequestId === pendingTurn.clientTurnRequestId,
+  )
+}
+
+export function findMatchingLiveTurnForPendingTurn(
+  pendingTurn: PendingTurnLifecycleMatchInput,
+  liveThreadTurns: LiveThreadTurnLifecycleMatchInput[] | undefined,
+) {
+  return (liveThreadTurns ?? []).find((turn) =>
+    pendingTurnMatchesLiveTurn(pendingTurn, turn),
+  )
 }
 
 export function useThreadPageLifecycleEffects({
@@ -141,29 +172,15 @@ export function useThreadPageLifecycleEffects({
   ])
 
   useEffect(() => {
-    if (!selectedThreadId || !activePendingTurn?.turnId) {
+    if (!selectedThreadId || !activePendingTurn) {
       return
     }
 
-    const turns = liveThreadTurns ?? []
-    if (!turns.some((turn) => turn.id === activePendingTurn.turnId)) {
+    if (!findMatchingLiveTurnForPendingTurn(activePendingTurn, liveThreadTurns)) {
       return
     }
 
-    const submittedAtMs = new Date(activePendingTurn.submittedAt).getTime()
-    const elapsedMs = Number.isNaN(submittedAtMs) ? 700 : Date.now() - submittedAtMs
-    const remainingMs = Math.max(0, 700 - elapsedMs)
-
-    if (remainingMs === 0) {
-      clearPendingTurn(selectedThreadId)
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      clearPendingTurn(selectedThreadId)
-    }, remainingMs)
-
-    return () => window.clearTimeout(timeoutId)
+    clearPendingTurn(selectedThreadId)
   }, [activePendingTurn, clearPendingTurn, liveThreadTurns, selectedThreadId])
 }
 

@@ -54,8 +54,8 @@
   }
 
   .settings-shell__frame {
-    grid-template-columns: minmax(220px, 252px) minmax(0, 1fr);
-    gap: 18px;
+    grid-template-columns: minmax(188px, 212px) minmax(0, 1fr);
+    gap: 16px;
   }
 
   .setting-row {
@@ -269,7 +269,7 @@
   }
 
   .settings-shell__frame {
-    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+    grid-template-columns: minmax(188px, 212px) minmax(0, 1fr);
   }
 
   .runtime-item__compact-head,

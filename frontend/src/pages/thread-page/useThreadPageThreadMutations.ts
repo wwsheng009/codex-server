@@ -184,9 +184,18 @@ export function useThreadPageThreadMutations({
     Error,
     ThreadPageStartTurnMutationInput
   >({
-    mutationFn: ({ threadId, input, model, reasoningEffort, permissionPreset, collaborationMode }) =>
+    mutationFn: ({
+      threadId,
+      input,
+      clientTurnRequestId,
+      model,
+      reasoningEffort,
+      permissionPreset,
+      collaborationMode,
+    }) =>
       startTurn(workspaceId, threadId, {
         input,
+        clientTurnRequestId,
         model,
         reasoningEffort,
         permissionPreset,

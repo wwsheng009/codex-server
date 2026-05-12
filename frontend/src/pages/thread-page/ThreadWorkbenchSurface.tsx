@@ -11,6 +11,7 @@ import {
 } from '../../components/workspace/threadConversationProfiler'
 import type { LiveTimelineEntry } from '../../components/workspace/timelineUtilsTypes'
 import { i18n } from '../../i18n/runtime'
+import type { WorkspaceStreamRecoveryNotice } from '../../hooks/useWorkspaceStreamTypes'
 import type { SurfacePanelSide, SurfacePanelView } from '../../lib/layout-config-types'
 import type { PendingApproval, Thread, ThreadTurn } from '../../types/api'
 import { RuntimeRecoveryActionGroup } from '../../features/workspaces/RuntimeRecoveryActionGroup'
@@ -87,6 +88,7 @@ export type ThreadWorkbenchSurfaceProps = {
   runtimeRecoveryExecutionNotice?: ThreadPageRuntimeRecoveryExecutionNotice | null
   threadRuntimeNotice?: ThreadRuntimeNotice
   threadViewportRef: RefObject<HTMLDivElement | null>
+  workspaceStreamRecoveryNotice?: WorkspaceStreamRecoveryNotice | null
   workspaceName?: string
 }
 
@@ -231,6 +233,7 @@ export function ThreadWorkbenchSurface({
   runtimeRecoveryExecutionNotice,
   threadRuntimeNotice,
   threadViewportRef,
+  workspaceStreamRecoveryNotice,
   workspaceName,
 }: ThreadWorkbenchSurfaceProps) {
   const previousOlderTurnsLoadingRef = useRef(isLoadingOlderTurns)
@@ -368,21 +371,35 @@ export function ThreadWorkbenchSurface({
   const surfacePanelActionsClassName = isPlansSurfacePanel
     ? 'workbench-log__panel-actions workbench-log__panel-actions--plans'
     : 'workbench-log__panel-actions'
+  const workspaceStreamRecoveryNoticeBanner = workspaceStreamRecoveryNotice ? (
+    <InlineNotice
+      details={workspaceStreamRecoveryNotice.details}
+      dismissible
+      noticeKey={workspaceStreamRecoveryNotice.noticeKey}
+      title={workspaceStreamRecoveryNotice.title}
+      tone={workspaceStreamRecoveryNotice.tone}
+    >
+      {workspaceStreamRecoveryNotice.message}
+    </InlineNotice>
+  ) : null
+  const workbenchLogClassName = isThreadPinnedToLatest
+    ? 'workbench-log workbench-log--follow'
+    : 'workbench-log workbench-log--detached'
+  const workbenchLogViewportClassName = isThreadPinnedToLatest
+    ? 'workbench-log__viewport workbench-log__viewport--follow'
+    : 'workbench-log__viewport workbench-log__viewport--detached'
 
   return (
     <div className="workbench-stage__canvas">
-      <div className="workbench-log" style={threadLogStyle}>
+      <div
+        aria-busy={isThreadProcessing}
+        className={workbenchLogClassName}
+        onScroll={handleViewportScroll}
+        ref={threadViewportRef}
+        style={threadLogStyle}
+      >
         <ConversationRenderProfilerBoundary id="ThreadWorkbenchSurface">
-          <div
-            aria-busy={isThreadProcessing}
-            className={
-              isThreadPinnedToLatest
-                ? 'workbench-log__viewport workbench-log__viewport--follow'
-                : 'workbench-log__viewport workbench-log__viewport--detached'
-            }
-            onScroll={handleViewportScroll}
-            ref={threadViewportRef}
-          >
+          <div className={workbenchLogViewportClassName}>
             {selectedThread ? (
               threadDetailIsLoading && !displayedTurns.length ? (
                 <div className="workbench-log__loading">
@@ -410,6 +427,7 @@ export function ThreadWorkbenchSurface({
                 </InlineNotice>
               ) : displayedTurns.length ? (
                 <div className="workbench-log__thread">
+                  {workspaceStreamRecoveryNoticeBanner}
                   {runtimeRecoveryNotice ? (
                     <InlineNotice
                       action={RuntimeRecoveryActionGroup({
@@ -504,6 +522,7 @@ export function ThreadWorkbenchSurface({
                 </div>
               ) : (
                 <div className="empty-state workbench-log__empty">
+                  {workspaceStreamRecoveryNoticeBanner}
                   {i18n._({
                     id: 'Send the first message to start this thread.',
                     message: 'Send the first message to start this thread.',
@@ -512,6 +531,7 @@ export function ThreadWorkbenchSurface({
               )
             ) : (
               <div className="empty-state workbench-log__empty">
+                {workspaceStreamRecoveryNoticeBanner}
                 <div className="form-stack">
                   <p>
                     {showThreadsLoadingState

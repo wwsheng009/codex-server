@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveThreadPageLifecycleSelection } from './useThreadPageLifecycleEffects'
+import {
+  findMatchingLiveTurnForPendingTurn,
+  pendingTurnMatchesLiveTurn,
+  resolveThreadPageLifecycleSelection,
+} from './useThreadPageLifecycleEffects'
 
 describe('resolveThreadPageLifecycleSelection', () => {
   it('does not redirect away from a route thread before the thread list has loaded', () => {
@@ -84,5 +88,58 @@ describe('resolveThreadPageLifecycleSelection', () => {
       navigateTo: '/workspaces/ws-1',
       nextThreadId: undefined,
     })
+  })
+})
+
+describe('pending turn live matching', () => {
+  it('matches a pending turn by server turn id', () => {
+    expect(
+      pendingTurnMatchesLiveTurn(
+        {
+          phase: 'waiting',
+          submittedAt: '2026-05-12T00:00:00.000Z',
+          turnId: 'turn-1',
+        },
+        {
+          id: 'turn-1',
+        },
+      ),
+    ).toBe(true)
+  })
+
+  it('matches a pending turn by client turn request id before HTTP turn id is known', () => {
+    const match = findMatchingLiveTurnForPendingTurn(
+      {
+        clientTurnRequestId: 'client-turn-1',
+        phase: 'sending',
+        submittedAt: '2026-05-12T00:00:00.000Z',
+      },
+      [
+        {
+          clientTurnRequestId: 'client-turn-1',
+          id: 'turn-from-stream',
+        },
+      ],
+    )
+
+    expect(match?.id).toBe('turn-from-stream')
+  })
+
+  it('does not match unrelated client turn request ids', () => {
+    expect(
+      findMatchingLiveTurnForPendingTurn(
+        {
+          clientTurnRequestId: 'client-turn-1',
+          phase: 'sending',
+          submittedAt: '2026-05-12T00:00:00.000Z',
+        },
+        [
+          {
+            clientTurnRequestId: 'client-turn-2',
+            id: 'turn-from-stream',
+          },
+        ],
+      ),
+    ).toBeUndefined()
   })
 })

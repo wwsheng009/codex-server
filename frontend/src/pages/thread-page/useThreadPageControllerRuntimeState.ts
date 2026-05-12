@@ -1,4 +1,7 @@
-import { useWorkspaceStream } from '../../hooks/useWorkspaceStream'
+import {
+  useWorkspaceStream,
+  useWorkspaceStreamRecoveryNotice,
+} from '../../hooks/useWorkspaceStream'
 import { usePendingThreadTurns } from './usePendingThreadTurns'
 import { useThreadComposerState } from './useThreadComposerState'
 import { useThreadPagePlanModeSupport } from './useThreadPagePlanModeSupport'
@@ -47,9 +50,11 @@ export function useThreadPageControllerRuntimeState({
     isMobileViewport,
   })
   const streamState = useWorkspaceStream(workspaceId)
+  const workspaceStreamRecoveryNotice = useWorkspaceStreamRecoveryNotice(workspaceId)
   const {
     activePendingTurn,
     clearPendingTurn,
+    getPendingTurn,
     pendingTurnsByThread,
     updatePendingTurn,
   } = usePendingThreadTurns({
@@ -69,6 +74,7 @@ export function useThreadPageControllerRuntimeState({
     activePendingTurn,
     activeSurfacePanelSide,
     clearPendingTurn,
+    getPendingTurn,
     handleChangeTerminalDockPlacement,
     handleInspectorResizeStart,
     handleHideTerminalDock,
@@ -102,6 +108,7 @@ export function useThreadPageControllerRuntimeState({
     terminalDockPlacement,
     terminalWindowBounds,
     updatePendingTurn,
+    workspaceStreamRecoveryNotice,
     workbenchLayoutStyle,
   }
 }

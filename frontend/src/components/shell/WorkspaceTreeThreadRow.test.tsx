@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { i18n } from '../../i18n/runtime'
 import { useSessionStore } from '../../stores/session-store'
+import { buildThreadStoreKey } from '../../stores/session-store-utils'
 import type { Thread } from '../../types/api'
 import { WorkspaceTreeThreadRow } from './WorkspaceTreeThreadRow'
 
@@ -216,6 +217,30 @@ describe('WorkspaceTreeThreadRow', () => {
     expect(meta?.querySelector('.workspace-tree__thread-status-text')?.textContent).toBe('Sending')
   })
 
+  it('shows a refresh action in the thread menu', () => {
+    const onRefreshThread = vi.fn()
+
+    render(
+      <WorkspaceTreeThreadRow
+        activeThreadId="thread-2"
+        deleteInProgress={false}
+        isMenuOpen={true}
+        isRenameOrDeletePending={false}
+        isSelectedWorkspaceRoute={false}
+        onDeleteThread={() => {}}
+        onOpenThread={() => {}}
+        onRefreshThread={onRefreshThread}
+        onRenameThread={() => {}}
+        onToggleMenu={() => {}}
+        thread={makeThread()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    expect(onRefreshThread).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps icon and text synchronized when activity fallback promotes idle thread to processing', () => {
     useSessionStore.setState((state) => ({
       ...state,
@@ -277,6 +302,46 @@ describe('WorkspaceTreeThreadRow', () => {
         onRenameThread={() => {}}
         onToggleMenu={() => {}}
         thread={makeThread({ status: 'running' })}
+      />,
+    )
+
+    expect(container.querySelector('.workspace-tree__thread-status-icon--success')).toBeTruthy()
+    expect(screen.getByText('Completed')).toBeTruthy()
+  })
+
+  it('uses workspace-scoped activity for matching thread ids', () => {
+    useSessionStore.setState((state) => ({
+      ...state,
+      threadActivityByThread: {
+        [buildThreadStoreKey('ws-1', 'thread-1')]: {
+          latestEventMethod: 'turn/completed',
+          latestEventTs: '2026-04-12T10:01:00.000Z',
+          latestStatus: 'completed',
+          threadId: 'thread-1',
+          workspaceId: 'ws-1',
+        },
+        [buildThreadStoreKey('ws-2', 'thread-1')]: {
+          latestEventMethod: 'turn/started',
+          latestEventTs: '2026-04-12T10:02:00.000Z',
+          latestStatus: 'running',
+          threadId: 'thread-1',
+          workspaceId: 'ws-2',
+        },
+      },
+    }))
+
+    const { container } = render(
+      <WorkspaceTreeThreadRow
+        activeThreadId="thread-2"
+        deleteInProgress={false}
+        isMenuOpen={false}
+        isRenameOrDeletePending={false}
+        isSelectedWorkspaceRoute={false}
+        onDeleteThread={() => {}}
+        onOpenThread={() => {}}
+        onRenameThread={() => {}}
+        onToggleMenu={() => {}}
+        thread={makeThread({ status: 'running', workspaceId: 'ws-1' })}
       />,
     )
 

@@ -84,6 +84,7 @@ export function buildThreadPageSurfaceLayoutProps(
     restartRuntimePending: input.restartRuntimePending,
     threadRuntimeNotice: input.threadRuntimeNotice,
     threadViewportRef: input.threadViewportRef,
+    workspaceStreamRecoveryNotice: input.workspaceStreamRecoveryNotice,
     workspaceName: input.workspaceName,
   }
 

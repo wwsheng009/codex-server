@@ -7,8 +7,11 @@ export type PendingThreadTurn = {
   input: string
   submittedAt: string
   phase: 'sending' | 'waiting'
+  clientTurnRequestId?: string
   turnId?: string
 }
+
+let fallbackClientTurnRequestCounter = 0
 
 export function updateThreadStatusInList(
   current: Thread[] | undefined,
@@ -116,13 +119,24 @@ export function buildRetryPromptFromServerRequest(item: Record<string, unknown>)
   }
 }
 
-export function createPendingTurn(threadId: string, input: string): PendingThreadTurn {
-  const localId =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `pending-${Date.now()}`
+export function createClientTurnRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  fallbackClientTurnRequestCounter += 1
+  return `client-turn-${Date.now()}-${fallbackClientTurnRequestCounter}`
+}
+
+export function createPendingTurn(
+  threadId: string,
+  input: string,
+  clientTurnRequestId = createClientTurnRequestId(),
+): PendingThreadTurn {
+  const localId = clientTurnRequestId
 
   return {
+    clientTurnRequestId,
     localId,
     threadId,
     input,
