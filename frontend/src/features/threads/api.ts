@@ -21,6 +21,7 @@ export type ListThreadsPageInput = {
 export type GetThreadInput = {
   beforeTurnId?: string;
   contentMode?: "full" | "summary";
+  preferCached?: boolean;
   turnLimit?: number;
 };
 
@@ -137,6 +138,9 @@ export function getThread(
   }
   if (input?.contentMode) {
     query.set("contentMode", input.contentMode);
+  }
+  if (typeof input?.preferCached === "boolean") {
+    query.set("preferCached", String(input.preferCached));
   }
   if (input?.turnLimit && input.turnLimit > 0) {
     query.set("turnLimit", String(input.turnLimit));

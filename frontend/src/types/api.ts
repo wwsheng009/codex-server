@@ -610,6 +610,7 @@ export type ThreadTurn = {
   status: string;
   items: Record<string, unknown>[];
   error?: unknown;
+  clientTurnRequestId?: string;
 };
 
 export type ThreadDetail = Thread & {
@@ -1486,6 +1487,9 @@ export type ThreadTokenUsage = {
 
 export type ServerEvent = {
   seq?: number;
+  coversSeqFrom?: number;
+  coversSeqTo?: number;
+  coalesced?: boolean;
   workspaceId: string;
   threadId?: string;
   turnId?: string;
@@ -1499,6 +1503,7 @@ export type ServerEvent = {
 export type TurnResult = {
   turnId: string;
   status: string;
+  clientTurnRequestId?: string;
 };
 
 export type CommandSession = {

@@ -803,6 +803,9 @@ type CommandSessionSnapshot struct {
 
 type EventEnvelope struct {
 	Seq             uint64    `json:"seq,omitempty"`
+	CoversSeqFrom   uint64    `json:"coversSeqFrom,omitempty"`
+	CoversSeqTo     uint64    `json:"coversSeqTo,omitempty"`
+	Coalesced       bool      `json:"coalesced,omitempty"`
 	WorkspaceID     string    `json:"workspaceId"`
 	ThreadID        string    `json:"threadId,omitempty"`
 	TurnID          string    `json:"turnId,omitempty"`

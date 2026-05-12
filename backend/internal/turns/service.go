@@ -25,11 +25,13 @@ type StartOptions struct {
 	PermissionPreset           string
 	CollaborationMode          string
 	ResponsesAPIClientMetadata StartMetadata
+	ClientTurnRequestID        string
 }
 
 type Result struct {
-	TurnID string `json:"turnId"`
-	Status string `json:"status"`
+	TurnID              string `json:"turnId"`
+	Status              string `json:"status"`
+	ClientTurnRequestID string `json:"clientTurnRequestId,omitempty"`
 }
 
 const interruptRuntimeCallTimeout = 5 * time.Second
@@ -118,8 +120,9 @@ func (s *Service) Start(ctx context.Context, workspaceID string, threadID string
 	s.runtimes.RememberActiveTurn(workspaceID, threadID, response.Turn.ID)
 
 	return Result{
-		TurnID: response.Turn.ID,
-		Status: "running",
+		TurnID:              response.Turn.ID,
+		Status:              "running",
+		ClientTurnRequestID: normalizeClientTurnRequestID(options.ClientTurnRequestID),
 	}, nil
 }
 
@@ -243,6 +246,9 @@ func buildTurnStartPayloadWithRuntimeDefaults(
 	if len(request.ResponsesAPIClientMetadata) > 0 {
 		payload["responsesapiClientMetadata"] = request.ResponsesAPIClientMetadata
 	}
+	if strings.TrimSpace(request.ClientTurnRequestID) != "" {
+		payload["clientTurnRequestId"] = request.ClientTurnRequestID
+	}
 
 	return payload
 }
@@ -264,6 +270,7 @@ func buildTurnStartRequestWithRuntimeDefaults(
 		},
 		ThreadID:                   threadID,
 		ResponsesAPIClientMetadata: responsesAPIClientMetadata,
+		ClientTurnRequestID:        normalizeClientTurnRequestID(options.ClientTurnRequestID),
 	}
 
 	if collaborationMode != nil {
@@ -295,6 +302,14 @@ func buildTurnStartRequestWithRuntimeDefaults(
 	}
 
 	return request
+}
+
+func normalizeClientTurnRequestID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 200 {
+		return ""
+	}
+	return value
 }
 
 func (s *Service) runtimeDefaults() (runtimeDefaults, error) {

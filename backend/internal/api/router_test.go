@@ -6188,6 +6188,8 @@ func TestStartTurnRouteSendsResponsesAPIClientMetadata(t *testing.T) {
 
 	workspace := dataStore.CreateWorkspace("Workspace A", `E:\projects\ai\codex-server`)
 	runtimeManager.Configure(workspace.ID, `E:\projects\ai\codex-server`)
+	eventsCh, cancelEvents := eventHub.Subscribe(workspace.ID)
+	defer cancelEvents()
 	now := time.Date(2026, time.April, 11, 4, 0, 0, 0, time.UTC)
 	dataStore.UpsertThread(store.Thread{
 		ID:           "thread-1",
@@ -6205,10 +6207,22 @@ func TestStartTurnRouteSendsResponsesAPIClientMetadata(t *testing.T) {
 		router,
 		http.MethodPost,
 		"/api/workspaces/"+workspace.ID+"/threads/thread-1/turns",
-		`{"input":"Inspect the repo"}`,
+		`{"input":"Inspect the repo","clientTurnRequestId":"client-turn-route-1"}`,
 	)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("expected 202 from start turn route, got %d", response.Code)
+	}
+
+	var responsePayload struct {
+		Data struct {
+			TurnID              string `json:"turnId"`
+			Status              string `json:"status"`
+			ClientTurnRequestID string `json:"clientTurnRequestId"`
+		} `json:"data"`
+	}
+	decodeResponseBody(t, response, &responsePayload)
+	if responsePayload.Data.ClientTurnRequestID != "client-turn-route-1" {
+		t.Fatalf("expected response to echo client turn request id, got %#v", responsePayload.Data)
 	}
 
 	state := codexfake.ReadState(t, session.StateFile)
@@ -6227,6 +6241,31 @@ func TestStartTurnRouteSendsResponsesAPIClientMetadata(t *testing.T) {
 	}
 	if metadata["threadId"] != "thread-1" {
 		t.Fatalf("expected threadId thread-1, got %#v", metadata["threadId"])
+	}
+	if _, ok := state.LastTurn["clientTurnRequestId"]; ok {
+		t.Fatalf("expected client turn request id to stay server-side only, got %#v", state.LastTurn)
+	}
+
+	var startedEvent store.EventEnvelope
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-eventsCh:
+			if event.Method != "turn/started" {
+				continue
+			}
+			startedEvent = event
+		case <-deadline:
+			t.Fatal("expected turn/started event")
+		}
+		break
+	}
+	startedPayload, ok := startedEvent.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected turn/started map payload, got %#v", startedEvent.Payload)
+	}
+	if startedPayload["clientTurnRequestId"] != "client-turn-route-1" {
+		t.Fatalf("expected turn/started to echo client request id, got %#v", startedPayload)
 	}
 
 	runs := dataStore.ListHookRuns(workspace.ID, "thread-1")

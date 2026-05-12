@@ -307,6 +307,18 @@ func (s *MemoryStore) GetWorkspaceEventHeadSeq(workspaceID string) uint64 {
 	return s.workspaceEventSeq[workspaceID]
 }
 
+func (s *MemoryStore) GetWorkspaceEventOldestSeq(workspaceID string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	events := s.workspaceEvents[workspaceID]
+	if len(events) == 0 {
+		return 0
+	}
+
+	return events[0].Seq
+}
+
 func (s *MemoryStore) ListCommandSessions(workspaceID string) []CommandSessionSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

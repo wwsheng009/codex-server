@@ -3,6 +3,7 @@ import type { TurnResult } from '../../types/api'
 
 export type StartTurnInput = {
   input: string
+  clientTurnRequestId?: string
   model?: string
   reasoningEffort?: string
   permissionPreset?: string

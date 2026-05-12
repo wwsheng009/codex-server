@@ -2232,6 +2232,15 @@ func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 		}
 		turnLimit = parsedLimit
 	}
+	preferCached, err := parseOptionalBoolQuery(r.URL.Query().Get("preferCached"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid preferCached query")
+		return
+	}
+	allowCachedDetail := true
+	if preferCached != nil {
+		allowCachedDetail = *preferCached
+	}
 
 	thread, err := s.threads.GetDetailWindow(
 		r.Context(),
@@ -2240,6 +2249,7 @@ func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 		turnLimit,
 		beforeTurnID,
 		contentMode,
+		allowCachedDetail,
 	)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -2722,11 +2732,12 @@ func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "threadId")
 
 	var request struct {
-		Input             string `json:"input"`
-		Model             string `json:"model"`
-		ReasoningEffort   string `json:"reasoningEffort"`
-		PermissionPreset  string `json:"permissionPreset"`
-		CollaborationMode string `json:"collaborationMode"`
+		Input               string `json:"input"`
+		ClientTurnRequestID string `json:"clientTurnRequestId"`
+		Model               string `json:"model"`
+		ReasoningEffort     string `json:"reasoningEffort"`
+		PermissionPreset    string `json:"permissionPreset"`
+		CollaborationMode   string `json:"collaborationMode"`
 	}
 
 	if err := decodeJSON(r, &request); err != nil {
@@ -2752,6 +2763,7 @@ func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 				PermissionPreset:           request.PermissionPreset,
 				CollaborationMode:          request.CollaborationMode,
 				ResponsesAPIClientMetadata: turns.InteractiveStartMetadata(workspaceID, threadID),
+				ClientTurnRequestID:        request.ClientTurnRequestID,
 			},
 		})
 		if governedErr != nil {
@@ -2770,6 +2782,7 @@ func (s *Server) handleStartTurn(w http.ResponseWriter, r *http.Request) {
 			PermissionPreset:           request.PermissionPreset,
 			CollaborationMode:          request.CollaborationMode,
 			ResponsesAPIClientMetadata: turns.InteractiveStartMetadata(workspaceID, threadID),
+			ClientTurnRequestID:        request.ClientTurnRequestID,
 		})
 		if err != nil {
 			s.writeStoreError(w, err)
@@ -4237,11 +4250,19 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	)
 	defer cancel()
 
+	const workspaceReplayLimit = 2000
+	headSeq := s.events.WorkspaceEventHeadSeq(workspaceID)
+	oldestSeq := s.events.WorkspaceEventOldestSeq(workspaceID)
+
 	if err := conn.WriteJSON(store.EventEnvelope{
 		WorkspaceID: workspaceID,
 		Method:      "workspace/connected",
-		Payload: map[string]string{
-			"status": "connected",
+		Payload: map[string]any{
+			"status":          "connected",
+			"headSeq":         headSeq,
+			"oldestSeq":       oldestSeq,
+			"replayLimit":     workspaceReplayLimit,
+			"protocolVersion": 2,
 		},
 		ServerRequestID: nil,
 		TS:              time.Now().UTC(),
@@ -4283,9 +4304,17 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const workspaceReplayLimit = 2000
 	if afterSeq > 0 {
-		for _, event := range s.events.Replay(workspaceID, afterSeq, workspaceReplayLimit) {
+		replayedEvents := s.events.Replay(workspaceID, afterSeq, workspaceReplayLimit)
+		var replayFromSeq uint64
+		var replayToSeq uint64
+		for _, event := range replayedEvents {
+			if replayFromSeq == 0 || event.Seq < replayFromSeq {
+				replayFromSeq = event.Seq
+			}
+			if event.Seq > replayToSeq {
+				replayToSeq = event.Seq
+			}
 			if diagnostics.ShouldLogEventTrace("workspace stream replaying event", event.Method) {
 				diagnostics.LogTrace(
 					workspaceID,
@@ -4317,6 +4346,26 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 				)
 				return
 			}
+		}
+		if err := conn.WriteJSON(store.EventEnvelope{
+			WorkspaceID: workspaceID,
+			Method:      "workspace/replay/completed",
+			Payload: map[string]any{
+				"afterSeq":     afterSeq,
+				"fromSeq":      replayFromSeq,
+				"toSeq":        replayToSeq,
+				"headSeq":      headSeq,
+				"oldestSeq":    oldestSeq,
+				"complete":     isWorkspaceReplayComplete(afterSeq, replayToSeq, headSeq, oldestSeq, len(replayedEvents), workspaceReplayLimit),
+				"nextAfterSeq": replayToSeq,
+				"limit":        workspaceReplayLimit,
+				"replayed":     len(replayedEvents),
+			},
+			ServerRequestID: nil,
+			TS:              time.Now().UTC(),
+		}); err != nil {
+			diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream replay completion write failed", "error", err)
+			return
 		}
 	}
 
@@ -4354,6 +4403,26 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func isWorkspaceReplayComplete(
+	afterSeq uint64,
+	replayToSeq uint64,
+	headSeq uint64,
+	oldestSeq uint64,
+	replayedCount int,
+	limit int,
+) bool {
+	if oldestSeq > 0 && afterSeq+1 < oldestSeq {
+		return false
+	}
+	if replayToSeq > 0 && replayToSeq < headSeq {
+		return false
+	}
+	if replayedCount >= limit && replayToSeq < headSeq {
+		return false
+	}
+	return true
 }
 
 func parseAfterSeq(raw string) uint64 {

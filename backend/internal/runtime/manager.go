@@ -87,20 +87,22 @@ type Manager struct {
 }
 
 type instance struct {
-	mu                      sync.RWMutex
-	manager                 *Manager
-	workspaceID             string
-	rootPath                string
-	client                  *bridge.Client
-	expectClose             bool
-	state                   State
-	stderrBuffer            *stderrRingBuffer
-	activeTurns             map[string]string
-	interruptingTurns       map[string]string
-	lastTerminalTurns       map[string]string
-	commandOutputFlushTimer *time.Timer
-	pendingCommandOutputLen int
-	pendingCommandOutput    []pendingCommandOutputChunk
+	mu                       sync.RWMutex
+	manager                  *Manager
+	workspaceID              string
+	rootPath                 string
+	client                   *bridge.Client
+	expectClose              bool
+	state                    State
+	stderrBuffer             *stderrRingBuffer
+	activeTurns              map[string]string
+	interruptingTurns        map[string]string
+	lastTerminalTurns        map[string]string
+	pendingTurnStartRequests map[string]string
+	clientTurnRequestsByTurn map[string]string
+	commandOutputFlushTimer  *time.Timer
+	pendingCommandOutputLen  int
+	pendingCommandOutput     []pendingCommandOutputChunk
 }
 
 type pendingCommandOutputChunk struct {
@@ -162,6 +164,8 @@ func (m *Manager) ApplyLaunchConfig(launchConfig appconfig.RuntimeLaunchConfig) 
 		runtime.activeTurns = make(map[string]string)
 		runtime.interruptingTurns = make(map[string]string)
 		runtime.lastTerminalTurns = make(map[string]string)
+		runtime.pendingTurnStartRequests = make(map[string]string)
+		runtime.clientTurnRequestsByTurn = make(map[string]string)
 		if runtime.client != nil {
 			runtime.expectClose = true
 			clients = append(clients, runtime.client)
@@ -506,12 +510,14 @@ func (m *Manager) getOrCreateLocked(workspaceID string) *instance {
 	}
 
 	runtime := &instance{
-		manager:           m,
-		workspaceID:       workspaceID,
-		stderrBuffer:      newStderrRingBuffer(runtimeStderrRingBufferCapacity),
-		activeTurns:       make(map[string]string),
-		interruptingTurns: make(map[string]string),
-		lastTerminalTurns: make(map[string]string),
+		manager:                  m,
+		workspaceID:              workspaceID,
+		stderrBuffer:             newStderrRingBuffer(runtimeStderrRingBufferCapacity),
+		activeTurns:              make(map[string]string),
+		interruptingTurns:        make(map[string]string),
+		lastTerminalTurns:        make(map[string]string),
+		pendingTurnStartRequests: make(map[string]string),
+		clientTurnRequestsByTurn: make(map[string]string),
 		state: State{
 			WorkspaceID: workspaceID,
 			Status:      "stopped",
@@ -613,6 +619,7 @@ func (r *instance) HandleNotification(method string, params json.RawMessage) {
 
 	payload := decodePayload(params)
 	threadID, turnID := extractContext(payload)
+	payload = r.attachClientTurnRequestID(method, payload, threadID, turnID)
 
 	r.trackTurn(method, threadID, turnID)
 	if diagnostics.ShouldLogEventTrace("runtime notification received", method) {
@@ -791,6 +798,8 @@ func (r *instance) HandleClosed(err error) {
 	r.activeTurns = make(map[string]string)
 	r.interruptingTurns = make(map[string]string)
 	r.lastTerminalTurns = make(map[string]string)
+	r.pendingTurnStartRequests = make(map[string]string)
+	r.clientTurnRequestsByTurn = make(map[string]string)
 	if !expectClose && !errors.Is(err, context.Canceled) && wasRunning {
 		r.state.Status = "error"
 		if err == nil {
@@ -907,8 +916,125 @@ func (r *instance) trackTurn(method string, threadID string, turnID string) {
 		}
 		if terminalTurnID := firstNonEmptyString(turnID, interruptingTurnID, currentTurnID); terminalTurnID != "" {
 			r.lastTerminalTurns[threadID] = terminalTurnID
+			delete(r.clientTurnRequestsByTurn, turnRequestKey(threadID, terminalTurnID))
 		}
 	}
+}
+
+func (r *instance) beginTurnStartCorrelation(threadID string, clientTurnRequestID string) {
+	threadID = strings.TrimSpace(threadID)
+	clientTurnRequestID = strings.TrimSpace(clientTurnRequestID)
+	if threadID == "" || clientTurnRequestID == "" {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.pendingTurnStartRequests == nil {
+		r.pendingTurnStartRequests = make(map[string]string)
+	}
+	r.pendingTurnStartRequests[threadID] = clientTurnRequestID
+}
+
+func (r *instance) finishTurnStartCorrelation(threadID string, turnID string, clientTurnRequestID string) {
+	threadID = strings.TrimSpace(threadID)
+	turnID = strings.TrimSpace(turnID)
+	clientTurnRequestID = strings.TrimSpace(clientTurnRequestID)
+	if threadID == "" || clientTurnRequestID == "" {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.pendingTurnStartRequests[threadID] == clientTurnRequestID {
+		delete(r.pendingTurnStartRequests, threadID)
+	}
+	if turnID == "" {
+		return
+	}
+	if r.clientTurnRequestsByTurn == nil {
+		r.clientTurnRequestsByTurn = make(map[string]string)
+	}
+	r.clientTurnRequestsByTurn[turnRequestKey(threadID, turnID)] = clientTurnRequestID
+}
+
+func (r *instance) failTurnStartCorrelation(threadID string, clientTurnRequestID string) {
+	threadID = strings.TrimSpace(threadID)
+	clientTurnRequestID = strings.TrimSpace(clientTurnRequestID)
+	if threadID == "" || clientTurnRequestID == "" {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.pendingTurnStartRequests[threadID] == clientTurnRequestID {
+		delete(r.pendingTurnStartRequests, threadID)
+	}
+}
+
+func (r *instance) attachClientTurnRequestID(
+	method string,
+	payload any,
+	threadID string,
+	turnID string,
+) any {
+	if method != "turn/started" {
+		return payload
+	}
+
+	clientTurnRequestID := r.clientTurnRequestIDForStartedTurn(threadID, turnID)
+	if clientTurnRequestID == "" {
+		return payload
+	}
+
+	object, ok := payload.(map[string]any)
+	if !ok {
+		return payload
+	}
+
+	object["clientTurnRequestId"] = clientTurnRequestID
+	if turn, ok := object["turn"].(map[string]any); ok {
+		turn["clientTurnRequestId"] = clientTurnRequestID
+	}
+	return object
+}
+
+func (r *instance) clientTurnRequestIDForStartedTurn(threadID string, turnID string) string {
+	threadID = strings.TrimSpace(threadID)
+	turnID = strings.TrimSpace(turnID)
+	if threadID == "" {
+		return ""
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if turnID != "" {
+		if clientTurnRequestID := strings.TrimSpace(r.clientTurnRequestsByTurn[turnRequestKey(threadID, turnID)]); clientTurnRequestID != "" {
+			return clientTurnRequestID
+		}
+	}
+
+	clientTurnRequestID := strings.TrimSpace(r.pendingTurnStartRequests[threadID])
+	if clientTurnRequestID == "" {
+		return ""
+	}
+
+	delete(r.pendingTurnStartRequests, threadID)
+	if turnID != "" {
+		if r.clientTurnRequestsByTurn == nil {
+			r.clientTurnRequestsByTurn = make(map[string]string)
+		}
+		r.clientTurnRequestsByTurn[turnRequestKey(threadID, turnID)] = clientTurnRequestID
+	}
+	return clientTurnRequestID
+}
+
+func turnRequestKey(threadID string, turnID string) string {
+	return threadID + "\x00" + turnID
 }
 
 func decodePayload(raw json.RawMessage) any {

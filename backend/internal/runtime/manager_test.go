@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"codex-server/backend/internal/appserver"
 	appconfig "codex-server/backend/internal/config"
 	"codex-server/backend/internal/events"
 	"codex-server/backend/internal/store"
@@ -414,6 +415,85 @@ func TestManagerCallPublishesTurnLifecycleEvents(t *testing.T) {
 		if event.Method != method {
 			t.Fatalf("expected event %q, got %q", method, event.Method)
 		}
+	}
+}
+
+func TestManagerTurnStartAddsClientTurnRequestIDToStartedEvent(t *testing.T) {
+	hub := events.NewHub()
+	session := codexfake.NewSessionWithScenario(t, codexfake.Scenario{
+		Behaviors: map[string]codexfake.MethodBehavior{
+			"turn/start": {
+				Result: map[string]any{
+					"turn": map[string]any{
+						"id":     "turn-runtime-1",
+						"status": "inProgress",
+					},
+				},
+				Notifications: []codexfake.Notification{
+					{
+						Method: "turn/started",
+						Params: map[string]any{
+							"threadId": "thread-1",
+							"turn": map[string]any{
+								"id":     "turn-runtime-1",
+								"status": "inProgress",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	manager := NewManager(session.Command, hub)
+	rootPath := t.TempDir()
+	manager.Configure("ws-1", rootPath)
+	t.Cleanup(func() {
+		manager.Remove("ws-1")
+	})
+
+	eventsCh, cancel := hub.Subscribe("ws-1")
+	defer cancel()
+
+	response, err := manager.TurnStart(context.Background(), "ws-1", appserver.TurnStartRequest{
+		ClientTurnRequestID: "client-turn-1",
+		Input: []appserver.UserInput{
+			{
+				Text: "Inspect the repo",
+				Type: "text",
+			},
+		},
+		ThreadID: "thread-1",
+	})
+	if err != nil {
+		t.Fatalf("TurnStart() error = %v", err)
+	}
+	if response.Turn.ID != "turn-runtime-1" {
+		t.Fatalf("expected fake turn id, got %q", response.Turn.ID)
+	}
+
+	event := awaitRuntimeEvent(t, eventsCh)
+	if event.Method != "turn/started" {
+		t.Fatalf("expected turn/started event, got %q", event.Method)
+	}
+	payload, ok := event.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", event.Payload)
+	}
+	if payload["clientTurnRequestId"] != "client-turn-1" {
+		t.Fatalf("expected top-level client turn request id, got %#v", payload)
+	}
+	turn, ok := payload["turn"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested turn payload, got %#v", payload)
+	}
+	if turn["clientTurnRequestId"] != "client-turn-1" {
+		t.Fatalf("expected nested turn client request id, got %#v", turn)
+	}
+
+	state := codexfake.ReadState(t, session.StateFile)
+	if _, ok := state.LastTurn["clientTurnRequestId"]; ok {
+		t.Fatalf("expected client turn request id to stay server-side only, got %#v", state.LastTurn)
 	}
 }
 

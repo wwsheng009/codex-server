@@ -28,6 +28,10 @@ func (s *testHubStore) GetWorkspaceEventHeadSeq(workspaceID string) uint64 {
 	return s.headSeqByWorkspace[workspaceID]
 }
 
+func (s *testHubStore) GetWorkspaceEventOldestSeq(string) uint64 {
+	return 0
+}
+
 func TestHubDoesNotCloseSlowWorkspaceSubscriberOnDroppableOverflow(t *testing.T) {
 	t.Parallel()
 
@@ -94,6 +98,7 @@ func TestSubscriberCoalescesCommandOutputDeltaUnderBackpressure(t *testing.T) {
 		Method:      "command/exec/outputDelta",
 		ThreadID:    "thread-1",
 		TurnID:      "turn-1",
+		Seq:         101,
 		Payload: map[string]any{
 			"deltaText": "hello ",
 			"processId": "proc-1",
@@ -107,6 +112,7 @@ func TestSubscriberCoalescesCommandOutputDeltaUnderBackpressure(t *testing.T) {
 		Method:      "command/exec/outputDelta",
 		ThreadID:    "thread-1",
 		TurnID:      "turn-1",
+		Seq:         102,
 		Payload: map[string]any{
 			"deltaText": "world",
 			"processId": "proc-1",
@@ -133,10 +139,17 @@ func TestSubscriberCoalescesCommandOutputDeltaUnderBackpressure(t *testing.T) {
 	if sub.coalescedByMethod["command/exec/outputDelta"] != 1 {
 		t.Fatalf("expected command output delta coalesce count 1, got %d", sub.coalescedByMethod["command/exec/outputDelta"])
 	}
+	mergedEvent := sub.queue[len(sub.queue)-1]
+	if !mergedEvent.Coalesced {
+		t.Fatal("expected merged command output delta to be marked coalesced")
+	}
+	if mergedEvent.Seq != 102 || mergedEvent.CoversSeqFrom != 101 || mergedEvent.CoversSeqTo != 102 {
+		t.Fatalf("expected merged command output delta seq coverage 101-102 at seq 102, got seq=%d covers=%d-%d", mergedEvent.Seq, mergedEvent.CoversSeqFrom, mergedEvent.CoversSeqTo)
+	}
 
-	payload, ok := sub.queue[len(sub.queue)-1].Payload.(map[string]any)
+	payload, ok := mergedEvent.Payload.(map[string]any)
 	if !ok {
-		t.Fatalf("expected merged payload map, got %#v", sub.queue[len(sub.queue)-1].Payload)
+		t.Fatalf("expected merged payload map, got %#v", mergedEvent.Payload)
 	}
 	if payload["deltaText"] != "hello world" {
 		t.Fatalf("expected merged delta text, got %#v", payload["deltaText"])
@@ -155,6 +168,7 @@ func TestSubscriberCoalescesThreadTokenUsageUpdateToLatest(t *testing.T) {
 				WorkspaceID: "ws-1",
 				ThreadID:    "thread-1",
 				Method:      "thread/tokenUsage/updated",
+				Seq:         201,
 				Payload: map[string]any{
 					"tokenUsage": map[string]any{"total": 10},
 				},
@@ -167,6 +181,7 @@ func TestSubscriberCoalescesThreadTokenUsageUpdateToLatest(t *testing.T) {
 		WorkspaceID: "ws-1",
 		ThreadID:    "thread-1",
 		Method:      "thread/tokenUsage/updated",
+		Seq:         203,
 		Payload: map[string]any{
 			"tokenUsage": map[string]any{"total": 20},
 		},
@@ -184,6 +199,12 @@ func TestSubscriberCoalescesThreadTokenUsageUpdateToLatest(t *testing.T) {
 	}
 	if sub.coalescedByMethod["thread/tokenUsage/updated"] != 1 {
 		t.Fatalf("expected token usage coalesce count 1, got %d", sub.coalescedByMethod["thread/tokenUsage/updated"])
+	}
+	if !sub.queue[0].Coalesced {
+		t.Fatal("expected token usage replacement event to be marked coalesced")
+	}
+	if sub.queue[0].Seq != 203 || sub.queue[0].CoversSeqFrom != 201 || sub.queue[0].CoversSeqTo != 203 {
+		t.Fatalf("expected token usage seq coverage 201-203 at seq 203, got seq=%d covers=%d-%d", sub.queue[0].Seq, sub.queue[0].CoversSeqFrom, sub.queue[0].CoversSeqTo)
 	}
 
 	payload, ok := sub.queue[0].Payload.(map[string]any)
@@ -259,6 +280,133 @@ func TestSubscriberTracksSoftAndHardDropBreakdown(t *testing.T) {
 	}
 	if hardOnly.hardDroppedCount != 1 || hardOnly.droppedCount != 1 {
 		t.Fatalf("expected hard/dropped counts 1/1, got %d/%d", hardOnly.hardDroppedCount, hardOnly.droppedCount)
+	}
+}
+
+func TestSubscriberEnqueuesDroppedControlEventAfterSoftDrop(t *testing.T) {
+	t.Parallel()
+
+	sub := &subscriber{
+		id:                99,
+		scope:             "workspace",
+		source:            "test.workspace_stream",
+		role:              "workspace-stream",
+		out:               make(chan store.EventEnvelope, subscriberOutputBufferSize),
+		notify:            make(chan struct{}, 1),
+		done:              make(chan struct{}),
+		queue:             make([]store.EventEnvelope, 0, subscriberQueueHardLimit),
+		coalescedByMethod: make(map[string]int),
+	}
+
+	for index := 0; index < subscriberQueueSoftLimit; index++ {
+		sub.queue = append(sub.queue, store.EventEnvelope{
+			WorkspaceID: "ws-1",
+			Method:      "turn/started",
+			Seq:         uint64(index + 1),
+			TS:          time.Now().UTC(),
+		})
+	}
+
+	droppedEvent := store.EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/agentMessage/delta",
+		Seq:         777,
+		Payload:     map[string]any{"delta": "lost"},
+		TS:          time.Now().UTC(),
+	}
+	result := sub.enqueue(droppedEvent)
+	if !result.dropped || result.reason != dropReasonSoft {
+		t.Fatalf("expected soft dropped result, got %#v", result)
+	}
+
+	controlEvent := buildWorkspaceEventsDroppedEvent(result.droppedEvent, sub, result.reason)
+	if !sub.enqueueDroppedControlEvent(controlEvent) {
+		t.Fatal("expected dropped control event to be enqueued")
+	}
+	if len(sub.queue) != subscriberQueueSoftLimit+1 {
+		t.Fatalf("expected control event to be appended past soft limit, got queue len %d", len(sub.queue))
+	}
+
+	queuedControl := sub.queue[len(sub.queue)-1]
+	if queuedControl.Method != "workspace/events/dropped" {
+		t.Fatalf("expected dropped control event, got %q", queuedControl.Method)
+	}
+	if queuedControl.Seq != 0 {
+		t.Fatalf("expected dropped control event to remain unsequenced, got seq %d", queuedControl.Seq)
+	}
+	payload, ok := queuedControl.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected dropped control payload map, got %#v", queuedControl.Payload)
+	}
+	if payload["droppedMethod"] != "item/agentMessage/delta" || payload["reason"] != string(dropReasonSoft) {
+		t.Fatalf("unexpected dropped control payload %#v", payload)
+	}
+	if payload["seq"] != uint64(777) || payload["fromSeq"] != uint64(777) || payload["toSeq"] != uint64(777) {
+		t.Fatalf("expected dropped control seq coverage 777, got %#v", payload)
+	}
+}
+
+func TestSubscriberMergesRepeatedDroppedControlEvents(t *testing.T) {
+	t.Parallel()
+
+	sub := &subscriber{
+		id:                100,
+		scope:             "workspace",
+		source:            "test.workspace_stream",
+		role:              "workspace-stream",
+		out:               make(chan store.EventEnvelope, subscriberOutputBufferSize),
+		notify:            make(chan struct{}, 1),
+		done:              make(chan struct{}),
+		queue:             make([]store.EventEnvelope, 0, subscriberQueueHardLimit),
+		coalescedByMethod: make(map[string]int),
+	}
+
+	for index := 0; index < subscriberQueueSoftLimit; index++ {
+		sub.queue = append(sub.queue, store.EventEnvelope{
+			WorkspaceID: "ws-1",
+			Method:      "turn/started",
+			Seq:         uint64(index + 1),
+			TS:          time.Now().UTC(),
+		})
+	}
+
+	for index := 0; index < 3; index++ {
+		droppedEvent := store.EventEnvelope{
+			WorkspaceID: "ws-1",
+			ThreadID:    "thread-1",
+			TurnID:      "turn-1",
+			Method:      "item/agentMessage/delta",
+			Seq:         uint64(800 + index),
+			Payload:     map[string]any{"delta": "lost"},
+			TS:          time.Now().UTC(),
+		}
+		result := sub.enqueue(droppedEvent)
+		if !result.dropped || result.reason != dropReasonSoft {
+			t.Fatalf("expected soft dropped result at index %d, got %#v", index, result)
+		}
+
+		controlEvent := buildWorkspaceEventsDroppedEvent(result.droppedEvent, sub, result.reason)
+		if !sub.enqueueDroppedControlEvent(controlEvent) {
+			t.Fatalf("expected dropped control event to be enqueued or merged at index %d", index)
+		}
+	}
+
+	if len(sub.queue) != subscriberQueueSoftLimit+1 {
+		t.Fatalf("expected repeated dropped control events to be merged, got queue len %d", len(sub.queue))
+	}
+
+	queuedControl := sub.queue[len(sub.queue)-1]
+	if queuedControl.Method != "workspace/events/dropped" {
+		t.Fatalf("expected dropped control event, got %q", queuedControl.Method)
+	}
+	payload, ok := queuedControl.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected dropped control payload map, got %#v", queuedControl.Payload)
+	}
+	if payload["dropCount"] != 3 {
+		t.Fatalf("expected merged dropCount 3, got %#v", payload["dropCount"])
 	}
 }
 
@@ -369,6 +517,29 @@ func TestHubSnapshotReportsWorkspaceAndGlobalSubscriberStats(t *testing.T) {
 	defer cancelB()
 	globalEvents, cancelGlobal := hub.SubscribeAllWithSource("test.global", "global-worker")
 	defer cancelGlobal()
+
+	for index := 0; index < subscriberOutputBufferSize; index++ {
+		hub.Publish(store.EventEnvelope{
+			WorkspaceID: "ws-a",
+			Method:      "turn/prefill",
+			Payload: map[string]any{
+				"index": index,
+			},
+			TS: time.Now().UTC(),
+		})
+	}
+
+	prefillDeadline := time.Now().Add(2 * time.Second)
+	for len(wsAEvents) < subscriberOutputBufferSize || len(globalEvents) < subscriberOutputBufferSize {
+		if time.Now().After(prefillDeadline) {
+			t.Fatalf(
+				"timed out waiting for prefill events to fill output buffers: wsA=%d global=%d",
+				len(wsAEvents),
+				len(globalEvents),
+			)
+		}
+		time.Sleep(time.Millisecond)
+	}
 
 	hub.Publish(store.EventEnvelope{
 		WorkspaceID: "ws-a",

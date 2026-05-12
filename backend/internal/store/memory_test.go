@@ -422,6 +422,9 @@ func TestMemoryStoreWorkspaceEventReplayAndPersistence(t *testing.T) {
 	if first.Replay || second.Replay {
 		t.Fatalf("expected stored events to clear replay flag, got first=%v second=%v", first.Replay, second.Replay)
 	}
+	if oldest := firstStore.GetWorkspaceEventOldestSeq(workspace.ID); oldest != 1 {
+		t.Fatalf("expected first store oldest workspace seq 1, got %d", oldest)
+	}
 
 	replayed := firstStore.ListWorkspaceEventsAfter(workspace.ID, 1, 10)
 	if len(replayed) != 1 {
@@ -439,6 +442,9 @@ func TestMemoryStoreWorkspaceEventReplayAndPersistence(t *testing.T) {
 	if head := secondStore.GetWorkspaceEventHeadSeq(workspace.ID); head != 2 {
 		t.Fatalf("expected persisted workspace head seq 2, got %d", head)
 	}
+	if oldest := secondStore.GetWorkspaceEventOldestSeq(workspace.ID); oldest != 1 {
+		t.Fatalf("expected persisted workspace oldest seq 1, got %d", oldest)
+	}
 
 	reloadedReplay := secondStore.ListWorkspaceEventsAfter(workspace.ID, 0, 10)
 	if len(reloadedReplay) != 2 {
@@ -446,6 +452,36 @@ func TestMemoryStoreWorkspaceEventReplayAndPersistence(t *testing.T) {
 	}
 	if !reloadedReplay[0].Replay || !reloadedReplay[1].Replay {
 		t.Fatalf("expected replay flag on listed events after reload, got %#v", reloadedReplay)
+	}
+}
+
+func TestMemoryStoreWorkspaceEventOldestSeqTracksRetention(t *testing.T) {
+	t.Parallel()
+
+	memoryStore := NewMemoryStore()
+	workspace := memoryStore.CreateWorkspace("Workspace Retention", "E:/projects/retention")
+
+	for index := 0; index < workspaceEventRetentionLimit+2; index++ {
+		memoryStore.AppendWorkspaceEvent(EventEnvelope{
+			WorkspaceID: workspace.ID,
+			Method:      "turn/started",
+			Payload:     map[string]any{"index": index},
+		})
+	}
+
+	if head := memoryStore.GetWorkspaceEventHeadSeq(workspace.ID); head != uint64(workspaceEventRetentionLimit+2) {
+		t.Fatalf("expected head seq %d, got %d", workspaceEventRetentionLimit+2, head)
+	}
+	if oldest := memoryStore.GetWorkspaceEventOldestSeq(workspace.ID); oldest != 3 {
+		t.Fatalf("expected oldest retained seq 3 after retention trimming, got %d", oldest)
+	}
+
+	replayed := memoryStore.ListWorkspaceEventsAfter(workspace.ID, 0, workspaceEventRetentionLimit+10)
+	if len(replayed) != workspaceEventRetentionLimit {
+		t.Fatalf("expected retained replay count %d, got %d", workspaceEventRetentionLimit, len(replayed))
+	}
+	if replayed[0].Seq != 3 {
+		t.Fatalf("expected first retained replay seq 3, got %d", replayed[0].Seq)
 	}
 }
 

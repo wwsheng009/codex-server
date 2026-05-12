@@ -159,6 +159,7 @@ type TurnStartRequest struct {
 	ApprovalPolicy             string         `json:"approvalPolicy,omitempty"`
 	SandboxPolicy              map[string]any `json:"sandboxPolicy,omitempty"`
 	ResponsesAPIClientMetadata map[string]any `json:"responsesapiClientMetadata,omitempty"`
+	ClientTurnRequestID        string         `json:"-"`
 }
 
 type TurnStartResponse struct {

@@ -79,8 +79,28 @@ func (m *Manager) ThreadShellCommand(ctx context.Context, workspaceID string, re
 }
 
 func (m *Manager) TurnStart(ctx context.Context, workspaceID string, request appserver.TurnStartRequest) (appserver.TurnStartResponse, error) {
+	m.mu.RLock()
+	runtime := m.runtimes[workspaceID]
+	m.mu.RUnlock()
+	if runtime != nil {
+		runtime.beginTurnStartCorrelation(request.ThreadID, request.ClientTurnRequestID)
+	}
+
 	var response appserver.TurnStartResponse
 	err := m.Call(ctx, workspaceID, "turn/start", request, &response)
+	if err != nil {
+		if runtime != nil {
+			runtime.failTurnStartCorrelation(request.ThreadID, request.ClientTurnRequestID)
+		}
+		return response, err
+	}
+	if runtime != nil {
+		runtime.finishTurnStartCorrelation(
+			request.ThreadID,
+			response.Turn.ID,
+			request.ClientTurnRequestID,
+		)
+	}
 	return response, err
 }
 

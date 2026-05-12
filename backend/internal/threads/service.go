@@ -653,14 +653,19 @@ func (s *Service) GetDetailWindow(
 	turnLimit int,
 	beforeTurnID string,
 	contentMode string,
+	preferCached ...bool,
 ) (store.ThreadDetail, error) {
 	requestStartedAt := time.Now()
 	contentMode = normalizeThreadContentMode(contentMode)
+	allowCachedDetail := true
+	if len(preferCached) > 0 {
+		allowCachedDetail = preferCached[0]
+	}
 	if err := s.ensureThreadNotDeleted(workspaceID, threadID); err != nil {
 		return store.ThreadDetail{}, err
 	}
 
-	if beforeTurnID != "" {
+	if allowCachedDetail && beforeTurnID != "" {
 		if cachedDetail, beforeFound, ok, projectionReadSource, projectionScannedTurns := s.cachedThreadDetailWindow(workspaceID, threadID, turnLimit, beforeTurnID); ok && beforeFound {
 			diagnostics.LogThreadTrace(
 				workspaceID,
@@ -687,7 +692,7 @@ func (s *Service) GetDetailWindow(
 		}
 	}
 
-	if turnLimit > 0 && beforeTurnID == "" && s.shouldServeCurrentWindowFromCache(workspaceID, threadID) {
+	if allowCachedDetail && turnLimit > 0 && beforeTurnID == "" && s.shouldServeCurrentWindowFromCache(workspaceID, threadID) {
 		if cachedDetail, _, ok, projectionReadSource, projectionScannedTurns := s.cachedThreadDetailWindow(workspaceID, threadID, turnLimit, ""); ok {
 			diagnostics.LogThreadTrace(
 				workspaceID,

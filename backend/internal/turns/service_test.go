@@ -2,7 +2,9 @@ package turns
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"codex-server/backend/internal/bridge"
@@ -191,6 +193,41 @@ func TestBuildTurnStartPayloadIncludesResponsesAPIClientMetadata(t *testing.T) {
 	}
 	if metadata["threadId"] != "thread-1" {
 		t.Fatalf("expected threadId thread-1, got %#v", metadata["threadId"])
+	}
+}
+
+func TestBuildTurnStartPayloadIncludesClientTurnRequestIDForDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	payload := buildTurnStartPayload("thread-1", "Inspect the repo", StartOptions{
+		ClientTurnRequestID: "client-turn-1",
+	}, nil)
+
+	if payload["clientTurnRequestId"] != "client-turn-1" {
+		t.Fatalf("expected client turn request id in diagnostic payload, got %#v", payload["clientTurnRequestId"])
+	}
+
+	request := buildTurnStartRequest("thread-1", "Inspect the repo", StartOptions{
+		ClientTurnRequestID: "client-turn-1",
+	}, nil)
+	if request.ClientTurnRequestID != "client-turn-1" {
+		t.Fatalf("expected client turn request id on internal request, got %#v", request.ClientTurnRequestID)
+	}
+}
+
+func TestBuildTurnStartRequestDoesNotSendClientTurnRequestIDToRuntime(t *testing.T) {
+	t.Parallel()
+
+	request := buildTurnStartRequest("thread-1", "Inspect the repo", StartOptions{
+		ClientTurnRequestID: "client-turn-1",
+	}, nil)
+
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal turn start request: %v", err)
+	}
+	if strings.Contains(string(data), "clientTurnRequestId") {
+		t.Fatalf("expected client turn request id to stay server-side only, got %s", string(data))
 	}
 }
 

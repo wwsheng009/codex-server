@@ -28,6 +28,7 @@ type Hub struct {
 		AppendWorkspaceEvent(store.EventEnvelope) store.EventEnvelope
 		ListWorkspaceEventsAfter(string, uint64, int) []store.EventEnvelope
 		GetWorkspaceEventHeadSeq(string) uint64
+		GetWorkspaceEventOldestSeq(string) uint64
 	}
 }
 
@@ -59,8 +60,11 @@ type subscriber struct {
 }
 
 type subscriberBackpressureResult struct {
-	dropped bool
-	merged  bool
+	dropped      bool
+	droppedEvent store.EventEnvelope
+	evicted      bool
+	merged       bool
+	reason       subscriberDropReason
 }
 
 type subscriberCoalesceResult struct {
@@ -131,6 +135,7 @@ func (h *Hub) AttachStore(dataStore interface {
 	AppendWorkspaceEvent(store.EventEnvelope) store.EventEnvelope
 	ListWorkspaceEventsAfter(string, uint64, int) []store.EventEnvelope
 	GetWorkspaceEventHeadSeq(string) uint64
+	GetWorkspaceEventOldestSeq(string) uint64
 }) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -234,15 +239,17 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 
 	workspaceDrops := 0
 	for _, sub := range workspaceSubscribers {
-		if result := sub.enqueue(event); result.dropped {
+		if result := sub.enqueue(event); result.hasLoss() {
 			workspaceDrops += 1
+			sub.enqueueDroppedControlEvent(buildWorkspaceEventsDroppedEvent(result.droppedEvent, sub, result.reason))
 		}
 	}
 
 	globalDrops := 0
 	for _, sub := range globalSubscribers {
-		if result := sub.enqueue(event); result.dropped {
+		if result := sub.enqueue(event); result.hasLoss() {
 			globalDrops += 1
+			sub.enqueueDroppedControlEvent(buildWorkspaceEventsDroppedEvent(result.droppedEvent, sub, result.reason))
 		}
 	}
 
@@ -278,6 +285,30 @@ func (h *Hub) Replay(workspaceID string, afterSeq uint64, limit int) []store.Eve
 	}
 
 	return dataStore.ListWorkspaceEventsAfter(workspaceID, afterSeq, limit)
+}
+
+func (h *Hub) WorkspaceEventHeadSeq(workspaceID string) uint64 {
+	h.mu.RLock()
+	dataStore := h.dataStore
+	h.mu.RUnlock()
+
+	if dataStore == nil {
+		return 0
+	}
+
+	return dataStore.GetWorkspaceEventHeadSeq(workspaceID)
+}
+
+func (h *Hub) WorkspaceEventOldestSeq(workspaceID string) uint64 {
+	h.mu.RLock()
+	dataStore := h.dataStore
+	h.mu.RUnlock()
+
+	if dataStore == nil {
+		return 0
+	}
+
+	return dataStore.GetWorkspaceEventOldestSeq(workspaceID)
 }
 
 func (h *Hub) Snapshot() HubSnapshot {
@@ -361,11 +392,19 @@ func (h *Hub) Snapshot() HubSnapshot {
 
 func shouldSequenceWorkspaceEvent(event store.EventEnvelope) bool {
 	switch event.Method {
-	case "workspace/connected", "command/exec/stateSnapshot", "approvals/snapshot":
+	case "workspace/connected",
+		"workspace/replay/completed",
+		"workspace/events/dropped",
+		"command/exec/stateSnapshot",
+		"approvals/snapshot":
 		return false
 	default:
 		return event.WorkspaceID != ""
 	}
+}
+
+func (result subscriberBackpressureResult) hasLoss() bool {
+	return result.dropped || result.evicted
 }
 
 func newSubscriber(scope string, source string, role string) *subscriber {
@@ -446,7 +485,11 @@ func (s *subscriber) enqueue(event store.EventEnvelope) subscriberBackpressureRe
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return subscriberBackpressureResult{dropped: true}
+		return subscriberBackpressureResult{
+			dropped:      true,
+			droppedEvent: event,
+			reason:       dropReasonClosed,
+		}
 	}
 
 	if result := s.tryCoalesceLocked(event); result.merged {
@@ -457,17 +500,31 @@ func (s *subscriber) enqueue(event store.EventEnvelope) subscriberBackpressureRe
 
 	if len(s.queue) >= subscriberQueueSoftLimit && isDroppableEvent(event.Method) {
 		s.markDroppedLocked(dropReasonSoft)
-		return subscriberBackpressureResult{dropped: true}
+		return subscriberBackpressureResult{
+			dropped:      true,
+			droppedEvent: event,
+			reason:       dropReasonSoft,
+		}
 	}
 
+	result := subscriberBackpressureResult{}
 	if len(s.queue) >= subscriberQueueHardLimit {
 		droppedIndex := firstDroppableQueuedEventIndex(s.queue)
 		if droppedIndex >= 0 {
+			result = subscriberBackpressureResult{
+				droppedEvent: s.queue[droppedIndex],
+				evicted:      true,
+				reason:       dropReasonHardEvicted,
+			}
 			s.queue = append(s.queue[:droppedIndex], s.queue[droppedIndex+1:]...)
 			s.markDroppedLocked(dropReasonHardEvicted)
 		} else {
 			s.markDroppedLocked(dropReasonHard)
-			return subscriberBackpressureResult{dropped: true}
+			return subscriberBackpressureResult{
+				dropped:      true,
+				droppedEvent: event,
+				reason:       dropReasonHard,
+			}
 		}
 	}
 
@@ -477,7 +534,47 @@ func (s *subscriber) enqueue(event store.EventEnvelope) subscriberBackpressureRe
 	case s.notify <- struct{}{}:
 	default:
 	}
-	return subscriberBackpressureResult{}
+	return result
+}
+
+func (s *subscriber) enqueueDroppedControlEvent(event store.EventEnvelope) bool {
+	if event.WorkspaceID == "" || event.Method == "" {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return false
+	}
+
+	for index := len(s.queue) - 1; index >= 0; index-- {
+		if s.queue[index].Method != "workspace/events/dropped" || s.queue[index].WorkspaceID != event.WorkspaceID {
+			continue
+		}
+
+		incrementDroppedControlCountLocked(&s.queue[index])
+		s.queue[index].TS = event.TS
+		return true
+	}
+
+	if len(s.queue) >= subscriberQueueHardLimit {
+		droppedIndex := firstDroppableQueuedEventIndex(s.queue)
+		if droppedIndex < 0 {
+			droppedIndex = 0
+		}
+		s.queue = append(s.queue[:droppedIndex], s.queue[droppedIndex+1:]...)
+		s.markDroppedLocked(dropReasonHardEvicted)
+	}
+
+	s.queue = append(s.queue, event)
+	s.recordEnqueueLocked(event)
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+	return true
 }
 
 func (s *subscriber) tryCoalesceLocked(event store.EventEnvelope) subscriberCoalesceResult {
@@ -497,7 +594,80 @@ const (
 	dropReasonSoft        subscriberDropReason = "soft"
 	dropReasonHard        subscriberDropReason = "hard"
 	dropReasonHardEvicted subscriberDropReason = "hard-evicted"
+	dropReasonClosed      subscriberDropReason = "closed"
 )
+
+func buildWorkspaceEventsDroppedEvent(
+	droppedEvent store.EventEnvelope,
+	sub *subscriber,
+	reason subscriberDropReason,
+) store.EventEnvelope {
+	if sub == nil || reason == dropReasonClosed || droppedEvent.WorkspaceID == "" {
+		return store.EventEnvelope{}
+	}
+
+	payload := map[string]any{
+		"droppedMethod":    droppedEvent.Method,
+		"dropCount":        1,
+		"reason":           string(reason),
+		"subscriberId":     sub.id,
+		"subscriberRole":   sub.role,
+		"subscriberScope":  sub.scope,
+		"subscriberSource": sub.source,
+	}
+
+	if droppedEvent.Seq > 0 {
+		payload["seq"] = droppedEvent.Seq
+	}
+	if fromSeq := eventCoverageSeqFrom(droppedEvent); fromSeq > 0 {
+		payload["fromSeq"] = fromSeq
+	}
+	if toSeq := eventCoverageSeqTo(droppedEvent); toSeq > 0 {
+		payload["toSeq"] = toSeq
+	}
+	if droppedEvent.ThreadID != "" {
+		payload["threadId"] = droppedEvent.ThreadID
+	}
+	if droppedEvent.TurnID != "" {
+		payload["turnId"] = droppedEvent.TurnID
+	}
+
+	return store.EventEnvelope{
+		WorkspaceID: droppedEvent.WorkspaceID,
+		ThreadID:    droppedEvent.ThreadID,
+		TurnID:      droppedEvent.TurnID,
+		Method:      "workspace/events/dropped",
+		Payload:     payload,
+		TS:          time.Now().UTC(),
+	}
+}
+
+func incrementDroppedControlCountLocked(event *store.EventEnvelope) {
+	payload, ok := clonePayloadMap(event.Payload)
+	if !ok {
+		return
+	}
+
+	nextCount := 2
+	switch current := payload["dropCount"].(type) {
+	case int:
+		nextCount = current + 1
+	case int32:
+		nextCount = int(current) + 1
+	case int64:
+		nextCount = int(current) + 1
+	case uint:
+		nextCount = int(current) + 1
+	case uint32:
+		nextCount = int(current) + 1
+	case uint64:
+		nextCount = int(current) + 1
+	case float64:
+		nextCount = int(current) + 1
+	}
+	payload["dropCount"] = nextCount
+	event.Payload = payload
+}
 
 func (s *subscriber) markDroppedLocked(reason subscriberDropReason) {
 	s.droppedCount += 1
@@ -709,11 +879,16 @@ func coalesceCommandOutputDeltaLocked(queue []store.EventEnvelope, incoming stor
 				payload["replayBytes"] = replayBytes + incomingReplayBytes
 			}
 		}
+		coversSeqFrom := eventCoverageSeqFrom(current)
+		coversSeqTo := max(eventCoverageSeqTo(current), eventCoverageSeqTo(incoming))
 		queue[index].Payload = payload
 		queue[index].TS = incoming.TS
 		if incoming.Seq > queue[index].Seq {
 			queue[index].Seq = incoming.Seq
 		}
+		queue[index].CoversSeqFrom = coversSeqFrom
+		queue[index].CoversSeqTo = coversSeqTo
+		queue[index].Coalesced = true
 		queue[index].Replay = queue[index].Replay || incoming.Replay
 		return subscriberCoalesceResult{
 			merged: true,
@@ -735,6 +910,9 @@ func coalesceThreadTokenUsageLocked(queue []store.EventEnvelope, incoming store.
 			continue
 		}
 
+		incoming.CoversSeqFrom = eventCoverageSeqFrom(current)
+		incoming.CoversSeqTo = max(eventCoverageSeqTo(current), eventCoverageSeqTo(incoming))
+		incoming.Coalesced = true
 		queue[index] = incoming
 		return subscriberCoalesceResult{
 			merged: true,
@@ -743,6 +921,20 @@ func coalesceThreadTokenUsageLocked(queue []store.EventEnvelope, incoming store.
 	}
 
 	return subscriberCoalesceResult{}
+}
+
+func eventCoverageSeqFrom(event store.EventEnvelope) uint64 {
+	if event.CoversSeqFrom > 0 {
+		return event.CoversSeqFrom
+	}
+	return event.Seq
+}
+
+func eventCoverageSeqTo(event store.EventEnvelope) uint64 {
+	if event.CoversSeqTo > 0 {
+		return event.CoversSeqTo
+	}
+	return event.Seq
 }
 
 func clonePayloadMap(payload any) (map[string]any, bool) {
