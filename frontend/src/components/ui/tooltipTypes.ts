@@ -5,5 +5,6 @@ export type TooltipProps = {
   children: ReactNode
   position?: 'top' | 'bottom' | 'left' | 'right'
   className?: string
+  tooltipClassName?: string
   triggerLabel?: string
 }

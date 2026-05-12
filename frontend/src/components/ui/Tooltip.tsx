@@ -8,6 +8,7 @@ export function Tooltip({
   children,
   position = 'top',
   className = '',
+  tooltipClassName = '',
   triggerLabel = i18n._({ id: 'Show help', message: 'Show help' }),
 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false)
@@ -121,6 +122,9 @@ export function Tooltip({
   }, [isVisible, position])
 
   const classes = ['ide-tooltip-container', className].filter(Boolean).join(' ')
+  const tooltipClasses = ['ide-tooltip', `ide-tooltip--${position}`, tooltipClassName]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <span className={classes}>
@@ -148,7 +152,7 @@ export function Tooltip({
       {isVisible && typeof document !== 'undefined'
         ? createPortal(
           <div
-            className={`ide-tooltip ide-tooltip--${position}`}
+            className={tooltipClasses}
             id={tooltipId}
             onMouseEnter={showTooltip}
             onMouseLeave={hideTooltip}

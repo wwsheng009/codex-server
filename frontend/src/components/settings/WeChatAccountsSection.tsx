@@ -51,7 +51,7 @@ export function WeChatAccountsSection({
   showUnusedOnly,
 }: WeChatAccountsSectionProps) {
   return (
-    <div className="form-stack">
+    <div className="form-stack wechat-accounts-section">
       <Input
         label={i18n._({ id: 'Search Saved Accounts', message: 'Search Saved Accounts' })}
         onChange={(event) => onChangeSearch(event.target.value)}

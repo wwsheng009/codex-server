@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Codex Server UI Optimization Mockup</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #060b12;
+      --shell: rgba(8, 13, 22, 0.9);
+      --panel: rgba(15, 23, 34, 0.82);
+      --panel-strong: rgba(18, 28, 42, 0.92);
+      --line: rgba(148, 163, 184, 0.18);
+      --line-strong: rgba(148, 163, 184, 0.30);
+      --text: #eef6ff;
+      --muted: #9dafc4;
+      --faint: #708095;
+      --accent: #3ddc97;
+      --cyan: #67e8f9;
+      --warn: #fbbf24;
+      --danger: #fb7185;
+      --soft-accent: rgba(61, 220, 151, 0.12);
+      --soft-cyan: rgba(103, 232, 249, 0.11);
+      --soft-warn: rgba(251, 191, 36, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --font: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --mono: "Cascadia Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+
+    body {
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 7% 6%, rgba(61, 220, 151, 0.23), transparent 28%),
+        radial-gradient(circle at 93% 0%, rgba(103, 232, 249, 0.18), transparent 30%),
+        radial-gradient(circle at 76% 100%, rgba(82, 113, 255, 0.14), transparent 34%),
+        linear-gradient(135deg, #060b12, #09131f 48%, #050910);
+      color: var(--text);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .frame {
+      position: relative;
+      width: min(100vw, 1600px);
+      height: min(100vh, 1080px);
+      padding: 20px;
+    }
+
+    .shell {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 18%),
+        var(--shell);
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(22px);
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 246px minmax(300px, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      min-width: 0;
+      padding: 10px 16px 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(10, 16, 24, 0.78);
+    }
+
+    .brand {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      position: relative;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(61, 220, 151, 0.44);
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(61, 220, 151, 0.22), rgba(103, 232, 249, 0.08));
+      box-shadow: 0 0 0 5px rgba(61, 220, 151, 0.06), inset 0 1px 0 rgba(255,255,255,.14);
+    }
+    .brand-mark::before,
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+    .brand-mark::before { width: 13px; height: 13px; left: 8px; top: 8px; box-shadow: 9px 9px 0 rgba(103,232,249,.72); }
+    .brand-mark::after { width: 5px; height: 5px; right: 7px; top: 7px; background: #fff; opacity: .86; }
+    .brand strong { display: block; color: #fff; font-size: .96rem; line-height: 1.05; letter-spacing: -.02em; }
+    .brand span { display: block; margin-top: 3px; color: var(--faint); font-size: .70rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+
+    .command {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      height: 38px;
+      padding: 0 12px;
+      border: 1px solid rgba(148, 163, 184, .16);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .045);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      color: var(--muted);
+      font-size: .83rem;
+    }
+    .search {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(157,175,196,.82);
+      border-radius: 999px;
+      position: relative;
+    }
+    .search::after {
+      content: "";
+      position: absolute;
+      width: 7px;
+      height: 2px;
+      right: -5px;
+      bottom: -3px;
+      border-radius: 999px;
+      background: rgba(157,175,196,.82);
+      transform: rotate(45deg);
+    }
+    .kbd {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border: 1px solid rgba(148,163,184,.18);
+      border-radius: 8px;
+      background: rgba(255,255,255,.04);
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: .68rem;
+      font-weight: 800;
+    }
+
+    .top-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .chip, .mini {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      white-space: nowrap;
+      border: 1px solid rgba(148,163,184,.17);
+      background: rgba(255,255,255,.045);
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .chip { min-height: 30px; padding: 0 10px; border-radius: 999px; font-size: .72rem; }
+    .mini { min-height: 22px; padding: 0 8px; border-radius: 999px; font-size: .66rem; }
+    .good { border-color: rgba(61,220,151,.25); background: var(--soft-accent); color: #a7f3d0; }
+    .cyan { border-color: rgba(103,232,249,.25); background: var(--soft-cyan); color: #a8f2ff; }
+    .warn { border-color: rgba(251,191,36,.28); background: var(--soft-warn); color: #ffe08a; }
+    .dot { width: 7px; height: 7px; border-radius: 999px; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent); }
+
+    .app {
+      display: grid;
+      grid-template-columns: 298px minmax(0, 1fr) 354px;
+      gap: 14px;
+      min-height: 0;
+      padding: 14px;
+    }
+
+    .sidebar, .inspector, .card {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,.045), transparent 16%), var(--panel);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
+      backdrop-filter: blur(14px);
+    }
+
+    .sidebar {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      border-radius: 22px;
+    }
+
+    .scope { display: grid; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
+    .section-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--faint); font-size: .68rem; font-weight: 900; letter-spacing: .10em; text-transform: uppercase; }
+    .plus { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid rgba(61,220,151,.28); border-radius: 9px; background: var(--soft-accent); color: #a7f3d0; font-weight: 900; }
+    .scope-card { display: grid; gap: 5px; padding: 12px; border: 1px solid rgba(61,220,151,.24); border-radius: 16px; background: linear-gradient(135deg, rgba(61,220,151,.13), rgba(103,232,249,.05)); }
+    .scope-card strong { color: #fff; font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scope-card span { color: var(--faint); font-family: var(--mono); font-size: .68rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .nav { display: grid; gap: 6px; padding: 12px 10px; border-bottom: 1px solid var(--line); }
+    .nav-item { display: grid; grid-template-columns: 28px minmax(0,1fr) auto; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px 0 8px; border: 1px solid transparent; border-radius: 12px; color: var(--muted); font-size: .78rem; font-weight: 800; }
+    .nav-item.active { border-color: rgba(61,220,151,.25); background: var(--soft-accent); color: #fff; }
+    .nav-icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 9px; background: rgba(255,255,255,.05); color: var(--faint); font-size: .68rem; font-weight: 900; }
+    .nav-item.active .nav-icon { background: rgba(61,220,151,.14); color: #9ff3c9; }
+    .nav small { color: var(--faint); font-size: .66rem; }
+
+    .tree { min-height: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0,1fr); padding: 12px 10px 8px; }
+    .tree-list { display: grid; align-content: start; gap: 8px; margin-top: 10px; min-height: 0; overflow: hidden; }
+    .workspace { display: grid; grid-template-columns: 26px minmax(0,1fr) auto; align-items: center; gap: 8px; min-height: 42px; padding: 6px 8px; border-radius: 13px; color: var(--muted); }
+    .workspace.active { background: rgba(255,255,255,.055); box-shadow: inset 3px 0 0 var(--accent); color: #fff; }
+    .folder { position: relative; width: 21px; height: 17px; border: 1px solid currentColor; border-radius: 5px; opacity: .74; }
+    .folder::before { content: ""; position: absolute; left: 2px; top: -5px; width: 9px; height: 5px; border: 1px solid currentColor; border-bottom: 0; border-radius: 5px 5px 0 0; }
+    .workspace strong, .thread strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }
+    .workspace span:last-child, .thread span { display: block; color: var(--faint); font-size: .66rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 4px rgba(61,220,151,.12); }
+    .threads { display: grid; gap: 4px; margin-left: 17px; padding-left: 14px; border-left: 1px solid rgba(148,163,184,.14); }
+    .thread { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; min-height: 34px; padding: 6px 8px; border-radius: 13px; color: var(--muted); }
+    .thread.active { border: 1px solid rgba(103,232,249,.23); background: var(--soft-cyan); color: #fff; }
+    .label { display: inline-flex; min-width: 42px; justify-content: center; padding: 4px 7px; border-radius: 999px; background: rgba(255,255,255,.05); color: var(--faint); font-size: .64rem; font-weight: 850; }
+    .side-footer { padding: 12px 14px 14px; border-top: 1px solid var(--line); background: rgba(255,255,255,.025); }
+    .health { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid rgba(61,220,151,.20); border-radius: 14px; background: rgba(61,220,151,.075); }
+    .health span { color: var(--faint); font-size: .68rem; font-weight: 800; }
+    .health strong { display: block; margin-top: 2px; color: #fff; font-size: .78rem; }
+
+    .stage {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      overflow: hidden;
+      min-width: 0;
+      min-height: 0;
+    }
+    .card { border-radius: 22px; }
+    .thread-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; padding: 16px 18px; }
+    .crumb { display: flex; gap: 8px; color: var(--faint); font-family: var(--mono); font-size: .68rem; font-weight: 800; }
+    .title-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 6px; }
+    h1 { margin: 0; color: #fff; font-size: 1.34rem; line-height: 1.12; letter-spacing: -.04em; }
+    .desc { max-width: 80ch; margin: 8px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+    .head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 260px; }
+    .button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 12px; border-radius: 12px; border: 1px solid rgba(148,163,184,.18); background: rgba(255,255,255,.045); color: var(--text); font-size: .76rem; font-weight: 850; }
+    .button.primary { border-color: transparent; background: linear-gradient(135deg, #2fbf71, #22d3ee); color: #061018; box-shadow: 0 14px 30px rgba(47,191,113,.18); }
+
+    .timeline { position: relative; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; min-height: 0; }
+    .timeline::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(180deg, rgba(255,255,255,.018) 1px, transparent 1px); background-size: 34px 34px; mask-image: linear-gradient(180deg, rgba(0,0,0,.76), transparent 92%); opacity: .55; }
+    .scroll { position: relative; min-height: 0; overflow: hidden; padding: 18px 22px 0; }
+    .stream { position: relative; display: grid; gap: 14px; max-width: 940px; margin: 0 auto; padding-bottom: 16px; }
+    .stream::before { content: ""; position: absolute; left: 18px; top: 12px; bottom: 16px; width: 1px; background: linear-gradient(180deg, rgba(61,220,151,.42), rgba(103,232,249,.08)); }
+    .msg { position: relative; display: grid; grid-template-columns: 38px minmax(0,1fr); gap: 12px; }
+    .avatar { position: relative; z-index: 1; display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid rgba(148,163,184,.20); border-radius: 14px; background: #101923; color: var(--muted); font-size: .68rem; font-weight: 900; box-shadow: 0 0 0 5px rgba(8,13,22,.86); }
+    .avatar.ai { border-color: rgba(61,220,151,.30); background: var(--soft-accent); color: #a7f3d0; }
+    .bubble { min-width: 0; padding: 14px 16px; border: 1px solid rgba(148,163,184,.16); border-radius: 18px; background: rgba(255,255,255,.045); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+    .bubble.live { border-color: rgba(61,220,151,.22); background: linear-gradient(135deg, rgba(61,220,151,.09), rgba(255,255,255,.035)); }
+    .msg-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .msg-head strong { color: #fff; font-size: .80rem; }
+    .msg-head span { color: var(--faint); font-family: var(--mono); font-size: .66rem; }
+    .msg p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+    .tasks { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+    .task { display: grid; gap: 5px; padding: 10px; border: 1px solid rgba(148,163,184,.14); border-radius: 13px; background: rgba(255,255,255,.035); }
+    .task strong { color: #fff; font-size: .72rem; }
+    .task span { color: var(--faint); font-size: .66rem; line-height: 1.35; }
+    .code { margin-top: 10px; overflow: hidden; border: 1px solid rgba(148,163,184,.16); border-radius: 14px; background: rgba(4,9,14,.72); font-family: var(--mono); }
+    .code-bar { display: flex; justify-content: space-between; min-height: 34px; padding: 9px 12px; border-bottom: 1px solid rgba(148,163,184,.12); color: var(--faint); font-size: .68rem; font-weight: 800; }
+    .code-line { display: grid; grid-template-columns: 38px minmax(0,1fr); gap: 12px; padding: 5px 12px; color: #a9b8cc; font-size: .70rem; line-height: 1.4; }
+    .code-line:nth-child(even) { background: rgba(255,255,255,.018); }
+    .ln { color: rgba(112,128,149,.76); text-align: right; }
+    .add { color: #a7f3d0; background: rgba(61,220,151,.055) !important; }
+    .note { color: #ffe08a; }
+
+    .composer { position: relative; display: grid; gap: 10px; margin: 0 22px 18px; padding: 12px; border: 1px solid rgba(61,220,151,.20); border-radius: 20px; background: linear-gradient(135deg, rgba(61,220,151,.08), rgba(103,232,249,.035)), rgba(8,13,22,.92); box-shadow: 0 18px 44px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.06); }
+    .composer-input { min-height: 50px; display: flex; align-items: center; padding: 0 12px; border-radius: 14px; background: rgba(255,255,255,.045); color: var(--muted); font-size: .85rem; }
+    .composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .tools, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .terminal { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 18px; background: rgba(5,10,16,.82); border: 1px solid rgba(148,163,184,.14); font-family: var(--mono); min-height: 52px; }
+    .terminal-title { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: .70rem; font-weight: 800; }
+    .terminal-line { min-width: 0; overflow: hidden; color: var(--muted); font-size: .70rem; white-space: nowrap; text-overflow: ellipsis; }
+
+    .inspector { display: grid; grid-template-rows: auto minmax(0,1fr); gap: 0; overflow: hidden; border-radius: 22px; min-width: 0; }
+    .inspector-head { display: grid; gap: 12px; padding: 15px; border-bottom: 1px solid var(--line); }
+    .inspector-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .inspector-title strong { color: #fff; font-size: .92rem; }
+    .tabs { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; padding: 4px; border: 1px solid rgba(148,163,184,.12); border-radius: 14px; background: rgba(255,255,255,.035); }
+    .tab { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; border-radius: 10px; color: var(--faint); font-size: .70rem; font-weight: 850; }
+    .tab.active { background: var(--soft-accent); color: #b9f6d4; box-shadow: inset 0 0 0 1px rgba(61,220,151,.18); }
+    .inspector-body { min-height: 0; overflow: hidden; display: grid; align-content: start; gap: 12px; padding: 14px; }
+    .context { display: grid; gap: 10px; padding: 13px; border: 1px solid rgba(148,163,184,.15); border-radius: 17px; background: rgba(255,255,255,.04); }
+    .context.accent { border-color: rgba(61,220,151,.24); background: linear-gradient(135deg, rgba(61,220,151,.09), rgba(255,255,255,.035)); }
+    .context h2 { margin: 0; color: #fff; font-size: .84rem; }
+    .context p { margin: -4px 0 0; color: var(--faint); font-size: .72rem; line-height: 1.45; }
+    .progress { height: 7px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.06); }
+    .progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--cyan)); }
+    .row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px; background: rgba(255,255,255,.035); }
+    .row strong { display: block; overflow: hidden; color: var(--text); font-size: .74rem; white-space: nowrap; text-overflow: ellipsis; }
+    .row span { display: block; margin-top: 2px; color: var(--faint); font-size: .66rem; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--faint); font-size: .66rem; font-weight: 800; }
+    .legend span::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--accent); }
+    .legend span:nth-child(2)::before { background: var(--cyan); }
+    .legend span:nth-child(3)::before { background: var(--warn); }
+    .spark { height: 54px; border-radius: 14px; background: linear-gradient(180deg, transparent 0 31%, rgba(148,163,184,.10) 31% 32%, transparent 32% 64%, rgba(148,163,184,.10) 64% 65%, transparent 65%), linear-gradient(90deg, rgba(61,220,151,.04), rgba(103,232,249,.04)); position: relative; overflow: hidden; }
+    .spark svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+    @media (max-width: 700px) {
+      .frame { width: 100vw; height: 100vh; padding: 10px; }
+      .shell { grid-template-rows: 54px minmax(0, 1fr); border-radius: 24px; }
+      .topbar { grid-template-columns: auto minmax(0,1fr) auto; gap: 8px; padding: 8px 10px; }
+      .brand { grid-template-columns: 32px; }
+      .brand div:last-child, .chip.cyan, .chip.warn, .top-actions .chip:not(.good), .sidebar, .inspector, .terminal, .desc, .head-actions .button:not(.primary), .crumb span:nth-child(n+3), .tasks { display: none; }
+      .command { height: 36px; padding: 0 10px; font-size: .75rem; }
+      .kbd { display: none; }
+      .app { grid-template-columns: minmax(0,1fr); padding: 10px; gap: 10px; }
+      .stage { grid-template-rows: auto minmax(0,1fr); gap: 10px; }
+      .thread-head { grid-template-columns: 1fr; padding: 14px; gap: 10px; }
+      h1 { font-size: 1.08rem; max-width: 12ch; }
+      .head-actions { min-width: 0; justify-content: flex-start; }
+      .scroll { padding: 14px 12px 0; }
+      .stream { gap: 12px; }
+      .msg { grid-template-columns: 32px minmax(0,1fr); gap: 9px; }
+      .avatar { width: 31px; height: 31px; border-radius: 11px; }
+      .bubble { padding: 12px; border-radius: 16px; }
+      .msg p { font-size: .78rem; }
+      .code-line:nth-child(n+6) { display: none; }
+      .composer { margin: 0 10px 12px; padding: 10px; }
+      .composer-input { min-height: 44px; font-size: .78rem; }
+      .composer-foot { align-items: flex-start; flex-direction: column; }
+      .tools .mini:nth-child(n+4) { display: none; }
+      .card, .timeline { border-radius: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <div class="shell" aria-label="Optimized Codex Server workbench mockup">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div><strong>Codex Server</strong><span>Command-first AI IDE</span></div>
+        </div>
+        <div class="command"><span class="search" aria-hidden="true"></span><span>Search threads, run commands, open settings, or ask the workspace…</span><span class="kbd">Ctrl K</span></div>
+        <div class="top-actions"><span class="chip good"><i class="dot"></i>Runtime ready</span><span class="chip cyan">Plan mode</span><span class="chip warn">3 approvals</span></div>
+      </header>
+
+      <main class="app">
+        <aside class="sidebar">
+          <section class="scope">
+            <div class="section-title"><span>Active scope</span><span class="plus">+</span></div>
+            <div class="scope-card"><strong>codex-server / frontend</strong><span>E:\projects\ai\codex-server</span></div>
+          </section>
+          <nav class="nav" aria-label="Primary navigation">
+            <div class="nav-item active"><span class="nav-icon">W</span><strong>Workspaces</strong><small>12</small></div>
+            <div class="nav-item"><span class="nav-icon">A</span><strong>Automations</strong><small>4</small></div>
+            <div class="nav-item"><span class="nav-icon">J</span><strong>Jobs</strong><small>9</small></div>
+            <div class="nav-item"><span class="nav-icon">B</span><strong>Bots</strong><small>2</small></div>
+            <div class="nav-item"><span class="nav-icon">S</span><strong>Skills</strong><small>18</small></div>
+          </nav>
+          <section class="tree">
+            <div class="section-title"><span>Thread registry</span><span>Live</span></div>
+            <div class="tree-list">
+              <div>
+                <div class="workspace active"><span class="folder"></span><div><strong>codex-server</strong><span>8 active threads</span></div><span class="status"></span></div>
+                <div class="threads">
+                  <div class="thread active"><div><strong>Frontend UI redesign</strong><span>running · 2m ago</span></div><span class="label">AI</span></div>
+                  <div class="thread"><div><strong>Runtime plugin logs</strong><span>idle · 14m ago</span></div><span class="label">log</span></div>
+                  <div class="thread"><div><strong>i18n scan follow-up</strong><span>done · 31m ago</span></div><span class="label">ok</span></div>
+                  <div class="thread"><div><strong>Workspace policy metrics</strong><span>waiting · 1h ago</span></div><span class="label">gov</span></div>
+                </div>
+              </div>
+              <div class="workspace"><span class="folder"></span><div><strong>design-lab</strong><span>3 threads · 1 hook warning</span></div><span class="status" style="background:var(--warn);box-shadow:0 0 0 4px rgba(251,191,36,.12)"></span></div>
+              <div class="workspace"><span class="folder"></span><div><strong>backend-runtime</strong><span>5 threads · ready</span></div><span class="status"></span></div>
+            </div>
+          </section>
+          <footer class="side-footer"><div class="health"><div><span>Session health</span><strong>All services synced</strong></div><span class="mini good">98%</span></div></footer>
+        </aside>
+
+        <section class="stage">
+          <section class="card thread-head">
+            <div>
+              <div class="crumb"><span>workspaces</span><span>/</span><span>codex-server</span><span>/</span><span>frontend-ui-redesign</span></div>
+              <div class="title-row"><h1>Frontend UI redesign</h1><span class="mini good"><i class="dot"></i>Streaming</span><span class="mini cyan">React 19</span></div>
+              <p class="desc">A calmer workbench that keeps navigation, execution state, approvals, terminal output, and composer controls visible without turning every region into a heavy card.</p>
+            </div>
+            <div class="head-actions"><span class="chip">Last sync 08:34</span><span class="button">Compare</span><span class="button primary">Review changes</span></div>
+          </section>
+
+          <section class="card timeline">
+            <div class="scroll">
+              <div class="stream">
+                <article class="msg">
+                  <div class="avatar">U</div>
+                  <div class="bubble"><div class="msg-head"><strong>User request</strong><span>23:18</span></div><p>Analyze the current frontend UI, propose a better visual system, and create an optimized design image in the project design folder.</p></div>
+                </article>
+                <article class="msg">
+                  <div class="avatar ai">AI</div>
+                  <div class="bubble live">
+                    <div class="msg-head"><strong>Assistant plan</strong><span>running · local Chrome</span></div>
+                    <p>Use a command-first workbench pattern: persistent context header, stronger active workspace state, consolidated right-side context stack, and a composer that separates prompt input from runtime controls.</p>
+                    <div class="tasks"><div class="task"><strong>Reduce chrome</strong><span>Top bar becomes search + status.</span></div><div class="task"><strong>Clarify zones</strong><span>Sidebar, work area, context stack.</span></div><div class="task"><strong>Preserve density</strong><span>Compact rows and semantic tokens.</span></div></div>
+                  </div>
+                </article>
+                <article class="msg">
+                  <div class="avatar ai">AI</div>
+                  <div class="bubble">
+                    <div class="msg-head"><strong>Suggested implementation slice</strong><span>design tokens</span></div>
+                    <p>Replace nested translucent panels with one surface scale, expose state with semantic pills, and use a single green/cyan accent system for runtime and command affordances.</p>
+                    <div class="code">
+                      <div class="code-bar"><span>frontend/src/styles/tokens.css</span><span>proposed token layer</span></div>
+                      <div class="code-line"><span class="ln">01</span><span>--bg-app: #060b12; --bg-main: #0b1119;</span></div>
+                      <div class="code-line add"><span class="ln">02</span><span>--surface-workspace: color-mix(in srgb, #101822 88%, transparent);</span></div>
+                      <div class="code-line add"><span class="ln">03</span><span>--accent-runtime: #3ddc97; --accent-command: #67e8f9;</span></div>
+                      <div class="code-line"><span class="ln">04</span><span>--border-subtle: rgba(148,163,184,.18);</span></div>
+                      <div class="code-line note"><span class="ln">05</span><span>/* keep current i18n strings; change layout tokens first */</span></div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+            <div class="composer">
+              <div class="composer-input">Ask Codex to implement the optimized shell, then run i18n:check and visual regression screenshots…</div>
+              <div class="composer-foot"><div class="tools"><span class="mini cyan">gpt-5.4</span><span class="mini">Reasoning high</span><span class="mini good">Workspace write</span><span class="mini">Shell PowerShell</span></div><div class="actions"><span class="button">Attach context</span><span class="button primary">Send</span></div></div>
+            </div>
+          </section>
+
+          <section class="terminal"><div class="terminal-title"><span class="status"></span><span>terminal</span></div><div class="terminal-line">PS E:\projects\ai\codex-server\frontend&gt; npm run i18n:check · no missing UI messages detected</div><span class="mini good">attached</span></section>
+        </section>
+
+        <aside class="inspector">
+          <section class="inspector-head"><div class="inspector-title"><strong>Context Stack</strong><span class="mini good">Live</span></div><div class="tabs"><span class="tab active">Plan</span><span class="tab">Approvals</span><span class="tab">Files</span></div></section>
+          <section class="inspector-body">
+            <div class="context accent"><h2>Current turn</h2><p>Design review and mockup creation are in progress. Execution state remains visible but secondary.</p><div class="progress"><i style="width:74%"></i></div><div class="legend"><span>review</span><span>render</span><span>verify</span></div></div>
+            <div class="context"><h2>Governance checks</h2><div class="row"><div><strong>i18n scan required</strong><span>frontend package script available</span></div><span class="mini warn">queued</span></div><div class="row"><div><strong>White-list unchanged</strong><span>no rule mutation in design folder</span></div><span class="mini good">ok</span></div></div>
+            <div class="context"><h2>Design tokens</h2><div class="row"><div><strong>Surface scale</strong><span>app / sidebar / workbench / overlay</span></div><span class="label">4</span></div><div class="row"><div><strong>Accent system</strong><span>runtime green + command cyan</span></div><span class="label">2</span></div><div class="row"><div><strong>Density mode</strong><span>compact rows, clearer section rhythm</span></div><span class="label">dense</span></div></div>
+            <div class="context"><h2>Changed files preview</h2><div class="row"><div><strong>codex-server-ui-optimized.html</strong><span>static mockup source</span></div><span class="mini cyan">new</span></div><div class="row"><div><strong>codex-server-ui-optimized.png</strong><span>desktop effect image</span></div><span class="mini cyan">new</span></div><div class="row"><div><strong>codex-server-ui-optimized-mobile.png</strong><span>mobile effect image</span></div><span class="mini cyan">new</span></div></div>
+            <div class="context"><h2>Runtime health</h2><div class="spark"><svg viewBox="0 0 320 54" preserveAspectRatio="none" aria-hidden="true"><path d="M0 42 C35 35,45 24,76 28 S126 48,158 30 S212 10,248 18 S292 34,320 15" fill="none" stroke="rgba(61,220,151,.9)" stroke-width="3"/><path d="M0 45 C35 38,45 28,76 32 S126 50,158 34 S212 14,248 22 S292 38,320 19 L320 54 L0 54 Z" fill="rgba(61,220,151,.10)"/></svg></div></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

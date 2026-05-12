@@ -319,11 +319,15 @@
     height: 100%;
   }
 
-  .workbench-screen--mobile .workbench-log__viewport {
-    padding: 2px 8px 8px;
+  .workbench-screen--mobile .workbench-log {
     overflow: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .workbench-screen--mobile .workbench-log__viewport {
+    padding: 2px 8px 8px;
+    overflow: visible;
   }
 
   .workbench-screen--mobile .workbench-log__thread {

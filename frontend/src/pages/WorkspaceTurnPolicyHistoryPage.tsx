@@ -513,7 +513,7 @@ export function WorkspaceTurnPolicyHistoryPage() {
 
   return (
     <section className="screen">
-      <header className="mode-strip">
+      <header className="mode-strip mode-strip--turn-policy-history">
         <div className="mode-strip__copy">
           <div className="mode-strip__eyebrow">
             {i18n._({ id: "Turn Policy", message: "Turn Policy" })}
@@ -561,7 +561,7 @@ export function WorkspaceTurnPolicyHistoryPage() {
               </strong>
             </div>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <div className="mode-strip__action-buttons">
             <Link
               className="ide-button ide-button--secondary"
               to={buildWorkspaceTurnPolicyCompareRoute(selectedWorkspaceId, {

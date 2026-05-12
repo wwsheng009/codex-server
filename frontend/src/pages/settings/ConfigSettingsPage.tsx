@@ -105,6 +105,7 @@ import { RuntimeRecoveryNoticeContent } from "../../features/workspaces/RuntimeR
 import { RuntimeRecoveryActionGroup } from "../../features/workspaces/RuntimeRecoveryActionGroup";
 import { buildWorkspaceRuntimeRecoverySummary } from "../../features/workspaces/runtimeRecovery";
 import type { RuntimePreferencesResult } from "../../types/api";
+import { Tooltip } from "../../components/ui/Tooltip";
 
 type AccessTokenDraft = {
   id?: string;
@@ -189,6 +190,82 @@ type TurnPolicyRuntimePreferencesResult = RuntimePreferencesResult & {
   effectiveTurnPolicyPostToolUseFollowUpCooldownMs?: number;
   effectiveTurnPolicyStopMissingSuccessfulVerificationFollowUpCooldownMs?: number;
 };
+
+function ShellTypeHelpTooltipContent() {
+  const rows = [
+    {
+      label: i18n._({
+        id: "Follow catalog defaults",
+        message: "Follow catalog defaults",
+      }),
+      description: i18n._({
+        id: "Do not rewrite shell_type; keep the value from the selected model catalog. Recommended for most cases.",
+        message:
+          "Do not rewrite shell_type; keep the value from the selected model catalog. Recommended for most cases.",
+      }),
+    },
+    {
+      label: formatShellTypeLabel("default"),
+      description: i18n._({
+        id: "Explicitly write shell_type = default. Use it to restore Codex's default shell behavior after broader overrides.",
+        message:
+          "Explicitly write shell_type = default. Use it to restore Codex's default shell behavior after broader overrides.",
+      }),
+    },
+    {
+      label: formatShellTypeLabel("local"),
+      description: i18n._({
+        id: "Exposes local_shell. Use only for trusted local workflows or models that specifically need Local Shell.",
+        message:
+          "Exposes local_shell. Use only for trusted local workflows or models that specifically need Local Shell.",
+      }),
+    },
+    {
+      label: formatShellTypeLabel("shell_command"),
+      description: i18n._({
+        id: "Script-string wrapper for ordinary one-shot commands. A broadly compatible choice when the catalog expects shell_command.",
+        message:
+          "Script-string wrapper for ordinary one-shot commands. A broadly compatible choice when the catalog expects shell_command.",
+      }),
+    },
+    {
+      label: formatShellTypeLabel("unified_exec"),
+      description: i18n._({
+        id: "Streaming execution with stdin support. Prefer it for interactive or long-running commands when the runtime supports it.",
+        message:
+          "Streaming execution with stdin support. Prefer it for interactive or long-running commands when the runtime supports it.",
+      }),
+    },
+    {
+      label: formatShellTypeLabel("disabled"),
+      description: i18n._({
+        id: "Does not expose a shell capability for matching models. Choose it for restricted or no-shell deployments.",
+        message:
+          "Does not expose a shell capability for matching models. Choose it for restricted or no-shell deployments.",
+      }),
+    },
+  ];
+
+  return (
+    <div className="config-shell-type-tooltip">
+      <p>
+        {i18n._({
+          id: "Shell Type only advertises the model shell capability; approvals and sandboxing are controlled by approvalPolicy and sandboxPolicy.",
+          message:
+            "Shell Type only advertises the model shell capability; approvals and sandboxing are controlled by approvalPolicy and sandboxPolicy.",
+        })}
+      </p>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.label}>
+            <strong>{row.label}</strong>
+            <span>{row.description}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export function ConfigSettingsPage() {
   const navigate = useNavigate();
@@ -2842,9 +2919,38 @@ export function ConfigSettingsPage() {
                     </div>
 
                     <div className="field">
-                      <label className="field-label">
-                        {i18n._({ id: "Shell Type", message: "Shell Type" })}
-                      </label>
+                      <div className="field-label">
+                        <span className="info-label">
+                          <span>
+                            {i18n._({
+                              id: "Shell Type",
+                              message: "Shell Type",
+                            })}
+                          </span>
+                          <Tooltip
+                            content={<ShellTypeHelpTooltipContent />}
+                            position="right"
+                            tooltipClassName="config-shell-type-tooltip-frame"
+                            triggerLabel={i18n._({
+                              id: "{label} help",
+                              message: "{label} help",
+                              values: {
+                                label: i18n._({
+                                  id: "Shell Type",
+                                  message: "Shell Type",
+                                }),
+                              },
+                            })}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="info-label__help"
+                            >
+                              ?
+                            </span>
+                          </Tooltip>
+                        </span>
+                      </div>
                       <SelectControl
                         ariaLabel={i18n._({
                           id: "Default shell type",
@@ -4364,32 +4470,32 @@ function getShellTypeOptions() {
         id: "Follow catalog defaults",
         message: "Follow catalog defaults",
       }),
-      triggerLabel: i18n._({ id: "Default", message: "Default" }),
+      triggerLabel: formatShellTypeLabel("default"),
     },
     {
       value: "default",
-      label: i18n._({ id: "Default", message: "Default" }),
-      triggerLabel: i18n._({ id: "Default", message: "Default" }),
+      label: formatShellTypeLabel("default"),
+      triggerLabel: formatShellTypeLabel("default"),
     },
     {
       value: "local",
-      label: i18n._({ id: "Local Shell", message: "Local Shell" }),
-      triggerLabel: i18n._({ id: "Local", message: "Local" }),
+      label: formatShellTypeLabel("local"),
+      triggerLabel: formatShellTypeLabel("local"),
     },
     {
       value: "shell_command",
-      label: i18n._({ id: "Shell Command", message: "Shell Command" }),
-      triggerLabel: i18n._({ id: "Shell Cmd", message: "Shell Cmd" }),
+      label: formatShellTypeLabel("shell_command"),
+      triggerLabel: formatShellTypeLabel("shell_command"),
     },
     {
       value: "unified_exec",
-      label: i18n._({ id: "Unified Execution", message: "Unified Execution" }),
-      triggerLabel: i18n._({ id: "Unified", message: "Unified" }),
+      label: formatShellTypeLabel("unified_exec"),
+      triggerLabel: formatShellTypeLabel("unified_exec"),
     },
     {
       value: "disabled",
-      label: i18n._({ id: "Disabled", message: "Disabled" }),
-      triggerLabel: i18n._({ id: "Off", message: "Off" }),
+      label: formatShellTypeLabel("disabled"),
+      triggerLabel: formatShellTypeLabel("disabled"),
     },
   ];
 }
@@ -4670,17 +4776,35 @@ function formatShellTypeLabel(value?: string | null) {
   const normalized = (value ?? "").trim();
   switch (normalized) {
     case "local":
-      return i18n._({ id: "Local Shell", message: "Local Shell" });
+      return i18n._({
+        id: "shellType.option.local",
+        message: "Local Shell",
+      });
     case "unified_exec":
-      return i18n._({ id: "Unified Execution", message: "Unified Execution" });
+      return i18n._({
+        id: "shellType.option.unifiedExec",
+        message: "Unified Execution",
+      });
     case "shell_command":
-      return i18n._({ id: "Shell Command", message: "Shell Command" });
+      return i18n._({
+        id: "shellType.option.shellCommand",
+        message: "Shell Command",
+      });
     case "disabled":
-      return i18n._({ id: "Disabled", message: "Disabled" });
+      return i18n._({
+        id: "shellType.option.disabled",
+        message: "Disabled",
+      });
     case "default":
-      return i18n._({ id: "Default", message: "Default" });
+      return i18n._({
+        id: "shellType.option.default",
+        message: "Default",
+      });
     case "":
-      return i18n._({ id: "catalog default", message: "catalog default" });
+      return i18n._({
+        id: "shellType.option.catalogDefault",
+        message: "catalog default",
+      });
     default:
       return normalized;
   }

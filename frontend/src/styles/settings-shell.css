@@ -7,8 +7,8 @@
 
 .settings-shell__frame {
   display: grid;
-  grid-template-columns: minmax(236px, 268px) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(204px, 224px) minmax(0, 1fr);
+  gap: 16px;
   width: 100%;
   min-height: 0;
   height: 100%;
@@ -108,7 +108,7 @@
   flex: 1 1 auto;
   flex-direction: column;
   gap: 6px;
-  padding: 10px;
+  padding: 8px;
   overflow-y: scroll;
   background: var(--surface-nav);
   scrollbar-gutter: stable;
@@ -120,7 +120,7 @@
   justify-content: center;
   align-items: center;
   min-height: 52px;
-  padding: 0 14px;
+  padding: 0 10px;
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
   background: var(--surface-overlay);
