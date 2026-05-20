@@ -1,6 +1,7 @@
 package events
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -8,12 +9,28 @@ import (
 )
 
 type testHubStore struct {
+	mu                 sync.Mutex
+	appendCount        int
+	applyCount         int
+	lastAppendedMethod string
+	lastAppliedMethod  string
 	headSeqByWorkspace map[string]uint64
 }
 
-func (s *testHubStore) ApplyThreadEvent(store.EventEnvelope) {}
+func (s *testHubStore) ApplyThreadEvent(event store.EventEnvelope) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.applyCount += 1
+	s.lastAppliedMethod = event.Method
+}
 
 func (s *testHubStore) AppendWorkspaceEvent(event store.EventEnvelope) store.EventEnvelope {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.appendCount += 1
+	s.lastAppendedMethod = event.Method
 	return event
 }
 
@@ -22,7 +39,13 @@ func (s *testHubStore) ListWorkspaceEventsAfter(string, uint64, int) []store.Eve
 }
 
 func (s *testHubStore) GetWorkspaceEventHeadSeq(workspaceID string) uint64 {
-	if s == nil || s.headSeqByWorkspace == nil {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.headSeqByWorkspace == nil {
 		return 0
 	}
 	return s.headSeqByWorkspace[workspaceID]
@@ -30,6 +53,13 @@ func (s *testHubStore) GetWorkspaceEventHeadSeq(workspaceID string) uint64 {
 
 func (s *testHubStore) GetWorkspaceEventOldestSeq(string) uint64 {
 	return 0
+}
+
+func (s *testHubStore) snapshotCounts() (int, int, string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appendCount, s.applyCount, s.lastAppendedMethod, s.lastAppliedMethod
 }
 
 func TestHubDoesNotCloseSlowWorkspaceSubscriberOnDroppableOverflow(t *testing.T) {
@@ -72,6 +102,48 @@ func TestHubDoesNotCloseSlowWorkspaceSubscriberOnDroppableOverflow(t *testing.T)
 		case <-deadline:
 			t.Fatal("timed out waiting for non-droppable event after droppable overflow")
 		}
+	}
+}
+
+func TestHubSkipsProjectionApplyForUnprojectedThreadScopedEvents(t *testing.T) {
+	t.Parallel()
+
+	hub := NewHub()
+	dataStore := &testHubStore{}
+	hub.AttachStore(dataStore)
+
+	hub.Publish(store.EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		Method:      "bot/message/processed",
+		TS:          time.Now().UTC(),
+	})
+
+	appendCount, applyCount, lastAppendedMethod, _ := dataStore.snapshotCounts()
+	if appendCount != 1 {
+		t.Fatalf("expected unprojected event to still be sequenced once, got %d", appendCount)
+	}
+	if lastAppendedMethod != "bot/message/processed" {
+		t.Fatalf("expected unprojected event to be appended, got %q", lastAppendedMethod)
+	}
+	if applyCount != 0 {
+		t.Fatalf("expected unprojected thread event to skip projection apply, got %d applies", applyCount)
+	}
+
+	hub.Publish(store.EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "turn/completed",
+		TS:          time.Now().UTC(),
+	})
+
+	appendCount, applyCount, _, lastAppliedMethod := dataStore.snapshotCounts()
+	if appendCount != 2 {
+		t.Fatalf("expected projected event to still be sequenced, got %d appends", appendCount)
+	}
+	if applyCount != 1 || lastAppliedMethod != "turn/completed" {
+		t.Fatalf("expected only projected lifecycle event to apply, count=%d method=%q", applyCount, lastAppliedMethod)
 	}
 }
 
@@ -156,6 +228,241 @@ func TestSubscriberCoalescesCommandOutputDeltaUnderBackpressure(t *testing.T) {
 	}
 }
 
+func TestRemoveQueuedEventAtPreservesOrderAndClearsTail(t *testing.T) {
+	t.Parallel()
+
+	queue := []store.EventEnvelope{
+		{Method: "event/a"},
+		{Method: "event/b"},
+		{Method: "event/c"},
+	}
+	originalBacking := &queue[:cap(queue)][2]
+
+	queue = removeQueuedEventAt(queue, 1)
+
+	if len(queue) != 2 {
+		t.Fatalf("expected queue length 2 after removal, got %d", len(queue))
+	}
+	if queue[0].Method != "event/a" || queue[1].Method != "event/c" {
+		t.Fatalf("expected queue order [event/a event/c], got %#v", queue)
+	}
+	if *originalBacking != (store.EventEnvelope{}) {
+		t.Fatalf("expected removed tail slot to be cleared, got %#v", *originalBacking)
+	}
+}
+
+func TestSubscriberPopUsesHeadCursorAndSnapshotReportsActiveQueue(t *testing.T) {
+	t.Parallel()
+
+	sub := &subscriber{
+		out:    make(chan store.EventEnvelope, subscriberOutputBufferSize),
+		notify: make(chan struct{}, 1),
+		done:   make(chan struct{}),
+		queue: []store.EventEnvelope{
+			{Method: "event/a"},
+			{Method: "event/b"},
+			{Method: "event/c"},
+		},
+	}
+	originalBackingSecond := &sub.queue[:cap(sub.queue)][1]
+	originalBackingThird := &sub.queue[:cap(sub.queue)][2]
+
+	event, ok := sub.pop()
+	if !ok || event.Method != "event/a" {
+		t.Fatalf("expected first queued event, ok=%v event=%#v", ok, event)
+	}
+	if sub.queueHead != 1 {
+		t.Fatalf("expected queue head cursor 1 after pop, got %d", sub.queueHead)
+	}
+	if *originalBackingSecond != (store.EventEnvelope{Method: "event/b"}) ||
+		*originalBackingThird != (store.EventEnvelope{Method: "event/c"}) {
+		t.Fatalf("expected pop to avoid moving active queue, got second=%#v third=%#v", *originalBackingSecond, *originalBackingThird)
+	}
+
+	snapshot := sub.snapshot()
+	if snapshot.QueueLen != 2 {
+		t.Fatalf("expected snapshot to report active queue length 2, got %d", snapshot.QueueLen)
+	}
+
+	second, ok := sub.pop()
+	if !ok || second.Method != "event/b" {
+		t.Fatalf("expected second queued event, ok=%v event=%#v", ok, second)
+	}
+	third, ok := sub.pop()
+	if !ok || third.Method != "event/c" {
+		t.Fatalf("expected third queued event, ok=%v event=%#v", ok, third)
+	}
+	if _, ok := sub.pop(); ok {
+		t.Fatal("expected empty queue after draining")
+	}
+	if sub.queueHead != 0 || len(sub.queue) != 0 {
+		t.Fatalf("expected queue storage to reset after drain, head=%d len=%d", sub.queueHead, len(sub.queue))
+	}
+}
+
+func TestSubscriberCoalescesItemTextDeltasForSameTurnAndItem(t *testing.T) {
+	t.Parallel()
+
+	sub := &subscriber{
+		out:    make(chan store.EventEnvelope, subscriberOutputBufferSize),
+		notify: make(chan struct{}, 1),
+		done:   make(chan struct{}),
+		queue: []store.EventEnvelope{
+			{
+				WorkspaceID: "ws-1",
+				ThreadID:    "thread-1",
+				TurnID:      "turn-1",
+				Method:      "item/agentMessage/delta",
+				Seq:         301,
+				Payload: map[string]any{
+					"turnId": "turn-1",
+					"itemId": "msg-1",
+					"delta":  "hello ",
+				},
+				TS: time.Now().UTC(),
+			},
+		},
+	}
+
+	result := sub.enqueue(store.EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/agentMessage/delta",
+		Seq:         302,
+		Payload: map[string]any{
+			"turnId": "turn-1",
+			"itemId": "msg-1",
+			"delta":  "world",
+		},
+		TS: time.Now().UTC(),
+	})
+
+	if result.dropped {
+		t.Fatal("expected agent message delta to be coalesced instead of dropped")
+	}
+	if !result.merged {
+		t.Fatal("expected agent message delta merge result")
+	}
+	if sub.coalescedByMethod["item/agentMessage/delta"] != 1 {
+		t.Fatalf("expected agent message delta coalesce count 1, got %d", sub.coalescedByMethod["item/agentMessage/delta"])
+	}
+	if len(sub.queue) != 1 {
+		t.Fatalf("expected single merged event, got %d", len(sub.queue))
+	}
+	merged := sub.queue[0]
+	if !merged.Coalesced {
+		t.Fatal("expected merged agent delta to be marked coalesced")
+	}
+	if merged.Seq != 302 || merged.CoversSeqFrom != 301 || merged.CoversSeqTo != 302 {
+		t.Fatalf("expected merged delta seq coverage 301-302 at seq 302, got seq=%d covers=%d-%d", merged.Seq, merged.CoversSeqFrom, merged.CoversSeqTo)
+	}
+	payload, ok := merged.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected merged payload map, got %#v", merged.Payload)
+	}
+	if payload["delta"] != "hello world" {
+		t.Fatalf("expected merged delta text, got %#v", payload["delta"])
+	}
+}
+
+func TestSubscriberDoesNotCoalesceItemDeltaAcrossSequenceGap(t *testing.T) {
+	t.Parallel()
+
+	sub := &subscriber{
+		out:    make(chan store.EventEnvelope, subscriberOutputBufferSize),
+		notify: make(chan struct{}, 1),
+		done:   make(chan struct{}),
+		queue: []store.EventEnvelope{
+			{
+				WorkspaceID: "ws-1",
+				ThreadID:    "thread-1",
+				TurnID:      "turn-1",
+				Method:      "item/agentMessage/delta",
+				Seq:         501,
+				Payload: map[string]any{
+					"turnId": "turn-1",
+					"itemId": "msg-1",
+					"delta":  "first",
+				},
+				TS: time.Now().UTC(),
+			},
+		},
+	}
+
+	result := sub.enqueue(store.EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/agentMessage/delta",
+		Seq:         503,
+		Payload: map[string]any{
+			"turnId": "turn-1",
+			"itemId": "msg-1",
+			"delta":  "third",
+		},
+		TS: time.Now().UTC(),
+	})
+
+	if result.dropped || result.merged {
+		t.Fatalf("expected non-contiguous delta to enqueue without coalescing, got %#v", result)
+	}
+	if len(sub.queue) != 2 {
+		t.Fatalf("expected separate delta events across seq gap, got %d", len(sub.queue))
+	}
+	if sub.queue[0].CoversSeqTo != 0 || sub.queue[1].CoversSeqTo != 0 {
+		t.Fatalf("expected unmerged events to avoid synthetic coverage, got covers %d and %d", sub.queue[0].CoversSeqTo, sub.queue[1].CoversSeqTo)
+	}
+}
+
+func TestSubscriberDoesNotCoalesceReasoningDeltasAcrossDifferentIndexes(t *testing.T) {
+	t.Parallel()
+
+	sub := &subscriber{
+		out:    make(chan store.EventEnvelope, subscriberOutputBufferSize),
+		notify: make(chan struct{}, 1),
+		done:   make(chan struct{}),
+		queue: []store.EventEnvelope{
+			{
+				WorkspaceID: "ws-1",
+				ThreadID:    "thread-1",
+				TurnID:      "turn-1",
+				Method:      "item/reasoning/textDelta",
+				Seq:         401,
+				Payload: map[string]any{
+					"turnId":       "turn-1",
+					"itemId":       "reasoning-1",
+					"contentIndex": 0,
+					"delta":        "first",
+				},
+				TS: time.Now().UTC(),
+			},
+		},
+	}
+
+	result := sub.enqueue(store.EventEnvelope{
+		WorkspaceID: "ws-1",
+		ThreadID:    "thread-1",
+		TurnID:      "turn-1",
+		Method:      "item/reasoning/textDelta",
+		Seq:         402,
+		Payload: map[string]any{
+			"turnId":       "turn-1",
+			"itemId":       "reasoning-1",
+			"contentIndex": 1,
+			"delta":        "second",
+		},
+		TS: time.Now().UTC(),
+	})
+
+	if result.dropped || result.merged {
+		t.Fatalf("expected different reasoning indexes to enqueue without coalescing, got %#v", result)
+	}
+	if len(sub.queue) != 2 {
+		t.Fatalf("expected separate reasoning delta events, got %d", len(sub.queue))
+	}
+}
+
 func TestSubscriberCoalescesThreadTokenUsageUpdateToLatest(t *testing.T) {
 	t.Parallel()
 
@@ -181,7 +488,7 @@ func TestSubscriberCoalescesThreadTokenUsageUpdateToLatest(t *testing.T) {
 		WorkspaceID: "ws-1",
 		ThreadID:    "thread-1",
 		Method:      "thread/tokenUsage/updated",
-		Seq:         203,
+		Seq:         202,
 		Payload: map[string]any{
 			"tokenUsage": map[string]any{"total": 20},
 		},
@@ -203,8 +510,8 @@ func TestSubscriberCoalescesThreadTokenUsageUpdateToLatest(t *testing.T) {
 	if !sub.queue[0].Coalesced {
 		t.Fatal("expected token usage replacement event to be marked coalesced")
 	}
-	if sub.queue[0].Seq != 203 || sub.queue[0].CoversSeqFrom != 201 || sub.queue[0].CoversSeqTo != 203 {
-		t.Fatalf("expected token usage seq coverage 201-203 at seq 203, got seq=%d covers=%d-%d", sub.queue[0].Seq, sub.queue[0].CoversSeqFrom, sub.queue[0].CoversSeqTo)
+	if sub.queue[0].Seq != 202 || sub.queue[0].CoversSeqFrom != 201 || sub.queue[0].CoversSeqTo != 202 {
+		t.Fatalf("expected token usage seq coverage 201-202 at seq 202, got seq=%d covers=%d-%d", sub.queue[0].Seq, sub.queue[0].CoversSeqFrom, sub.queue[0].CoversSeqTo)
 	}
 
 	payload, ok := sub.queue[0].Payload.(map[string]any)

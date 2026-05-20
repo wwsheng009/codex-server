@@ -1,6 +1,11 @@
-import type { QueryClient } from '@tanstack/react-query'
+import type { QueryClient, QueryKey } from '@tanstack/react-query'
 
-import type { Thread, ThreadDetail, ThreadListPage } from '../../types/api'
+import type {
+  Thread,
+  ThreadDetail,
+  ThreadListPage,
+  ThreadListSortKey,
+} from '../../types/api'
 
 export function updateThreadArray(
   current: Thread[] | undefined,
@@ -22,7 +27,7 @@ export function updateThreadArray(
     return thread
   })
 
-  return changed ? normalizeThreads(next) : current
+  return changed ? normalizeThreads(next, 'created_at') : current
 }
 
 export function upsertThreadArray(
@@ -39,7 +44,7 @@ export function upsertThreadArray(
     ? items.map((item) => (item.id === thread.id ? thread : item))
     : [thread, ...items]
 
-  return normalizeThreads(nextItems)
+  return normalizeThreads(nextItems, 'created_at')
 }
 
 export function removeThreadFromArray(
@@ -56,6 +61,7 @@ export function removeThreadFromArray(
 export function updateThreadPage(
   current: ThreadListPage | undefined,
   thread: Thread,
+  sortKey: ThreadListSortKey = 'created_at',
 ) {
   if (!current?.data?.length) {
     return current
@@ -76,7 +82,7 @@ export function updateThreadPage(
   return changed
     ? {
         ...current,
-        data: normalizeThreads(nextData),
+        data: normalizeThreads(nextData, sortKey),
       }
     : current
 }
@@ -84,6 +90,7 @@ export function updateThreadPage(
 export function upsertThreadPage(
   current: ThreadListPage | undefined,
   thread: Thread,
+  sortKey: ThreadListSortKey = 'created_at',
 ) {
   if (!current) {
     return current
@@ -100,6 +107,7 @@ export function upsertThreadPage(
       existing
         ? current.data.map((item) => (item.id === thread.id ? thread : item))
         : [thread, ...current.data],
+      sortKey,
     ),
   }
 }
@@ -126,9 +134,8 @@ export function syncThreadIntoThreadCaches(
   queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
     upsertThreadArray(current, thread),
   )
-  queryClient.setQueriesData<ThreadListPage>(
-    { queryKey: ['shell-threads', workspaceId] },
-    (current) => upsertThreadPage(current, thread),
+  updateShellThreadPageCaches(queryClient, workspaceId, (current, sortKey) =>
+    upsertThreadPage(current, thread, sortKey),
   )
   queryClient.setQueriesData<ThreadDetail>(
     { queryKey: ['thread-detail', workspaceId, thread.id] },
@@ -152,9 +159,8 @@ export function updateThreadInThreadCaches(
   queryClient.setQueryData<Thread[]>(['threads', workspaceId], (current) =>
     updateThreadArray(current, thread),
   )
-  queryClient.setQueriesData<ThreadListPage>(
-    { queryKey: ['shell-threads', workspaceId] },
-    (current) => updateThreadPage(current, thread),
+  updateShellThreadPageCaches(queryClient, workspaceId, (current, sortKey) =>
+    updateThreadPage(current, thread, sortKey),
   )
   queryClient.setQueriesData<ThreadDetail>(
     { queryKey: ['thread-detail', workspaceId, thread.id] },
@@ -201,11 +207,65 @@ export function threadSnapshotFromDetail(
   }
 }
 
-function normalizeThreads(threads: Thread[]) {
-  return dedupeThreadsById(threads).sort(
-    (left, right) =>
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
-  )
+function updateShellThreadPageCaches(
+  queryClient: QueryClient,
+  workspaceId: string,
+  updatePage: (
+    current: ThreadListPage | undefined,
+    sortKey: ThreadListSortKey,
+  ) => ThreadListPage | undefined,
+) {
+  const queries = queryClient.getQueriesData<ThreadListPage>({
+    queryKey: ['shell-threads', workspaceId],
+  })
+
+  for (const [queryKey, current] of queries) {
+    const sortKey = resolveThreadListSortKeyFromQueryKey(queryKey)
+    queryClient.setQueryData<ThreadListPage>(
+      queryKey,
+      updatePage(current, sortKey),
+    )
+  }
+}
+
+function resolveThreadListSortKeyFromQueryKey(queryKey: QueryKey): ThreadListSortKey {
+  const options = queryKey[2]
+
+  if (
+    options &&
+    typeof options === 'object' &&
+    'sortKey' in options &&
+    options.sortKey === 'updated_at'
+  ) {
+    return 'updated_at'
+  }
+
+  return 'created_at'
+}
+
+function normalizeThreads(threads: Thread[], sortKey: ThreadListSortKey) {
+  const timestampKey = sortKey === 'updated_at' ? 'updatedAt' : 'createdAt'
+
+  return dedupeThreadsById(threads).sort((left, right) => {
+    const rightTs = Date.parse(right[timestampKey])
+    const leftTs = Date.parse(left[timestampKey])
+    const rightCreatedTs = Date.parse(right.createdAt)
+    const leftCreatedTs = Date.parse(left.createdAt)
+
+    if (Number.isFinite(rightTs) && Number.isFinite(leftTs) && rightTs !== leftTs) {
+      return rightTs - leftTs
+    }
+
+    if (
+      Number.isFinite(rightCreatedTs) &&
+      Number.isFinite(leftCreatedTs) &&
+      rightCreatedTs !== leftCreatedTs
+    ) {
+      return rightCreatedTs - leftCreatedTs
+    }
+
+    return right.id.localeCompare(left.id)
+  })
 }
 
 function dedupeThreadsById(threads: Thread[]) {

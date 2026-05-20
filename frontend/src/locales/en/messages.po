@@ -5372,6 +5372,11 @@ msgid "Created"
 msgstr "Created"
 
 #. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:917
+msgid "Sort threads by created time"
+msgstr "Created time"
+
+#. js-lingui-explicit-id
 #: src/pages/workspaces/WorkspaceHookRunsSection.tsx:585
 msgid "Hook run created label"
 msgstr "Created"
@@ -18215,6 +18220,16 @@ msgid "Sort subscriber diagnostics"
 msgstr "Sort subscriber diagnostics"
 
 #. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1545
+msgid "Sort threads for {workspace}"
+msgstr "Sort threads for {workspace}"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:923
+msgid "Sort threads by last updated time"
+msgstr "Last updated time"
+
+#. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:2883
 #: src/pages/settings/EnvironmentSettingsPage.tsx:2887
 msgid "Sort workspace diagnostics"
@@ -19965,6 +19980,11 @@ msgstr "Thread"
 #: src/pages/workspaces/WorkspaceHookRunsSection.tsx:466
 msgid "Hook run table header thread"
 msgstr "Thread"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1539
+msgid "Thread sort"
+msgstr "Thread sort"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:4974

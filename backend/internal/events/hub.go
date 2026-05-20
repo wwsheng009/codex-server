@@ -42,6 +42,7 @@ type subscriber struct {
 	done                        chan struct{}
 	mu                          sync.Mutex
 	queue                       []store.EventEnvelope
+	queueHead                   int
 	closed                      bool
 	queuedCount                 int
 	mergedCount                 int
@@ -253,7 +254,7 @@ func (h *Hub) Publish(event store.EventEnvelope) {
 		}
 	}
 
-	if dataStore != nil {
+	if dataStore != nil && store.ShouldApplyThreadEventToProjection(event) {
 		dataStore.ApplyThreadEvent(event)
 	}
 
@@ -463,6 +464,7 @@ func (s *subscriber) close() {
 	s.closed = true
 	close(s.done)
 	s.queue = nil
+	s.queueHead = 0
 	s.mu.Unlock()
 }
 
@@ -470,12 +472,17 @@ func (s *subscriber) pop() (store.EventEnvelope, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(s.queue) == 0 {
+	if s.queueLenLocked() == 0 {
+		s.queue = s.queue[:0]
+		s.queueHead = 0
 		return store.EventEnvelope{}, false
 	}
 
-	event := s.queue[0]
-	s.queue = append([]store.EventEnvelope(nil), s.queue[1:]...)
+	event := s.queue[s.queueHead]
+	var zero store.EventEnvelope
+	s.queue[s.queueHead] = zero
+	s.queueHead++
+	s.compactQueueAfterPopLocked()
 	s.lastDequeuedAt = time.Now().UTC()
 	return event, true
 }
@@ -498,7 +505,7 @@ func (s *subscriber) enqueue(event store.EventEnvelope) subscriberBackpressureRe
 		return subscriberBackpressureResult{merged: true}
 	}
 
-	if len(s.queue) >= subscriberQueueSoftLimit && isDroppableEvent(event.Method) {
+	if s.queueLenLocked() >= subscriberQueueSoftLimit && isDroppableEvent(event.Method) {
 		s.markDroppedLocked(dropReasonSoft)
 		return subscriberBackpressureResult{
 			dropped:      true,
@@ -508,15 +515,16 @@ func (s *subscriber) enqueue(event store.EventEnvelope) subscriberBackpressureRe
 	}
 
 	result := subscriberBackpressureResult{}
-	if len(s.queue) >= subscriberQueueHardLimit {
-		droppedIndex := firstDroppableQueuedEventIndex(s.queue)
+	if s.queueLenLocked() >= subscriberQueueHardLimit {
+		activeQueue := s.activeQueueLocked()
+		droppedIndex := firstDroppableQueuedEventIndex(activeQueue)
 		if droppedIndex >= 0 {
 			result = subscriberBackpressureResult{
-				droppedEvent: s.queue[droppedIndex],
+				droppedEvent: activeQueue[droppedIndex],
 				evicted:      true,
 				reason:       dropReasonHardEvicted,
 			}
-			s.queue = append(s.queue[:droppedIndex], s.queue[droppedIndex+1:]...)
+			s.removeQueuedEventAtLocked(droppedIndex)
 			s.markDroppedLocked(dropReasonHardEvicted)
 		} else {
 			s.markDroppedLocked(dropReasonHard)
@@ -528,6 +536,7 @@ func (s *subscriber) enqueue(event store.EventEnvelope) subscriberBackpressureRe
 		}
 	}
 
+	s.compactQueueBeforeAppendLocked()
 	s.queue = append(s.queue, event)
 	s.recordEnqueueLocked(event)
 	select {
@@ -549,25 +558,27 @@ func (s *subscriber) enqueueDroppedControlEvent(event store.EventEnvelope) bool 
 		return false
 	}
 
-	for index := len(s.queue) - 1; index >= 0; index-- {
-		if s.queue[index].Method != "workspace/events/dropped" || s.queue[index].WorkspaceID != event.WorkspaceID {
+	activeQueue := s.activeQueueLocked()
+	for index := len(activeQueue) - 1; index >= 0; index-- {
+		if activeQueue[index].Method != "workspace/events/dropped" || activeQueue[index].WorkspaceID != event.WorkspaceID {
 			continue
 		}
 
-		incrementDroppedControlCountLocked(&s.queue[index])
-		s.queue[index].TS = event.TS
+		incrementDroppedControlCountLocked(&activeQueue[index])
+		activeQueue[index].TS = event.TS
 		return true
 	}
 
-	if len(s.queue) >= subscriberQueueHardLimit {
-		droppedIndex := firstDroppableQueuedEventIndex(s.queue)
+	if s.queueLenLocked() >= subscriberQueueHardLimit {
+		droppedIndex := firstDroppableQueuedEventIndex(s.activeQueueLocked())
 		if droppedIndex < 0 {
 			droppedIndex = 0
 		}
-		s.queue = append(s.queue[:droppedIndex], s.queue[droppedIndex+1:]...)
+		s.removeQueuedEventAtLocked(droppedIndex)
 		s.markDroppedLocked(dropReasonHardEvicted)
 	}
 
+	s.compactQueueBeforeAppendLocked()
 	s.queue = append(s.queue, event)
 	s.recordEnqueueLocked(event)
 	select {
@@ -578,14 +589,92 @@ func (s *subscriber) enqueueDroppedControlEvent(event store.EventEnvelope) bool 
 }
 
 func (s *subscriber) tryCoalesceLocked(event store.EventEnvelope) subscriberCoalesceResult {
+	queue := s.activeQueueLocked()
 	switch event.Method {
 	case "command/exec/outputDelta":
-		return coalesceCommandOutputDeltaLocked(s.queue, event)
+		return coalesceCommandOutputDeltaLocked(queue, event)
+	case "item/agentMessage/delta",
+		"item/plan/delta",
+		"item/reasoning/summaryTextDelta",
+		"item/reasoning/textDelta",
+		"item/commandExecution/outputDelta":
+		return coalesceItemTextDeltaLocked(queue, event)
 	case "thread/tokenUsage/updated":
-		return coalesceThreadTokenUsageLocked(s.queue, event)
+		return coalesceThreadTokenUsageLocked(queue, event)
 	default:
 		return subscriberCoalesceResult{}
 	}
+}
+
+func (s *subscriber) queueLenLocked() int {
+	if s.queueHead <= 0 {
+		return len(s.queue)
+	}
+	if s.queueHead >= len(s.queue) {
+		return 0
+	}
+	return len(s.queue) - s.queueHead
+}
+
+func (s *subscriber) activeQueueLocked() []store.EventEnvelope {
+	if s.queueHead <= 0 {
+		return s.queue
+	}
+	if s.queueHead >= len(s.queue) {
+		return nil
+	}
+	return s.queue[s.queueHead:]
+}
+
+func (s *subscriber) compactQueueAfterPopLocked() {
+	if s.queueHead >= len(s.queue) {
+		s.queue = s.queue[:0]
+		s.queueHead = 0
+		return
+	}
+	if s.queueHead >= subscriberQueueSoftLimit && s.queueHead*2 >= len(s.queue) {
+		s.compactQueueLocked()
+	}
+}
+
+func (s *subscriber) compactQueueBeforeAppendLocked() {
+	if s.queueHead == 0 {
+		return
+	}
+	if s.queueLenLocked() == 0 || len(s.queue) == cap(s.queue) || s.queueHead >= subscriberQueueSoftLimit {
+		s.compactQueueLocked()
+	}
+}
+
+func (s *subscriber) compactQueueLocked() {
+	if s.queueHead <= 0 {
+		return
+	}
+
+	activeQueue := s.activeQueueLocked()
+	copied := copy(s.queue, activeQueue)
+	var zero store.EventEnvelope
+	for index := copied; index < len(s.queue); index++ {
+		s.queue[index] = zero
+	}
+	s.queue = s.queue[:copied]
+	s.queueHead = 0
+}
+
+func (s *subscriber) removeQueuedEventAtLocked(index int) {
+	activeQueue := s.activeQueueLocked()
+	s.queue = removeQueuedEventAt(activeQueue, index)
+	s.queueHead = 0
+}
+
+func removeQueuedEventAt(queue []store.EventEnvelope, index int) []store.EventEnvelope {
+	if index < 0 || index >= len(queue) {
+		return queue
+	}
+	copy(queue[index:], queue[index+1:])
+	var zero store.EventEnvelope
+	queue[len(queue)-1] = zero
+	return queue[:len(queue)-1]
 }
 
 type subscriberDropReason string
@@ -721,7 +810,7 @@ func (s *subscriber) snapshot() SubscriberSnapshot {
 		Role:                        s.role,
 		Source:                      s.source,
 		Closed:                      s.closed,
-		QueueLen:                    len(s.queue),
+		QueueLen:                    s.queueLenLocked(),
 		OutputBufferLen:             len(s.out),
 		OutputBufferCap:             cap(s.out),
 		QueuedCount:                 s.queuedCount,
@@ -857,6 +946,9 @@ func coalesceCommandOutputDeltaLocked(queue []store.EventEnvelope, incoming stor
 		if payloadBoolField(current.Payload, "replace") || payloadBoolField(current.Payload, "replay") {
 			continue
 		}
+		if !canCoalesceEventCoverage(current, incoming) {
+			return subscriberCoalesceResult{}
+		}
 
 		currentDeltaText, currentHasDeltaText := payloadTextField(current.Payload, "deltaText")
 		currentDeltaBase64, currentHasDeltaBase64 := payloadTextField(current.Payload, "deltaBase64")
@@ -900,6 +992,61 @@ func coalesceCommandOutputDeltaLocked(queue []store.EventEnvelope, incoming stor
 	return subscriberCoalesceResult{}
 }
 
+func coalesceItemTextDeltaLocked(queue []store.EventEnvelope, incoming store.EventEnvelope) subscriberCoalesceResult {
+	turnID := eventProjectionTurnID(incoming)
+	itemID := payloadStringField(incoming.Payload, "itemId")
+	delta, hasDelta := payloadTextField(incoming.Payload, "delta")
+	if turnID == "" || itemID == "" || !hasDelta || delta == "" {
+		return subscriberCoalesceResult{}
+	}
+
+	for index := len(queue) - 1; index >= 0; index-- {
+		current := queue[index]
+		if current.Method != incoming.Method || current.WorkspaceID != incoming.WorkspaceID {
+			continue
+		}
+		if current.ThreadID != incoming.ThreadID || eventProjectionTurnID(current) != turnID {
+			continue
+		}
+		if payloadStringField(current.Payload, "itemId") != itemID {
+			continue
+		}
+		if !canCoalesceEventCoverage(current, incoming) {
+			return subscriberCoalesceResult{}
+		}
+		if !matchingDeltaIndex(current.Payload, incoming.Payload, incoming.Method) {
+			return subscriberCoalesceResult{}
+		}
+
+		currentDelta, currentHasDelta := payloadTextField(current.Payload, "delta")
+		if !currentHasDelta {
+			return subscriberCoalesceResult{}
+		}
+		payload, ok := clonePayloadMap(current.Payload)
+		if !ok {
+			return subscriberCoalesceResult{}
+		}
+
+		payload["delta"] = currentDelta + delta
+		queue[index].Payload = payload
+		queue[index].TS = incoming.TS
+		if incoming.Seq > queue[index].Seq {
+			queue[index].Seq = incoming.Seq
+		}
+		queue[index].CoversSeqFrom = eventCoverageSeqFrom(current)
+		queue[index].CoversSeqTo = max(eventCoverageSeqTo(current), eventCoverageSeqTo(incoming))
+		queue[index].Coalesced = true
+		queue[index].Replay = queue[index].Replay || incoming.Replay
+		return subscriberCoalesceResult{
+			merged: true,
+			method: incoming.Method,
+			bytes:  len(delta),
+		}
+	}
+
+	return subscriberCoalesceResult{}
+}
+
 func coalesceThreadTokenUsageLocked(queue []store.EventEnvelope, incoming store.EventEnvelope) subscriberCoalesceResult {
 	for index := len(queue) - 1; index >= 0; index-- {
 		current := queue[index]
@@ -908,6 +1055,9 @@ func coalesceThreadTokenUsageLocked(queue []store.EventEnvelope, incoming store.
 		}
 		if current.ThreadID != incoming.ThreadID {
 			continue
+		}
+		if !canCoalesceEventCoverage(current, incoming) {
+			return subscriberCoalesceResult{}
 		}
 
 		incoming.CoversSeqFrom = eventCoverageSeqFrom(current)
@@ -921,6 +1071,42 @@ func coalesceThreadTokenUsageLocked(queue []store.EventEnvelope, incoming store.
 	}
 
 	return subscriberCoalesceResult{}
+}
+
+func eventProjectionTurnID(event store.EventEnvelope) string {
+	if turnID := payloadStringField(event.Payload, "turnId"); turnID != "" {
+		return turnID
+	}
+	return event.TurnID
+}
+
+func canCoalesceEventCoverage(current store.EventEnvelope, incoming store.EventEnvelope) bool {
+	currentTo := eventCoverageSeqTo(current)
+	incomingFrom := eventCoverageSeqFrom(incoming)
+	if currentTo == 0 || incomingFrom == 0 {
+		return true
+	}
+	return currentTo < ^uint64(0) && incomingFrom == currentTo+1
+}
+
+func matchingDeltaIndex(current any, incoming any, method string) bool {
+	switch method {
+	case "item/reasoning/summaryTextDelta":
+		return matchingPayloadIntField(current, incoming, "summaryIndex")
+	case "item/reasoning/textDelta":
+		return matchingPayloadIntField(current, incoming, "contentIndex")
+	default:
+		return true
+	}
+}
+
+func matchingPayloadIntField(current any, incoming any, key string) bool {
+	currentValue, currentOK := payloadIntField(current, key)
+	incomingValue, incomingOK := payloadIntField(incoming, key)
+	if !currentOK && !incomingOK {
+		return true
+	}
+	return currentOK && incomingOK && currentValue == incomingValue
 }
 
 func eventCoverageSeqFrom(event store.EventEnvelope) uint64 {

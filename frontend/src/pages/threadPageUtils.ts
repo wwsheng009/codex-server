@@ -6,17 +6,32 @@ import type {
 } from './threadPageUtilsTypes'
 export type { ThreadDisplayMetrics } from './threadPageUtilsTypes'
 
+const loadedThreadQueryRefreshMethods = new Set([
+  'thread/started',
+  'thread/closed',
+])
+
+const terminalTurnLifecycleRefreshMethods = new Set([
+  'turn/failed',
+  'turn/interrupted',
+  'turn/canceled',
+  'turn/cancelled',
+])
+
+const threadLifecycleSummaryRefreshMethods = new Set([
+  'thread/status/changed',
+  'turn/started',
+  'turn/completed',
+  ...terminalTurnLifecycleRefreshMethods,
+])
+
 const threadQueryRefreshMethods = new Set([
   'thread/started',
   'thread/archived',
   'thread/unarchived',
   'thread/name/updated',
   'thread/compacted',
-])
-
-const loadedThreadQueryRefreshMethods = new Set([
-  'thread/started',
-  'thread/closed',
+  ...threadLifecycleSummaryRefreshMethods,
 ])
 
 const mcpServerStatusRefreshMethods = new Set([
@@ -32,12 +47,6 @@ const runtimeCatalogRefreshMethods = new Set([
 
 const hookRunRefreshMethods = new Set(['hook/started', 'hook/completed'])
 const turnPolicyGovernanceRefreshMethods = new Set(['hook/completed'])
-const terminalTurnLifecycleRefreshMethods = new Set([
-  'turn/failed',
-  'turn/interrupted',
-  'turn/canceled',
-  'turn/cancelled',
-])
 
 const threadDetailRefreshMethods = new Set([
   ...threadQueryRefreshMethods,

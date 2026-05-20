@@ -15,6 +15,7 @@ import type {
   TerminalDockPlacement,
   TerminalWindowBounds,
 } from './layout-config-types'
+import type { ThreadListSortKey } from '../types/api'
 
 export function readLeftSidebarCollapsed() {
   return readBooleanPreference('leftSidebarCollapsed', false)
@@ -34,6 +35,16 @@ export function readLeftSidebarWidth() {
 
 export function writeLeftSidebarWidth(value: number) {
   writeNumberPreference('leftSidebarWidth', value)
+}
+
+export function readWorkspaceThreadListSortKey(): ThreadListSortKey {
+  const stored = readJsonPreference<unknown>('workspaceThreadListSortKey', 'created_at')
+
+  return stored === 'updated_at' ? 'updated_at' : 'created_at'
+}
+
+export function writeWorkspaceThreadListSortKey(value: ThreadListSortKey) {
+  writeJsonPreference('workspaceThreadListSortKey', value)
 }
 
 export function readWorkspaceThreadGroupsCollapsed() {

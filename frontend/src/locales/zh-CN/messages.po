@@ -5209,6 +5209,11 @@ msgid "Created"
 msgstr "创建时间"
 
 #. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:917
+msgid "Sort threads by created time"
+msgstr "创建时间"
+
+#. js-lingui-explicit-id
 #: src/pages/workspaces/WorkspaceHookRunsSection.tsx:585
 msgid "Hook run created label"
 msgstr "挂钩运行创建的标签"
@@ -18111,6 +18116,16 @@ msgid "Sort subscriber diagnostics"
 msgstr "订阅者诊断排序"
 
 #. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1545
+msgid "Sort threads for {workspace}"
+msgstr "对 {workspace} 的线程排序"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:923
+msgid "Sort threads by last updated time"
+msgstr "最后更新时间"
+
+#. js-lingui-explicit-id
 #: src/pages/settings/EnvironmentSettingsPage.tsx:2883
 #: src/pages/settings/EnvironmentSettingsPage.tsx:2887
 msgid "Sort workspace diagnostics"
@@ -19870,6 +19885,11 @@ msgstr "线程"
 #: src/pages/workspaces/WorkspaceHookRunsSection.tsx:466
 msgid "Hook run table header thread"
 msgstr "钩子运行表头线程"
+
+#. js-lingui-explicit-id
+#: src/components/shell/AppShell.tsx:1539
+msgid "Thread sort"
+msgstr "线程排序"
 
 #. js-lingui-explicit-id
 #: src/pages/settings/ConfigSettingsPage.tsx:4974

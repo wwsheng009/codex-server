@@ -22,12 +22,16 @@ import {
 } from './threadPageUtils'
 
 describe('threadPageUtils', () => {
-  it('refreshes thread list only for structural thread mutations', () => {
-    expect(shouldRefreshThreadsForEvent('thread/status/changed')).toBe(false)
+  it('refreshes thread list for structural thread mutations and summary lifecycle changes', () => {
+    expect(shouldRefreshThreadsForEvent('thread/status/changed')).toBe(true)
     expect(shouldRefreshThreadsForEvent('thread/compacted')).toBe(true)
     expect(shouldRefreshThreadsForEvent('thread/closed')).toBe(false)
-    expect(shouldRefreshThreadsForEvent('turn/started')).toBe(false)
-    expect(shouldRefreshThreadsForEvent('turn/completed')).toBe(false)
+    expect(shouldRefreshThreadsForEvent('turn/started')).toBe(true)
+    expect(shouldRefreshThreadsForEvent('turn/completed')).toBe(true)
+    expect(shouldRefreshThreadsForEvent('turn/failed')).toBe(true)
+    expect(shouldRefreshThreadsForEvent('turn/interrupted')).toBe(true)
+    expect(shouldRefreshThreadsForEvent('turn/canceled')).toBe(true)
+    expect(shouldRefreshThreadsForEvent('turn/cancelled')).toBe(true)
     expect(shouldRefreshThreadsForEvent('item/agentMessage/delta')).toBe(false)
   })
 

@@ -15,9 +15,11 @@ import { buildWorkspaceThreadRoute } from '../../lib/thread-routes'
 import {
   readLeftSidebarCollapsed,
   readLeftSidebarWidth,
+  readWorkspaceThreadListSortKey,
   readWorkspaceThreadGroupsCollapsed,
   writeLeftSidebarCollapsed,
   writeLeftSidebarWidth,
+  writeWorkspaceThreadListSortKey,
   writeWorkspaceThreadGroupsCollapsed,
 } from '../../lib/layout-state'
 import {
@@ -47,16 +49,20 @@ import { removeThreadApprovalsFromList } from '../../features/approvals/cache'
 import { refetchApprovalsQueryIfNeeded } from '../../features/approvals/sync'
 import { deleteWorkspace, listWorkspaces, renameWorkspace, restartWorkspace } from '../../features/workspaces/api'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
+import { useWorkspaceEventSubscription, useWorkspaceStreams } from '../../hooks/useWorkspaceStream'
 import { useSessionStore } from '../../stores/session-store'
 import { useUIStore } from '../../stores/ui-store'
 import {
+  buildThreadStoreKey,
   getSelectedThreadIdForWorkspace,
   resolveMissingWorkspaceReferences,
 } from '../../stores/session-store-utils'
 import type {
   PendingApproval,
+  ServerEvent,
   Thread,
   ThreadListPage,
+  ThreadListSortKey,
   Workspace,
 } from '../../types/api'
 import { formatLocalizedStatusLabel } from '../../i18n/display'
@@ -121,9 +127,224 @@ function getPrimaryNavItems() {
 }
 
 const DEFAULT_VISIBLE_THREADS = 8
+const THREAD_LIST_REALTIME_REFRESH_DELAY_MS = 600
+const THREAD_LIST_REALTIME_ACTIVITY_LIMIT = 1000
+const THREAD_LIST_SORT_KEYS = new Set<ThreadListSortKey>(['created_at', 'updated_at'])
+const THREAD_LIST_REALTIME_REFRESH_METHODS = new Set([
+  'thread/started',
+  'thread/status/changed',
+  'thread/archived',
+  'thread/unarchived',
+  'thread/name/updated',
+  'thread/compacted',
+  'thread/closed',
+  'turn/started',
+  'turn/completed',
+  'turn/failed',
+  'turn/interrupted',
+  'turn/canceled',
+  'turn/cancelled',
+])
+const THREAD_LIST_REALTIME_ACTIVITY_METHODS = new Set([
+  'thread/status/changed',
+  'turn/started',
+  'turn/completed',
+  'turn/failed',
+  'turn/interrupted',
+  'turn/canceled',
+  'turn/cancelled',
+])
+
+type ThreadListRealtimeActivity = {
+  latestEventTs: string
+  latestStatus?: string
+}
 
 function threadRefreshKey(workspaceId: string, threadId: string) {
   return `${workspaceId}:${threadId}`
+}
+
+function isWorkspaceRouteActiveForId(pathname: string, workspaceId: string) {
+  const prefix = `/workspaces/${workspaceId}`
+  return pathname === prefix || pathname.startsWith(`${prefix}/`)
+}
+
+function normalizeThreadListSortKey(value: string): ThreadListSortKey {
+  return THREAD_LIST_SORT_KEYS.has(value as ThreadListSortKey)
+    ? (value as ThreadListSortKey)
+    : 'created_at'
+}
+
+function shouldRefreshThreadListForRealtimeEvent(event: ServerEvent) {
+  return THREAD_LIST_REALTIME_REFRESH_METHODS.has(event.method)
+}
+
+function shouldCaptureThreadListRealtimeActivity(event: ServerEvent) {
+  return Boolean(event.threadId && THREAD_LIST_REALTIME_ACTIVITY_METHODS.has(event.method))
+}
+
+function applyThreadListRealtimeActivity(
+  thread: Thread,
+  realtimeActivityByThread: Record<string, ThreadListRealtimeActivity>,
+) {
+  const activity = realtimeActivityByThread[buildThreadStoreKey(thread.workspaceId, thread.id)]
+  if (!activity) {
+    return thread
+  }
+
+  const nextUpdatedAt = isTimestampAfter(activity.latestEventTs, thread.updatedAt)
+    ? activity.latestEventTs
+    : thread.updatedAt
+  const nextStatus =
+    isTimestampSameOrAfter(activity.latestEventTs, thread.updatedAt) && activity.latestStatus
+      ? activity.latestStatus
+      : thread.status
+  if (nextUpdatedAt === thread.updatedAt && nextStatus === thread.status) {
+    return thread
+  }
+
+  return {
+    ...thread,
+    status: nextStatus,
+    updatedAt: nextUpdatedAt,
+  }
+}
+
+function limitThreadListRealtimeActivity(
+  activityByThread: Record<string, ThreadListRealtimeActivity>,
+) {
+  const entries = Object.entries(activityByThread)
+  if (entries.length <= THREAD_LIST_REALTIME_ACTIVITY_LIMIT) {
+    return activityByThread
+  }
+
+  let oldestKey = ''
+  let oldestTs = Number.POSITIVE_INFINITY
+  for (const [key, activity] of entries) {
+    const ts = parseIsoTimestamp(activity.latestEventTs) ?? Number.NEGATIVE_INFINITY
+    if (ts < oldestTs) {
+      oldestKey = key
+      oldestTs = ts
+    }
+  }
+
+  if (!oldestKey) {
+    return activityByThread
+  }
+
+  const nextActivityByThread = { ...activityByThread }
+  delete nextActivityByThread[oldestKey]
+  return nextActivityByThread
+}
+
+function sortThreadsForWorkspaceDisplay(
+  threads: Thread[],
+  sortKey: ThreadListSortKey,
+  realtimeActivityByThread: Record<string, ThreadListRealtimeActivity>,
+) {
+  const withRealtimeActivity = threads.map((thread) =>
+    applyThreadListRealtimeActivity(thread, realtimeActivityByThread),
+  )
+
+  if (sortKey !== 'updated_at') {
+    return withRealtimeActivity
+  }
+
+  return [...withRealtimeActivity].sort(compareThreadsByUpdatedAtDesc)
+}
+
+function compareThreadsByUpdatedAtDesc(left: Thread, right: Thread) {
+  const updatedDelta = compareIsoTimestampDesc(left.updatedAt, right.updatedAt)
+  if (updatedDelta !== 0) {
+    return updatedDelta
+  }
+
+  const createdDelta = compareIsoTimestampDesc(left.createdAt, right.createdAt)
+  if (createdDelta !== 0) {
+    return createdDelta
+  }
+
+  return right.id.localeCompare(left.id)
+}
+
+function compareIsoTimestampDesc(leftValue: string, rightValue: string) {
+  const leftTs = parseIsoTimestamp(leftValue)
+  const rightTs = parseIsoTimestamp(rightValue)
+
+  if (leftTs !== null && rightTs !== null && leftTs !== rightTs) {
+    return rightTs - leftTs
+  }
+  if (leftTs !== null && rightTs === null) {
+    return -1
+  }
+  if (leftTs === null && rightTs !== null) {
+    return 1
+  }
+
+  return 0
+}
+
+function isTimestampAfter(leftValue: string, rightValue: string) {
+  const leftTs = parseIsoTimestamp(leftValue)
+  const rightTs = parseIsoTimestamp(rightValue)
+
+  if (leftTs === null) {
+    return false
+  }
+  return rightTs === null || leftTs > rightTs
+}
+
+function isTimestampSameOrAfter(leftValue: string, rightValue: string) {
+  const leftTs = parseIsoTimestamp(leftValue)
+  const rightTs = parseIsoTimestamp(rightValue)
+
+  if (leftTs === null) {
+    return false
+  }
+  return rightTs === null || leftTs >= rightTs
+}
+
+function parseIsoTimestamp(value: string | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function readThreadListRealtimeStatus(event: ServerEvent) {
+  switch (event.method) {
+    case 'thread/status/changed':
+      return readNestedString(event.payload, 'status', 'type')
+    case 'turn/started':
+      return readNestedString(event.payload, 'turn', 'status') || 'running'
+    case 'turn/completed':
+      return readNestedString(event.payload, 'turn', 'status') || 'completed'
+    case 'turn/failed':
+      return readNestedString(event.payload, 'turn', 'status') || 'failed'
+    case 'turn/interrupted':
+      return readNestedString(event.payload, 'turn', 'status') || 'interrupted'
+    case 'turn/canceled':
+    case 'turn/cancelled':
+      return readNestedString(event.payload, 'turn', 'status') || 'cancelled'
+    default:
+      return ''
+  }
+}
+
+function readNestedString(value: unknown, outerKey: string, innerKey: string) {
+  if (!value || typeof value !== 'object') {
+    return ''
+  }
+
+  const outerValue = (value as Record<string, unknown>)[outerKey]
+  if (!outerValue || typeof outerValue !== 'object') {
+    return ''
+  }
+
+  const innerValue = (outerValue as Record<string, unknown>)[innerKey]
+  return typeof innerValue === 'string' ? innerValue : ''
 }
 
 function updateWorkspaceInList(current: Workspace[] | undefined, workspace: Workspace) {
@@ -169,6 +390,12 @@ export function AppShell() {
   const [renameTarget, setRenameTarget] = useState<RenameTarget>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
+  const [workspaceThreadListSortKey, setWorkspaceThreadListSortKey] = useState(
+    readWorkspaceThreadListSortKey,
+  )
+  const [realtimeThreadActivityByThread, setRealtimeThreadActivityByThread] = useState<
+    Record<string, ThreadListRealtimeActivity>
+  >({})
   const [visibleThreadCountByWorkspace, setVisibleThreadCountByWorkspace] = useState<Record<string, number>>({})
   const [refreshingWorkspaceIds, setRefreshingWorkspaceIds] = useState<Set<string>>(new Set())
   const [refreshingThreadKeys, setRefreshingThreadKeys] = useState<Set<string>>(new Set())
@@ -176,6 +403,7 @@ export function AppShell() {
     useState(() => !shouldDeferOffscreenWorkspaceThreadQueries)
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const realtimeThreadRefreshTimersRef = useRef<Record<string, number>>({})
   const setSelectedWorkspace = useSessionStore((state) => state.setSelectedWorkspace)
   const setSelectedThread = useSessionStore((state) => state.setSelectedThread)
   const removeThread = useSessionStore((state) => state.removeThread)
@@ -197,7 +425,7 @@ export function AppShell() {
     queries: (workspacesQuery.data ?? []).map((workspace) => {
       const requestedThreadCount =
         visibleThreadCountByWorkspace[workspace.id] ?? DEFAULT_VISIBLE_THREADS
-      const workspaceRouteActive = location.pathname.startsWith(`/workspaces/${workspace.id}`)
+      const workspaceRouteActive = isWorkspaceRouteActiveForId(location.pathname, workspace.id)
       const preferCachedThreadPage = false
       const shouldLoadWorkspaceThreads =
         !isSettingsRoute && (isWorkspaceGroupExpanded(workspace.id) || workspaceRouteActive)
@@ -213,7 +441,7 @@ export function AppShell() {
             archived: false,
             limit: requestedThreadCount,
             preferCached: preferCachedThreadPage,
-            sortKey: 'created_at',
+            sortKey: workspaceThreadListSortKey,
           },
         ],
         queryFn: () =>
@@ -221,7 +449,7 @@ export function AppShell() {
             archived: false,
             limit: requestedThreadCount,
             preferCached: preferCachedThreadPage,
-            sortKey: 'created_at',
+            sortKey: workspaceThreadListSortKey,
           }),
         enabled: shouldEnableThreadQuery,
         placeholderData: (previous: ThreadListPage | undefined) => previous,
@@ -230,6 +458,75 @@ export function AppShell() {
         refetchOnWindowFocus: false,
       }
     }),
+  })
+
+  const realtimeWorkspaceIds = useMemo(
+    () =>
+      isSettingsRoute
+        ? []
+        : (workspacesQuery.data ?? [])
+            .filter(
+              (workspace) =>
+                !workspaceThreadGroupsCollapsed[workspace.id] ||
+                isWorkspaceRouteActiveForId(location.pathname, workspace.id),
+            )
+            .map((workspace) => workspace.id),
+    [isSettingsRoute, location.pathname, workspaceThreadGroupsCollapsed, workspacesQuery.data],
+  )
+
+  useWorkspaceStreams(realtimeWorkspaceIds)
+  useWorkspaceEventSubscription(realtimeWorkspaceIds, (event) => {
+    if (shouldCaptureThreadListRealtimeActivity(event) && event.threadId) {
+      const threadActivityKey = buildThreadStoreKey(event.workspaceId, event.threadId)
+      const latestStatus = readThreadListRealtimeStatus(event)
+      setRealtimeThreadActivityByThread((current) => {
+        const currentActivity = current[threadActivityKey]
+        if (
+          currentActivity &&
+          currentActivity.latestEventTs !== event.ts &&
+          !isTimestampAfter(event.ts, currentActivity.latestEventTs)
+        ) {
+          return current
+        }
+
+        const nextActivity = {
+          latestEventTs: event.ts,
+          latestStatus: latestStatus || currentActivity?.latestStatus,
+        }
+        if (
+          currentActivity?.latestEventTs === nextActivity.latestEventTs &&
+          currentActivity?.latestStatus === nextActivity.latestStatus
+        ) {
+          return current
+        }
+
+        return limitThreadListRealtimeActivity({
+          ...current,
+          [threadActivityKey]: nextActivity,
+        })
+      })
+    }
+
+    if (!shouldRefreshThreadListForRealtimeEvent(event)) {
+      return
+    }
+
+    if (typeof window === 'undefined') {
+      void queryClient.invalidateQueries({ queryKey: ['shell-threads', event.workspaceId] })
+      void queryClient.invalidateQueries({ queryKey: ['threads', event.workspaceId] })
+      return
+    }
+
+    const currentTimer = realtimeThreadRefreshTimersRef.current[event.workspaceId]
+    if (currentTimer) {
+      window.clearTimeout(currentTimer)
+    }
+
+    realtimeThreadRefreshTimersRef.current[event.workspaceId] = window.setTimeout(() => {
+      delete realtimeThreadRefreshTimersRef.current[event.workspaceId]
+      void queryClient.invalidateQueries({ queryKey: ['shell-threads', event.workspaceId] })
+      void queryClient.invalidateQueries({ queryKey: ['threads', event.workspaceId] })
+    }, THREAD_LIST_REALTIME_REFRESH_DELAY_MS)
   })
 
   useEffect(() => {
@@ -267,9 +564,27 @@ export function AppShell() {
     writeLeftSidebarCollapsed(isSidebarCollapsed)
   }, [isSidebarCollapsed])
 
+  useEffect(
+    () => () => {
+      if (typeof window === 'undefined') {
+        return
+      }
+
+      for (const timer of Object.values(realtimeThreadRefreshTimersRef.current)) {
+        window.clearTimeout(timer)
+      }
+      realtimeThreadRefreshTimersRef.current = {}
+    },
+    [],
+  )
+
   useEffect(() => {
     writeLeftSidebarWidth(leftSidebarWidth)
   }, [leftSidebarWidth])
+
+  useEffect(() => {
+    writeWorkspaceThreadListSortKey(workspaceThreadListSortKey)
+  }, [workspaceThreadListSortKey])
 
   useEffect(() => {
     writeWorkspaceThreadGroupsCollapsed(workspaceThreadGroupsCollapsed)
@@ -850,6 +1165,10 @@ export function AppShell() {
     }))
   }
 
+  function handleWorkspaceThreadListSortKeyChange(value: string) {
+    setWorkspaceThreadListSortKey(normalizeThreadListSortKey(value))
+  }
+
   function handleConfirmDeleteDialog() {
     if (!deleteTarget || deleteThreadMutation.isPending || deleteWorkspaceMutation.isPending) {
       return
@@ -887,15 +1206,46 @@ export function AppShell() {
 
     return /mac/i.test(navigator.platform) ? '⌘K' : 'Ctrl K'
   }, [])
+  const workspaceThreadListSortOptions = useMemo(
+    () => [
+      {
+        value: 'created_at',
+        label: i18n._({
+          id: 'Sort threads by created time',
+          message: 'Created time',
+        }),
+      },
+      {
+        value: 'updated_at',
+        label: i18n._({
+          id: 'Sort threads by last updated time',
+          message: 'Last updated time',
+        }),
+      },
+    ],
+    [activeLocale],
+  )
   const threadsByWorkspace = useMemo(
     () =>
       new Map(
-        (workspacesQuery.data ?? []).map((workspace, index) => [
-          workspace.id,
-          threadQueries[index]?.data?.data ?? [],
-        ]),
+        (workspacesQuery.data ?? []).map((workspace, index) => {
+          const threads = threadQueries[index]?.data?.data ?? []
+          return [
+            workspace.id,
+            sortThreadsForWorkspaceDisplay(
+              threads,
+              workspaceThreadListSortKey,
+              realtimeThreadActivityByThread,
+            ),
+          ] as const
+        }),
       ),
-    [threadQueries, workspacesQuery.data],
+    [
+      realtimeThreadActivityByThread,
+      threadQueries,
+      workspaceThreadListSortKey,
+      workspacesQuery.data,
+    ],
   )
   const selectedWorkspace = useMemo(
     () => (workspacesQuery.data ?? []).find((workspace) => workspace.id === selectedWorkspaceId),
@@ -1292,7 +1642,7 @@ export function AppShell() {
                 {workspacesQuery.data?.map((workspace, index) => {
                   const threadQuery = threadQueries[index]
                   const threadPage = threadQuery?.data
-                  const threads = threadPage?.data ?? []
+                  const threads = threadsByWorkspace.get(workspace.id) ?? threadPage?.data ?? []
                   const hasMoreThreads = Boolean(threadPage?.nextCursor)
                   const restartPhase = workspaceRestartStateById[workspace.id]
                   const visualRuntimeStatus =
@@ -1488,6 +1838,37 @@ export function AppShell() {
                           </button>
                           {isWorkspaceMenuOpen(workspace.id) ? (
                             <div className="workspace-tree__menu" role="menu">
+                              <label
+                                className="workspace-tree__menu-field"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                }}
+                              >
+                                <span className="workspace-tree__menu-field-label">
+                                  {i18n._({
+                                    id: 'Thread sort',
+                                    message: 'Thread sort',
+                                  })}
+                                </span>
+                                <select
+                                  aria-label={i18n._({
+                                    id: 'Sort threads for {workspace}',
+                                    message: 'Sort threads for {workspace}',
+                                    values: { workspace: workspace.name },
+                                  })}
+                                  className="workspace-tree__menu-select"
+                                  onChange={(event) =>
+                                    handleWorkspaceThreadListSortKeyChange(event.target.value)
+                                  }
+                                  value={workspaceThreadListSortKey}
+                                >
+                                  {workspaceThreadListSortOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
                               <button
                                 className="workspace-tree__menu-item"
                                 onClick={() => void handleRefreshWorkspace(workspace.id)}

@@ -177,4 +177,37 @@ describe('thread cache helpers', () => {
         ?.data.map((thread) => thread.id),
     ).toEqual(['thread-newer-created', 'thread-older-created'])
   })
+
+  it('keeps updatedAt shell thread list pages sorted by latest activity after cache sync', () => {
+    const queryClient = new QueryClient()
+    const olderUpdatedThread = makeThread({
+      id: 'thread-older-updated',
+      createdAt: '2026-04-12T10:10:00.000Z',
+      updatedAt: '2026-04-12T10:10:00.000Z',
+      name: 'Older updated thread',
+    })
+    const newerUpdatedThread = makeThread({
+      id: 'thread-newer-updated',
+      createdAt: '2026-04-12T10:05:00.000Z',
+      updatedAt: '2026-04-12T10:12:00.000Z',
+      name: 'Newer updated thread',
+    })
+
+    queryClient.setQueryData<ThreadListPage>(
+      ['shell-threads', 'ws-1', { archived: false, limit: 8, sortKey: 'updated_at' }],
+      { data: [olderUpdatedThread], nextCursor: null },
+    )
+
+    syncThreadIntoThreadCaches(queryClient, 'ws-1', newerUpdatedThread)
+
+    expect(
+      queryClient
+        .getQueryData<ThreadListPage>([
+          'shell-threads',
+          'ws-1',
+          { archived: false, limit: 8, sortKey: 'updated_at' },
+        ])
+        ?.data.map((thread) => thread.id),
+    ).toEqual(['thread-newer-updated', 'thread-older-updated'])
+  })
 })

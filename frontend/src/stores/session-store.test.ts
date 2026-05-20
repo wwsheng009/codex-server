@@ -426,9 +426,150 @@ describe('applySessionEvents thread activity status', () => {
       nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-3')]?.latestStatus,
     ).toBe('cancelled')
   })
+
+  it('updates thread activity for multiple events in one batch', () => {
+    const nextState = sessionStoreModule.applySessionEvents(createState(), [
+      {
+        ...makeEvent(
+          'turn/started',
+          {
+            turn: {
+              id: 'turn-1',
+            },
+          },
+          '2026-03-27T01:00:11.000Z',
+        ),
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      },
+      {
+        ...makeEvent(
+          'turn/completed',
+          {
+            turn: {
+              id: 'turn-2',
+            },
+          },
+          '2026-03-27T01:00:12.000Z',
+        ),
+        threadId: 'thread-2',
+        turnId: 'turn-2',
+      },
+    ])
+
+    expect(nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-1')]).toMatchObject({
+      latestEventMethod: 'turn/started',
+      latestStatus: 'running',
+    })
+    expect(nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-2')]).toMatchObject({
+      latestEventMethod: 'turn/completed',
+      latestStatus: 'completed',
+    })
+  })
+
+  it('keeps inactive thread event buffers capped while batching deltas', () => {
+    const nextState = sessionStoreModule.applySessionEvents(
+      createState(),
+      Array.from({ length: 6 }, (_, index) => ({
+        ...makeEvent(
+          'item/agentMessage/delta',
+          {
+            delta: String(index),
+            itemId: 'msg-1',
+            turnId: 'turn-1',
+          },
+          `2026-03-27T01:00:1${index}.000Z`,
+        ),
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      })),
+    )
+
+    const events = nextState.eventsByThread[buildThreadStoreKey('ws-1', 'thread-1')]
+    expect(events).toHaveLength(4)
+    expect(events.map((event) => (event.payload as Record<string, unknown>).delta)).toEqual([
+      '2',
+      '3',
+      '4',
+      '5',
+    ])
+  })
+
+  it('updates token usage for multiple threads in one batch', () => {
+    const nextState = sessionStoreModule.applySessionEvents(createState(), [
+      {
+        ...makeEvent(
+          'thread/tokenUsage/updated',
+          {
+            tokenUsage: {
+              last: {
+                totalTokens: 10,
+              },
+              total: {
+                totalTokens: 30,
+              },
+            },
+          },
+          '2026-03-27T01:00:20.000Z',
+        ),
+        threadId: 'thread-1',
+      },
+      {
+        ...makeEvent(
+          'thread/tokenUsage/updated',
+          {
+            tokenUsage: {
+              last: {
+                totalTokens: 20,
+              },
+              total: {
+                totalTokens: 50,
+              },
+            },
+          },
+          '2026-03-27T01:00:21.000Z',
+        ),
+        threadId: 'thread-2',
+      },
+    ])
+
+    expect(
+      nextState.tokenUsageByThread[buildThreadStoreKey('ws-1', 'thread-1')]?.total.totalTokens,
+    ).toBe(30)
+    expect(
+      nextState.tokenUsageByThread[buildThreadStoreKey('ws-1', 'thread-2')]?.total.totalTokens,
+    ).toBe(50)
+  })
 })
 
 describe('live thread detail projection', () => {
+  it('does not create thread projections for command runtime output deltas', () => {
+    const nextState = sessionStoreModule.applySessionEvents(createState(), [
+      {
+        ...makeEvent(
+          'command/exec/outputDelta',
+          {
+            deltaText: 'line 1\n',
+            processId: 'proc_001',
+            stream: 'stdout',
+          },
+          '2026-03-27T01:00:00.500Z',
+        ),
+        seq: 9,
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      },
+    ])
+
+    expect(nextState.commandSessionsByWorkspace['ws-1'].proc_001.combinedOutput).toBe('line 1\n')
+    expect(nextState.threadProjectionsById[buildThreadStoreKey('ws-1', 'thread-1')]).toBeUndefined()
+    expect(nextState.threadActivityByThread[buildThreadStoreKey('ws-1', 'thread-1')]).toMatchObject({
+      latestEventMethod: 'command/exec/outputDelta',
+      threadId: 'thread-1',
+      workspaceId: 'ws-1',
+    })
+  })
+
   it('projects selected-thread realtime command output directly in the session store', () => {
     const nextState = sessionStoreModule.applySessionEvents(
       {

@@ -1,6 +1,7 @@
 const KEYS = {
   leftSidebarCollapsed: 'codex-server:left-sidebar-collapsed',
   leftSidebarWidth: 'codex-server:left-sidebar-width',
+  workspaceThreadListSortKey: 'codex-server:workspace-thread-list-sort-key',
   workspaceThreadGroupsCollapsed: 'codex-server:workspace-thread-groups-collapsed',
   rightRailExpanded: 'codex-server:right-rail-expanded',
   rightRailWidth: 'codex-server:right-rail-width',

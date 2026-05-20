@@ -344,7 +344,12 @@ export function applySessionEvents(
   let workspaceEventsCloned = false
   let threadEventsCloned = false
   let lastEventSeqCloned = false
+  let threadActivityCloned = false
+  let tokenUsageCloned = false
   let pendingCommandOutputEvents: ServerEvent[] = []
+  const activityEventDrafts: Record<string, ServerEvent[]> = {}
+  const workspaceEventDrafts: Record<string, ServerEvent[]> = {}
+  const threadEventDrafts: Record<string, ServerEvent[]> = {}
 
   function flushPendingCommandOutputEvents() {
     if (pendingCommandOutputEvents.length === 0) {
@@ -355,25 +360,6 @@ export function applySessionEvents(
       nextCommandSessions,
       pendingCommandOutputEvents,
     )
-    for (const event of pendingCommandOutputEvents) {
-      const projectionKey = event.threadId
-        ? buildThreadStoreKey(event.workspaceId, event.threadId)
-        : ''
-      const nextDetail = applyLiveThreadProjectionEvent(
-        event.threadId
-          ? readThreadProjectionForEvent(nextThreadProjectionsById, event)
-          : undefined,
-        event,
-      )
-      if (!nextDetail || !projectionKey) {
-        continue
-      }
-      if (!threadProjectionsCloned) {
-        nextThreadProjectionsById = { ...nextThreadProjectionsById }
-        threadProjectionsCloned = true
-      }
-      nextThreadProjectionsById[projectionKey] = nextDetail
-    }
     pendingCommandOutputEvents = []
   }
 
@@ -414,12 +400,14 @@ export function applySessionEvents(
     const projectionKey = event.threadId
       ? buildThreadStoreKey(event.workspaceId, event.threadId)
       : ''
-    const projectedDetail = applyLiveThreadProjectionEvent(
-      event.threadId
-        ? readThreadProjectionForEvent(nextThreadProjectionsById, event)
-        : undefined,
-      event,
-    )
+    const projectedDetail = shouldApplySessionEventToThreadProjection(event)
+      ? applyLiveThreadProjectionEvent(
+          event.threadId
+            ? readThreadProjectionForEvent(nextThreadProjectionsById, event)
+            : undefined,
+          event,
+        )
+      : undefined
     if (projectedDetail && projectionKey) {
       if (!threadProjectionsCloned) {
         nextThreadProjectionsById = { ...nextThreadProjectionsById }
@@ -428,17 +416,23 @@ export function applySessionEvents(
       nextThreadProjectionsById[projectionKey] = projectedDetail
     }
 
-    nextThreadActivity = applyThreadActivityEvent(nextThreadActivity, event)
-    nextTokenUsage = applyTokenUsageEvent(nextTokenUsage, event)
+    const activityResult = applyThreadActivityEvent(nextThreadActivity, event, threadActivityCloned)
+    nextThreadActivity = activityResult.threadActivityByThread
+    threadActivityCloned = activityResult.cloned
+    const tokenUsageResult = applyTokenUsageEvent(nextTokenUsage, event, tokenUsageCloned)
+    nextTokenUsage = tokenUsageResult.tokenUsageByThread
+    tokenUsageCloned = tokenUsageResult.cloned
 
     if (!activityEventsCloned) {
       nextActivityEvents = { ...nextActivityEvents }
       activityEventsCloned = true
     }
-    nextActivityEvents[event.workspaceId] = appendEventWithLimit(
+    nextActivityEvents[event.workspaceId] = appendEventToDraftWithLimit(
+      activityEventDrafts,
       nextActivityEvents[event.workspaceId],
       event,
       WORKSPACE_ACTIVITY_EVENT_LIMIT,
+      event.workspaceId,
     )
 
     if (!event.threadId) {
@@ -446,10 +440,12 @@ export function applySessionEvents(
         nextWorkspaceEvents = { ...nextWorkspaceEvents }
         workspaceEventsCloned = true
       }
-      nextWorkspaceEvents[event.workspaceId] = appendEventWithLimit(
+      nextWorkspaceEvents[event.workspaceId] = appendEventToDraftWithLimit(
+        workspaceEventDrafts,
         nextWorkspaceEvents[event.workspaceId],
         event,
         WORKSPACE_EVENT_LIMIT,
+        event.workspaceId,
       )
       continue
     }
@@ -464,10 +460,12 @@ export function applySessionEvents(
         : INACTIVE_THREAD_EVENT_LIMIT
 
     const threadStoreKey = buildThreadStoreKey(event.workspaceId, event.threadId)
-    nextEventsByThread[threadStoreKey] = appendEventWithLimit(
+    nextEventsByThread[threadStoreKey] = appendEventToDraftWithLimit(
+      threadEventDrafts,
       nextEventsByThread[threadStoreKey],
       event,
       eventLimit,
+      threadStoreKey,
     )
   }
 
@@ -552,6 +550,41 @@ function readLegacyThreadProjection(
   return legacyProjection?.workspaceId === workspaceId ? legacyProjection : undefined
 }
 
+function shouldApplySessionEventToThreadProjection(event: ServerEvent) {
+  if (!event.threadId) {
+    return false
+  }
+
+  if (event.serverRequestId) {
+    return true
+  }
+
+  switch (event.method) {
+    case 'thread/status/changed':
+    case 'turn/started':
+    case 'turn/completed':
+    case 'turn/failed':
+    case 'turn/interrupted':
+    case 'turn/canceled':
+    case 'turn/cancelled':
+    case 'item/started':
+    case 'item/completed':
+    case 'item/agentMessage/delta':
+    case 'item/plan/delta':
+    case 'turn/plan/updated':
+    case 'item/reasoning/summaryTextDelta':
+    case 'item/reasoning/textDelta':
+    case 'item/commandExecution/outputDelta':
+    case 'item/fileChange/outputDelta':
+    case 'hook/started':
+    case 'hook/completed':
+    case 'thread/tokenUsage/updated':
+      return true
+    default:
+      return false
+  }
+}
+
 function applyLiveThreadProjectionEvent(
   currentDetail: ThreadDetail | undefined,
   event: ServerEvent,
@@ -593,16 +626,26 @@ function readThreadProjectionPlaceholderStatus(event: ServerEvent) {
   }
 }
 
-function appendEventWithLimit<T>(current: T[] | undefined, value: T, limit: number) {
-  if (!current || current.length === 0) {
-    return [value]
+function appendEventToDraftWithLimit<T>(
+  drafts: Record<string, T[]>,
+  current: T[] | undefined,
+  value: T,
+  limit: number,
+  key: string,
+) {
+  const draft = drafts[key] ?? [...(current ?? [])]
+  drafts[key] = draft
+  draft.push(value)
+
+  if (draft.length > limit * 2) {
+    draft.splice(0, draft.length - limit)
   }
 
-  if (current.length < limit) {
-    return [...current, value]
+  if (draft.length <= limit) {
+    return draft
   }
 
-  return [...current.slice(current.length - limit + 1), value]
+  return draft.slice(draft.length - limit)
 }
 
 function applyCommandEvent(
@@ -659,9 +702,13 @@ function applyCommandEvent(
 function applyThreadActivityEvent(
   threadActivityByThread: Record<string, ThreadActivitySummary>,
   event: ServerEvent,
+  alreadyCloned = false,
 ) {
   if (!event.threadId) {
-    return threadActivityByThread
+    return {
+      cloned: alreadyCloned,
+      threadActivityByThread,
+    }
   }
 
   const nextStatus = readThreadActivityStatus(event)
@@ -669,31 +716,69 @@ function applyThreadActivityEvent(
   const current =
     threadActivityByThread[threadStoreKey] ??
     readLegacyThreadActivity(threadActivityByThread, event.workspaceId, event.threadId)
+  const nextActivity = {
+    latestEventMethod: event.method,
+    latestEventTs: event.ts,
+    latestStatus: nextStatus || current?.latestStatus,
+    threadId: event.threadId,
+    workspaceId: event.workspaceId,
+  }
+
+  if (
+    current &&
+    current.latestEventMethod === nextActivity.latestEventMethod &&
+    current.latestEventTs === nextActivity.latestEventTs &&
+    current.latestStatus === nextActivity.latestStatus &&
+    current.threadId === nextActivity.threadId &&
+    current.workspaceId === nextActivity.workspaceId &&
+    threadActivityByThread[threadStoreKey] === current
+  ) {
+    return {
+      cloned: alreadyCloned,
+      threadActivityByThread,
+    }
+  }
+
+  const nextThreadActivityByThread = alreadyCloned
+    ? threadActivityByThread
+    : { ...threadActivityByThread }
+  nextThreadActivityByThread[threadStoreKey] = nextActivity
 
   return {
-    ...threadActivityByThread,
-    [threadStoreKey]: {
-      latestEventMethod: event.method,
-      latestEventTs: event.ts,
-      latestStatus: nextStatus || current?.latestStatus,
-      threadId: event.threadId,
-      workspaceId: event.workspaceId,
-    },
+    cloned: true,
+    threadActivityByThread: nextThreadActivityByThread,
   }
 }
 
 function applyTokenUsageEvent(
   tokenUsageByThread: Record<string, ThreadTokenUsage>,
   event: ServerEvent,
+  alreadyCloned = false,
 ) {
   const parsed = readThreadTokenUsageFromEvent(event)
   if (!parsed) {
-    return tokenUsageByThread
+    return {
+      cloned: alreadyCloned,
+      tokenUsageByThread,
+    }
   }
 
+  const threadStoreKey = buildThreadStoreKey(event.workspaceId, parsed.threadId)
+  if (tokenUsageByThread[threadStoreKey] === parsed.usage) {
+    return {
+      cloned: alreadyCloned,
+      tokenUsageByThread,
+    }
+  }
+
+  const nextTokenUsageByThread = alreadyCloned
+    ? tokenUsageByThread
+    : { ...tokenUsageByThread }
+  nextTokenUsageByThread[threadStoreKey] = parsed.usage
+
   return {
-    ...tokenUsageByThread,
-    [buildThreadStoreKey(event.workspaceId, parsed.threadId)]: parsed.usage,
+    cloned: true,
+    tokenUsageByThread: nextTokenUsageByThread,
   }
 }
 

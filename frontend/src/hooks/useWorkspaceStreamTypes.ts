@@ -74,6 +74,7 @@ export type WorkspaceStream = {
   lastLeaderHeartbeatAt?: number
   lifecycleEvents: WorkspaceStreamLifecycleEvent[]
   peerSeenAt: Record<string, number>
+  queuedSeqByWorkspace?: Record<string, number>
   lastFollowerRecoveryRequestAfterSeq?: number
   lastFollowerRecoveryRequestAt?: number
   reconnectDelayOverrideMs?: number

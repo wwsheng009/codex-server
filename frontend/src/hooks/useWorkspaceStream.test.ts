@@ -14,6 +14,7 @@ import {
   getWorkspaceStreamManagerDiagnosticsSnapshot,
   handleWorkspaceStreamBroadcastMessage,
   handleWorkspaceStreamEvent,
+  subscribeWorkspaceStreamManagerDiagnostics,
 } from './useWorkspaceStream'
 
 function makeStream(): WorkspaceStream {
@@ -163,6 +164,50 @@ describe('handleWorkspaceStreamEvent', () => {
     expect(firstSnapshot.streams).toEqual([])
   })
 
+  it('coalesces workspace stream diagnostics notifications during event bursts', () => {
+    vi.useFakeTimers()
+    const stream = makeStream()
+    const listener = vi.fn()
+    const unsubscribe = subscribeWorkspaceStreamManagerDiagnostics(listener)
+
+    try {
+      handleWorkspaceStreamEvent(
+        stream,
+        makeEvent('item/agentMessage/delta', {
+          delta: 'Hello',
+          itemId: 'item-1',
+        }),
+        {
+          flushQueuedEvents: vi.fn(),
+          ingestImmediateEvent: vi.fn(),
+          scheduleQueuedFlush: vi.fn(),
+        },
+      )
+      handleWorkspaceStreamEvent(
+        stream,
+        makeEvent('item/agentMessage/delta', {
+          delta: ' world',
+          itemId: 'item-1',
+        }),
+        {
+          flushQueuedEvents: vi.fn(),
+          ingestImmediateEvent: vi.fn(),
+          scheduleQueuedFlush: vi.fn(),
+        },
+      )
+
+      expect(listener).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(99)
+      expect(listener).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(1)
+      expect(listener).toHaveBeenCalledTimes(1)
+    } finally {
+      unsubscribe()
+    }
+  })
+
   it('flushes queued deltas before ingesting a terminal event immediately', () => {
     const stream = makeStream()
     const flushQueuedEvents = vi.fn(() => {
@@ -215,6 +260,78 @@ describe('handleWorkspaceStreamEvent', () => {
     expect(ingestImmediateEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'item/completed',
+      }),
+    )
+  })
+
+  it('tracks queued event sequence incrementally and resets it after a forced flush', () => {
+    resetSessionStore({
+      lastEventSeqByWorkspace: {
+        'ws-1': 5,
+      },
+    })
+    const stream = makeStream()
+    const flushQueuedEvents = vi.fn(() => {
+      stream.eventQueue = []
+    })
+    const ingestImmediateEvent = vi.fn()
+    const scheduleQueuedFlush = vi.fn()
+
+    const firstResult = handleWorkspaceStreamEvent(
+      stream,
+      {
+        ...makeEvent('item/agentMessage/delta', {
+          delta: 'Hello',
+          itemId: 'item-1',
+        }),
+        seq: 6,
+      },
+      {
+        flushQueuedEvents,
+        ingestImmediateEvent,
+        scheduleQueuedFlush,
+      },
+    )
+    const secondResult = handleWorkspaceStreamEvent(
+      stream,
+      {
+        ...makeEvent('item/agentMessage/delta', {
+          delta: ' world',
+          itemId: 'item-1',
+        }),
+        seq: 7,
+      },
+      {
+        flushQueuedEvents,
+        ingestImmediateEvent,
+        scheduleQueuedFlush,
+      },
+    )
+
+    expect(firstResult).toBe(true)
+    expect(secondResult).toBe(true)
+    expect(stream.queuedSeqByWorkspace).toEqual({ 'ws-1': 7 })
+
+    const terminalResult = handleWorkspaceStreamEvent(
+      stream,
+      makeEvent('turn/completed', {
+        turn: {
+          id: 'turn-1',
+        },
+      }),
+      {
+        flushQueuedEvents,
+        ingestImmediateEvent,
+        scheduleQueuedFlush,
+      },
+    )
+
+    expect(terminalResult).toBe(true)
+    expect(flushQueuedEvents).toHaveBeenCalledTimes(1)
+    expect(stream.queuedSeqByWorkspace).toBeUndefined()
+    expect(ingestImmediateEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'turn/completed',
       }),
     )
   })

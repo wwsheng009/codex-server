@@ -44,6 +44,7 @@ const workspaceFollowerRecoveryRequestCooldownMs = 1_000
 const workspaceStreamRecoveryProblemNoticeTtlMs = 2 * 60_000
 const workspaceStreamRecoverySnapshotNoticeTtlMs = 2 * 60_000
 const workspaceStreamRecoveryRecoveredNoticeTtlMs = 30_000
+const workspaceStreamDiagnosticsEmitThrottleMs = 100
 let workspaceStreamDiagnosticsEmitScheduled = false
 let workspaceStreamDiagnosticsDirty = true
 let workspaceStreamDiagnosticsSnapshotCache: WorkspaceStreamManagerDiagnostics | null = null
@@ -257,17 +258,27 @@ export function buildWorkspaceStreamRecoveryNoticeFromDiagnostics(
 
 function scheduleWorkspaceStreamDiagnosticsChanged() {
   workspaceStreamDiagnosticsDirty = true
+  if (workspaceStreamDiagnosticsListeners.size === 0) {
+    return
+  }
   if (workspaceStreamDiagnosticsEmitScheduled) {
     return
   }
 
   workspaceStreamDiagnosticsEmitScheduled = true
-  queueMicrotask(() => {
+  const emitDiagnosticsChanged = () => {
     workspaceStreamDiagnosticsEmitScheduled = false
     for (const listener of [...workspaceStreamDiagnosticsListeners]) {
       listener()
     }
-  })
+  }
+
+  if (typeof globalThis.setTimeout !== 'function') {
+    queueMicrotask(emitDiagnosticsChanged)
+    return
+  }
+
+  globalThis.setTimeout(emitDiagnosticsChanged, workspaceStreamDiagnosticsEmitThrottleMs)
 }
 
 function buildWorkspaceStreamLocalDiagnostics(
@@ -1528,6 +1539,7 @@ export function handleWorkspaceStreamEvent(
   if (!isBatchableWorkspaceEvent(event.method)) {
     if (stream.eventQueue.length > 0) {
       handlers.flushQueuedEvents(stream)
+      resetWorkspaceStreamQueuedSeq(stream)
     }
 
     if (event.method === 'workspace/replay/completed') {
@@ -1550,18 +1562,19 @@ export function handleWorkspaceStreamEvent(
     return true
   }
 
-  const { acceptedEvents, gap } = splitWorkspaceEventsAtSeqGap([...stream.eventQueue, event])
+  const gap = detectWorkspaceSeqGapForQueuedEvent(stream, event)
   if (gap) {
-    stream.eventQueue = acceptedEvents
     scheduleWorkspaceStreamDiagnosticsChanged()
-    if (acceptedEvents.length > 0) {
+    if (stream.eventQueue.length > 0) {
       handlers.flushQueuedEvents(stream)
+      resetWorkspaceStreamQueuedSeq(stream)
     }
     requestWorkspaceStreamSeqRecovery(stream, gap.event, gap)
     return false
   }
 
   stream.eventQueue.push(event)
+  recordWorkspaceStreamQueuedSeq(stream, event)
   scheduleWorkspaceStreamDiagnosticsChanged()
   handlers.scheduleQueuedFlush(stream)
   return true
@@ -1595,6 +1608,45 @@ function splitWorkspaceEventsAtSeqGap(events: ServerEvent[]) {
 
 function detectWorkspaceSeqGapBeforeApply(events: ServerEvent[]) {
   return splitWorkspaceEventsAtSeqGap(events).gap
+}
+
+function detectWorkspaceSeqGapForQueuedEvent(stream: WorkspaceStream, event: ServerEvent) {
+  const queuedSeq = stream.queuedSeqByWorkspace?.[event.workspaceId]
+  const hasQueuedSeq =
+    stream.eventQueue.length > 0 &&
+    stream.queuedSeqByWorkspace !== undefined &&
+    Object.prototype.hasOwnProperty.call(stream.queuedSeqByWorkspace, event.workspaceId)
+  const lastSeqByWorkspace = useSessionStore.getState().lastEventSeqByWorkspace
+  const hasLastSeq = Object.prototype.hasOwnProperty.call(lastSeqByWorkspace, event.workspaceId)
+
+  if (!hasQueuedSeq && !hasLastSeq) {
+    return null
+  }
+
+  return detectWorkspaceSeqGap(event, {
+    [event.workspaceId]: hasQueuedSeq ? queuedSeq ?? 0 : lastSeqByWorkspace[event.workspaceId] ?? 0,
+  })
+}
+
+function recordWorkspaceStreamQueuedSeq(stream: WorkspaceStream, event: ServerEvent) {
+  const eventSeq = finitePositiveNumber(event.seq)
+  if (eventSeq === null) {
+    return
+  }
+
+  const currentSeq = stream.queuedSeqByWorkspace?.[event.workspaceId] ?? 0
+  if (eventSeq <= currentSeq) {
+    return
+  }
+
+  stream.queuedSeqByWorkspace = {
+    ...(stream.queuedSeqByWorkspace ?? {}),
+    [event.workspaceId]: eventSeq,
+  }
+}
+
+function resetWorkspaceStreamQueuedSeq(stream: WorkspaceStream) {
+  stream.queuedSeqByWorkspace = undefined
 }
 
 function detectWorkspaceSeqGap(
@@ -2013,6 +2065,7 @@ function flushWorkspaceStreamEvents(stream: WorkspaceStream) {
 
   const queuedEvents = stream.eventQueue
   stream.eventQueue = []
+  resetWorkspaceStreamQueuedSeq(stream)
   scheduleWorkspaceStreamDiagnosticsChanged()
   const { acceptedEvents, gap } = splitWorkspaceEventsAtSeqGap(queuedEvents)
   if (acceptedEvents.length === 0 && gap) {

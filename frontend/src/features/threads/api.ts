@@ -4,6 +4,7 @@ import type {
   Thread,
   ThreadDetail,
   ThreadListPage,
+  ThreadListSortKey,
   TurnPolicyDecision,
   TurnPolicyMetricsSummary,
   ThreadTurn,
@@ -15,7 +16,7 @@ export type ListThreadsPageInput = {
   cursor?: string;
   limit?: number;
   preferCached?: boolean;
-  sortKey?: "created_at" | "updated_at";
+  sortKey?: ThreadListSortKey;
 };
 
 export type GetThreadInput = {

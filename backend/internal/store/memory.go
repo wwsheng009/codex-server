@@ -113,7 +113,7 @@ type MemoryStore struct {
 	threads                       map[string]Thread
 	pendingSessionStarts          map[string]string
 	workspaceEventSeq             map[string]uint64
-	workspaceEvents               map[string][]EventEnvelope
+	workspaceEvents               map[string]workspaceEventLog
 	projections                   map[string]threadProjectionRecord
 	deleted                       map[string]DeletedThread
 	approvals                     map[string]PendingApproval
@@ -142,6 +142,11 @@ type threadProjectionTurnsManifest struct {
 	ChunkSize int      `json:"chunkSize"`
 	ChunkRefs []string `json:"chunkRefs,omitempty"`
 	TurnIDs   []string `json:"turnIds,omitempty"`
+}
+
+type workspaceEventLog struct {
+	events []EventEnvelope
+	start  int
 }
 
 type storeSnapshot struct {
@@ -240,7 +245,7 @@ func NewMemoryStore() *MemoryStore {
 		threads:                       make(map[string]Thread),
 		pendingSessionStarts:          make(map[string]string),
 		workspaceEventSeq:             make(map[string]uint64),
-		workspaceEvents:               make(map[string][]EventEnvelope),
+		workspaceEvents:               make(map[string]workspaceEventLog),
 		projections:                   make(map[string]threadProjectionRecord),
 		deleted:                       make(map[string]DeletedThread),
 		approvals:                     make(map[string]PendingApproval),
@@ -263,11 +268,7 @@ func (s *MemoryStore) AppendWorkspaceEvent(event EventEnvelope) EventEnvelope {
 	event.Seq = nextSeq
 	event.Replay = false
 
-	events := append(cloneEventEnvelopes(s.workspaceEvents[workspaceID]), event)
-	if len(events) > workspaceEventRetentionLimit {
-		events = append([]EventEnvelope(nil), events[len(events)-workspaceEventRetentionLimit:]...)
-	}
-	s.workspaceEvents[workspaceID] = events
+	s.workspaceEvents[workspaceID] = appendWorkspaceEventLog(s.workspaceEvents[workspaceID], event)
 	s.workspaceEventSeq[workspaceID] = nextSeq
 	s.persistLocked()
 
@@ -280,7 +281,7 @@ func (s *MemoryStore) ListWorkspaceEventsAfter(workspaceID string, afterSeq uint
 	}
 
 	s.mu.RLock()
-	events := cloneEventEnvelopes(s.workspaceEvents[workspaceID])
+	events := s.workspaceEvents[workspaceID].clone()
 	s.mu.RUnlock()
 
 	result := make([]EventEnvelope, 0, min(limit, len(events)))
@@ -312,11 +313,11 @@ func (s *MemoryStore) GetWorkspaceEventOldestSeq(workspaceID string) uint64 {
 	defer s.mu.RUnlock()
 
 	events := s.workspaceEvents[workspaceID]
-	if len(events) == 0 {
+	if events.len() == 0 {
 		return 0
 	}
 
-	return events[0].Seq
+	return events.first().Seq
 }
 
 func (s *MemoryStore) ListCommandSessions(workspaceID string) []CommandSessionSnapshot {
@@ -4017,7 +4018,7 @@ func (s *MemoryStore) UpsertThreadProjectionSnapshot(detail ThreadDetail) {
 }
 
 func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
-	if event.ThreadID == "" {
+	if !ShouldApplyThreadEventToProjection(event) {
 		return
 	}
 
@@ -4046,6 +4047,12 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	beforeMessageCount := projection.MessageCount
 
 	if !applyThreadEventToProjection(&projection, event) {
+		if s.updateThreadSummaryFromProjectionEventLocked(projection, event) {
+			s.invalidateMemoryInspectionLocked()
+			if shouldPersistThreadProjectionEvent(event.Method) {
+				s.persistLocked()
+			}
+		}
 		if diagnostics.ShouldLogEventTrace("thread projection ignored event", event.Method) {
 			diagnostics.LogThreadTrace(
 				event.WorkspaceID,
@@ -4061,6 +4068,7 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	record.StatsDirty = true
 	record.SnapshotDirty = true
 	s.projections[key] = record
+	_ = s.updateThreadSummaryFromProjectionEventLocked(projection, event)
 	s.invalidateMemoryInspectionLocked()
 	if diagnostics.ShouldLogEventTrace("thread projection updated", event.Method) {
 		diagnostics.LogThreadTrace(
@@ -4093,6 +4101,84 @@ func (s *MemoryStore) ApplyThreadEvent(event EventEnvelope) {
 	if shouldPersistThreadProjectionEvent(event.Method) {
 		s.persistLocked()
 	}
+}
+
+func (s *MemoryStore) updateThreadSummaryFromProjectionEventLocked(projection ThreadProjection, event EventEnvelope) bool {
+	if event.ThreadID == "" {
+		return false
+	}
+	thread, ok := s.threads[event.ThreadID]
+	if !ok || thread.WorkspaceID != event.WorkspaceID {
+		return false
+	}
+
+	changed := false
+	if status := threadSummaryStatusForEvent(event, projection); status != "" && thread.Status != status {
+		thread.Status = status
+		changed = true
+	}
+	if projection.TurnCount != thread.TurnCount {
+		thread.TurnCount = projection.TurnCount
+		changed = true
+	}
+	if projection.MessageCount != thread.MessageCount {
+		thread.MessageCount = projection.MessageCount
+		changed = true
+	}
+	if !event.TS.IsZero() && event.TS.After(thread.UpdatedAt) {
+		thread.UpdatedAt = event.TS
+		changed = true
+	}
+	if projection.UpdatedAt.After(thread.UpdatedAt) {
+		thread.UpdatedAt = projection.UpdatedAt
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+
+	s.threads[event.ThreadID] = thread
+	if workspace, ok := s.workspaces[thread.WorkspaceID]; ok && thread.UpdatedAt.After(workspace.UpdatedAt) {
+		workspace.UpdatedAt = thread.UpdatedAt
+		s.workspaces[thread.WorkspaceID] = workspace
+	}
+	return true
+}
+
+func threadSummaryStatusForEvent(event EventEnvelope, projection ThreadProjection) string {
+	switch event.Method {
+	case "thread/status/changed":
+		if status := stringValue(asObject(asObject(event.Payload)["status"])["type"]); status != "" {
+			return status
+		}
+	case "turn/started":
+		if status := stringValue(asObject(asObject(event.Payload)["turn"])["status"]); status != "" {
+			return status
+		}
+		return "running"
+	case "turn/completed":
+		if status := stringValue(asObject(asObject(event.Payload)["turn"])["status"]); status != "" {
+			return status
+		}
+		return "completed"
+	case "turn/failed":
+		if status := stringValue(asObject(asObject(event.Payload)["turn"])["status"]); status != "" {
+			return status
+		}
+		return "failed"
+	case "turn/interrupted":
+		if status := stringValue(asObject(asObject(event.Payload)["turn"])["status"]); status != "" {
+			return status
+		}
+		return "interrupted"
+	case "turn/canceled", "turn/cancelled":
+		if status := stringValue(asObject(asObject(event.Payload)["turn"])["status"]); status != "" {
+			return status
+		}
+		return "cancelled"
+	}
+
+	return strings.TrimSpace(projection.Status)
 }
 
 func (s *MemoryStore) RemoveThread(workspaceID string, threadID string) {
@@ -4650,7 +4736,7 @@ func (s *MemoryStore) load() error {
 					events = append([]EventEnvelope(nil), events[len(events)-workspaceEventRetentionLimit:]...)
 				}
 
-				s.workspaceEvents[workspaceID] = events
+				s.workspaceEvents[workspaceID] = newWorkspaceEventLog(events)
 				headSeq := maxSeq
 				if log.NextSeq > 0 && log.NextSeq-1 > headSeq {
 					headSeq = log.NextSeq - 1
@@ -5276,7 +5362,7 @@ func (s *MemoryStore) persistNowLocked() error {
 		snapshot.WorkspaceEvents = append(snapshot.WorkspaceEvents, storedWorkspaceEventLog{
 			WorkspaceID: workspaceID,
 			NextSeq:     s.workspaceEventSeq[workspaceID] + 1,
-			Events:      cloneEventEnvelopes(events),
+			Events:      events.clone(),
 		})
 	}
 	for _, automation := range s.automations {
@@ -5532,6 +5618,59 @@ func cloneThreadProjectionMetadata(projection ThreadProjection) ThreadProjection
 		MessageCount:     projection.MessageCount,
 		SnapshotComplete: projection.SnapshotComplete,
 	}
+}
+
+func appendWorkspaceEventLog(log workspaceEventLog, event EventEnvelope) workspaceEventLog {
+	if workspaceEventRetentionLimit <= 0 {
+		return workspaceEventLog{}
+	}
+	if len(log.events) < workspaceEventRetentionLimit {
+		log.events = append(log.events, event)
+		return log
+	}
+	if len(log.events) == 0 {
+		return workspaceEventLog{events: []EventEnvelope{event}}
+	}
+
+	log.events[log.start] = event
+	log.start = (log.start + 1) % len(log.events)
+	return log
+}
+
+func newWorkspaceEventLog(events []EventEnvelope) workspaceEventLog {
+	log := workspaceEventLog{}
+	for _, event := range events {
+		log = appendWorkspaceEventLog(log, event)
+	}
+	return log
+}
+
+func (log workspaceEventLog) len() int {
+	return len(log.events)
+}
+
+func (log workspaceEventLog) first() EventEnvelope {
+	if len(log.events) == 0 {
+		return EventEnvelope{}
+	}
+	if log.start < 0 || log.start >= len(log.events) {
+		return log.events[0]
+	}
+	return log.events[log.start]
+}
+
+func (log workspaceEventLog) clone() []EventEnvelope {
+	if len(log.events) == 0 {
+		return nil
+	}
+	if log.start <= 0 || log.start >= len(log.events) {
+		return cloneEventEnvelopes(log.events)
+	}
+
+	cloned := make([]EventEnvelope, 0, len(log.events))
+	cloned = append(cloned, log.events[log.start:]...)
+	cloned = append(cloned, log.events[:log.start]...)
+	return cloned
 }
 
 func cloneEventEnvelopes(events []EventEnvelope) []EventEnvelope {

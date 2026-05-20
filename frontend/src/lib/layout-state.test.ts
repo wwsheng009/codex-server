@@ -2,7 +2,12 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { readSurfacePanelSides, readSurfacePanelWidths } from './layout-state'
+import {
+  readSurfacePanelSides,
+  readSurfacePanelWidths,
+  readWorkspaceThreadListSortKey,
+  writeWorkspaceThreadListSortKey,
+} from './layout-state'
 
 describe('layout-state surface panel preferences', () => {
   beforeEach(() => {
@@ -39,5 +44,18 @@ describe('layout-state surface panel preferences', () => {
       feed: 'right',
       plans: 'right',
     })
+  })
+
+  it('persists the workspace thread list sort key and falls back for invalid values', () => {
+    expect(readWorkspaceThreadListSortKey()).toBe('created_at')
+
+    writeWorkspaceThreadListSortKey('updated_at')
+    expect(readWorkspaceThreadListSortKey()).toBe('updated_at')
+
+    window.localStorage.setItem(
+      'codex-server:workspace-thread-list-sort-key',
+      JSON.stringify('name'),
+    )
+    expect(readWorkspaceThreadListSortKey()).toBe('created_at')
   })
 })

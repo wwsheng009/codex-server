@@ -7,6 +7,45 @@ import (
 
 const threadGovernanceTurnID = "thread-governance"
 
+func ShouldApplyThreadEventToProjection(event EventEnvelope) bool {
+	if strings.TrimSpace(event.ThreadID) == "" {
+		return false
+	}
+
+	if event.ServerRequestID != nil && strings.TrimSpace(*event.ServerRequestID) != "" {
+		switch event.Method {
+		case "server/request/resolved", "server/request/expired":
+			return true
+		default:
+			return isProjectedServerRequestMethod(event.Method)
+		}
+	}
+
+	switch event.Method {
+	case "thread/status/changed",
+		"turn/started",
+		"turn/completed",
+		"turn/failed",
+		"turn/interrupted",
+		"turn/canceled",
+		"turn/cancelled",
+		"item/started",
+		"item/completed",
+		"item/agentMessage/delta",
+		"item/plan/delta",
+		"turn/plan/updated",
+		"item/reasoning/summaryTextDelta",
+		"item/reasoning/textDelta",
+		"item/commandExecution/outputDelta",
+		"hook/started",
+		"hook/completed",
+		"thread/tokenUsage/updated":
+		return true
+	default:
+		return false
+	}
+}
+
 func applyThreadEventToProjection(projection *ThreadProjection, event EventEnvelope) bool {
 	payload := asObject(event.Payload)
 	changed := false

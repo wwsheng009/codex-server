@@ -483,6 +483,156 @@ func TestMemoryStoreWorkspaceEventOldestSeqTracksRetention(t *testing.T) {
 	if replayed[0].Seq != 3 {
 		t.Fatalf("expected first retained replay seq 3, got %d", replayed[0].Seq)
 	}
+	if replayed[len(replayed)-1].Seq != uint64(workspaceEventRetentionLimit+2) {
+		t.Fatalf("expected last retained replay seq %d, got %d", workspaceEventRetentionLimit+2, replayed[len(replayed)-1].Seq)
+	}
+	for index, event := range replayed {
+		expectedSeq := uint64(index + 3)
+		if event.Seq != expectedSeq {
+			t.Fatalf("expected replayed event index %d seq %d, got %d", index, expectedSeq, event.Seq)
+		}
+		if !event.Replay {
+			t.Fatalf("expected replay flag on retained event seq %d", event.Seq)
+		}
+	}
+}
+
+func TestApplyThreadEventUpdatesStoredThreadSummary(t *testing.T) {
+	t.Parallel()
+
+	memoryStore := NewMemoryStore()
+	workspace := memoryStore.CreateWorkspace("Workspace Summary", "E:/projects/summary")
+	startedAt := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(3 * time.Second)
+	memoryStore.UpsertThread(Thread{
+		ID:          "thread-summary",
+		WorkspaceID: workspace.ID,
+		Name:        "Thread Summary",
+		Status:      "idle",
+		CreatedAt:   startedAt.Add(-time.Minute),
+		UpdatedAt:   startedAt.Add(-time.Minute),
+	})
+
+	memoryStore.ApplyThreadEvent(EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-summary",
+		TurnID:      "turn-1",
+		Method:      "turn/started",
+		Payload: map[string]any{
+			"turn": map[string]any{
+				"id": "turn-1",
+			},
+		},
+		TS: startedAt,
+	})
+
+	thread, ok := memoryStore.GetThread(workspace.ID, "thread-summary")
+	if !ok {
+		t.Fatal("expected stored thread after turn/started")
+	}
+	if thread.Status != "running" {
+		t.Fatalf("expected stored thread status running after turn/started, got %q", thread.Status)
+	}
+	if !thread.UpdatedAt.Equal(startedAt) {
+		t.Fatalf("expected stored thread updatedAt %s after turn/started, got %s", startedAt, thread.UpdatedAt)
+	}
+
+	memoryStore.ApplyThreadEvent(EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-summary",
+		TurnID:      "turn-1",
+		Method:      "turn/completed",
+		Payload: map[string]any{
+			"turn": map[string]any{
+				"id": "turn-1",
+				"items": []any{
+					map[string]any{
+						"id":   "msg-1",
+						"type": "agentMessage",
+						"text": "done",
+					},
+				},
+			},
+		},
+		TS: completedAt,
+	})
+
+	thread, ok = memoryStore.GetThread(workspace.ID, "thread-summary")
+	if !ok {
+		t.Fatal("expected stored thread after turn/completed")
+	}
+	if thread.Status != "completed" {
+		t.Fatalf("expected stored thread status completed after turn/completed, got %q", thread.Status)
+	}
+	if thread.TurnCount != 1 {
+		t.Fatalf("expected stored thread turn count 1, got %d", thread.TurnCount)
+	}
+	if thread.MessageCount != 1 {
+		t.Fatalf("expected stored thread message count 1, got %d", thread.MessageCount)
+	}
+	if !thread.UpdatedAt.Equal(completedAt) {
+		t.Fatalf("expected stored thread updatedAt %s after turn/completed, got %s", completedAt, thread.UpdatedAt)
+	}
+
+	listed := memoryStore.ListThreads(workspace.ID)
+	if len(listed) != 1 || listed[0].Status != "completed" || !listed[0].UpdatedAt.Equal(completedAt) {
+		t.Fatalf("expected list to expose completed stored summary, got %#v", listed)
+	}
+
+	statusChangedAt := completedAt.Add(time.Second)
+	memoryStore.ApplyThreadEvent(EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-summary",
+		Method:      "thread/status/changed",
+		Payload: map[string]any{
+			"status": map[string]any{
+				"type": "completed",
+			},
+		},
+		TS: statusChangedAt,
+	})
+
+	staleAt := startedAt.Add(-30 * time.Second)
+	memoryStore.UpsertThread(Thread{
+		ID:           "thread-summary",
+		WorkspaceID:  workspace.ID,
+		Name:         "Thread Summary",
+		Status:       "idle",
+		TurnCount:    0,
+		MessageCount: 0,
+		CreatedAt:    staleAt,
+		UpdatedAt:    staleAt,
+	})
+
+	duplicateStatusChangedAt := statusChangedAt.Add(time.Second)
+	memoryStore.ApplyThreadEvent(EventEnvelope{
+		WorkspaceID: workspace.ID,
+		ThreadID:    "thread-summary",
+		Method:      "thread/status/changed",
+		Payload: map[string]any{
+			"status": map[string]any{
+				"type": "completed",
+			},
+		},
+		TS: duplicateStatusChangedAt,
+	})
+
+	thread, ok = memoryStore.GetThread(workspace.ID, "thread-summary")
+	if !ok {
+		t.Fatal("expected stored thread after duplicate thread/status/changed")
+	}
+	if thread.Status != "completed" {
+		t.Fatalf("expected duplicate status event to repair stored thread status, got %q", thread.Status)
+	}
+	if thread.TurnCount != 1 {
+		t.Fatalf("expected duplicate status event to repair stored thread turn count, got %d", thread.TurnCount)
+	}
+	if thread.MessageCount != 1 {
+		t.Fatalf("expected duplicate status event to repair stored thread message count, got %d", thread.MessageCount)
+	}
+	if !thread.UpdatedAt.Equal(duplicateStatusChangedAt) {
+		t.Fatalf("expected duplicate status event to repair stored thread updatedAt %s, got %s", duplicateStatusChangedAt, thread.UpdatedAt)
+	}
 }
 
 func TestTransientBotConnectionRuntimeStateAndLogsStayInMemoryOnly(t *testing.T) {

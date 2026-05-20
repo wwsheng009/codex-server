@@ -605,6 +605,8 @@ export type ThreadListPage = {
   nextCursor?: string | null;
 };
 
+export type ThreadListSortKey = "created_at" | "updated_at";
+
 export type ThreadTurn = {
   id: string;
   status: string;
