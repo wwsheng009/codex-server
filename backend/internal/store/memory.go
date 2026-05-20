@@ -209,6 +209,12 @@ type storedThreadProjection struct {
 	Turns            json.RawMessage        `json:"turns"`
 }
 
+type persistentStoreWrite struct {
+	Path     string
+	Snapshot storeSnapshot
+	Version  uint64
+}
+
 func NewMemoryStore() *MemoryStore {
 	store := &MemoryStore{
 		workspaces:                    make(map[string]Workspace),
@@ -2715,14 +2721,14 @@ func (s *MemoryStore) updateBotConnectionRuntimeState(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	connection, ok := s.botConnections[connectionID]
-	if !ok || connection.WorkspaceID != workspaceID {
-		return BotConnection{}, ErrBotConnectionNotFound
-	}
 	if !persist {
 		if err := s.flushPendingPersistenceLocked(); err != nil {
 			return BotConnection{}, err
 		}
+	}
+	connection, ok := s.botConnections[connectionID]
+	if !ok || connection.WorkspaceID != workspaceID {
+		return BotConnection{}, ErrBotConnectionNotFound
 	}
 
 	next := updater(cloneBotConnection(connection))
@@ -2819,14 +2825,14 @@ func (s *MemoryStore) appendBotConnectionLog(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	connection, ok := s.botConnections[connectionID]
-	if !ok || connection.WorkspaceID != workspaceID {
-		return BotConnectionLogEntry{}, ErrBotConnectionNotFound
-	}
 	if !persist {
 		if err := s.flushPendingPersistenceLocked(); err != nil {
 			return BotConnectionLogEntry{}, err
 		}
+	}
+	connection, ok := s.botConnections[connectionID]
+	if !ok || connection.WorkspaceID != workspaceID {
+		return BotConnectionLogEntry{}, ErrBotConnectionNotFound
 	}
 
 	if entry.ID == "" {
@@ -4488,15 +4494,14 @@ func (s *MemoryStore) flushWorker() {
 		}
 
 		s.flushInProgress = true
-		err := s.persistNowLocked()
-		s.flushInProgress = false
-		s.flushLastErr = err
-		if err == nil {
-			s.flushDirty = false
-			s.flushCompleted = s.flushVersion
-		}
 		s.flushQueued = false
-		s.flushCond.Broadcast()
+		write := s.preparePersistentStoreWriteLocked()
+		s.mu.Unlock()
+
+		err := writePersistentStoreSnapshot(write)
+
+		s.mu.Lock()
+		s.completePersistentStoreWriteLocked(write.Version, err)
 		s.mu.Unlock()
 	}
 }
@@ -4547,14 +4552,14 @@ func (s *MemoryStore) flushPendingPersistenceLocked() error {
 	}
 
 	s.flushInProgress = true
-	err := s.persistNowLocked()
-	s.flushInProgress = false
-	s.flushLastErr = err
-	if err == nil {
-		s.flushDirty = false
-		s.flushCompleted = s.flushVersion
-	}
-	s.flushCond.Broadcast()
+	s.flushQueued = false
+	write := s.preparePersistentStoreWriteLocked()
+	s.mu.Unlock()
+
+	err := writePersistentStoreSnapshot(write)
+
+	s.mu.Lock()
+	s.completePersistentStoreWriteLocked(write.Version, err)
 	return err
 }
 
@@ -5274,9 +5279,10 @@ func (s *MemoryStore) persistLocked() {
 	s.requestFlushLocked()
 }
 
-func (s *MemoryStore) persistNowLocked() error {
+func (s *MemoryStore) preparePersistentStoreWriteLocked() persistentStoreWrite {
+	version := s.flushVersion
 	if s.path == "" {
-		return nil
+		return persistentStoreWrite{Version: version}
 	}
 
 	snapshot := storeSnapshot{
@@ -5464,6 +5470,18 @@ func (s *MemoryStore) persistNowLocked() error {
 		snapshot.DeletedThreads = append(snapshot.DeletedThreads, deletedThread)
 	}
 
+	for key, record := range projectionUpdates {
+		s.projections[key] = record
+	}
+	s.cleanupThreadProjectionSidecars(activeProjectionSidecars)
+	return persistentStoreWrite{
+		Path:     s.path,
+		Snapshot: snapshot,
+		Version:  version,
+	}
+}
+
+func sortPersistentStoreSnapshot(snapshot *storeSnapshot) {
 	sort.Slice(snapshot.Workspaces, func(i int, j int) bool {
 		return snapshot.Workspaces[i].ID < snapshot.Workspaces[j].ID
 	})
@@ -5570,25 +5588,41 @@ func (s *MemoryStore) persistNowLocked() error {
 		}
 		return snapshot.DeletedThreads[i].WorkspaceID < snapshot.DeletedThreads[j].WorkspaceID
 	})
+}
 
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+func writePersistentStoreSnapshot(write persistentStoreWrite) error {
+	if write.Path == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(write.Path), 0o755); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(snapshot, "", "  ")
+	sortPersistentStoreSnapshot(&write.Snapshot)
+	data, err := json.MarshalIndent(write.Snapshot, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(s.path, data, 0o644); err != nil {
-		return err
-	}
+	return os.WriteFile(write.Path, data, 0o644)
+}
 
-	for key, record := range projectionUpdates {
-		s.projections[key] = record
+func (s *MemoryStore) completePersistentStoreWriteLocked(version uint64, err error) {
+	s.flushInProgress = false
+	s.flushLastErr = err
+	if err == nil {
+		if version > s.flushCompleted {
+			s.flushCompleted = version
+		}
+		if s.flushVersion <= version {
+			s.flushDirty = false
+		}
 	}
-	s.cleanupThreadProjectionSidecars(activeProjectionSidecars)
-	return nil
+	if s.flushDirty && !s.flushQueued && !s.flushClosed {
+		s.requestFlushLocked()
+	}
+	s.flushCond.Broadcast()
 }
 
 func deletedThreadKey(workspaceID string, threadID string) string {

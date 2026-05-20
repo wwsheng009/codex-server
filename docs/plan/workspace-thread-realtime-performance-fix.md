@@ -21,6 +21,7 @@
 | 后端 subscriber 队列分配优化 | 已完成 | workspace stream subscriber 出队改为 head 游标，避免每次 pop 移动剩余队列；任意位置淘汰仍原地移动并清尾，减少高频事件消费时的临时分配、内存移动和 GC 压力。 |
 | 后端 projection apply 过滤 | 已完成 | `Hub.Publish` 仅对会影响 thread projection 的 thread-scoped 事件调用 `ApplyThreadEvent`，避免通知类事件抢占全局 store 写锁。 |
 | 后端 delta 队列合并扩展 | 已完成 | subscriber 队列支持合并 agent/plan/reasoning/commandExecution item delta，积压时减少 websocket 待发送事件数；合并仅允许连续 seq 覆盖，避免错误掩盖中间事件缺失。 |
+| 第二阶段持久化锁拆分 | 进行中 | 主 store JSON 的 sort/marshal/write 已移出 `MemoryStore.mu`；锁内只准备内存 snapshot，写入完成后按 flush version 判断是否清 dirty，避免覆盖写入期间的新变更。 |
 | 后端测试 | 已完成 | 覆盖 event retention 顺序、replay 标记、stored thread status/count/updatedAt 跟随生命周期事件，以及重复 status event 修复 stale summary。 |
 | 前端 thread list 实时同步 | 已完成 | AppShell 为当前路由和已展开 workspace 订阅 stream；生命周期/状态事件按 workspace debounce 刷新 `shell-threads`/`threads`。 |
 | 前端 updated_at 实时排序 | 已完成 | AppShell 用轻量本地 activity overlay 修正 visible thread status/updatedAt，并仅在 `updated_at` 模式下重新排序，避免 delta 高频重排；overlay 增加上限避免常驻内存无界增长。 |
@@ -61,9 +62,12 @@
   - `ListWorkspaceEventsAfter`、`GetWorkspaceEventOldestSeq`、load/persist 路径保持原有 seq 顺序语义。
   - `ApplyThreadEvent` 在 projection 更新后同步基础 `Thread` summary。
   - projection 忽略重复 `thread/status/changed` 等事件时，仍尝试用当前 projection 和事件 timestamp/status 修复 stale summary，避免列表 fallback 长期显示旧状态。
+  - 第二阶段开始拆分 persistence：`preparePersistentStoreWriteLocked` 在锁内准备 snapshot，`writePersistentStoreSnapshot` 在锁外执行主 JSON sort、marshal 和 file write，`completePersistentStoreWriteLocked` 用 flush version 判断是否可以清理 dirty。
+  - `flushPendingPersistenceLocked` 现在会在写盘期间释放 store 锁；transient bot runtime/log 调用改为 flush 后重新读取当前对象，避免锁外 flush 期间状态变化后继续使用旧对象。
 - `backend/internal/store/memory_test.go`
   - 增强 retained event replay 顺序和 replay 标记断言。
   - 新增 stored thread summary 生命周期同步回归测试。
+  - 新增 older snapshot 写入完成后不能清除 newer dirty state 的 flush version 回归测试。
 - `backend/internal/events/hub.go`
   - subscriber queue 出队改为 `queueHead` 游标，正常 FIFO drain 摊销 O(1)，避免每次 `pop()` 都移动剩余队列。
   - hard-limit 任意位置淘汰保留 `copy` 原地移动并清空尾槽；head 游标会在 append 前或累计出队后 compact，避免长期保留已出队对象引用。
@@ -121,7 +125,7 @@
 1. 将 `readStdout()` 改为快速入队，由 per-workspace/per-thread worker 消费。
 2. 对生命周期/control event 建立优先级队列，避免 delta 淹没 terminal event。
 3. 将 projection apply 和 persistence 从 `Hub.Publish()` 主路径进一步异步化。
-4. 将 persistence snapshot 构建、JSON marshal、文件写入移出全局 store 锁。
+4. 将 persistence snapshot 构建、JSON marshal、文件写入移出全局 store 锁。主 store JSON 的 sort/marshal/write 已完成锁外化；projection sidecar 写入和 snapshot 准备仍需继续拆分。
 5. 增加端到端延迟指标：app-server emit、Go bridge receive、Hub seq、WS write、browser receive/apply。
 
 ## 验证计划
@@ -136,8 +140,12 @@
 
 | 命令 | 结果 |
 | --- | --- |
+| `go test ./internal/store` | 通过 |
 | `go test ./internal/events ./internal/store ./internal/runtime` | 通过 |
 | `go test ./internal/events ./internal/store ./internal/runtime ./internal/threads` | 通过 |
+| `go test ./internal/store` | 通过，第二阶段持久化锁拆分复验 |
+| `go test ./internal/events ./internal/store ./internal/runtime ./internal/threads` | 通过，第二阶段持久化锁拆分复验 |
+| `git diff --check -- backend/internal/store/memory.go backend/internal/store/memory_test.go docs/plan/workspace-thread-realtime-performance-fix.md` | 通过 |
 | `npm run test -- --run src/features/threads/cache.test.ts src/pages/threadPageUtils.test.ts src/components/shell/WorkspaceTreeThreadRow.test.tsx` | 通过，3 个文件、39 个测试 |
 | `npm run test -- --run src/hooks/useWorkspaceStream.test.ts src/features/threads/cache.test.ts src/pages/threadPageUtils.test.ts src/components/shell/WorkspaceTreeThreadRow.test.tsx` | 通过，4 个文件、61 个测试 |
 | `npm run test -- --run src/stores/session-store.test.ts src/hooks/useWorkspaceStream.test.ts src/features/threads/cache.test.ts src/pages/threadPageUtils.test.ts src/components/shell/WorkspaceTreeThreadRow.test.tsx` | 通过，5 个文件、78 个测试 |

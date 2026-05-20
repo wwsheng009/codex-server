@@ -214,6 +214,60 @@ func TestPersistentStoreFlushAndCloseAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestPersistentStoreFlushVersionKeepsDirtyWhenNewerChangeArrives(t *testing.T) {
+	t.Parallel()
+
+	storePath := filepath.Join(t.TempDir(), "metadata.json")
+	dataStore := NewMemoryStore()
+	dataStore.path = storePath
+	dataStore.startFlushWorker()
+	t.Cleanup(func() {
+		_ = dataStore.Close()
+	})
+
+	workspace := dataStore.CreateWorkspace("Workspace Version", "E:/projects/version")
+
+	dataStore.mu.Lock()
+	write := dataStore.preparePersistentStoreWriteLocked()
+	dataStore.mu.Unlock()
+
+	if _, err := dataStore.SetWorkspaceName(workspace.ID, "Workspace Version Final"); err != nil {
+		t.Fatalf("SetWorkspaceName() error = %v", err)
+	}
+
+	if err := writePersistentStoreSnapshot(write); err != nil {
+		t.Fatalf("writePersistentStoreSnapshot() error = %v", err)
+	}
+
+	dataStore.mu.Lock()
+	dataStore.completePersistentStoreWriteLocked(write.Version, nil)
+	stillDirty := dataStore.flushDirty
+	dataStore.mu.Unlock()
+	if !stillDirty {
+		t.Fatal("expected store to remain dirty after completing older snapshot write")
+	}
+
+	if err := dataStore.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+
+	reloadedStore, err := NewPersistentStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPersistentStore() reload error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = reloadedStore.Close()
+	})
+
+	workspaces := reloadedStore.ListWorkspaces()
+	if len(workspaces) != 1 {
+		t.Fatalf("expected 1 workspace after flush, got %d", len(workspaces))
+	}
+	if workspaces[0].Name != "Workspace Version Final" {
+		t.Fatalf("expected final workspace name to persist, got %q", workspaces[0].Name)
+	}
+}
+
 func TestPersistentStorePersistsThreadProjections(t *testing.T) {
 	t.Parallel()
 
