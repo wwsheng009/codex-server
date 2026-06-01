@@ -382,24 +382,21 @@ export function ThreadWorkbenchSurface({
       {workspaceStreamRecoveryNotice.message}
     </InlineNotice>
   ) : null
-  const workbenchLogClassName = isThreadPinnedToLatest
-    ? 'workbench-log workbench-log--follow'
-    : 'workbench-log workbench-log--detached'
-  const workbenchLogViewportClassName = isThreadPinnedToLatest
-    ? 'workbench-log__viewport workbench-log__viewport--follow'
-    : 'workbench-log__viewport workbench-log__viewport--detached'
 
   return (
     <div className="workbench-stage__canvas">
-      <div
-        aria-busy={isThreadProcessing}
-        className={workbenchLogClassName}
-        onScroll={handleViewportScroll}
-        ref={threadViewportRef}
-        style={threadLogStyle}
-      >
+      <div className="workbench-log" style={threadLogStyle}>
         <ConversationRenderProfilerBoundary id="ThreadWorkbenchSurface">
-          <div className={workbenchLogViewportClassName}>
+          <div
+            aria-busy={isThreadProcessing}
+            className={
+              isThreadPinnedToLatest
+                ? 'workbench-log__viewport workbench-log__viewport--follow'
+                : 'workbench-log__viewport workbench-log__viewport--detached'
+            }
+            onScroll={handleViewportScroll}
+            ref={threadViewportRef}
+          >
             {selectedThread ? (
               threadDetailIsLoading && !displayedTurns.length ? (
                 <div className="workbench-log__loading">
