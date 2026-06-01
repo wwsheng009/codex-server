@@ -210,9 +210,29 @@ type storedThreadProjection struct {
 }
 
 type persistentStoreWrite struct {
-	Path     string
-	Snapshot storeSnapshot
-	Version  uint64
+	Path                     string
+	Snapshot                 storeSnapshot
+	Version                  uint64
+	ActiveProjectionSidecars map[string]struct{}
+	ProjectionSidecarWrites  []threadProjectionSidecarWrite
+	ProjectionSidecarUpdates []threadProjectionSidecarUpdate
+}
+
+type threadProjectionSidecarWrite struct {
+	Key            string
+	SnapshotIndex  int
+	TurnsPath      string
+	TurnsRef       string
+	RawTurns       json.RawMessage
+	Projection     ThreadProjection
+	Stats          threadProjectionStats
+	ExpectedRecord threadProjectionRecord
+}
+
+type threadProjectionSidecarUpdate struct {
+	Key            string
+	ExpectedRecord threadProjectionRecord
+	Record         threadProjectionRecord
 }
 
 func NewMemoryStore() *MemoryStore {
