@@ -62,6 +62,17 @@ func (s *testHubStore) snapshotCounts() (int, int, string, string) {
 	return s.appendCount, s.applyCount, s.lastAppendedMethod, s.lastAppliedMethod
 }
 
+func TestShouldSequenceWorkspaceEventSkipsWorkspaceHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	if shouldSequenceWorkspaceEvent(store.EventEnvelope{
+		WorkspaceID: "ws-1",
+		Method:      "workspace/heartbeat",
+	}) {
+		t.Fatal("expected workspace heartbeat control events to remain unsequenced")
+	}
+}
+
 func TestHubDoesNotCloseSlowWorkspaceSubscriberOnDroppableOverflow(t *testing.T) {
 	t.Parallel()
 

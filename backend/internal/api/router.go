@@ -49,6 +49,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	workspaceStreamHeartbeatInterval = 15 * time.Second
+	workspaceStreamPongWait          = 45 * time.Second
+	workspaceStreamWriteWait         = 10 * time.Second
+)
+
 type Dependencies struct {
 	FrontendOrigin       string
 	EnableRequestLogging bool
@@ -4235,6 +4241,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	readErrCh := startWorkspaceStreamReadPump(workspaceID, conn)
 	diagnostics.LogWorkspaceTrace(
 		workspaceID,
 		"workspace stream connected",
@@ -4253,8 +4260,10 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	const workspaceReplayLimit = 2000
 	headSeq := s.events.WorkspaceEventHeadSeq(workspaceID)
 	oldestSeq := s.events.WorkspaceEventOldestSeq(workspaceID)
+	heartbeatTicker := time.NewTicker(workspaceStreamHeartbeatInterval)
+	defer heartbeatTicker.Stop()
 
-	if err := conn.WriteJSON(store.EventEnvelope{
+	if err := writeWorkspaceStreamJSON(conn, store.EventEnvelope{
 		WorkspaceID: workspaceID,
 		Method:      "workspace/connected",
 		Payload: map[string]any{
@@ -4271,7 +4280,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := conn.WriteJSON(store.EventEnvelope{
+	if err := writeWorkspaceStreamJSON(conn, store.EventEnvelope{
 		WorkspaceID: workspaceID,
 		Method:      "command/exec/stateSnapshot",
 		Payload: map[string]any{
@@ -4285,13 +4294,13 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, event := range s.execfs.BuildCommandSessionResumeEvents(workspaceID, commandResumeCursors) {
-		if err := conn.WriteJSON(event); err != nil {
+		if err := writeWorkspaceStreamJSON(conn, event); err != nil {
 			diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream bootstrap write failed", "method", event.Method, "error", err)
 			return
 		}
 	}
 
-	if err := conn.WriteJSON(store.EventEnvelope{
+	if err := writeWorkspaceStreamJSON(conn, store.EventEnvelope{
 		WorkspaceID: workspaceID,
 		Method:      "approvals/snapshot",
 		Payload: map[string]any{
@@ -4329,7 +4338,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 					)...,
 				)
 			}
-			if err := conn.WriteJSON(event); err != nil {
+			if err := writeWorkspaceStreamJSON(conn, event); err != nil {
 				diagnostics.LogTrace(
 					workspaceID,
 					event.ThreadID,
@@ -4347,7 +4356,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err := conn.WriteJSON(store.EventEnvelope{
+		if err := writeWorkspaceStreamJSON(conn, store.EventEnvelope{
 			WorkspaceID: workspaceID,
 			Method:      "workspace/replay/completed",
 			Payload: map[string]any{
@@ -4374,6 +4383,18 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream closed by request context")
 			return
+		case err := <-readErrCh:
+			diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream read pump closed", "error", err)
+			return
+		case <-heartbeatTicker.C:
+			if err := writeWorkspaceStreamPing(conn); err != nil {
+				diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream ping write failed", "error", err)
+				return
+			}
+			if err := writeWorkspaceStreamHeartbeat(conn, workspaceID); err != nil {
+				diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream heartbeat write failed", "error", err)
+				return
+			}
 		case event, ok := <-eventsCh:
 			if !ok {
 				diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream closed because subscription ended")
@@ -4388,7 +4409,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 					diagnostics.EventTraceAttrs(event.Method, event.TurnID, event.Payload)...,
 				)
 			}
-			if err := conn.WriteJSON(event); err != nil {
+			if err := writeWorkspaceStreamJSON(conn, event); err != nil {
 				diagnostics.LogTrace(
 					workspaceID,
 					event.ThreadID,
@@ -4423,6 +4444,57 @@ func isWorkspaceReplayComplete(
 		return false
 	}
 	return true
+}
+
+func startWorkspaceStreamReadPump(workspaceID string, conn *websocket.Conn) <-chan error {
+	readErrCh := make(chan error, 1)
+	if err := conn.SetReadDeadline(time.Now().Add(workspaceStreamPongWait)); err != nil {
+		readErrCh <- err
+		return readErrCh
+	}
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(workspaceStreamPongWait))
+	})
+
+	go func() {
+		for {
+			if _, _, err := conn.NextReader(); err != nil {
+				readErrCh <- err
+				return
+			}
+			diagnostics.LogWorkspaceTrace(workspaceID, "workspace stream ignored client data frame")
+		}
+	}()
+
+	return readErrCh
+}
+
+func writeWorkspaceStreamJSON(conn *websocket.Conn, value any) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(workspaceStreamWriteWait)); err != nil {
+		return err
+	}
+	return conn.WriteJSON(value)
+}
+
+func writeWorkspaceStreamPing(conn *websocket.Conn) error {
+	return conn.WriteControl(
+		websocket.PingMessage,
+		[]byte("workspace-stream"),
+		time.Now().Add(workspaceStreamWriteWait),
+	)
+}
+
+func writeWorkspaceStreamHeartbeat(conn *websocket.Conn, workspaceID string) error {
+	now := time.Now().UTC()
+	return writeWorkspaceStreamJSON(conn, store.EventEnvelope{
+		WorkspaceID: workspaceID,
+		Method:      "workspace/heartbeat",
+		Payload: map[string]any{
+			"status": "alive",
+		},
+		ServerRequestID: nil,
+		TS:              now,
+	})
 }
 
 func parseAfterSeq(raw string) uint64 {

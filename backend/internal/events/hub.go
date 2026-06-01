@@ -396,6 +396,7 @@ func shouldSequenceWorkspaceEvent(event store.EventEnvelope) bool {
 	case "workspace/connected",
 		"workspace/replay/completed",
 		"workspace/events/dropped",
+		"workspace/heartbeat",
 		"command/exec/stateSnapshot",
 		"approvals/snapshot":
 		return false
