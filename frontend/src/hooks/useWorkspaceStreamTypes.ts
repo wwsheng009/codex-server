@@ -18,6 +18,8 @@ export type WorkspaceStreamLocalDiagnostics = {
   isLeader: boolean
   leaderId?: string | null
   lastLeaderHeartbeatAt?: string | null
+  lastServerHeartbeatAt?: string | null
+  lastServerMessageAt?: string | null
   peerSeenAt: Record<string, string>
   activePeerCount: number
   socketState: 'absent' | 'connecting' | 'open' | 'closing' | 'closed'
@@ -72,6 +74,8 @@ export type WorkspaceStream = {
   lastKnownConnectionState?: string
   leaderId?: string
   lastLeaderHeartbeatAt?: number
+  lastServerHeartbeatAt?: number
+  lastServerMessageAt?: number
   lifecycleEvents: WorkspaceStreamLifecycleEvent[]
   peerSeenAt: Record<string, number>
   queuedSeqByWorkspace?: Record<string, number>
@@ -82,6 +86,7 @@ export type WorkspaceStream = {
   subscribers: number
   socket: WebSocket | null
   reconnectTimer?: number
+  serverActivityTimer?: number
   closeTimer?: number
   reconnectAttempt: number
 }

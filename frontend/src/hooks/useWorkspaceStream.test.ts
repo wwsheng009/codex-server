@@ -14,7 +14,9 @@ import {
   getWorkspaceStreamManagerDiagnosticsSnapshot,
   handleWorkspaceStreamBroadcastMessage,
   handleWorkspaceStreamEvent,
+  isWorkspaceStreamServerActivityStale,
   subscribeWorkspaceStreamManagerDiagnostics,
+  workspaceStreamServerStaleAfterMs,
 } from './useWorkspaceStream'
 
 function makeStream(): WorkspaceStream {
@@ -357,6 +359,57 @@ describe('handleWorkspaceStreamEvent', () => {
     expect(ingestImmediateEvent).toHaveBeenCalledWith(startedEvent)
     expect(flushQueuedEvents).not.toHaveBeenCalled()
     expect(scheduleQueuedFlush).not.toHaveBeenCalled()
+  })
+
+  it('tracks server heartbeat controls without applying them to session events', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-28T10:00:00.000Z'))
+    const stream = makeStream()
+    const flushQueuedEvents = vi.fn()
+    const ingestImmediateEvent = vi.fn()
+    const scheduleQueuedFlush = vi.fn()
+
+    const result = handleWorkspaceStreamEvent(
+      stream,
+      {
+        method: 'workspace/heartbeat',
+        payload: {
+          status: 'alive',
+        },
+        ts: '2026-03-28T10:00:00.000Z',
+        workspaceId: 'ws-1',
+      },
+      {
+        flushQueuedEvents,
+        ingestImmediateEvent,
+        scheduleQueuedFlush,
+      },
+    )
+
+    expect(result).toBe(false)
+    expect(stream.lastServerHeartbeatAt).toBe(Date.parse('2026-03-28T10:00:00.000Z'))
+    expect(stream.lastServerMessageAt).toBe(Date.parse('2026-03-28T10:00:00.000Z'))
+    expect(flushQueuedEvents).not.toHaveBeenCalled()
+    expect(ingestImmediateEvent).not.toHaveBeenCalled()
+    expect(scheduleQueuedFlush).not.toHaveBeenCalled()
+  })
+
+  it('detects stale server activity after the heartbeat grace window', () => {
+    const stream = makeStream()
+    stream.lastServerMessageAt = Date.parse('2026-03-28T10:00:00.000Z')
+
+    expect(
+      isWorkspaceStreamServerActivityStale(
+        stream,
+        Date.parse('2026-03-28T10:00:00.000Z') + workspaceStreamServerStaleAfterMs,
+      ),
+    ).toBe(false)
+    expect(
+      isWorkspaceStreamServerActivityStale(
+        stream,
+        Date.parse('2026-03-28T10:00:00.000Z') + workspaceStreamServerStaleAfterMs + 1,
+      ),
+    ).toBe(true)
   })
 
   it('rejects a non-replay live event with a sequence gap before ingesting it', () => {

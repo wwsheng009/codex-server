@@ -37,6 +37,8 @@ const reconnectDelaysMs = [1_000, 2_000, 5_000]
 const streamBatchFlushDelayMs = 16
 const commandResumeSessionLimit = 16
 const commandResumeTailLength = 512
+export const workspaceStreamServerStaleAfterMs = 45_000
+const workspaceStreamServerActivityCheckIntervalMs = 5_000
 const workspaceIdListSeparator = '\u001f'
 const workspaceLeaderElectionDelayMs = 80
 const workspaceStreamLifecycleLimit = 24
@@ -59,6 +61,7 @@ const workspaceStreamRecoveryProblemKinds = new Set([
   'replay-incomplete',
   'replay-incomplete-stalled',
   'seq-gap-detected',
+  'server-heartbeat-stale',
   'socket-closed',
   'socket-error',
 ])
@@ -319,6 +322,14 @@ function buildWorkspaceStreamLocalDiagnostics(
       stream.lastLeaderHeartbeatAt !== undefined
         ? new Date(stream.lastLeaderHeartbeatAt).toISOString()
         : null,
+    lastServerHeartbeatAt:
+      stream.lastServerHeartbeatAt !== undefined
+        ? new Date(stream.lastServerHeartbeatAt).toISOString()
+        : null,
+    lastServerMessageAt:
+      stream.lastServerMessageAt !== undefined
+        ? new Date(stream.lastServerMessageAt).toISOString()
+        : null,
     leaderId: stream.leaderId ?? null,
     peerSeenAt,
     queueLength: stream.eventQueue.length,
@@ -471,6 +482,8 @@ function buildWorkspaceStreamRecoveryNoticeDetails(
     `Reconnect scheduled: ${stream.reconnectScheduled ? 'yes' : 'no'}`,
     `Reconnect attempt: ${stream.reconnectAttempt}`,
     `Coordination: ${stream.coordinationMode}${stream.isLeader ? ' leader' : ' follower'}`,
+    `Last server message: ${stream.lastServerMessageAt ?? 'n/a'}`,
+    `Last server heartbeat: ${stream.lastServerHeartbeatAt ?? 'n/a'}`,
     `Queue length: ${stream.queueLength}`,
   ]
 
@@ -841,6 +854,7 @@ function openWorkspaceSocket(
   const replayAfterSeqOverride = stream.replayAfterSeqOverride
   stream.replayAfterSeqOverride = undefined
   const socketPath = buildWorkspaceStreamPath(workspaceId, stream, replayAfterSeqOverride)
+  stopWorkspaceSocketActivityWatchdog(stream)
   const socket = new WebSocket(buildApiWebSocketUrl(socketPath))
   stream.socket = socket
   recordWorkspaceStreamLifecycleEvent(
@@ -863,10 +877,12 @@ function openWorkspaceSocket(
       return
     }
 
+    stream.lastServerMessageAt = Date.now()
     stream.reconnectAttempt = 0
     setWorkspaceConnectionState(workspaceId, stream, setConnectionState, 'open')
     frontendDebugLog('workspace-stream', 'websocket opened', { workspaceId })
     broadcastWorkspaceStreamHeartbeat(workspaceId, stream)
+    startWorkspaceSocketActivityWatchdog(workspaceId, stream, socket)
     recordWorkspaceStreamLifecycleEvent(
       workspaceId,
       stream,
@@ -879,6 +895,11 @@ function openWorkspaceSocket(
   socket.onmessage = (message) => {
     const event = parseWorkspaceStreamEvent(message.data)
     if (!event) {
+      return
+    }
+    stream.lastServerMessageAt = Date.now()
+    if (event.method === 'workspace/heartbeat') {
+      handleWorkspaceHeartbeatEvent(stream, event)
       return
     }
     const diagnosticTarget = extractWorkspaceStreamLiveDiagnosticTarget(event)
@@ -925,6 +946,7 @@ function openWorkspaceSocket(
     if (stream.socket === socket) {
       stream.socket = null
     }
+    stopWorkspaceSocketActivityWatchdog(stream)
     scheduleWorkspaceStreamDiagnosticsChanged()
 
     if (stream.flushTimer) {
@@ -1090,6 +1112,7 @@ function disposeWorkspaceStream(
     window.clearTimeout(stream.flushTimer)
     stream.flushTimer = undefined
   }
+  stopWorkspaceSocketActivityWatchdog(stream)
 
   flushWorkspaceStreamEvents(stream)
   if (stream.isLeader) {
@@ -1125,6 +1148,75 @@ function disposeWorkspaceStream(
 
 function isSocketActive(socket: WebSocket) {
   return socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN
+}
+
+export function isWorkspaceStreamServerActivityStale(
+  stream: WorkspaceStream,
+  nowMs: number = Date.now(),
+  staleAfterMs: number = workspaceStreamServerStaleAfterMs,
+) {
+  const lastServerMessageAt = stream.lastServerMessageAt
+  return (
+    typeof lastServerMessageAt === 'number' &&
+    Number.isFinite(lastServerMessageAt) &&
+    nowMs - lastServerMessageAt > staleAfterMs
+  )
+}
+
+function startWorkspaceSocketActivityWatchdog(
+  workspaceId: string,
+  stream: WorkspaceStream,
+  socket: WebSocket,
+) {
+  stopWorkspaceSocketActivityWatchdog(stream)
+  if (typeof window.setInterval !== 'function') {
+    return
+  }
+
+  stream.serverActivityTimer = window.setInterval(() => {
+    if (stream.socket !== socket || !stream.isLeader || socket.readyState !== WebSocket.OPEN) {
+      stopWorkspaceSocketActivityWatchdog(stream)
+      return
+    }
+
+    if (!isWorkspaceStreamServerActivityStale(stream)) {
+      return
+    }
+
+    const lastServerMessageAt = stream.lastServerMessageAt
+    recordWorkspaceStreamLifecycleEvent(
+      workspaceId,
+      stream,
+      'server-heartbeat-stale',
+      'workspace websocket server heartbeat became stale; reconnecting stream',
+      {
+        lastServerMessageAt:
+          typeof lastServerMessageAt === 'number'
+            ? new Date(lastServerMessageAt).toISOString()
+            : null,
+        staleAfterMs: workspaceStreamServerStaleAfterMs,
+      },
+    )
+    frontendDebugLog('workspace-stream', 'server heartbeat stale; closing websocket', {
+      lastServerMessageAt,
+      staleAfterMs: workspaceStreamServerStaleAfterMs,
+      workspaceId,
+    })
+    stream.reconnectDelayOverrideMs = 0
+    socket.close()
+  }, workspaceStreamServerActivityCheckIntervalMs)
+  scheduleWorkspaceStreamDiagnosticsChanged()
+}
+
+function stopWorkspaceSocketActivityWatchdog(stream: WorkspaceStream) {
+  if (!stream.serverActivityTimer) {
+    return
+  }
+  if (typeof window.clearInterval === 'function') {
+    window.clearInterval(stream.serverActivityTimer)
+  }
+  stream.serverActivityTimer = undefined
+  scheduleWorkspaceStreamDiagnosticsChanged()
 }
 
 function startWorkspaceStreamCoordination(
@@ -1492,6 +1584,7 @@ function closeWorkspaceSocket(workspaceId: string, stream: WorkspaceStream) {
     window.clearTimeout(stream.reconnectTimer)
     stream.reconnectTimer = undefined
   }
+  stopWorkspaceSocketActivityWatchdog(stream)
 
   const socket = stream.socket
   stream.socket = null
@@ -1511,6 +1604,17 @@ function closeWorkspaceSocket(workspaceId: string, stream: WorkspaceStream) {
   socket.onerror = null
   socket.onclose = null
   socket.close()
+}
+
+function handleWorkspaceHeartbeatEvent(stream: WorkspaceStream, event: ServerEvent) {
+  const now = Date.now()
+  stream.lastServerHeartbeatAt = now
+  stream.lastServerMessageAt = now
+  frontendDebugLog('workspace-stream', 'server heartbeat received', {
+    ts: event.ts,
+    workspaceId: event.workspaceId,
+  })
+  scheduleWorkspaceStreamDiagnosticsChanged()
 }
 
 function setWorkspaceConnectionState(
@@ -1536,6 +1640,11 @@ export function handleWorkspaceStreamEvent(
     scheduleQueuedFlush: scheduleWorkspaceStreamFlush,
   },
 ): boolean {
+  if (event.method === 'workspace/heartbeat') {
+    handleWorkspaceHeartbeatEvent(stream, event)
+    return false
+  }
+
   if (!isBatchableWorkspaceEvent(event.method)) {
     if (stream.eventQueue.length > 0) {
       handlers.flushQueuedEvents(stream)
