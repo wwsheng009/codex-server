@@ -136,7 +136,11 @@ pwsh -File .\scripts\start-backend.ps1
 ```powershell
 cd .\backend
 .\main.exe server start
+.\main.exe server start --port 19999
+.\main.exe server start --host 127.0.0.1 --port 19999
+.\main.exe server start --addr 127.0.0.1:19999
 .\main.exe server stop
+.\main.exe server stop --port 19999
 .\main.exe doctor
 .\main.exe access-token add --label admin --ttl 720h
 .\main.exe help
@@ -146,6 +150,7 @@ cd .\backend
 
 ```powershell
 .\main.exe start
+.\main.exe start -p 19999
 .\main.exe stop
 ```
 
@@ -204,6 +209,16 @@ pwsh -File .\scripts\reset-runtime-shell-overrides.ps1
 ```
 
 默认监听：`http://localhost:18080`
+
+可通过启动参数临时覆盖监听地址：
+
+```powershell
+.\main.exe server start --port 19999
+.\main.exe server start -p 19999
+.\main.exe server start --host 127.0.0.1 --port 19999
+.\main.exe server start --addr 127.0.0.1:19999
+.\main.exe server stop --port 19999
+```
 
 可通过环境变量覆盖：
 

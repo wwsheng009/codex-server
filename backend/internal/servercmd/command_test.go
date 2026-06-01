@@ -59,6 +59,78 @@ func TestParseCommandRecognizesServerStart(t *testing.T) {
 	}
 }
 
+func TestParseCommandRecognizesServerStartPortOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "long flag",
+			args: []string{"server", "start", "--port", "19999"},
+		},
+		{
+			name: "long flag equals",
+			args: []string{"server", "start", "--port=19999"},
+		},
+		{
+			name: "short flag",
+			args: []string{"server", "start", "-p", "19999"},
+		},
+		{
+			name: "short flag equals",
+			args: []string{"server", "start", "-p=19999"},
+		},
+		{
+			name: "default server start",
+			args: []string{"server", "--port", "19999"},
+		},
+		{
+			name: "legacy start",
+			args: []string{"start", "--port", "19999"},
+		},
+		{
+			name: "implicit start",
+			args: []string{"--port", "19999"},
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			command, err := parseCommand(tc.args)
+			if err != nil {
+				t.Fatalf("parseCommand(%#v) error = %v", tc.args, err)
+			}
+			if command.kind != commandKindServerStart {
+				t.Fatalf("parseCommand(%#v) kind = %q, want server start", tc.args, command.kind)
+			}
+			if command.serverStartOptions.Port != "19999" {
+				t.Fatalf("serverStartOptions.Port = %q, want %q", command.serverStartOptions.Port, "19999")
+			}
+		})
+	}
+}
+
+func TestParseCommandRecognizesServerStartAddressOptions(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"server", "start", "--host", "127.0.0.1", "--addr", ":19999"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindServerStart {
+		t.Fatalf("parseCommand() kind = %q, want server start", command.kind)
+	}
+	if command.serverStartOptions.Addr != ":19999" {
+		t.Fatalf("serverStartOptions.Addr = %q, want %q", command.serverStartOptions.Addr, ":19999")
+	}
+	if command.serverStartOptions.Host != "127.0.0.1" {
+		t.Fatalf("serverStartOptions.Host = %q, want %q", command.serverStartOptions.Host, "127.0.0.1")
+	}
+}
+
 func TestParseCommandRecognizesServerStop(t *testing.T) {
 	t.Parallel()
 
@@ -68,6 +140,45 @@ func TestParseCommandRecognizesServerStop(t *testing.T) {
 	}
 	if command.kind != commandKindServerStop {
 		t.Fatalf("parseCommand() = %#v, want server stop", command)
+	}
+}
+
+func TestParseCommandRecognizesServerStopPortOption(t *testing.T) {
+	t.Parallel()
+
+	command, err := parseCommand([]string{"server", "stop", "-p", "19999"})
+	if err != nil {
+		t.Fatalf("parseCommand() error = %v", err)
+	}
+	if command.kind != commandKindServerStop {
+		t.Fatalf("parseCommand() kind = %q, want server stop", command.kind)
+	}
+	if command.serverStopOptions.Port != "19999" {
+		t.Fatalf("serverStopOptions.Port = %q, want %q", command.serverStopOptions.Port, "19999")
+	}
+}
+
+func TestParseCommandRejectsServerStopHostOption(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseCommand([]string{"server", "stop", "--host", "127.0.0.1"})
+	if err == nil {
+		t.Fatal("parseCommand() error = nil, want unsupported host error")
+	}
+	if !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("parseCommand() error = %q, want flag error", err)
+	}
+}
+
+func TestParseCommandRejectsInvalidServerStartPort(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseCommand([]string{"server", "start", "--port", "99999"})
+	if err == nil {
+		t.Fatal("parseCommand() error = nil, want invalid port error")
+	}
+	if !strings.Contains(err.Error(), "between 1 and 65535") {
+		t.Fatalf("parseCommand() error = %q, want port range error", err)
 	}
 }
 
@@ -246,6 +357,80 @@ func TestMainServerStartRunsDoctorBeforeConfigAndServer(t *testing.T) {
 	wantOrder := []string{"doctor", "config", "run"}
 	if !reflect.DeepEqual(callOrder, wantOrder) {
 		t.Fatalf("call order = %#v, want %#v", callOrder, wantOrder)
+	}
+}
+
+func TestMainServerStartAppliesPortOption(t *testing.T) {
+	originalCheck := checkCodexCLIFunc
+	originalConfig := configFromEnvFunc
+	originalRun := runServerFunc
+	t.Cleanup(func() {
+		checkCodexCLIFunc = originalCheck
+		configFromEnvFunc = originalConfig
+		runServerFunc = originalRun
+	})
+
+	checkCodexCLIFunc = func() (codexDoctorReport, error) {
+		return codexDoctorReport{
+			ExecutablePath: "/usr/bin/codex",
+			Version:        "codex 0.1.0",
+		}, nil
+	}
+	configFromEnvFunc = func() (config.Config, error) {
+		return config.Config{Addr: ":18080"}, nil
+	}
+
+	var gotAddr string
+	runServerFunc = func(cfg config.Config) error {
+		gotAddr = cfg.Addr
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := Main([]string{"server", "start", "--port", "19999"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("Main(server start --port) exit code = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if gotAddr != ":19999" {
+		t.Fatalf("runServer cfg.Addr = %q, want %q", gotAddr, ":19999")
+	}
+}
+
+func TestMainServerStartAppliesAddressOptions(t *testing.T) {
+	originalCheck := checkCodexCLIFunc
+	originalConfig := configFromEnvFunc
+	originalRun := runServerFunc
+	t.Cleanup(func() {
+		checkCodexCLIFunc = originalCheck
+		configFromEnvFunc = originalConfig
+		runServerFunc = originalRun
+	})
+
+	checkCodexCLIFunc = func() (codexDoctorReport, error) {
+		return codexDoctorReport{
+			ExecutablePath: "/usr/bin/codex",
+			Version:        "codex 0.1.0",
+		}, nil
+	}
+	configFromEnvFunc = func() (config.Config, error) {
+		return config.Config{Addr: "0.0.0.0:18080"}, nil
+	}
+
+	var gotAddr string
+	runServerFunc = func(cfg config.Config) error {
+		gotAddr = cfg.Addr
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := Main([]string{"server", "start", "--addr", ":19000", "--host", "127.0.0.1", "-p", "19999"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("Main(server start address options) exit code = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if gotAddr != "127.0.0.1:19999" {
+		t.Fatalf("runServer cfg.Addr = %q, want %q", gotAddr, "127.0.0.1:19999")
 	}
 }
 
